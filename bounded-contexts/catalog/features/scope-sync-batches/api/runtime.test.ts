@@ -288,13 +288,14 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
       await f.noEffects(mode === "missing" ? 2 : 4);
     },
   );
-  it("AC3 accepted setName fallback keeps planning ready when set_id is cleared", async () => {
+  it("AC3 accepted setName fallback removes the scope-planning blocker when set_id is cleared", async () => {
     const f = await fixture();
     await pools.catalog.query("UPDATE catalog_provider_scope_mappings SET set_id=NULL WHERE unit_key=$1", [sealedUnit]);
     const preview = await f.runtime.preview({ selection, budget, context });
-    expect(preview.status).toBe("ready");
-    expect(preview.providerRequestEstimates.scrydex).toBe(6);
-    expect(preview.blockers).toEqual([]);
+    expect(preview.status).toBe("blocked");
+    expect(preview.providerRequestEstimates.scrydex).toBeNull();
+    expect(preview.blockers.map((item) => item.code)).not.toContain("scope-planning-blocked");
+    expect(preview.blockers.map((item) => item.code)).toContain("credited-provider-estimate-unavailable");
     await f.noEffects();
   });
 
