@@ -562,9 +562,9 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "platform-operations|Platform Feedback|pfb_seed_inventory|inventory",
   "platform-operations|Platform Feedback|pfb_seed_listing|listing",
   "platform-operations|Platform Feedback|pfb_seed_offer|offer",
-  "platform-operations|Support Request|sup_seed_active_product_not_received|active-product-not-received",
-  "platform-operations|Support Request|sup_seed_resolved_partial_refund|resolved-partial-refund",
-  "platform-operations|Support Request|sup_seed_self_service_product_damaged|self-service-product-damaged",
+  "platform-operations|Support Request|sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9|active-product-not-received",
+  "platform-operations|Support Request|sup_01JZ6DKQ7S7Z4AZ5N5F6K7M8N9|self-service-product-damaged",
+  "platform-operations|Support Request|sup_01JZ6DKR7S7Z4AZ5N5G6K7M8N9|resolved-partial-refund",
   "settlement|Payout|pyo_seed_completed|bank_seed_completed",
   "settlement|Payout|pyo_seed_failed|bank_seed_failed",
   "settlement|Payout|pyo_seed_synthetic_fee_completed|bank_seed_synthetic_fee_completed",
@@ -1418,7 +1418,7 @@ export async function predecessorEmptyProjectionSeedDecision(): Promise<readonly
 }
 
 export const requiredDraftListingId = "lst_seed_lugia_neo_genesis_draft";
-export const resolvedSeedSupportRequestId = "sup_seed_resolved_partial_refund";
+export const resolvedSeedSupportRequestId = "sup_01JZ6DKR7S7Z4AZ5N5G6K7M8N9";
 export const resolvedSeedBuyerAttestationId = "sev_seed_resolved_buyer_attestation";
 export const resolvedSeedPhotoId = "sev_seed_resolved_photo";
 

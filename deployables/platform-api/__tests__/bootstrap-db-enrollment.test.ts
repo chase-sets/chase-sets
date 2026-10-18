@@ -2076,7 +2076,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     },
     {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
-      current: true,
+      current: false,
       fileName: "bootstrap-db-capture-38993631473.json",
       fixtureSha256: "32dca1e0b66c28f4578c2959a7b15323a127e86555155c1e23787714482b82e2",
       minimumUnitCount: 3,
@@ -2095,6 +2095,37 @@ describe("Platform API bootstrap DB enrollment", () => {
         caseManifestSha256: "acf95739611a9a0d43149339abfb008e9164dc26c5d49b7d02661678d5036013",
         commandsSha256: "db230c159f8f294a676fab11d92f3ea6a0a7aff52490c9f6d46f322b988fdb63",
         censusSha256: "670efd599e0ccd8844f14695ff97af5d5ec644d04057be4561eca61f611f6369",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the passing Platform PR API DB capture",
+      current: true,
+      fileName: "bootstrap-db-capture-39085649444.json",
+      fixtureSha256: "4bfa9d250fa2975a796e35598d8527a8330e53bff68c24b18e6696bacd413d16",
+      minimumUnitCount: 3,
+      unitProjections: [332144, 264228, 232608],
+      provenance: {
+        checkoutSha: "446b6c91b533aac7fbeaed6133fd82c42a62134a",
+        sourceBase: "446b6c91b533aac7fbeaed6133fd82c42a62134a",
+        captureParent: "89eb29faa81f9c8e8d90f3680409bf3a0f121328",
+        eventHeadSha: "89eb29faa81f9c8e8d90f3680409bf3a0f121328",
+        parents: ["48b37767aea4ba57c1f88099d6b49a17d0ab4539", "89eb29faa81f9c8e8d90f3680409bf3a0f121328"],
+        runId: "39085649444",
+        runAttempt: "1",
+        job: "db-tests",
+        event: "pull_request",
+        ref: "refs/pull/9905/merge",
+        githubSha: "446b6c91b533aac7fbeaed6133fd82c42a62134a",
+        node: "v24.21.0",
+        vitest: "vitest/4.1.5 linux-x64 node-v24.21.0",
+        postgresImage: "pgvector/pgvector:pg16",
+        workspaceConcurrency: 2,
+        jobName: "DB Profile Tests (api)",
+        referenceJobId: 117552189050,
+        artifactId: 12121057541,
+        artifactSha256: "03f0734a9d809d1338b20eda1285f7943c33782e9b56a32d4fa2af2ce49af33b",
         maxWorkers: 3,
         laneMode: null,
       },
@@ -2361,7 +2392,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     return { binding: newer, baseline };
   }
 
-  const runId = "38993631473";
+  const runId = "39085649444";
   const changed = (key: string) => `${key} changed since capture ${runId}; re-enrollment required`;
   const added = (key: string) => `${key} is workload the capture ${runId} did not measure; re-enrollment required`;
   const removed = (key: string) =>
@@ -2432,8 +2463,8 @@ describe("Platform API bootstrap DB enrollment", () => {
         captureParent: capture.provenance.captureParent,
       });
       expect(baseline.source).toEqual({
-        commit: "008a50bb554b485dc29e187d381521a3463e24b6",
-        ref: "refs/pull/9710/head",
+        commit: "446b6c91b533aac7fbeaed6133fd82c42a62134a",
+        ref: "refs/pull/9905/merge",
       });
       expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
       expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
@@ -2719,9 +2750,11 @@ describe("Platform API bootstrap DB enrollment", () => {
     async function runProducerInSyntheticClone({
       present,
       config,
+      measuredCheckout = false,
     }: {
       present: boolean;
       config: Record<string, string>;
+      measuredCheckout?: boolean;
     }) {
       const root = await mkdtemp(join(tmpdir(), "db-enrollment-local-objects-"));
       temporaryRoots.push(root);
@@ -2748,7 +2781,14 @@ describe("Platform API bootstrap DB enrollment", () => {
       await writeFile(
         capturePath,
         JSON.stringify({
-          provenance: { runId: "65449999", sourceBase: commit, captureParent: commit },
+          provenance: {
+            runId: "65449999",
+            sourceBase: commit,
+            captureParent: commit,
+            ...(measuredCheckout
+              ? { event: "pull_request", checkoutSha: commit, eventHeadSha: commit, parents: [] }
+              : {}),
+          },
           sourceBindings: { "synthetic-marker.txt": sha256Of(bytes) },
         }),
       );
@@ -2840,6 +2880,19 @@ describe("Platform API bootstrap DB enrollment", () => {
         `frozen source ${commit} is not available locally; fetch it outside CI (for example its pull request ref)`,
       );
       expect(commands).toEqual(["config", "cat-file"]);
+      expect(after).toEqual(before);
+      expect(outputWritten).toBe(false);
+    });
+
+    it("refuses a measured pull-request checkout without its exact merge parents before reading source blobs", async () => {
+      const { run, commands, before, after, outputWritten } = await runProducerInSyntheticClone({
+        present: true,
+        config: {},
+        measuredCheckout: true,
+      });
+      expect(run.status).toBe(1);
+      expect(run.stderr.trim()).toBe("measured pull-request checkout must bind its exact Git parents and event head");
+      expect(commands).toEqual(["config", "cat-file", "config", "cat-file"]);
       expect(after).toEqual(before);
       expect(outputWritten).toBe(false);
     });
@@ -3346,7 +3399,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
       ).toEqual([
         `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
-        `baseline was derived from 008a50bb554b485dc29e187d381521a3463e24b6, not the capture's frozen source 0000000000000000000000000000000000006545`,
+        `baseline was derived from 446b6c91b533aac7fbeaed6133fd82c42a62134a, not the capture's frozen source 0000000000000000000000000000000000006545`,
       ]);
       expect(() =>
         createBootstrapDbWorkloadBaseline({
@@ -3391,13 +3444,13 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(52224);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(51586);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1893735,
+      1949998,
     );
   });
 
@@ -3407,17 +3460,17 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 317381],
-      ["test:db:2", 257917],
-      ["test:db:3", 233562],
+      ["test:db:1", 332144],
+      ["test:db:2", 264228],
+      ["test:db:3", 232608],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
       [18, 18],
       [29, 29],
       [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(808860);
-    expect(schedule.aggregateWithOverheadMs).toBe(861084);
+    expect(schedule.aggregateMs).toBe(828980);
+    expect(schedule.aggregateWithOverheadMs).toBe(880566);
     expect(schedule.minimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
   });
@@ -3429,9 +3482,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 317381],
-      ["test:db:2", 257917],
-      ["test:db:3", 233562],
+      ["test:db:1", 332144],
+      ["test:db:2", 264228],
+      ["test:db:3", 232608],
     ]);
   });
 

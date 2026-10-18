@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { signInWithPassword } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
-const supportRequestId = "sup_seed_self_service_product_damaged";
+const supportRequestId = "sup_01JZ6DKQ7S7Z4AZ5N5F6K7M8N9";
 const supportRequestPath = `/account/support/${supportRequestId}`;
 const projectionCatchUpTimeout = 60_000;
 
@@ -25,7 +25,7 @@ test.describe("marketplace support case detail", () => {
     await signInWithPassword(sellerPage, origin, marketplaceBrowserE2eSellerCredentials());
 
     await sellerPage.goto(supportRequestPath, { waitUntil: "domcontentloaded" });
-    await expect(sellerPage.getByRole("heading", { name: supportRequestId })).toBeVisible();
+    await expect(sellerPage.getByRole("heading", { name: "SUP-F6K7M8N9" })).toBeVisible();
     await expect(sellerPage.getByText("Product arrived damaged")).toBeVisible();
     const sellerStatus = await sellerPage.getByText(/^Current status:/).textContent();
     if (sellerStatus === "Current status: Waiting on seller") {
