@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   MilestonePolicyError,
   compareOutcomeMilestones,
+  compareOutcomeOrder,
+  findOutcomeOrderTies,
   isExecutableOutcome,
   readOutcomePolicy,
 } from "./milestone-policy.mjs";
@@ -28,6 +30,29 @@ describe("milestone outcome policy", () => {
       "M30",
     ]);
     expect(readOutcomePolicy({ ...renamed, title: "Any title" })).toEqual(readOutcomePolicy(renamed));
+  });
+
+  it("orders outcomes by order then number across tracks and groups order ties", () => {
+    const commerce = milestone("M50", "Checkout", marker("commerce", 300));
+    const delivery = milestone("M250", "Next work", marker("delivery", 100));
+    const catalog = milestone("M5", "Catalog", marker("catalog", 100));
+    const untagged = milestone("M1", "Wave 1", "");
+    expect([untagged, commerce, delivery, catalog].sort(compareOutcomeOrder).map(({ id }) => id)).toEqual([
+      "M5",
+      "M250",
+      "M50",
+      "M1",
+    ]);
+    expect(compareOutcomeMilestones(delivery, commerce)).toBeGreaterThan(0);
+    expect(compareOutcomeOrder(delivery, commerce)).toBeLessThan(0);
+    expect(() => compareOutcomeOrder(delivery, { ...catalog, number: 0 })).toThrow(MilestonePolicyError);
+
+    const candidate = milestone("M7", "Idea", marker("ops", 100, "candidate"));
+    const closed = milestone("M8", "Done", marker("ops", 100), { state: "closed" });
+    expect(findOutcomeOrderTies([commerce, delivery, catalog, catalog, candidate, closed, untagged])).toEqual([
+      { code: "OUTCOME_ORDER_TIE", order: 100, milestones: [5, 250] },
+    ]);
+    expect(findOutcomeOrderTies([commerce, delivery])).toEqual([]);
   });
 
   it("rejects malformed, duplicate, and shape-invalid managed metadata", () => {

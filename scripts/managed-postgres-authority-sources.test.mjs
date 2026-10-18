@@ -211,6 +211,51 @@ const idleDraftRetirementDelta = [
     purpose: "spaces-evidence",
   },
 ];
+// #9587 threads the canonical staging Admin keys into only the isolated count lifecycle run and receipt-validation steps.
+const catalogCountLifecycleDelta = [
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+];
 // #9293 adds only the two deployment values at the five existing Secret-apply sinks.
 const ebayAccountDeletionDelta = [
   {
@@ -500,9 +545,10 @@ describe("managed Postgres authority source generator", () => {
         ...ebayAccountDeletionDelta,
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
+        ...catalogCountLifecycleDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1621);
+    expect(expected.grants).toHaveLength(1627);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
