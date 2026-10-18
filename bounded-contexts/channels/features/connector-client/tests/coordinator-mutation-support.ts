@@ -10,8 +10,11 @@ import * as execution from "../domain/order-pull-execution";
 import * as liveExportExecution from "../domain/live-export-execution";
 import * as liveExportHandoff from "../domain/live-export-handoff";
 import * as stagedImport from "../domain/staged-import-dispatch";
+import * as stagedImportFit from "../domain/staged-import-fit";
 import * as stagedImportPolicy from "../../connector-feed/domain/staged-import-dispatch-policy";
 import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
+import * as records from "../domain/extension-records";
+import * as codec from "../domain/operation-codec";
 
 type Mutant =
   | "captured-cancellation-bypass"
@@ -120,4 +123,65 @@ export function mutatedCoordinator(
   if (typeof result.createConnectorOperationCoordinator !== "function")
     throw new Error("coordinator-mutant-export-missing");
   return result.createConnectorOperationCoordinator as typeof import("../domain/operation-coordinator").createConnectorOperationCoordinator;
+}
+
+type SourceEdit = readonly [before: string, after: string];
+function edited(path: string, edits: readonly SourceEdit[]): string {
+  let source = readFileSync(new URL(path, import.meta.url), "utf8");
+  for (const [before, after] of edits) source = replace(source, before, after);
+  return source;
+}
+/** Rebinds the staged-import chain (fit -> dispatch -> journal -> coordinator) with single-anchor source edits. */
+export function mutatedStagedImport(
+  edits: Readonly<{
+    fit?: readonly SourceEdit[];
+    dispatch?: readonly SourceEdit[];
+    journal?: readonly SourceEdit[];
+    coordinator?: readonly SourceEdit[];
+  }>,
+) {
+  const fitModule = evaluate(edited("../domain/staged-import-fit.ts", edits.fit ?? []), {
+    "./extension-records": records,
+    "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
+  }) as unknown as typeof stagedImportFit;
+  const dispatchModule = evaluate(edited("../domain/staged-import-dispatch.ts", edits.dispatch ?? []), {
+    "../../outbound-sync/domain/validation": validation,
+    "./extension-records": records,
+    "./operation-codec": codec,
+    "./staged-import-fit": fitModule,
+    "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
+  }) as unknown as typeof stagedImport;
+  const journalModule = edits.journal
+    ? evaluate(edited("../integrations/connector-indexeddb.ts", edits.journal), {
+        "../../outbound-sync/domain/validation": validation,
+        "../domain/raw-export-record": retention,
+        "../domain/operation-protocol": protocol,
+        "../domain/order-pull-handoff": handoff,
+        "../domain/live-export-handoff": liveExportHandoff,
+        "../domain/staged-import-dispatch": dispatchModule,
+      })
+    : journal;
+  const coordinatorModule = evaluate(edited("../domain/operation-coordinator.ts", edits.coordinator ?? []), {
+    "../../outbound-sync/domain/validation": validation,
+    "./raw-export-record": retention,
+    "./order-pull-handoff": handoff,
+    "./order-pull-execution": execution,
+    "./live-export-execution": liveExportExecution,
+    "./staged-import-dispatch": dispatchModule,
+    "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
+    "../../outbound-sync/domain/order-pull-codec": pullCodec,
+    "../integrations/connector-indexeddb": journalModule,
+    "./operation-protocol": protocol,
+  }) as unknown as typeof import("../domain/operation-coordinator");
+  for (const exported of [
+    fitModule.decodeStagedImportCapturePlan,
+    dispatchModule.prepareStagedImportDispatch,
+    coordinatorModule.createConnectorOperationCoordinator,
+  ])
+    if (typeof exported !== "function") throw new Error("staged-import-mutant-export-missing");
+  return {
+    decodeStagedImportCapturePlan: fitModule.decodeStagedImportCapturePlan,
+    prepareStagedImportDispatch: dispatchModule.prepareStagedImportDispatch,
+    createConnectorOperationCoordinator: coordinatorModule.createConnectorOperationCoordinator,
+  };
 }

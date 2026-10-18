@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentOAuthScope } from "@chase-sets/auth-context";
+import { buildAgentConnectorPackaging } from "./agent-connector-packaging";
 import {
   CORE_MCP_SERVICE_IDS,
   EXTERNAL_MCP_SERVICE_IDS,
@@ -331,6 +332,34 @@ describe("MCP service catalog", () => {
       "reasonCode expected one of sold-offline, damaged, lost, found, correction, intake, return-restocked but received other.",
     );
     expect(validateObject({ ...required, unexpected: true }, schema!)).toContain("unexpected is not allowed.");
+  });
+
+  it("keeps payment-method setup dryRun a closed boolean while the source and connector contracts declare it unsupported", () => {
+    const tool = findMcpTool("payments.start-payment-method-setup");
+    const schema = tool?.inputSchema;
+    expect(tool?.guardrails.dryRunSupported).toBe(false);
+    expect(schema?.additionalProperties).toBe(false);
+    expect(schema?.properties.dryRun).toMatchObject({ type: "boolean" });
+    expect(schema?.required).not.toContain("dryRun");
+
+    const required = {
+      accountId: "acc_1",
+      returnUrl: "https://app.chasesets.test/account/payment-methods",
+      idempotencyKey: "setup-1",
+      confirmationText: "Start Payment Method Setup.",
+    };
+    expect(validateObject(required, schema!)).toEqual([]);
+    expect(validateObject({ ...required, dryRun: false }, schema!)).toEqual([]);
+    expect(validateObject({ ...required, dryRun: "true" }, schema!)).toEqual([
+      "dryRun expected boolean but received string.",
+    ]);
+    expect(validateObject({ ...required, unexpected: true }, schema!)).toEqual(["unexpected is not allowed."]);
+
+    const registration = buildAgentConnectorPackaging().registration.tools.find(
+      (entry) => entry.name === "payments.start-payment-method-setup",
+    );
+    expect(registration?.dry_run_supported).toBe(false);
+    expect(registration?.input_schema).toEqual(schema);
   });
 
   it("requires the complete price pair in closed Marketplace listing write schemas", () => {

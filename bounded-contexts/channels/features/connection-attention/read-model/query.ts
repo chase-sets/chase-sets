@@ -7,6 +7,7 @@ import {
   readManualAttentionContributions,
 } from "../../manual-sync/read-model/attention-query";
 import { ChannelAttentionError, type ChannelConnectionAttention } from "../domain/contracts";
+import { readConnectorAttentionContributions } from "./connector-contribution";
 import { readOrderAttentionBatch } from "./order-contributions";
 
 const openHealthSql = `SELECT health.connection_id, reason, (reason->'opening'->>'occurredAt')::timestamptz AS opened_at
@@ -53,7 +54,7 @@ export async function readConnectionAttention(
   if (connectionId !== null && keys.rows.length === 0) throw new ChannelAttentionError("connection-not-found");
   const ids = keys.rows.map((row) => row.connection_id);
   if (ids.length === 0) return [];
-  const [manual, health, resolutions, orders] = await Promise.all([
+  const [manual, health, resolutions, orders, connector] = await Promise.all([
     readManualAttentionContributions(db, accountId, ids),
     readAccountHealthSnapshots(db, accountId, ids),
     db.query<{
@@ -84,6 +85,7 @@ export async function readConnectionAttention(
       [accountId, ids],
     ),
     readOrderAttentionBatch(db, accountId, ids, input.orderCursor),
+    readConnectorAttentionContributions(db, accountId, ids),
   ]);
   return ids.map((id) => {
     const snapshot = health.get(id);
@@ -105,6 +107,7 @@ export async function readConnectionAttention(
       ),
       manual: manual.find((row) => row.connectionId === id) ?? null,
       orders: orders.get(id)!,
+      connector: connector.get(id) ?? null,
       ...(affected === null || affected === undefined
         ? {}
         : {

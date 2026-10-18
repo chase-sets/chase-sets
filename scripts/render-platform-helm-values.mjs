@@ -44,6 +44,7 @@ export const platformApiIngressPrefixes = [
   "/.well-known",
   "/ucp",
   "/mcp",
+  "/channel-connector",
   "/api/payments/provider/webhooks",
   "/api/settlement/provider/money-movement/webhooks",
   "/api/notifications/provider/email/webhooks",
