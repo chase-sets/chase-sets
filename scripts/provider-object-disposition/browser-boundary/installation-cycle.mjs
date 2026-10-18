@@ -3,6 +3,8 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { assertBrowserAdmission } from "../test-window-browser.mjs";
+import { refusalStage } from "./ownership-controls.mjs";
+import { removalWitness } from "./protocol.mjs";
 
 const execute = promisify(execFile);
 
@@ -62,12 +64,18 @@ export async function installationCycle(id) {
       );
       console.log(`installed-boundary per-case ${id} ${prefix}: complete; status=0; exact-end=true`);
     } catch (error) {
+      // removalRefusal validates the whole cleanup envelope; only its closed
+      // stage and witness line are forwarded, never the raw output.
+      const removal = prefix === "cleanup" ? refusalStage(error) : null;
       console.error(
         `installed-boundary per-case ${id} ${prefix}: FAIL; ${JSON.stringify({
           status: Number.isInteger(error.code) ? error.code : null,
           signal: ["SIGTERM", "SIGKILL"].includes(error.signal) ? error.signal : null,
           stdoutBytes: error.stdout?.length ?? null,
           stderrBytes: error.stderr?.length ?? null,
+          removalStage: removal,
+          removalWitness:
+            removal === "remove-ambiguous-owner" ? removalWitness(`${String(error.stderr).split("\n", 1)[0]}\n`) : null,
           redacted: true,
           truncated: error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
         })}`,

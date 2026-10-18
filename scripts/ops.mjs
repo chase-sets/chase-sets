@@ -62,6 +62,11 @@ export const SUBCOMMANDS = {
     description:
       "Reconcile a frozen Catalog completion manifest or deployed Catalog database facts and gate launch on completeness blockers.",
   },
+  "credential:health": {
+    script: "credential-health.mjs",
+    description:
+      "Collect secret metadata, check credential liveness, or classify credential health from the inventory.",
+  },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
     description: "Emergency recovery guide record for platform incidents.",
