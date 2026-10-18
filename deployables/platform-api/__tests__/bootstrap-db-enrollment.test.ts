@@ -1093,7 +1093,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const channelsTestSupport = ["@chase-sets", "channels", "test-support"].join("/");
     await mkdir(directory);
     await writeFile(
-      join(directory, "operator-session-bootstrap-importer.db.test.ts"),
+      join(directory, "operator-session-push.db.test.ts"),
       [
         'import { it } from "vitest";',
         'import { createPlatformApiBootstrapTestHarness } from "../bootstrap-db-test-support";',
@@ -1104,7 +1104,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       ].join("\n"),
     );
     expect(runFixture(fixture).violations).toContain(
-      "__tests__/operator-session/operator-session-bootstrap-importer.db.test.ts is an executable test entry that stands up a bootstrap database " +
+      "__tests__/operator-session/operator-session-push.db.test.ts is an executable test entry that stands up a bootstrap database " +
         "but is not manifested in any numbered test:db:* execution unit",
     );
   });
@@ -1126,7 +1126,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   it.each(["test:unit", "test:fast"])("rejects Catalog and nested DB leaks from %s (N1)", async (name) => {
     for (const entry of [
       "__tests__/seed-command-catalog.db.test.ts",
-      "__tests__/operator-session/operator-extension-route-contract.db.test.ts",
+      "__tests__/operator-session/operator-session-push.db.test.ts",
     ]) {
       const fixture = await createDbCensusFixture();
       await editScripts(fixture, (scripts) => {
@@ -2078,7 +2078,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
       current: true,
       fileName: "bootstrap-db-capture-38993631473.json",
-      fixtureSha256: "32dca1e0b66c28f4578c2959a7b15323a127e86555155c1e23787714482b82e2",
+      fixtureSha256: "af22259410215e8dcd0f787198a6b9009cad93629dbb47961658f130c77b96b9",
       minimumUnitCount: 3,
       unitProjections: [317381, 257917, 233562],
       provenance: {
@@ -2086,9 +2086,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         runAttempt: "1",
         referenceJobId: 117281188248,
         jobName: "Diagnostic API Bootstrap Measurement Only",
-        checkoutSha: "6c96ee8ad75f87b6d1877c21cac9dd20d15e3fec",
-        sourceBase: "008a50bb554b485dc29e187d381521a3463e24b6",
-        captureParent: "008a50bb554b485dc29e187d381521a3463e24b6",
+        checkoutSha: "46357d8597008fb7b50e87c4a73fcdb4189f9279",
+        sourceBase: "46357d8597008fb7b50e87c4a73fcdb4189f9279",
+        captureParent: "46357d8597008fb7b50e87c4a73fcdb4189f9279",
         artifactId: 12086274120,
         artifactSha256: "c61840e0565ad9157c0461e6b7fce50bdf6a87e1d643ff1afa3d4ad205c13c27",
         sourceManifestSha256: "90cd34be660d45eb17f8963e4067383d69b3242be821187aa82826b92d9983dc",
@@ -2129,19 +2129,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     if (current) {
       expect(bootstrapDbScheduleModel).toEqual(capture.model);
       expect(bootstrapDbExecutionUnitBootBearingCaseCeilings).toEqual(capture.acceptedBootBearingCeilings);
-      const liveNonBootstrapEntries = Object.fromEntries(
-        capture.nonBootstrapFiles
-          .filter((file) => Object.hasOwn(platformApiNonBootstrapDbCensus.entries, file.testPath))
-          .map((file) => [file.testPath, file.executionUnit]),
-      );
       expect(platformApiNonBootstrapDbCensus).toEqual({
         referenceRunId: capture.model.referenceRunId,
         referenceJobId: capture.model.referenceJobId,
-        entries: liveNonBootstrapEntries,
+        entries: Object.fromEntries(capture.nonBootstrapFiles.map((file) => [file.testPath, file.executionUnit])),
       });
     }
     expect(capture.files).toHaveLength(12);
-    expect(capture.nonBootstrapFiles).toHaveLength(6);
+    expect(capture.nonBootstrapFiles).toHaveLength(current ? 4 : 6);
     expect(capture.files.flatMap((file) => file.cases)).toHaveLength(68);
     for (const file of capture.files) {
       if (current) {
@@ -2168,10 +2163,13 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(file.observedCaseSumMs).toBe(file.cases.reduce((sum, testCase) => sum + testCase.durationMs, 0));
       expect(file.residualMs).toBe(file.observedDurationMs - file.observedCaseSumMs);
     }
-    // The retained capture also records retired non-bootstrap tests. Their
-    // source bytes remain historical evidence, not a current-head binding.
-    // Non-bootstrap files are intentionally not re-read: retired captures may
-    // name files no longer present at the repaired head.
+    for (const file of current ? capture.nonBootstrapFiles : []) {
+      expect(
+        createHash("sha256")
+          .update(readFileSync(join(testDirectory, "..", file.testPath)))
+          .digest("hex"),
+      ).toBe(file.sourceSha256);
+    }
     // sourceBindings stay immutable capture provenance. Freshness is the
     // workload the capture measured, re-derived from this checkout.
     if (current) {
@@ -2441,11 +2439,11 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
       expect(Object.keys(capture.sourceBindings)).toHaveLength(43);
 
-      // Bootstrap workload digests remain tied to the measured capture. The
-      // current baseline also rebinds mutable non-bootstrap support files so
-      // retired custody tests do not keep the head enrolled in stale work.
+      // Every digest the capture measured that is also a workload member
+      // reproduces in the baseline, so the baseline was derived from the
+      // capture's bytes rather than from today's checkout.
       const bound = new Map(baseline.bindings.map(([section, key, value]) => [`${section} ${key}`, value]));
-      for (const file of capture.files) {
+      for (const file of [...capture.files, ...capture.nonBootstrapFiles]) {
         expect(bound.get(`W1 file deployables/platform-api/${file.testPath}`), file.testPath).toBe(file.sourceSha256);
       }
       for (const file of capture.files) {
@@ -2466,13 +2464,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const dispositions = Object.fromEntries(
         Object.entries(capture.sourceBindings).map(([path, digest]) => {
           const member = members.get(path);
-          if (member) {
-            const expected =
-              path === "deployables/platform-api/__tests__/operator-session/fixture.ts"
-                ? sha256Of(readFileSync(join(repositoryRoot, path)))
-                : digest;
-            expect(member.value, path).toBe(expected);
-          }
+          if (member) expect(member.value, path).toBe(digest);
           return [path, member?.section ?? (manifests.has(path) ? "W3 selection" : "provenance-only")];
         }),
       );

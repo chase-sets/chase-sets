@@ -277,7 +277,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
     expect(option.metadata.aliases).toBeUndefined();
   });
 
-  it("maps TCGplayer product-line and set-name options through profile selectors", async () => {
+  it("refuses TCGplayer runtime option queries after server-side custody retirement", async () => {
     const transports = {
       listTcgplayerProductLines: async () => [
         { productLineId: 3, productLineName: "Pokemon", productLineUrlName: "pokemon", isDirect: true },
@@ -316,14 +316,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        queryKind: "product-lines",
-        value: "3",
-        label: "Pokemon",
-        metadata: expect.objectContaining({ productLineId: 3 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -334,15 +327,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        queryKind: "set-names",
-        value: "Prismatic Evolutions",
-        description: "PRE - 2025-01-17",
-        parentValue: "3",
-        metadata: expect.objectContaining({ productLineId: 3, setNameId: 7001 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -353,14 +338,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        queryKind: "products",
-        value: "610001",
-        label: "Eevee ex",
-        metadata: expect.objectContaining({ productId: 610001 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -371,14 +349,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        queryKind: "skus",
-        value: "7001001",
-        label: "7001001",
-        metadata: expect.objectContaining({ sku: 7001001 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
   });
 
   it("maps MTGJSON set and card options through profile selectors", async () => {
@@ -599,7 +570,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
     ]);
   });
 
-  it("generates unsupported query and parent validation errors from profile data", async () => {
+  it("refuses unsupported TCGplayer option queries from profile data", async () => {
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
         profiles: [tcgplayerAutomationClientProviderProfile],
@@ -608,28 +579,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports: {},
       }),
-    ).rejects.toThrow(
-      "Unsupported Catalog integration query 'unknown' for provider 'tcgplayer'. Supported queries: product-lines, set-names, products, skus.",
-    );
-
-    let parentValidationError: unknown;
-    try {
-      await listCatalogProviderIntegrationOptionsFromProfiles({
-        profiles: [tcgplayerAutomationClientProviderProfile],
-        providerKey: "tcgplayer",
-        queryKind: "set-names",
-        defaultProviderKey: "tcgdex",
-        transports: {},
-      });
-    } catch (error) {
-      parentValidationError = error;
-    }
-    expect(parentValidationError).toBeInstanceOf(CatalogProviderOptionQueryInvalidRequestError);
-    expect(parentValidationError).toMatchObject({
-      name: "CatalogProviderOptionQueryInvalidRequestError",
-      code: "catalog_provider_option_query_parent_required",
-      message: "TCGplayer set-name option queries require a productLineId/categoryId parent value.",
-    });
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
   });
 
   it("can add a Scrydex-style option query without runtime provider branching", async () => {
@@ -823,7 +773,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
     expect(seenParents).toEqual(["op-01", "op-01"]);
   });
 
-  it("resolves TCGplayer One Piece options through the existing product-line scoped operations", async () => {
+  it("refuses TCGplayer One Piece runtime option queries", async () => {
     const transports = {
       listTcgplayerProductLines: async () => [
         { productLineId: 68, productLineName: "One Piece Card Game", productLineUrlName: "one-piece-card-game" },
@@ -854,13 +804,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        value: "68",
-        label: "One Piece Card Game",
-        metadata: expect.objectContaining({ productLineId: 68 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -871,14 +815,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        value: "Romance Dawn",
-        label: "Romance Dawn",
-        parentValue: "68",
-        metadata: expect.objectContaining({ productLineId: 68, setNameId: 68001 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -889,7 +826,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([expect.objectContaining({ value: "900001", label: "Monkey.D.Luffy - Romance Dawn" })]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -900,7 +837,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([expect.objectContaining({ value: "90000101", label: "90000101" })]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
   });
 
   it("maps Yu-Gi-Oh provider set and card selectors through the same option-query path", async () => {

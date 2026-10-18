@@ -7,6 +7,7 @@ import { chromium, expect, test } from "@playwright/test";
 import { build } from "vite";
 import { operatorExtensionId } from "../../src/manifest-contract";
 import { syntheticTarget } from "./synthetic-cdp";
+import { operatorExtensionChromiumTestTitle } from "./operator-extension-test-titles";
 import {
   operatorEvidenceIdentity,
   operatorFileInventory,
@@ -41,7 +42,7 @@ test("operator-extension-deterministic-build @tcgplayer-operator-extension", asy
   );
 });
 
-test("operator-extension-chromium: opaque UI and retained reload @tcgplayer-operator-extension", async () => {
+test(operatorExtensionChromiumTestTitle, async () => {
   const stages: string[] = [];
   type HandoffSender = {
     case: string;

@@ -181,18 +181,21 @@ def sample(current):
 
 
 class OrphanObservation(unittest.TestCase):
-    def test_ac1_generated_and_foreign_drift_share_the_refusal_but_not_the_generated_observation(self):
+    def test_ac1_generated_member_drift_refuses_but_foreign_drift_keeps_the_orphan_refusal(self):
         schedules = {
-            'generated': (snapshot(UNSHARE, INIT_PRE_EXEC, FOREIGN), snapshot(UNSHARE, INIT, CHILD, FOREIGN)),
-            'foreign': (snapshot(UNSHARE, INIT, CHILD, FOREIGN), snapshot(UNSHARE, INIT, CHILD, FOREIGN_EXECED)),
+            'generated': (snapshot(UNSHARE, INIT_PRE_EXEC, FOREIGN), snapshot(UNSHARE, INIT, CHILD, FOREIGN),
+                          ownership.AMBIGUOUS),
+            'foreign': (snapshot(UNSHARE, INIT, CHILD, FOREIGN), snapshot(UNSHARE, INIT, CHILD, FOREIGN_EXECED),
+                        ownership.ORPHAN),
         }
         lines = {}
-        for name, (ready, boundary) in schedules.items():
-            # Frozen inputs: each endpoint alone is an exact orphan; only the
-            # drift between the two snapshots makes the shipped census ambiguous.
+        for name, (ready, boundary, crossing) in schedules.items():
+            # Frozen inputs: each endpoint alone is an exact orphan. Only the
+            # noninitial member's exec drift is ambiguous (#10023 S13); the
+            # foreign exec is not a candidate (S2), so the members still refuse.
             self.assertEqual(classify(ready, ready), ownership.ORPHAN)
             self.assertEqual(classify(boundary, boundary), ownership.ORPHAN)
-            self.assertEqual(classify(ready, boundary), ownership.AMBIGUOUS)
+            self.assertEqual(classify(ready, boundary), crossing)
             lines[name] = stimulus.observation_line(sample(ready), sample(boundary))
         self.assertEqual(lines['generated'],
                          'provider-boundary-owner-stimulus:observed:ready=init-pre-exec;boundary=final;generated=changed')

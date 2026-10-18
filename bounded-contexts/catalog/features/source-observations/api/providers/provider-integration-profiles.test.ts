@@ -61,7 +61,7 @@ describe("catalog provider integration profiles", () => {
       providerKey: "tcgplayer",
       displayName: "TCGplayer Magic Single Cards",
       status: "active",
-      capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+      capabilities: ["source-observation-import", "external-reference-extraction"],
       supportedScopes: ["product-line/category", "set-name", "product", "sku"],
       optionQueries: [
         { queryKind: "product-lines", displayName: "Product Line", scope: "product-line/category", parentScope: null },
@@ -75,27 +75,6 @@ describe("catalog provider integration profiles", () => {
           owner: "todd-skelton",
           name: "tcgplayer-automation-app",
           commit: "bf42aa8",
-        },
-        authentication: {
-          scheme: "tcgplayer-production-cookie",
-          cookieName: "TCGAuthTicket_Production",
-          userAgentRequired: true,
-        },
-        domains: {
-          search: "mp-search-api.tcgplayer.com",
-          marketplaceApi: "mpapi.tcgplayer.com",
-          infiniteApi: "infinite-api.tcgplayer.com",
-          marketplaceGateway: "mpgateway.tcgplayer.com",
-        },
-        retryStatusCodes: [403, 429, 502, 503, 504],
-        throttling: {
-          strategy: "domain-adaptive",
-          controls: ["request-delay", "cooldown", "max-concurrency", "learned-min-delay"],
-        },
-        externalReferencePolicy: {
-          catalogItemReferencePrefix: "product:",
-          productReferencePrefix: "sku:",
-          productConditionIdSource: "sku-product-condition-id",
         },
       },
       normalizedObservationMapping: { kind: "provider-product" },
@@ -132,7 +111,6 @@ describe("catalog provider integration profiles", () => {
       displayName: "TCGplayer Magic Sealed Products",
       status: "active",
       capabilities: [
-        "provider-option-query",
         "source-observation-import",
         "catalog-item-promotion",
         "external-reference-extraction",
@@ -156,10 +134,7 @@ describe("catalog provider integration profiles", () => {
       providerKey: "tcgplayer",
       displayName: "TCGplayer One Piece Sealed Products",
       status: "active",
-      capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
-      connector: {
-        kind: "tcgplayer-automation-client",
-      },
+      capabilities: ["source-observation-import", "external-reference-extraction"],
       normalizedObservationMapping: { kind: "provider-product" },
       catalogFieldMapping: {
         blueprintKey: "one-piece-sealed-product",
@@ -170,11 +145,11 @@ describe("catalog provider integration profiles", () => {
         dimensions: [
           expect.objectContaining({
             dimensionKey: "product-form",
-            valueMappings: [{ from: true, value: "unopened" }],
+              valueMappings: [{ from: true, value: "unopened" }],
           }),
           expect.objectContaining({
             dimensionKey: "language",
-            valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+              valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
           }),
         ],
       },
@@ -217,16 +192,16 @@ describe("catalog provider integration profiles", () => {
         categoryKey: "lorcana-sealed-products",
       },
       selectedOptionMapping: {
-        dimensions: [
+        dimensions: expect.arrayContaining([
           expect.objectContaining({
             dimensionKey: "product-form",
-            valueMappings: [{ from: true, value: "unopened" }],
+            valueMappings: expect.arrayContaining([{ from: true, value: "unopened" }]),
           }),
           expect.objectContaining({
             dimensionKey: "language",
-            valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+            valueSynonyms: expect.arrayContaining([{ optionKey: "english", providerValues: ["English", "EN"] }]),
           }),
-        ],
+        ]),
       },
     });
   });

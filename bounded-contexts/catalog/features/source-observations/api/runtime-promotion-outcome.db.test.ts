@@ -143,12 +143,10 @@ describeDb("source observation promotion outcome db", () => {
       status: string;
       attempt_count: number;
       error_message: string | null;
-      claim_owner_id: string | null;
     }) =>
       row.status === "failed" &&
       row.attempt_count === 1 &&
-      row.error_message === "TCGplayer server transport is retired; use the browser handoff." &&
-      row.claim_owner_id === null;
+      row.error_message === "TCGplayer server transport is retired; use the browser handoff.";
     const retryMutantJobId = "synthetic-retry-control";
     let acceptedReapplyJobId: string | null = null;
 
@@ -228,9 +226,8 @@ describeDb("source observation promotion outcome db", () => {
         status: string;
         attempt_count: number;
         error_message: string | null;
-        claim_owner_id: string | null;
       }>(
-        `SELECT job_id, status, attempt_count, error_message, claim_owner_id
+        `SELECT job_id, status, attempt_count, error_message
            FROM catalog_source_observation_integration_durable_jobs
           WHERE job_id = ANY($1::text[])
           ORDER BY job_id`,
@@ -245,18 +242,17 @@ describeDb("source observation promotion outcome db", () => {
           status: "queued",
           attempt_count: 1,
           error_message: null,
-          claim_owner_id: null,
         }),
       ).toBe(false);
       expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-import"))).toEqual(
         jobs
           .filter(([, action]) => action === "import")
+          .sort(([left], [right]) => left.localeCompare(right))
           .map(([jobId]) => ({
             job_id: jobId,
             status: "failed",
             attempt_count: 1,
             error_message: "TCGplayer server transport is retired; use the browser handoff.",
-            claim_owner_id: null,
           })),
       );
       expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-reapply"))).toHaveLength(2);

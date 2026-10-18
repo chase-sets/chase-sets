@@ -42,11 +42,17 @@ class OwnershipControls(unittest.TestCase):
 
     def test_same_read_first_predicate_with_frozen_selection_bypass(self):
         unrelated = record(image=(2, 3), path='/SYNTHETIC_PRIVATE/argv')
+        member = dict(unrelated, namespace='pid:[2]')
+        # Non-candidate start/image drift (S11, S7, S7/S8, S9) is not a refusal.
+        flipped = [({20: unrelated}, {20: dict(unrelated, start=101)}),
+                   ({20: unrelated}, {20: dict(unrelated, image=(2, 4))}),
+                   ({20: unrelated}, {20: dict(unrelated, image=None)}),
+                   ({20: dict(unrelated, image=None)}, {20: unrelated})]
         schedules = [
-            ('identity-drift', {20: unrelated}, {20: dict(unrelated, start=101)}),
-            ('identity-drift', {20: unrelated}, {20: dict(unrelated, image=(2, 4))}),
-            ('identity-drift', {20: unrelated}, {20: dict(unrelated, image=None)}),
-            ('identity-drift', {20: dict(unrelated, image=None)}, {20: unrelated}),
+            ('identity-drift', {20: member}, {20: dict(member, start=101)}),
+            ('identity-drift', {20: member}, {20: dict(member, image=(2, 4))}),
+            ('identity-drift', {20: member}, {20: dict(member, image=None)}),
+            ('identity-drift', {20: dict(member, image=None)}, {20: member}),
             ('parent-order', {}, {21: record(pid=21, parent=20, start=99), 20: record()}),
             ('foreign-image', {}, {20: record(image=(1, 3))}),
             ('member-cycle', {}, {20: record(parent=21, namespace='pid:[2]'),
@@ -70,6 +76,9 @@ class OwnershipControls(unittest.TestCase):
                         self.assertEqual(mutant_outcome, outcome)
                         self.assertIsNone(mutant_detail[0])
                 self.assertEqual(self.diagnostic({20: unrelated}, {20: unrelated}), ('none', []))
+                for previous, current in flipped:
+                    with self.subTest(flipped=current, ambient=ambient):
+                        self.assertEqual(self.diagnostic(previous, current), ('none', []))
 
     def test_witness_keeps_iteration_and_predicate_precedence(self):
         previous = {21: record(pid=21)}
@@ -633,6 +642,151 @@ rm() {{ printf 'SYNTHETIC_DELETE\\n' >> '{shell_path(effects)}'; return 91; }}
                 with self.assertRaises(OSError if error else ValueError):
                     observer.user_namespace_scope(record(), record())
                 self.assertEqual(close.call_args_list, [mock.call(100 + n) for n in range(1 if error else 33)])
+
+
+def alive(**fields):
+    return dict(record(**fields), state='S', kernel=False)
+
+
+def zombie(process, **fields):
+    return {**process, 'state': 'Z', 'image': None, 'path': '', **fields}
+
+
+INSTALLED = ownership.TARGET.as_posix()
+ROOT = alive(pid=10)
+MEMBER = alive(pid=31, parent=10, start=101, image=(9, 3), namespace='pid:[2]', path='/usr/bin/SYNTHETIC_MEMBER')
+FOREIGN = alive(pid=77, uid=0, start=400, image=(9, 5), path='/usr/bin/SYNTHETIC_FOREIGN')
+RUNNER = alive(pid=40, start=300, image=(9, 7), path='/usr/bin/SYNTHETIC_RUNNER')
+STATELESS = {key: value for key, value in zombie(ROOT).items() if key != 'state'}
+
+# #10023 FINAL rows the predicate changes: (row, previous, current, FINAL).
+CHANGED = [
+    ('S1 foreign alive->zombie', {77: FOREIGN}, {77: zombie(FOREIGN)}, 'none'),
+    ('S2 foreign fork->exec', {77: FOREIGN}, {77: dict(FOREIGN, image=(9, 6), path='/usr/bin/SYNTHETIC_EXEC')}, 'none'),
+    ('S3 member alive->zombie', {10: ROOT, 31: MEMBER}, {10: ROOT, 31: zombie(MEMBER)}, ownership.LIVE),
+    ('S4 member zombie reparented outside the chain', {10: ROOT, 31: MEMBER},
+     {10: ROOT, 31: zombie(MEMBER, parent=1)}, ownership.ORPHAN),
+    ('S4 member zombie reparented to a live root', {10: ROOT, 32: dict(MEMBER, pid=32), 31: dict(MEMBER, parent=32, start=102)},
+     {10: ROOT, 31: zombie(MEMBER, start=102)}, ownership.LIVE),
+    ('S5 root alive->zombie without members', {10: ROOT}, {10: zombie(ROOT)}, 'none'),
+    ('S6 root alive->zombie with a live member', {10: ROOT, 31: MEMBER}, {10: zombie(ROOT), 31: MEMBER}, ownership.ORPHAN),
+    ('S7 runner fork->exec', {40: RUNNER}, {40: dict(RUNNER, image=(9, 8))}, 'none'),
+    ('S8 runner alive->zombie', {40: RUNNER}, {40: zombie(RUNNER)}, 'none'),
+    ('S9 foreign zombie->live', {77: zombie(FOREIGN)}, {77: FOREIGN}, 'none'),
+    ('S11 foreign PID reuse', {77: FOREIGN}, {77: dict(FOREIGN, start=401)}, 'none'),
+    ('S12 foreign parent-order inversion', {}, {78: dict(FOREIGN, pid=78, parent=77, start=399), 77: FOREIGN}, 'none'),
+]
+# Rows the FINAL table keeps refusing: (row, previous, current, first predicate).
+UNCHANGED = [
+    ('S10 root start drift', {10: ROOT}, {10: dict(ROOT, start=101)}, 'identity-drift'),
+    ('S10 member start drift', {10: ROOT, 31: MEMBER}, {10: ROOT, 31: dict(MEMBER, start=102)}, 'identity-drift'),
+    ('S10 foreign reused as a member', {77: FOREIGN}, {77: dict(MEMBER, pid=77, start=401)}, 'identity-drift'),
+    ('S10 member reused as foreign', {31: MEMBER}, {31: dict(FOREIGN, pid=31, start=402)}, 'identity-drift'),
+    ('S10 exited root with changed start', {10: ROOT}, {10: zombie(ROOT, start=101)}, 'identity-drift'),
+    ('S12 foreign child older than its launcher parent', {}, {78: dict(FOREIGN, pid=78, parent=10, start=99), 10: ROOT},
+     'parent-order'),
+    ('S13 exec into the launcher', {77: FOREIGN}, {77: dict(FOREIGN, image=(1, 2), path=INSTALLED + '/launcher')},
+     'identity-drift'),
+    ('S13 exec into the target', {77: FOREIGN}, {77: dict(FOREIGN, image=(1, 3), path=INSTALLED + '/root/chrome')},
+     'identity-drift'),
+    ('S13 exec out of the launcher', {10: ROOT}, {10: dict(ROOT, image=(9, 6), path='/usr/bin/SYNTHETIC_EXEC')},
+     'identity-drift'),
+    ('S13 member exec', {10: ROOT, 31: MEMBER}, {10: ROOT, 31: dict(MEMBER, image=(9, 4))}, 'identity-drift'),
+    ('candidate zombie->live', {10: zombie(ROOT)}, {10: ROOT}, 'identity-drift'),
+    ('candidate imageless record without state', {10: ROOT}, {10: STATELESS}, 'identity-drift'),
+    ('candidate imageless X record', {10: ROOT}, {10: zombie(ROOT, state='X')}, 'identity-drift'),
+    ('candidate imageless kernel record', {10: ROOT}, {10: zombie(ROOT, kernel=True)}, 'identity-drift'),
+    ('candidate zombie that keeps an image', {10: ROOT}, {10: dict(ROOT, state='Z', image=(9, 6))}, 'identity-drift'),
+    ('foreign target image', {}, {77: dict(FOREIGN, image=(1, 3), path=INSTALLED + '/root/chrome')}, 'foreign-image'),
+    ('member cycle', {}, {31: dict(MEMBER, parent=32), 32: dict(MEMBER, pid=32, parent=31)}, 'member-cycle'),
+]
+
+
+class ExitAndCandidateDrift(unittest.TestCase):
+    """#10023 FINAL S1-S13 schedules against the shared census predicate."""
+    def outcome(self, previous, current):
+        detail = []
+        outcome = ownership._classify(previous, current, 1001, (1, 2), 'pid:[1]', 1, detail)
+        self.assertEqual(outcome, classify(previous, current))
+        if outcome != ownership.AMBIGUOUS:
+            self.assertEqual(detail, [])
+            return outcome, None
+        self.assertEqual(len(detail), 1)
+        self.assertIsNotNone(ownership.removal_witness(detail[0]))
+        self.assertNotIn(b'SYNTHETIC', detail[0])
+        return outcome, re.search(rb';predicate=([a-z-]+);', detail[0])[1].decode()
+
+    def mutant(self, candidate=None, exited=None):
+        stack = ExitStack()
+        if candidate is not None:
+            stack.enter_context(mock.patch.object(ownership, '_candidate', lambda *_: candidate))
+        if exited is not None:
+            stack.enter_context(mock.patch.object(ownership, '_exited', lambda *_: exited))
+        return stack
+
+    def test_changed_rows_reach_their_final_outcome_without_a_witness(self):
+        for row, previous, current, final in CHANGED:
+            with self.subTest(row=row):
+                self.assertEqual(self.outcome(previous, current), (final, None))
+
+    def test_unchanged_rows_still_refuse_with_their_first_predicate(self):
+        for row, previous, current, predicate in UNCHANGED:
+            with self.subTest(row=row):
+                self.assertEqual(self.outcome(previous, current), (ownership.AMBIGUOUS, predicate))
+
+    def test_reverted_predicate_restores_every_changed_refusal(self):
+        for row, previous, current, _final in CHANGED:
+            with self.subTest(row=row), self.mutant(candidate=True, exited=False):
+                self.assertEqual(self.outcome(previous, current)[0], ownership.AMBIGUOUS)
+
+    def test_each_half_of_the_predicate_owns_its_rows(self):
+        exits = {'S1', 'S3', 'S4', 'S5', 'S6', 'S8'}
+        candidate_exits = {'S3', 'S4', 'S5', 'S6'}
+        for row, previous, current, final in CHANGED:
+            name = row.split()[0]
+            with self.subTest(row=row, mutant='every record a candidate'), self.mutant(candidate=True):
+                self.assertEqual(self.outcome(previous, current)[0], final if name in exits else ownership.AMBIGUOUS)
+            with self.subTest(row=row, mutant='no exact exit'), self.mutant(exited=False):
+                self.assertEqual(self.outcome(previous, current)[0],
+                                 ownership.AMBIGUOUS if name in candidate_exits else final)
+
+    def test_over_relaxed_predicates_lose_the_unchanged_refusals(self):
+        for row, previous, current, predicate in UNCHANGED:
+            for mutant in ({'candidate': False}, {'exited': True}):
+                with self.subTest(row=row, mutant=mutant), self.mutant(**mutant):
+                    relaxed = self.outcome(previous, current)
+                    # Foreign-image and member-cycle stay universal; an exit never excuses parent order.
+                    if predicate in ('foreign-image', 'member-cycle') or (
+                            predicate == 'parent-order' and 'exited' in mutant):
+                        self.assertEqual(relaxed, (ownership.AMBIGUOUS, predicate))
+                    else:
+                        self.assertNotEqual(relaxed, (ownership.AMBIGUOUS, predicate))
+
+    def run_census(self, snapshots):
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(ownership.Path, 'is_symlink', return_value=False))
+            stack.enter_context(mock.patch.object(ownership.Path, 'stat', return_value=mock.Mock(st_mode=0o100755, st_dev=1, st_ino=2)))
+            stack.enter_context(mock.patch.object(ownership, 'bounded_read', return_value='#define ADMITTED_UID 1001\n'))
+            stack.enter_context(mock.patch.object(ownership.os, 'readlink', return_value='pid:[1]'))
+            stack.enter_context(mock.patch.object(ownership.time, 'monotonic', return_value=0))
+            stack.enter_context(mock.patch.object(ownership.time, 'sleep'))
+            read = stack.enter_context(mock.patch.object(ownership, 'snapshot', side_effect=snapshots))
+            detail = []
+            outcome = ownership._census(detail)
+            return outcome, len(detail), read.call_count
+
+    def test_census_admits_exits_only_through_the_unchanged_two_empty_passes(self):
+        persistent = zombie(FOREIGN)
+        schedules = [
+            ('S1 foreign exit', [{77: FOREIGN}, {77: persistent}], ('none', 0, 2)),
+            # The exited root's own pass still had a root, so a third pass decides.
+            ('S5 root exit beside a persistent foreign zombie',
+             [{10: ROOT, 77: FOREIGN}, {10: zombie(ROOT), 77: persistent}, {77: persistent}], ('none', 0, 3)),
+            ('S10 candidate start drift', [{10: ROOT}, {10: dict(ROOT, start=101)}], (ownership.AMBIGUOUS, 1, 2)),
+        ]
+        for row, snapshots, expected in schedules:
+            with self.subTest(row=row):
+                self.assertEqual(self.run_census(snapshots), expected)
 
 
 if __name__ == '__main__':
