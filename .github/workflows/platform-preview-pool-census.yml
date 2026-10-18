@@ -121,13 +121,13 @@ jobs:
             --mode "$MODE" \
             --duration-minutes "$DURATION_MINUTES" \
             --interval-seconds "$INTERVAL_SECONDS" \
-            --out "artifacts/preview-pool-census-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+            --out "artifacts/preview-pool-census.json"
 
       - name: Upload census artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: preview-pool-census-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/preview-pool-census-${{ github.run_id }}-${{ github.run_attempt }}.json
+          path: artifacts/preview-pool-census.json
           if-no-files-found: error
           retention-days: 14
