@@ -130,9 +130,13 @@ function assertStepLocalSecrets(raw) {
   expect(stepsWith(TOKEN)).toEqual(TOKEN_STEPS);
   expect(stepsWith("SPACES_ACCESS_ID")).toEqual([STEP.context]);
   expect(stepsWith("SPACES_SECRET_KEY")).toEqual([STEP.context]);
-  expect(JSON.stringify(workflow).match(/secrets\.[A-Z_]+/g)?.every((ref) =>
-    ["secrets.DIGITALOCEAN_ACCESS_TOKEN", "secrets.SPACES_ACCESS_ID", "secrets.SPACES_SECRET_KEY"].includes(ref),
-  )).toBe(true);
+  expect(
+    JSON.stringify(workflow)
+      .match(/secrets\.[A-Z_]+/g)
+      ?.every((ref) =>
+        ["secrets.DIGITALOCEAN_ACCESS_TOKEN", "secrets.SPACES_ACCESS_ID", "secrets.SPACES_SECRET_KEY"].includes(ref),
+      ),
+  ).toBe(true);
   const doctl = applySteps(workflow).find((step) => String(step.uses ?? "").startsWith("digitalocean/action-doctl@"));
   expect(doctl?.with).toEqual({ no_auth: "true" });
 }
@@ -202,19 +206,21 @@ function assertBoundedEvidence(raw) {
   const workflow = parseYaml(raw);
   const apply = workflow.jobs[APPLY_JOB];
   expect(apply.env.EVIDENCE_DIR).toBe("${{ github.workspace }}/artifacts/staging-cluster-addons");
-  const order = [STEP.before, STEP.probe, STEP.apply, STEP.after, STEP.evidence, STEP.scan, STEP.upload].map(
-    (name) => stepIndex(workflow, name),
+  const order = [STEP.before, STEP.probe, STEP.apply, STEP.after, STEP.evidence, STEP.scan, STEP.upload].map((name) =>
+    stepIndex(workflow, name),
   );
   expect(order).toEqual([...order].sort((a, b) => a - b));
-  expect(applySteps(workflow)[0].run).toContain('echo "JOB_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"');
+  expect(applySteps(workflow)[0].run).toContain(
+    'echo "JOB_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"',
+  );
 
   const before = stepNamed(workflow, STEP.before);
   expect(before.if).toBeUndefined();
-  expect(before.run).toContain('helm list -A --all --output json');
+  expect(before.run).toContain("helm list -A --all --output json");
   expect(before.run).toContain('> "$EVIDENCE_DIR/helm-releases-before.json"');
   const after = stepNamed(workflow, STEP.after);
   expect(after.if).toBe("always() && (steps.apply.outcome == 'success' || steps.apply.outcome == 'failure')");
-  expect(after.run).toContain('helm list -A --all --output json');
+  expect(after.run).toContain("helm list -A --all --output json");
   expect(after.run).toContain('> "$EVIDENCE_DIR/helm-releases-after.json"');
   for (const step of [before, after]) {
     expect(step.run).toContain("{name, namespace, chart, app_version, revision, status}");
@@ -323,15 +329,28 @@ describe("Platform Staging Cluster Add-ons workflow contract (#10045)", () => {
         (raw) => mutate(raw, (wf) => (wf.concurrency["cancel-in-progress"] = true)),
       ],
       ["dispatch boundary", "no job group", (raw) => mutate(raw, (wf) => delete wf.jobs[APPLY_JOB].concurrency)],
-      ["dispatch boundary", "a 90-minute job", (raw) => mutate(raw, (wf) => (wf.jobs[APPLY_JOB]["timeout-minutes"] = 90))],
-      ["dispatch boundary", "a production binding", (raw) => mutate(raw, (wf) => (wf.jobs[APPLY_JOB].environment = "production"))],
-      ["dispatch boundary", "a second binding", (raw) => mutate(raw, (wf) => (wf.jobs[REFUSE_JOB].environment = "staging"))],
+      [
+        "dispatch boundary",
+        "a 90-minute job",
+        (raw) => mutate(raw, (wf) => (wf.jobs[APPLY_JOB]["timeout-minutes"] = 90)),
+      ],
+      [
+        "dispatch boundary",
+        "a production binding",
+        (raw) => mutate(raw, (wf) => (wf.jobs[APPLY_JOB].environment = "production")),
+      ],
+      [
+        "dispatch boundary",
+        "a second binding",
+        (raw) => mutate(raw, (wf) => (wf.jobs[REFUSE_JOB].environment = "staging")),
+      ],
       ["dispatch boundary", "a bypassed refusal", (raw) => mutate(raw, (wf) => delete wf.jobs[APPLY_JOB].needs)],
       ["dispatch boundary", "an always() apply", (raw) => mutate(raw, (wf) => (wf.jobs[APPLY_JOB].if = "always()"))],
       [
         "dispatch boundary",
         "no hex refusal",
-        (raw) => replaceOnce(raw, 'if ! [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]; then', 'if [ -z "$RELEASE_REF" ]; then'),
+        (raw) =>
+          replaceOnce(raw, 'if ! [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]; then', 'if [ -z "$RELEASE_REF" ]; then'),
       ],
       [
         "dispatch boundary",
@@ -353,15 +372,27 @@ describe("Platform Staging Cluster Add-ons workflow contract (#10045)", () => {
             steps.splice(stepIndex(wf, STEP.context) + 1, 0, resolve);
           }),
       ],
-      ["step-local secrets", "a job-level token", (raw) => mutate(raw, (wf) => (wf.jobs[APPLY_JOB].env[TOKEN] = `\${{ secrets.${TOKEN} }}`))],
+      [
+        "step-local secrets",
+        "a job-level token",
+        (raw) => mutate(raw, (wf) => (wf.jobs[APPLY_JOB].env[TOKEN] = `\${{ secrets.${TOKEN} }}`)),
+      ],
       [
         "step-local secrets",
         "a token on the inventory step",
         (raw) => mutate(raw, (wf) => (stepNamed(wf, STEP.before).env = { [TOKEN]: `\${{ secrets.${TOKEN} }}` })),
       ],
-      ["step-local secrets", "an authenticating doctl install", (raw) => replaceOnce(raw, 'no_auth: "true"', 'no_auth: "false"')],
+      [
+        "step-local secrets",
+        "an authenticating doctl install",
+        (raw) => replaceOnce(raw, 'no_auth: "true"', 'no_auth: "false"'),
+      ],
       ["staging-only context", "no context guard", (raw) => replaceOnce(raw, "*chase-sets-staging*)", "*)")],
-      ["staging-only context", "a production state key", (raw) => replaceOnce(raw, "key=doks/staging.tfstate", "key=doks/production.tfstate")],
+      [
+        "staging-only context",
+        "a production state key",
+        (raw) => replaceOnce(raw, "key=doks/staging.tfstate", "key=doks/production.tfstate"),
+      ],
       [
         "staging-only context",
         "a probe away from the planner",
@@ -382,8 +413,17 @@ describe("Platform Staging Cluster Add-ons workflow contract (#10045)", () => {
             'echo "DIGITALOCEAN_ACCESS_TOKEN presence count: ${token_presence_count}"\n          echo "$DIGITALOCEAN_ACCESS_TOKEN"',
           ),
       ],
-      ["real full apply", "a dry-run apply", (raw) => replaceOnce(raw, `${PLANNER} --environment staging 2>&1`, `${PLANNER} --environment staging --dry-run 2>&1`)],
-      ["real full apply", "an apply in preflight runs", (raw) => mutate(raw, (wf) => delete stepNamed(wf, STEP.apply).if)],
+      [
+        "real full apply",
+        "a dry-run apply",
+        (raw) =>
+          replaceOnce(raw, `${PLANNER} --environment staging 2>&1`, `${PLANNER} --environment staging --dry-run 2>&1`),
+      ],
+      [
+        "real full apply",
+        "an apply in preflight runs",
+        (raw) => mutate(raw, (wf) => delete stepNamed(wf, STEP.apply).if),
+      ],
       [
         "real full apply",
         "a mutation outside the planner",
@@ -393,16 +433,32 @@ describe("Platform Staging Cluster Add-ons workflow contract (#10045)", () => {
             before.run = `${before.run}helm upgrade --install extra ./chart\n`;
           }),
       ],
-      ["real full apply", "a masked failure", (raw) => mutate(raw, (wf) => (stepNamed(wf, STEP.apply)["continue-on-error"] = true))],
-      ["bounded evidence", "an ungated upload", (raw) => replaceOnce(raw, "if: always() && steps.scan.outcome == 'success'", "if: always()")],
+      [
+        "real full apply",
+        "a masked failure",
+        (raw) => mutate(raw, (wf) => (stepNamed(wf, STEP.apply)["continue-on-error"] = true)),
+      ],
+      [
+        "bounded evidence",
+        "an ungated upload",
+        (raw) => replaceOnce(raw, "if: always() && steps.scan.outcome == 'success'", "if: always()"),
+      ],
       [
         "bounded evidence",
         "a token in grep argv",
         (raw) =>
           replaceOnce(raw, `-f <(printf '%s\\n' "$DIGITALOCEAN_ACCESS_TOKEN")`, '-e "$DIGITALOCEAN_ACCESS_TOKEN"'),
       ],
-      ["bounded evidence", "a lenient upload", (raw) => replaceOnce(raw, "if-no-files-found: error", "if-no-files-found: warn")],
-      ["bounded evidence", "no after inventory", (raw) => replaceOnce(raw, '> "$EVIDENCE_DIR/helm-releases-after.json"', "> /dev/null")],
+      [
+        "bounded evidence",
+        "a lenient upload",
+        (raw) => replaceOnce(raw, "if-no-files-found: error", "if-no-files-found: warn"),
+      ],
+      [
+        "bounded evidence",
+        "no after inventory",
+        (raw) => replaceOnce(raw, '> "$EVIDENCE_DIR/helm-releases-after.json"', "> /dev/null"),
+      ],
     ];
 
     it.each(cases)("%s rejects %s", (label, _description, change) => {
