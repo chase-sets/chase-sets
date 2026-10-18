@@ -185,10 +185,8 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemListPage.not.set": "Not set",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.open": "Open",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location": "Select a location",
-  "inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.catalog.item": "Select a catalog item",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.by.title.or.paste.catalog":
     "Search by title or paste a catalog item ID, then select the matching item.",
-  "inventory.features.inventoryItems.ui.inventoryItemListPage.search.catalog": "Search catalog",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.for.a.catalog.item.then":
     "Search for a catalog item, then choose it to configure product options.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item":

@@ -376,8 +376,8 @@ function catalogSnapshot(overrides: Partial<InventoryCatalogItemSnapshot> = {}):
   };
 }
 
-// "Zard" is an alias: neither suggestion label contains it, so a default substring filter would hide both.
-const zardSuggestions = [
+// "Lizardon" (Charizard's Japanese name) appears in no suggestion label; a default substring filter hides both.
+const lizardonSuggestions = [
   {
     catalogItemId: "cat_zard",
     title: "Charizard",
@@ -541,18 +541,18 @@ describe("Import row Catalog picker", () => {
     expect(screen.queryByText("Searching catalog items...")).toBeNull();
   });
 
-  it("requests suggestions for seeded text only after the seller edits it", async () => {
-    const fetch = stubPickerFetch(() => suggestionsResponse(zardSuggestions));
+  it("requests server-ordered alias suggestions for seeded text only after the seller edits it", async () => {
+    const fetch = stubPickerFetch(() => suggestionsResponse(lizardonSuggestions));
     const { input } = renderResolveRow(
       tcgplayerRow("SKU,Product Name,Set Name,Condition,Quantity\n8812,Charizard,Base Set,Near Mint,1"),
     );
 
-    await openAndEnter(userEvent.setup(), input, "Zard");
+    await openAndEnter(userEvent.setup(), input, "Lizardon");
 
     await waitFor(() =>
       expect(optionLabels()).toEqual(["Charizard - Base Set 4/102", "Charizard ex - Obsidian Flames"]),
     );
-    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=Zard"]);
+    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=Lizardon"]);
   });
 
   it.each(["saved-list", "tcgplayer-csv", "native-csv"] as const)(
@@ -605,15 +605,15 @@ describe("Import row Catalog picker", () => {
     const user = userEvent.setup();
     const hydration = deferredResponse();
     const fetch = stubPickerFetch((url) =>
-      url.startsWith("/api/marketplace/") ? suggestionsResponse(zardSuggestions) : hydration.promise,
+      url.startsWith("/api/marketplace/") ? suggestionsResponse(lizardonSuggestions) : hydration.promise,
     );
     const { input, form } = renderResolveRow(unresolvedRow({ storage_location_id: "loc_1" }));
 
-    await openAndEnter(user, input, "Zard");
+    await openAndEnter(user, input, "Lizardon");
     await user.click(await screen.findByRole("option", { name: "Charizard - Base Set 4/102" }));
 
     expect(requestedUrls(fetch)).toEqual([
-      "/api/marketplace/items/suggest?q=Zard",
+      "/api/marketplace/items/suggest?q=Lizardon",
       "/api/inventory/catalog-items/cat_zard",
     ]);
     expect(screen.getByText("Loading catalog item...")).toBeTruthy();
@@ -724,7 +724,7 @@ describe("Import row Catalog picker", () => {
   it.each([
     {
       state: "populated",
-      response: () => suggestionsResponse(zardSuggestions),
+      response: () => suggestionsResponse(lizardonSuggestions),
       status: "Choose the catalog item from the visible search results.",
       invalid: false,
     },
@@ -744,11 +744,11 @@ describe("Import row Catalog picker", () => {
     const fetch = stubPickerFetch(response);
     const { input } = renderResolveRow(unresolvedRow());
 
-    fireEvent.change(input, { target: { value: "Zard" } });
+    fireEvent.change(input, { target: { value: "Lizardon" } });
 
     await screen.findByText(status);
     expect(input.getAttribute("aria-invalid") === "true").toBe(invalid);
-    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=Zard"]);
+    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=Lizardon"]);
     expect(hiddenCatalogItemId()).toBe("");
   });
 
@@ -789,28 +789,28 @@ describe("Import row Catalog picker", () => {
     const { input, form } = renderResolveRow(unresolvedRow({ catalog_item_id: "cat_zard" }));
     await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
 
-    await openAndEnter(user, input, "Zard");
+    await openAndEnter(user, input, "Lizardon");
     expect(hiddenCatalogItemId()).toBe("");
     expect(screen.queryByLabelText("Condition")).toBeNull();
     expect(new FormData(form).get("selectedOptions")).toBe("[]");
     expect(applyButton().disabled).toBe(true);
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-    fireEvent.change(input, { target: { value: "Zard ex" } });
+    fireEvent.change(input, { target: { value: "Lizardon ex" } });
     expect(fetch.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
 
     await act(async () => {
-      latest.resolve(suggestionsResponse([zardSuggestions[1]]));
+      latest.resolve(suggestionsResponse([lizardonSuggestions[1]]));
     });
     await waitFor(() => expect(optionLabels()).toEqual(["Charizard ex - Obsidian Flames"]));
     await act(async () => {
-      stale.resolve(suggestionsResponse([zardSuggestions[0]]));
+      stale.resolve(suggestionsResponse([lizardonSuggestions[0]]));
     });
     expect(optionLabels()).toEqual(["Charizard ex - Obsidian Flames"]);
     expect(requestedUrls(fetch)).toEqual([
       "/api/inventory/catalog-items/cat_zard",
-      "/api/marketplace/items/suggest?q=Zard",
-      "/api/marketplace/items/suggest?q=Zard+ex",
+      "/api/marketplace/items/suggest?q=Lizardon",
+      "/api/marketplace/items/suggest?q=Lizardon+ex",
     ]);
   });
 });

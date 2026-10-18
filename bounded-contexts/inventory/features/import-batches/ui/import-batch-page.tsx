@@ -129,7 +129,7 @@ function failCatalogItemLookup(
   lookup: CatalogItemLookup,
   message: string,
 ): CatalogItemPickerState {
-  const failed = { ...state, status: "error" as const, errorMessage: message, suggestions: [], candidate: null };
+  const failed = { ...state, status: "error" as const, errorMessage: message, candidate: null };
   if (lookup.kind === "suggestions" || lookup.kind === "candidate") {
     return failed;
   }
