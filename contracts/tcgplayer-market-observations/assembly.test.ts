@@ -64,7 +64,9 @@ describe("admitted batch assembly", () => {
     await expect(assembleAdmittedTcgplayerMarketObservationBatch(history, request)).resolves.toMatchObject({
       requestId: request.requestId,
     });
-    await expect(assembleAdmittedTcgplayerMarketObservationBatch(history.slice(1), request)).rejects.toMatchObject({
+    await expect(
+      assembleAdmittedTcgplayerMarketObservationBatch([{ ...history[1]!, streamVersion: 1 }], request),
+    ).rejects.toMatchObject({
       code: "invalid_history_parts",
     });
     await expect(

@@ -237,7 +237,7 @@ describe("TCGplayer market observation batch", () => {
     const matrixMutant = sourceMutant<(text: string, req: typeof request) => unknown>(
       [
         [
-          `if (sales.pagesFetched !== 0 ||\n        sales.returnedCount !== 0 ||\n        sales.firstReportedTotal !== null ||\n        sales.lastReportedTotal !== null ||\n        sales.firstResultCount !== null ||\n        sales.lastResultCount !== null ||\n        sales.lastNextPage !== null\n      )\n        bad("invalid_endpoint_matrix");`,
+          /if\s*\(\s*sales\.pagesFetched\s*!==\s*0\s*\|\|\s*sales\.returnedCount\s*!==\s*0\s*\|\|\s*sales\.firstReportedTotal\s*!==\s*null\s*\|\|\s*sales\.lastReportedTotal\s*!==\s*null\s*\|\|\s*sales\.firstResultCount\s*!==\s*null\s*\|\|\s*sales\.lastResultCount\s*!==\s*null\s*\|\|\s*sales\.lastNextPage\s*!==\s*null\s*\)\s*bad\("invalid_endpoint_matrix"\);/,
           'if (false) bad("invalid_endpoint_matrix");',
         ],
       ],
