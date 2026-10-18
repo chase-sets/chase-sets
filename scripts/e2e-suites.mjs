@@ -251,6 +251,10 @@ const e2eSpecSuiteOwnership = [
     suites: ["admin_platform"],
   },
   { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/marketplace-shell-header\.spec\.ts$/,
+    suites: ["marketplace_browse"],
+  },
 ];
 
 export const e2eNoSuiteExclusions = Object.freeze([

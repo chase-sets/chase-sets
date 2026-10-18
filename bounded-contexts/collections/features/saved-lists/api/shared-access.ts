@@ -1,4 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { CollectionsSavedListReportReason } from "@chase-sets/event-core/public-event-payloads/collections";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { SavedListId, SavedListOwnerSnapshot, SavedListViewerSnapshot } from "../domain/contracts";
 import type {
@@ -79,7 +80,6 @@ export type SavedListSharingAuditSink = Readonly<{
   record: (fact: SavedListSharingAuditFact) => Promise<void>;
 }>;
 
-export type SavedListAbuseReportReason = "spam" | "prohibited-content" | "harassment" | "other";
 export type SavedListAbuseReportAdapter = Readonly<{
   submit: (
     input: Readonly<{
@@ -87,7 +87,7 @@ export type SavedListAbuseReportAdapter = Readonly<{
       targetId: SavedListId;
       targetOwnerAccountId: AccountId;
       reporterAccountId: AccountId | null;
-      reason: SavedListAbuseReportReason;
+      reason: CollectionsSavedListReportReason;
     }>,
   ) => Promise<Readonly<{ reportReference: string }>>;
 }>;
@@ -226,7 +226,7 @@ export function createSavedListSharedAccess(deps: SavedListSharedAccessDeps) {
       listId: SavedListId;
       subject: SavedListAccessSubject;
       requestKey: string;
-      reason: SavedListAbuseReportReason;
+      reason: CollectionsSavedListReportReason;
       unlistedSecret?: SavedListUnlistedSecret | null;
     }>,
   ): Promise<Readonly<{ status: "accepted"; reportReference: string }> | SavedListSharedAccessResult> {

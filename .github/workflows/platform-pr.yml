@@ -925,7 +925,6 @@ jobs:
       TF_VAR_platform_admin_password: pr-validation-password-please-rotate
       TF_VAR_platform_admin_display_name: Platform Admin
       TF_VAR_discord_invite_url: https://discord.gg/pr-validation
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
       TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
       TF_VAR_scrydex_team_id: pr-validation-scrydex-team
       TF_VAR_google_social_login_client_id: ""
@@ -1034,7 +1033,6 @@ jobs:
       TF_VAR_easypost_api_key: EZTK_pr_validation
       TF_VAR_voyage_api_key: ""
       TF_VAR_easypost_mode: test
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
       TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
       TF_VAR_scrydex_team_id: pr-validation-scrydex-team
       TF_VAR_google_social_login_client_id: google-pr-validation-client
@@ -1478,7 +1476,6 @@ jobs:
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
           TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
           TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
           TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
         run: |
@@ -1510,7 +1507,6 @@ jobs:
           export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
           export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
           export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
-          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 

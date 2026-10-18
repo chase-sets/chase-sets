@@ -23,6 +23,7 @@ import type { OrderingServiceOptions, OrderingServices } from "./support/runtime
 import { buildOrderingAccountProjectionHandlers } from "./support/account-support/projection";
 import { buildOrderingApi } from "./api";
 import { createOrderingOrderMcpHandlers } from "./features/orders/api/mcp";
+import { createOrderingPostagePolicyMcpHandlers } from "./features/postage-policies/api/mcp";
 import { hasOrderForSource } from "./features/orders/read-model/queries";
 import {
   buildOrderingInventorySupplyProjectionHandlers,
@@ -102,7 +103,14 @@ const baseModule = defineBoundedContextModule<OrderingServices, PgTransactionalP
   buildApis: (services) => [
     { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildOrderingApi(services) },
   ],
-  buildMcpHandlers: (services) => createOrderingOrderMcpHandlers(services.orders),
+  buildMcpHandlers: (services) => {
+    const orders = createOrderingOrderMcpHandlers(services.orders);
+    const postagePolicies = createOrderingPostagePolicyMcpHandlers(services.postagePolicies);
+    return {
+      toolHandlers: { ...orders.toolHandlers, ...postagePolicies.toolHandlers },
+      resourceHandlers: { ...orders.resourceHandlers, ...postagePolicies.resourceHandlers },
+    };
+  },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const marketplaceSupplyHandlers = buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {

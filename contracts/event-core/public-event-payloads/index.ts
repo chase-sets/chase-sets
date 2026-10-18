@@ -11,6 +11,7 @@
 import type { AuthEventPayloads } from "./auth";
 import type { ChannelsEventPayloads } from "./channels";
 import type { CheckoutEventPayloads } from "./checkout";
+import type { CollectionsEventPayloads } from "./collections";
 import type { FulfillmentEventPayloads } from "./fulfillment";
 import type { IdentityEventPayloads } from "./identity";
 import type { InventoryEventPayloads } from "./inventory";
@@ -32,6 +33,7 @@ export * from "./inventory";
 export * from "./ordering";
 export * from "./marketplace";
 export * from "./checkout";
+export * from "./collections";
 export * from "./fulfillment";
 export * from "./payments";
 export * from "./settlement";
@@ -43,6 +45,7 @@ export type ChaseSetsEventPayloads = AuthEventPayloads &
   ChannelsEventPayloads &
   IdentityEventPayloads &
   CheckoutEventPayloads &
+  CollectionsEventPayloads &
   FulfillmentEventPayloads &
   InventoryEventPayloads &
   OrderingEventPayloads &

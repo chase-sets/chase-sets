@@ -20,6 +20,7 @@ import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   buyerVisibleListingPredicateSql,
   buyerVisibleListingQuantitySql,
+  buyerVisibleOfferPredicateSql,
 } from "../../../support/market-support/listing-visibility";
 import { dimensionFacetValueOrderSql, facetGroupDecisionPriority, fieldFacetValueOrderSql } from "./facet-ordering";
 
@@ -474,8 +475,10 @@ function buildMarketActivityFilter(
   const offerExists = `EXISTS (
          SELECT 1
          FROM discovery_offer_demand_matches AS offer
+         INNER JOIN discovery_market_accounts AS account
+           ON account.account_id = offer.buyer_account_id
          WHERE offer.catalog_catalog_item_id = ${itemIdColumn}
-           AND offer.status = 'submitted'
+           AND ${buyerVisibleOfferPredicateSql("offer", "account")}
            ${selectedOptionSqlForOffers}
        )`;
 
@@ -518,7 +521,9 @@ function buildMarketActivityFacetSource(
          NULL::text AS price_currency_code,
          0::integer AS visible_quantity
        FROM discovery_offer_demand_matches AS offer
-       WHERE offer.status = 'submitted'
+       INNER JOIN discovery_market_accounts AS account
+         ON account.account_id = offer.buyer_account_id
+       WHERE ${buyerVisibleOfferPredicateSql("offer", "account")}
          ${selectedOptionSqlForOffers}`;
 
   switch (marketActivity) {

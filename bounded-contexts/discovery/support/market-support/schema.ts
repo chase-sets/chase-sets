@@ -5,11 +5,13 @@ export const discoveryMarketSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_ma
   seller_slug text NOT NULL DEFAULT '',
   seller_display_name text NULL,
   status text NOT NULL DEFAULT 'active',
+  status_stream_version integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE discovery_market_accounts
-  ADD COLUMN IF NOT EXISTS seller_slug text NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS seller_slug text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS status_stream_version integer NOT NULL DEFAULT 0;
 
 ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS seller_listing_availability_status text NOT NULL DEFAULT 'available',
@@ -290,6 +292,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_offer_un
   WHERE offer_id IS NOT NULL;`;
 
 export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261017_discovery_market_account_status_stream_version",
+    description: "Add stream-fenced account lifecycle status to Discovery market mirrors.",
+    statements: [
+      `ALTER TABLE discovery_market_accounts
+  ADD COLUMN IF NOT EXISTS status_stream_version integer NOT NULL DEFAULT 0`,
+    ],
+  },
   {
     migrationId: "20260907_discovery_market_price_currency",
     description: "Store Marketplace Listing and Offer prices as version-fenced nullable currency pairs.",

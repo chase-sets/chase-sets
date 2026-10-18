@@ -71,7 +71,12 @@ export function createOfferResponseAttentionSourceFromReadModel(db: PgQueryable)
            ON listing.product_id = offer.product_id
           AND listing.account_id = $1
           AND listing.status = 'active'
+         INNER JOIN marketplace_account_pages AS buyer
+           ON buyer.account_id = offer.buyer_account_id
          WHERE offer.status = 'submitted'
+           AND offer.price_currency_code IS NOT NULL
+           AND offer.last_stream_version > 0
+           AND buyer.status = 'active'
            AND NOT EXISTS (
              SELECT 1
              FROM marketplace_offer_seller_declines AS decline

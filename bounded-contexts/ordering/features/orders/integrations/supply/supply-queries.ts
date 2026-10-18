@@ -129,6 +129,7 @@ export async function listOrderingSupplyCandidates(
      ) AS open_claims
        ON open_claims.seller_account_id = listing.seller_account_id
      WHERE listing.status = 'active'
+       AND seller.status = 'active'
        AND listing.seller_listing_availability_status = 'available'
        AND listing.terms_resolved_at IS NOT NULL
        AND listing.product_id = $1
@@ -203,6 +204,7 @@ export async function getOrderingSupplyCandidateByListingId(
   const currentEligibilitySql = options.allowCommitted
     ? ""
     : `AND listing.status = 'active'
+       AND seller.status = 'active'
        AND listing.seller_listing_availability_status = 'available'`;
   const result = await db.query<OrderingSupplyCandidateRow>(
     `SELECT
