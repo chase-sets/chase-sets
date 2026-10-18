@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Daily platform credential health: secret metadata (names and update dates),
-// in-process liveness checks, and the D2 classifier from #9912. Levels and
-// terms are defined in docs/runbooks/credential-rotation.md.
+// in-process liveness checks, and the level classifier. Levels and terms are
+// defined in docs/runbooks/credential-rotation.md.
 //
 // Secret values enter only `checkCredentialLiveness` and the request it signs.
 // Every output — liveness rows, reports, summaries, alert text — carries only
@@ -318,7 +318,7 @@ function ageReasons(entry, ageDays, remainingDays) {
 
 const LIVENESS_LEVELS = { live: null, dead: "failure", unknown: "warning", absent: "warning" };
 
-// The D2 classifier. `metadata` is a collectSecretMetadata document (or null),
+// The level classifier (runbook "Levels"). `metadata` is a collectSecretMetadata document (or null),
 // `liveness` maps scope -> runLivenessRow document, and `jobResults` carries
 // the producing jobs' results when known. A failed or absent collection is a
 // warning; it never reports success.
