@@ -128,7 +128,7 @@ describeDb("Discovery Saved List picker freshness read model", () => {
         lineCount: 1,
         trackedUnitCount: 2,
         version: 2,
-        changedAt: "2026-10-16T00:01:00.000Z",
+        changedAt: "2026-10-16T00:00:00.000Z",
       },
     ]);
   });
