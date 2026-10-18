@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -112,5 +112,112 @@ describeDb("source observation promotion outcome db", () => {
       status: "completed",
       result: { requested: 1, failed: 1 },
     });
+  });
+
+  it("fails every retired TCGplayer import and reapply job without retry or provider resolution", async () => {
+    const deps = {
+      db: pools.catalog,
+      eventStore: createPostgresEventStore({ pool: pools.catalog }),
+      checkpointStore: createPostgresProjectionStore({ db: pools.catalog }),
+    } as CatalogRuntimeDeps;
+    const runtime = createSourceObservationRuntime(deps, {} as CatalogItemServices, {} as ReferenceDataServices);
+    const providerRegistry = runtime.providerAdapterRegistry;
+    const providerLookup = vi.spyOn(providerRegistry, "get");
+    const externalFetch = vi.fn(async () => {
+      throw new Error("retired TCGplayer jobs must not call a provider");
+    });
+    vi.stubGlobal("fetch", externalFetch);
+    const now = new Date().toISOString();
+    const progress = { phase: "queued", completed: 0, total: 1, currentName: null, status: null };
+    const eventContext = {
+      tenantId: "tnt_identity",
+      audit: { performedByUserId: "usr_identity_system", forAccountId: "acc_identity_system" },
+    };
+    const jobs = [
+      ["retired-import-queued", "import", "queued", null],
+      ["retired-import-claimed", "import", "running", "2020-01-01T00:00:00Z"],
+      ["retired-reapply-queued", "reapply", "queued", null],
+      ["retired-reapply-claimed", "reapply", "running", "2020-01-01T00:00:00Z"],
+    ] as const;
+
+    try {
+      for (const [jobId, action, status, claimedUntil] of jobs) {
+        await pools.catalog.query(
+          `INSERT INTO catalog_source_observation_integration_durable_jobs
+             (job_id, job_kind, status, payload, progress, result, error_message, event_context,
+              claim_owner_id, claimed_until, attempt_count, next_eligible_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, NULL, NULL, $6::jsonb,
+                   $7, $8::timestamptz, 0, now(), $9::timestamptz, $9::timestamptz)`,
+          [
+            jobId,
+            action,
+            status,
+            JSON.stringify({ action, scope: { provider: "tcgplayer", language: "en" } }),
+            JSON.stringify(progress),
+            JSON.stringify(eventContext),
+            claimedUntil ? "stale-owner" : null,
+            claimedUntil,
+            now,
+          ],
+        );
+      }
+      await pools.catalog.query(
+        `INSERT INTO catalog_source_observation_integration_work_units
+           (job_id, unit_id, unit_kind, state, payload, result, error_message, attempt_count, created_at, updated_at)
+         VALUES ('retired-reapply-queued', 'retired-reapply-unit', 'reapply', 'queued', $1::jsonb, NULL, NULL, 0, now(), now())`,
+        [JSON.stringify({ observationId: "retired-observation" })],
+      );
+
+      for (let index = 0; index < jobs.length; index += 1) {
+        await expect(
+          runtime.processNextIntegrationJob({ claimOwnerId: `retired-proof-${index}`, claimTtlMs: 60_000 }),
+        ).resolves.toBe(1);
+      }
+
+      const persisted = await pools.catalog.query<{
+        job_id: string;
+        status: string;
+        attempt_count: number;
+        error_message: string | null;
+        claim_owner_id: string | null;
+      }>(
+        `SELECT job_id, status, attempt_count, error_message, claim_owner_id
+           FROM catalog_source_observation_integration_durable_jobs
+          WHERE job_id = ANY($1::text[])
+          ORDER BY job_id`,
+        [jobs.map(([jobId]) => jobId)],
+      );
+      expect(persisted.rows).toHaveLength(jobs.length);
+      expect(persisted.rows).toEqual(
+        jobs.map(([jobId]) => ({
+          job_id: jobId,
+          status: "failed",
+          attempt_count: 1,
+          error_message: "TCGplayer server transport is retired; use the browser handoff.",
+          claim_owner_id: null,
+        })),
+      );
+      const unit = await pools.catalog.query(
+        `SELECT state, attempt_count, error_message, claim_owner_id
+           FROM catalog_source_observation_integration_work_units
+          WHERE job_id = 'retired-reapply-queued' AND unit_id = 'retired-reapply-unit'`,
+      );
+      expect(unit.rows).toEqual([
+        {
+          state: "failed",
+          attempt_count: 1,
+          error_message: "TCGplayer server transport is retired; use the browser handoff.",
+          claim_owner_id: null,
+        },
+      ]);
+      expect(providerLookup).not.toHaveBeenCalled();
+      expect(externalFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      await pools.catalog.query(
+        `DELETE FROM catalog_source_observation_integration_durable_jobs WHERE job_id = ANY($1::text[])`,
+        [jobs.map(([jobId]) => jobId)],
+      );
+    }
   });
 });

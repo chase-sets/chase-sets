@@ -41,7 +41,7 @@ test("operator-extension-deterministic-build @tcgplayer-operator-extension", asy
   );
 });
 
-test("operator-extension-chromium: opaque UI, exact-host cookies and retained reload @tcgplayer-operator-extension", async () => {
+test("operator-extension-chromium: opaque UI and retained reload @tcgplayer-operator-extension", async () => {
   const stages: string[] = [];
   type HandoffSender = {
     case: string;

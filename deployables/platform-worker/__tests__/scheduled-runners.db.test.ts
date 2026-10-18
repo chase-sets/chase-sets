@@ -588,7 +588,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       (host.services["platform-operations"] as PlatformOperationsServices).supportRequests.attachmentCleanup;
     const cleanupRunner = (host: WorkerHostRuntime) => {
       const runners = registeredRunnersOf(host);
-      expect(runners).toHaveLength(EXPECTED_REGISTERED_RUNNER_COUNT);
+      expect(runners).toHaveLength(EXPECTED_REGISTERED_RUNNER_COUNT + 1);
       return runners.find((runner) => runner.name === "support-evidence-operation-cleanup")!;
     };
     const host = compose(1);
