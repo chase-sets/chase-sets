@@ -148,7 +148,9 @@ describe("decodeFeatureFlagEnvironmentState", () => {
     const accounts = Array.from({ length: 1_001 }, (_, index) => canonicalAccount(index));
     const badges = Array.from({ length: 65 }, (_, index) => `badge-${index.toString().padStart(2, "0")}`);
 
-    const accepted = decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: accounts.slice(0, 1_000) }));
+    const accepted = decodeFeatureFlagEnvironmentState(
+      environmentState({ accountAllowlist: accounts.slice(0, 1_000) }),
+    );
     expect(accepted.accountAllowlist).toHaveLength(1_000);
     expectInvalid(() => decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: accounts })));
     expectInvalid(() => decodeFeatureFlagEnvironmentState(environmentState({ badgeAnyOf: badges })));
