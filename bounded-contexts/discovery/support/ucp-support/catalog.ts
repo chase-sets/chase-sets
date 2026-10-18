@@ -121,7 +121,6 @@ function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
     },
   };
 }
-
 function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
   return {
     ...searchRowToProduct(

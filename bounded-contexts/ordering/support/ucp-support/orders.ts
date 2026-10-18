@@ -84,7 +84,6 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
 
   return { actor: input.actor };
 }
-
 function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | "sale", request: Request) {
   return {
     id: row.order_id,
