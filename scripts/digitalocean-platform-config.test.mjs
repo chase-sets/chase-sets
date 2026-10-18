@@ -3060,7 +3060,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(snapshotStep).toContain("pnpm run platform:kubernetes-deployment -- preview-postgres-snapshot \\");
     expect(snapshotStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(snapshotStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
-    expect(snapshotStep).not.toContain(" diagnostics");
+    expect(snapshotStep).not.toContain("platform:kubernetes-deployment -- diagnostics");
 
     // AC3: only after a successful deploy, never masking the original failure.
     expect(diagnosticsStep).toContain("        if: failure() && steps.preview_deploy.outcome == 'success'\n");

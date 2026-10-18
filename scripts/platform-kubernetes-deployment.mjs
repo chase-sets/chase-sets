@@ -596,7 +596,7 @@ export function buildDiagnosticsCommands(options = {}) {
   ];
 }
 
-// Structural only (#10022 D4): the connection ceiling, its reservations, and held client
+// Structural only: the connection ceiling, its reservations, and held client
 // connections grouped by database, role and state. Never query text or client addresses.
 export const previewPostgresConnectionSnapshotStatements = [
   "SHOW max_connections",

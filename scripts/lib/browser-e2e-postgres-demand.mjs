@@ -316,7 +316,7 @@ export function previewPostgresSettings(previewPostgres) {
 }
 
 /**
- * Peak preview Postgres connections (#10022 D2): the maximum over preview phases of every pool the
+ * Peak preview Postgres connections: the maximum over preview phases of every pool the
  * preview render enables, built by the real pool factories from each component's rendered env and
  * the real preview Secret. Aliased URLs dedupe only inside one process.
  */
