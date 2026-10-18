@@ -7,7 +7,6 @@
     "bounded-contexts/catalog/features/operator-session/api/store.ts",
     "bounded-contexts/catalog/features/operator-session/domain/rate-budget-context.ts",
     "bounded-contexts/catalog/features/operator-session/domain/readiness.ts",
-    "bounded-contexts/catalog/features/operator-session/read-model/outcome-schema.ts",
     "bounded-contexts/catalog/features/operator-session/tests/operator-session-attempt-capture.test.ts",
     "bounded-contexts/catalog/features/operator-session/tests/operator-session-custody.test.ts",
     "bounded-contexts/catalog/features/operator-session/tests/operator-session-hot-reload.db.test.ts",
@@ -20,12 +19,9 @@
     "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-credential-readiness.ts",
     "bounded-contexts/catalog/features/source-observations/api/provider-adapters/provider-adapter.test.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts",
-    "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.test.ts",
-    "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer/adapter.ts",
     "bounded-contexts/catalog/package.json",
     "bounded-contexts/catalog/support/authoring-support/schema.ts",
-    "bounded-contexts/pricing/features/price-signals/tests/market-capture-staging-probe-shape.test.ts",
     "contracts/localization/catalog-key-set.test.ts",
     "contracts/localization/locales/en/catalog/source-observations-api-detail-mapping.ts",
     "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts",
@@ -1262,11 +1258,9 @@
       ]
     },
     {
-      "changedFiles": [
-        "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts"
-      ],
-      "suiteIds": [],
-      "batches": []
+      "changedFiles": ["bounded-contexts/catalog/features/operator-session/api/route.ts"],
+      "suiteIds": ["marketplace_browse", "catalog_admin_integrations"],
+      "batches": ["marketplace_browse,catalog_admin_integrations"]
     },
     {
       "changedFiles": [".github/workflows/platform-pr.yml"],
@@ -1350,8 +1344,8 @@
     },
     {
       "changedFiles": [],
-      "suiteIds": ["marketplace_browse", "catalog_admin_integrations"],
-      "batches": ["marketplace_browse,catalog_admin_integrations"]
+      "suiteIds": [],
+      "batches": []
     },
     {
       "changedFiles": ["bounded-contexts/catalog/routes/admin/blueprints-detail.tsx"],
@@ -2322,7 +2316,7 @@
     },
     {
       "changedFiles": [
-        "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
+        "bounded-contexts/catalog/features/operator-session/api/route.ts",
         "bounded-contexts/inventory/features/listings/ui/listing.tsx"
       ],
       "suiteIds": ["marketplace_browse", "marketplace_seller", "catalog_admin_integrations"],

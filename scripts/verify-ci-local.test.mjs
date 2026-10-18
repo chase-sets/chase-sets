@@ -781,7 +781,7 @@ describe("verify-ci-local", () => {
 
   it("executes the same scoped E2E batches on unlabeled PRs and merge groups without a heavy-lane override", () => {
     const scope = scopeFor([
-      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
+      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer/adapter.ts",
     ]);
     expect(scope.integrationRiskRequired).toBe(false);
     const input = { mode: "pull-request", provenance: "same-repository", labels: [] };

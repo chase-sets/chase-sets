@@ -118,7 +118,6 @@ const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
   "PLATFORM_WORK_SIGNAL_DATABASE_URL",
-  "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
   ...platformApiContextNames().map((contextName) => getContextDatabaseEnvName(contextName)),
   ...platformApiContextNames().map((contextName) => getContextWaiterDatabaseEnvName(contextName)),
 ];

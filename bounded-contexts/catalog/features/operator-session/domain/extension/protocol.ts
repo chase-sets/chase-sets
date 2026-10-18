@@ -19,7 +19,6 @@ export const operatorOutcomes = [
   "stored",
   "unchanged",
   "stale-revision",
-  "cookie-absent",
   "grant-invalid",
   "rate-limited",
   "unavailable",

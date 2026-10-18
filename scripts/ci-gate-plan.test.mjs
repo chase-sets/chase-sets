@@ -276,8 +276,8 @@ describe("shared CI gate plan", () => {
       createHash("sha256")
         .update(`${selectionFixture.incident.join("\n")}\n`)
         .digest("hex"),
-    ).toBe("a2780d68580eee6086a5a98eb47b6ab6a8ca21c296d1f23c88ded7103b64b39f");
-    expect(selectionFixture.incident).toHaveLength(29);
+    ).toBe("2c6566fc3de548289721f453200a2e5cf04414ef1a94d9352bfe1b1dc860f3d7");
+    expect(selectionFixture.incident).toHaveLength(25);
     const scope = classifyChanges({ changedFiles: selectionFixture.incident, workspaces });
     expect(scope.integrationRiskRequired).toBe(false);
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "catalog_admin_integrations"]);
@@ -442,8 +442,7 @@ describe("shared CI gate plan", () => {
       const renameCase = scopedCases.find(
         ({ changedFiles }) =>
           changedFiles.length === 2 &&
-          changedFiles[0] ===
-            "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts" &&
+          changedFiles[0] === "bounded-contexts/catalog/features/operator-session/api/route.ts" &&
           changedFiles[1] === "bounded-contexts/inventory/features/listings/ui/listing.tsx",
       );
       expect(renameCase, "Catalog-provider/Inventory-listing rename fixture must be present").toBeDefined();

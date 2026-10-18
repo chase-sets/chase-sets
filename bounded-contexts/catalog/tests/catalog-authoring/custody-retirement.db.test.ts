@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -85,13 +86,19 @@ describeDb("TCGplayer custody retirement migration", () => {
     const migration: BcSchemaMigration | undefined = catalogAuthoringSchemaMigrations.find(
       ({ migrationId }) => migrationId === "20261018_catalog_remove_tcgplayer_server_custody",
     );
-    if (!migration?.dataStep) throw new Error("custody retirement migration data step is missing");
+    expect(migration?.dataStep).toBeTypeOf("function");
 
-    await migration.dataStep(pool);
-    for (const statement of migration.statements) await pool.query(statement);
-    await migration.dataStep(pool);
-    for (const statement of migration.statements) await pool.query(statement);
+    await bootstrapContextDatabase(catalogModule, pool);
+    await bootstrapContextDatabase(catalogModule, pool);
 
+    await expect(pool.query("SELECT 1 FROM catalog_operator_session_grants")).resolves.toMatchObject({ rows: [] });
+    await expect(pool.query("SELECT 1 FROM catalog_tcgplayer_operator_sessions")).rejects.toThrow();
+    await expect(pool.query("SELECT 1 FROM catalog_tcgplayer_operator_session_outcomes")).rejects.toThrow();
+
+    await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+      "20261018_catalog_remove_tcgplayer_server_custody",
+    ]);
+    await bootstrapContextDatabase(catalogModule, pool);
     await expect(pool.query("SELECT 1 FROM catalog_operator_session_grants")).resolves.toMatchObject({ rows: [] });
     await expect(pool.query("SELECT 1 FROM catalog_tcgplayer_operator_sessions")).rejects.toThrow();
     await expect(pool.query("SELECT 1 FROM catalog_tcgplayer_operator_session_outcomes")).rejects.toThrow();

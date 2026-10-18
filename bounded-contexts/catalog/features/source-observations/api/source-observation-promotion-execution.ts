@@ -924,7 +924,7 @@ export function prepareProviderAdapterSourceObservationPayload(input: {
     };
   }
 
-  if (input.providerProfile.connector.kind === "tcgplayer-automation-client") {
+  if (input.providerProfile.providerKey === "tcgplayer") {
     return { kind: "failure", reason: "TCGplayer server transport is retired; use the browser handoff." };
   }
 

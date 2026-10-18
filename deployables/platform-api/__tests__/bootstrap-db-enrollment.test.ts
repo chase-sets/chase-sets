@@ -1093,7 +1093,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const channelsTestSupport = ["@chase-sets", "channels", "test-support"].join("/");
     await mkdir(directory);
     await writeFile(
-      join(directory, "operator-session-push.db.test.ts"),
+      join(directory, "operator-session-grant-lifecycle.db.test.ts"),
       [
         'import { it } from "vitest";',
         'import { createPlatformApiBootstrapTestHarness } from "../bootstrap-db-test-support";',
@@ -1104,7 +1104,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       ].join("\n"),
     );
     expect(runFixture(fixture).violations).toContain(
-      "__tests__/operator-session/operator-session-push.db.test.ts is an executable test entry that stands up a bootstrap database " +
+      "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts is an executable test entry that stands up a bootstrap database " +
         "but is not manifested in any numbered test:db:* execution unit",
     );
   });
@@ -1126,7 +1126,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   it.each(["test:unit", "test:fast"])("rejects Catalog and nested DB leaks from %s (N1)", async (name) => {
     for (const entry of [
       "__tests__/seed-command-catalog.db.test.ts",
-      "__tests__/operator-session/operator-session-push.db.test.ts",
+      "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
     ]) {
       const fixture = await createDbCensusFixture();
       await editScripts(fixture, (scripts) => {

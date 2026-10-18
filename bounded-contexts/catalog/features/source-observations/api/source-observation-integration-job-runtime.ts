@@ -528,6 +528,27 @@ export function createSourceObservationIntegrationJobRuntime({
     try {
       throwIfJobRunCancelled(input);
       const activeJob = claimed;
+      if ((activeJob.scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
+        const retired = retiredProviderResult(activeJob.scope);
+        const failureMessage = RETIRED_TCGPLAYER_MESSAGE;
+        await requireSourceObservationJobClaim(
+          integrationJobStore.fail({
+            jobId: activeJob.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: bulkProgress(retired.requested, retired.requested, null, "failed", "failed"),
+            errorMessage: failureMessage,
+          }),
+        );
+        recordIntegrationJobTelemetry(deps.sourceObservationTelemetry, activeJob.action, "failed");
+        recordIntegrationJobControlPlaneTelemetry(deps.sourceObservationTelemetry, activeJob, retired, "failed");
+        await recordCatalogScopeSyncStateForChildJob({
+          job: { ...activeJob, status: "failed", result: retired, completedAt: new Date().toISOString() },
+          status: "failed",
+          errorMessage: failureMessage,
+          recordedAt: new Date().toISOString(),
+        });
+        return 1;
+      }
       const turnResult = await runProviderSendJob(deps, claimed.jobId, async () =>
         claimed.action === "import"
           ? await processIntegrationImportJobTurn({

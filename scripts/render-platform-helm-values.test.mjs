@@ -261,18 +261,18 @@ describe("render platform Helm values", () => {
     }
   });
 
-  it("renders both keyrings only as shared API/worker Secret references", () => {
+  it("renders the retained channel keyring only as shared API/worker Secret references", () => {
     const base = buildPlatformHelmValues({ repoRoot });
     for (const build of [buildPlatformHelmValues, buildPlatformHelmStagingValues, buildPlatformHelmProductionValues]) {
       const values = build({ repoRoot });
       for (const host of ["platform-api", "platform-worker"]) {
         const effective = values.components[host].env ?? base.components[host].env;
-        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON"])
           expect(effective.find((entry) => entry.name === name)).toEqual({ name, secret: true, secretKey: name });
       }
       for (const [name, component] of Object.entries(values.components)) {
         if (!["platform-api", "platform-worker"].includes(name))
-          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON"])
             expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
               secretName,
             );
@@ -1115,9 +1115,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 134,
-      "platform-bootstrap": 63,
-      "platform-worker": 136,
+      "platform-api": 129,
+      "platform-bootstrap": 59,
+      "platform-worker": 131,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
