@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
-import { AccountMutationForm as Form, type MutationNotification } from "../../account-management/ui/controller";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
+import type { MutationNotification } from "../../account-management/ui/controller";
 import {
   HiddenInput,
   Badge,
@@ -173,16 +174,17 @@ export function ShippingAddressPage({
   const failureView = (key: string) => {
     const failure = failures[key];
     return failure ? (
-      <div
+      <Stack
         ref={(node) => {
           statusRefs.current[key] = node;
         }}
+        gap={2}
         tabIndex={-1}
         role="status"
         aria-live="polite"
       >
         <Banner tone="danger" title={failure.message} />
-      </div>
+      </Stack>
     ) : null;
   };
   return (
