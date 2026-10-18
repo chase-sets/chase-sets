@@ -1,11 +1,8 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, useRef, useState } from "react";
 import { AccountMutationForm as Form } from "../../account-management/ui/controller";
-import type { MutationNotification } from "../../account-management/ui/controller";
 import {
   HiddenInput,
   Badge,
-  Banner,
   Button,
   Grid,
   Inline,
@@ -35,13 +32,7 @@ function addressLines(address: ShippingAddress) {
   ].filter(Boolean);
 }
 
-function AddressFields({
-  address,
-  errors = {},
-}: {
-  address?: ShippingAddress;
-  errors?: Readonly<Record<string, string>>;
-}) {
+function AddressFields({ address }: { address?: ShippingAddress }) {
   return (
     <Grid columns={{ base: 1, md: 2 }} gap={3}>
       <TextInput
@@ -52,7 +43,6 @@ function AddressFields({
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name")}
         name="name"
-        error={errors.name}
         autoComplete="name"
         defaultValue={address?.recipient_name ?? ""}
         required
@@ -66,7 +56,6 @@ function AddressFields({
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.country")}
         name="country"
-        error={errors.country}
         autoComplete="country"
         defaultValue={address?.country ?? "US"}
         required
@@ -74,7 +63,6 @@ function AddressFields({
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line1")}
         name="line1"
-        error={errors.line1}
         autoComplete="address-line1"
         defaultValue={address?.line1 ?? ""}
         required
@@ -88,7 +76,6 @@ function AddressFields({
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.city")}
         name="city"
-        error={errors.city}
         autoComplete="address-level2"
         defaultValue={address?.city ?? ""}
         required
@@ -96,7 +83,6 @@ function AddressFields({
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.state")}
         name="state"
-        error={errors.state}
         autoComplete="address-level1"
         defaultValue={address?.state ?? ""}
         required
@@ -104,7 +90,6 @@ function AddressFields({
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.postal.code")}
         name="postalCode"
-        error={errors.postalCode}
         autoComplete="postal-code"
         defaultValue={address?.postal_code ?? ""}
         required
@@ -142,51 +127,6 @@ export function ShippingAddressPage({
   addresses: readonly ShippingAddress[];
   errorMessage?: string | null;
 }) {
-  const [failures, setFailures] = useState<
-    Readonly<Record<string, Readonly<{ message: string; fields: Readonly<Record<string, string>> }>>>
-  >({});
-  const [focusKey, setFocusKey] = useState<string | null>(null);
-  const statusRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  useEffect(() => {
-    if (focusKey) statusRefs.current[focusKey]?.focus();
-  }, [failures, focusKey]);
-  function onMutation(key: string, notification: MutationNotification) {
-    if (notification.type === "accepted") {
-      setFailures((current) => {
-        if (!(key in current)) return current;
-        const next = { ...current };
-        delete next[key];
-        return next;
-      });
-      setFocusKey(null);
-      return;
-    }
-    const values = notification.failure.errors?.fieldErrors ?? {};
-    setFailures((current) => ({
-      ...(current ?? {}),
-      [key]: {
-        message: notification.failure.message,
-        fields: Object.fromEntries(Object.entries(values).map(([name, messages]) => [name, messages[0] ?? ""])),
-      },
-    }));
-    setFocusKey(key);
-  }
-  const failureView = (key: string) => {
-    const failure = failures[key];
-    return failure ? (
-      <Stack
-        ref={(node) => {
-          statusRefs.current[key] = node;
-        }}
-        gap={2}
-        tabIndex={-1}
-        role="status"
-        aria-live="polite"
-      >
-        <Banner tone="danger" title={failure.message} />
-      </Stack>
-    ) : null;
-  };
   return (
     <Page>
       <PageHeader
@@ -214,11 +154,10 @@ export function ShippingAddressPage({
         description={t("identity.features.shippingAddresses.ui.shippingAddressPage.add.description")}
       >
         <Surface elevation="tinted">
-          {failureView("create")}
-          <Form spacing="none" method="post" onMutation={(notification) => onMutation("create", notification)}>
+          <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create" />
-              <AddressFields errors={failures.create?.fields} />
+              <AddressFields />
               <Button type="submit" leadingIcon="plus">
                 {t("identity.features.shippingAddresses.ui.shippingAddressPage.save.address")}
               </Button>
@@ -266,16 +205,11 @@ export function ShippingAddressPage({
                         </Button>
                       }
                     >
-                      {failureView(address.shipping_address_id)}
-                      <Form
-                        spacing="none"
-                        method="post"
-                        onMutation={(notification) => onMutation(address.shipping_address_id, notification)}
-                      >
+                      <Form spacing="none" method="post">
                         <Stack gap={3}>
                           <HiddenInput type="hidden" name="intent" value="update" />
                           <HiddenInput type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
-                          <AddressFields address={address} errors={failures[address.shipping_address_id]?.fields} />
+                          <AddressFields address={address} />
                           <Button type="submit" tone="secondary">
                             {t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
                           </Button>

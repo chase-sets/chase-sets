@@ -66,7 +66,7 @@ export function resolveClientState(value: unknown, status: number): ClientState 
         return "ambiguous";
       if (failure.errors !== undefined) {
         const errors = closedObject(failure.errors, ["fieldErrors", "formErrors"]);
-        const fields = closedObject(errors.fieldErrors, [...actionFields[failure.intent as MutationAction]]);
+        const fields = closedObject(errors.fieldErrors, [...actionFields.create]);
         for (const messages of [...Object.values(fields), errors.formErrors])
           if (
             !Array.isArray(messages) ||

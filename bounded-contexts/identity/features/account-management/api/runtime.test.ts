@@ -7,7 +7,12 @@ import { createIdentitySecretAdapters } from "../../api-keys/api/secret-adapters
 import type { IdentityMutationPersistence } from "./fences";
 import { createAccountManagementRuntime, type MutationInput } from "./runtime";
 import { validateOwnerHistory } from "./owners";
-import { ShippingAddressUndeliverableError } from "../../shipping-addresses/domain/errors";
+import {
+  SHIPPING_ADDRESS_REQUIRED_MESSAGES,
+  ShippingAddressFieldError,
+  ShippingAddressUndeliverableError,
+  type ShippingAddressField,
+} from "../../shipping-addresses/domain/errors";
 import type { ShippingAddressServices } from "../../shipping-addresses/api/runtime";
 
 const actor: ResolvedActor = {
@@ -204,15 +209,30 @@ describe("issue-7168-ac6-api-key-secret", () => {
 });
 
 describe("issue-7168-ac7-address-provider-order", () => {
-  it("keyed field rejection retains the field without a receipt or event", async () => {
+  it.each(
+    (Object.keys(SHIPPING_ADDRESS_REQUIRED_MESSAGES) as ShippingAddressField[]).flatMap((field) =>
+      ["create", "update"].map((action) => ({ field, action })),
+    ),
+  )("keyed field rejection retains $action $field without a receipt or event", async ({ field, action }) => {
     const f = fixture();
+    // Country defaults before normalization; the port can still reject that required field.
+    f.provider.mockRejectedValue(new ShippingAddressFieldError(field));
+    const body = {
+      label: "Home",
+      name: "Test",
+      line1: "1 Test St",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+    };
     const result = await f.runtime.submit({
       ...input,
-      action: "create",
-      target: null,
-      body: { label: "Home", line1: "1 Test St", city: "Chicago", state: "IL", postalCode: "60601", country: "US" },
+      action,
+      target: action === "update" ? "adr_01ARZ3NDEKTSV4RRFFQ69G5FAV" : null,
+      body: { ...body, [field]: " " },
     });
-    expect(result).toEqual({ outcome: "not-recorded", code: "validation-failed", shippingAddressField: "name" });
+    expect(result).toEqual({ outcome: "not-recorded", code: "validation-failed", shippingAddressField: field });
     expect(f.memory.allEvents).toHaveLength(0);
   });
 
