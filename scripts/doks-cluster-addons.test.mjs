@@ -157,7 +157,9 @@ describe("doks cluster addons planner", () => {
     const step = workflow.slice(stepStart, stepEnd);
     const metadataIndex = step.indexOf("helm get metadata ingress-nginx --namespace ingress-nginx");
     const valuesIndex = step.indexOf("helm get values ingress-nginx --namespace ingress-nginx --output yaml");
-    const selectorIndex = step.indexOf("node ./scripts/doks-cluster-addons.mjs --environment staging --component ingress-nginx");
+    const selectorIndex = step.indexOf(
+      "node ./scripts/doks-cluster-addons.mjs --environment staging --component ingress-nginx",
+    );
 
     expect(step).toContain("set -euo pipefail");
     expect(metadataIndex).toBeGreaterThanOrEqual(0);
