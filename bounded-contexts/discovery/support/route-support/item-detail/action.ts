@@ -170,7 +170,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const intent = String(formData.get("intent") ?? "");
   const discoveryApi = createDiscoveryRequestApiClient(request);
   if (intent === "commit-saved-list") {
-    return commitSavedListAddition(request, formData);
+    return commitSavedListAddition(request, formData, (...args) =>
+      navigateAfterWriteFromSourcesWithPlatformPostWriteToken(...args),
+    );
   }
   if (intent === "prepare-saved-list") {
     try {
