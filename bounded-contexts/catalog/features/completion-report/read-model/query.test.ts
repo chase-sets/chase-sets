@@ -27,6 +27,7 @@ import {
   reconcileProductionCatalogCompletion,
   type ProductionCatalogCompletionManifest,
 } from "../domain/index";
+import { findSupportSafetyViolations } from "../domain/redaction";
 import {
   classifyProviderProductionClass,
   queryProductionCatalogCompletionFacts,
@@ -59,6 +60,18 @@ const context: EventStoreContext = {
 // SYNTHETIC provider coordinates; unit keys are opaque to the report.
 const tcgdexUnit = { providerKey: "tcgdex", unitKey: "tcgdex:pokemon-card:en" } as const;
 const scrydexUnit = { providerKey: "scrydex", unitKey: "scrydex:pokemon-card:en" } as const;
+
+function expectNonNegativeIntegerLeaves(value: unknown): void {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) {
+      expectNonNegativeIntegerLeaves(child);
+    }
+    return;
+  }
+  expect(typeof value).toBe("number");
+  expect(Number.isInteger(value)).toBe(true);
+  expect(value as number).toBeGreaterThanOrEqual(0);
+}
 
 describeDb("Production Catalog completion facts from the database (db)", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
@@ -426,6 +439,8 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
       observedAt: new Date().toISOString(),
     });
     const agreement = facts.reportedFacts.providerAgreement.pokemon;
+    expect(findSupportSafetyViolations(agreement)).toEqual([]);
+    expectNonNegativeIntegerLeaves(JSON.parse(JSON.stringify(agreement)));
     expect(agreement.candidateCount).toBe(3);
     expect(agreement.fields.name).toMatchObject({ agreed: 0, "single-source": 1, mismatch: 1, absent: 1 });
     expect(agreement.fields.name.mismatchPairs).toEqual({
