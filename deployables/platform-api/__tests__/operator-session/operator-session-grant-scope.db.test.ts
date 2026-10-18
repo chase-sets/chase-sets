@@ -12,9 +12,13 @@ describeDb("public bearer grant scope", () => {
     const app = mounted(catalogManifest, db());
     const grant = await mint(app);
     const bearerOnlyApp = mounted(catalogManifest, db(), { actor: null });
-    for (const path of [adminPath, adminPath + "/grant", publicPath + "/tcgplayer"]) {
+    for (const [path, statuses] of [
+      [adminPath, [401]],
+      [adminPath + "/grant", [401]],
+      [publicPath + "/tcgplayer", [404, 405]],
+    ] as const) {
       const response = await bearerOnlyApp.request(base + path, { headers: { authorization: "Bearer " + grant } });
-      expect([404, 405]).toContain(response.status);
+      expect(statuses).toContain(response.status);
       expect(response.headers.get("cache-control")).toBe("no-store");
     }
     const before = await snapshot(db());

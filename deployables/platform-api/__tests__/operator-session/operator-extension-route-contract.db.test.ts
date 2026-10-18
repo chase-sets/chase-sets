@@ -19,7 +19,7 @@ describeDb("operator-extension-route-contract: mounted pairing surface", () => {
     const response = await unpair(app, grant);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ outcome: "revoked" });
-    expect(await (await admin(app, "DELETE", adminPath)).json()).toEqual({ outcome: "revoked" });
+    expect(await (await admin(app, "DELETE", adminPath)).json()).toEqual({ outcome: "cleared", revision: 0 });
     expect(publicPath).toBe("/api/public/catalog/operator-session");
   });
 });
