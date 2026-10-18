@@ -190,35 +190,36 @@ afterEach(() => {
 });
 
 describe("with-secrets.ps1 -Command", () => {
-  it("hands the token only to the bws environment and records one secret list, then the exact run argv", () => {
-    const seat = createSeat({ bws: { stdout: "child-out\n" } });
-    const plain = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"]);
-    const isolated = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello", "-NoInheritEnv"]);
+  // One helper launch per case keeps each test inside the default 5 s timeout.
+  it.each([
+    ["inherited", [], []],
+    ["-NoInheritEnv", ["-NoInheritEnv"], ["--no-inherit-env"]],
+  ])(
+    "hands the token only to the bws environment and records one secret list, then the exact run argv (%s)",
+    (_name, flags, runFlags) => {
+      const seat = createSeat({ bws: { stdout: "child-out\n" } });
+      const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello", ...flags]);
 
-    expect(plain.status).toBe(0);
-    expect(isolated.status).toBe(0);
-    const [firstList, first, secondList, second, ...rest] = bwsCalls(seat);
-    expect(rest).toEqual([]);
-    for (const list of [firstList, secondList]) {
+      expect(result.status).toBe(0);
+      const [list, run, ...rest] = bwsCalls(seat);
+      expect(rest).toEqual([]);
       expect(list.argv).toEqual(["secret", "list", projectId, "--output", "json", "--color", "no"]);
-    }
-    const shell = first.argv[4];
-    expect(path.isAbsolute(shell)).toBe(true);
-    expect(path.basename(shell)).toMatch(/^pwsh(\.exe)?$/i);
-    expect(first.argv).toEqual(["run", "--project-id", projectId, "--shell", shell, "--", "Write-Output hello"]);
-    expect(second.argv).toEqual([
-      "run",
-      "--project-id",
-      projectId,
-      "--shell",
-      shell,
-      "--no-inherit-env",
-      "--",
-      "Write-Output hello",
-    ]);
-    expectTokenOnlyInBwsEnvironment(seat, plain);
-    expectTokenOnlyInBwsEnvironment(seat, isolated);
-  });
+      const shell = run.argv[4];
+      expect(path.isAbsolute(shell)).toBe(true);
+      expect(path.basename(shell)).toMatch(/^pwsh(\.exe)?$/i);
+      expect(run.argv).toEqual([
+        "run",
+        "--project-id",
+        projectId,
+        "--shell",
+        shell,
+        ...runFlags,
+        "--",
+        "Write-Output hello",
+      ]);
+      expectTokenOnlyInBwsEnvironment(seat, result);
+    },
+  );
 
   it("passes through the child's stdout, stderr and exit code", () => {
     const seat = createSeat({ bws: { stdout: "child-out\n", stderr: "child-err\n", exitCode: 7 } });
@@ -296,21 +297,28 @@ describe("with-secrets.ps1 -Command", () => {
     expect(credentialCalls(seat)).toEqual([]);
   });
 
-  it("keeps BW_SESSION, BW_PASSWORD, BW_CLIENTID and BW_CLIENTSECRET out of the bws environment", () => {
-    const seat = createSeat({ bws: { list: "[]" } });
-    const sentinels = Object.fromEntries(bwNames.map((name) => [name, `sentinel-${name}-${randomUUID()}`]));
-    const command = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"], sentinels);
-    const check = runSeat(seat, "with-secrets.ps1", ["-Check"], sentinels);
+  it.each([
+    [
+      ["-Command", "Write-Output hello"],
+      ["secret", "run"],
+    ],
+    [["-Check"], ["secret"]],
+  ])(
+    "keeps BW_SESSION, BW_PASSWORD, BW_CLIENTID and BW_CLIENTSECRET out of the bws environment for %j",
+    (args, verbs) => {
+      const seat = createSeat({ bws: { list: "[]" } });
+      const sentinels = Object.fromEntries(bwNames.map((name) => [name, `sentinel-${name}-${randomUUID()}`]));
+      const result = runSeat(seat, "with-secrets.ps1", args, sentinels);
 
-    expect(command.status).toBe(0);
-    expect(check.status).toBe(0);
-    const calls = bwsCalls(seat);
-    expect(calls.map((call) => call.argv[0])).toEqual(["secret", "run", "secret"]);
-    for (const call of calls) expect(call.bwEnvNames).toEqual([]);
-    for (const value of Object.values(sentinels)) {
-      expect(filesContaining(seat.root, value, [])).toEqual([]);
-    }
-  });
+      expect(result.status).toBe(0);
+      const calls = bwsCalls(seat);
+      expect(calls.map((call) => call.argv[0])).toEqual(verbs);
+      for (const call of calls) expect(call.bwEnvNames).toEqual([]);
+      for (const value of Object.values(sentinels)) {
+        expect(filesContaining(seat.root, value, [])).toEqual([]);
+      }
+    },
+  );
 });
 
 describe("with-secrets.ps1 -Command output scrubbing", () => {
@@ -346,10 +354,10 @@ describe("with-secrets.ps1 -Command output scrubbing", () => {
       ({ v1, v2 }) => ({
         segments: [
           out("x{{TOKEN@0-9}}"),
-          out(`{{TOKEN@9-}}y${v1.slice(0, 7)}`, { pauseMs: 300 }),
-          out(`${v1.slice(7)}z\n`, { pauseMs: 300 }),
+          out(`{{TOKEN@9-}}y${v1.slice(0, 7)}`, { pauseMs: 150 }),
+          out(`${v1.slice(7)}z\n`, { pauseMs: 150 }),
           err(v2.slice(0, 3)),
-          err(`${v2.slice(3)}\n`, { pauseMs: 300 }),
+          err(`${v2.slice(3)}\n`, { pauseMs: 150 }),
         ],
         stdout: encode(`x${R}y${R}z\n`, "utf8"),
         stderr: encode(`${R}\n`, "utf8"),
@@ -551,21 +559,26 @@ describe("with-secrets.ps1 -ListKeys and -Check", () => {
     expect(result.stdout).not.toContain(valueSentinel);
   });
 
-  it("treats a readable project with zero secrets as readable without calling bws run", () => {
+  // The fake answers `run` with the 404 that bws 2.1.0 returns for an empty project.
+  it.each([
+    [["-Check"], `OK: account 'lanes' can read project ${projectId} (0 keys).\n`],
+    [["-ListKeys"], ""],
+  ])("treats a readable project with zero secrets as readable for %j without calling bws run", (args, stdout) => {
     const seat = createSeat({ bws: { list: "[]", runNotFound: true } });
-    const check = runSeat(seat, "with-secrets.ps1", ["-Check"]);
-    const listKeys = runSeat(seat, "with-secrets.ps1", ["-ListKeys"]);
+    const result = runSeat(seat, "with-secrets.ps1", args);
 
-    expect(check.status).toBe(0);
-    expect(check.stdout).toContain(`OK: account 'lanes' can read project ${projectId}`);
-    expect(listKeys.status).toBe(0);
-    expect(listKeys.stdout.trim()).toBe("");
-    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "secret"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout.replace(/\r\n/g, "\n")).toBe(stdout);
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
+  });
 
-    // The same fake answers `run` with the 404 that bws 2.1.0 returns for an empty project.
+  it("lets -Command reach bws run against the same empty project and surfaces its 404", () => {
+    const seat = createSeat({ bws: { list: "[]", runNotFound: true } });
     const command = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"]);
+
     expect(command.status).not.toBe(0);
     expect(command.stderr).toContain("404 Not Found");
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
   });
 });
 
