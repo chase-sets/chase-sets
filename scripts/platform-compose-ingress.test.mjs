@@ -21,6 +21,11 @@ describe("platform-compose-ingress", () => {
     expect(shouldRouteToApi("/api/fulfillment/provider/postage/webhooks/easypost")).toBe(true);
   });
 
+  it("routes the connector credential mount to platform-api (#9985)", () => {
+    expect(shouldRouteToApi("/channel-connector/oauth/authorize")).toBe(true);
+    expect(shouldRouteToApi("/channel-connector/oauth/connections/x/claim")).toBe(true);
+  });
+
   it("falls through page routes to the web app", () => {
     expect(shouldRouteToApi("/")).toBe(false);
     expect(shouldRouteToApi("/search")).toBe(false);
@@ -31,5 +36,7 @@ describe("platform-compose-ingress", () => {
   it("does not prefix-match unrelated paths that merely start with the same characters", () => {
     expect(shouldRouteToApi("/mcp-docs")).toBe(false);
     expect(shouldRouteToApi("/apiary")).toBe(false);
+    expect(shouldRouteToApi("/channel-connectors")).toBe(false);
+    expect(shouldRouteToApi("/channel-connector-help")).toBe(false);
   });
 });

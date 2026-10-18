@@ -355,10 +355,15 @@ Completion forecasting is owned by #7465.
 ## Scheduling mechanisms
 
 - **Milestone** owns finite acceptance, membership, terminal evidence and scope.
-- **Outcome order** is agent-owned order within a named track, with Todd steering
-  taking precedence. It is independent of title, creation order and dates. The
-  board's `Outcome order` Number field is a sync-owned display projection of the
-  shared comparator (track, order, stable identity); configure its field ID in
+- **Outcome order** is agent-owned order across all committed outcomes, with
+  Todd steering taking precedence. Committed outcomes compare by their outcome
+  `order` alone, across tracks, then by milestone number; track names never
+  decide rank. Track remains a label for the per-track pull window. Two ranked
+  committed outcomes with the same `order` are an `OUTCOME_ORDER_TIE` defect: the
+  tie is broken by milestone number and never fails the ranking. Outcome order
+  is independent of title, creation order and dates. The board's `Outcome order`
+  Number field is a sync-owned display projection of the same comparison
+  (`compareOutcomeOrder`); configure its field ID in
   `DELIVERY_OUTCOME_ORDER_FIELD_ID`. Agents edit the milestone authority, never
   this projection. Sort the execution view by Outcome order, then Dispatch rank.
 - **Blocker** is a native correctness edge, never a scheduling opinion.
@@ -377,13 +382,29 @@ request against the file being split.
 
 ## Selection (the orchestrator contract)
 
+`scripts/next-work.mjs` is the computed Selection. It reads live GitHub facts
+in one paced, read-only pass and reports the ranked runnable frontier as
+`next-work/v1` (text, or JSON with `--json <path>`). Every open issue is either ranked once or counted
+once under its first exclusion reason (`EPIC`, `TRACKING_ONLY`, `NO_MILESTONE`,
+`NOT_COMMITTED_OUTCOME`, `EXCLUDED_MILESTONE`, `BLOCKED`). Each ranked issue
+carries one action (`operator-wait`, `replan`, `planning-repair`, `decide`,
+`pr-open` or `implement`) and belongs to one **lane class**: `product` is
+`kind:product`; `ops` is `kind:ops` or a title starting `[controller]`; `other`
+is everything else. `--exclude-milestone` takes the platform-owned milestones.
+`--check` exits 1 when the report has defects, such as an `OUTCOME_ORDER_TIE`;
+incomplete facts exit 2 and write no file.
+
 1. Exclude Epics, tracking-only records, candidates, Deferred / Incubation and
    Operations. Preserve existing ownership for active lanes.
-2. Apply current Todd steering and actual emergency interrupts. Then consume
-   the per-track committed pull window from `scripts/dispatch-window.mjs`.
-   That helper uses the shared milestone policy; never derive title order again.
-3. Within the selected outcome, work Dispatch rank, then priority and native
-   dependency topology. Agents update ranks; Todd never has to supply them.
+2. Apply current Todd steering, then take the computed Selection: each lane
+   class is ranked by outcome order then milestone number, Dispatch rank
+   (missing last), priority p0 to p3 (missing last), dependency unlock count
+   (descending) and issue number. An evidenced p0 emergency may run ahead of
+   its rank only with a recorded `p0-emergency` reason (#9946). The per-track
+   committed pull window from `scripts/dispatch-window.mjs` uses the same
+   milestone policy; never derive title order again.
+3. Within an outcome, Dispatch rank, then priority and native dependency
+   topology order the work. Agents update ranks; Todd never has to supply them.
 4. Open native blockers make a slice unrunnable. Entry and terminal evidence
    gates cannot run before the state they observe exists. External operator
    windows are queued outside implementation lanes.
