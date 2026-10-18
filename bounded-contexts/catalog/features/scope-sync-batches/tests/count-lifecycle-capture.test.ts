@@ -202,6 +202,67 @@ describe("staging count capture lifecycle", () => {
   type HostileKind = "replay" | "refresh" | "refused-authority" | "cap-overflow";
   type HostileMutant = { lifecycle?: Replacements; store?: Replacements };
 
+  const hostileGuardId = (kind: HostileKind) => `count-capture-${kind}`;
+  const hostileBoundary = (kind: HostileKind) => (kind === "refresh" ? "capture-baseline" : "count-acquire");
+
+  async function assertSettledHostileState(
+    f: Awaited<ReturnType<typeof createCountCaptureDbFixture>>,
+    kind: HostileKind,
+    result: unknown,
+    progressed: boolean,
+    fetchBefore: number,
+    intents: readonly string[],
+  ) {
+    const payload = (await captureRunPayload(f)) as {
+      schemaVersion: number;
+      status: "open" | "stopped" | "frozen";
+      request: unknown;
+      phases: readonly string[];
+      sends: readonly { status: unknown }[];
+      receipt?: { schemaVersion?: string };
+    };
+    const countLedger = await f.countStore.history();
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.request).toBeNull();
+    expect(payload.status).toBe(progressed ? "frozen" : "stopped");
+    expect(payload.phases.at(-1)).toBe(
+      progressed ? "freeze" : hostileBoundary(kind) === "capture-baseline" ? "baseline" : "acquisition",
+    );
+    expect(payload.sends.every((send) => send.status !== null)).toBe(true);
+    expect(countLedger.every((entry) => entry.credits === 1 && entry.outcome === "complete")).toBe(true);
+    if (progressed) expect(f.fetch.mock.calls.length).toBeGreaterThan(fetchBefore);
+    else expect(f.fetch.mock.calls.length).toBe(fetchBefore);
+    if (progressed) {
+      expect(payload.receipt?.schemaVersion).toMatch(/^scope-sync-count-lifecycle(?:-stop)?\/v1$/);
+      expect(result).toEqual(payload.receipt);
+      expect(intents.at(-1)).toBe("capture-freeze");
+    } else {
+      expect(result).toMatchObject({ schemaVersion: "scope-sync-count-lifecycle-stop/v1", evidence: {} });
+      expect(payload.receipt).toBeUndefined();
+      expect(intents.at(-1)).toBe(hostileBoundary(kind));
+    }
+  }
+
+  async function runHostilePair(kind: HostileKind, mutant: HostileMutant) {
+    const controlFixture = await createCountCaptureDbFixture(pools.catalog);
+    const control = await hostile(controlFixture, kind);
+    await assertSettledHostileState(controlFixture, kind, control.stop, false, control.fetchBefore, control.intents);
+    let red: unknown;
+    try {
+      await assertSettledHostileState(controlFixture, kind, control.stop, true, control.fetchBefore, control.intents);
+    } catch (error) {
+      red = error;
+    }
+    expect(red).toBeDefined();
+    console.log(`AC2 guard=${hostileGuardId(kind)} RED`);
+
+    await resetMultiContextTestSchemas(pools);
+    const mutantFixture = await createCountCaptureDbFixture(pools.catalog);
+    const mutated = await hostile(mutantFixture, kind, mutant);
+    await assertSettledHostileState(mutantFixture, kind, mutated.stop, true, mutated.fetchBefore, mutated.intents);
+    console.log(`AC2 guard=${hostileGuardId(kind)} GREEN`);
+  }
+
   async function hostile(
     f: Awaited<ReturnType<typeof createCountCaptureDbFixture>>,
     kind: HostileKind,
@@ -255,14 +316,6 @@ describe("staging count capture lifecycle", () => {
         : createCountCaptureLifecycle(captureDeps(f, { ...overrides, store: secondStore }));
       const second = journey(f, secondLifecycle);
       const stop = await second.result;
-      if (mutant) {
-        expect(second.intents).toContain("capture-baseline");
-        expect(second.intents.at(-1)).not.toBe("capture-baseline");
-      } else {
-        expect(stop).toMatchObject({ phase: "baseline", reason: "capture-stopped" });
-        expect("evidence" in stop ? stop.evidence : undefined).toEqual({});
-        expect(second.intents.at(-1)).toBe("capture-baseline");
-      }
       return { stop, intents: second.intents, fetchBefore };
     }
 
@@ -272,15 +325,6 @@ describe("staging count capture lifecycle", () => {
       : createCountCaptureLifecycle(captureDeps(f, { ...overrides, store }));
     const run = journey(f, lifecycle, hook);
     const stop = await run.result;
-    if (mutant) {
-      expect(run.intents).toContain("count-acquire");
-      expect(run.intents.at(-1)).not.toBe("count-acquire");
-    } else {
-      expect(stop).toMatchObject({ phase: "acquisition", reason: "capture-stopped" });
-      expect("evidence" in stop ? stop.evidence : undefined).toEqual({});
-      expect(run.intents.at(-1)).toBe("count-acquire");
-      expect(run.intents).not.toContain("capture-freeze");
-    }
     return { stop, intents: run.intents, fetchBefore };
   }
 
@@ -326,8 +370,7 @@ describe("staging count capture lifecycle", () => {
   });
 
   it("the replay guard-disabled mutant proceeds past acquisition", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
-    await hostile(f, "replay", {
+    await runHostilePair("replay", {
       lifecycle: [["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"]],
       store: [
         ["(last !== undefined && phaseOrder(phase) <= phaseOrder(last))", "false"],
@@ -347,8 +390,7 @@ describe("staging count capture lifecycle", () => {
     });
   });
   it("the refresh guard-disabled mutant proceeds past baseline", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
-    await hostile(f, "refresh", {
+    await runHostilePair("refresh", {
       store: [
         [
           "if (retained.some((run) => run.host.dispatchId === input.host.dispatchId)) throw new CountCaptureStopped();",
@@ -358,12 +400,10 @@ describe("staging count capture lifecycle", () => {
     });
   });
   it("the refused authority guard-disabled mutant proceeds past acquisition", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
-    await hostile(f, "refused-authority", { lifecycle: [["!authority.allowed ||", ""]] });
+    await runHostilePair("refused-authority", { lifecycle: [["!authority.allowed ||", ""]] });
   });
   it("the cap overflow guard-disabled mutant proceeds past acquisition", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
-    await hostile(f, "cap-overflow", {
+    await runHostilePair("cap-overflow", {
       lifecycle: [["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"]],
       store: [
         ["countFingerprint(run.quote) !== countFingerprint(quote)", "false"],
