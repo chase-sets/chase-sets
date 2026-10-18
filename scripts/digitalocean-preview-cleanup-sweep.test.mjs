@@ -741,7 +741,37 @@ describe("digitalocean-preview-cleanup-sweep", () => {
         }
       }
       expect(grandchildPid).toBeGreaterThan(0);
-      expect(() => process.kill(grandchildPid, 0)).toThrow();
+      const grandchildIsDead = () => {
+        try {
+          process.kill(grandchildPid, 0);
+        } catch (error) {
+          if (error?.code === "ESRCH") {
+            return true;
+          }
+          throw error;
+        }
+        if (process.platform === "linux") {
+          try {
+            const stat = readFileSync(`/proc/${grandchildPid}/stat`, "utf8");
+            const stateStart = stat.lastIndexOf(")") + 2;
+            return stat[stateStart] === "Z";
+          } catch (error) {
+            if (error?.code === "ENOENT") {
+              return true;
+            }
+            throw error;
+          }
+        }
+        return false;
+      };
+      let grandchildSettled = false;
+      for (let attempt = 0; attempt < 40 && !grandchildSettled; attempt += 1) {
+        grandchildSettled = grandchildIsDead();
+        if (!grandchildSettled) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
+      expect(grandchildSettled).toBe(true);
     }
     await rm(pidFile, { force: true });
 
