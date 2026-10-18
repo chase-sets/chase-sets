@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 import { classifyBrandFoilContent } from "./check-structure/brand-foil-sites.mjs";
+import { pinned } from "./doks-cluster-addons.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const valuesPath = path.join(root, "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml");
@@ -21,6 +22,11 @@ const sortedDataJson = (configMapData) =>
     ),
   );
 const message = "Chase Sets is temporarily unavailable. Please try again in a minute.";
+const defaultBackendSelector = {
+  "app.kubernetes.io/name": "ingress-nginx",
+  "app.kubernetes.io/instance": "ingress-nginx",
+  "app.kubernetes.io/component": "default-backend",
+};
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function expectConfigLine(config, line) {
@@ -39,6 +45,8 @@ function expectOrderedLines(config, lines) {
 
 function assertMaintenanceConfig(candidate) {
   const candidateBackend = candidate.defaultBackend;
+  expect(pinned.ingressNginx.version).toBe("4.11.3");
+  expect(pinned.ingressNginx.releaseName).toBe("ingress-nginx");
   expect(candidate.controller.config).toEqual({
     "use-proxy-protocol": "false",
     "use-forwarded-headers": "true",
@@ -64,10 +72,17 @@ function assertMaintenanceConfig(candidate) {
     },
     serviceAccount: { automountServiceAccountToken: false },
     resources: { requests: { cpu: "10m", memory: "32Mi" } },
-    topologySpreadConstraints: [
-      { maxSkew: 1, topologyKey: "kubernetes.io/hostname", whenUnsatisfiable: "ScheduleAnyway" },
-    ],
   });
+  expect(candidateBackend.topologySpreadConstraints).toHaveLength(1);
+  for (const constraint of candidateBackend.topologySpreadConstraints) {
+    expect(constraint).toMatchObject({
+      maxSkew: 1,
+      topologyKey: "kubernetes.io/hostname",
+      whenUnsatisfiable: "ScheduleAnyway",
+    });
+    expect(constraint.labelSelector).toEqual({ matchLabels: defaultBackendSelector });
+    expect(constraint).not.toHaveProperty("matchExpressions");
+  }
 
   expect(candidateBackend.extraConfigMaps).toHaveLength(1);
   expect(candidateBackend.extraConfigMaps[0].name).toBe("ingress-nginx-maintenance");
@@ -229,6 +244,42 @@ describe("ingress maintenance default backend contract", () => {
   it("rejects a single maintenance replica", () => {
     const mutant = parse(source);
     mutant.defaultBackend.replicaCount = 1;
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects a selector-removed spread constraint", () => {
+    const mutant = parse(source);
+    delete mutant.defaultBackend.topologySpreadConstraints[0].labelSelector;
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects an empty labelSelector spread constraint", () => {
+    const mutant = parse(source);
+    mutant.defaultBackend.topologySpreadConstraints[0].labelSelector = {};
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects an empty matchLabels spread constraint", () => {
+    const mutant = parse(source);
+    mutant.defaultBackend.topologySpreadConstraints[0].labelSelector = { matchLabels: {} };
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects a changed selector label value", () => {
+    const mutant = parse(source);
+    mutant.defaultBackend.topologySpreadConstraints[0].labelSelector = {
+      matchLabels: { ...defaultBackendSelector, "app.kubernetes.io/name": "not-ingress-nginx" },
+    };
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects a second selector-less spread constraint", () => {
+    const mutant = parse(source);
+    mutant.defaultBackend.topologySpreadConstraints.push({
+      maxSkew: 1,
+      topologyKey: "kubernetes.io/hostname",
+      whenUnsatisfiable: "ScheduleAnyway",
+    });
     expect(() => assertMaintenanceConfig(mutant)).toThrow();
   });
 });
