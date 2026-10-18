@@ -433,7 +433,7 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
       "tcgdex|third-provider": 1,
     });
     expect(agreement.fields.collectorNumber.absent).toBe(3);
-    expect(agreement.fields.productForm.absent).toBe(3);
+    expect(agreement.fields.productForm).toMatchObject({ agreed: 1, absent: 1 });
     expect(agreement.fields.rarity["intra-provider-conflict"]).toBe(1);
     expect(
       Object.values(agreement.fields).every(
