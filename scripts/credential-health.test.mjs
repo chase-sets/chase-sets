@@ -320,7 +320,10 @@ beforeAll(async () => {
         .end(JSON.stringify({ message: echo }));
       return;
     }
-    const accessKeyId = /Credential=([^/]+)\//.exec(authorization)?.[1] ?? "";
+    const credential = authorization.indexOf("Credential=");
+    const keyStart = credential + "Credential=".length;
+    const keyEnd = credential === -1 ? -1 : authorization.indexOf("/", keyStart);
+    const accessKeyId = keyEnd > keyStart ? authorization.slice(keyStart, keyEnd) : "";
     const code = {
       [`spaces-dead-${SENTINEL}`]: "InvalidAccessKeyId",
       [`spaces-signature-${SENTINEL}`]: "SignatureDoesNotMatch",
