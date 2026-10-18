@@ -10,7 +10,10 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as checkoutModule } from "../index";
-import { buildCheckoutIdentitySellerAccountsProjectionHandlers } from "../features/cart/integrations/identity/identity-projection";
+import {
+  buildCheckoutIdentitySellerAccountsProjectionHandlers,
+  createSellerSlug,
+} from "../features/cart/integrations/identity/identity-projection";
 import { getCheckoutSellOfferMatch, listCheckoutSellOfferMatches } from "../features/sell-list/read-model/queries";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -167,7 +170,7 @@ describeDb("Checkout account status visibility on Postgres", () => {
             accountId,
           ])
         ).rows[0],
-      ).toEqual({ status: "active", status_stream_version: 1 });
+      ).toEqual({ status: "active", status_stream_version: 0 });
       await project("identity.account.suspended", stream, 2, {});
       expect(
         (
@@ -248,29 +251,45 @@ describeDb("Checkout account status visibility on Postgres", () => {
         `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
       )
     ).rows[0];
-    for (const [type, version, data] of [
-      ["identity.account.created", 1, { accountId: advancedAccount, displayName }],
-      ["identity.account.suspended", 2, {}],
-      ["identity.account.profile-updated", 3, { displayName }],
-      ["identity.account.reactivated", 4, {}],
-      ["identity.account.closed", 5, {}],
-    ] as const)
-      await project(type, advancedStream, version, data);
-    for (const [version, line1] of [
-      [1, "1 Main Street"],
-      [2, "2 Main Street"],
+    for (const [type, streamId, version, data] of [
+      ["identity.account.created", advancedStream, 1, { accountId: advancedAccount, displayName }],
+      ["identity.account.suspended", advancedStream, 2, {}],
+      ["identity.account.profile-updated", advancedStream, 3, { displayName }],
+      ["identity.account.reactivated", advancedStream, 4, {}],
+      [
+        "identity.shipping-address.added",
+        advancedAddressStream,
+        1,
+        addressData(advancedAccount, "addr_advanced", "1 Main Street"),
+      ],
+      [
+        "identity.shipping-address.updated",
+        advancedAddressStream,
+        2,
+        { ...addressData(advancedAccount, "addr_advanced", "2 Main Street"), updatedAt: "2026-10-17T00:00:02.000Z" },
+      ],
+      ["identity.account.closed", advancedStream, 5, {}],
     ] as const) {
-      await project("identity.shipping-address.updated", advancedAddressStream, version, {
-        ...addressData(advancedAccount, "addr_advanced", line1),
-        updatedAt: `2026-10-17T00:00:0${version}.000Z`,
-      });
-      expect(
-        (
-          await pool.query(
-            `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
-          )
-        ).rows[0],
-      ).toEqual(advancedAddress);
+      await project(type, streamId, version, data);
+      if (type === "identity.account.suspended") {
+        expect(
+          (
+            await pool.query(
+              `SELECT status, status_stream_version FROM checkout_seller_accounts WHERE account_id = $1`,
+              [advancedAccount],
+            )
+          ).rows[0],
+        ).toEqual({ status: "suspended", status_stream_version: 2 });
+      }
+      if (type === "identity.shipping-address.added" || type === "identity.shipping-address.updated") {
+        expect(
+          (
+            await pool.query(
+              `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
+            )
+          ).rows[0],
+        ).toEqual(advancedAddress);
+      }
     }
     expect(
       (
@@ -285,6 +304,16 @@ describeDb("Checkout account status visibility on Postgres", () => {
         [advancedAccount],
       )
     ).rows[0];
-    expect(advancedTuple).toEqual(emptyTuple);
+    expect(emptyTuple).toEqual({
+      status: "closed",
+      status_stream_version: 5,
+      display_name: displayName,
+      slug: createSellerSlug(displayName, "acc_empty_replay"),
+      last_stream_version: 3,
+    });
+    expect(advancedTuple).toEqual({
+      ...emptyTuple,
+      slug: createSellerSlug(displayName, advancedAccount),
+    });
   });
 });

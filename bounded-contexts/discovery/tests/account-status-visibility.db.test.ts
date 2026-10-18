@@ -157,7 +157,16 @@ describeDb("Discovery account status visibility on Postgres", () => {
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toMatchObject({ listing_id: "lst_one" });
     expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one"))!.listings).toHaveLength(1);
     expect((await getDiscoveryItemDetail(pool, "item-one"))!.market_summary).toMatchObject({ active_listing_count: 1 });
-    expect(await listingReads()).toMatchObject({ searchTotal: 1, accountListings: ["lst_one"] });
+    expect(await listingReads()).toMatchObject({
+      searchTotal: 1,
+      accountListings: ["lst_one"],
+      summary: {
+        active_listing_count: 1,
+        lowest_price_amount: "10.00",
+        lowest_price_currency_code: "USD",
+        total_visible_quantity: 4,
+      },
+    });
     expect(
       (await getDiscoveryItemDetailSellerOverlay(pool, { accountId: "acc_seller", catalogItemId: "cat_one" }))
         .accountOfferMatches,
@@ -166,7 +175,7 @@ describeDb("Discovery account status visibility on Postgres", () => {
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toBeNull();
     expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one"))!.listings).toHaveLength(0);
     expect((await getDiscoveryItemDetail(pool, "item-one"))!.market_summary).toBeNull();
-    expect(await listingReads()).toMatchObject({ searchTotal: 0, accountListings: [] });
+    expect(await listingReads()).toEqual({ searchTotal: 0, accountListings: [], summary: null });
     expect(await outboxRows()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -193,12 +202,6 @@ describeDb("Discovery account status visibility on Postgres", () => {
       (await getDiscoveryItemDetailSellerOverlay(pool, { accountId: "acc_seller", catalogItemId: "cat_one" }))
         .accountOfferMatches,
     ).toHaveLength(0);
-    const suspendedOutboxCount = (
-      await pool.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM realtime_projection_outbox WHERE projection_name = 'discovery-market-projection'`,
-      )
-    ).rows[0].count;
-    expect(Number(suspendedOutboxCount)).toBeGreaterThan(0);
     await status("identity.account.suspended", 2);
     await status("identity.account.reactivated", 1, "11");
     expect(
@@ -211,7 +214,16 @@ describeDb("Discovery account status visibility on Postgres", () => {
     expect((await outboxRows()).some((row) => row.sourceGlobalPosition === "11")).toBe(false);
     await status("identity.account.reactivated", 3);
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toMatchObject({ listing_id: "lst_one" });
-    expect(await listingReads()).toMatchObject({ searchTotal: 1, accountListings: ["lst_one"] });
+    expect(await listingReads()).toEqual({
+      searchTotal: 1,
+      accountListings: ["lst_one"],
+      summary: {
+        active_listing_count: 1,
+        lowest_price_amount: "10.00",
+        lowest_price_currency_code: "USD",
+        total_visible_quantity: 4,
+      },
+    });
     expect(await outboxRows()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -232,6 +244,15 @@ describeDb("Discovery account status visibility on Postgres", () => {
         }),
       ]),
     );
+    await status("identity.account.suspended", 1, "12");
+    expect(
+      (
+        await pool.query<{ status: string; status_stream_version: number }>(
+          `SELECT status, status_stream_version FROM discovery_market_accounts WHERE account_id = 'acc_seller'`,
+        )
+      ).rows[0],
+    ).toEqual({ status: "active", status_stream_version: 3 });
+    expect((await outboxRows()).some((row) => row.sourceGlobalPosition === "12")).toBe(false);
     await status("identity.account.closed", 4);
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toBeNull();
     await status("identity.account.closed", 3, "30");
