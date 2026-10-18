@@ -288,14 +288,35 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
       await f.noEffects(mode === "missing" ? 2 : 4);
     },
   );
-  it.each(["coordinates", "unchecked", "failed", "budget"] as const)(
+  it("AC3 accepted setName fallback keeps planning ready when set_id is cleared", async () => {
+    const f = await fixture();
+    await pools.catalog.query("UPDATE catalog_provider_scope_mappings SET set_id=NULL WHERE unit_key=$1", [sealedUnit]);
+    const preview = await f.runtime.preview({ selection, budget, context });
+    expect(preview.status).toBe("ready");
+    expect(preview.providerRequestEstimates.scrydex).toBe(6);
+    expect(preview.blockers).toEqual([]);
+    await f.noEffects();
+  });
+
+  it("AC3 missing set_id and accepted setName remains scope-planning-blocked", async () => {
+    const f = await fixture();
+    await pools.catalog.query(
+      "UPDATE catalog_provider_scope_mappings SET set_id=NULL,set_name=NULL WHERE unit_key=$1",
+      [sealedUnit],
+    );
+    const preview = await f.runtime.preview({ selection, budget, context });
+    expect(preview.status).toBe("blocked");
+    expect(preview.blockers.map((item) => item.code)).toContain("scope-planning-blocked");
+    await expect(
+      f.runtime.confirm({ selection, budget, context, planFingerprint: preview.planFingerprint }),
+    ).rejects.toThrow();
+    await f.noEffects();
+  });
+
+  it.each(["unchecked", "failed", "budget"] as const)(
     "AC3 %s refusal remains distinct and cannot write/enqueue",
     async (mode) => {
       const f = await fixture();
-      if (mode === "coordinates")
-        await pools.catalog.query("UPDATE catalog_provider_scope_mappings SET set_id=NULL WHERE unit_key=$1", [
-          sealedUnit,
-        ]);
       if (mode === "unchecked" || mode === "failed") f.setUsage(mode);
       const limits = mode === "budget" ? { creditedProviderRequestLimits: { scrydex: 5 } } : budget;
       const preview = await f.runtime.preview({ selection, budget: limits, context });
@@ -303,9 +324,7 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
       expect(preview.blockers.map((item) => item.code)).toContain(
         mode === "budget"
           ? "credited-provider-budget-exceeded"
-          : mode === "coordinates"
-            ? "scope-planning-blocked"
-            : "credited-provider-estimate-unavailable",
+          : "credited-provider-estimate-unavailable",
       );
       if (mode === "unchecked") {
         expect(preview.blockers).toContainEqual(
