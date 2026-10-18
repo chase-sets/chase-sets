@@ -29,14 +29,11 @@ import { platformApiIngressPrefixes } from "./render-platform-helm-values.mjs";
 // admin), not the api-target's own host.
 const hopByHopRequestHeaders = new Set(["host", "connection", "content-length"]);
 
-function xForwardedHeaders(request) {
-  const forwardedHost = request.headers.host;
-  if (!forwardedHost) {
-    return {};
-  }
+export function xForwardedHeaders(request) {
+  const forwardedHost = request.headers?.host;
   return {
-    "x-forwarded-host": forwardedHost,
-    "x-forwarded-proto": "http",
+    ...(forwardedHost ? { "x-forwarded-host": forwardedHost } : {}),
+    "x-forwarded-proto": request.socket?.encrypted || request.connection?.encrypted ? "https" : "http",
   };
 }
 
@@ -69,9 +66,7 @@ export function createComposeIngressServer({ label, webTarget, apiTarget, fetchI
     try {
       const headers = forwardableRequestHeaders(request.headers);
       for (const [name, value] of Object.entries(xForwardedHeaders(request))) {
-        if (!headers.has(name)) {
-          headers.set(name, value);
-        }
+        headers.set(name, value);
       }
 
       const upstreamResponse = await fetchImpl(new URL(pathname, targetBase), {

@@ -1561,6 +1561,10 @@ jobs:
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
           echo "Configured staging Kubernetes context: ${current_context}"
 
+      - name: Apply staging ingress-nginx forwarded-header policy
+        if: env.SHOULD_DEPLOY != 'false'
+        run: node ./scripts/doks-cluster-addons.mjs --environment staging --component ingress-nginx
+
       # #9268: the staging preview wildcard certificate's DNS-01 solver reads
       # cert-manager/digitalocean-dns-token. Re-apply it from the current
       # repository token on every staging deploy so a token rotation cannot

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldRouteToApi } from "./platform-compose-ingress.mjs";
+import { shouldRouteToApi, xForwardedHeaders } from "./platform-compose-ingress.mjs";
 import { platformApiIngressPrefixes } from "./render-platform-helm-values.mjs";
 
 describe("platform-compose-ingress", () => {
@@ -31,5 +31,37 @@ describe("platform-compose-ingress", () => {
   it("does not prefix-match unrelated paths that merely start with the same characters", () => {
     expect(shouldRouteToApi("/mcp-docs")).toBe(false);
     expect(shouldRouteToApi("/apiary")).toBe(false);
+  });
+
+  it("overwrites spoofed forwarded host and proto with the HTTP request hop", () => {
+    expect(
+      xForwardedHeaders({
+        headers: {
+          host: "staging.chasesets.com",
+          "x-forwarded-host": "attacker.invalid",
+          "x-forwarded-proto": "https",
+        },
+        socket: { encrypted: false },
+      }),
+    ).toEqual({
+      "x-forwarded-host": "staging.chasesets.com",
+      "x-forwarded-proto": "http",
+    });
+  });
+
+  it("derives HTTPS from the encrypted request socket instead of client headers", () => {
+    expect(
+      xForwardedHeaders({
+        headers: {
+          host: "staging.chasesets.com",
+          "x-forwarded-host": "attacker.invalid",
+          "x-forwarded-proto": "http",
+        },
+        socket: { encrypted: true },
+      }),
+    ).toEqual({
+      "x-forwarded-host": "staging.chasesets.com",
+      "x-forwarded-proto": "https",
+    });
   });
 });
