@@ -106,6 +106,13 @@ export async function commitSavedListAddition(request: Request, formData: FormDa
     const tokenDestination = await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
       [result],
       currentRoutePath(request),
+      {
+        telemetry: {
+          boundedContextName: "discovery",
+          surface: "saved-list-addition",
+          routeId: new URL(request.url).pathname.startsWith("/items/") ? "item-detail" : "search",
+        },
+      },
     );
     const postWriteToken = new URL(tokenDestination, request.url).searchParams.get("postWriteToken");
     return Response.json({
@@ -208,6 +215,9 @@ function requireAnonymousOwnerId(request: Request) {
 function cleanSourcePath(request: Request) {
   const url = new URL(request.url);
   url.searchParams.delete("claimSavedListIntent");
+  url.searchParams.delete("postWriteToken");
+  url.searchParams.delete("afterWrite");
+  url.searchParams.delete("postWriteHandoff");
   return `${url.pathname}${url.search}`;
 }
 

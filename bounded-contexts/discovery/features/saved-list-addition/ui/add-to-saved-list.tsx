@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { DEFAULT_FRESH_WRITE_MAX_AGE_MS } from "@chase-sets/http/responses";
 import { useEffect, useRef, useState } from "react";
 import { useFetcher, useLocation } from "react-router";
 import {
@@ -43,7 +44,7 @@ export function AddToSavedListControl({
   const busy = fetcher.state !== "idle";
   const [error, setError] = useState(initialError);
   const [saved, setSaved] = useState<Extract<SavedListRouteActionData, { status: "saved" }> | null>(null);
-  const [postWriteToken, setPostWriteToken] = useState(() => readPostWriteToken(location.pathname));
+  const [postWriteToken, setPostWriteToken] = useState<Readonly<{ token: string; storedAtMs: number }> | null>(null);
   const requestIdRef = useRef(0);
   const pendingRequestRef = useRef<{ id: number; productKey: string } | null>(null);
   const previousProductKeyRef = useRef(productKey);
@@ -56,6 +57,7 @@ export function AddToSavedListControl({
     requestIdRef.current += 1;
     setPreparation(null);
     setSaved(null);
+    setPostWriteToken(null);
     setError(null);
     setOpen(false);
   }, [productKey]);
@@ -79,12 +81,7 @@ export function AddToSavedListControl({
         return;
       }
       if (data.status === "saved") {
-        if (data.postWriteToken && typeof window !== "undefined") {
-          const url = new URL(window.location.href);
-          url.searchParams.set("postWriteToken", data.postWriteToken);
-          window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-          setPostWriteToken(data.postWriteToken);
-        }
+        if (data.postWriteToken) setPostWriteToken({ token: data.postWriteToken, storedAtMs: Date.now() });
         setSaved(data);
         return;
       }
@@ -132,11 +129,7 @@ export function AddToSavedListControl({
     for (const [key, value] of Object.entries(prepareFields)) formData.set(key, value);
     void fetcher.submit(formData, {
       method: "post",
-      action: currentPostWriteAction(
-        location.pathname,
-        location.search,
-        readPostWriteToken(location.pathname) ?? postWriteToken,
-      ),
+      action: currentPostWriteAction(location.pathname, location.search, freshPostWriteToken(postWriteToken)),
       defaultShouldRevalidate: false,
     });
   };
@@ -154,11 +147,7 @@ export function AddToSavedListControl({
     else formData.set("listId", destinationValue);
     void fetcher.submit(formData, {
       method: "post",
-      action: currentPostWriteAction(
-        location.pathname,
-        location.search,
-        readPostWriteToken(location.pathname) ?? postWriteToken,
-      ),
+      action: currentPostWriteAction(location.pathname, location.search, freshPostWriteToken(postWriteToken)),
       defaultShouldRevalidate: false,
     });
   };
@@ -299,7 +288,8 @@ function currentPostWriteAction(pathname: string, search: string, postWriteToken
   return `${url.pathname}${url.search}`;
 }
 
-function readPostWriteToken(pathname: string) {
-  if (typeof window === "undefined" || window.location.pathname !== pathname) return null;
-  return new URL(window.location.href).searchParams.get("postWriteToken");
+function freshPostWriteToken(state: Readonly<{ token: string; storedAtMs: number }> | null) {
+  if (!state) return null;
+  if (Date.now() - state.storedAtMs >= DEFAULT_FRESH_WRITE_MAX_AGE_MS) return null;
+  return state.token;
 }

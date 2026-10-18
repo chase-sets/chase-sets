@@ -691,7 +691,7 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeIds": ["item-detail"],
+        "routeIds": ["search", "item-detail"],
         "actions": ["Commit Saved List addition and reopen picker"],
         "command": "Collections Saved List create-and-add or add command",
         "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"],
@@ -704,7 +704,7 @@
         "readModelTables": ["discovery_saved_list_picker"],
         "transientRecovery": {
           "kinds": ["pending-projection", "refreshable-catching-up"],
-          "behavior": "The Saved List commit stores an opaque platform token in the current host URL; the next picker preparation resolves it and forwards only the Collections receipt to Discovery's exact picker dependency."
+          "behavior": "The Saved List commit retains an opaque platform token in the picker component state; the next picker preparation resolves it and forwards only the Collections receipt to Discovery's exact picker dependency."
         }
       },
       "proof": {
@@ -998,7 +998,7 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeIds": ["item-detail"],
+        "routeIds": ["search", "item-detail"],
         "actions": ["Commit Saved List addition and reopen picker"],
         "command": "Collections Saved List create-and-add or add command",
         "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"],
@@ -1011,7 +1011,7 @@
         "readModelTables": ["discovery_saved_list_picker"],
         "transientRecovery": {
           "kinds": ["pending-projection", "refreshable-catching-up"],
-          "behavior": "The Saved List commit stores an opaque platform token in the current host URL; the next picker preparation resolves it and forwards only the Collections receipt to Discovery's exact picker dependency. Expired receipts fall back to an ordinary picker read, while unresolved tokens and freshness timeouts use localized retryable copy."
+          "behavior": "The Saved List commit retains an opaque platform token in picker component state; the next picker preparation resolves it and forwards only the Collections receipt to Discovery's exact picker dependency. Expired receipts fall back to an ordinary picker read, while unresolved tokens and freshness timeouts use localized retryable copy."
         }
       },
       "proof": {

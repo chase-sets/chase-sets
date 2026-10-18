@@ -157,4 +157,28 @@ describe("Saved List addition request support", () => {
       error: t("collections.features.savedLists.ui.addToList.error.description"),
     });
   });
+
+  it("scrubs freshness and compact-token parameters from anonymous return paths", async () => {
+    useTokenStore();
+    mockResolveActorFromAuthApi.mockResolvedValueOnce(null);
+    const createAnonymousSavedListIntent = vi.fn(async () => ({ intent: { intentId: "sli_test" } }));
+    mockCreateCollectionsRequestApiClient.mockReturnValueOnce({ createAnonymousSavedListIntent });
+    const response = await prepareSavedListAddition({
+      request: new Request(
+        "https://marketplace.test/search?q=pikachu&postWriteToken=pwt_test0000000001&afterWrite=secret&postWriteHandoff=secret&claimSavedListIntent=old",
+        { headers: { authorization: "Bearer test" } },
+      ),
+      product,
+      productLabel: "Pikachu · Near Mint",
+      sourceSurface: "search",
+    });
+    expect(response.status).toBe(200);
+    expect(createAnonymousSavedListIntent).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ sourcePath: "/search?q=pikachu", sourceSurface: "search" }),
+    );
+    expect(((await response.json()) as { href: string }).href).toContain(
+      "returnTo=%2Fsearch%3Fq%3Dpikachu%26claimSavedListIntent%3Dsli_test",
+    );
+  });
 });

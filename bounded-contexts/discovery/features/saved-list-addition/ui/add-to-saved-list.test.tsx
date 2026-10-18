@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { createContext, useContext } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_FRESH_WRITE_MAX_AGE_MS } from "@chase-sets/http/responses";
 import type { SavedListPickerPreparation } from "./contracts";
 import { AddToSavedListControl } from "./add-to-saved-list";
 
@@ -99,6 +100,7 @@ function prepare() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   routers.splice(0).forEach((router) => router.dispose());
 });
@@ -140,7 +142,6 @@ describe("Add to Saved List control", () => {
         trackedQuantity: 1,
         postWriteToken: "pwt_test0000000001",
       });
-      const replaceState = vi.spyOn(window.history, "replaceState");
       fireEvent.click(screen.getByRole("button", { name: "Add Product" }));
       await act(async () => waitForRouterIdle(test.router));
       expect(test.action).toHaveBeenCalledTimes(2);
@@ -156,9 +157,8 @@ describe("Add to Saved List control", () => {
       expect(screen.getByRole("link", { name: "View in My Collection" }).getAttribute("href")).toContain(
         "section=lists",
       );
-      expect(replaceState).toHaveBeenCalled();
-      const retainedUrl = String(replaceState.mock.calls.at(-1)?.[2] ?? "");
-      expect(new URL(retainedUrl, "http://localhost").searchParams.get("postWriteToken")).toBe("pwt_test0000000001");
+      expect(new URL(window.location.href).searchParams.has("postWriteToken")).toBe(false);
+      expect(test.router.state.location.search).toBe(new URL(entry, "http://localhost").search);
       expect(test.loader).toHaveBeenCalledTimes(1);
       expect(test.router.state.errors).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -173,6 +173,34 @@ describe("Add to Saved List control", () => {
       expect(test.loader).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("drops an expired token and reopens without a freshness handoff", async () => {
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const result = vi
+      .fn()
+      .mockReturnValueOnce({ status: "ready", preparation })
+      .mockReturnValueOnce({
+        status: "saved",
+        result: { listId: "svl_new", title: "New Favorites", lineStatus: "added" },
+        trackedQuantity: 1,
+        postWriteToken: "pwt_test0000000001",
+      })
+      .mockReturnValue({ status: "ready", preparation });
+    const test = await setup(result, null, "/search?q=pikachu");
+    prepare();
+    await act(async () => waitForRouterIdle(test.router));
+    fireEvent.click(screen.getByRole("button", { name: "Add Product" }));
+    await act(async () => waitForRouterIdle(test.router));
+    vi.setSystemTime(now + DEFAULT_FRESH_WRITE_MAX_AGE_MS);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    prepare();
+    await act(async () => waitForRouterIdle(test.router));
+    expect(test.action).toHaveBeenCalledTimes(3);
+    expect(new URL(test.requests[2].url).searchParams.has("postWriteToken")).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
+    vi.useRealTimers();
+  });
 
   it("ignores a preparation response after the visible Product changes", async () => {
     let resolve!: (value: unknown) => void;
