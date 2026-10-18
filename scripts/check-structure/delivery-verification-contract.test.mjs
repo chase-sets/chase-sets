@@ -52,7 +52,10 @@ function assertPremiseContract(text) {
     /0\. `PREMISE:` — exactly one of `PREMISE: CONFIRMED <one line>`, `PREMISE: ALREADY_DELIVERED <commit or PR>`, `PREMISE: SUPERSEDED_BY #<n>`, `PREMISE: NOT_REPRODUCED <command and observed output>`, or `PREMISE: PREMISE_CHANGED <what changed>`\./,
   );
 
-  const values = report.match(/`PREMISE: (?:CONFIRMED <one line>|ALREADY_DELIVERED <commit or PR>|SUPERSEDED_BY #<n>|NOT_REPRODUCED <command and observed output>|PREMISE_CHANGED <what changed>)`/g) ?? [];
+  const values =
+    report.match(
+      /`PREMISE: (?:CONFIRMED <one line>|ALREADY_DELIVERED <commit or PR>|SUPERSEDED_BY #<n>|NOT_REPRODUCED <command and observed output>|PREMISE_CHANGED <what changed>)`/g,
+    ) ?? [];
   expect(values).toHaveLength(5);
   expect(new Set(values).size).toBe(5);
 }
@@ -93,17 +96,15 @@ describe("delivery premise contract", () => {
   it.each([
     {
       name: "adds a report value",
-      mutate: (report) => report.replace(
-        "`PREMISE: PREMISE_CHANGED <what changed>`",
-        "`PREMISE: PREMISE_CHANGED <what changed>` or `PREMISE: UNKNOWN <reason>`,",
-      ),
+      mutate: (report) =>
+        report.replace(
+          "`PREMISE: PREMISE_CHANGED <what changed>`",
+          "`PREMISE: PREMISE_CHANGED <what changed>` or `PREMISE: UNKNOWN <reason>`,",
+        ),
     },
     {
       name: "removes a report value",
-      mutate: (report) => report.replace(
-        "`PREMISE: NOT_REPRODUCED <command and observed output>`, or ",
-        "",
-      ),
+      mutate: (report) => report.replace("`PREMISE: NOT_REPRODUCED <command and observed output>`, or ", ""),
     },
   ])("rejects a premise vocabulary mutant that $name", ({ mutate }) => {
     const reportStart = instruction.indexOf("## Completion Report (lane mode)");
