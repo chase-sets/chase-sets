@@ -454,6 +454,7 @@ export function createCountCaptureLifecycle(deps: {
         },
       );
       return {
+        authority: countCaptureAuthoritySchema.parse(input.authority),
         admittedAt: run.admittedAt,
         expiresAt: run.expiresAt,
         host: run.host,
