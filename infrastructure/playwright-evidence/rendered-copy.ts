@@ -451,15 +451,28 @@ export async function readRenderedCopyOccurrences(
         excluded.forEach((element) => element.style.setProperty("display", "none", "important"));
         const total = classify(document.body.innerText);
         const found: Array<{ element: Element; kind: string; text: string }> = [];
+        // Each visited element attributes exactly its own matches, so the
+        // attributed total always equals the page count. A child whose
+        // innerText shows more than the parent renders (a closed select's
+        // options, merged inline tokens) is not descended into.
         const visit = (element: HTMLElement, matches: Array<{ kind: string; text: string }>) => {
-          const consumed: Array<{ kind: string; text: string }> = [];
+          const children: Array<[HTMLElement, Array<{ kind: string; text: string }>]> = [];
           for (const child of element.children) {
             if (!(child instanceof HTMLElement) || !child.checkVisibility({ visibilityProperty: true })) continue;
             const childMatches = classify(child.innerText);
-            if (childMatches.length === 0) continue;
-            visit(child, childMatches);
-            consumed.push(...childMatches);
+            if (childMatches.length > 0) children.push([child, childMatches]);
           }
+          const consumed = children.flatMap(([, childMatches]) => childMatches);
+          const overdrawn = patterns.some(
+            ([kind]) =>
+              consumed.filter((match) => match.kind === kind).length >
+              matches.filter((match) => match.kind === kind).length,
+          );
+          if (overdrawn) {
+            for (const match of matches) found.push({ element, ...match });
+            return;
+          }
+          for (const [child, childMatches] of children) visit(child, childMatches);
           for (const [kind] of patterns) {
             const own = matches.filter((match) => match.kind === kind);
             const residual = own.length - consumed.filter((match) => match.kind === kind).length;
