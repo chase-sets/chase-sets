@@ -934,7 +934,7 @@
           "name": "TAX_PROVIDER_BACKED_QUOTES_REQUIRED",
           "value": "false"
         },
-{
+        {
           "name": "UCP_BUSINESS_SIGNING_ALG",
           "secret": true,
           "secretKey": "UCP_BUSINESS_SIGNING_ALG"
@@ -1504,7 +1504,7 @@
           "secret": true,
           "secretKey": "STRIPE_WEBHOOK_SECRET"
         },
-{
+        {
           "name": "VOYAGE_API_KEY",
           "secret": true,
           "secretKey": "VOYAGE_API_KEY"
