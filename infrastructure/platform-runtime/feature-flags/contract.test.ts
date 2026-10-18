@@ -155,6 +155,45 @@ describe("decodeFeatureFlagEnvironmentState", () => {
     expectInvalid(() => decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: accounts })));
     expectInvalid(() => decodeFeatureFlagEnvironmentState(environmentState({ badgeAnyOf: badges })));
   });
+
+  it("rejects Proxy-reported non-primitive and non-finite lengths", () => {
+    const proxyWithChangingLength = new Proxy([], {
+      getOwnPropertyDescriptor(_target, property) {
+        if (property === "length") {
+          let coercions = 0;
+          return {
+            configurable: false,
+            enumerable: false,
+            value: {
+              valueOf: () => (coercions++ === 0 ? 1 : 1_001),
+            },
+            writable: true,
+          };
+        }
+        const index = Number(property);
+        if (Number.isInteger(index) && index >= 0 && index <= 1_000) {
+          return { configurable: true, enumerable: true, value: canonicalAccount(index), writable: true };
+        }
+        return undefined;
+      },
+    });
+    expectInvalid(() =>
+      decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: proxyWithChangingLength })),
+    );
+
+    const proxyWithNaNLength = new Proxy([], {
+      getOwnPropertyDescriptor(_target, property) {
+        if (property === "length") {
+          return { configurable: false, enumerable: false, value: Number.NaN, writable: true };
+        }
+        if (property === "0") {
+          return { configurable: true, enumerable: true, value: accountA, writable: true };
+        }
+        return undefined;
+      },
+    });
+    expectInvalid(() => decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: proxyWithNaNLength })));
+  });
 });
 
 describe("decodeFeatureFlagDocument", () => {

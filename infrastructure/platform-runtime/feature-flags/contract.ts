@@ -252,10 +252,12 @@ function boundedSortedUniqueStrings(
 ): readonly string[] | null {
   if (!Array.isArray(value)) return null;
   const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
-  if (lengthDescriptor === undefined || !("value" in lengthDescriptor) || lengthDescriptor.value > maximum) return null;
+  if (lengthDescriptor === undefined || !("value" in lengthDescriptor)) return null;
+  const length: unknown = lengthDescriptor.value;
+  if (typeof length !== "number" || !Number.isInteger(length) || length < 0 || length > maximum) return null;
 
   const copied: string[] = [];
-  for (let index = 0; index < lengthDescriptor.value; index += 1) {
+  for (let index = 0; index < length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
     if (descriptor === undefined || !("value" in descriptor)) return null;
     copied.push(descriptor.value as string);
