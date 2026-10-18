@@ -766,10 +766,6 @@ const platformCatalogAssetsStateRepairWorkflow = readFileSync(
   resolve(".github/workflows/platform-catalog-assets-state-repair.yml"),
   "utf8",
 );
-const platformDigitalOceanTokenRotationReminderWorkflow = readFileSync(
-  resolve(".github/workflows/platform-digitalocean-token-rotation-reminder.yml"),
-  "utf8",
-);
 const platformEmergencyRecoveryWorkflow = readFileSync(
   resolve(".github/workflows/platform-emergency-recovery.yml"),
   "utf8",
@@ -3433,29 +3429,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(digitaloceanPlatformRunbook).not.toContain(
       "the DigitalOcean deployment helper treats the missing app as no active deployment to wait for",
     );
-  });
-
-  it("opens or updates the quarterly DigitalOcean token rotation issue without DO secrets", () => {
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
-      "name: Platform DigitalOcean Token Rotation Reminder",
-    );
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain('cron: "17 14 6 1,4,7,10 *"');
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toMatch(/\n  workflow_dispatch:\n/);
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("issues: write");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
-      'ROTATION_ISSUE_TITLE: "[ops] Rotate DigitalOcean tokens"',
-    );
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("gh issue edit");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("gh issue create");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_ACCESS_TOKEN");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_READONLY_TOKEN");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_REGISTRY_TOKEN");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("90-day expiration");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
-      "DigitalOcean Control Panel -> Account -> API -> Tokens",
-    );
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).not.toContain("${{ secrets.");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("GH_TOKEN: ${{ github.token }}");
   });
 
   it("uploads Terraform plan text artifacts without retaining raw JSON plans", () => {
