@@ -190,6 +190,20 @@ const invalidVisitorReporterArm: CollectionsSavedListReportSubmittedPayload = {
 };
 void invalidVisitorReporterArm;
 
+// @ts-expect-error account reports must use an account reporter key.
+const invalidAccountReporterKey: CollectionsSavedListReportSubmittedPayload = {
+  ...validCollectionsSavedListReport,
+  reporterKey: validVisitorCollectionsSavedListReport.reporterKey,
+};
+void invalidAccountReporterKey;
+
+// @ts-expect-error account reports must carry an account identity.
+const invalidAccountReporterId: CollectionsSavedListReportSubmittedPayload = {
+  ...validCollectionsSavedListReport,
+  reporterAccountId: null,
+};
+void invalidAccountReporterId;
+
 describe("Collections Saved List report-submitted payload", () => {
   it("publishes one exact payload identity through the aggregate and deep specifier", () => {
     expect(collectionsSavedListReportReasons).toEqual(["spam", "prohibited-content", "harassment", "other"]);
@@ -203,12 +217,6 @@ describe("Collections Saved List report-submitted payload", () => {
   });
 
   it("accepts account and visitor rows and preserves no input values in errors", () => {
-    expect(parseCollectionsSavedListReportSubmittedPayload(validCollectionsSavedListReport)).toEqual(
-      validCollectionsSavedListReport,
-    );
-    expect(parseCollectionsSavedListReportSubmittedPayload(validVisitorCollectionsSavedListReport)).toEqual(
-      validVisitorCollectionsSavedListReport,
-    );
     const withSecret = { ...validVisitorCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" };
     expect(() => parseCollectionsSavedListReportSubmittedPayload(withSecret)).toThrowError(
       expect.not.objectContaining({ message: expect.stringContaining("SECRET_SENTINEL") }),
@@ -219,30 +227,47 @@ describe("Collections Saved List report-submitted payload", () => {
     );
   });
 
-  it.each<readonly [string, unknown]>([
-    ["null", null],
-    ["array", [validCollectionsSavedListReport]],
-    ["missing key", Object.fromEntries(Object.entries(validCollectionsSavedListReport).slice(1))],
-    ["unknown key", { ...validCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" }],
-    ["padded id", { ...validCollectionsSavedListReport, targetId: " saved-list_opaque" }],
-    ["wrong target", { ...validCollectionsSavedListReport, targetType: "list" }],
-    ["wrong reason", { ...validCollectionsSavedListReport, reason: "other-reason" }],
-    ["account mismatch", { ...validCollectionsSavedListReport, reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV" }],
+  it.each(
+    collectionsSavedListReportReasons.flatMap((reason) => [
+      { ...validCollectionsSavedListReport, reason },
+      { ...validVisitorCollectionsSavedListReport, reason },
+    ]),
+  )("accepts every valid %s row", (row) => {
+    expect(parseCollectionsSavedListReportSubmittedPayload(row)).toEqual(row);
+  });
+
+  it.each<readonly [string, unknown, string]>([
+    ["null", null, "must be an object"],
+    ["array", [validCollectionsSavedListReport], "must be an object"],
+    ["missing key", Object.fromEntries(Object.entries(validCollectionsSavedListReport).slice(1)), "missing key"],
+    ["unknown key", { ...validCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" }, "unknown key"],
+    ["padded id", { ...validCollectionsSavedListReport, targetId: " saved-list_opaque" }, "IDs must be"],
+    ["wrong target", { ...validCollectionsSavedListReport, targetType: "list" }, "targetType must be"],
+    ["wrong reason", { ...validCollectionsSavedListReport, reason: "other-reason" }, "reason is invalid"],
+    ["wrong reporter kind", { ...validVisitorCollectionsSavedListReport, reporterKind: "admin" }, "reporterKind must be"],
+    ["timezone-free", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00" }, "submittedAt must be"],
+    ["non-string reportId", { ...validCollectionsSavedListReport, reportId: 123 }, "IDs must be"],
+    ["non-string targetId", { ...validCollectionsSavedListReport, targetId: ["saved-list_opaque"] }, "IDs must be"],
+    ["account mismatch", { ...validCollectionsSavedListReport, reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV" }, "account reporter must match"],
     [
       "visitor account",
       { ...validVisitorCollectionsSavedListReport, reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW" },
+      "visitor reporter must use",
     ],
-    ["visitor digest", { ...validVisitorCollectionsSavedListReport, reporterKey: "short" }],
-    ["lowercase t", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06t07:30:00Z" }],
-    ["space separator", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06 07:30:00Z" }],
-    ["leap second", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:60Z" }],
+    ["visitor digest", { ...validVisitorCollectionsSavedListReport, reporterKey: "short" }, "visitor reporter must use"],
+    ["lowercase t", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06t07:30:00Z" }, "submittedAt must be"],
+    ["space separator", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06 07:30:00Z" }, "submittedAt must be"],
+    ["leap second", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:60Z" }, "submittedAt must be"],
     [
       "too many fraction digits",
       { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00.1234567890Z" },
+      "submittedAt must be",
     ],
-    ["impossible calendar", { ...validCollectionsSavedListReport, submittedAt: "2026-02-30T07:30:00Z" }],
-  ])("rejects %s", (_label, value) => {
-    expect(() => parseCollectionsSavedListReportSubmittedPayload(value)).toThrow();
+    ["impossible calendar", { ...validCollectionsSavedListReport, submittedAt: "2026-02-30T07:30:00Z" }, "submittedAt must be"],
+  ])("rejects %s", (_label, value, message) => {
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(value)).toThrowError(
+      expect.objectContaining({ message: expect.stringContaining(message) }),
+    );
   });
 });
 
