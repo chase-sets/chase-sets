@@ -347,8 +347,92 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
       legacyProfileMarkerCount: 2,
       nonTerminalIntegrationJobCount: 1,
       publicationCountsByStatus: { active: 1, archived: 1, draft: 1 },
+      providerAgreement: expect.objectContaining({ pokemon: expect.objectContaining({ candidateCount: 0 }) }),
     });
     expect(facts.manifest.catalogItems).toEqual({ draft: 1, published: 1 });
+  });
+
+  it("AC1-AC3: reports support-safe provider agreement from current candidate membership", async () => {
+    await projectScope(db, "scope_agreement");
+    await createBatch(db, "batch_agreement", [plan("scope_agreement", [tcgdexUnit])]);
+    const identity = {
+      scopeRecordId: "scope_agreement",
+      collectorNumber: "fallback-1",
+      languageCode: "en",
+      productForm: "fallback-form",
+      variantKey: null,
+      barcode: null,
+    };
+    await insertObservation(db, {
+      observationId: "obs_agreement_old",
+      syncRunId: null,
+      providerKey: "tcgdex",
+      normalized: pokemonObservation({ name: "Old", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_a",
+      syncRunId: null,
+      providerKey: "tcgdex",
+      normalized: pokemonObservation({ name: "Same", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_b",
+      syncRunId: null,
+      providerKey: "scrydex",
+      normalized: pokemonObservation({ name: "Same", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_c",
+      syncRunId: null,
+      providerKey: "third-provider",
+      normalized: pokemonObservation({ name: "Different", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_conflict",
+      syncRunId: null,
+      providerKey: "tcgdex",
+      normalized: pokemonObservation({ name: "Conflict", cardNumber: "" }),
+    });
+    await insertObservation(db, {
+      observationId: "obs_agreement_conflict_b",
+      syncRunId: null,
+      providerKey: "tcgdex",
+      normalized: pokemonObservation({ name: "Conflict", rarity: "Ultra Rare", cardNumber: "" }),
+    });
+    await insertMergeCandidate(db, "candidate_agreement", identity, [
+      ["obs_agreement_a", "tcgdex"],
+      ["obs_agreement_b", "scrydex"],
+      ["obs_agreement_c", "third-provider"],
+    ]);
+    await insertMergeCandidate(db, "candidate_conflict", identity, [
+      ["obs_agreement_conflict", "tcgdex"],
+      ["obs_agreement_conflict_b", "tcgdex"],
+    ]);
+    await insertMergeCandidate(db, "candidate_empty", identity, []);
+
+    const facts = await queryProductionCatalogCompletionFacts(db, {
+      batchId: "batch_agreement",
+      observedAt: new Date().toISOString(),
+    });
+    const agreement = facts.reportedFacts.providerAgreement.pokemon;
+    expect(agreement.candidateCount).toBe(3);
+    expect(agreement.fields.name).toMatchObject({ agreed: 0, "single-source": 1, mismatch: 1, absent: 1 });
+    expect(agreement.fields.name.mismatchPairs).toEqual({
+      "scrydex|tcgdex": 1,
+      "scrydex|third-provider": 1,
+      "tcgdex|third-provider": 1,
+    });
+    expect(agreement.fields.collectorNumber.absent).toBe(3);
+    expect(agreement.fields.productForm.absent).toBe(3);
+    expect(agreement.fields.rarity["intra-provider-conflict"]).toBe(1);
+    expect(
+      Object.values(agreement.fields).every(
+        (field) =>
+          field.agreed + field["single-source"] + field.mismatch + field.absent + field["intra-provider-conflict"] ===
+          3,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(agreement)).not.toMatch(/candidate_|obs_agreement|fallback-1|Same|Different/);
   });
 
   it("AC4: refuses a write inside the report session", async () => {
@@ -815,4 +899,27 @@ async function insertObservation(
       JSON.stringify(input.normalized),
     ],
   );
+}
+
+async function insertMergeCandidate(
+  db: PgQueryable,
+  candidateId: string,
+  identity: Record<string, unknown>,
+  members: readonly [string, string][],
+) {
+  await db.query(
+    `INSERT INTO catalog_merge_candidates (
+       candidate_id, scope_record_id, identity_fingerprint, status, identity_json, promotion_intent
+     ) VALUES ($1, $2, $3, 'ready', $4::jsonb, 'create-catalog-item')`,
+    [candidateId, identity.scopeRecordId, `sha256:${candidateId}`, JSON.stringify(identity)],
+  );
+  for (const [observationId, providerKey] of members) {
+    await db.query(
+      `INSERT INTO catalog_merge_candidate_observations (
+         candidate_id, observation_id, provider_key, external_key, source_record_hash,
+         source_profile_key, source_profile_version, source_mapping_fingerprint, observed_at, added_at
+       ) VALUES ($1, $2, $3, $2, $2, 'synthetic', 'v1', 'synthetic', now(), now())`,
+      [candidateId, observationId, providerKey],
+    );
+  }
 }
