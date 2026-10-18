@@ -664,6 +664,61 @@ describe("digitalocean-preview-cleanup-sweep", () => {
   });
 
   it("bounds a hung provider command", async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const detachedPidFile = join(tmpdir(), `preview-cleanup-detached-grandchild-${process.pid}.txt`);
+    const detachedGrandchildScript = [
+      "const { spawn } = await import('node:child_process');",
+      "const { writeFileSync } = await import('node:fs');",
+      `const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit', detached: true }); writeFileSync(${JSON.stringify(detachedPidFile)}, String(child.pid));`,
+      "setInterval(() => {}, 1000);",
+    ].join(" ");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let detachedGrandchildPid;
+    let detachedCommandState = { status: "pending" };
+    try {
+      const detachedCommand = commandOutput(
+        process.execPath,
+        ["--input-type=module", "--eval", detachedGrandchildScript],
+        { timeout: 200 },
+      ).then(
+        () => {
+          detachedCommandState = { status: "resolved" };
+        },
+        (error) => {
+          detachedCommandState = { status: "rejected", error };
+        },
+      );
+      for (let attempt = 0; attempt < 100 && !detachedGrandchildPid; attempt += 1) {
+        try {
+          detachedGrandchildPid = Number(await readFile(detachedPidFile, "utf8"));
+        } catch {
+          await new Promise((resolve) => realSetTimeout(resolve, 50));
+        }
+      }
+      expect(detachedGrandchildPid).toBeGreaterThan(0);
+      await vi.advanceTimersByTimeAsync(199);
+      expect(detachedCommandState.status).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(detachedCommandState.status).toBe("rejected");
+      expect(detachedCommandState.error).toHaveProperty("message", expect.stringContaining("timed out after 200ms"));
+      if (process.platform !== "win32") {
+        expect(() => process.kill(detachedGrandchildPid, 0)).not.toThrow();
+      }
+      await detachedCommand;
+    } finally {
+      vi.useRealTimers();
+      if (detachedGrandchildPid) {
+        try {
+          process.kill(detachedGrandchildPid, "SIGKILL");
+        } catch (error) {
+          if (error?.code !== "ESRCH") {
+            throw error;
+          }
+        }
+      }
+      await rm(detachedPidFile, { force: true });
+    }
+
     const pidFile = join(tmpdir(), `preview-cleanup-grandchild-${process.pid}.txt`);
     const grandchildScript = [
       "const { spawn } = await import('node:child_process');",
@@ -898,7 +953,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
         clusterName: "chase-sets-pr-30-postgres",
         classification: "preview-*",
         prNumber: 30,
-        pullRequestState: "closed",
+        pullRequestState: "merged",
         leaked: true,
         previewManagedClusterViolation: true,
         conclusion: "leaked-preview-managed-cluster-violation",
