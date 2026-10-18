@@ -156,6 +156,10 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id": "Catalog item",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed":
     "Catalog item lookup failed.",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.not.active":
+    "This catalog item is not active. Choose an active catalog item.",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.options.stale":
+    "The saved product options no longer match this catalog item. Choose the catalog item again to set its options.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.choose.the.visible.catalog.item":
     "Choose the catalog item from the visible search results.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item": "Create Inventory Item",
@@ -181,10 +185,8 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemListPage.not.set": "Not set",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.open": "Open",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location": "Select a location",
-  "inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.catalog.item": "Select a catalog item",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.by.title.or.paste.catalog":
     "Search by title or paste a catalog item ID, then select the matching item.",
-  "inventory.features.inventoryItems.ui.inventoryItemListPage.search.catalog": "Search catalog",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.for.a.catalog.item.then":
     "Search for a catalog item, then choose it to configure product options.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item":

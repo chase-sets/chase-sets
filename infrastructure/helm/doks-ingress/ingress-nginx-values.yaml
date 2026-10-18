@@ -52,7 +52,7 @@ controller:
     # REGIONAL_NETWORK preserves source IP natively and never sends PROXY
     # headers, so ingress-nginx must parse ordinary HTTP/TLS streams.
     use-proxy-protocol: "false"
-    use-forwarded-headers: "true"
+    use-forwarded-headers: "false"
     # cert-manager annotates its own solver Ingress to bypass ssl-redirect, so a
     # global default of true is safe and keeps app traffic on HTTPS.
     ssl-redirect: "true"
@@ -75,6 +75,11 @@ defaultBackend:
     - maxSkew: 1
       topologyKey: kubernetes.io/hostname
       whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx
+          app.kubernetes.io/instance: ingress-nginx
+          app.kubernetes.io/component: default-backend
   image:
     registry: docker.io
     image: nginxinc/nginx-unprivileged

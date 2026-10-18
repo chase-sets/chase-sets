@@ -103,7 +103,8 @@ describe("import-batch resolution drawer", () => {
     expect(screen.getByText("Resolve import row 2")).toBeTruthy();
     expect(screen.getByText("Row 1 of 1 to resolve")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Apply row fix" })).toBeTruthy();
-    expect(document.querySelector('select[name="catalogItemId"]')).not.toBeNull();
+    expect(screen.getByRole("combobox", { name: "Catalog item" })).toBeTruthy();
+    expect(document.querySelector('input[type="hidden"][name="catalogItemId"]')).not.toBeNull();
     expect(document.querySelector('select[name="storageLocationId"]')).not.toBeNull();
     // The resolution form posts the row-resolution intent for the deep-linked row.
     expect(document.querySelector('input[name="intent"][value="resolve-row"]')).not.toBeNull();

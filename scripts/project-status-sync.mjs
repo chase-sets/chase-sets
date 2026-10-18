@@ -1,6 +1,6 @@
 import process from "node:process";
 import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-classify.mjs";
-import { compareOutcomeMilestones, isExecutableOutcome } from "./milestone-policy.mjs";
+import { compareOutcomeOrder, isExecutableOutcome } from "./milestone-policy.mjs";
 
 // Recomputes the delivery board's Status and Target date fields from facts that
 // already exist on each issue. Collection is deliberately completed and
@@ -184,8 +184,8 @@ export function planDateUpdates(items) {
   return updates;
 }
 
-// Project order is a projection of the same milestone policy the controller
-// and report consume. It is never a second editable priority authority.
+// Project order projects the same cross-track outcome order next-work ranks
+// by. It is never a second editable priority authority.
 export function planOutcomeOrderUpdates(items) {
   const milestones = new Map();
   for (const { issue } of items) {
@@ -197,7 +197,7 @@ export function planOutcomeOrderUpdates(items) {
     }
     milestones.set(milestone.number, milestone);
   }
-  const ordered = [...milestones.values()].filter(isExecutableOutcome).sort(compareOutcomeMilestones);
+  const ordered = [...milestones.values()].filter(isExecutableOutcome).sort(compareOutcomeOrder);
   const ranks = new Map(ordered.map((milestone, index) => [milestone.number, index + 1]));
   return items.flatMap((item) => {
     const input = toBacklogInput(item.issue);
