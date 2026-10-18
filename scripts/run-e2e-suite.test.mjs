@@ -39,12 +39,29 @@ function walkFiles(dir) {
 }
 
 describe("run e2e suite", () => {
-  it("claims one playwright root before dispatching registered suites through the production entrypoint", async () => {
+  const commandSuites = e2eSuites.filter((suite) => Array.isArray(suite.command));
+  // marketplace_seller owns sweep tuples and the committed toggle is present,
+  // so only the capture job-index binding decides whether the batch is listed.
+  const grepSuites = parseSuiteArgs(["marketplace_checkout,marketplace_seller"]);
+  const rootDir = fileURLToPath(new URL("../", import.meta.url));
+
+  // Runs the production entrypoint as a hosted GitHub Actions step with every
+  // spawn recorded; `jobIndex` undefined is any step outside the E2E producer.
+  async function runEntrypoint({ jobIndex, listResult }) {
     const events = [];
-    const commandSuites = e2eSuites.filter((suite) => Array.isArray(suite.command));
-    const grepSuites = parseSuiteArgs(["marketplace_checkout,marketplace_seller"]);
     const argv = process.argv;
+    const ambient = {
+      GITHUB_ACTIONS: process.env.GITHUB_ACTIONS,
+      RENDERED_COPY_CAPTURE_JOB_INDEX: process.env.RENDERED_COPY_CAPTURE_JOB_INDEX,
+    };
     vi.resetModules();
+    vi.doMock("node:child_process", async () => ({
+      ...(await vi.importActual("node:child_process")),
+      spawnSync: (command, args) => {
+        events.push({ spawnSync: { command, args } });
+        return listResult;
+      },
+    }));
     vi.doMock("./lib/heavy-slot.mjs", () => ({
       acquireHeavySlot: (kind) => events.push({ admission: kind }),
     }));
@@ -59,7 +76,12 @@ describe("run e2e suite", () => {
       },
     }));
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => undefined);
     try {
+      process.env.GITHUB_ACTIONS = "true";
+      if (jobIndex === undefined) delete process.env.RENDERED_COPY_CAPTURE_JOB_INDEX;
+      else process.env.RENDERED_COPY_CAPTURE_JOB_INDEX = jobIndex;
       process.argv = [
         process.execPath,
         fileURLToPath(new URL("./run-e2e-suite.mjs", import.meta.url)),
@@ -69,26 +91,63 @@ describe("run e2e suite", () => {
       ];
       await import("./run-e2e-suite.mjs");
       await vi.dynamicImportSettled();
-      const { buildPackageManagerInvocation } = await vi.importActual("./lib/process.mjs");
-      const rootDir = fileURLToPath(new URL("../", import.meta.url));
-      const options = { cwd: rootDir, stdio: "inherit" };
-      expect(events).toEqual([
-        { admission: "playwright" },
-        {
-          ...buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", buildSuiteGrep(grepSuites)]),
-          options,
-        },
-        { artifacts: { repoRoot: rootDir, selectedGreps: grepSuites.map((suite) => suite.grep) } },
-        ...commandSuites.map((suite) => ({ ...commandSuiteInvocation(suite), options })),
-      ]);
+      // Drain the entrypoint's settled promise chain, including its exit path,
+      // before the exit spy is restored.
+      await new Promise((resolve) => setImmediate(resolve));
+      return { events, exits: exit.mock.calls, errors: error.mock.calls };
     } finally {
       process.argv = argv;
+      for (const [name, value] of Object.entries(ambient)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
       log.mockRestore();
+      error.mockRestore();
+      exit.mockRestore();
+      vi.doUnmock("node:child_process");
       vi.doUnmock("./lib/heavy-slot.mjs");
       vi.doUnmock("./lib/process.mjs");
       vi.doUnmock("./validate-responsive-evidence-artifacts.mjs");
       vi.resetModules();
     }
+  }
+
+  it("claims one playwright root before dispatching registered suites through the production entrypoint", async () => {
+    // A hosted step without the producer binding never spawns `playwright --list`.
+    const { events, exits } = await runEntrypoint({ jobIndex: undefined, listResult: { status: 0, stdout: "" } });
+    const { buildPackageManagerInvocation } = await vi.importActual("./lib/process.mjs");
+    const options = { cwd: rootDir, stdio: "inherit" };
+    expect(events).toEqual([
+      { admission: "playwright" },
+      {
+        ...buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", buildSuiteGrep(grepSuites)]),
+        options,
+      },
+      { artifacts: { repoRoot: rootDir, selectedGreps: grepSuites.map((suite) => suite.grep) } },
+      ...commandSuites.map((suite) => ({ ...commandSuiteInvocation(suite), options })),
+    ]);
+    expect(exits).toEqual([]);
+  });
+
+  it("lists an owning batch for capture only in the producer step that binds the capture job index", async () => {
+    const { events, exits, errors } = await runEntrypoint({
+      jobIndex: "0",
+      listResult: { status: 1, stdout: "", stderr: "listing refused by the test" },
+    });
+    const { buildPackageManagerInvocation } = await vi.importActual("./lib/process.mjs");
+    const list = buildPackageManagerInvocation([
+      "exec",
+      "playwright",
+      "test",
+      "--list",
+      "--reporter=json",
+      "--grep",
+      buildSuiteGrep(grepSuites),
+    ]);
+    // The listing precedes the run, so a refused listing fails closed before any test runs.
+    expect(events).toEqual([{ admission: "playwright" }, { spawnSync: list }]);
+    expect(exits).toEqual([[1]]);
+    expect(errors).toEqual([["playwright --list failed: listing refused by the test"]]);
   });
 
   it("provides a display for the headed Chromium command on Linux without changing package scripts", () => {
@@ -542,6 +601,58 @@ describe("run e2e suite", () => {
       ]);
       expect(part.checkout.parents).toEqual([base, head]);
       expect(part.run).toMatchObject({ id: 123, attempt: 1, jobIndex: 3, batch, workflow: "platform-pr.yml" });
+    });
+
+    // The hosted marketplace_browse and marketplace_seller batches list these
+    // bounded-context suites ahead of the sweep.
+    const contextPredecessors = [
+      "bounded-contexts/auth/features/invitation-acceptance/ui/browser-proof.spec.ts",
+      "bounded-contexts/inventory/features/import-batches/tests/recovery.browser.ts",
+      "bounded-contexts/inventory/features/restock-decisions/tests/recovery.browser.ts",
+    ];
+
+    it("assembles a part whose predecessors are bounded-context browser suites, binding each blob", () => {
+      const blobs = new Map(contextPredecessors.map((file, index) => [file, sha(String(index + 4))]));
+      const part = prepare({
+        report: {
+          ...report,
+          suites: [
+            ...contextPredecessors.map((file) => ({
+              file,
+              specs: [
+                { title: "recovery", file, line: 10, column: 1, tests: [{ projectName: "marketplace-chromium" }] },
+              ],
+            })),
+            ...report.suites,
+          ],
+        },
+        git: (...args) => blobs.get(args.join(" ").replace(/^rev-parse HEAD:/, "")) ?? git(...args),
+      });
+      expect(validateCapturePart(part)).toEqual([]);
+      expect(part.listing.slice(0, contextPredecessors.length)).toEqual(
+        contextPredecessors.map((file) => ({ path: file, blob: blobs.get(file), tests: 1 })),
+      );
+      const position = (candidate) => candidate.tuples.find((tuple) => tuple.page === offers.page).position;
+      expect(position(part)).toBe(position(prepare()) + contextPredecessors.length);
+    });
+
+    it.each([
+      ["an absolute path", `/${contextPredecessors[1]}`],
+      ["a parent segment", "bounded-contexts/../deployables/marketplace/e2e/browse.spec.ts"],
+      ["a current-directory segment", `./${contextPredecessors[1]}`],
+      ["an empty segment", contextPredecessors[1].replace("/tests/", "//tests/")],
+      ["a Windows separator", contextPredecessors[1].replaceAll("/", "\\")],
+      ["a non-TypeScript file", contextPredecessors[1].replace(/\.ts$/, ".js")],
+    ])("refuses a predecessor declared at %s", (_label, file) => {
+      const part = prepare();
+      part.listing[0].path = file;
+      expect(validateCapturePart(part)).toContain("part.listing[0].path: invalid");
+    });
+
+    it("refuses a bounded-context predecessor without its blob", () => {
+      const part = prepare();
+      part.listing[0] = { ...part.listing[0], path: contextPredecessors[1], blob: "" };
+      expect(validateCapturePart(part)).toEqual(["part.listing[0].blob: missing predecessor blob"]);
     });
 
     it("fails an eligible batch whose final observation is missing instead of emitting a partial part", () => {
