@@ -99,6 +99,7 @@ const schedulerVocabularyLookalikePaths = [
 // into Auth. Ordering changes now also reach Auth and its downstream consumers.
 // Accepted dependency delta: #7274 declares Notifications' owner-builder imports,
 // adding Notifications to the Ordering and Pricing cases' affected sets.
+// Accepted inventory delta: #9919 adds @chase-sets/tcgplayer-market-observations.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-marketplace-web",
@@ -171,6 +172,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/stripe-config",
   "@chase-sets/stripe-connect",
   "@chase-sets/stripe-payments",
+  "@chase-sets/tcgplayer-market-observations",
   "@chase-sets/twilio-messaging",
   "@chase-sets/typescript-compiler-api",
   "@chase-sets/web-notifications",
