@@ -13,6 +13,8 @@ import {
   isRouteFile,
 } from "./e2e-suites.mjs";
 import {
+  renderedCopyCaptureArtifactRoot,
+  renderedCopyObservationDirectory,
   renderedCopyOwningBatch,
   renderedCopySweepSpecs,
   renderedCopyTuples,
@@ -41,27 +43,53 @@ function walkFiles(dir) {
 describe("run e2e suite", () => {
   const commandSuites = e2eSuites.filter((suite) => Array.isArray(suite.command));
   // marketplace_seller owns sweep tuples and the committed toggle is present,
-  // so only the capture job-index binding decides whether the batch is listed.
+  // so on pull_request only the capture job-index binding decides whether the
+  // batch is listed.
   const grepSuites = parseSuiteArgs(["marketplace_checkout,marketplace_seller"]);
   const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
   // Runs the production entrypoint as a hosted GitHub Actions step with every
   // spawn recorded; `jobIndex` undefined is any step outside the E2E producer.
-  async function runEntrypoint({ jobIndex, listResult }) {
+  // The trigger is pinned (pull_request unless `env` names another), because
+  // the hosted scripts battery itself runs under pull_request and merge_group.
+  // `spawn` answers each spawn instead of `listResult`; `observations` stands in
+  // for the producer's collected observations under an enabled toggle, and
+  // file writes are then recorded rather than performed.
+  async function runEntrypoint({ jobIndex, listResult, env = {}, spawn, observations }) {
     const events = [];
+    const writes = [];
     const argv = process.argv;
-    const ambient = {
-      GITHUB_ACTIONS: process.env.GITHUB_ACTIONS,
-      RENDERED_COPY_CAPTURE_JOB_INDEX: process.env.RENDERED_COPY_CAPTURE_JOB_INDEX,
-    };
+    const pinned = { GITHUB_EVENT_NAME: "pull_request", ...env };
+    const ambient = Object.fromEntries(
+      ["GITHUB_ACTIONS", "RENDERED_COPY_CAPTURE_JOB_INDEX", ...Object.keys(pinned)].map((name) => [
+        name,
+        process.env[name],
+      ]),
+    );
     vi.resetModules();
     vi.doMock("node:child_process", async () => ({
       ...(await vi.importActual("node:child_process")),
       spawnSync: (command, args) => {
         events.push({ spawnSync: { command, args } });
-        return listResult;
+        return spawn ? spawn(command, args) : listResult;
       },
     }));
+    if (observations) {
+      vi.doMock("../infrastructure/playwright-evidence/rendered-copy.ts", async () => ({
+        ...(await vi.importActual("../infrastructure/playwright-evidence/rendered-copy.ts")),
+        renderedCopyCollectEnabled: () => true,
+        readRenderedCopyObservations: () => observations,
+      }));
+      vi.doMock("node:fs", async () => ({
+        ...(await vi.importActual("node:fs")),
+        ...Object.fromEntries(
+          ["rmSync", "mkdirSync", "writeFileSync", "appendFileSync"].map((name) => [
+            name,
+            (...args) => writes.push({ [name]: args }),
+          ]),
+        ),
+      }));
+    }
     vi.doMock("./lib/heavy-slot.mjs", () => ({
       acquireHeavySlot: (kind) => events.push({ admission: kind }),
     }));
@@ -80,6 +108,7 @@ describe("run e2e suite", () => {
     const exit = vi.spyOn(process, "exit").mockImplementation(() => undefined);
     try {
       process.env.GITHUB_ACTIONS = "true";
+      Object.assign(process.env, pinned);
       if (jobIndex === undefined) delete process.env.RENDERED_COPY_CAPTURE_JOB_INDEX;
       else process.env.RENDERED_COPY_CAPTURE_JOB_INDEX = jobIndex;
       process.argv = [
@@ -94,7 +123,7 @@ describe("run e2e suite", () => {
       // Drain the entrypoint's settled promise chain, including its exit path,
       // before the exit spy is restored.
       await new Promise((resolve) => setImmediate(resolve));
-      return { events, exits: exit.mock.calls, errors: error.mock.calls };
+      return { events, writes, exits: exit.mock.calls, errors: error.mock.calls };
     } finally {
       process.argv = argv;
       for (const [name, value] of Object.entries(ambient)) {
@@ -108,6 +137,8 @@ describe("run e2e suite", () => {
       vi.doUnmock("./lib/heavy-slot.mjs");
       vi.doUnmock("./lib/process.mjs");
       vi.doUnmock("./validate-responsive-evidence-artifacts.mjs");
+      vi.doUnmock("../infrastructure/playwright-evidence/rendered-copy.ts");
+      vi.doUnmock("node:fs");
       vi.resetModules();
     }
   }
@@ -148,6 +179,140 @@ describe("run e2e suite", () => {
     expect(events).toEqual([{ admission: "playwright" }, { spawnSync: list }]);
     expect(exits).toEqual([[1]]);
     expect(errors).toEqual([["playwright --list failed: listing refused by the test"]]);
+  });
+
+  // The producer step of hosted merge_group run 39149420287: the toggle is
+  // enabled, the job index is bound, and the checkout is the queue's own merge
+  // commit (also the event's head) with the single parent B.
+  describe("rendered-copy capture by trigger", () => {
+    const sha = (seed) => seed.repeat(40).slice(0, 40);
+    const [base, head, checkout] = [sha("b"), sha("c"), sha("d")];
+    const trees = { [base]: sha("1"), [head]: sha("2"), [checkout]: sha("3") };
+    const batch = [...grepSuites, ...commandSuites].map((suite) => suite.id);
+    const owned = renderedCopyTuples.filter((tuple) => batch.includes(tuple.suite));
+    const projects = { marketplace: "marketplace-chromium", "admin-web": "admin-web-chromium" };
+    const report = {
+      config: { projects: Object.values(projects).map((name) => ({ name })) },
+      suites: Object.entries(renderedCopySweepSpecs).map(([deployable, file]) => ({
+        file,
+        specs: owned
+          .filter((tuple) => tuple.deployable === deployable)
+          .map((tuple, index) => ({
+            title: `rendered copy ${tuple.persona} ${tuple.page} ${tuple.tag} @browser-e2e-seed`,
+            file,
+            line: 100 + index,
+            column: 3,
+            tests: [{ projectName: projects[deployable] }],
+          })),
+      })),
+    };
+    const counts = Object.fromEntries(
+      ["typed-id", "seed-id", "object-string", "template-placeholder", "hedged-plural", "iso-instant"].map((name) => [
+        name,
+        0,
+      ]),
+    );
+    const observations = owned.map((tuple) => ({
+      schema: "rendered-copy-observation/v1",
+      tuple,
+      retry: 0,
+      durationMs: 1_000,
+      witness: "populated",
+      counts,
+      fields: [],
+    }));
+    // Answers the producer's git reads for a checkout with `parents`, and its
+    // one `playwright --list` with the batch report.
+    const spawnFor = (parents) => (command, args) => {
+      if (command !== "git") return { status: 0, stdout: `${JSON.stringify(report, null, 2)}\n` };
+      const line = args.join(" ");
+      const tree = /^rev-parse (\S+)\^\{tree\}$/.exec(line)?.[1];
+      const answer =
+        line === "show -s --diff-merges=off --format=%P HEAD"
+          ? parents.join(" ")
+          : line === "rev-parse HEAD"
+            ? checkout
+            : line === `diff --name-only ${base} HEAD`
+              ? "scripts/run-e2e-suite.mjs"
+              : tree
+                ? trees[tree === "HEAD" ? checkout : tree]
+                : line.startsWith("rev-parse HEAD:")
+                  ? sha("a")
+                  : undefined;
+      return answer === undefined
+        ? { status: 1, stdout: "", stderr: `unexpected git ${line}` }
+        : { status: 0, stdout: `${answer}\n` };
+    };
+    const hosted = (event, sourceHead, ref) => ({
+      GITHUB_EVENT_NAME: event,
+      GITHUB_WORKFLOW_REF: `chase-sets/chase-sets/.github/workflows/platform-pr.yml@${ref}`,
+      GITHUB_RUN_ID: "123",
+      GITHUB_RUN_ATTEMPT: "1",
+      GITHUB_OUTPUT: "github-output.txt",
+      RENDERED_COPY_CAPTURE_SOURCE_HEAD: sourceHead,
+    });
+    const queue = hosted("merge_group", checkout, `refs/heads/gh-readonly-queue/main/pr-1-${base}`);
+    const pullRequest = hosted("pull_request", head, "refs/pull/1/merge");
+
+    it("neither lists, captures nor validates a part on merge_group's single-parent queue checkout", async () => {
+      const { events, writes, exits, errors } = await runEntrypoint({
+        jobIndex: "0",
+        env: queue,
+        spawn: spawnFor([base]),
+        observations,
+      });
+      const { buildPackageManagerInvocation } = await vi.importActual("./lib/process.mjs");
+      const options = { cwd: rootDir, stdio: "inherit" };
+      expect(errors).toEqual([]);
+      expect(exits).toEqual([]);
+      expect(writes).toEqual([]);
+      expect(events).toEqual([
+        { admission: "playwright" },
+        {
+          ...buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", buildSuiteGrep(grepSuites)]),
+          options,
+        },
+        { artifacts: { repoRoot: rootDir, selectedGreps: grepSuites.map((suite) => suite.grep) } },
+        ...commandSuites.map((suite) => ({ ...commandSuiteInvocation(suite), options })),
+      ]);
+    });
+
+    it("keeps exact parent authentication on pull_request: the same single-parent checkout fails closed", async () => {
+      const { writes, exits, errors } = await runEntrypoint({
+        jobIndex: "0",
+        env: pullRequest,
+        spawn: spawnFor([base]),
+        observations,
+      });
+      expect(errors).toEqual([
+        [
+          `rendered-copy capture part is invalid:\npart.checkout.parents: must be [B, PR head] = [${base}, ${head}], got ["${base}"]`,
+        ],
+      ]);
+      expect(exits).toEqual([[1]]);
+      expect(writes).toEqual([
+        { rmSync: [join(rootDir, renderedCopyObservationDirectory), { recursive: true, force: true }] },
+      ]);
+    });
+
+    it("emits one validated part on pull_request when the checkout's parents are [B, PR head]", async () => {
+      const { writes, exits, errors } = await runEntrypoint({
+        jobIndex: "0",
+        env: pullRequest,
+        spawn: spawnFor([base, head]),
+        observations,
+      });
+      expect(errors).toEqual([]);
+      expect(exits).toEqual([]);
+      const [file, text] = writes.find((entry) => entry.writeFileSync).writeFileSync;
+      expect(file).toBe(join(rootDir, renderedCopyCaptureArtifactRoot, "rendered-copy-capture-123-1-0", "part.json"));
+      const part = JSON.parse(text);
+      expect(validateCapturePart(part)).toEqual([]);
+      expect(part.run).toMatchObject({ event: "pull_request", id: 123, attempt: 1, jobIndex: 0 });
+      expect(part.checkout).toEqual({ commit: checkout, tree: trees[checkout], parents: [base, head] });
+      expect(part.tuples).toHaveLength(owned.length);
+      expect(writes.at(-1)).toEqual({ appendFileSync: ["github-output.txt", "rendered-copy-capture=true\n"] });
+    });
   });
 
   it("provides a display for the headed Chromium command on Linux without changing package scripts", () => {
@@ -695,6 +860,23 @@ describe("run e2e suite", () => {
     it("rejects a part whose PR head is not the second checkout parent", () => {
       expect(() => prepare({ env: { ...env, RENDERED_COPY_CAPTURE_SOURCE_HEAD: sha("e") } })).toThrow(
         "checkout.parents: must be [B, PR head]",
+      );
+    });
+
+    it("refuses a part built on a merge_group queue checkout, as hosted run 39149420287 did", () => {
+      const queueGit = (...args) =>
+        args.join(" ") === "show -s --diff-merges=off --format=%P HEAD" ? base : git(...args);
+      expect(() =>
+        prepare({
+          env: { ...env, GITHUB_EVENT_NAME: "merge_group", RENDERED_COPY_CAPTURE_SOURCE_HEAD: checkout },
+          git: queueGit,
+        }),
+      ).toThrow(
+        [
+          "rendered-copy capture part is invalid:",
+          "part.run.event: capture runs on pull_request only",
+          `part.checkout.parents: must be [B, PR head] = [${base}, ${checkout}], got ["${base}"]`,
+        ].join("\n"),
       );
     });
 

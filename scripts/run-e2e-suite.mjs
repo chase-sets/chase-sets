@@ -178,12 +178,15 @@ async function main() {
   if (playwrightSuites.length > 0) {
     const grep = buildSuiteGrep(playwrightSuites);
     const batch = suites.map((suite) => suite.id).join(",");
-    // Capture is enabled only by the committed toggle, only in the Platform PR
-    // producer step that binds the capture job index (any other hosted step,
-    // such as the scripts battery, never lists or captures) and only for
-    // batches that own sweep tuples; other batches are ineligible.
+    // Capture is enabled only by the committed toggle, only on pull_request (a
+    // merge_group checkout is the queue's single-parent commit, and every
+    // merge_group refuses the toggle in the provenance check), only in the
+    // Platform PR producer step that binds the capture job index (any other
+    // hosted step, such as the scripts battery, never lists or captures) and
+    // only for batches that own sweep tuples; other batches are ineligible.
     const capture =
       renderedCopyCollectEnabled(rootDir) &&
+      process.env.GITHUB_EVENT_NAME === "pull_request" &&
       process.env.RENDERED_COPY_CAPTURE_JOB_INDEX !== undefined &&
       renderedCopyOwningBatch(batch);
     const report = capture ? listPlaywrightBatch(grep) : null;
