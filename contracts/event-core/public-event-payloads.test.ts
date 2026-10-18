@@ -5,6 +5,7 @@ import { orderGroupFactRegistry, type OrderGroupEventPayloads, type OrderGroupFa
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,
+  collectionsSavedListReportReasons,
   inventoryHoldPurposes,
   inventoryHoldReleaseReasons,
   inventoryOfflineSaleChannels,
@@ -12,6 +13,7 @@ import {
   marketplaceListingEnforcementSources,
   parseMarketplaceListingAutoUnlistedPayload,
   parseMarketplaceListingOperatorUnlistedPayload,
+  parseCollectionsSavedListReportSubmittedPayload,
   parsePlatformOperationsListingRemovalDirectedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
@@ -21,6 +23,8 @@ import type {
   AuthSessionStartedPayload,
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
+  CollectionsEventPayloads,
+  CollectionsSavedListReportSubmittedPayload,
   EmptyEventPayload,
   FulfillmentShipmentCancelledPayload,
   FulfillmentShipmentCreatedPayload,
@@ -65,6 +69,7 @@ import type {
   WaitlistReferralCodeReservedPayload,
   WaitlistReferralLinkProvisionedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
+import type { CollectionsEventPayloads as DeepCollectionsEventPayloads } from "./public-event-payloads/collections";
 import type { AuthEventPayloads } from "./public-event-payloads/auth";
 import type { CheckoutEventPayloads } from "./public-event-payloads/checkout";
 import type { FulfillmentEventPayloads } from "./public-event-payloads/fulfillment";
@@ -158,6 +163,88 @@ const missingOperatorVersion: MarketplaceListingOperatorUnlistedPayload = {
 
 const shardDirectory = path.join(import.meta.dirname, "public-event-payloads");
 const aggregateFileName = "index.ts";
+
+const validCollectionsSavedListReport = {
+  reportId: "report_opaque",
+  targetType: "saved-list",
+  targetId: "saved-list_opaque",
+  targetOwnerAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  reporterKind: "account",
+  reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+  reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+  reason: "spam",
+  submittedAt: "2026-10-06T07:30:00.123456789-05:00",
+} as const satisfies CollectionsSavedListReportSubmittedPayload;
+
+const validVisitorCollectionsSavedListReport = {
+  ...validCollectionsSavedListReport,
+  reporterKind: "visitor",
+  reporterKey: "A23456789012345678901234567890123456789012_",
+  reporterAccountId: null,
+} as const satisfies CollectionsSavedListReportSubmittedPayload;
+
+// @ts-expect-error visitor reports never carry an account identity.
+const invalidVisitorReporterArm: CollectionsSavedListReportSubmittedPayload = {
+  ...validVisitorCollectionsSavedListReport,
+  reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+};
+void invalidVisitorReporterArm;
+
+describe("Collections Saved List report-submitted payload", () => {
+  it("publishes one exact payload identity through the aggregate and deep specifier", () => {
+    expect(collectionsSavedListReportReasons).toEqual(["spam", "prohibited-content", "harassment", "other"]);
+    expectTypeOf<
+      CollectionsEventPayloads["collections.saved-list.report-submitted"]
+    >().toEqualTypeOf<CollectionsSavedListReportSubmittedPayload>();
+    expectTypeOf<DeepCollectionsEventPayloads>().toEqualTypeOf<CollectionsEventPayloads>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["collections.saved-list.report-submitted"]
+    >().toEqualTypeOf<CollectionsSavedListReportSubmittedPayload>();
+  });
+
+  it("accepts account and visitor rows and preserves no input values in errors", () => {
+    expect(parseCollectionsSavedListReportSubmittedPayload(validCollectionsSavedListReport)).toEqual(
+      validCollectionsSavedListReport,
+    );
+    expect(parseCollectionsSavedListReportSubmittedPayload(validVisitorCollectionsSavedListReport)).toEqual(
+      validVisitorCollectionsSavedListReport,
+    );
+    const withSecret = { ...validVisitorCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" };
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(withSecret)).toThrowError(
+      expect.not.objectContaining({ message: expect.stringContaining("SECRET_SENTINEL") }),
+    );
+    const badDigest = { ...validVisitorCollectionsSavedListReport, reporterKey: "DIGEST_SENTINEL" };
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(badDigest)).toThrowError(
+      expect.not.objectContaining({ message: expect.stringContaining("DIGEST_SENTINEL") }),
+    );
+  });
+
+  it.each<readonly [string, unknown]>([
+    ["null", null],
+    ["array", [validCollectionsSavedListReport]],
+    ["missing key", Object.fromEntries(Object.entries(validCollectionsSavedListReport).slice(1))],
+    ["unknown key", { ...validCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" }],
+    ["padded id", { ...validCollectionsSavedListReport, targetId: " saved-list_opaque" }],
+    ["wrong target", { ...validCollectionsSavedListReport, targetType: "list" }],
+    ["wrong reason", { ...validCollectionsSavedListReport, reason: "other-reason" }],
+    ["account mismatch", { ...validCollectionsSavedListReport, reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV" }],
+    [
+      "visitor account",
+      { ...validVisitorCollectionsSavedListReport, reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW" },
+    ],
+    ["visitor digest", { ...validVisitorCollectionsSavedListReport, reporterKey: "short" }],
+    ["lowercase t", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06t07:30:00Z" }],
+    ["space separator", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06 07:30:00Z" }],
+    ["leap second", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:60Z" }],
+    [
+      "too many fraction digits",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00.1234567890Z" },
+    ],
+    ["impossible calendar", { ...validCollectionsSavedListReport, submittedAt: "2026-02-30T07:30:00Z" }],
+  ])("rejects %s", (_label, value) => {
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(value)).toThrow();
+  });
+});
 
 describe("Order Group post-Fulfillment-shard registration", () => {
   it("registers each exact payload type in the owning shard and aggregate", () => {
@@ -687,6 +774,7 @@ type IndependentlyComposedPublicEventKeys =
   | keyof AuthEventPayloads
   | keyof IdentityEventPayloads
   | keyof CheckoutEventPayloads
+  | keyof CollectionsEventPayloads
   | keyof FulfillmentEventPayloads
   | keyof InventoryEventPayloads
   | keyof OrderingEventPayloads
