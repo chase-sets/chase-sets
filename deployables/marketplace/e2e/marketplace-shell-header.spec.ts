@@ -520,11 +520,13 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
         throw new Error("anchor heading or reserved header box not found");
       }
       return {
+        phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state") ?? null,
         scrollY: window.scrollY,
         anchorY: anchor.getBoundingClientRect().y,
         reservedHeight: reserved.getBoundingClientRect().height,
       };
     });
+    expect(collapsedFacts.phase).toBe("collapsed");
 
     // Reveal at the same scroll offset through the focus pin, so only the phase
     // differs between the two measurements.
@@ -537,11 +539,13 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
         throw new Error("anchor heading or reserved header box not found");
       }
       return {
+        phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state") ?? null,
         scrollY: window.scrollY,
         anchorY: anchor.getBoundingClientRect().y,
         reservedHeight: reserved.getBoundingClientRect().height,
       };
     });
+    expect(expandedFacts.phase).toBe("expanded");
 
     await publishRecord(testInfo, "content-anchoring-measurements", { collapsedFacts, expandedFacts });
     expect(expandedFacts.scrollY).toBe(collapsedFacts.scrollY);

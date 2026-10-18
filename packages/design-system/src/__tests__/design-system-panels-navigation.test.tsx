@@ -1227,7 +1227,7 @@ describe("marketplace shell search-row collapse (#5709)", () => {
   const itemIdentity = "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp";
 
   // Frozen goldens captured from MarketplaceShell and TopNav at merge-base
-  // a460b410398b01d386b7919ef364e63d3d271b88 rendering the identical fixture
+  // 00f01b7a7906980e8a97f7bf782a65346a028606 rendering the identical fixture
   // props below; criterion 14 compares omitting callers against these bytes,
   // never against themselves.
   const exactMainShellGolden =
@@ -1772,6 +1772,21 @@ describe("marketplace shell search-row collapse (#5709)", () => {
     asymmetric = scroll(asymmetric, 1024);
     expect(asymmetric.phase).toBe("expanded");
     expect(asymmetric.travel).toBe(-2);
+  });
+
+  it("keeps the symmetric control green under the reversal mutant", () => {
+    usePhoneViewport();
+    const environment = (scrollY: number): SearchRowEnvironment => ({
+      enabled: true,
+      hasSearch: true,
+      belowMd: true,
+      scrollY,
+      focusInHeader: false,
+      routeIdentity: itemIdentity,
+    });
+    const scroll = (state: SearchRowState, scrollY: number) =>
+      searchRowReducer(state, { type: "scroll", environment: environment(scrollY) });
+    const expanded: SearchRowState = { phase: "expanded", travel: 0, lastScrollY: 1000, routeIdentity: itemIdentity };
 
     // Symmetric 20 down then 20 up stays expanded under both the shipped
     // reducer and an accumulate-only mutant; only the asymmetric case above

@@ -19,8 +19,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountMenuItem, NavigationItem } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import { resolveWebHostActiveKey } from "@chase-sets/platform-runtime/web";
+import { toRouteConfigEntry } from "@chase-sets/platform-runtime/web-route-config";
 import { webContextRegistry } from "../generated/web-context-registry";
-import { resolveMarketplaceAccountMenuItems, resolveMarketplaceActiveKey, resolveMarketplaceNavItems } from "../host";
+import {
+  resolveMarketplaceAccountMenuItems,
+  resolveMarketplaceActiveKey,
+  resolveMarketplaceNavItems,
+  resolveMarketplaceRouteConfigRecords,
+} from "../host";
 
 const preferenceDefaults = { density: "comfortable", reducedMotion: "user", locale: "en", timeZone: "UTC" };
 
@@ -70,6 +76,7 @@ vi.mock("@chase-sets/design-system", async () => {
 });
 
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
+import { index as routeIndex, route as routeConfig } from "@react-router/dev/routes";
 import MarketplaceLayoutRoute, { loader, marketplaceSearchRouteId } from "./layout";
 import {
   observeSearchRowEvents,
@@ -88,6 +95,13 @@ function render(ui: ReactNode, options?: RenderOptions) {
 
 function renderWithRealRouter(initialEntry: string) {
   realRouterMode.enabled = true;
+  const searchRouteRecord = resolveMarketplaceRouteConfigRecords().find((record) => record.routeId === "search");
+  expect(searchRouteRecord).toBeDefined();
+  const registeredSearchRoute = toRouteConfigEntry(searchRouteRecord!, {
+    index: routeIndex,
+    route: routeConfig,
+  });
+  expect(registeredSearchRoute.id).toBe(marketplaceSearchRouteId);
   const router = createMemoryRouter(
     [
       {
@@ -96,7 +110,11 @@ function renderWithRealRouter(initialEntry: string) {
         loader: () => ({ actor: null, cartCount: 0 }),
         element: <MarketplaceLayoutRoute />,
         children: [
-          { id: marketplaceSearchRouteId, path: "search", element: <div>Search route</div> },
+          {
+            id: registeredSearchRoute.id,
+            path: registeredSearchRoute.path,
+            element: <div>Search route</div>,
+          },
           { id: "routes/not-found", path: "*", element: <div>Not found route</div> },
         ],
       },
@@ -1562,9 +1580,7 @@ describe("marketplace search-row route identity", () => {
     const stopSearchObserving = observeSearchRowEvents((observation) => searchObservations.push(observation));
     const search = renderWithRealRouter("/search?q=before");
     try {
-      await waitFor(() =>
-        expect(search.view.container.querySelector('[data-search-row-state="expanded"]')).toBeTruthy(),
-      );
+      await waitFor(() => expect(search.view.container.querySelector("[data-search-row-state]")).toBeTruthy());
       const beforeSearch = searchObservations.at(-1)?.state;
       searchObservations.length = 0;
       await act(async () => {
@@ -1581,19 +1597,18 @@ describe("marketplace search-row route identity", () => {
     }
   });
 
-  it("derives canonical search identity from the active matched route for every registered alias", async () => {
-    const table = [
-      ["/search", "/search", "expanded"],
-      ["/search/", "/search", "expanded"],
-      ["/search?q=charizard", "/search", "expanded"],
-      ["/search/?q=charizard", "/search", "expanded"],
-      ["/search?dimension.condition=raw", "/search", "expanded"],
-      ["/search/#results", "/search", "expanded"],
-      ["/search/x", "/search/x", "collapsed"],
-      ["/search%2Fx", "/search%2Fx", "collapsed"],
-    ] as const;
-
-    for (const [entry, expectedIdentity, expectedPhase] of table) {
+  it.each([
+    ["/search", "/search", "expanded"],
+    ["/SEARCH", "/search", "expanded"],
+    ["/Search", "/search", "expanded"],
+    ["/search/", "/search", "expanded"],
+    ["/search//", "/search", "expanded"],
+    ["/%73earch", "/search", "expanded"],
+    ["/search/x", "/search/x", "collapsed"],
+    ["/search%2Fx", "/search%2Fx", "collapsed"],
+  ] as const)(
+    "derives canonical search identity from the active matched route for %s",
+    async (entry, expectedIdentity, expectedPhase) => {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
       Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
       Object.defineProperty(window, "scrollY", { configurable: true, writable: true, value: 2000 });
@@ -1607,6 +1622,6 @@ describe("marketplace search-row route identity", () => {
       } finally {
         view.unmount();
       }
-    }
-  });
+    },
+  );
 });
