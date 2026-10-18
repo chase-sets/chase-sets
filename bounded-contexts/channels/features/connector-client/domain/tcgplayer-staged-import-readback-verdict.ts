@@ -206,8 +206,6 @@ function parseCsv(input: string): string[][] {
         continue;
       }
       if (character === "\r" || character === "\n") {
-        record.push(field);
-        field = "";
         afterQuote = false;
         if (character === "\r" && input[index + 1] === "\n") index += 1;
         pushRecord();
@@ -346,6 +344,7 @@ function minor(value: string): number | null {
 function basisMatches(row: TcgplayerStagedImportReadbackRow, member: TcgplayerStagedImportReadbackMember): boolean {
   return (
     row.sellerColumns["Total Quantity"] === String(member.basisTotalQuantity) &&
+    row.sellerColumns["Add to Quantity"] === "0" &&
     minor(row.sellerColumns["TCG Marketplace Price"] ?? "") === member.basisPriceAmountMinor
   );
 }

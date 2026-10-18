@@ -67,33 +67,64 @@ describe("tcgplayer-staged-import-classification-contract", () => {
       },
     ],
     ["unclassified", { ...tcgplayerStagedImportCandidateClassification, initialize: [{ key: "x", class: null }] }],
-  ])("rejects %s", (_name, value) => expect(() => decodeTcgplayerStagedImportFieldClassification(value)).toThrow());
+  ])("rejects %s", (_name, value) =>
+    expect(() => decodeTcgplayerStagedImportFieldClassification(value)).toThrow(
+      /staged-import-classification-(invalid-record|duplicate-field|credential-shaped-field|unclassified-field)/,
+    ),
+  );
 
   it("requires founder-session authority when requested", () => {
     expect(() =>
       decodeTcgplayerStagedImportFieldClassification(tcgplayerStagedImportCandidateClassification, {
         requireSource: "founder-session",
       }),
-    ).toThrow("founder-session-required");
+    ).toThrow("staged-import-classification-founder-session-required");
   });
 });
 
 describe("tcgplayer-staged-import-builder-isolation", () => {
-  it("derives every classified field in order for repeated rows", () => {
-    const rows = [row, { ...row, "TCGplayer Id": "1002" }];
-    const envelope = buildTcgplayerStagedImportEnvelope({
-      classification: tcgplayerStagedImportCandidateClassification,
-      composedRows: rows,
-      continuation,
-    });
-    const repeated = tcgplayerStagedImportCandidateClassification.upload.filter((field) => field.key.includes("[n]"));
-    const scalar = tcgplayerStagedImportCandidateClassification.upload.filter((field) => !field.key.includes("[n]"));
-    const expected = rows
-      .flatMap((_, index) => repeated.map((field) => field.key.replaceAll("[n]", `[${index}]`)))
-      .concat(scalar.map((field) => field.key));
-    expect([...new URLSearchParams(envelope.upload).keys()]).toEqual(expected);
-    expect(envelope.upload).toContain("data%5B0%5D%5BProductConditionId%5D=Near+Mint");
-    expect(envelope.upload).toContain("data%5B1%5D%5BId%5D=1002");
+  it("derives every classified field and value for every hop and repeated row", () => {
+    const rows = [row, { ...row, "TCGplayer Id": "1002", "Product Name": "Second Card" }];
+    const classifications = [
+      tcgplayerStagedImportCandidateClassification,
+      {
+        ...tcgplayerStagedImportCandidateClassification,
+        initialize: [...tcgplayerStagedImportCandidateClassification.initialize].reverse(),
+        upload: tcgplayerStagedImportCandidateClassification.upload.map((field) =>
+          field.key === "data[n][ProductName]" ? { ...field, key: "data[n][RenamedProduct]" } : field,
+        ),
+        finalize: [...tcgplayerStagedImportCandidateClassification.finalize].reverse(),
+      },
+    ];
+    for (const classification of classifications) {
+      const envelope = buildTcgplayerStagedImportEnvelope({ classification, composedRows: rows, continuation });
+      for (const hop of ["initialize", "upload", "finalize"] as const) {
+        const fields = classification[hop];
+        const repeated = fields.filter((field) => field.key.includes("[n]"));
+        const scalar = fields.filter((field) => !field.key.includes("[n]"));
+        const expected: [string, string][] = [];
+        const valueFor = (field: (typeof fields)[number], source: (typeof rows)[number]) => {
+          switch (field.class.kind) {
+            case "closed-constant":
+              return field.class.value;
+            case "verbatim-reference-column":
+            case "composed-column":
+              return String((source as Readonly<Record<string, unknown>>)[field.class.column]);
+            case "closed-derivation":
+              return field.class.derivation === "prior-hop-continuation"
+                ? continuation.stagedPricingUploadId
+                : field.class.derivation === "batch-file-name"
+                  ? continuation.batchFileName
+                  : String(rows.length);
+          }
+        };
+        for (const [index, source] of rows.entries())
+          for (const field of repeated)
+            expected.push([field.key.replaceAll("[n]", `[${index}]`), valueFor(field, source)]);
+        for (const field of scalar) expected.push([field.key, valueFor(field, rows[0]!)]);
+        expect([...new URLSearchParams(envelope[hop])]).toEqual(expected);
+      }
+    }
   });
 
   it.each([
@@ -108,7 +139,35 @@ describe("tcgplayer-staged-import-builder-isolation", () => {
         composedRows,
         continuation,
       }),
-    ).toThrow();
+    ).toThrow(
+      /staged-import-envelope-(zero-composed-rows|row-outside-observed-input-classes|missing-reference-column|invalid-composed-value)/,
+    );
+  });
+
+  it("keeps sentinel values out of DTOs and refusal messages", () => {
+    const sentinel = "SENTINEL-builder-7d1\u0001";
+    let refusal: unknown;
+    try {
+      buildTcgplayerStagedImportEnvelope({
+        classification: tcgplayerStagedImportCandidateClassification,
+        composedRows: [{ ...row, "Product Name": sentinel }],
+        continuation: { stagedPricingUploadId: sentinel, batchFileName: sentinel },
+      });
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toMatchObject({ code: "invalid-composed-value" });
+    expect(String((refusal as Error).message)).not.toContain("SENTINEL");
+    expect(JSON.stringify(tcgplayerStagedImportCandidateClassification)).not.toContain(sentinel);
+    for (const name of [
+      "tcgplayer-staged-import-classification.ts",
+      "tcgplayer-staged-import-envelope.ts",
+      "tcgplayer-staged-import-release-gate.ts",
+      "tcgplayer-staged-import-readback-verdict.ts",
+    ])
+      expect(readFileSync(new URL(`../domain/${name}`, import.meta.url), "utf8")).not.toMatch(
+        /tcgplayer\.com|chrome\.cookies/,
+      );
   });
 });
 
@@ -134,7 +193,7 @@ describe("tcgplayer-staged-import-release-gate", () => {
       redirect: "error" as const,
     };
     await gate.release(request);
-    await expect(gate.release(request)).rejects.toThrow("phase-released");
+    await expect(gate.release(request)).rejects.toThrow("staged-import-release-phase-released");
     expect(sink).toHaveBeenCalledTimes(1);
     expect(gate.stopped()).toBe(true);
   });
@@ -155,8 +214,85 @@ describe("tcgplayer-staged-import-release-gate", () => {
         body: "x",
         redirect: "error",
       }),
-    ).rejects.toThrow("invalid-request");
+    ).rejects.toThrow("staged-import-release-invalid-request");
     expect(sink).not.toHaveBeenCalled();
+  });
+
+  it("rejects mismatched bodies without invoking the sink", async () => {
+    const sink = vi.fn();
+    const gate = createTcgplayerStagedImportReleaseGate({
+      classification: tcgplayerStagedImportCandidateClassification,
+      composedRows: [row],
+      continuation,
+      sink,
+    });
+    await expect(
+      gate.release({
+        phase: "initialize",
+        method: "POST",
+        path: "/admin/pricing/initializeexportcsv",
+        body: "body-mismatch",
+        redirect: "error",
+      }),
+    ).rejects.toThrow("staged-import-release-body-mismatch");
+    expect(sink).not.toHaveBeenCalled();
+    expect(gate.stopped()).toBe(true);
+  });
+
+  it("rejects redirects without touching the sink and latches STOP", async () => {
+    const sink = vi.fn();
+    const gate = createTcgplayerStagedImportReleaseGate({
+      classification: tcgplayerStagedImportCandidateClassification,
+      composedRows: [row],
+      continuation,
+      sink,
+    });
+    await expect(
+      gate.release({
+        phase: "initialize",
+        method: "POST",
+        path: "/admin/pricing/initializeexportcsv",
+        body: "x",
+        redirect: "manual" as "error",
+      }),
+    ).rejects.toThrow("staged-import-release-redirect-refused");
+    expect(sink).not.toHaveBeenCalled();
+    expect(gate.stopped()).toBe(true);
+    await expect(
+      gate.release({
+        phase: "initialize",
+        method: "POST",
+        path: "/admin/pricing/initializeexportcsv",
+        body: "x",
+        redirect: "error",
+      }),
+    ).rejects.toThrow("staged-import-release-stopped");
+  });
+
+  it("rejects sink failures with an exact code", async () => {
+    const gate = createTcgplayerStagedImportReleaseGate({
+      classification: tcgplayerStagedImportCandidateClassification,
+      composedRows: [row],
+      continuation,
+      sink: vi.fn(async () => {
+        throw new Error("synthetic sink failure");
+      }),
+    });
+    const body = buildTcgplayerStagedImportEnvelope({
+      classification: tcgplayerStagedImportCandidateClassification,
+      composedRows: [row],
+      continuation,
+    }).initialize;
+    await expect(
+      gate.release({
+        phase: "initialize",
+        method: "POST",
+        path: "/admin/pricing/initializeexportcsv",
+        body,
+        redirect: "error",
+      }),
+    ).rejects.toThrow("staged-import-release-sink-failed");
+    expect(gate.stopped()).toBe(true);
   });
 
   it("closes a concurrent release race", async () => {
@@ -244,6 +380,7 @@ describe("tcgplayer-staged-import-readback-verdict", () => {
 
   it.each([
     ["missing completeness", readback(preRows, null), "missing-completeness-discriminator"],
+    ["id set changed", readback([{ ...preRows[0]!, id: "9999" }, preRows[1]!]), "id-set-changed"],
     [
       "member projection mismatch",
       readback([
@@ -269,10 +406,42 @@ describe("tcgplayer-staged-import-readback-verdict", () => {
       "non-member-drift",
     ],
     ["incomplete", readback(preRows, { kind: "incomplete", reason: "partial" }), "incomplete-readback"],
+    ["authority unavailable", readback(preRows), "authority-unavailable"],
   ])("returns closed reason for %s", (_name, post, reason) => {
+    const verdictAuthority = reason === "authority-unavailable" ? { ...authority, origin: "page" as const } : authority;
     expect(
-      deriveTcgplayerStagedImportReadbackVerdict({ pre: readback(preRows), post, members: [member], authority }),
+      deriveTcgplayerStagedImportReadbackVerdict({
+        pre: readback(preRows),
+        post,
+        members: [member],
+        authority: verdictAuthority,
+      }),
     ).toMatchObject({ kind: "outcome-unknown", reason });
+  });
+
+  it.each([
+    ["overflow", readback([], { kind: "overflow" }), "overflow-readback"],
+    ["partial rows", readback([preRows[0]!], { kind: "complete", expectedRows: 2 }), "incomplete-readback"],
+  ])("refuses %s through the verdict", (_name, pre, reason) => {
+    expect(
+      deriveTcgplayerStagedImportReadbackVerdict({ pre, post: readback(preRows), members: [member], authority }),
+    ).toMatchObject({ kind: "outcome-unknown", reason });
+  });
+
+  it("rejects a pending pre-import delta in both preflight and verdict", () => {
+    const pending = readback([
+      { ...preRows[0]!, sellerColumns: { ...preRows[0]!.sellerColumns, "Add to Quantity": "3" } },
+      preRows[1]!,
+    ]);
+    expect(preflightTcgplayerStagedImport(pending, [member])).toMatchObject({ kind: "basis-diverged" });
+    expect(
+      deriveTcgplayerStagedImportReadbackVerdict({
+        pre: pending,
+        post: pending,
+        members: [member],
+        authority,
+      }),
+    ).toMatchObject({ kind: "basis-diverged" });
   });
 
   it.each(["intentless", "typo csv", "string basis", "zero members", "unknown nested key"])(
@@ -296,11 +465,31 @@ describe("tcgplayer-staged-import-readback-verdict", () => {
     },
   );
 
-  it("parses quoted commas and refuses ragged rows", () => {
+  it("parses quoted commas, all-quoted rows and quoted final fields, and refuses ragged rows", () => {
     const header = "TCGplayer Id,Product Name,Total Quantity,Add to Quantity,TCG Marketplace Price";
     const parsed = parseTcgplayerStagedImportReadback(`${header}\n1001,\"Synthetic, Comma Card\",1,0,2.00`);
     expect(parsed.rows[0]!.sellerColumns["TCG Marketplace Price"]).toBe("2.00");
-    expect(() => parseTcgplayerStagedImportReadback(`${header}\n1001,Card,1`)).toThrow("invalid-record");
+    const quotedHeader = '"TCGplayer Id","Product Name","Total Quantity","Add to Quantity","TCG Marketplace Price"';
+    const quotedRows = '"1001","Synthetic Card","1","0","2.00"\r\n"1002","Second Card","2","0","3.00"\r\n';
+    expect(parseTcgplayerStagedImportReadback(`${quotedHeader}\r\n${quotedRows}`).rows).toHaveLength(2);
+    expect(
+      parseTcgplayerStagedImportReadback(`${quotedHeader}\r\n1001,Card,1,0,"2.00"\r\n1002,Card,2,0,"3.00"`).rows,
+    ).toHaveLength(2);
+    expect(parseTcgplayerStagedImportReadback(quotedHeader).completeness).toMatchObject({
+      kind: "incomplete",
+      reason: "missing",
+    });
+    expect(parseTcgplayerStagedImportReadback("").completeness).toMatchObject({
+      kind: "incomplete",
+      reason: "missing",
+    });
+    expect(() => parseTcgplayerStagedImportReadback(`${header}\r\n1001,Card,1,0,"2.00`)).toThrow(
+      "staged-import-readback-invalid-record",
+    );
+    expect(() => parseTcgplayerStagedImportReadback(`${header}\n1001,Card,1`)).toThrow(
+      "staged-import-readback-invalid-record",
+    );
+    expect(parseTcgplayerStagedImportReadback("x".repeat(1_048_577)).completeness).toMatchObject({ kind: "overflow" });
   });
 
   it("returns unknown rather than throwing at overflow and closes decoder keys", () => {
