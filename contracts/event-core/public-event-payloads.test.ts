@@ -5,6 +5,7 @@ import { orderGroupFactRegistry, type OrderGroupEventPayloads, type OrderGroupFa
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,
+  collectionsSavedListReportReasons,
   inventoryHoldPurposes,
   inventoryHoldReleaseReasons,
   inventoryOfflineSaleChannels,
@@ -12,6 +13,7 @@ import {
   marketplaceListingEnforcementSources,
   parseMarketplaceListingAutoUnlistedPayload,
   parseMarketplaceListingOperatorUnlistedPayload,
+  parseCollectionsSavedListReportSubmittedPayload,
   parsePlatformOperationsListingRemovalDirectedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
@@ -21,6 +23,8 @@ import type {
   AuthSessionStartedPayload,
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
+  CollectionsEventPayloads,
+  CollectionsSavedListReportSubmittedPayload,
   EmptyEventPayload,
   FulfillmentShipmentCancelledPayload,
   FulfillmentShipmentCreatedPayload,
@@ -65,6 +69,7 @@ import type {
   WaitlistReferralCodeReservedPayload,
   WaitlistReferralLinkProvisionedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
+import type { CollectionsEventPayloads as DeepCollectionsEventPayloads } from "./public-event-payloads/collections";
 import type { AuthEventPayloads } from "./public-event-payloads/auth";
 import type { CheckoutEventPayloads } from "./public-event-payloads/checkout";
 import type { FulfillmentEventPayloads } from "./public-event-payloads/fulfillment";
@@ -158,6 +163,137 @@ const missingOperatorVersion: MarketplaceListingOperatorUnlistedPayload = {
 
 const shardDirectory = path.join(import.meta.dirname, "public-event-payloads");
 const aggregateFileName = "index.ts";
+
+const validCollectionsSavedListReport = {
+  reportId: "report_opaque",
+  targetType: "saved-list",
+  targetId: "saved-list_opaque",
+  targetOwnerAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  reporterKind: "account",
+  reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+  reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+  reason: "spam",
+  submittedAt: "2026-10-06T07:30:00.123456789-05:00",
+} as const satisfies CollectionsSavedListReportSubmittedPayload;
+
+const validVisitorCollectionsSavedListReport = {
+  ...validCollectionsSavedListReport,
+  reporterKind: "visitor",
+  reporterKey: "A23456789012345678901234567890123456789012_",
+  reporterAccountId: null,
+} as const satisfies CollectionsSavedListReportSubmittedPayload;
+
+// @ts-expect-error visitor reports never carry an account identity.
+const invalidVisitorReporterArm: CollectionsSavedListReportSubmittedPayload = {
+  ...validVisitorCollectionsSavedListReport,
+  reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+};
+void invalidVisitorReporterArm;
+
+// @ts-expect-error account reports must use an account reporter key.
+const invalidAccountReporterKey: CollectionsSavedListReportSubmittedPayload = {
+  ...validCollectionsSavedListReport,
+  reporterKey: validVisitorCollectionsSavedListReport.reporterKey,
+};
+void invalidAccountReporterKey;
+
+// @ts-expect-error account reports must carry an account identity.
+const invalidAccountReporterId: CollectionsSavedListReportSubmittedPayload = {
+  ...validCollectionsSavedListReport,
+  reporterAccountId: null,
+};
+void invalidAccountReporterId;
+
+describe("Collections Saved List report-submitted payload", () => {
+  it("publishes one exact payload identity through the aggregate and deep specifier", () => {
+    expect(collectionsSavedListReportReasons).toEqual(["spam", "prohibited-content", "harassment", "other"]);
+    expectTypeOf<
+      CollectionsEventPayloads["collections.saved-list.report-submitted"]
+    >().toEqualTypeOf<CollectionsSavedListReportSubmittedPayload>();
+    expectTypeOf<DeepCollectionsEventPayloads>().toEqualTypeOf<CollectionsEventPayloads>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["collections.saved-list.report-submitted"]
+    >().toEqualTypeOf<CollectionsSavedListReportSubmittedPayload>();
+  });
+
+  it("accepts account and visitor rows and preserves no input values in errors", () => {
+    const withSecret = { ...validVisitorCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" };
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(withSecret)).toThrowError(
+      expect.not.objectContaining({ message: expect.stringContaining("SECRET_SENTINEL") }),
+    );
+    const badDigest = { ...validVisitorCollectionsSavedListReport, reporterKey: "DIGEST_SENTINEL" };
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(badDigest)).toThrowError(
+      expect.not.objectContaining({ message: expect.stringContaining("DIGEST_SENTINEL") }),
+    );
+  });
+
+  it.each(
+    collectionsSavedListReportReasons.flatMap((reason) => [
+      { ...validCollectionsSavedListReport, reason },
+      { ...validVisitorCollectionsSavedListReport, reason },
+    ]),
+  )("accepts every valid %s row", (row) => {
+    expect(parseCollectionsSavedListReportSubmittedPayload(row)).toEqual(row);
+  });
+
+  it.each<readonly [string, unknown, string]>([
+    ["null", null, "must be an object"],
+    ["array", [validCollectionsSavedListReport], "must be an object"],
+    ["missing key", Object.fromEntries(Object.entries(validCollectionsSavedListReport).slice(1)), "missing key"],
+    ["unknown key", { ...validCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" }, "unknown key"],
+    ["padded id", { ...validCollectionsSavedListReport, targetId: " saved-list_opaque" }, "IDs must be"],
+    ["wrong target", { ...validCollectionsSavedListReport, targetType: "list" }, "targetType must be"],
+    ["wrong reason", { ...validCollectionsSavedListReport, reason: "other-reason" }, "reason is invalid"],
+    [
+      "wrong reporter kind",
+      { ...validVisitorCollectionsSavedListReport, reporterKind: "admin" },
+      "reporterKind must be",
+    ],
+    [
+      "timezone-free",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00" },
+      "submittedAt must be",
+    ],
+    ["non-string reportId", { ...validCollectionsSavedListReport, reportId: 123 }, "IDs must be"],
+    ["non-string targetId", { ...validCollectionsSavedListReport, targetId: ["saved-list_opaque"] }, "IDs must be"],
+    [
+      "account mismatch",
+      { ...validCollectionsSavedListReport, reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV" },
+      "account reporter must match",
+    ],
+    [
+      "visitor account",
+      { ...validVisitorCollectionsSavedListReport, reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW" },
+      "visitor reporter must use",
+    ],
+    [
+      "visitor digest",
+      { ...validVisitorCollectionsSavedListReport, reporterKey: "short" },
+      "visitor reporter must use",
+    ],
+    ["lowercase t", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06t07:30:00Z" }, "submittedAt must be"],
+    [
+      "space separator",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06 07:30:00Z" },
+      "submittedAt must be",
+    ],
+    ["leap second", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:60Z" }, "submittedAt must be"],
+    [
+      "too many fraction digits",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00.1234567890Z" },
+      "submittedAt must be",
+    ],
+    [
+      "impossible calendar",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-02-30T07:30:00Z" },
+      "submittedAt must be",
+    ],
+  ])("rejects %s", (_label, value, message) => {
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(value)).toThrowError(
+      expect.objectContaining({ message: expect.stringContaining(message) }),
+    );
+  });
+});
 
 describe("Order Group post-Fulfillment-shard registration", () => {
   it("registers each exact payload type in the owning shard and aggregate", () => {
@@ -687,6 +823,7 @@ type IndependentlyComposedPublicEventKeys =
   | keyof AuthEventPayloads
   | keyof IdentityEventPayloads
   | keyof CheckoutEventPayloads
+  | keyof CollectionsEventPayloads
   | keyof FulfillmentEventPayloads
   | keyof InventoryEventPayloads
   | keyof OrderingEventPayloads
