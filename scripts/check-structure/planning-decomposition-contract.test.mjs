@@ -152,7 +152,9 @@ describe("repository routing", () => {
     const rule = "### Repository routing\n\nAn issue lives in the repository its change merges into.";
     expect(occurrenceCount(backlogModel, rule)).toBe(1);
     expect(backlogModel.indexOf(rule)).toBeLessThan(backlogModel.indexOf("### Agents own placement and priority"));
-    expect(backlogModel).toContain("- An issue that changes no tracked file lives with the loop whose work it\n  serves.");
+    expect(backlogModel).toContain(
+      "- An issue that changes no tracked file lives with the loop whose work it\n  serves.",
+    );
   });
 
   it("starts the placement test with the repository", () => {
