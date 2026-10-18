@@ -89,7 +89,10 @@ export type TcgplayerProviderAdapterOptions = Readonly<{
   loadProfileVersions: () => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
 }>;
 
-const retired = () => new Error("TCGplayer server transport is retired; use the browser handoff.");
+const RETIRED_TCGPLAYER_HANDOFF_MESSAGE = "TCGplayer server transport is retired; use the browser handoff.";
+const RETIRED_TCGPLAYER_DIAGNOSTIC_MESSAGE = "TCGplayer server transport is retired.";
+
+const retired = () => new Error(RETIRED_TCGPLAYER_HANDOFF_MESSAGE);
 
 export function createTcgplayerProviderAdapter(
   options: TcgplayerProviderAdapterOptions,
@@ -121,15 +124,13 @@ export function createTcgplayerProviderAdapter(
           sourceKind: "none",
           state: "unknown",
           diagnosticCode: "provider-retired",
-          message: "TCGplayer server transport is retired; use the browser handoff.",
+          message: RETIRED_TCGPLAYER_HANDOFF_MESSAGE,
           evidence: { transport: "browser-extension-only" },
         }),
       ];
     },
     async getTransportDiagnostics() {
-      return [
-        { code: "provider-retired", severity: "error" as const, message: "TCGplayer server transport is retired." },
-      ];
+      return [{ code: "provider-retired", severity: "error" as const, message: RETIRED_TCGPLAYER_DIAGNOSTIC_MESSAGE }];
     },
   };
 }
