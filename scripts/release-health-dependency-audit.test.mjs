@@ -19,13 +19,21 @@ async function fixture(name) {
 
 describe("release health dependency audit", () => {
   it("classifies a production high advisory as failure", async () => {
-    const result = classifyDependencyAudit({ exitCode: 1, stdout: JSON.stringify(await fixture("high-production.json")), checkedAt });
+    const result = classifyDependencyAudit({
+      exitCode: 1,
+      stdout: JSON.stringify(await fixture("high-production.json")),
+      checkedAt,
+    });
     expect(result).toMatchObject({ result: "failure", alertStatus: "failure", summary: { alertingAdvisoryCount: 1 } });
     expect(result.advisories[0].findings[0].dev).toBe(false);
   });
 
   it("keeps moderate production and high dev-only advisories non-alerting", async () => {
-    const result = classifyDependencyAudit({ exitCode: 1, stdout: JSON.stringify(await fixture("dev-only-high.json")), checkedAt });
+    const result = classifyDependencyAudit({
+      exitCode: 1,
+      stdout: JSON.stringify(await fixture("dev-only-high.json")),
+      checkedAt,
+    });
     expect(result).toMatchObject({ result: "success", alertStatus: "success", summary: { alertingAdvisoryCount: 0 } });
   });
 
@@ -38,9 +46,15 @@ describe("release health dependency audit", () => {
   });
 
   it("renders alerting advisories in severity then module order with required fields", async () => {
-    const result = classifyDependencyAudit({ exitCode: 1, stdout: JSON.stringify(await fixture("high-production.json")), checkedAt });
+    const result = classifyDependencyAudit({
+      exitCode: 1,
+      stdout: JSON.stringify(await fixture("high-production.json")),
+      checkedAt,
+    });
     const markdown = renderDependencyAuditMarkdown(result);
-    expect(markdown).toContain("| Module | Installed versions | GHSA ID | Severity | Patched range | Production finding |");
+    expect(markdown).toContain(
+      "| Module | Installed versions | GHSA ID | Severity | Patched range | Production finding |",
+    );
     expect(markdown).toContain("| lodash | 4.17.15 | GHSA-35jh-r3h4-6jhm | high | >=4.17.21 | yes |");
   });
 
@@ -59,7 +73,9 @@ describe("release health dependency audit", () => {
       });
       expect(calls).toBe(1);
       expect(result.record.result).toBe("failure");
-      expect(JSON.parse(await readFile(path.join(outputDirectory, "dependency-audit.json"), "utf8")).result).toBe("failure");
+      expect(JSON.parse(await readFile(path.join(outputDirectory, "dependency-audit.json"), "utf8")).result).toBe(
+        "failure",
+      );
       expect(await readFile(path.join(outputDirectory, "dependency-audit.md"), "utf8")).toContain(
         "GHSA-35jh-r3h4-6jhm",
       );

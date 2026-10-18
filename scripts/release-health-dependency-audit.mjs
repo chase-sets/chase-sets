@@ -16,8 +16,7 @@ const SEVERITY_ORDER = Object.freeze({ critical: 0, high: 1, moderate: 2, low: 3
 export function parseReleaseHealthDependencyAuditArgs(argv, env = process.env) {
   return {
     outPath: readOption(argv, "--out") ?? readEnv("RELEASE_HEALTH_DEPENDENCY_AUDIT_OUT", env),
-    markdownOutPath:
-      readOption(argv, "--markdown-out") ?? readEnv("RELEASE_HEALTH_DEPENDENCY_AUDIT_MARKDOWN_OUT", env),
+    markdownOutPath: readOption(argv, "--markdown-out") ?? readEnv("RELEASE_HEALTH_DEPENDENCY_AUDIT_MARKDOWN_OUT", env),
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
     runAudit: undefined,
@@ -218,7 +217,8 @@ function isAlertingAdvisory(advisory) {
 
 function compareAdvisories(left, right) {
   return (
-    (SEVERITY_ORDER[left.severity] ?? SEVERITY_ORDER.unknown) - (SEVERITY_ORDER[right.severity] ?? SEVERITY_ORDER.unknown) ||
+    (SEVERITY_ORDER[left.severity] ?? SEVERITY_ORDER.unknown) -
+      (SEVERITY_ORDER[right.severity] ?? SEVERITY_ORDER.unknown) ||
     left.module.localeCompare(right.module) ||
     left.ghsa.localeCompare(right.ghsa)
   );
