@@ -156,7 +156,11 @@ describe("release health dependency audit", () => {
         githubOutputPath: path.join(outputDirectory, "github-output.txt"),
         runAudit: async () => ({ exitCode: null, stdout: "", stderr: "", error: new Error("spawn failed") }),
       });
-      expect(result.record).toMatchObject({ result: "warning", alertStatus: "warning", error: { class: "command-error" } });
+      expect(result.record).toMatchObject({
+        result: "warning",
+        alertStatus: "warning",
+        error: { class: "command-error" },
+      });
       expect(await readFile(path.join(outputDirectory, "github-output.txt"), "utf8")).toBe("alert_status=warning\n");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
@@ -169,7 +173,11 @@ describe("release health dependency audit", () => {
       await runReleaseHealthDependencyAudit({
         checkedAt,
         githubOutputPath: path.join(outputDirectory, "github-output.txt"),
-        runAudit: async () => ({ exitCode: 1, stdout: JSON.stringify(await fixture("high-production.json")), stderr: "" }),
+        runAudit: async () => ({
+          exitCode: 1,
+          stdout: JSON.stringify(await fixture("high-production.json")),
+          stderr: "",
+        }),
       });
       expect(await readFile(path.join(outputDirectory, "github-output.txt"), "utf8")).toBe("alert_status=failure\n");
     } finally {
