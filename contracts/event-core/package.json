@@ -25,6 +25,7 @@
     "./review-opportunity-facts": "./review-opportunity-facts.ts",
     "./public-event-payloads": "./public-event-payloads/index.ts",
     "./public-event-payloads/inventory": "./public-event-payloads/inventory.ts",
+    "./public-event-payloads/collections": "./public-event-payloads/collections.ts",
     "./storage": "./storage.ts",
     "./stream-id": "./stream-id.ts",
     "./test-support": "./test-support.ts",

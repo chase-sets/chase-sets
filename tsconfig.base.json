@@ -444,6 +444,9 @@
       "@chase-sets/event-core/public-event-payloads": [
         "./contracts/event-core/public-event-payloads/index.ts"
       ],
+      "@chase-sets/event-core/public-event-payloads/collections": [
+        "./contracts/event-core/public-event-payloads/collections.ts"
+      ],
       "@chase-sets/event-core/public-event-payloads/inventory": [
         "./contracts/event-core/public-event-payloads/inventory.ts"
       ],

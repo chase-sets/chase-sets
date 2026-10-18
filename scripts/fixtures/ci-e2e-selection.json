@@ -631,6 +631,14 @@
       "synthetic": false
     },
     {
+      "family": "e2eSpecSuiteOwnership:17",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/marketplace-shell-header\\.spec\\.ts$/",
+      "suites": ["marketplace_browse"],
+      "path": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
       "family": "e2eNoSuiteExclusions:0",
       "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:chrome-devtools|favicon|favicon-svg|health-ready|manifest|robots|service-worker|sitemap)\\./",
       "suites": null,
@@ -2331,6 +2339,11 @@
       "changedFiles": ["deployables/marketplace/e2e/account-management-interruption.spec.ts"],
       "suiteIds": ["marketplace_account"],
       "batches": ["marketplace_account"]
+    },
+    {
+      "changedFiles": ["deployables/marketplace/e2e/marketplace-shell-header.spec.ts"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
     }
   ]
 }

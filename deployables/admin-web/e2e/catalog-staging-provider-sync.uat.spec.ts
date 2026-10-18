@@ -1,6 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createServer, type OutgoingHttpHeaders } from "node:http";
 import { dirname } from "node:path";
-import { expect, test, type Locator, type Page, type Request, type Route } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Browser,
+  type Locator,
+  type Page,
+  type Request,
+  type Response,
+  type Route,
+} from "@playwright/test";
 import {
   startWholeGameCredentialProbe,
   wholeGameProbeCredentials,
@@ -3024,6 +3034,10 @@ test.describe("catalog staging provider sync UAT", () => {
     if (isWholeGameJourneyScope(providerUatJourneyScope)) {
       if (testInfo.retry > 0) throw new WholeGameRehearsalRefusal("automatic-retry-refused");
       await signInWholeGame(page, process.env.ADMIN_WEB_URL ?? "");
+      // Live-run boundary receipts (#9957): emitted only here, never from shared sign-in helpers.
+      const boundary = `[catalog-staging-provider-uat] journey=${providerUatJourneyScope} run=${process.env.GITHUB_RUN_ID ?? ""} sha=${process.env.GITHUB_SHA ?? ""}`;
+      console.log(`${boundary} sign-in-settlement-boundary=success`);
+      console.log(`${boundary} catalog-importer-boundary=reached`);
       const receipt = await runWholeGameJourney(
         page,
         providerUatJourneyScope,
@@ -3504,35 +3518,50 @@ async function signInThroughVisibleForm(
     timeout: pageReadyTimeoutMs,
   });
 
+  const importer = importerHeading(page);
+  const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
+  const passwordChoice = page.getByRole("radio", { name: /^Password$/ }).first();
+  const emailInput = page.getByRole("textbox", { name: /email|phone/i });
+  // One combined wait per pass; separate timed waits would each spend their
+  // full timeout on every control the current step does not render. Hidden
+  // controls stay in the DOM between steps, so only visible ones count.
+  const signInStep = importer.or(passwordInput).or(passwordChoice).or(emailInput).filter({ visible: true }).first();
+
   const deadline = Date.now() + pageReadyTimeoutMs;
   while (Date.now() < deadline) {
     assertOrigin?.(page.url());
-    if (await isImporterVisible(page, 3_000)) {
+    await signInStep
+      .waitFor({ state: "visible", timeout: Math.max(1, Math.min(3_000, deadline - Date.now())) })
+      .catch(() => undefined);
+    assertOrigin?.(page.url());
+    if (await importer.isVisible().catch(() => false)) {
       return;
     }
 
-    const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
-    if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    if (await passwordInput.isVisible().catch(() => false)) {
       assertOrigin?.(page.url());
       await fillCredential(passwordInput, credentials.password);
       assertOrigin?.(page.url());
-      await page.getByRole("button", { name: /^sign in$/i }).click();
+      await submitSignInUntilSettled(
+        page,
+        () => page.getByRole("button", { name: /^sign in$/i }).click(),
+        deadline,
+        assertOrigin,
+      );
       assertOrigin?.(page.url());
       await openCatalogImporter(page, assertOrigin);
       return;
     }
 
-    const passwordChoice = page.getByRole("radio", { name: /^Password$/ }).first();
     if (
-      (await passwordChoice.isVisible({ timeout: 1_000 }).catch(() => false)) &&
+      (await passwordChoice.isVisible().catch(() => false)) &&
       !(await passwordChoice.isChecked().catch(() => false))
     ) {
       await passwordChoice.click();
       continue;
     }
 
-    const emailInput = page.getByRole("textbox", { name: /email|phone/i });
-    if (await emailInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    if (await emailInput.isVisible().catch(() => false)) {
       assertOrigin?.(page.url());
       await fillCredential(emailInput, credentials.email);
       assertOrigin?.(page.url());
@@ -3543,6 +3572,66 @@ async function signInThroughVisibleForm(
   }
 
   throw new Error("The staging admin sign-in form did not reach the password step or importer before the timeout.");
+}
+
+const signInSettlementPollMs = 250;
+
+// Leaving the sign-in page before its submission settles cancels the client
+// action that carries the session cookie (#9957), so nothing may navigate
+// until the submission's own response or the shipped failure title is seen.
+async function submitSignInUntilSettled(
+  page: Page,
+  submit: () => Promise<void>,
+  deadline: number,
+  assertOrigin?: (url: string) => void,
+): Promise<void> {
+  const settled: Response[] = [];
+  const observe = (response: Response) => {
+    void isSignInSettlement(page, response).then(
+      (settlement) => {
+        if (settlement) settled.push(response);
+      },
+      () => undefined,
+    );
+  };
+  // ValidationSummary title, key auth.features.signIn.ui.signInPage.sign.in.failed.
+  const failure = page.getByRole("alert").getByRole("heading", { name: "Sign-in failed", exact: true }).first();
+  page.on("response", observe);
+  try {
+    await submit();
+    while (Date.now() < deadline) {
+      assertOrigin?.(page.url());
+      if (settled.length > 0) return;
+      const failed = await failure
+        .waitFor({ state: "visible", timeout: Math.max(1, Math.min(signInSettlementPollMs, deadline - Date.now())) })
+        .then(
+          () => true,
+          () => false,
+        );
+      if (failed)
+        throw new Error("The staging admin sign-in was rejected (Sign-in failed); the importer was not opened.");
+    }
+    assertOrigin?.(page.url());
+    throw new Error("The staging admin sign-in submission did not settle before the timeout.");
+  } finally {
+    page.off("response", observe);
+  }
+}
+
+// Settlement is the submission's own response: a main-frame document reached
+// from the form POST, with or without a cookie, or React Router's client action
+// redirect on the route's `.data` URL (202, or 204 plus X-Remix-Redirect) that
+// sets a cookie. Auth API JSON, such as /api/auth/password-sign-in, is neither.
+async function isSignInSettlement(page: Page, response: Response): Promise<boolean> {
+  const request = response.request();
+  let submission = request;
+  for (let hop = request.redirectedFrom(); hop; hop = hop.redirectedFrom()) submission = hop;
+  if (submission.method() !== "POST" || request.frame() !== page.mainFrame()) return false;
+  const status = response.status();
+  if (request.isNavigationRequest()) return status < 300 || status >= 400;
+  if (!new URL(request.url()).pathname.endsWith(".data")) return false;
+  const redirected = status === 202 || (status === 204 && (await response.headerValue("x-remix-redirect")) !== null);
+  return redirected && Boolean(await response.headerValue("set-cookie"));
 }
 
 async function openCatalogImporter(page: Page, assertOrigin?: (url: string) => void): Promise<void> {
@@ -5317,21 +5406,24 @@ function emptyToNull(value: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-async function expectImporterVisible(page: Page): Promise<void> {
-  await expect(
-    page.getByRole("heading", {
-      name: "Pull provider data, review Source Observations, promote Catalog facts",
-    }),
-  ).toBeVisible({ timeout: pageReadyTimeoutMs });
+function importerHeading(page: Page): Locator {
+  return page.getByRole("heading", {
+    name: "Pull provider data, review Source Observations, promote Catalog facts",
+  });
 }
 
+async function expectImporterVisible(page: Page): Promise<void> {
+  await expect(importerHeading(page)).toBeVisible({ timeout: pageReadyTimeoutMs });
+}
+
+// Locator.isVisible ignores its timeout, so a timed probe must really wait.
 async function isImporterVisible(page: Page, timeout: number): Promise<boolean> {
-  return page
-    .getByRole("heading", {
-      name: "Pull provider data, review Source Observations, promote Catalog facts",
-    })
-    .isVisible({ timeout })
-    .catch(() => false);
+  return importerHeading(page)
+    .waitFor({ state: "visible", timeout })
+    .then(
+      () => true,
+      () => false,
+    );
 }
 
 async function selectOption(
@@ -7628,6 +7720,227 @@ credentialProbeTest.describe("catalog whole-game credential transport", () => {
     } finally {
       await probe.close();
     }
+  });
+});
+
+// Delayed-cookie sign-in fixture (#9957): a real loopback server, so Chromium
+// owns cookies, response headers and cancellation. Every value is synthetic.
+const signInSettlementCredentials = {
+  email: "sign-in-settlement-synthetic@example.invalid",
+  password: "sign-in-settlement-synthetic-password",
+} as const;
+const signInSettlementSessionMarker = "sign-in-settlement-synthetic-session";
+const signInSettlementDriftOrigin = "https://synthetic-drift.invalid";
+// Longer than openCatalogImporter's 2 s importer visibility wait, so a helper
+// that does not settle navigates while the cookie-bearing response is held.
+const signInSettlementCookieDelayMs = 4_000;
+const signInSettlementImporter = `<!doctype html><html data-admin-web-hydrated="true"><body>
+  <h1>Pull provider data, review Source Observations, promote Catalog facts</h1></body></html>`;
+
+type SignInSettlementAction =
+  | "client-redirect"
+  | "client-rejected"
+  | "origin-drift"
+  | "native-cookie"
+  | "native-no-cookie";
+type SignInSettlementFixture = Readonly<{ origin: string; assertOrigin: (url: string) => void }>;
+
+function signInSettlementPage(action: SignInSettlementAction): string {
+  // The client action mirrors #9509: the Auth API JSON answers first, then the
+  // route action's `.data` response carries the cookie and the redirect.
+  const submit =
+    action === "origin-drift"
+      ? `location.replace("${signInSettlementDriftOrigin}/access/sign-in");`
+      : `await fetch("/api/auth/password-sign-in", { method: "POST" });
+        const response = await fetch("/access/sign-in.data?returnTo=%2Fcatalog%2Fintegrations", {
+          method: "POST", body: new FormData(form) });
+        if (response.status === 202) location.assign("/catalog/integrations");
+        else document.getElementById("summary").innerHTML = '<section role="alert"><h2>Sign-in failed</h2></section>';`;
+  const client = action.startsWith("native-")
+    ? ""
+    : `<script>const form = document.getElementById("password-step");
+      form.addEventListener("submit", async (event) => { event.preventDefault(); ${submit} });</script>`;
+  return `<!doctype html><html><body><div id="email-step"><label>Email <input type="email" name="email"></label>
+    <button type="button" onclick="document.getElementById('email-step').hidden=true;
+      document.getElementById('password-step').hidden=false">Continue</button></div>
+    <form id="password-step" hidden method="post" action="/access/sign-in">
+      <label>Password <input type="password" name="password"></label><button type="submit">Sign in</button></form>
+    <div id="summary"></div>${client}</body></html>`;
+}
+
+async function signInSettlementAttempt(
+  browser: Browser,
+  action: SignInSettlementAction,
+  signIn: (page: Page, fixture: SignInSettlementFixture) => Promise<void>,
+) {
+  const events: string[] = [];
+  const held = new Set<ReturnType<typeof setTimeout>>();
+  const session = {
+    "set-cookie": `sign-in-settlement=${signInSettlementSessionMarker}; Path=/; HttpOnly; SameSite=Lax`,
+  };
+  const server = createServer((request, response) => {
+    request.resume();
+    const step = `${request.method} ${(request.url ?? "").split("?")[0]}`;
+    const html = (body: string, headers: OutgoingHttpHeaders = {}) => {
+      response.writeHead(200, { "content-type": "text/html", ...headers });
+      response.end(body);
+    };
+    if (step === "GET /access/sign-in") return html(signInSettlementPage(action));
+    if (step === "GET /catalog/integrations") {
+      const cookie = request.headers.cookie?.includes(signInSettlementSessionMarker) ? "cookie" : "no-cookie";
+      events.push(`importer-navigation:${cookie}`);
+      return html(signInSettlementImporter);
+    }
+    if (step === "POST /api/auth/password-sign-in") {
+      events.push("auth-api-json");
+      response.writeHead(200, {
+        "content-type": "application/json",
+        "set-cookie": "sign-in-settlement-api=synthetic-json; Path=/",
+      });
+      return response.end(JSON.stringify({ ok: true }));
+    }
+    if (step === "POST /access/sign-in.data") {
+      events.push("action-submitted");
+      const answer = (status: number, headers: OutgoingHttpHeaders = {}) => {
+        response.writeHead(status, { "content-type": "text/x-script", "x-remix-response": "yes", ...headers });
+        response.end();
+      };
+      if (action === "client-rejected") return answer(200);
+      const timer = setTimeout(() => {
+        held.delete(timer);
+        events.push("action-response");
+        answer(202, session);
+      }, signInSettlementCookieDelayMs);
+      held.add(timer);
+      return;
+    }
+    if (step === "POST /access/sign-in") {
+      events.push(`native-document:${action === "native-cookie" ? "cookie" : "no-cookie"}`);
+      return html(signInSettlementImporter, action === "native-cookie" ? session : {});
+    }
+    response.writeHead(404, { "content-type": "text/plain" });
+    response.end("synthetic route not found");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Sign-in settlement fixture did not bind a TCP port.");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const context = await browser.newContext({ baseURL: origin, serviceWorkers: "block" });
+  const sessionCookie = async () =>
+    (await context.cookies(origin)).some((cookie) => cookie.value === signInSettlementSessionMarker);
+  try {
+    await context.route(`${signInSettlementDriftOrigin}/**`, (route) =>
+      route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html><body></body></html>" }),
+    );
+    const page = await context.newPage();
+    const assertOrigin = (url: string) => {
+      if (new URL(url).origin !== origin) throw new WholeGameRehearsalRefusal("staging-origin-required");
+    };
+    let outcome = "signed-in";
+    try {
+      await signIn(page, { origin, assertOrigin });
+    } catch (error) {
+      outcome =
+        error instanceof WholeGameRehearsalRefusal
+          ? error.code
+          : error instanceof Error && error.message.includes("(Sign-in failed)")
+            ? "sign-in-failed"
+            : "unexpected-error";
+    }
+    return { outcome, events: [...events], sessionCookie: await sessionCookie() };
+  } finally {
+    for (const timer of held) clearTimeout(timer);
+    try {
+      await context.close();
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+}
+
+const settledSignIn = (page: Page, fixture: SignInSettlementFixture) =>
+  signInThroughVisibleForm(page, fixture.assertOrigin, signInSettlementCredentials, fixture.origin);
+
+credentialProbeTest.describe("catalog staging sign-in settlement", () => {
+  credentialProbeTest.describe.configure({ retries: 0 });
+
+  credentialProbeTest("sign-in-settlement-before-importer-navigation", async ({ browser }) => {
+    const candidate = await signInSettlementAttempt(browser, "client-redirect", settledSignIn);
+    // Bypass control: the pre-#9957 helper opened the importer right after the click.
+    const bypass = await signInSettlementAttempt(browser, "client-redirect", async (page, fixture) => {
+      await page.goto("/access/sign-in?returnTo=%2Fcatalog%2Fintegrations");
+      await page.getByRole("textbox", { name: "Email" }).fill(signInSettlementCredentials.email);
+      await page.getByRole("button", { name: "Continue" }).click();
+      await page.locator('input[type="password"]').fill(signInSettlementCredentials.password);
+      await page.getByRole("button", { name: /^sign in$/i }).click();
+      await openCatalogImporter(page, fixture.assertOrigin);
+    });
+    const rejected = await signInSettlementAttempt(browser, "client-rejected", settledSignIn);
+
+    // The candidate leaves the page only after the held cookie response; the
+    // bypass navigates first, without the cookie, and cancels that response.
+    expect(candidate.outcome).toBe("signed-in");
+    expect(candidate.events.slice(0, 4)).toEqual([
+      "auth-api-json",
+      "action-submitted",
+      "action-response",
+      "importer-navigation:cookie",
+    ]);
+    expect(candidate.events).not.toContain("importer-navigation:no-cookie");
+    expect(candidate.sessionCookie).toBe(true);
+    expect(bypass.outcome).toBe("signed-in");
+    expect(bypass.events.slice(0, 3)).toEqual(["auth-api-json", "action-submitted", "importer-navigation:no-cookie"]);
+    expect(bypass.sessionCookie).toBe(false);
+    expect(rejected).toEqual({
+      outcome: "sign-in-failed",
+      events: ["auth-api-json", "action-submitted"],
+      sessionCookie: false,
+    });
+  });
+
+  credentialProbeTest("sign-in-settlement-accepts-native-form-documents", async ({ browser }) => {
+    expect(await signInSettlementAttempt(browser, "native-cookie", settledSignIn)).toEqual({
+      outcome: "signed-in",
+      events: ["native-document:cookie"],
+      sessionCookie: true,
+    });
+    expect(await signInSettlementAttempt(browser, "native-no-cookie", settledSignIn)).toEqual({
+      outcome: "signed-in",
+      events: ["native-document:no-cookie"],
+      sessionCookie: false,
+    });
+  });
+
+  credentialProbeTest("sign-in-settlement-stops-on-origin-refusal", async ({ browser }) => {
+    expect(await signInSettlementAttempt(browser, "origin-drift", settledSignIn)).toEqual({
+      outcome: "staging-origin-required",
+      events: [],
+      sessionCookie: false,
+    });
+  });
+
+  const delayedImporter = (delayMs: number) =>
+    `<!doctype html><html><body><script>setTimeout(() => document.body.insertAdjacentHTML("beforeend",
+      "<h1>Pull provider data, review Source Observations, promote Catalog facts</h1>"), ${delayMs});</script></body></html>`;
+
+  credentialProbeTest("importer-visibility-waits", async ({ page }) => {
+    await page.setContent(delayedImporter(1_000));
+    // An immediate probe at this moment, as Locator.isVisible gives, is false.
+    expect(await importerHeading(page).isVisible()).toBe(false);
+    expect(await isImporterVisible(page, 5_000)).toBe(true);
+  });
+
+  credentialProbeTest("importer-visibility-times-out", async ({ page }) => {
+    await page.setContent(delayedImporter(1_500));
+    const startedAt = Date.now();
+    expect(await isImporterVisible(page, 500)).toBe(false);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(450);
+    // The same heading does render later, so the refusal above is the timeout.
+    await expect(importerHeading(page)).toBeVisible();
   });
 });
 

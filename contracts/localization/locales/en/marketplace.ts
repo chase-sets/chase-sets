@@ -531,7 +531,9 @@ export const marketplaceEnglishTranslations = {
     "Search or paste a catalog item ID",
   "marketplace.features.listings.ui.listingCreatePage.search.by.title.or.paste.catalog":
     "Search by title or paste a catalog item ID, then select the matching item.",
-  "marketplace.features.listings.ui.listingCreatePage.catalog.item": "Catalog item",
+  "marketplace.features.listings.ui.listingCreatePage.product.options.changed":
+    "Product options changed since this listing was started. Choose the current options to continue.",
+  "marketplace.features.listings.ui.listingCreatePage.choose.product.option": "Choose an option",
   "marketplace.features.listings.ui.listingCreatePage.searching.catalog.items": "Searching catalog items...",
   "marketplace.features.listings.ui.listingCreatePage.select.a.catalog.item": "Select a catalog item",
   "marketplace.features.listings.ui.listingCreatePage.choose.the.visible.catalog.item":
