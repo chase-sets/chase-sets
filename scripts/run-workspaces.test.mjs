@@ -842,7 +842,11 @@ describe("DB duration scheduling", () => {
       workspaces: [payments],
       registry: durationRegistry([durationEntry(payments.name, "test:db", 24)]),
     });
-    const vitest = await createVitest("test", { root: payments.dir, config: "./tests/vitest.config.mjs", watch: false });
+    const vitest = await createVitest("test", {
+      root: payments.dir,
+      config: "./tests/vitest.config.mjs",
+      watch: false,
+    });
     try {
       const discovered = [];
       for (const args of output.invocations) {
@@ -850,7 +854,9 @@ describe("DB duration scheduling", () => {
         expect(tokens.slice(0, 4)).toEqual(["vitest", "run", "--config", "./tests/vitest.config.mjs"]);
         discovered.push(...(await vitest.globTestSpecifications(tokens.slice(4))).map((spec) => spec.moduleId));
       }
-      const drain = path.resolve(payments.dir, "tests/money-consolidation-projection-drain.db.test.ts").replaceAll("\\", "/");
+      const drain = path
+        .resolve(payments.dir, "tests/money-consolidation-projection-drain.db.test.ts")
+        .replaceAll("\\", "/");
       expect(discovered.filter((file) => file === drain)).toHaveLength(1);
     } finally {
       await vitest.close();
