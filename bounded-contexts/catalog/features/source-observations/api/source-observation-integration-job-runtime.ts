@@ -240,7 +240,9 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
-    assertProviderTransportNotRetired(scope.provider ?? "");
+    if (input.action === "import") {
+      assertProviderTransportNotRetired(scope.provider ?? "");
+    }
     rolloutControlPolicy.assertAllowed({
       capability: input.action === "import" ? "import" : "reapply",
       providerKey: scope.provider,
@@ -330,6 +332,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    assertProviderTransportNotRetired(job.payload.scope?.provider ?? "");
     if (job.status === "running" && isDurableJobClaimExpired(job)) {
       return resumeIntegrationJob(input);
     }
@@ -384,6 +387,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    assertProviderTransportNotRetired(job.payload.scope?.provider ?? "");
     if (job.status === "queued") {
       return toSourceObservationIntegrationJob(job);
     }
@@ -528,7 +532,7 @@ export function createSourceObservationIntegrationJobRuntime({
     try {
       throwIfJobRunCancelled(input);
       const activeJob = claimed;
-      if ((activeJob.scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
+      if (activeJob.action === "import" && (activeJob.scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
         const retired = retiredProviderResult(activeJob.scope);
         const failureMessage = RETIRED_TCGPLAYER_MESSAGE;
         await requireSourceObservationJobClaim(
@@ -661,32 +665,6 @@ export function createSourceObservationIntegrationJobRuntime({
       throwIfJobRunCancelled(input);
       if (!context) {
         throw new Error("Source Observation integration job is missing event context.");
-      }
-      if ((job.scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
-        const outcome = {
-          providerKey: job.scope.provider ?? "tcgplayer",
-          languageCode: job.scope.language ?? "",
-          expansionId: claim.unit.payload.observationId,
-          status: "failed" as const,
-          observed: 0,
-          reapplied: 0,
-          reason: RETIRED_TCGPLAYER_MESSAGE,
-        };
-        await requireSourceObservationJobClaim(
-          integrationWorkUnitStore.recordTerminal({
-            jobId: claim.job.jobId,
-            unitId: claim.unit.unitId,
-            claimOwnerId: claim.claimOwnerId,
-            claimToken: claim.claimToken,
-            state: "failed",
-            unitResult: outcome,
-            errorMessage: outcome.reason,
-            parentProgress: claim.job.progress,
-            parentResult: claim.job.result,
-            resolveParentUpdate: (queryable) => integrationParentUpdateFromWorkUnits(queryable, job),
-          }),
-        );
-        return 1;
       }
       const runReapplyObservation = createSourceObservationWorkUnitSideEffectRunner(integrationWorkUnitStore, claim, {
         signal: input.signal,
@@ -854,14 +832,6 @@ export function createSourceObservationIntegrationJobRuntime({
     }>
   > {
     throwIfJobRunCancelled(input.context);
-    if ((input.job.scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
-      const result = retiredProviderResult(input.job.scope);
-      return {
-        complete: true,
-        progress: bulkProgress(result.requested, result.requested, null, "failed", "completed"),
-        result,
-      };
-    }
     rolloutControlPolicy.assertAllowed({ capability: "reapply", providerKey: input.job.scope.provider });
     const scope = integrationScopeToObservationScope(input.job.scope);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(input.job.progress.total, []);

@@ -114,7 +114,7 @@ describeDb("source observation promotion outcome db", () => {
     });
   });
 
-  it("fails every retired TCGplayer import and reapply job without retry or provider resolution", async () => {
+  it("retires TCGplayer imports while preserving reapply and lifecycle boundaries", async () => {
     const deps = {
       db: pools.catalog,
       eventStore: createPostgresEventStore({ pool: pools.catalog }),
@@ -139,6 +139,18 @@ describeDb("source observation promotion outcome db", () => {
       ["retired-reapply-queued", "reapply", "queued", null],
       ["retired-reapply-claimed", "reapply", "running", "2020-01-01T00:00:00Z"],
     ] as const;
+    const isTerminalRetirement = (row: {
+      status: string;
+      attempt_count: number;
+      error_message: string | null;
+      claim_owner_id: string | null;
+    }) =>
+      row.status === "failed" &&
+      row.attempt_count === 1 &&
+      row.error_message === "TCGplayer server transport is retired; use the browser handoff." &&
+      row.claim_owner_id === null;
+    const retryMutantJobId = "synthetic-retry-control";
+    let acceptedReapplyJobId: string | null = null;
 
     try {
       for (const [jobId, action, status, claimedUntil] of jobs) {
@@ -174,6 +186,43 @@ describeDb("source observation promotion outcome db", () => {
         ).resolves.toBe(1);
       }
 
+      await expect(
+        runtime.retryIntegrationJob({ jobId: "retired-import-queued", context }),
+      ).rejects.toMatchObject({ code: "unsupported_action" });
+      await expect(
+        runtime.resumeIntegrationJob({ jobId: "retired-import-claimed", context }),
+      ).rejects.toMatchObject({ code: "unsupported_action" });
+      await expect(
+        runtime.processNextIntegrationJob({ claimOwnerId: "retired-proof-after-lifecycle", claimTtlMs: 60_000 }),
+      ).resolves.toBe(0);
+
+      const acceptedReapply = await runtime.enqueueIntegrationJob({
+        action: "reapply",
+        scope: { provider: "tcgplayer", language: "en" },
+        reapplyProfileMode: "original-source-profile",
+        context,
+      });
+      acceptedReapplyJobId = acceptedReapply.jobId;
+      expect(acceptedReapply).toMatchObject({ action: "reapply", scope: { provider: "tcgplayer" } });
+
+      await pools.catalog.query(
+        `INSERT INTO catalog_source_observation_integration_durable_jobs
+           (job_id, job_kind, status, payload, progress, result, error_message, event_context,
+            claim_owner_id, claimed_until, attempt_count, next_eligible_at, created_at, updated_at)
+         VALUES ($1, 'import', 'failed', $2::jsonb, $3::jsonb, $4::jsonb, 'synthetic retry control', $5::jsonb,
+                 NULL, NULL, 1, now(), $6::timestamptz, $6::timestamptz)`,
+        [
+          retryMutantJobId,
+          JSON.stringify({ action: "import", scope: { provider: "synthetic-retry-control", language: "en" } }),
+          JSON.stringify({ phase: "failed", completed: 1, total: 1, currentName: null, status: "failed" }),
+          JSON.stringify({ requested: 1, completed: 0, failed: 1, skipped: 0, outcomes: [] }),
+          JSON.stringify(eventContext),
+          now,
+        ],
+      );
+      const retryMutant = await runtime.retryIntegrationJob({ jobId: retryMutantJobId, context });
+      expect(retryMutant.status).toBe("queued");
+
       const persisted = await pools.catalog.query<{
         job_id: string;
         status: string;
@@ -188,8 +237,15 @@ describeDb("source observation promotion outcome db", () => {
         [jobs.map(([jobId]) => jobId)],
       );
       expect(persisted.rows).toHaveLength(jobs.length);
-      expect(persisted.rows).toEqual(
-        jobs.map(([jobId]) => ({
+      expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-import")).every(isTerminalRetirement)).toBe(true);
+      expect(isTerminalRetirement({
+        status: "queued",
+        attempt_count: 1,
+        error_message: null,
+        claim_owner_id: null,
+      })).toBe(false);
+      expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-import"))).toEqual(
+        jobs.filter(([, action]) => action === "import").map(([jobId]) => ({
           job_id: jobId,
           status: "failed",
           attempt_count: 1,
@@ -197,26 +253,26 @@ describeDb("source observation promotion outcome db", () => {
           claim_owner_id: null,
         })),
       );
+      expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-reapply"))).toHaveLength(2);
+      expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-reapply"))).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ error_message: "TCGplayer server transport is retired; use the browser handoff." }),
+        ]),
+      );
       const unit = await pools.catalog.query(
         `SELECT state, attempt_count, error_message, claim_owner_id
            FROM catalog_source_observation_integration_work_units
           WHERE job_id = 'retired-reapply-queued' AND unit_id = 'retired-reapply-unit'`,
       );
-      expect(unit.rows).toEqual([
-        {
-          state: "failed",
-          attempt_count: 1,
-          error_message: "TCGplayer server transport is retired; use the browser handoff.",
-          claim_owner_id: null,
-        },
-      ]);
+      expect(unit.rows).toHaveLength(1);
+      expect(unit.rows[0]?.error_message).not.toBe("TCGplayer server transport is retired; use the browser handoff.");
       expect(providerLookup).not.toHaveBeenCalled();
       expect(externalFetch).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
       await pools.catalog.query(
         `DELETE FROM catalog_source_observation_integration_durable_jobs WHERE job_id = ANY($1::text[])`,
-        [jobs.map(([jobId]) => jobId)],
+        [[...jobs.map(([jobId]) => jobId), retryMutantJobId, ...(acceptedReapplyJobId ? [acceptedReapplyJobId] : [])]],
       );
     }
   });
