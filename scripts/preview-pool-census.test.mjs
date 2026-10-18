@@ -53,6 +53,7 @@ describe("preview-pool-census reducers and controls", () => {
         {
           metadata: { uid: "e1", namespace: "chase-sets-pr-42" },
           reason: "Evicted",
+          count: 2,
           firstTimestamp: "2026-10-18T00:00:00Z",
           lastTimestamp: "2026-10-18T00:00:00Z",
         },
@@ -139,7 +140,7 @@ describe("preview-pool-census reducers and controls", () => {
     expect(result.nodeRecords.map((node) => node.name)).toEqual(["preview-node", "runtime-node"]);
     expect([...result.peaks.values()][0]).toMatchObject({ component: "platform-api", memoryRequestMi: 512, memoryLimitMi: 1024, terminatedReason: "OOMKilled" });
     expect(result.events).toEqual([expect.objectContaining({ uid: "e1", count: 3, firstTimestamp: "2026-10-18T00:00:00Z", lastTimestamp: "2026-10-18T00:05:00Z" })]);
-    const text = JSON.stringify(result);
+    const text = JSON.stringify({ nodeRecords: result.nodeRecords, peaks: [...result.peaks.values()], events: result.events });
     expect(text).not.toContain("SYNTHETIC_LEAK_MARKER");
     expect(text).not.toMatch(/"env(?:From)?"/);
     expect(calls.some((args) => args.includes("runtime-node"))).toBe(false);
