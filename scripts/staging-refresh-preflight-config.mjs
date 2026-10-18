@@ -5,7 +5,6 @@
 export const STAGING_REFRESH_PREFLIGHT_VERSION = "staging-refresh-preflight/v1";
 
 export const stagingRefreshRequiredSecrets = Object.freeze([
-  { name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE", valueKind: "present" },
   { name: "SCRYDEX_API_KEY", valueKind: "present" },
   { name: "SCRYDEX_TEAM_ID", valueKind: "present" },
   { name: "STRIPE_SECRET_KEY", valueKind: "stripe-secret-test" },

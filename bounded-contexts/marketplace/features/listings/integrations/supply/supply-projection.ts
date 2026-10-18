@@ -153,7 +153,36 @@ async function updateMarketplaceAccountBadges(
   );
 }
 
-export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+async function projectMarketplaceAccountStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "active" | "suspended" | "closed",
+): Promise<boolean> {
+  const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+  const result = await db.query(
+    `INSERT INTO marketplace_account_pages (account_id, display_name, status, status_stream_version, updated_at)
+     VALUES ($1, $1, $2, $3, $4)
+     ON CONFLICT (account_id) DO UPDATE SET
+       status = EXCLUDED.status,
+       status_stream_version = EXCLUDED.status_stream_version,
+       updated_at = EXCLUDED.updated_at
+     WHERE marketplace_account_pages.status_stream_version < EXCLUDED.status_stream_version
+     RETURNING account_id`,
+    [accountId, status, event.streamVersion, event.timing.recordedAt],
+  );
+  return result.rows.length > 0;
+}
+
+export type MarketplaceAccountStatusChanged = (
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  accountId: string,
+) => Promise<void>;
+
+export function buildMarketplaceAccountProjectionHandlers(
+  db: PgQueryable,
+  options: Readonly<{ onAccountStatusChanged?: MarketplaceAccountStatusChanged }> = {},
+): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -166,14 +195,17 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
            account_id,
            display_name,
            status,
+           status_stream_version,
            badges,
            updated_at
-         ) VALUES ($1, $2, 'active', '[]'::jsonb, $3)
+         ) VALUES ($1, $2, 'active', $3, '[]'::jsonb, $4)
          ON CONFLICT (account_id) DO UPDATE SET
            display_name = EXCLUDED.display_name,
            status = EXCLUDED.status,
-           updated_at = EXCLUDED.updated_at`,
-        [accountId, displayName, event.timing.recordedAt],
+           status_stream_version = EXCLUDED.status_stream_version,
+           updated_at = EXCLUDED.updated_at
+         WHERE marketplace_account_pages.status_stream_version < EXCLUDED.status_stream_version`,
+        [accountId, displayName, event.streamVersion, event.timing.recordedAt],
       );
     },
     "identity.account.profile-updated": async (event) => {
@@ -201,31 +233,22 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
       );
     },
     "identity.account.suspended": async (event) => {
-      await db.query(
-        `UPDATE marketplace_account_pages
-         SET status = 'suspended',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, "identity.account-"), event.timing.recordedAt],
-      );
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      if (await projectMarketplaceAccountStatus(db, event, "suspended")) {
+        await options.onAccountStatusChanged?.(db, event, accountId);
+      }
     },
     "identity.account.reactivated": async (event) => {
-      await db.query(
-        `UPDATE marketplace_account_pages
-         SET status = 'active',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, "identity.account-"), event.timing.recordedAt],
-      );
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      if (await projectMarketplaceAccountStatus(db, event, "active")) {
+        await options.onAccountStatusChanged?.(db, event, accountId);
+      }
     },
     "identity.account.closed": async (event) => {
-      await db.query(
-        `UPDATE marketplace_account_pages
-         SET status = 'closed',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, "identity.account-"), event.timing.recordedAt],
-      );
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      if (await projectMarketplaceAccountStatus(db, event, "closed")) {
+        await options.onAccountStatusChanged?.(db, event, accountId);
+      }
     },
     "identity.account.badge-assigned": async (event) => {
       const data = event.data as { badgeKey: string };

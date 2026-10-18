@@ -6,7 +6,6 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { centsToMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
 import {
   decideMarketplaceOffer,
   evolveMarketplaceOffer,
@@ -61,12 +60,6 @@ export function serializeBuyerOfferPolicy(
     version,
     revision: state.revision,
     currency: state.currency ?? state.preview?.terms.currency ?? null,
-    consumedItemAmount: state.consumedItemAmount,
-    remainingItemAllowance: state.authority
-      ? centsToMoneyAmount(
-          moneyToCents(state.authority.itemCommitmentAllowance) - moneyToCents(state.consumedItemAmount),
-        )
-      : null,
     authority: state.authority,
     preview: state.preview,
     offerVersions,

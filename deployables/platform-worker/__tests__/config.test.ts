@@ -58,7 +58,6 @@ const envNames = [
   "GOOGLE_SHOPPING_DIAGNOSTICS_INTERVAL_MS",
   "GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE",
   "GOOGLE_SHOPPING_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE",
-  "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
   "TCGPLAYER_AUTOMATION_USER_AGENT",
   "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
   "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
@@ -503,9 +502,20 @@ describe("platform worker config", () => {
     });
   });
 
-  it("loads TCGplayer automation config from environment without requiring local-only secrets", () => {
+  it("does not configure TCGplayer automation from the retired cookie alone", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+
+    expect(loadConfig().tcgplayerAutomation).toBeNull();
+  });
+
+  it("ignores the retired TCGplayer cookie and loads operator-session config", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
+      activeKeyId: "synthetic",
+      keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
+    });
     process.env.TCGPLAYER_AUTOMATION_USER_AGENT = "Chase Sets staging provider proof";
     process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
       mpSearchApi: { requestDelayMs: 500, maxConcurrentRequests: 1 },
@@ -515,7 +525,7 @@ describe("platform worker config", () => {
 
     expect(config).toMatchObject({
       auth: {
-        tcgAuthCookie: "fixture-cookie-value",
+        tcgAuthCookie: null,
         userAgent: "Chase Sets staging provider proof",
       },
       domainConfigs: {
@@ -536,13 +546,17 @@ describe("platform worker config", () => {
   it("redacts TCGplayer automation credentials from log descriptions", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
+      activeKeyId: "synthetic",
+      keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
+    });
 
     const description = describeTcgplayerAutomationConfigForLogs(loadConfig().tcgplayerAutomation);
 
     expect(description).toMatchObject({
       configured: true,
       auth: {
-        tcgAuthCookie: "[configured]",
+        tcgAuthCookie: "[missing]",
         userAgent: "[configured]",
       },
     });
@@ -552,6 +566,10 @@ describe("platform worker config", () => {
   it("raises unsafe TCGplayer overrides to the shared-budget floors", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
+      activeKeyId: "synthetic",
+      keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
+    });
     process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
       mpApi: {
         requestDelayMs: 1,
@@ -577,6 +595,10 @@ describe("platform worker config", () => {
   it("rejects malformed TCGplayer domain config instead of silently weakening provider budgets", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
+      activeKeyId: "synthetic",
+      keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
+    });
     process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
       unknownDomain: { requestDelayMs: 0 },
     });

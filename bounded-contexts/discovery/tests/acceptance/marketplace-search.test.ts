@@ -223,9 +223,13 @@ describe("marketplace search", () => {
 
   async function variantOffer(id: string, options = foil, item = "variant") {
     await pools.discovery.query(
+      `INSERT INTO discovery_market_accounts (account_id) VALUES ('synthetic-buyer') ON CONFLICT DO NOTHING`,
+    );
+    await pools.discovery.query(
       `INSERT INTO discovery_offer_demand_matches
-       (offer_id, buyer_account_id, catalog_catalog_item_id, product_id, item_title, price_amount, price_currency_code, selected_options)
-       VALUES ($1, 'synthetic-buyer', $2, $1, 'Variant dragon', '99', 'USD', $3::jsonb)`,
+       (offer_id, buyer_account_id, catalog_catalog_item_id, product_id, item_title, price_amount, price_currency_code,
+        offer_stream_version, selected_options)
+       VALUES ($1, 'synthetic-buyer', $2, $1, 'Variant dragon', '99', 'USD', 1, $3::jsonb)`,
       [id, item, JSON.stringify(options)],
     );
   }

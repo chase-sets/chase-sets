@@ -128,6 +128,9 @@ export function buildCheckoutIdentitySellerAccountsProjectionHandlers(db: PgQuer
         [accountId, displayName, slug, event.streamVersion, event.timing.recordedAt],
       );
     },
+    "identity.account.suspended": (event) => projectAccountStatus(db, event, "suspended"),
+    "identity.account.reactivated": (event) => projectAccountStatus(db, event, "active"),
+    "identity.account.closed": (event) => projectAccountStatus(db, event, "closed"),
     "identity.shipping-address.added": async (event) => {
       const data = event.data as ShippingAddressPayload & { addedAt: string };
       if (data.isDefault) {
@@ -202,6 +205,25 @@ export function buildCheckoutIdentitySellerAccountsProjectionHandlers(db: PgQuer
       }
     },
   };
+}
+
+async function projectAccountStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "active" | "suspended" | "closed",
+) {
+  const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+  await db.query(
+    `INSERT INTO checkout_seller_accounts (account_id, display_name, slug, status, status_stream_version, updated_at)
+     VALUES ($1, $1, $1, $2, $3, $4)
+     ON CONFLICT (account_id) DO UPDATE SET
+       status = EXCLUDED.status,
+       status_stream_version = EXCLUDED.status_stream_version,
+       updated_at = EXCLUDED.updated_at
+     WHERE checkout_seller_accounts.status_stream_version < EXCLUDED.status_stream_version
+     RETURNING account_id`,
+    [accountId, status, event.streamVersion, event.timing.recordedAt],
+  );
 }
 
 async function clearDefaultShipFromAddresses(

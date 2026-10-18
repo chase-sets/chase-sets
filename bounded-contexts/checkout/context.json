@@ -170,10 +170,13 @@
     {
       "sourceContextName": "identity",
       "projectionName": "checkout-seller-accounts-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed",
         "identity.shipping-address.added",
         "identity.shipping-address.updated",
         "identity.shipping-address.default-set",

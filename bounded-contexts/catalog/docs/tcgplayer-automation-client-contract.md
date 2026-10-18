@@ -76,9 +76,8 @@ The Operator Extension supplies Todd's current applicable session through a
 narrow environment-bound push grant into encrypted Catalog custody. The next
 automation request resolves the newest stored revision without a secret edit,
 deploy, or restart. Clearing custody retains its monotonic revision fence and
-restores `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` only if configured; it does not end
-the browser/provider session. Pairing and readiness are not provider-success
-proof. Follow [TCGplayer Automation Operations](../../../docs/runbooks/tcgplayer-automation-operations.md)
+does not restore an environment cookie; the cookie is retired. Pairing and readiness
+are not provider-success proof. Follow [TCGplayer Automation Operations](../../../docs/runbooks/tcgplayer-automation-operations.md)
 for the passive recovery gate and revision-bound ordinary-capture verification.
 
 ## Catalog Sync Flow
