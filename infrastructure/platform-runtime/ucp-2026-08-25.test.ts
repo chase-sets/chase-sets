@@ -1,15 +1,13 @@
 import Ajv2020 from "ajv/dist/2020";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildUcpBusinessProfile, createUcpEnvelope, UCP_VERSION } from "./ucp-contracts";
 
 describe("UCP 2026-08-25 contract", () => {
   it("validates the business profile against the complete offline schema closure", () => {
-    const rootPath = decodeURIComponent(new URL("./__fixtures__/ucp-2026-08-25/schemas/", import.meta.url).pathname).replace(
-      /^\//,
-      "",
-    );
+    const rootPath = fileURLToPath(new URL("./__fixtures__/ucp-2026-08-25/schemas/", import.meta.url));
     const files: string[] = [];
     const visit = (directory: string) => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -27,7 +25,7 @@ describe("UCP 2026-08-25 contract", () => {
       signingKeys: [{ kty: "EC", crv: "P-256", x: "x", y: "y", kid: "current" }],
     });
     expect(schema(profile), JSON.stringify(schema.errors)).toBe(true);
-    const withoutPaymentHandlers = structuredClone(profile);
+    const withoutPaymentHandlers = structuredClone(profile) as { ucp: { payment_handlers?: unknown } };
     delete withoutPaymentHandlers.ucp.payment_handlers;
     expect(schema(withoutPaymentHandlers)).toBe(false);
   });

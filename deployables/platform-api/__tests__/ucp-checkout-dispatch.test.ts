@@ -338,7 +338,7 @@ describe.each<Transport>(["rest", "legacy", "modern"])("composed checkout dispat
   it("verified cancel writes once per retry key and complete is still read-only", async () => {
     const f = fixture();
     for (let attempt = 0; attempt < 2; attempt++)
-      expect((await f.call(transport, "cancel_checkout", { signature: "valid" })).checkout.status).toBe("canceled");
+      expect((await f.call(transport, "cancel_checkout", { signature: "valid" })).status).toBe("canceled");
     expect(f.cancelSession).toHaveBeenCalledTimes(1);
     const complete = await f.call(transport, "complete_checkout", { signature: "valid", key: "complete-key" });
     expect(complete.status).toBe("canceled");

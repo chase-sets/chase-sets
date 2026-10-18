@@ -45,6 +45,8 @@ describe("Ordering UCP order responses", () => {
       permalink_url: "https://internal.example/account/purchases/ord_1",
       totals: [
         { type: "subtotal", amount: 1000 },
+        { type: "fulfillment", amount: 0 },
+        { type: "tax", amount: 0 },
         { type: "total", amount: 1000 },
       ],
     });

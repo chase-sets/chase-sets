@@ -154,7 +154,7 @@ describe("UCP 2026-08-25 contract", () => {
     expect(profile.ucp.payment_handlers).toEqual({});
     expect(profile.ucp).not.toHaveProperty("supported_versions");
     expect(createUcpEnvelope("success", { checkout: { id: "chk_1" } })).toEqual({
-      ucp: { version: "2026-08-25", status: "success" },
+      ucp: { version: "2026-08-25", status: "success", payment_handlers: {} },
       id: "chk_1",
     });
   });
