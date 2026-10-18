@@ -169,7 +169,7 @@ describe("repository routing", () => {
         "1. **Intake.** Outcome statement, why-now, constraints, the repository each\n   issue's change merges into (`docs/contributing/backlog-model.md`,\n   Repository routing),",
       );
       expect(registrationSection(skill)).toContain(
-        "7. **Registration.** Register each issue in the repository its change merges\n   into.",
+        "7. **Registration.** Register each issue in the repository its change merges\n   into. A `chase-sets/chase-sets-controller` issue uses the same brief\n   standard and pressure test. Its milestone and release follow that\n   repository's controller-orchestrator skill. Create on GitHub",
       );
     }
   });
