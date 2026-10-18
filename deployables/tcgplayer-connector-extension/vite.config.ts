@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { defineConfig, type UserConfig } from "vite";
 import { createWorkspaceSourceAliases } from "../../scripts/workspace-source-aliases.mjs";
 import { buildConnectorManifest } from "@chase-sets/channels";
+import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { connectorHostRegistry } from "./src/host-registry";
 import {
   assertHarnessOrigins,
@@ -9,17 +10,56 @@ import {
   platformOrigin as harnessPlatform,
 } from "./__tests__/harness/origins";
 
+const clientIdPattern = /^cc_client_[0-9a-f-]{36}$/;
+const localOriginPattern = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+export const connectorTargets = {
+  staging: linkIntentOrigins["marketplace-web"].staging,
+  production: linkIntentOrigins["marketplace-web"].production,
+} as const;
+
+export type ConnectorBuildMode = "connector-local" | "connector-staging" | "connector-production" | "harness";
+
+function configuredClientId() {
+  return process.env.VITE_CONNECTOR_CLIENT_ID ?? "";
+}
+
+function localPlatformOrigin() {
+  const configured = process.env.VITE_PLATFORM_API_URL;
+  if (configured === undefined || configured === "") return "http://localhost:6182";
+  if (
+    !localOriginPattern.test(configured) ||
+    new URL(configured).pathname !== "/" ||
+    new URL(configured).search ||
+    new URL(configured).hash
+  )
+    throw new Error("connector-local-origin-refused");
+  return configured;
+}
+
+function deployedPlatformOrigin(target: "staging" | "production") {
+  const expected = connectorTargets[target];
+  for (const value of [process.env.VITE_PLATFORM_API_URL, process.env.PLATFORM_API_URL])
+    if (value !== undefined && value !== "" && value !== expected) throw new Error("connector-deployed-origin-refused");
+  const clientId = configuredClientId();
+  if (!clientIdPattern.test(clientId)) throw new Error("connector-client-id-refused");
+  return expected;
+}
+
 export const manifestInput = {
-  platformOrigin: process.env.VITE_PLATFORM_API_URL ?? process.env.PLATFORM_API_URL ?? "http://localhost:6182",
+  platformOrigin: localPlatformOrigin(),
   hostRegistry: connectorHostRegistry,
   permissionRegistry: ["identity", "storage", "alarms"],
 };
 
-export function connectorViteConfig(mode = "production"): UserConfig {
+export function connectorViteConfig(mode: ConnectorBuildMode = "connector-local"): UserConfig {
   const harness = mode === "harness";
+  if (!harness && !["connector-local", "connector-staging", "connector-production"].includes(mode))
+    throw new Error("connector-build-mode-refused");
+  const target = mode === "connector-staging" ? "staging" : mode === "connector-production" ? "production" : null;
+  const platformOrigin = harness ? harnessPlatform : target ? deployedPlatformOrigin(target) : localPlatformOrigin();
   const input = harness
     ? { ...manifestInput, platformOrigin: harnessPlatform, hostRegistry: harnessHosts }
-    : manifestInput;
+    : { ...manifestInput, platformOrigin };
   if (harness) {
     assertHarnessOrigins(process.env.VITE_PLATFORM_API_URL ?? harnessPlatform, input.hostRegistry);
     if (
@@ -46,7 +86,7 @@ export function connectorViteConfig(mode = "production"): UserConfig {
     },
     define: {
       "import.meta.env.VITE_PLATFORM_API_URL": JSON.stringify(input.platformOrigin),
-      "import.meta.env.VITE_CONNECTOR_CLIENT_ID": JSON.stringify(process.env.VITE_CONNECTOR_CLIENT_ID ?? ""),
+      "import.meta.env.VITE_CONNECTOR_CLIENT_ID": JSON.stringify(configuredClientId()),
       ...(harness
         ? {
             "import.meta.env.VITE_HARNESS_EXECUTOR_UNIT": JSON.stringify(
@@ -96,4 +136,4 @@ export function connectorViteConfig(mode = "production"): UserConfig {
     ],
   };
 }
-export default defineConfig(({ mode }) => connectorViteConfig(mode));
+export default defineConfig(({ mode }) => connectorViteConfig(mode as ConnectorBuildMode));
