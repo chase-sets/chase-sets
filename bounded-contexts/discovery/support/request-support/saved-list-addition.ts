@@ -3,6 +3,7 @@ import { UnresolvedPostWriteTokenError } from "@chase-sets/platform-runtime/http
 import {
   navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
   resolvePlatformPostWriteRequest,
+  type PlatformDefaultCompactPostWriteTokenOptions,
 } from "@chase-sets/platform-runtime/post-write-tokens";
 import { t } from "@chase-sets/localization";
 import { readApiErrorCode } from "@chase-sets/http/responses";
@@ -83,7 +84,17 @@ function requestMetadata(request: Request) {
   });
 }
 
-export async function commitSavedListAddition(request: Request, formData: FormData) {
+export type SavedListPostWriteNavigator = (
+  commandResults: readonly unknown[],
+  destinationRoute: string,
+  options?: PlatformDefaultCompactPostWriteTokenOptions,
+) => Promise<string>;
+
+export async function commitSavedListAddition(
+  request: Request,
+  formData: FormData,
+  postWriteNavigator: SavedListPostWriteNavigator = navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
+) {
   const api = createCollectionsRequestApiClient(request);
   const preparation = parsePreparation(formData.get("preparation"));
   const destination = parseDestination(formData, preparation);
@@ -103,17 +114,13 @@ export async function commitSavedListAddition(request: Request, formData: FormDa
           trackedQuantity,
           sourceSurface: preparation.sourceSurface,
         });
-    const tokenDestination = await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
-      [result],
-      currentRoutePath(request),
-      {
-        telemetry: {
-          boundedContextName: "discovery",
-          surface: "saved-list-addition",
-          routeId: new URL(request.url).pathname.startsWith("/items/") ? "item-detail" : "search",
-        },
+    const tokenDestination = await postWriteNavigator([result], currentRoutePath(request), {
+      telemetry: {
+        boundedContextName: "discovery",
+        surface: "saved-list-addition",
+        routeId: new URL(request.url).pathname.startsWith("/items/") ? "item-detail" : "search",
       },
-    );
+    });
     const postWriteToken = new URL(tokenDestination, request.url).searchParams.get("postWriteToken");
     return Response.json({
       status: "saved",

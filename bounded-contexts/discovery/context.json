@@ -691,14 +691,17 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeIds": ["search", "item-detail"],
+        "routeIds": ["search", "category", "item-detail"],
         "actions": ["Commit Saved List addition and reopen picker"],
         "command": "Collections Saved List create-and-add or add command",
         "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"],
-        "files": ["bounded-contexts/discovery/support/request-support/saved-list-addition.ts"]
+        "files": [
+          "bounded-contexts/discovery/routes/search.tsx",
+          "bounded-contexts/discovery/support/route-support/item-detail/action.ts"
+        ]
       },
       "destination": {
-        "routeIds": ["search", "item-detail"],
+        "routeIds": ["search", "category", "item-detail"],
         "apiContextName": "discovery",
         "apiRoutePath": "/account/saved-lists/recent",
         "readModelTables": ["discovery_saved_list_picker"],
@@ -1002,7 +1005,10 @@
         "actions": ["Commit Saved List addition and reopen picker"],
         "command": "Collections Saved List create-and-add or add command",
         "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"],
-        "files": ["bounded-contexts/discovery/support/request-support/saved-list-addition.ts"]
+        "files": [
+          "bounded-contexts/discovery/routes/search.tsx",
+          "bounded-contexts/discovery/support/route-support/item-detail/action.ts"
+        ]
       },
       "visibleDestination": {
         "routeIds": ["search", "item-detail"],
