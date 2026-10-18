@@ -22,6 +22,22 @@ Staging has a separate `runtime-xl` node pool for migrations that need more memo
 
 PR previews use the staging cluster's dedicated preview pool. Nodes carry the `chase-sets.com/preview-only=true:NoSchedule` taint, and preview workloads supply the matching toleration plus the `chase-sets.com/pool=preview` nodeSelector. The pool uses `min_nodes = 0`, so it scales to zero when no preview pods are pending. Staging runtime workloads must never tolerate the preview-only taint.
 
+### Idle Draft Retirement (#9964)
+
+Every live preview reserves pool memory until its namespace is deleted, so an idle draft preview holds a pool slot. `Platform Preview Cleanup` retires idle drafts; open non-draft previews are never retired because reviewers may use their URLs.
+
+- **Idle draft (D1).** A `chase-sets-pr-<n>` namespace is an idle draft when PR n is open and draft and the namespace `creationTimestamp` is at least 24h old. Every PR deploy deletes and recreates the namespace, so that timestamp is the last deploy. Retiring loses only the browsable URL; the next push rebuilds the preview.
+- **Selection (D2).** `node ./scripts/digitalocean-preview-cleanup-sweep.mjs discover-idle-drafts` lists namespaces once (`kubectl get namespaces -o json --request-timeout=60s`) and open PRs once (`GET /repos/{repo}/pulls?state=open&per_page=100`, every page until one returns fewer than 100 items, 30 s per request). Any failed, malformed or unbounded listing fails closed: nothing is dispatched and the record's `result` is `failure`. Each namespace gets one decision: `idle-draft`, `recent-draft`, `open-ready`, or `not-open`; `not-open` is left to the closed-PR sweep. A run selects at most 10 idle drafts, oldest first, and records the rest as `deferred`. The record is `platform-preview-idle-drafts/v1`, uploaded as the `platform-preview-idle-drafts-<run>-<attempt>` artifact.
+- **Scheduled job (D3).** `retire-idle-draft-previews` runs on both schedules, `17 10 * * *` and `47 */3 * * *`, in the `preview` environment. It is the only job with `actions: write`. For each selected PR it dispatches the existing per-PR destroy path with `idle_draft_recheck=true`. With the 3-hour cadence, an idle draft holds its slot for at most about 27h after its last deploy. It does not depend on the daily `Discover Preview Cleanup` job.
+- **Re-check (D4).** With `idle_draft_recheck` true, `Discover Preview Cleanup` runs `discover-idle-drafts --pr-number <n>`. It emits the single-PR matrix only if D1 still holds; otherwise `target_count=0` and the step log and re-check artifact give the reason. The matrix drives the unchanged `destroy-preview` job. Dispatched runs never dispatch again. With the input false (the default), manual dispatch destroys PR n unconditionally, as before.
+- **Remaining race (D5).** The deploy concurrency group `platform-pr-<n>` and the destroy group `platform-preview-pr-<n>` differ. A push that lands between the re-check and the teardown can lose its fresh namespace and fail once; a rerun or the next push recovers.
+
+Re-check and retire one PR by hand (destroys only if it is still an idle draft):
+
+```sh
+gh workflow run platform-preview-cleanup.yml --ref main -f pr_number=<n> -f idle_draft_recheck=true
+```
+
 ## Deploy And Status
 
 Routine deploys run through Platform Deploy. For local read-only inspection:
@@ -373,7 +389,7 @@ Keep those artifacts with the issue or PR that requested the drill.
 
 ## Runtime Secret Rotation
 
-Rotate provider credentials in the protected GitHub Environment first, then run Platform Deploy so the Secret exporter and workloads move atomically. Verify the Secret checksum changed and all workloads rolled. Do not patch the Kubernetes Secret directly except under an active incident, and reconcile any emergency patch through the workflow immediately.
+Rotate provider credentials in the protected GitHub Environment first, then run Platform Deploy so the Secret exporter and workloads move atomically. The daily credential health check and its alert levels are in [Credential Rotation](./credential-rotation.md). Verify the Secret checksum changed and all workloads rolled. Do not patch the Kubernetes Secret directly except under an active incident, and reconcile any emergency patch through the workflow immediately.
 
 ## Ingress, Certificates, And Load Balancer
 

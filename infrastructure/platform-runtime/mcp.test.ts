@@ -1806,6 +1806,69 @@ describe("MCP runtime routes", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("publishes payment-method setup dryRun as an unsupported closed boolean and validates it before handlers", async () => {
+    const handler = vi.fn(async () => ({ accepted: true }));
+    const app = createActorApp(
+      { ...actor, permissions: [...actor.permissions, "orders.manage"] },
+      { toolHandlers: { "payments.start-payment-method-setup": handler } },
+    );
+    const callSetup = async (extraArguments: Readonly<Record<string, unknown>>) => {
+      const response = await app.request("/", {
+        method: "POST",
+        body: JSON.stringify(
+          createRequest("tools/call", {
+            name: "payments.start-payment-method-setup",
+            arguments: {
+              accountId: "account_1",
+              returnUrl: "https://app.chasesets.test/account/payment-methods",
+              idempotencyKey: "idem_setup_1",
+              confirmationText: "Start Payment Method Setup.",
+              ...extraArguments,
+            },
+            confirmation: { confirmed: true, text: "Start Payment Method Setup." },
+          }),
+        ),
+      });
+      return response.json();
+    };
+
+    const listResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+    });
+    const listed = (
+      (await listResponse.json()) as {
+        result: {
+          tools: Array<{
+            name: string;
+            inputSchema: { additionalProperties?: boolean; properties: Record<string, { type?: unknown }> };
+            annotations: { dryRunSupported?: boolean };
+          }>;
+        };
+      }
+    ).result.tools.find((tool) => tool.name === "payments.start-payment-method-setup");
+    expect(listed?.annotations.dryRunSupported).toBe(false);
+    expect(listed?.inputSchema.additionalProperties).toBe(false);
+    expect(listed?.inputSchema.properties.dryRun?.type).toBe("boolean");
+
+    await expect(callSetup({ dryRun: "true" })).resolves.toEqual(
+      toolErrorResponse(
+        "request_1",
+        "Invalid MCP tool arguments. dryRun: Expected boolean. Expected boolean. Actual string.",
+      ),
+    );
+    await expect(callSetup({ unexpectedField: true })).resolves.toEqual(
+      toolErrorResponse("request_1", "Invalid MCP tool arguments. unexpectedField: Unexpected field."),
+    );
+    expect(handler).not.toHaveBeenCalled();
+
+    await expect(callSetup({ dryRun: false })).resolves.toEqual(toolSuccessResponse("request_1", { accepted: true }));
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ arguments: expect.objectContaining({ dryRun: false }) }),
+    );
+  });
+
   it("rejects tools without the required permission and records audit", async () => {
     const audit = vi.fn();
     const app = createActorApp(

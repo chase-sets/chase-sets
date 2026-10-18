@@ -1,19 +1,33 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
-import { describe, expect, it } from "vitest";
-import { DB_TEST_SCRIPT_SELECTOR, runWorkspaceScripts } from "../../../../../../scripts/run-workspaces.mjs";
 
-const repoRoot = fileURLToPath(new URL("../../../../../../", import.meta.url));
 const roots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"];
-const mapperPath =
+export const cancellationMapperPath =
   "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts";
-const dbFile = "features/notification-center/integrations/source-events/cancellation-delivery.db.test.ts";
-const normalize = (value: string) => value.replaceAll("\\", "/");
+export const cancellationMapperAuthor = `${cancellationMapperPath}#mapOrderCancelledToNotification`;
+// Paths are resolved against a fixed virtual root so the scan reads only the supplied sources.
+const virtualRoot = path.resolve("/cancellation-producer-scan");
+const normalize = (value) => value.replaceAll("\\", "/");
 
-function trackedFiles() {
+// The alias/closure producer pair and its `created` control, planted in the real program on every run.
+const plantedCompositionSource = (event) =>
+  `export function compose() { return { messageType: "ordering." + "order." + "${event}", channels: [{ channel: "email", to: [{ email: "synthetic@example.test" }] }], templateId: "order_" + "${event}" }; }`;
+const plantedEmissionSource = `import { compose as differentName } from "./synthetic-composition";
+      export function install(outbox) { const transmit = outbox.enqueueNotification.bind(outbox);
+        return { ["ordering." + "order." + "cancelled"]: async () => { await transmit({ message: differentName() }); } }; }`;
+const plantedCancelledRoot = "bounded-contexts/pricing/features/synthetic-cancellation-producer";
+const plantedCreatedRoot = "bounded-contexts/pricing/features/synthetic-cancellation-control";
+export const plantedCancelledAuthor = `${plantedCancelledRoot}/synthetic-composition.ts#compose`;
+export const plantedCancellationSources = new Map([
+  [`${plantedCancelledRoot}/synthetic-emission.ts`, plantedEmissionSource],
+  [`${plantedCancelledRoot}/synthetic-composition.ts`, plantedCompositionSource("cancelled")],
+  [`${plantedCreatedRoot}/synthetic-emission.ts`, plantedEmissionSource],
+  [`${plantedCreatedRoot}/synthetic-composition.ts`, plantedCompositionSource("created")],
+]);
+
+export function trackedFiles(repoRoot) {
   return execFileSync("git", ["ls-files", "--cached", "-z", "--", ...roots], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -25,9 +39,9 @@ function trackedFiles() {
     .sort();
 }
 
-function partition(files: readonly string[]) {
-  const production: string[] = [];
-  const excluded: string[] = [];
+export function partition(files) {
+  const production = [];
+  const excluded = [];
   for (const file of files) {
     if (!roots.some((root) => file.startsWith(`${root}/`))) throw new Error(`Source outside workspace roots: ${file}`);
     if (
@@ -43,19 +57,18 @@ function partition(files: readonly string[]) {
   return { production, excluded };
 }
 
-function visit(node: ts.Node, callback: (node: ts.Node) => void) {
+function visit(node, callback) {
   callback(node);
   ts.forEachChild(node, (child) => visit(child, callback));
 }
 
-type Owner = ts.FunctionLikeDeclaration | ts.SourceFile;
-function owner(node: ts.Node): Owner {
+function owner(node) {
   let current = node.parent;
   while (current && !ts.isFunctionLike(current) && !ts.isSourceFile(current)) current = current.parent;
-  return current as Owner;
+  return current;
 }
 
-function unwrap(node: ts.Node): ts.Node {
+function unwrap(node) {
   while (
     ts.isAsExpression(node) ||
     ts.isSatisfiesExpression(node) ||
@@ -66,15 +79,24 @@ function unwrap(node: ts.Node): ts.Node {
   return node;
 }
 
-function scan(files: readonly string[], sources: ReadonlyMap<string, string>, expectedFiles = trackedFiles()) {
+export function scan(files, sources, expectedFiles) {
+  if (!Array.isArray(expectedFiles)) throw new Error("Expected tracked source list is required");
   if (JSON.stringify([...files].sort()) !== JSON.stringify([...expectedFiles].sort()))
     throw new Error("Omitted tracked source discovery");
   const { production, excluded } = partition(files);
   if (sources.size !== production.length || production.some((file) => !sources.has(file)))
     throw new Error("Unreadable or omitted production source partition");
-  const absolute = (file: string) => normalize(path.resolve(repoRoot, file));
+  const absolute = (file) => normalize(path.resolve(virtualRoot, file));
   const sourceByAbsolute = new Map([...sources].map(([file, source]) => [absolute(file), source]));
-  const options: ts.CompilerOptions = {
+  const directories = new Set();
+  for (const file of sourceByAbsolute.keys())
+    for (
+      let directory = path.posix.dirname(file);
+      !directories.has(directory);
+      directory = path.posix.dirname(directory)
+    )
+      directories.add(directory);
+  const options = {
     noLib: true,
     noResolve: true,
     allowJs: true,
@@ -85,6 +107,9 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
   const host = ts.createCompilerHost(options);
   host.readFile = (file) => sourceByAbsolute.get(normalize(file));
   host.fileExists = (file) => sourceByAbsolute.has(normalize(file));
+  host.directoryExists = (directory) => directories.has(normalize(directory).replace(/\/$/, ""));
+  host.getDirectories = () => [];
+  host.realpath = (file) => file;
   host.getSourceFile = (file, languageVersion) => {
     const source = host.readFile(file);
     return source === undefined ? undefined : ts.createSourceFile(file, source, languageVersion, true);
@@ -93,19 +118,19 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
   const checker = program.getTypeChecker();
   const loaded = program.getSourceFiles();
   if (loaded.length !== production.length) throw new Error("Incomplete compiler source partition");
-  const edges = new Map<Owner, Set<Owner>>();
-  const sinks = new Set<Owner>();
-  const cancellationOwners = new Set<Owner>();
-  const objects: ts.ObjectLiteralExpression[] = [];
+  const edges = new Map();
+  const sinks = new Set();
+  const cancellationOwners = new Set();
+  const objects = [];
 
-  function declarations(node: ts.Node): readonly ts.Declaration[] {
+  function declarations(node) {
     let symbol = ts.isShorthandPropertyAssignment(node.parent)
       ? checker.getShorthandAssignmentValueSymbol(node.parent)
       : checker.getSymbolAtLocation(node);
     if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
     return symbol?.declarations ?? [];
   }
-  function values(node: ts.Node | undefined, seen = new Set<ts.Node>()): ts.Node[] {
+  function values(node, seen = new Set()) {
     if (!node || seen.has(node)) return [];
     node = unwrap(node);
     const next = new Set(seen).add(node);
@@ -124,7 +149,7 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
       );
     return [node];
   }
-  function strings(node: ts.Node | undefined, seen = new Set<ts.Node>()): string[] {
+  function strings(node, seen = new Set()) {
     if (!node || seen.has(node)) return [];
     const next = new Set(seen).add(node);
     return values(node).flatMap((value) => {
@@ -142,7 +167,7 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
       return [];
     });
   }
-  function property(object: ts.ObjectLiteralExpression, name: string): ts.Node | undefined {
+  function property(object, name) {
     for (const member of object.properties) {
       if (
         (ts.isPropertyAssignment(member) || ts.isShorthandPropertyAssignment(member)) &&
@@ -154,12 +179,12 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
     }
     return undefined;
   }
-  function connect(from: Owner, to: Owner) {
+  function connect(from, to) {
     if (from === to) return;
     if (!edges.has(from)) edges.set(from, new Set());
-    edges.get(from)!.add(to);
+    edges.get(from).add(to);
   }
-  function functionTargets(node: ts.Node, seen = new Set<ts.Node>()): Owner[] {
+  function functionTargets(node, seen = new Set()) {
     if (seen.has(node)) return [];
     const next = new Set(seen).add(node);
     return declarations(node).flatMap((declaration) => {
@@ -172,7 +197,7 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
       return [];
     });
   }
-  function isSink(node: ts.Node, seen = new Set<ts.Node>()): boolean {
+  function isSink(node, seen = new Set()) {
     node = unwrap(node);
     if (seen.has(node)) return false;
     const next = new Set(seen).add(node);
@@ -197,7 +222,7 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
       return isSink(node.expression.expression, next);
     return false;
   }
-  function hasEmail(node: ts.Node | undefined, seen = new Set<ts.Node>()): boolean {
+  function hasEmail(node, seen = new Set()) {
     if (!node || seen.has(node)) return false;
     const next = new Set(seen).add(node);
     return values(node).some((value) => {
@@ -211,7 +236,7 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
   for (const source of loaded) {
     visit(source, (node) => {
       const current = owner(node);
-      if (ts.isFunctionLike(node) && !ts.isSourceFile(current)) connect(current, node as Owner);
+      if (ts.isFunctionLike(node) && !ts.isSourceFile(current)) connect(current, node);
       if (ts.isObjectLiteralExpression(node)) objects.push(node);
       if (ts.isCallExpression(node) && isSink(node.expression)) sinks.add(current);
       if (ts.isIdentifier(node) && !ts.isSourceFile(current)) {
@@ -241,17 +266,17 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
         cancellationOwners.add(current);
     });
   }
-  const incoming = new Map<Owner, Set<Owner>>();
+  const incoming = new Map();
   for (const [caller, callees] of edges)
     for (const callee of callees) {
       if (!incoming.has(callee)) incoming.set(callee, new Set());
-      incoming.get(callee)!.add(caller);
+      incoming.get(callee).add(caller);
     }
-  function ancestors(starts: Iterable<Owner>) {
+  function ancestors(starts) {
     const found = new Set(starts);
     const pending = [...found];
     while (pending.length) {
-      for (const caller of incoming.get(pending.pop()!) ?? []) {
+      for (const caller of incoming.get(pending.pop()) ?? []) {
         if (!found.has(caller)) {
           found.add(caller);
           pending.push(caller);
@@ -264,14 +289,14 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
   const cancellationReach = new Set(cancellationOwners);
   const pendingCancellation = [...cancellationOwners];
   while (pendingCancellation.length) {
-    for (const callee of edges.get(pendingCancellation.pop()!) ?? []) {
+    for (const callee of edges.get(pendingCancellation.pop()) ?? []) {
       if (!cancellationReach.has(callee)) {
         cancellationReach.add(callee);
         pendingCancellation.push(callee);
       }
     }
   }
-  const authors: string[] = [];
+  const authors = [];
   let safeMessages = 0;
   let forwardingMessages = 0;
   for (const object of objects) {
@@ -302,7 +327,7 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
       : ts.isVariableDeclaration(current.parent)
         ? current.parent.name.getText()
         : "closure";
-    authors.push(`${normalize(path.relative(repoRoot, object.getSourceFile().fileName))}#${name}`);
+    authors.push(`${normalize(path.relative(virtualRoot, object.getSourceFile().fileName))}#${name}`);
   }
   const retired = [
     "mapOrderPaymentDeadlineCancelledToTransactionalEmail",
@@ -327,114 +352,58 @@ function scan(files: readonly string[], sources: ReadonlyMap<string, string>, ex
   };
 }
 
-function assertOneProducer(result: ReturnType<typeof scan>) {
-  expect(result.authors, "cancellation email structural producers").toEqual([
-    `${mapperPath}#mapOrderCancelledToNotification`,
-  ]);
-  expect(result.total).toBe(result.scanned + result.excluded);
-  expect(result.safeMessages).toBeGreaterThan(0);
-  expect(result.sinks).toBeGreaterThan(0);
+const label = "cancellation producer uniqueness";
+
+// One program over the tracked sources plus the planted pairs: the mapper and the planted `cancelled`
+// helper must be the only authors, so a lost alias or closure owner fails every run.
+export function evaluateCancellationProducerUniqueness(tracked, sources) {
+  const collisions = tracked.filter((file) => plantedCancellationSources.has(file));
+  if (collisions.length)
+    return {
+      violations: collisions.map((file) => `${file}: ${label}: planted control path is tracked`),
+      inventory: null,
+    };
+  let inventory;
+  try {
+    const files = [...tracked, ...plantedCancellationSources.keys()].sort();
+    inventory = scan(files, new Map([...sources, ...plantedCancellationSources]), files);
+  } catch (error) {
+    return { violations: [`${label}: ${error instanceof Error ? error.message : String(error)}`], inventory: null };
+  }
+  const expected = [cancellationMapperAuthor, plantedCancelledAuthor].sort();
+  const violations = [];
+  if (JSON.stringify(inventory.authors) !== JSON.stringify(expected))
+    violations.push(
+      `${label}: structural cancellation-email authors ${JSON.stringify(inventory.authors)}; expected ${JSON.stringify(expected)}`,
+    );
+  if (inventory.total !== inventory.scanned + inventory.excluded)
+    violations.push(`${label}: scanned and excluded sources do not cover the ${inventory.total} tracked sources`);
+  if (inventory.safeMessages === 0) violations.push(`${label}: no safe message was found`);
+  if (inventory.sinks === 0) violations.push(`${label}: no enqueueNotification sink was found`);
+  return { violations, inventory };
 }
 
-describe("cancellation delivery ownership", () => {
-  it("cancellation email has one structural producer", () => {
-    const files = trackedFiles();
-    const sources = new Map(
-      partition(files).production.map((file) => [file, readFileSync(path.join(repoRoot, file), "utf8")]),
-    );
-    const result = scan(files, sources);
-    console.log("Cancellation producer inventory", result);
-    assertOneProducer(result);
-  });
-
-  it("cancellation structural discovery rejects omitted or unreadable source", () => {
-    const files = trackedFiles();
-    const sources = new Map(
-      partition(files).production.map((file) => [file, readFileSync(path.join(repoRoot, file), "utf8")]),
-    );
-    sources.delete(mapperPath);
-    expect(() => scan(files, sources)).toThrow("Unreadable or omitted production source partition");
-    expect(() =>
-      scan(
-        files.filter((file) => file !== mapperPath),
-        sources,
-      ),
-    ).toThrow("Omitted tracked source discovery");
-  });
-
-  it("cancellation structural producer follows imported aliases and closure ownership", () => {
-    const files = trackedFiles();
-    const sources = new Map(
-      partition(files).production.map((file) => [file, readFileSync(path.join(repoRoot, file), "utf8")]),
-    );
-    const sibling = "bounded-contexts/pricing/features/synthetic-emission.ts";
-    const helper = "bounded-contexts/pricing/features/synthetic-composition.ts";
-    const helperSource = `export function compose() { return { messageType: "ordering." + "order." + "cancelled", channels: [{ channel: "email", to: [{ email: "synthetic@example.test" }] }], templateId: "order_" + "cancelled" }; }`;
-    const siblingSource = `import { compose as differentName } from "./synthetic-composition";
-      export function install(outbox) { const transmit = outbox.enqueueNotification.bind(outbox);
-        return { ["ordering." + "order." + "cancelled"]: async () => { await transmit({ message: differentName() }); } }; }`;
-    const mutantFiles = [...files, sibling, helper].sort();
-    const mutantSources = new Map([...sources, [sibling, siblingSource], [helper, helperSource]]);
-    expect(() => assertOneProducer(scan(mutantFiles, mutantSources, mutantFiles))).toThrow(
-      "cancellation email structural producers",
-    );
-    mutantSources.set(helper, helperSource.replaceAll('"cancelled"', '"created"'));
-    assertOneProducer(scan(mutantFiles, mutantSources, mutantFiles));
-  });
-
-  it("cancellation DB profile is selected and unit-excluded", async () => {
-    const manifests = trackedFiles().filter((file) => /^[^/]+\/[^/]+\/package\.json$/.test(file));
-    const workspaces = manifests.map((file) => {
-      const packageJson = JSON.parse(readFileSync(path.join(repoRoot, file), "utf8")) as {
-        name: string;
-        scripts: Record<string, string>;
-        chaseSets?: { testProfile?: string };
-      };
-      return { name: packageJson.name, packageJson };
-    });
-    const notifications = workspaces.find((workspace) => workspace.name === "@chase-sets/notifications");
-    if (!notifications) throw new Error("Notifications workspace absent");
-    const durationHintRegistry = JSON.parse(
-      readFileSync(path.join(repoRoot, "scripts/workspace-test-duration-hints-v1.json"), "utf8"),
-    );
-    async function assertEnrollment(candidates: typeof workspaces, registry = durationHintRegistry) {
-      const invocations: string[][] = [];
-      await runWorkspaceScripts({
-        argv: [DB_TEST_SCRIPT_SELECTOR, "--workspace=@chase-sets/notifications"],
-        durationHintRegistry: registry,
-        listWorkspaces: () => candidates,
-        loadEnvironment: () => undefined,
-        appendSummary: () => undefined,
-        run: async (_command, args) => {
-          invocations.push([...args]);
-        },
-      });
-      expect(invocations, "exactly one Notifications DB script invocation").toHaveLength(1);
-      expect(invocations[0]?.slice(-4)).toEqual(["--filter", "@chase-sets/notifications", "run", "test:db"]);
-      const selected = candidates.find((workspace) => workspace.name === notifications!.name)!;
-      expect(selected.packageJson.chaseSets?.testProfile).toBe("db");
-      expect(selected.packageJson.scripts["test:db"]).toBe(`vitest run --config ./tests/vitest.config.mjs ${dbFile}`);
-      for (const script of ["test", "test:unit", "test:fast", "test:watch"])
-        expect(selected.packageJson.scripts[script], `${script} excludes DB tests`).toContain(
-          "--exclude **/*.db.test.ts",
-        );
+export function validateCancellationProducerUniqueness({ repoRoot }) {
+  let tracked;
+  let production;
+  try {
+    tracked = trackedFiles(repoRoot);
+    production = partition(tracked).production;
+  } catch (error) {
+    return { violations: [`${label}: ${error instanceof Error ? error.message : String(error)}`], inventory: null };
+  }
+  const sources = new Map();
+  for (const file of production) {
+    try {
+      sources.set(file, readFileSync(path.join(repoRoot, file), "utf8"));
+    } catch {
+      // An unreadable tracked source stays absent, so the scan fails its production partition.
     }
-    await assertEnrollment(workspaces);
-    const withoutScript = structuredClone(workspaces);
-    delete withoutScript.find((workspace) => workspace.name === notifications.name)!.packageJson.scripts["test:db"];
-    const withoutHint = {
-      ...durationHintRegistry,
-      entries: durationHintRegistry.entries.filter(
-        (entry: { workspace: string; script: string }) =>
-          entry.workspace !== notifications.name || entry.script !== "test:db",
-      ),
-    };
-    await expect(assertEnrollment(withoutScript, withoutHint)).rejects.toThrow(
-      "exactly one Notifications DB script invocation",
+  }
+  const result = evaluateCancellationProducerUniqueness(tracked, sources);
+  if (result.inventory)
+    console.log(
+      `${label}: ${result.inventory.scanned}/${result.inventory.total} sources scanned (${plantedCancellationSources.size} planted), authors ${result.inventory.authors.join(", ")}`,
     );
-    const withoutExclusion = structuredClone(workspaces);
-    const scripts = withoutExclusion.find((workspace) => workspace.name === notifications.name)!.packageJson.scripts;
-    scripts["test:unit"] = scripts["test:unit"]!.replace(" --exclude **/*.db.test.ts", "");
-    await expect(assertEnrollment(withoutExclusion)).rejects.toThrow("test:unit excludes DB tests");
-  });
-});
+  return result;
+}

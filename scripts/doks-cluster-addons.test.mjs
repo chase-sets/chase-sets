@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   applyAllowedNormalizedDeltas,
   assertDryRunMatchesGolden,
@@ -37,6 +38,7 @@ const ingressNginxValues = readFileSync(
   resolve("infrastructure", "helm", "doks-ingress", "ingress-nginx-values.yaml"),
   "utf8",
 );
+const ingressNginxValuesDocument = parseYaml(ingressNginxValues);
 
 const repositoryRoot = realpathSync(resolve("."));
 const goldenProvenance = "dae5e288572b52a559654343ec229f3a988c4b07";
@@ -119,6 +121,52 @@ describe("doks cluster addons planner", () => {
       "install Argo Rollouts controller and CRDs",
       "install ACME cluster issuers",
     ]);
+  });
+
+  it("supports an ingress-nginx-only selector for staging recovery", () => {
+    const steps = planClusterAddons({ environment: "staging", component: "ingress-nginx" });
+
+    expect(steps.map((step) => step.name)).toEqual([
+      "add ingress-nginx repo",
+      "refresh repos",
+      "install ingress-nginx controller and DigitalOcean load balancer",
+    ]);
+    expect(steps[1].command).toEqual(["helm", "repo", "update", "ingress-nginx"]);
+    expect(steps.map((step) => step.command.join(" ")).join(" ")).not.toMatch(/cert-manager|argo|issuer|access-token/i);
+  });
+
+  it("rejects an unknown component instead of broadening the selector", () => {
+    expect(() => planClusterAddons({ component: "all" })).toThrow("component must be one of ingress-nginx");
+  });
+
+  it("disables ingress-nginx trust in client forwarded headers and forbids copy snippets", () => {
+    expect(ingressNginxValuesDocument.controller.config["use-forwarded-headers"]).toBe("false");
+    expect(ingressNginxValues).toContain('use-forwarded-headers: "false"');
+    expect(ingressNginxValues).not.toMatch(
+      /compute-full-forwarded-for|proxy-set-headers|[\w-]+-snippet:[\s\S]*\$http_x_forwarded/,
+    );
+  });
+
+  it("captures ingress-nginx release drift before the staging policy upgrade", () => {
+    const workflow = readFileSync(resolve(".github", "workflows", "platform-production.yml"), "utf8");
+    const stepStart = workflow.indexOf("      - name: Apply staging ingress-nginx forwarded-header policy");
+    const stepEnd = workflow.indexOf("\n      - name:", stepStart + 1);
+    expect(stepStart).toBeGreaterThanOrEqual(0);
+    expect(stepEnd).toBeGreaterThan(stepStart);
+
+    const step = workflow.slice(stepStart, stepEnd);
+    const metadataIndex = step.indexOf("helm get metadata ingress-nginx --namespace ingress-nginx");
+    const valuesIndex = step.indexOf("helm get values ingress-nginx --namespace ingress-nginx --output yaml");
+    const selectorIndex = step.indexOf(
+      "node ./scripts/doks-cluster-addons.mjs --environment staging --component ingress-nginx",
+    );
+
+    expect(step).toContain("set -euo pipefail");
+    expect(metadataIndex).toBeGreaterThanOrEqual(0);
+    expect(valuesIndex).toBeGreaterThan(metadataIndex);
+    expect(selectorIndex).toBeGreaterThan(valuesIndex);
+    expect(step).not.toMatch(/^\s+env:/m);
+    expect(step).not.toContain("DIGITALOCEAN_ACCESS_TOKEN");
   });
 
   it("installs cert-manager before the cluster issuers that need its CRDs", () => {

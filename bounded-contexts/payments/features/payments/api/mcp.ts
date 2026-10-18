@@ -31,6 +31,12 @@ function readRequiredString(args: Readonly<Record<string, unknown>>, key: string
   return value;
 }
 
+function rejectDryRun(args: Readonly<Record<string, unknown>>) {
+  if (args.dryRun === true) {
+    throw new Error("dryRun is not supported for payment method setup MCP writes yet.");
+  }
+}
+
 function requirePermission(actor: Readonly<{ permissions: readonly string[] }>, permission: string) {
   if (!actor.permissions.includes(permission)) {
     throw new Error(`Missing required permission: ${permission}.`);
@@ -171,7 +177,10 @@ export function createPaymentMcpHandlers(
     };
   };
 
+  // Refuse at admission, not in the run body: the platform reserves idempotency and audits a
+  // failure only after admit returns, so a true dry run must leave no reservation or provider work.
   async function admitPaymentMethodSetup(input: McpToolHandlerInput): Promise<McpToolHandler> {
+    rejectDryRun(input.arguments);
     const window = await evidenceWindowCorrelation?.currentOpenWindow();
     if (window)
       admitGovernedSetupInput({

@@ -31,6 +31,12 @@ spec:
         - name: postgres
           image: {{ printf "%s:%s" .Values.previewPostgres.image.repository .Values.previewPostgres.image.tag | quote }}
           imagePullPolicy: {{ .Values.previewPostgres.image.pullPolicy | quote }}
+          {{- $_ := required "previewPostgres.settings.max_connections is required" (dig "settings" "max_connections" "" .Values.previewPostgres) }}
+          args:
+          {{- range $name, $value := .Values.previewPostgres.settings }}
+            - "-c"
+            - {{ printf "%s=%d" $name (int $value) | quote }}
+          {{- end }}
           ports:
             - name: postgres
               containerPort: {{ .Values.previewPostgres.service.port }}

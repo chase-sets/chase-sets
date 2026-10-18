@@ -399,5 +399,17 @@ export async function prepareStagedImportDispatch(
       timing = { ...timing, state: "released" };
       await ports.save(timing);
     },
+    // The only exit before a mutation; proof comes from this handle's own counters, never from a result.
+    async refuseBeforeMutation() {
+      const readsOnly =
+        !busy &&
+        !stopped &&
+        timing.state !== "intent" &&
+        plan.requests.slice(0, sent).every((hop) => hop.kind === "read");
+      stopped = true;
+      if (!readsOnly || !(await ports.fence())) throw new StagedImportDispatchError("staged-import-outcome-unknown");
+      timing = { ...timing, state: "released" };
+      await ports.save(timing);
+    },
   };
 }
