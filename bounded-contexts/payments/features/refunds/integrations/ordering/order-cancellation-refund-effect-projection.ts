@@ -3,6 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { recordRefundEffectFailure } from "../refund-effect-retry";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, type PaymentId } from "@chase-sets/primitives/typed-ids";
+import { moneyToCents, centsToMoneyAmount } from "@chase-sets/primitives/money";
 import type { RefundId } from "../../../../support/runtime-support/common";
 import type { RefundServices } from "../../api/runtime";
 import {
@@ -22,14 +23,6 @@ type PaymentOrderInputForRefund = Readonly<{
   status: string;
 }>;
 
-function moneyToCents(value: string) {
-  return Math.round(Number.parseFloat(value) * 100);
-}
-
-function centsToMoney(cents: number) {
-  return (cents / 100).toFixed(2);
-}
-
 function orderMoneyAmount(entries: readonly { orderId: string; amount: string }[] | undefined, orderId: string) {
   return entries?.find((entry) => entry.orderId === orderId)?.amount ?? "0.00";
 }
@@ -41,7 +34,8 @@ function remainingRefundableOrderAmount(
 ) {
   const cap = payment.order_refund_caps.length > 0 ? orderMoneyAmount(payment.order_refund_caps, orderId) : fallbackCap;
   const refunded = orderMoneyAmount(payment.order_refunded_amounts, orderId);
-  return centsToMoney(Math.max(0, moneyToCents(cap) - moneyToCents(refunded)));
+  const remainingCents = moneyToCents(cap) - moneyToCents(refunded);
+  return centsToMoneyAmount(remainingCents < 0n ? 0n : remainingCents);
 }
 
 async function loadOrderInputs(
@@ -66,7 +60,7 @@ async function loadOrderInputs(
 }
 
 function orderTotalsFromInputs(orderInputs: ReadonlyMap<string, PaymentOrderInputForRefund>): Map<string, number> {
-  return new Map([...orderInputs.values()].map((row) => [row.order_id, moneyToCents(row.total_amount)]));
+  return new Map([...orderInputs.values()].map((row) => [row.order_id, Number(moneyToCents(row.total_amount))]));
 }
 
 function allocateCheckoutFeeCents(
@@ -164,20 +158,17 @@ async function issueCancellationRefund(
 ) {
   const orderInputs = await loadOrderInputs(db, params.payment.order_ids);
   const orderTotals = orderTotalsFromInputs(orderInputs);
-  const checkoutFeeCents = moneyToCents(params.payment.marketplace_checkout_fee_amount);
+  const checkoutFeeCents = Number(moneyToCents(params.payment.marketplace_checkout_fee_amount));
   const allocatedCheckoutFeeCents = allocateCheckoutFeeCents({
     orderId: params.orderId,
     paymentOrderIds: params.payment.order_ids,
     orderTotals,
     checkoutFeeCents,
   });
-  const amount = centsToMoney(moneyToCents(params.orderInput.total_amount) + allocatedCheckoutFeeCents);
-  const refundableAmount = centsToMoney(
-    Math.min(
-      moneyToCents(amount),
-      moneyToCents(remainingRefundableOrderAmount(params.payment, params.orderId, amount)),
-    ),
-  );
+  const amount = centsToMoneyAmount(moneyToCents(params.orderInput.total_amount) + BigInt(allocatedCheckoutFeeCents));
+  const amountCents = moneyToCents(amount);
+  const remainingCents = moneyToCents(remainingRefundableOrderAmount(params.payment, params.orderId, amount));
+  const refundableAmount = centsToMoneyAmount(amountCents < remainingCents ? amountCents : remainingCents);
   if (moneyToCents(refundableAmount) <= 0) {
     await claimCancellationRefundEffect(db, {
       orderId: params.orderId,

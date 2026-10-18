@@ -797,7 +797,7 @@ describe("DB duration scheduling", () => {
       eligible.map((entry) => entry.name).sort(),
     );
     for (const [name, scripts] of [
-      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2"]],
+      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3"]],
       ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
@@ -826,10 +826,38 @@ describe("DB duration scheduling", () => {
       const partitions = await Promise.all(output.invocations.map((args) => discover(scripts[args[3]])));
       const assertCompleteDisjoint = (groups) => expect(groups.flat().sort()).toEqual(aggregate);
       assertCompleteDisjoint(partitions);
-      expect(partitions.map((files) => files.length)).toEqual([1, 3]);
+      expect(partitions.map((files) => files.length)).toEqual([1, 3, 1]);
       const omittedFile = await discover(scripts["test:db:2"].split(/\s+/).slice(0, -1).join(" "));
       expect(() => assertCompleteDisjoint([partitions[0], omittedFile])).toThrow();
       expect(() => assertCompleteDisjoint([...partitions, partitions[0]])).toThrow();
+    } finally {
+      await vitest.close();
+    }
+  });
+
+  it("discovers the payments projection drain DB file exactly once through the commands selected by the runner", async () => {
+    const payments = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/payments");
+    const scripts = payments.packageJson.scripts;
+    const output = await captureDbRun({
+      workspaces: [payments],
+      registry: durationRegistry([durationEntry(payments.name, "test:db", 24)]),
+    });
+    const vitest = await createVitest("test", {
+      root: payments.dir,
+      config: "./tests/vitest.config.mjs",
+      watch: false,
+    });
+    try {
+      const discovered = [];
+      for (const args of output.invocations) {
+        const tokens = scripts[args[3]].split(/\s+/);
+        expect(tokens.slice(0, 4)).toEqual(["vitest", "run", "--config", "./tests/vitest.config.mjs"]);
+        discovered.push(...(await vitest.globTestSpecifications(tokens.slice(4))).map((spec) => spec.moduleId));
+      }
+      const drain = path
+        .resolve(payments.dir, "tests/money-consolidation-projection-drain.db.test.ts")
+        .replaceAll("\\", "/");
+      expect(discovered.filter((file) => file === drain)).toHaveLength(1);
     } finally {
       await vitest.close();
     }
