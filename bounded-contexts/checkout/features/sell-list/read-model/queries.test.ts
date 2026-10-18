@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { getLatestSellListConfirmation, getSellPayoutReadiness } from "./queries";
+import { getCheckoutSellOfferMatch, getLatestSellListConfirmation, getSellPayoutReadiness } from "./queries";
 
 describe("sell list confirmation queries", () => {
+  it("uses the Checkout offer page stream fence for Sell List Matches", async () => {
+    const queriedSql: string[] = [];
+    const db = {
+      query: async (sql: string) => {
+        queriedSql.push(sql);
+        return { rows: [] };
+      },
+    };
+
+    await expect(getCheckoutSellOfferMatch(db, "acc_seller", "off_1")).resolves.toBeNull();
+    expect(queriedSql[0]).toContain("offer.last_stream_version > 0");
+    expect(queriedSql[0]).not.toContain("offer.offer_stream_version > 0");
+  });
+
   it("reads only fresh confirmation pages", async () => {
     const queriedSql: string[] = [];
     const db = {
