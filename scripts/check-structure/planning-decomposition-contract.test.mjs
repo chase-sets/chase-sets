@@ -141,3 +141,34 @@ describe("planning decomposition contract", () => {
     expect(registrationContractViolations(reordered)).toEqual(["attachSuccessorsBeforeDetachment"]);
   });
 });
+
+describe("repository routing", () => {
+  const backlogModel = readFileSync(`${repoRoot}/docs/contributing/backlog-model.md`, "utf8");
+  const skills = [".agents", ".claude"].map((root) =>
+    readFileSync(`${repoRoot}/${root}/skills/planning/SKILL.md`, "utf8"),
+  );
+
+  it("states the rule once in the backlog model, before placement", () => {
+    const rule = "### Repository routing\n\nAn issue lives in the repository its change merges into.";
+    expect(occurrenceCount(backlogModel, rule)).toBe(1);
+    expect(backlogModel.indexOf(rule)).toBeLessThan(backlogModel.indexOf("### Agents own placement and priority"));
+    expect(backlogModel).toContain("- An issue that changes no tracked file lives with the loop whose work it\n  serves.");
+  });
+
+  it("starts the placement test with the repository", () => {
+    expect(backlogModel).toContain(
+      "Apply this placement test at intake:\n\n1. Identify the repository the change merges into (Repository routing). File\n   the issue there.\n2. Identify the issue's observable acceptance",
+    );
+  });
+
+  it("routes planning intake and registration through the rule in both mirrors", () => {
+    for (const skill of skills) {
+      expect(skill).toContain(
+        "1. **Intake.** Outcome statement, why-now, constraints, the repository each\n   issue's change merges into (`docs/contributing/backlog-model.md`,\n   Repository routing),",
+      );
+      expect(registrationSection(skill)).toContain(
+        "7. **Registration.** Register each issue in the repository its change merges\n   into.",
+      );
+    }
+  });
+});
