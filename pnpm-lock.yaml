@@ -2255,6 +2255,9 @@ importers:
       '@chase-sets/channels':
         specifier: workspace:*
         version: link:../../bounded-contexts/channels
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-runtime
     devDependencies:
       '@playwright/test':
         specifier: ^1.60.0

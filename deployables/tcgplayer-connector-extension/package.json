@@ -12,7 +12,8 @@
     "test:chromium": "vite build --mode connector-local --configLoader runner && playwright test --config ./playwright.config.ts"
   },
   "dependencies": {
-    "@chase-sets/channels": "workspace:*"
+    "@chase-sets/channels": "workspace:*",
+    "@chase-sets/platform-runtime": "workspace:*"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.4",
