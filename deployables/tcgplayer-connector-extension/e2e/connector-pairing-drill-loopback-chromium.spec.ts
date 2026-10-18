@@ -9,13 +9,56 @@ import { createSyntheticPairingCode, loopbackPlatform } from "./loopback-platfor
 import { executionIdentityPlugin } from "./extension-installation";
 import { scanRetainedArtifacts } from "./retained-artifacts";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID } from "@chase-sets/channels/client";
-import { syntheticClaim } from "../__tests__/harness/claim";
 
 test.setTimeout(90_000);
 test.use({ trace: "off", screenshot: "off" });
 
 const packageRoot = resolve(import.meta.dirname, "..");
 const clientId = "cc_client_00000000-0000-4000-8000-000000000000";
+
+function syntheticClaim(now = Date.now()) {
+  const payload = {
+    draft: {
+      attributes: [],
+      categoryKey: "card",
+      channelListingId: "synthetic-link",
+      conditionKey: "new",
+      description: "",
+      listingRevision: 1,
+      price: { amountMinor: 100, currency: "USD" },
+      quantity: 1,
+      title: "SYNTHETIC_7940",
+    },
+    kind: "draft",
+  } as const;
+  const at = new Date(now).toISOString();
+  return {
+    reservationId: "synthetic-reservation",
+    connectionId: "connection_synthetic",
+    providerIdentity: { providerKey: "tcgplayer", environment: "sandbox" },
+    claimant: { claimantKind: "connector", claimantId: "synthetic-pairing" },
+    reservedAt: at,
+    leaseExpiresAt: new Date(now + 1800000).toISOString(),
+    operations: [
+      {
+        operationId: "synthetic-operation",
+        attemptId: "synthetic-attempt",
+        claimGeneration: 1,
+        connectionId: "connection_synthetic",
+        providerIdentity: { providerKey: "tcgplayer", environment: "sandbox" },
+        channelListingId: "synthetic-link",
+        listingId: "synthetic-listing",
+        operationKind: "publish",
+        listingRevision: 1,
+        desiredStateSequence: 1,
+        payload,
+        payloadDigest: createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
+        sourceOccurredAt: at,
+        enqueuedAt: at,
+      },
+    ],
+  };
+}
 
 test("connector-pairing-drill-loopback-chromium", async () => {
   const platform = await loopbackPlatform({
