@@ -252,10 +252,10 @@ const ebayAccountDeletionDelta = [
   },
 ];
 // #9721 reviewed removal: the retired mandate verifier's URL, auth-token and timeout grants at its five forwarding
-// sinks, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
+// sinks, plus #9876's six retired TCGplayer cookie grants, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
 // the issue's literal sweep stays exact; parity below binds each index to the generated manifest and source fragments.
 const reviewedRetiredVerifierRemovals = new Set([
-  210, 211, 212, 263, 264, 265, 428, 429, 430, 710, 711, 712, 957, 958, 959,
+  210, 211, 212, 263, 264, 265, 398, 428, 429, 430, 709, 710, 711, 712, 956, 957, 958, 959, 1391, 1419, 1483,
 ]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
@@ -456,7 +456,7 @@ describe("managed Postgres authority source generator", () => {
     expectParity(original, historicalGenerated);
 
     const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRetiredVerifierRemovals.has(index));
-    expect(retainedOriginalGrants).toHaveLength(1594);
+    expect(retainedOriginalGrants).toHaveLength(1588);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = {
@@ -468,7 +468,7 @@ describe("managed Postgres authority source generator", () => {
         ...catalogCountPreparationDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1623);
+    expect(expected.grants).toHaveLength(1617);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
