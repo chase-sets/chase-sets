@@ -79,6 +79,12 @@ kubectl --namespace chase-sets-platform get certificate,certificaterequest,chall
 
 Diagnostic `doks.*` DNS names may confirm load-balancer reachability, but they are not release gates and are not present in the platform Ingress certificate. Smoke the live apex, `www`, `admin`, and an approved marketplace host.
 
+### Preview-pool census (read-only)
+
+Dispatch `.github/workflows/platform-preview-pool-census.yml` in the `preview` environment. Use `snapshot` for one bounded inventory or `sample` for a lifecycle window; `sample` accepts 1-60 minutes and a 5-60 second interval (the default is 45 minutes at 10 seconds). The workflow writes a `preview-pool-census/v1` artifact containing preview-node allocatable CPU and memory, non-preview requests, preview namespace kind and creation time, each container's request/limit, node, phase, termination/eviction reason, sampled maximum working set, sample count and first/last seen, deduplicated scheduling/eviction events, autoscaler status, sizing arithmetic, thin-sample warnings and any read errors. The seven expected workload components are `public-web`, `marketplace`, `admin-web`, `platform-api`, `platform-worker`, `preview-postgres`, and `platform-bootstrap`.
+
+The census is strictly read-only: its script permits only `kubectl get` and kubelet `get --raw .../stats/summary`; it never writes pod specs, secrets, environment values or logs. A failed read produces `result: partial`, not a pass. A sampled peak is a lower bound and the artifact records the interval; containers observed fewer than three times are listed in `thinSamples`.
+
 ## Rollback
 
 Use the immutable release reference and rollback target recorded by the workflow. A Helm rollback does not alter managed Postgres or DNS. After rollback, rerun workload readiness, ingress, projection-readiness, admin-shell, and money-path smoke before moving the production marker.

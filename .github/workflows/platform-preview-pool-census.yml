@@ -1,0 +1,132 @@
+name: Platform Preview Pool Census
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Census mode
+        required: true
+        type: choice
+        options:
+          - snapshot
+          - sample
+        default: sample
+      duration_minutes:
+        description: Sample duration in minutes (1-60)
+        required: true
+        type: number
+        default: 45
+      interval_seconds:
+        description: Sample interval in seconds (5-60)
+        required: true
+        type: number
+        default: 10
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-pool-census-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  census:
+    name: Read preview-pool census
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.duration_minutes + 15 }}
+    environment: preview
+    env:
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - name: Check out trusted base
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up workspace
+        uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: "true"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Set up doctl
+        uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Configure staging Kubernetes context (read-only)
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+          kubeconfig="${RUNNER_TEMP}/chase-sets-preview-census.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state has no cluster identity." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          test -n "$current_context"
+          echo "KUBECONFIG=$kubeconfig" >> "$GITHUB_ENV"
+          echo "Configured read-only staging context: $current_context"
+
+      - name: Capture preview-pool census
+        env:
+          MODE: ${{ inputs.mode }}
+          DURATION_MINUTES: ${{ inputs.duration_minutes }}
+          INTERVAL_SECONDS: ${{ inputs.interval_seconds }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in snapshot|sample) ;; *) echo "invalid mode" >&2; exit 2 ;; esac
+          case "$DURATION_MINUTES" in ''|*[!0-9]*) echo "invalid duration" >&2; exit 2 ;; esac
+          case "$INTERVAL_SECONDS" in ''|*[!0-9]*) echo "invalid interval" >&2; exit 2 ;; esac
+          test "$DURATION_MINUTES" -ge 1 -a "$DURATION_MINUTES" -le 60
+          test "$INTERVAL_SECONDS" -ge 5 -a "$INTERVAL_SECONDS" -le 60
+          node ./scripts/preview-pool-census.mjs \
+            --mode "$MODE" \
+            --duration-minutes "$DURATION_MINUTES" \
+            --interval-seconds "$INTERVAL_SECONDS" \
+            --out "artifacts/preview-pool-census-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+
+      - name: Upload census artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: preview-pool-census-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/preview-pool-census-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: error
+          retention-days: 14
