@@ -934,7 +934,7 @@ export async function assembleAdmittedTcgplayerMarketObservationBatch(
   requestInput: TcgplayerMarketObservationRequest,
 ): Promise<TcgplayerMarketObservationBatch> {
   const r = parseTcgplayerMarketObservationRequest(requestInput);
-  if (!Array.isArray(history) || history.length < 2) bad("invalid_history");
+  if (!Array.isArray(history) || history.length < 1) bad("invalid_history");
   for (let i = 0; i < history.length; i++) {
     const event = history[i];
     if (!event || typeof event !== "object" || event.streamVersion !== i + 1) bad("misordered_history");

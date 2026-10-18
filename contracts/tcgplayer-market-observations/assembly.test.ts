@@ -65,7 +65,7 @@ describe("admitted batch assembly", () => {
       requestId: request.requestId,
     });
     await expect(assembleAdmittedTcgplayerMarketObservationBatch(history.slice(1), request)).rejects.toMatchObject({
-      code: "missing_admission",
+      code: "invalid_history_parts",
     });
     await expect(
       assembleAdmittedTcgplayerMarketObservationBatch(

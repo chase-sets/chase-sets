@@ -82,15 +82,20 @@ describe("TCGplayer market observation batch", () => {
   it("accepts the closed non-observed matrix", () =>
     expect(parseTcgplayerMarketObservationBatch(batch(), request).products).toHaveLength(1));
   it.each([
-    ["rejected rows", { rejectedRows: 1 }],
-    ["sales pages", { pagesFetched: 1 }],
-    ["sales returned", { returnedCount: 1 }],
-    ["sales total", { firstReportedTotal: 1 }],
-    ["listings total", { reportedTotal: 1 }],
-    ["history count", { bucketCount: 1 }],
-  ])("rejects unavailable matrix %s", (_name, change) => {
+    ["rejected rows", "sales", { rejectedRows: 1 }],
+    ["sales pages", "sales", { pagesFetched: 1 }],
+    ["sales returned", "sales", { returnedCount: 1 }],
+    ["sales total", "sales", { firstReportedTotal: 1 }],
+    ["listings total", "listings", { reportedTotal: 1 }],
+    ["history count", "history", { bucketCount: 1 }],
+  ] as const)("rejects unavailable matrix %s", (_name, kind, change) => {
     const products = [
-      { productId: 1, sales: endpoint("sales", change), listings: endpoint("listings"), history: endpoint("history") },
+      {
+        productId: 1,
+        sales: endpoint("sales", kind === "sales" ? change : undefined),
+        listings: endpoint("listings", kind === "listings" ? change : undefined),
+        history: endpoint("history", kind === "history" ? change : undefined),
+      },
     ];
     expect(errorCode(() => parseTcgplayerMarketObservationBatch(batch(products), request))).toBe(
       "invalid_endpoint_matrix",
@@ -232,7 +237,7 @@ describe("TCGplayer market observation batch", () => {
     const matrixMutant = sourceMutant<(text: string, req: typeof request) => unknown>(
       [
         [
-          `if (rejectedRows !== 0 || parsed.length !== 0 || (m as { coverage: string }).coverage !== "unknown")\n      bad("invalid_endpoint_matrix");`,
+          `if (sales.pagesFetched !== 0 ||\n        sales.returnedCount !== 0 ||\n        sales.firstReportedTotal !== null ||\n        sales.lastReportedTotal !== null ||\n        sales.firstResultCount !== null ||\n        sales.lastResultCount !== null ||\n        sales.lastNextPage !== null\n      )\n        bad("invalid_endpoint_matrix");`,
           'if (false) bad("invalid_endpoint_matrix");',
         ],
       ],
