@@ -89,6 +89,14 @@ function asSellerColumns(row: Record<string, unknown>): Record<string, string> {
   return columns;
 }
 
+function asMarketColumns(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const columns: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>))
+    if (typeof entry === "string") columns[key] = entry;
+  return columns;
+}
+
 function decodeRows(rows: unknown, limits: Readonly<{ maxRows: number }>): readonly TcgplayerStagedImportReadbackRow[] {
   if (!Array.isArray(rows) || rows.length > limits.maxRows)
     throw new TcgplayerStagedImportReadbackError("overflow-readback");
@@ -102,17 +110,10 @@ function decodeRows(rows: unknown, limits: Readonly<{ maxRows: number }>): reado
     );
     if (!id || ids.has(id)) throw new TcgplayerStagedImportReadbackError("invalid-record");
     ids.add(id);
-    const market = row.marketColumns;
     return {
       id,
       sellerColumns: Object.freeze(asSellerColumns(row)),
-      marketColumns: Object.freeze(
-        market && typeof market === "object" && !Array.isArray(market)
-          ? Object.fromEntries(
-              Object.entries(market as Record<string, unknown>).filter(([, value]) => typeof value === "string"),
-            )
-          : {},
-      ),
+      marketColumns: Object.freeze(asMarketColumns(row.marketColumns)),
     };
   });
 }
@@ -134,8 +135,14 @@ export function decodeTcgplayerStagedImportReadback(
   if (marker.kind === "overflow") return Object.freeze({ rows: [], completeness: { kind: "overflow" } });
   if (marker.kind === "incomplete" && (marker.reason === "partial" || marker.reason === "missing"))
     return Object.freeze({ rows, completeness: { kind: "incomplete", reason: marker.reason } });
-  if (marker.kind === "complete" && Number.isSafeInteger(marker.expectedRows) && marker.expectedRows >= 0)
-    return Object.freeze({ rows, completeness: { kind: "complete", expectedRows: marker.expectedRows } });
+  const expectedRows = marker.expectedRows;
+  if (
+    marker.kind === "complete" &&
+    typeof expectedRows === "number" &&
+    Number.isSafeInteger(expectedRows) &&
+    expectedRows >= 0
+  )
+    return Object.freeze({ rows, completeness: { kind: "complete", expectedRows } });
   throw new TcgplayerStagedImportReadbackError("invalid-record");
 }
 
@@ -173,9 +180,9 @@ function basisMatches(row: TcgplayerStagedImportReadbackRow, member: Record<stri
   if (typeof member.pendingQuantityDelta === "number" && member.pendingQuantityDelta !== 0) return false;
   const basis = member.basisSellerColumns ?? (member.basis as Record<string, unknown> | undefined)?.sellerColumns;
   if (basis && typeof basis === "object" && !Array.isArray(basis)) {
-    const expected = Object.fromEntries(
-      Object.entries(basis as Record<string, unknown>).filter(([, value]) => typeof value === "string"),
-    );
+    const expected: Record<string, string> = {};
+    for (const [key, value] of Object.entries(basis as Record<string, unknown>))
+      if (typeof value === "string") expected[key] = value;
     return sellerEqual(row.sellerColumns, expected);
   }
   const total = member.basisTotalQuantity;

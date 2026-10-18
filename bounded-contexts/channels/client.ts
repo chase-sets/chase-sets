@@ -42,44 +42,6 @@ export {
   tcgplayerLiveExportAuthority,
   type TcgplayerLiveExportAuthority,
 } from "./features/connector-client/domain/live-export-authority";
-export {
-  decodeTcgplayerStagedImportFieldClassification,
-  tcgplayerStagedImportCandidateClassification,
-  tcgplayerStagedImportFieldClassification,
-  TcgplayerStagedImportClassificationError,
-  type TcgplayerStagedImportFieldClassification,
-  type TcgplayerStagedImportField,
-  type TcgplayerStagedImportFieldClass,
-} from "./features/connector-client/domain/tcgplayer-staged-import-classification";
-export {
-  buildTcgplayerStagedImportEnvelope,
-  buildStagedImportEnvelope,
-  TcgplayerStagedImportEnvelopeError,
-  type TcgplayerStagedImportEnvelope,
-  type TcgplayerStagedImportContinuation,
-} from "./features/connector-client/domain/tcgplayer-staged-import-envelope";
-export {
-  createTcgplayerStagedImportReleaseGate,
-  createStagedImportReleaseGate,
-  TcgplayerStagedImportReleaseError,
-  type TcgplayerStagedImportPhase,
-  type TcgplayerStagedImportReleaseRequest,
-} from "./features/connector-client/domain/tcgplayer-staged-import-release-gate";
-export {
-  decodeTcgplayerStagedImportReadback,
-  parseTcgplayerStagedImportReadback,
-  preflightTcgplayerStagedImport,
-  assessTcgplayerStagedImportPreflight,
-  deriveTcgplayerStagedImportReadbackVerdict,
-  decideTcgplayerStagedImportReadbackVerdict,
-  tcgplayerStagedImportReadbackLimits,
-  TcgplayerStagedImportReadbackError,
-  type TcgplayerStagedImportReadback,
-  type TcgplayerStagedImportReadbackRow,
-  type TcgplayerStagedImportReadbackAuthority,
-  type TcgplayerStagedImportReadbackVerdict,
-  type TcgplayerStagedImportPreflight,
-} from "./features/connector-client/domain/tcgplayer-staged-import-readback-verdict";
 export { createConnectorRetentionStore } from "./features/connector-client/domain/connector-retention-store";
 export type {
   ConnectorStatus,
