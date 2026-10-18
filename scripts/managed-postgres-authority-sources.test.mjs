@@ -100,7 +100,7 @@ const reviewedPreviewWildcardDelta = [
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Converge staging preview DNS-01 token and renewal#28",
+    stepAnchor: "name:Converge staging preview DNS-01 token and renewal#29",
     secretName: "DIGITALOCEAN_ACCESS_TOKEN",
     purpose: "digitalocean-ops",
   },
@@ -317,17 +317,47 @@ const ebayAccountDeletionDelta = [
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
     purpose: "application-runtime",
   },
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
     purpose: "application-runtime",
   },
+];
+// #9912 delta: the daily credential health check's rotation App key and its step-local liveness secrets.
+const credentialHealthWorkflow = ".github/workflows/platform-credential-health.yml";
+const credentialHealthDelta = [
+  {
+    file: credentialHealthWorkflow,
+    jobId: "metadata",
+    stepAnchor: "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+    secretName: "CREDENTIAL_ROTATION_APP_PRIVATE_KEY",
+    purpose: "credential-rotation",
+  },
+  ...[
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "DIGITALOCEAN_READONLY_TOKEN",
+    "DIGITALOCEAN_REGISTRY_TOKEN",
+    "ENVIRONMENT_SECRETS_TOKEN",
+    "PROJECTS_TOKEN",
+    "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
+    "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+    "SEED_PACKS_SPACES_ACCESS_ID",
+    "SEED_PACKS_SPACES_SECRET_KEY",
+    "SPACES_ACCESS_ID",
+    "SPACES_SECRET_KEY",
+  ].map((secretName) => ({
+    file: credentialHealthWorkflow,
+    jobId: "liveness",
+    stepAnchor: "name:Check credential liveness#2",
+    secretName,
+    purpose: "credential-rotation",
+  })),
 ];
 // #9721 reviewed removal: the retired mandate verifier's URL, auth-token and timeout grants at its five forwarding
 // sinks, plus #9876's six retired TCGplayer cookie grants, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
@@ -340,6 +370,7 @@ const reviewedRetiredVerifierRemovals = new Set([
 const reviewedStepInsertions = [
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 52 },
+  { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
 ];
 
 function applyReviewedStepInsertions(record) {
@@ -546,9 +577,10 @@ describe("managed Postgres authority source generator", () => {
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
+        ...credentialHealthDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1627);
+    expect(expected.grants).toHaveLength(1639);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
