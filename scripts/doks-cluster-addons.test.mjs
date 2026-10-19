@@ -152,7 +152,26 @@ describe("doks cluster addons planner", () => {
     const format = config["log-format-upstream"];
     const tokens = [...format.matchAll(/\$[a-z_]+/g)].map(([token]) => token);
     expect(tokens).toEqual(
-      expect.arrayContaining(["$request_method", "$uri", "$status", "$request_time", "$upstream_status", "$req_id"]),
+      expect.arrayContaining([
+        "$remote_addr",
+        "$remote_user",
+        "$time_local",
+        "$request_method",
+        "$uri",
+        "$server_protocol",
+        "$status",
+        "$body_bytes_sent",
+        "$http_user_agent",
+        "$request_length",
+        "$request_time",
+        "$proxy_upstream_name",
+        "$proxy_alternative_upstream_name",
+        "$upstream_addr",
+        "$upstream_response_length",
+        "$upstream_response_time",
+        "$upstream_status",
+        "$req_id",
+      ]),
     );
     expect(tokens).not.toContain("$request");
     expect(format).not.toMatch(

@@ -54,7 +54,7 @@ function assertMaintenanceConfig(candidate) {
     "custom-http-errors": "502,503,504",
     "disable-proxy-intercept-errors": "true",
     "log-format-upstream":
-      "$request_method $uri $server_protocol $status $request_time [$proxy_upstream_name] [$upstream_addr] [$upstream_status] [$upstream_response_time] $req_id",
+      "$remote_addr - $remote_user [$time_local] \"$request_method $uri $server_protocol\" $status $body_bytes_sent \"$http_user_agent\" $request_length $request_time [$proxy_upstream_name] [$proxy_alternative_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status $req_id",
     "error-log-path": "/dev/null",
   });
   expect(candidateBackend).toMatchObject({
