@@ -60,6 +60,62 @@ const validateLostUpdateWriteGuard = process.env.LOST_UPDATE_BASE_CONTROL === "1
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("owner-local lost-update exceptions", () => {
+  it("enrols the actual credential store SQL and rejects loss of its two-counter guard", async () => {
+    const source = await readFile(credentialsPath, "utf8");
+    const root = await fixture(credentialsPath, source);
+    const result = await candidateGuard({ repoRoot: root });
+    expect(result.violations).toEqual([]);
+    expect(result.rows).toEqual([
+      expect.objectContaining({ table: "channels_connection_credentials", classification: "guarded" }),
+    ]);
+    for (const column of credentialColumns.filter((name) => name !== "row_id")) {
+      const unguarded = source.replace(new RegExp(`AND ${column} = \\$\\d+`), "");
+      expect(unguarded).not.toBe(source);
+      await put(root, credentialsPath, unguarded);
+      expect((await candidateGuard({ repoRoot: root })).violations).toHaveLength(1);
+    }
+  });
+
+  it("fails the historical market-estimates queries.ts shape (negative control)", async () => {
+    const root = await fixture(
+      estimatesPath,
+      "const sql = `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`;",
+    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toMatchObject({
+      violations: [expect.stringContaining("key-only UPDATE")],
+    });
+  });
+
+  it("fails a key-only write at a second keyword-free read-model path", async () => {
+    const root = await fixture(
+      "bounded-contexts/example/features/estimates/read-model/queries.ts",
+      "const sql = `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`;",
+    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toMatchObject({
+      violations: [expect.stringContaining("key-only UPDATE")],
+    });
+  });
+
+  it("accepts a predicate proving the read state is still current", async () => {
+    const root = await fixture(
+      "bounded-contexts/example/features/estimates/read-model/queries.ts",
+      "const sql = `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1 AND fresh_until = $3`;",
+    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(
+      expect.objectContaining({ violations: [] }),
+    );
+  });
+
+  it("accepts a monotonic global-position predicate", async () => {
+    const root = await fixture(
+      "bounded-contexts/example/features/categories/read-model/projection.ts",
+      "const sql = `UPDATE category_rows SET status = $2 WHERE category_id = $1 AND last_global_position <= $3`;",
+    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(
+      expect.objectContaining({ violations: [] }),
+    );
+  });
+
   it("exception migration preserves complete classifications", async () => {
     const root = await fixture();
     const archive = path.join(root, "base.tar");
