@@ -25,7 +25,11 @@ Include:
   references outside the clause. A percentage or an empty issue list is not
   evidence of the outcome.
 - **Order:** one valid `outcome` metadata comment with agent-selected track,
-  sparse order and committed/candidate status, per the shared policy.
+  sparse order and committed/candidate status, per the shared policy. `order`
+  is unique across every open committed outcome in every track.
+- **Steering:** record Todd's steering in a separate `steering` metadata marker
+  as well as on #4129; the marker carries its ruling comment URL and end
+  condition.
 - **Placement reason:** why this outcome is selected now, any scope tradeoff,
   and applicable steering, recorded on the program roadmap.
 
@@ -51,3 +55,7 @@ work; closing a gate never silently cancels other admitted acceptance.
 Register material changes in the roadmap. Never hand-maintain progress counts;
 `scripts/roadmap-status.mjs` owns generated status. Refresh finite commitments
 rather than repeatedly appending adjacent improvements to the earliest wave.
+
+After editing an outcome marker or steering marker, run `node
+scripts/next-work.mjs --check` and repair every defect it names before handing
+the milestone back to the planner.
