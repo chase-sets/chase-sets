@@ -15,6 +15,17 @@ This skill is tracked identically at `.agents/skills/` (read by Codex) and `.cla
 
 **Solo mode.** Todd asked you directly with no orchestrator dispatch. Deliver end-to-end — but before landing, check the orchestration lease at `../.orchestrator/lease.json` (container root, sibling of your checkout). If its `renewedAt` is within the last 60 minutes, an orchestrator is live and landing belongs to it: leave the PR ready, report it, and stop. The merge queue has exactly one writer at all times.
 
+### Premise check (before the first edit)
+
+Before implementation guidance, run the premise check before the first edit using reads and the brief's own inspection steps only. In lane mode:
+
+- The issue must be open and carry neither `status:needs-replan` nor `status:tracking-only`; no comment after the brief's last edit may supersede it; the outcome must not already be present at the baseline; and a defect must still be present at the baseline when it can be shown.
+- Product work uses fresh `origin/main`; controller work under the container `.orchestrator/` uses the installed reviewed controller head from `~/.claude/skills/native-db/identity.json`, validated as `controller-release-battery.ps1:646-648` does: the identity has exactly two properties, a lowercase 40-hex `head` and a lowercase 64-hex `digest`. A missing or invalid identity makes the baseline unavailable (handled as unavailable, never a negative premise); and a path the brief plans to create does not exist yet, so its absence is never a premise failure.
+- Any result except `CONFIRMED` ends the lane before an edit, push or PR, with the evidence in the report; the lane never closes or relabels the issue.
+- Unavailable is not negative: `NOT_REPRODUCED` requires a reproduction that actually ran and did not show the defect, `ALREADY_DELIVERED` requires a named commit or PR at an available baseline, and a local harness, environment or lock failure or unavailable baseline yields `CONFIRMED (unverified: <reason>)` and proceeds under the existing hosted-substitution rule. Inspection of code or retained hosted evidence may confirm the premise instead.
+
+In solo mode, run the same check and disposition its result: `ALREADY_DELIVERED` closes the issue citing the commit or PR; `SUPERSEDED_BY` applies the planning supersession rule including its product-question exception; and `NOT_REPRODUCED` or `PREMISE_CHANGED` comments with evidence and then amends the brief, closes it only when no accepted product scope is dropped, or asks Todd one product question.
+
 ## Change Tiers
 
 **Fast path (default).** Docs, copy, UI tweaks, config, tooling, tests, and single-context changes with no money movement, no cross-context contract/event changes, no external provider contract changes, and no schema migration:
@@ -232,6 +243,7 @@ Unverifiable assumptions: none.
 
 End your lane with a report the orchestrator can act on:
 
+0. `PREMISE:` — exactly one of `PREMISE: CONFIRMED <one line>`, `PREMISE: ALREADY_DELIVERED <commit or PR>`, `PREMISE: SUPERSEDED_BY #<n>`, `PREMISE: NOT_REPRODUCED <command and observed output>`, or `PREMISE: PREMISE_CHANGED <what changed>`.
 1. PR number and state — ready, or draft plus why.
 2. Verification run and observed results.
 3. File footprint touched (for parallel-lane collision checks).

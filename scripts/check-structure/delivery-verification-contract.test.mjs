@@ -7,6 +7,117 @@ const readProse = (relativePath) =>
 const planningSkill = readProse(".agents/skills/planning/SKILL.md");
 const backlogModel = readProse("docs/contributing/backlog-model.md");
 
+function assertPremiseContract(text) {
+  const premiseStart = text.indexOf("### Premise check (before the first edit)");
+  const implementationStart = text.indexOf("## Implementation & Verification");
+
+  expect(premiseStart).toBeGreaterThan(-1);
+  expect(implementationStart).toBeGreaterThan(premiseStart);
+
+  const premise = text.slice(premiseStart, implementationStart);
+  expect(premise).toContain(
+    "Before implementation guidance, run the premise check before the first edit using reads and the brief's own inspection steps only.",
+  );
+  expect(premise).toContain(
+    "The issue must be open and carry neither `status:needs-replan` nor `status:tracking-only`; no comment after the brief's last edit may supersede it; the outcome must not already be present at the baseline; and a defect must still be present at the baseline when it can be shown.",
+  );
+  expect(premise).toContain(
+    "Product work uses fresh `origin/main`; controller work under the container `.orchestrator/` uses the installed reviewed controller head from `~/.claude/skills/native-db/identity.json`, validated as `controller-release-battery.ps1:646-648` does: the identity has exactly two properties, a lowercase 40-hex `head` and a lowercase 64-hex `digest`. A missing or invalid identity makes the baseline unavailable (handled as unavailable, never a negative premise); and a path the brief plans to create does not exist yet, so its absence is never a premise failure.",
+  );
+  expect(premise).toContain(
+    "Any result except `CONFIRMED` ends the lane before an edit, push or PR, with the evidence in the report; the lane never closes or relabels the issue.",
+  );
+  expect(premise).toContain(
+    "Unavailable is not negative: `NOT_REPRODUCED` requires a reproduction that actually ran and did not show the defect, `ALREADY_DELIVERED` requires a named commit or PR at an available baseline, and a local harness, environment or lock failure or unavailable baseline yields `CONFIRMED (unverified: <reason>)` and proceeds under the existing hosted-substitution rule.",
+  );
+  expect(premise).toContain(
+    "In solo mode, run the same check and disposition its result: `ALREADY_DELIVERED` closes the issue citing the commit or PR; `SUPERSEDED_BY` applies the planning supersession rule including its product-question exception; and `NOT_REPRODUCED` or `PREMISE_CHANGED` comments with evidence and then amends the brief, closes it only when no accepted product scope is dropped, or asks Todd one product question.",
+  );
+
+  const laneIndex = premise.indexOf("Before implementation guidance, run the premise check");
+  const baselineIndex = premise.indexOf("Product work uses fresh `origin/main`");
+  const dispositionIndex = premise.indexOf("Any result except `CONFIRMED`");
+  const unavailableIndex = premise.indexOf("Unavailable is not negative");
+  expect(laneIndex).toBeGreaterThan(-1);
+  expect(baselineIndex).toBeGreaterThan(laneIndex);
+  expect(dispositionIndex).toBeGreaterThan(baselineIndex);
+  expect(unavailableIndex).toBeGreaterThan(dispositionIndex);
+
+  const reportStart = text.indexOf("## Completion Report (lane mode)");
+  const landingStart = text.indexOf("## Landing (solo mode only)");
+  expect(reportStart).toBeGreaterThan(-1);
+  expect(landingStart).toBeGreaterThan(reportStart);
+  const report = text.slice(reportStart, landingStart);
+  expect(report).toMatch(
+    /0\. `PREMISE:` — exactly one of `PREMISE: CONFIRMED <one line>`, `PREMISE: ALREADY_DELIVERED <commit or PR>`, `PREMISE: SUPERSEDED_BY #<n>`, `PREMISE: NOT_REPRODUCED <command and observed output>`, or `PREMISE: PREMISE_CHANGED <what changed>`\./,
+  );
+
+  const values =
+    report.match(
+      /`PREMISE: (?:CONFIRMED <one line>|ALREADY_DELIVERED <commit or PR>|SUPERSEDED_BY #<n>|NOT_REPRODUCED <command and observed output>|PREMISE_CHANGED <what changed>)`/g,
+    ) ?? [];
+  expect(values).toHaveLength(5);
+  expect(new Set(values).size).toBe(5);
+}
+
+describe("delivery premise contract", () => {
+  it("requires the pre-edit lane and solo premise checks and exact report vocabulary", () => {
+    assertPremiseContract(instruction);
+  });
+
+  it.each([
+    {
+      name: "moves the check after the first edit",
+      from: "Before implementation guidance, run the premise check before the first edit",
+      to: "After the first edit, run the premise check",
+    },
+    {
+      name: "drops the controller baseline",
+      from: "Product work uses fresh `origin/main`; controller work under the container `.orchestrator/` uses the installed reviewed controller head from `~/.claude/skills/native-db/identity.json`, validated as `controller-release-battery.ps1:646-648` does: the identity has exactly two properties, a lowercase 40-hex `head` and a lowercase 64-hex `digest`. A missing or invalid identity makes the baseline unavailable (handled as unavailable, never a negative premise); and a path the brief plans to create does not exist yet, so its absence is never a premise failure.",
+      to: "Product work uses fresh `origin/main`.",
+    },
+    {
+      name: "turns an unavailable baseline into a negative premise",
+      from: "and a local harness, environment or lock failure or unavailable baseline yields `CONFIRMED (unverified: <reason>)` and proceeds under the existing hosted-substitution rule.",
+      to: "and an unavailable baseline yields `NOT_REPRODUCED`.",
+    },
+    {
+      name: "drops the solo mapping",
+      from: "In solo mode, run the same check and disposition its result: `ALREADY_DELIVERED` closes the issue citing the commit or PR; `SUPERSEDED_BY` applies the planning supersession rule including its product-question exception; and `NOT_REPRODUCED` or `PREMISE_CHANGED` comments with evidence and then amends the brief, closes it only when no accepted product scope is dropped, or asks Todd one product question.",
+      to: "In solo mode, run the same check.",
+    },
+  ])("rejects a premise mutant that $name", ({ from, to }) => {
+    const mutant = instruction.replace(from, to);
+
+    expect(mutant).not.toBe(instruction);
+    expect(() => assertPremiseContract(mutant)).toThrow();
+  });
+
+  it.each([
+    {
+      name: "adds a report value",
+      mutate: (report) =>
+        report.replace(
+          "`PREMISE: PREMISE_CHANGED <what changed>`",
+          "`PREMISE: PREMISE_CHANGED <what changed>` or `PREMISE: UNKNOWN <reason>`,",
+        ),
+    },
+    {
+      name: "removes a report value",
+      mutate: (report) => report.replace("`PREMISE: NOT_REPRODUCED <command and observed output>`, or ", ""),
+    },
+  ])("rejects a premise vocabulary mutant that $name", ({ mutate }) => {
+    const reportStart = instruction.indexOf("## Completion Report (lane mode)");
+    const landingStart = instruction.indexOf("## Landing (solo mode only)");
+    const report = instruction.slice(reportStart, landingStart);
+    const mutatedReport = mutate(report);
+    const mutant = instruction.slice(0, reportStart) + mutatedReport + instruction.slice(landingStart);
+
+    expect(mutant).not.toBe(instruction);
+    expect(() => assertPremiseContract(mutant)).toThrow();
+  });
+});
+
 function assertVerificationContract(text) {
   expect(text).toMatch(
     /^- For every nonempty diff, the ordinary pre-PR gate is a dry-run plan: `pnpm run verify:ci-local -- --mode=pull-request --provenance=same-repository --dry-run`\.[^\r\n]* Retain the exact-head plan as PLAN_ONLY before push\.$/m,
