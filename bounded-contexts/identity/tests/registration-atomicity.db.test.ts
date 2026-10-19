@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
 import {
   closeMultiContextTestPools,
@@ -12,21 +12,19 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { buildIdentityApi } from "../api";
-import { createAccountRuntime } from "../features/accounts/api/runtime";
-import { createConsentRuntime } from "../features/consents/api/runtime";
-import { createMembershipRuntime } from "../features/memberships/api/runtime";
-import { createUserRuntime } from "../features/users/api/runtime";
 import { identityAccountSchemaSql } from "../features/accounts/read-model/schema";
 import {
   mintRegistrationConsentResolution,
   type RegistrationConsentRequirement,
 } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
-import type { IdentityServices } from "../support/runtime-support/services";
+import { createIdentityServices, type IdentityServices } from "../support/runtime-support/services";
 import { activeRegistrationConsentFixture } from "./consent-activation-authority-fixtures";
 import { identityConsentActiveVersionPolicies } from "../features/consents/domain/terms-of-service-policy";
 import { createIdentityBootstrapContext } from "../support/runtime-support/bootstrap-context";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
+import * as consentBundle from "../features/consents/domain/consent-bundle";
+import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../features/account-capabilities/api/authority";
 
 // Exercised against a real Postgres sandbox, never mocked: transaction
 // rollback, expected-version enforcement and uniqueness are exactly the
@@ -136,6 +134,7 @@ describeDb("registration atomicity and convergence", () => {
   let pool: PgTransactionalPool;
   let consentFixture: Awaited<ReturnType<typeof activeRegistrationConsentFixture>>;
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
+  let resolveBundleMock: { mockRestore(): void } | undefined;
 
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(
@@ -159,6 +158,7 @@ describeDb("registration atomicity and convergence", () => {
   });
 
   async function resetIdentitySchema() {
+    resolveBundleMock?.mockRestore();
     await resetMultiContextTestSchemas({ identity: pool });
     await pool.query(eventCorePostgresSchemaSql);
     await pool.query(identityAccountSchemaSql);
@@ -166,27 +166,20 @@ describeDb("registration atomicity and convergence", () => {
       "terms-of-service": "v1",
       "privacy-policy": "v3",
     });
+    resolveBundleMock = vi
+      .spyOn(consentBundle, "resolveConsentBundle")
+      .mockImplementation((authority, bundleKey) =>
+        consentBundle.resolveConsentBundleAgainstCorpus(authority, bundleKey, consentFixture.publications),
+      );
   }
 
   function createServices(eventStore: EventStore): IdentityServices {
-    const deps = {
+    return {
+      ...createIdentityServices(pool, {
+        capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+      }),
       eventStore,
-      checkpointStore: createPostgresProjectionStore({ db: pool }),
-      db: pool,
-    } as const;
-
-    const services = {
-      ...consentFixture,
-      eventStore,
-      db: pool,
-      accounts: createAccountRuntime(deps),
-      users: createUserRuntime(deps),
-      memberships: createMembershipRuntime(deps),
-      consents: createConsentRuntime(deps),
-      projectors: [],
-    } as unknown as IdentityServices;
-
-    return services;
+    };
   }
 
   function createHarness(): Harness {

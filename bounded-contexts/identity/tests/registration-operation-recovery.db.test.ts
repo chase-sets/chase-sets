@@ -4,7 +4,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import { assertBoundedStreamReadContract } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
 import {
   closeMultiContextTestPools,
@@ -15,10 +15,6 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildIdentityApi } from "../api";
-import { createAccountRuntime } from "../features/accounts/api/runtime";
-import { createConsentRuntime } from "../features/consents/api/runtime";
-import { createMembershipRuntime } from "../features/memberships/api/runtime";
-import { createUserRuntime } from "../features/users/api/runtime";
 import { identityAccountSchemaSql } from "../features/accounts/read-model/schema";
 import {
   mintRegistrationConsentResolution,
@@ -33,9 +29,11 @@ import {
   type RegistrationOperationClaim,
 } from "../support/runtime-support/registration-operation";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
-import type { IdentityServices } from "../support/runtime-support/services";
+import { createIdentityServices, type IdentityServices } from "../support/runtime-support/services";
 import { activeRegistrationConsentFixture } from "./consent-activation-authority-fixtures";
 import { identityConsentActiveVersionPolicies } from "../features/consents/domain/terms-of-service-policy";
+import * as consentBundle from "../features/consents/domain/consent-bundle";
+import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../features/account-capabilities/api/authority";
 
 // Exercised against a real Postgres sandbox, never mocked.
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -66,6 +64,7 @@ describeDb("registration operation recovery", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
   let eventStore: EventStore;
   let services: IdentityServices;
+  let resolveBundleMock: { mockRestore(): void } | undefined;
   const context: EventStoreContext = createBootstrapContext();
 
   beforeAll(async () => {
@@ -85,21 +84,19 @@ describeDb("registration operation recovery", () => {
     await pool.query(identityAccountSchemaSql);
 
     eventStore = createPostgresEventStore({ pool });
-    const deps = {
-      eventStore,
-      checkpointStore: createPostgresProjectionStore({ db: pool }),
-      db: pool,
-    } as const;
+    resolveBundleMock?.mockRestore();
+    const fixture = await activeRegistrationConsentFixture(eventStore, pool, { "terms-of-service": "v1" });
+    resolveBundleMock = vi
+      .spyOn(consentBundle, "resolveConsentBundle")
+      .mockImplementation((authority, bundleKey) =>
+        consentBundle.resolveConsentBundleAgainstCorpus(authority, bundleKey, fixture.publications),
+      );
     services = {
-      ...(await activeRegistrationConsentFixture(eventStore, pool, { "terms-of-service": "v1" })),
+      ...createIdentityServices(pool, {
+        capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+      }),
       eventStore,
-      db: pool,
-      accounts: createAccountRuntime(deps),
-      users: createUserRuntime(deps),
-      memberships: createMembershipRuntime(deps),
-      consents: createConsentRuntime(deps),
-      projectors: [],
-    } as unknown as IdentityServices;
+    };
   });
 
   afterAll(async () => {
