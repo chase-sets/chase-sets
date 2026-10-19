@@ -1,0 +1,39 @@
+{
+  "contextName": "synthetic-conditional-owner",
+  "runners": [
+    {
+      "checkpointBatchSize": 100,
+      "checkpointKey": "synthetic-conditional-projection:synthetic-worker-extension:v1",
+      "errorPolicy": "strict-per-stream",
+      "eventTypes": ["synthetic-worker-extension.fixture.added"],
+      "handlerKind": "projection",
+      "handlers": { "synthetic-worker-extension.fixture.added": "<function>" },
+      "inlineApply": false,
+      "order": 0,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionName": "synthetic-conditional-projection",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "sourceContextName": "synthetic-worker-extension",
+      "streamPrefixes": ["synthetic-worker-extension."],
+      "subscriptionName": "synthetic-conditional-owner.conditional",
+      "subscriptionVersion": 1,
+      "targetContextName": "synthetic-conditional-owner"
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscriptionName": "synthetic-conditional-owner.conditional",
+      "handlerKind": "projection",
+      "sourceContextName": "synthetic-worker-extension",
+      "sourceContextMount": "when-all-sources-mounted",
+      "projectionName": "synthetic-conditional-projection",
+      "subscriptionVersion": 1,
+      "handlers": { "synthetic-worker-extension.fixture.added": "<function>" },
+      "inlineApply": false,
+      "eventTypes": ["synthetic-worker-extension.fixture.added"],
+      "streamPrefixes": ["synthetic-worker-extension."],
+      "order": 0
+    }
+  ]
+}

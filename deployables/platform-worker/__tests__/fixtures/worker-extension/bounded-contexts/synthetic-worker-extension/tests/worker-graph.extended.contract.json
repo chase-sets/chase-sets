@@ -1,0 +1,28 @@
+{
+  "contextName": "synthetic-worker-extension",
+  "runners": [
+    {
+      "checkpointBatchSize": 100,
+      "checkpointKey": "synthetic-extension-projection:synthetic-worker-extension:v1",
+      "errorPolicy": "strict-per-stream",
+      "eventTypes": ["synthetic-worker-extension.fixture.added", "synthetic-worker-extension.fixture.revised"],
+      "handlerKind": "projection",
+      "handlers": {
+        "synthetic-worker-extension.fixture.added": "<function>",
+        "synthetic-worker-extension.fixture.revised": "<function>"
+      },
+      "inlineApply": false,
+      "order": 0,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionName": "synthetic-extension-projection",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "sourceContextName": "synthetic-worker-extension",
+      "streamPrefixes": ["synthetic-worker-extension."],
+      "subscriptionName": "synthetic-worker-extension.synthetic-extension-projection",
+      "subscriptionVersion": 1,
+      "targetContextName": "synthetic-worker-extension"
+    }
+  ],
+  "subscriptions": []
+}
