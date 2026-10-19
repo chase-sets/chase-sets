@@ -42,7 +42,16 @@ export function createWebApp({ build, rootDirectory, mode = process.env.NODE_ENV
   );
   app.use(build.publicPath, express.static(assetsBuildDirectory));
   app.use(express.static(path.join(rootDirectory, "public"), { maxAge: "1h" }));
-  app.use(morgan("tiny", logStream ? { stream: logStream } : {}));
+  app.use(
+    morgan(
+      (tokens, req, res) => {
+        const originalUrl = (req as typeof req & { originalUrl?: string }).originalUrl ?? req.url ?? "/";
+        const pathname = originalUrl.split("?", 1)[0] || "/";
+        return `${tokens.method(req, res)} ${pathname} ${tokens.status(req, res)} ${tokens.res(req, res, "content-length") ?? "-"} - ${tokens["response-time"](req, res)} ms`;
+      },
+      logStream ? { stream: logStream } : {},
+    ),
+  );
   app.all("*", createRequestHandler({ build, mode }));
 
   return app;

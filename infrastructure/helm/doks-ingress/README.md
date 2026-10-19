@@ -59,6 +59,16 @@ The controller Service pins the DOKS-coerced `REGIONAL_NETWORK` load-balancer ty
 The annotations live in git-managed values because the CCM reconciles the Service back to them — a hand-applied `kubectl annotate` does not survive a Helm upgrade.
 See [DigitalOcean load balancer configuration](https://docs.digitalocean.com/products/kubernetes/how-to/configure-load-balancers/).
 
+## Query-Free Serving Logs
+
+Ingress and the maintenance default backend use pathname-only access formats:
+request method, URI pathname, status, timing and bounded upstream/request IDs are
+retained, while request arguments and referrers are excluded. Ingress request-scoped
+error output and the maintenance backend error log are discarded with
+`error-log-path: /dev/null` and `error_log /dev/null`; access fields and controller
+logs continue to classify failures. Re-enabling either error stream or adding a
+query-bearing token requires a new security decision.
+
 ## Rendering
 
 ```bash

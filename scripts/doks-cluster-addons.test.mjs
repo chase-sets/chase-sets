@@ -147,6 +147,20 @@ describe("doks cluster addons planner", () => {
     );
   });
 
+  it("pins a query-free access format and discarded error log", () => {
+    const config = ingressNginxValuesDocument.controller.config;
+    const format = config["log-format-upstream"];
+    const tokens = [...format.matchAll(/\$[a-z_]+/g)].map(([token]) => token);
+    expect(tokens).toEqual(
+      expect.arrayContaining(["$request_method", "$uri", "$status", "$request_time", "$upstream_status", "$req_id"]),
+    );
+    expect(tokens).not.toContain("$request");
+    expect(format).not.toMatch(
+      /\$(?:request_uri|args|query_string|is_args|arg_[a-z_]+|http_referer|http_x_original_uri)\b/,
+    );
+    expect(config["error-log-path"]).toBe("/dev/null");
+  });
+
   it("captures ingress-nginx release drift before the staging policy upgrade", () => {
     const workflow = readFileSync(resolve(".github", "workflows", "platform-production.yml"), "utf8");
     const stepStart = workflow.indexOf("      - name: Apply staging ingress-nginx forwarded-header policy");
