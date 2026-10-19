@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { t } from "@chase-sets/localization";
-import { AccountMutationForm as Form, type MutationNotification } from "../../account-management/ui/controller";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
+import type { MutationNotification } from "../../account-management/ui/controller";
 import type { MutationFailure } from "../../account-management/ui/transport";
-import { actionFields } from "../../account-management/domain/contract";
 import {
   HiddenInput,
   Badge,
@@ -26,24 +26,40 @@ import {
 } from "@chase-sets/design-system";
 import type { ShippingAddress } from "./contracts";
 
-const FIELD_LABELS = {
-  label: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.label"),
-  name: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name"),
-  company: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.company"),
-  country: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.country"),
-  line1: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line1"),
-  line2: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line2"),
-  city: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.city"),
-  state: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.state"),
-  postalCode: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.postal.code"),
-  phone: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.phone"),
-  email: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.email"),
-  makeDefault: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.default"),
-} satisfies Partial<Record<(typeof actionFields.create)[number], () => string>>;
-type ShippingAddressField = keyof typeof FIELD_LABELS;
-const SHIPPING_ADDRESS_FIELD_SET = new Set<string>(
-  actionFields.create.filter((field) => Object.hasOwn(FIELD_LABELS, field)),
-);
+const SHIPPING_ADDRESS_FIELDS = [
+  "label",
+  "name",
+  "company",
+  "country",
+  "line1",
+  "line2",
+  "city",
+  "state",
+  "postalCode",
+  "phone",
+  "email",
+  "makeDefault",
+] as const;
+type ShippingAddressField = (typeof SHIPPING_ADDRESS_FIELDS)[number];
+const SHIPPING_ADDRESS_FIELD_SET = new Set<string>(SHIPPING_ADDRESS_FIELDS);
+
+function fieldLabel(field: ShippingAddressField) {
+  const keys = {
+    label: "identity.features.shippingAddresses.ui.shippingAddressPage.label",
+    name: "identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name",
+    company: "identity.features.shippingAddresses.ui.shippingAddressPage.company",
+    country: "identity.features.shippingAddresses.ui.shippingAddressPage.country",
+    line1: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line1",
+    line2: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line2",
+    city: "identity.features.shippingAddresses.ui.shippingAddressPage.city",
+    state: "identity.features.shippingAddresses.ui.shippingAddressPage.state",
+    postalCode: "identity.features.shippingAddresses.ui.shippingAddressPage.postal.code",
+    phone: "identity.features.shippingAddresses.ui.shippingAddressPage.phone",
+    email: "identity.features.shippingAddresses.ui.shippingAddressPage.email",
+    makeDefault: "identity.features.shippingAddresses.ui.shippingAddressPage.default",
+  } satisfies Record<ShippingAddressField, Parameters<typeof t>[0]>;
+  return t(keys[field]);
+}
 
 function addressLines(address: ShippingAddress) {
   return [
@@ -179,8 +195,8 @@ function AddressFields({
 function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAddress; intent: "create" | "update" }) {
   const instanceId = useId().replaceAll(":", "");
   const location = useLocation();
+  const previousLocation = useRef(location);
   const summaryRef = useRef<HTMLElement>(null);
-  const occurrence = useRef(0);
   const [presentation, setPresentation] = useState<Readonly<{ failure: MutationFailure; occurrence: number }> | null>(
     null,
   );
@@ -202,7 +218,7 @@ function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAd
     visibleFieldErrors.length > 0
       ? visibleFieldErrors.map(({ field, message }) => ({
           fieldId: fieldId(field),
-          fieldName: FIELD_LABELS[field](),
+          fieldName: fieldLabel(field),
           message,
         }))
       : presentation
@@ -214,17 +230,49 @@ function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAd
   }, [presentation?.occurrence]);
 
   useEffect(() => {
+    const previous = previousLocation.current;
+    previousLocation.current = location;
+    if (
+      previous.key === location.key ||
+      (previous.pathname === location.pathname &&
+        previous.search === location.search &&
+        previous.hash !== location.hash)
+    ) {
+      return;
+    }
     setPresentation(null);
-  }, [location.key]);
+  }, [location]);
 
   const onMutation = useCallback((notification: MutationNotification) => {
     if (notification.type === "accepted") {
       setPresentation(null);
       return;
     }
-    occurrence.current += 1;
-    setPresentation({ failure: notification.failure, occurrence: occurrence.current });
+    setPresentation((current) => ({ failure: notification.failure, occurrence: (current?.occurrence ?? 0) + 1 }));
   }, []);
+
+  if (intent === "create") {
+    return (
+      <Form
+        spacing="none"
+        method="post"
+        onMutation={onMutation}
+        errorAnnouncement={presentation ? "summary" : "inline"}
+        validationSummaryId={presentation ? `${instanceId}-shipping-address-errors` : undefined}
+      >
+        <Stack gap={3}>
+          {presentation ? (
+            <ValidationSummary ref={summaryRef} id={`${instanceId}-shipping-address-errors`} errors={summaryErrors} />
+          ) : null}
+          <HiddenInput type="hidden" name="intent" value="create" />
+          <AddressFields address={address} errors={errors} fieldId={fieldId} />
+          <Button type="submit" leadingIcon="plus">
+            {t("identity.features.shippingAddresses.ui.shippingAddressPage.save.address")}
+          </Button>
+        </Stack>
+      </Form>
+    );
+  }
 
   return (
     <Form
@@ -238,19 +286,11 @@ function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAd
         {presentation ? (
           <ValidationSummary ref={summaryRef} id={`${instanceId}-shipping-address-errors`} errors={summaryErrors} />
         ) : null}
-        <HiddenInput type="hidden" name="intent" value={intent} />
-        {intent === "update" ? (
-          <HiddenInput type="hidden" name="shippingAddressId" value={address?.shipping_address_id ?? ""} />
-        ) : null}
+        <HiddenInput type="hidden" name="intent" value="update" />
+        <HiddenInput type="hidden" name="shippingAddressId" value={address?.shipping_address_id ?? ""} />
         <AddressFields address={address} errors={errors} fieldId={fieldId} />
-        <Button
-          type="submit"
-          tone={intent === "update" ? "secondary" : undefined}
-          leadingIcon={intent === "create" ? "plus" : undefined}
-        >
-          {intent === "update"
-            ? t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")
-            : t("identity.features.shippingAddresses.ui.shippingAddressPage.save.address")}
+        <Button type="submit" tone="secondary">
+          {t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
         </Button>
       </Stack>
     </Form>

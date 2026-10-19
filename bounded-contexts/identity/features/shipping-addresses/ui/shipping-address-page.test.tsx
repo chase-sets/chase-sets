@@ -159,7 +159,7 @@ function createForm() {
   return document.querySelector<HTMLFormElement>('form:has(input[name="intent"][value="create"])')!;
 }
 async function openUpdate(index = 1) {
-  fireEvent.click(screen.getAllByRole("button", { name: "Update address", exact: true })[index]);
+  fireEvent.click(screen.getAllByRole("button", { name: "Update address" })[index]);
   const dialog = await screen.findByRole("dialog");
   return { dialog, form: dialog.querySelector("form")! };
 }
@@ -240,6 +240,23 @@ describe("Shipping address real data-router occurrences", () => {
         submit(createForm());
         await waitFor(() => expect(observations).toHaveLength(occurrence));
         expect(observations.every(Boolean)).toBe(true);
+        if (occurrence === 1) {
+          const city = createForm().querySelector<HTMLInputElement>('input[name="city"]')!;
+          const summary = screen.getByRole("alert");
+          await act(async () => {
+            await route.router.navigate(`#${city.id}`);
+          });
+          expect(screen.getByRole("alert")).toBe(summary);
+          expect(within(summary).getByRole("link")).toBeTruthy();
+          expect(city.getAttribute("aria-invalid")).toBe("true");
+          expect(document.getElementById(city.getAttribute("aria-describedby")!)).toBeTruthy();
+          expect(observations).toHaveLength(1);
+          await act(async () => {
+            await route.router.navigate("/account/shipping-addresses?changed=1");
+          });
+          expect(screen.queryByRole("alert")).toBeNull();
+          expect(city.getAttribute("aria-invalid")).not.toBe("true");
+        }
         await route.revalidate();
         expect(observations).toHaveLength(occurrence);
       }
@@ -252,11 +269,11 @@ describe("Shipping address real data-router occurrences", () => {
       const { form, dialog } = await openUpdate();
       submit(form);
       await waitFor(() => expect(observations).toHaveLength(4));
-      fireEvent.click(within(dialog).getByRole("button", { name: "Close", exact: true }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       const reopened = await openUpdate();
       expect(within(reopened.dialog).queryByRole("alert")).toBeNull();
-      fireEvent.click(within(reopened.dialog).getByRole("button", { name: "Close", exact: true }));
+      fireEvent.click(within(reopened.dialog).getByRole("button", { name: "Close" }));
       await act(async () => {
         await route.router.navigate("/account/shipping-addresses?changed=1");
       });
@@ -270,7 +287,7 @@ describe("Shipping address real data-router occurrences", () => {
   it.each(["default", "archive"])("mutation parity keeps %s failures controller-owned", async (intent) => {
     const route = await realShippingRoute();
     route.reject({ outcome: "not-recorded", code: "validation-failed" });
-    if (intent === "archive") fireEvent.click(screen.getAllByRole("button", { name: "Archive", exact: true })[0]);
+    if (intent === "archive") fireEvent.click(screen.getAllByRole("button", { name: "Archive" })[0]);
     const form = document.querySelector<HTMLFormElement>(`form:has(input[name="intent"][value="${intent}"])`)!;
     submit(form);
     await waitFor(() => expect(screen.getByRole("status").textContent).not.toBe(""));
@@ -292,7 +309,7 @@ describe("Shipping address real data-router occurrences", () => {
         200,
       );
       if (intent === "update") await openUpdate(0);
-      if (intent === "archive") fireEvent.click(screen.getAllByRole("button", { name: "Archive", exact: true })[0]);
+      if (intent === "archive") fireEvent.click(screen.getAllByRole("button", { name: "Archive" })[0]);
       const form = document.querySelector<HTMLFormElement>(`form:has(input[name="intent"][value="${intent}"])`)!;
       submit(form);
       await screen.findByText("Your change was saved");

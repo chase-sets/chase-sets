@@ -5863,7 +5863,7 @@
       "target": {
         "identity": "submitted-create-validation-summary",
         "selector": "section[role='alert']",
-        "populatedSelector": ":scope > a"
+        "populatedSelector": ":scope a"
       },
       "measurements": [
         {
@@ -5906,7 +5906,7 @@
       "target": {
         "identity": "submitted-update-validation-summary",
         "selector": "section[role='alert']",
-        "populatedSelector": ":scope > a"
+        "populatedSelector": ":scope a"
       },
       "measurements": [
         {
