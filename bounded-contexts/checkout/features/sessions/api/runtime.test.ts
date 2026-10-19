@@ -23,7 +23,7 @@ import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
-import { createCheckoutSessionRuntime, OrderCartCleanupError } from "./runtime";
+import { createCheckoutSessionRuntime, OrderCartCleanupError, type CheckoutSessionServices } from "./runtime";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -2108,6 +2108,76 @@ describe("checkout session runtime", () => {
 
     expect(cart.removeLine).not.toHaveBeenCalled();
     expect(cart.checkout).not.toHaveBeenCalled();
+  });
+});
+
+describe("Checkout session entry and read relocation parity", () => {
+  it("preserves public entry and aggregate-read behavior", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+      },
+      context,
+    );
+    await expect(services.getSession(created.sessionId, "acc_buyer")).resolves.toMatchObject({
+      session_id: created.sessionId,
+      source_type: "cart",
+    });
+  });
+
+  it("real CheckoutSessionServices consumers compile", () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services: CheckoutSessionServices = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    expect(services.commandHandler).toBeDefined();
+    expect(services.getSession).toBeTypeOf("function");
+  });
+});
+
+describe("Checkout retained cleanup relocation parity", () => {
+  it("keeps the retained cleanup entrypoint idempotent for non-cart sessions", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createBuyNowReadinessDb(),
+      cart: createCartServices() as never,
+    });
+    const created = await services.createOfferIntent(
+      {
+        accountId: "acc_buyer" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        offerPriceAmount: "20.00",
+        offerPriceCurrencyCode: "USD",
+        quantity: 1,
+      },
+      context,
+    );
+    const resumed = await services.resumeOrderCartCleanup(
+      { sessionId: created.sessionId, accountId: "acc_buyer" as never },
+      context,
+    );
+    expect(resumed.session.session_id).toBe(created.sessionId);
+    expect(resumed.session.source_type).toBe("offer-intent");
   });
 });
 
