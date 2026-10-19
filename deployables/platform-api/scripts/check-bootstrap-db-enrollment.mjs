@@ -292,7 +292,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
         referenceDurationMs: 13230,
-        identity: "f78d626bdd98a1c4",
+        identity: "c749fe673131aada",
       }),
       Object.freeze({
         name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
@@ -384,7 +384,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
         referenceDurationMs: 110819,
-        identity: "309fc59ff41d9ee4",
+        identity: "1b443164687508bd",
       }),
       Object.freeze({
         name: "enumerates stream-sourced seed-state coverage from the runtime mount list",
