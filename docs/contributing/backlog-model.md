@@ -352,6 +352,27 @@ controller-alignment work.
 Refinement is pulled forward wave by wave, not applied to the whole corpus
 (anti-ratchet). Do not mass-refine; refine the next wave's worth.
 
+### Closure and supersession
+
+Judge a replacement over the whole successor set. When it is `full`, the
+planner closes the predecessor in the same registration pass as `duplicate`
+when scope is identical or `not planned` otherwise, with one comment naming the
+successor set; each successor names the predecessor in its `### Supersedes`
+section, and the planner never waits for a successor to land. When it is
+`partial`, the planner removes only the dropped criteria in place and records
+the successor set; partial supersession never adds `status:needs-replan`. A
+closed `not planned` or `duplicate` predecessor is orphaned when at least one
+issue names it `full` and every such issue is itself closed `not planned`; the
+planner who closes the last such successor reopens the predecessor or files a
+new issue naming it `full`.
+
+Every new non-Epic, including host and review follow-ups, gets a home after a
+duplicate search: a committed milestone, Candidate capabilities, or Operations
+for machine-generated incidents. `Deferred / Incubation` is used only on
+Todd's explicit deferral; Epics stay unmilestoned and write-once, and
+superseding an Epic takes a superseding comment, plus closure when it is
+`full`.
+
 ### Controller consumer
 
 The reviewed installed milestone-orchestrator is an out-of-band consumer of the
@@ -396,8 +417,10 @@ Completion forecasting is owned by #7465.
   is independent of title, creation order and dates. The board's `Outcome order`
   Number field is a sync-owned display projection of the same comparison
   (`compareOutcomeOrder`); configure its field ID in
-  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. Agents edit the milestone authority, never
-  this projection. Sort the execution view by Outcome order, then Dispatch rank.
+  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. The projection ranks committed outcomes in
+  `chase-sets/chase-sets` only and clears Outcome order on other-repository rows.
+  Agents edit the milestone authority, never this projection. Sort the execution
+  view by Outcome order, then Dispatch rank.
 - **Blocker** is a native correctness edge, never a scheduling opinion.
 - **Dispatch rank** is agent-maintained issue order inside the selected outcome.
   Agents refresh it when steering, blockers, or gate progress materially changes.
