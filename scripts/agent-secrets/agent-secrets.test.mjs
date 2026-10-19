@@ -83,7 +83,7 @@ function createSeat({
     mkdirSync(path.join(repo, ".github"));
     writeFileSync(path.join(repo, ".github", "credential-inventory.json"), inventory);
   }
-  for (const name of ["with-secrets.ps1", "set-bitwarden-agent-token.ps1"]) {
+  for (const name of ["with-secrets.ps1", "set-bitwarden-agent-token.ps1", "profile-free-shell.cmd", "profile-free-shell.sh"]) {
     copyFileSync(path.join(here, name), path.join(root, name));
   }
   copyFileSync(
@@ -124,6 +124,32 @@ function runSeat(seat, script, args, env = {}, { encoding } = {}) {
     env: helperEnvironment({ CHASE_SETS_BWS_EXE: seat.shim, ...env }),
     encoding,
   });
+}
+
+function powershellHome() {
+  const result = runPwsh(["-NoProfile", "-NonInteractive", "-Command", "$PSHOME"], {
+    cwd: os.tmpdir(),
+    env: helperEnvironment(),
+  });
+  expect(result.status).toBe(0);
+  return result.stdout.trim();
+}
+
+function writeRuntimeProfile(profile, content) {
+  const encoded = Buffer.from(content, "utf8").toString("base64");
+  const result = runPwsh(
+    ["-Command", `$bytes = [Convert]::FromBase64String('${encoded}'); [IO.File]::WriteAllBytes('${profile.replaceAll("'", "''")}', $bytes)`],
+    { cwd: os.tmpdir(), env: helperEnvironment() },
+  );
+  expect(result.status).toBe(0);
+}
+
+function removeRuntimeProfile(profile) {
+  const result = runPwsh(["-Command", `if (Test-Path -LiteralPath '${profile.replaceAll("'", "''")}') { Remove-Item -LiteralPath '${profile.replaceAll("'", "''")}' -Force }`], {
+    cwd: os.tmpdir(),
+    env: helperEnvironment(),
+  });
+  expect(result.status).toBe(0);
 }
 
 // A `bws secret list` document whose values are the given strings.
@@ -238,7 +264,7 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
       expect(list.argv).toEqual(["secret", "list", projectId, "--output", "json", "--color", "no"]);
       const shell = run.argv[4];
       expect(path.isAbsolute(shell)).toBe(true);
-      expect(path.basename(shell)).toMatch(/^pwsh(\.exe)?$/i);
+      expect(path.basename(shell)).toMatch(/^profile-free-shell\.(?:cmd|sh)$/i);
       expect(run.argv).toEqual([
         "run",
         "--project-id",
@@ -253,6 +279,40 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
     },
   );
 
+  it.each([
+    ["inherited", []],
+    ["-NoInheritEnv", ["-NoInheritEnv"]],
+  ])("suppresses the nested PowerShell profile at the bws shell boundary (%s)", (_name, flags) => {
+    const seat = createSeat({ bws: { executeShell: true } });
+    const marker = path.join(seat.root, `profile-marker-${randomUUID()}`);
+    const profile = path.join(powershellHome(), "profile.ps1");
+    expect(existsSync(profile)).toBe(false);
+    writeRuntimeProfile(profile, `Set-Content -LiteralPath '${marker}' profile\n`);
+    try {
+      const positive = spawnSync(pwsh, ["-NonInteractive", "-Command", "Write-Output positive"], {
+        cwd: seat.root,
+        env: helperEnvironment(),
+        encoding: "utf8",
+        timeout: 120_000,
+        windowsHide: true,
+      });
+      expect(positive.status).toBe(0);
+      expect(existsSync(marker)).toBe(true);
+      rmSync(marker, { force: true });
+      if (!isWindows) expect(existsSync(marker)).toBe(false);
+
+      const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output boundary", ...flags]);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("boundary\r\n");
+      if (!isWindows) expect(existsSync(marker)).toBe(false);
+      expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
+      expect(bwsCalls(seat)[1].shellContent).toContain("-NoProfile");
+    } finally {
+      removeRuntimeProfile(profile);
+      rmSync(marker, { force: true });
+    }
+  });
+
   it("passes through the child's stdout, stderr and exit code", () => {
     const seat = createSeat({ bws: { stdout: "child-out\n", stderr: "child-err\n", exitCode: 7 } });
     const result = runSeat(seat, "with-secrets.ps1", ["-Command", "exit 7"]);
@@ -260,6 +320,16 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
     expect(result.status).toBe(7);
     expect(result.stdout).toBe("child-out\n");
     expect(result.stderr).toBe("child-err\n");
+  });
+
+  it("executes the bws shell boundary with unchanged output and exit status", () => {
+    const seat = createSeat({ bws: { executeShell: true } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output 'boundary'; [Console]::Error.Write('err'); exit 7"]);
+
+    expect(result.status).toBe(7);
+    expect(result.stdout).toBe("boundary\r\n");
+    expect(result.stderr).toBe("err");
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
   });
 
   it("forwards bytes that only begin a pattern, including a held tail flushed at end of stream", () => {

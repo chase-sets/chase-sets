@@ -3,6 +3,7 @@
 // call to fake-bws.log beside it. Records carry argv, names and a token digest,
 // never an environment value.
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -13,6 +14,7 @@ const config = JSON.parse(readFileSync(path.join(directory, "fake-bws.json"), "u
 const argv = process.argv.slice(2);
 const token = process.env.BWS_ACCESS_TOKEN;
 const environmentNames = Object.keys(process.env);
+const shellPath = argv[0] === "run" ? argv[4] : null;
 
 let stdin = "";
 try {
@@ -33,6 +35,7 @@ appendFileSync(
     bwEnvNames: environmentNames.filter((name) => /^BW_/i.test(name)),
     stdinBytes: Buffer.byteLength(stdin),
     stdinHasToken: Boolean(token) && stdin.includes(token),
+    shellContent: config.executeShell && shellPath ? readFileSync(shellPath, "utf8") : null,
   })}\n`,
 );
 
@@ -78,6 +81,32 @@ if (verb === "secret" && noun === "list") {
   );
   process.exitCode = 1;
 } else if (verb === "run") {
+  if (config.executeShell) {
+    const shell = argv[4];
+    const command = argv[argv.length - 1];
+    const shellArgs = ["-c", command];
+    const result = process.platform === "win32"
+      ? spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", shell, "-c", command], {
+          env: process.env,
+          encoding: "buffer",
+          windowsHide: true,
+        })
+      : spawnSync(shell, shellArgs, {
+          env: process.env,
+          encoding: "buffer",
+          shell: false,
+          windowsHide: true,
+        });
+    if (result.error) {
+      process.stderr.write(String(result.error.message));
+      process.exitCode = 1;
+    } else {
+      process.stdout.write(result.stdout ?? Buffer.alloc(0));
+      process.stderr.write(result.stderr ?? Buffer.alloc(0));
+      process.exitCode = result.status ?? 1;
+    }
+    process.exit();
+  }
   writeBulk(config.bulkBytes ?? 0);
   process.stdout.write(config.stdout ?? "");
   process.stderr.write(config.stderr ?? "");
