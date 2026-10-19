@@ -1019,6 +1019,16 @@ export const dataResetOptOuts: readonly Readonly<{ file: string; test: string; r
   },
 ];
 
+export function isDataResetOptOut(
+  testPath: string | undefined,
+  currentTestName: string | undefined,
+  entries: readonly Readonly<{ file: string; test: string }>[] = dataResetOptOuts,
+): boolean {
+  const file = testPath?.replaceAll("\\", "/");
+  const name = currentTestName?.split(" > ").join(" ");
+  return entries.some((entry) => file?.endsWith(entry.file) === true && name === entry.test);
+}
+
 function quoteDataResetIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
@@ -1195,9 +1205,7 @@ export async function resetMultiContextTestData(
     throw new Error("target without a captured snapshot");
   }
   const state = expect.getState();
-  const optedOut = dataResetOptOuts.some(
-    (entry) => state.testPath?.replaceAll("\\", "/").endsWith(entry.file) && state.currentTestName === entry.test,
-  );
+  const optedOut = isDataResetOptOut(state.testPath, state.currentTestName);
   if (!group) {
     await resetMultiContextTestSchemas(pools);
     await bootstrap();

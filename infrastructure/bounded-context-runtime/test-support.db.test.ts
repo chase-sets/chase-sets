@@ -9,6 +9,7 @@ import {
   orderDataResetTables,
   resetMultiContextTestData,
   assertMultiContextTestDataCatalog,
+  isDataResetOptOut,
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
 } from "./test-support";
@@ -19,6 +20,22 @@ if (!adminDatabaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
+
+describe("data reset opt-out identity", () => {
+  it("matches the live Vitest name of a listed nested test", () => {
+    const { testPath, currentTestName } = expect.getState();
+    const file = "infrastructure/bounded-context-runtime/test-support.db.test.ts";
+    expect(currentTestName).toBe("data reset opt-out identity > matches the live Vitest name of a listed nested test");
+    expect(
+      isDataResetOptOut(testPath, currentTestName, [
+        { file, test: "data reset opt-out identity matches the live Vitest name of a listed nested test" },
+      ]),
+    ).toBe(true);
+    expect(
+      isDataResetOptOut(testPath, currentTestName, [{ file, test: "data reset opt-out identity another test" }]),
+    ).toBe(false);
+  });
+});
 
 describe("data reset dependency ordering", () => {
   it("deletes children before parents and leaves self references to row ordering", () => {
