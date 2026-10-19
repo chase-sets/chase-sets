@@ -481,19 +481,19 @@ export type BcEventSubscription = Readonly<{
   readonly handlers: ProjectorHandlerMap;
   /** Runtime-derived from the matching local projection handler set. */
   readonly inlineApply?: boolean;
-  readonly idempotencyPolicy?: BcReactionIdempotencyPolicy;
-  readonly retryPolicy?: BcReactionRetryPolicy;
-  readonly failurePolicy?: BcReactionFailurePolicy;
-  readonly eventTypes?: readonly string[];
-  readonly streamPrefixes?: readonly string[];
-  readonly errorPolicy?: ProjectionErrorPolicy;
-  readonly batchSize?: number;
-  readonly checkpointBatchSize?: number;
-  readonly projectionTransactionTimeoutMs?: number;
-  readonly projectionStatementTimeoutMs?: number;
-  readonly projectionTransactionBudgetEscalationMs?: number;
-  readonly projectionCascadeChunkSize?: number;
-  readonly order?: number;
+  readonly idempotencyPolicy?: BcReactionIdempotencyPolicy | undefined;
+  readonly retryPolicy?: BcReactionRetryPolicy | undefined;
+  readonly failurePolicy?: BcReactionFailurePolicy | undefined;
+  readonly eventTypes?: readonly string[] | undefined;
+  readonly streamPrefixes?: readonly string[] | undefined;
+  readonly errorPolicy?: ProjectionErrorPolicy | undefined;
+  readonly batchSize?: number | undefined;
+  readonly checkpointBatchSize?: number | undefined;
+  readonly projectionTransactionTimeoutMs?: number | undefined;
+  readonly projectionStatementTimeoutMs?: number | undefined;
+  readonly projectionTransactionBudgetEscalationMs?: number | undefined;
+  readonly projectionCascadeChunkSize?: number | undefined;
+  readonly order?: number | undefined;
 }>;
 
 export type BcContextManifest = Readonly<{

@@ -1,0 +1,13 @@
+// Strict program for shared contracts and the Stripe adapters. Compiler options
+// apply per program, so this separate program checks these roots and every file
+// they import under both flags. A strict-set file that imports non-strict code
+// surfaces that code's errors: fix or avoid the import. Adding another root, or
+// editing an imported file outside these roots, needs its own issue.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true
+  },
+  "include": ["contracts/**/*.ts", "infrastructure/stripe-payments/**/*.ts", "infrastructure/stripe-connect/**/*.ts"]
+}

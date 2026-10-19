@@ -88,7 +88,7 @@ export function formatMoney(amount: string, currencyCode: string, options: Forma
   const canonical = centsToSignedMoneyAmount(cents);
   const negative = canonical.startsWith("-");
   const unsigned = negative ? canonical.slice(1) : canonical;
-  const [wholeDigits, fractionDigits] = unsigned.split(".");
+  const [wholeDigits = "", fractionDigits] = unsigned.split(".");
   const { prefix, suffix, decimalSeparator, groupSeparator } = currencyDisplayChrome(code, options.locale);
   const groupedWhole = groupWholeDigits(wholeDigits, groupSeparator);
 
