@@ -2,6 +2,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
 import { CHECKOUT_ANONYMOUS_CART_COOKIE_NAME } from "../../../support/request-support/guest-checkout";
@@ -3509,7 +3510,7 @@ async function unionCleanupHarness() {
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
   let listingSequence = 0;
   const add = async (owner: string) =>
-    cart.addLine(
+    cartAttemptDriver(cart).addLine(
       {
         accountId: owner as never,
         catalogItemId: "cat_1",
@@ -3745,7 +3746,7 @@ describe("HTTP union cleanup caller closure", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const fault = vi.spyOn(h.realCart, "removeLine").mockRejectedValue(new Error(`store ${h.anonymous}`));
+      const fault = vi.spyOn(h.realCart, "executeCartAttempt").mockRejectedValue(new Error(`store ${h.anonymous}`));
       const denied = await buildApp(h.runtime(), createBuyerActor({ accountId: "acc_foreign" as never })).fetch(
         requestFor(h.params.sessionId),
       );

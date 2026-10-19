@@ -5,6 +5,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS, createCheckoutCartRuntime } from "./runtime";
 import { evolveCheckoutCart, initialCheckoutCartState } from "../domain/domain";
 import { CART_SELLER_OPTIONS_PER_LINE_LIMIT, type CheckoutCartLineRow } from "../read-model/queries";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -443,7 +444,7 @@ describe("checkout cart addLine own-key probe", () => {
     );
     const { runtime, store, eventsOn } = createClaimRuntime(db);
 
-    const result = await runtime.addLine(addLineParams(), context);
+    const result = await cartAttemptDriver(runtime).addLine(addLineParams(), context);
 
     // The probe asked for the Account key only, with claim expansion off.
     expect(db.cartLineQueries.map((call) => call.values)).toEqual([
@@ -490,7 +491,7 @@ describe("checkout cart addLine own-key probe", () => {
       context,
     });
 
-    const result = await runtime.addLine(addLineParams(), context);
+    const result = await cartAttemptDriver(runtime).addLine(addLineParams(), context);
 
     expect(result).toMatchObject({ lineId: "cli_own", status: "merged" });
     expect(eventsOn(`checkout.cart-${account}`)).toEqual([
@@ -532,7 +533,10 @@ describe("checkout cart addLine own-key probe", () => {
       context,
     });
 
-    const result = await runtime.addLine({ ...addLineParams(), accountId: claimedSource as never }, context);
+    const result = await cartAttemptDriver(runtime).addLine(
+      { ...addLineParams(), accountId: claimedSource as never },
+      context,
+    );
 
     expect(result).toMatchObject({ lineId: "cli_anon", status: "merged" });
     expect(db.cartLineQueries.map((call) => call.values)).toEqual([
@@ -618,7 +622,7 @@ describe("claimed cart mutation routing", () => {
     );
     const before = { claimed: await h.versionOf(CLAIMED_SOURCE), account: await h.versionOf(CLAIMANT) };
 
-    const result = await h.runtime.setLineQuantity(
+    const result = await cartAttemptDriver(h.runtime).setLineQuantity(
       { accountId: CLAIMANT, lineId: "cli_claimed" as never, quantity: 4 },
       context,
     );
@@ -657,12 +661,12 @@ describe("claimed cart mutation routing", () => {
     const before = await h.versionOf(CLAIMED_SOURCE);
 
     // The retained anonymous key is not the buyer here; the claimant is.
-    await expect(h.runtime.setLineFulfillment(lock(String(CLAIMANT)), context)).rejects.toThrow(
+    await expect(cartAttemptDriver(h.runtime).setLineFulfillment(lock(String(CLAIMANT)), context)).rejects.toThrow(
       "Accounts cannot add their own listings to cart.",
     );
     expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before);
 
-    await h.runtime.setLineFulfillment(lock(OTHER_SELLER), context);
+    await cartAttemptDriver(h.runtime).setLineFulfillment(lock(OTHER_SELLER), context);
 
     expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before + 1);
     expect(await h.versionOf(CLAIMANT)).toBe(0);
@@ -686,7 +690,10 @@ describe("claimed cart mutation routing", () => {
     );
     const before = { claimed: await h.versionOf(CLAIMED_SOURCE), account: await h.versionOf(String(CLAIMANT)) };
 
-    await h.runtime.setLineQuantity({ accountId: CLAIMANT, lineId: "cli_shared" as never, quantity: 9 }, context);
+    await cartAttemptDriver(h.runtime).setLineQuantity(
+      { accountId: CLAIMANT, lineId: "cli_shared" as never, quantity: 9 },
+      context,
+    );
 
     expect(await h.versionOf(String(CLAIMANT))).toBe(before.account + 1);
     expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before.claimed);
@@ -703,11 +710,11 @@ describe("claimed cart mutation routing", () => {
       ],
     );
 
-    await h.runtime.setLineQuantity(
+    await cartAttemptDriver(h.runtime).setLineQuantity(
       { accountId: BYSTANDER, lineId: "cli_account_only" as never, quantity: 3 },
       context,
     );
-    await h.runtime.setLineQuantity(
+    await cartAttemptDriver(h.runtime).setLineQuantity(
       { accountId: SECOND_SOURCE as never, lineId: "cli_anonymous_only" as never, quantity: 6 },
       context,
     );
@@ -738,7 +745,10 @@ describe("claimed cart line-id-total removal", () => {
       ],
     );
 
-    const first = await h.runtime.removeLine({ accountId: CLAIMANT, lineId: "cli_everywhere" as never }, context);
+    const first = await cartAttemptDriver(h.runtime).removeLine(
+      { accountId: CLAIMANT, lineId: "cli_everywhere" as never },
+      context,
+    );
 
     for (const owner of [String(CLAIMANT), CLAIMED_SOURCE, SECOND_SOURCE]) {
       expect((await h.cartState(owner)).lines).toEqual([]);
@@ -750,7 +760,10 @@ describe("claimed cart line-id-total removal", () => {
       [String(CLAIMANT), CLAIMED_SOURCE, SECOND_SOURCE].map((owner) => h.versionOf(owner)),
     );
 
-    const second = await h.runtime.removeLine({ accountId: CLAIMANT, lineId: "cli_everywhere" as never }, context);
+    const second = await cartAttemptDriver(h.runtime).removeLine(
+      { accountId: CLAIMANT, lineId: "cli_everywhere" as never },
+      context,
+    );
 
     expect(
       await Promise.all([String(CLAIMANT), CLAIMED_SOURCE, SECOND_SOURCE].map((owner) => h.versionOf(owner))),
@@ -771,7 +784,7 @@ describe("claimed cart line-id-total removal", () => {
       ],
     );
 
-    await h.runtime.removeLine({ accountId: CLAIMANT, lineId: "cli_target" as never }, context);
+    await cartAttemptDriver(h.runtime).removeLine({ accountId: CLAIMANT, lineId: "cli_target" as never }, context);
 
     expect((await h.cartState(CLAIMED_SOURCE)).lines).toEqual([]);
     expect((await h.cartState(SECOND_SOURCE)).lines.map((line) => line.lineId)).toEqual(["cli_survivor"]);
@@ -786,9 +799,9 @@ describe("claimed cart line-id-total removal", () => {
     // silent success by the missing-line absorption.
     h.db.claims.set(CLAIMED_SOURCE, { source_owner_key: CLAIMED_SOURCE, account_id: String(CLAIMANT) });
 
-    await expect(h.runtime.removeLine({ accountId: CLAIMANT, lineId: "cli_target" as never }, context)).rejects.toThrow(
-      "Cart is owned by a different account.",
-    );
+    await expect(
+      cartAttemptDriver(h.runtime).removeLine({ accountId: CLAIMANT, lineId: "cli_target" as never }, context),
+    ).rejects.toThrow("Cart is owned by a different account.");
     expect((await h.cartState(CLAIMED_SOURCE)).lines.map((line) => line.lineId)).toEqual(["cli_target"]);
   });
 
@@ -798,7 +811,7 @@ describe("claimed cart line-id-total removal", () => {
       [{ ownerKey: SECOND_SOURCE, lineIds: ["cli_anonymous_only"] }],
     );
 
-    const result = await h.runtime.removeLine(
+    const result = await cartAttemptDriver(h.runtime).removeLine(
       { accountId: SECOND_SOURCE as never, lineId: "cli_anonymous_only" as never },
       context,
     );
@@ -837,27 +850,30 @@ describe("claimed cart write refusal surfaces", () => {
     const before = await h.versionOf(CLAIMED_SOURCE);
     const refusal = "Cart is owned by a different account.";
 
-    await expect(h.runtime.addLine(addParams(CLAIMED_SOURCE), context)).rejects.toThrow(refusal);
+    await expect(cartAttemptDriver(h.runtime).addLine(addParams(CLAIMED_SOURCE), context)).rejects.toThrow(refusal);
     await expect(
-      h.runtime.addLines(
+      cartAttemptDriver(h.runtime).addLines(
         { accountId: CLAIMED_SOURCE as never, lines: [{ ...addParams(CLAIMED_SOURCE) }] as never },
         context,
       ),
     ).rejects.toThrow(refusal);
     await expect(
-      h.runtime.setLineQuantity(
+      cartAttemptDriver(h.runtime).setLineQuantity(
         { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, quantity: 2 },
         context,
       ),
     ).rejects.toThrow(refusal);
     await expect(
-      h.runtime.setLineFulfillment(
+      cartAttemptDriver(h.runtime).setLineFulfillment(
         { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, fulfillmentMode: "optimize" },
         context,
       ),
     ).rejects.toThrow(refusal);
     await expect(
-      h.runtime.removeLine({ accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never }, context),
+      cartAttemptDriver(h.runtime).removeLine(
+        { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never },
+        context,
+      ),
     ).rejects.toThrow(refusal);
 
     expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before);
@@ -875,13 +891,16 @@ describe("claimed cart write refusal surfaces", () => {
     h.db.claims.delete(CLAIMED_SOURCE);
 
     await expect(
-      h.runtime.setLineQuantity(
+      cartAttemptDriver(h.runtime).setLineQuantity(
         { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, quantity: 2 },
         context,
       ),
     ).rejects.toThrow("Cart is owned by a different account.");
     await expect(
-      h.runtime.removeLine({ accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never }, context),
+      cartAttemptDriver(h.runtime).removeLine(
+        { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never },
+        context,
+      ),
     ).rejects.toThrow("Cart is owned by a different account.");
     expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before);
     expect(h.db.claims.size).toBe(0);
@@ -894,15 +913,20 @@ describe("claimed cart write refusal surfaces", () => {
     // The bystander sees no claimed row, so routing falls back to its own
     // stream and the aggregate refuses there.
     await expect(
-      h.runtime.setLineQuantity({ accountId: BYSTANDER, lineId: "cli_claimed" as never, quantity: 2 }, context),
+      cartAttemptDriver(h.runtime).setLineQuantity(
+        { accountId: BYSTANDER, lineId: "cli_claimed" as never, quantity: 2 },
+        context,
+      ),
     ).rejects.toThrow("Cart line not found.");
     await expect(
-      h.runtime.setLineFulfillment(
+      cartAttemptDriver(h.runtime).setLineFulfillment(
         { accountId: BYSTANDER, lineId: "cli_claimed" as never, fulfillmentMode: "optimize" },
         context,
       ),
     ).rejects.toThrow("Cart line not found.");
-    expect(await h.runtime.removeLine({ accountId: BYSTANDER, lineId: "cli_claimed" as never }, context)).toEqual({
+    expect(
+      await cartAttemptDriver(h.runtime).removeLine({ accountId: BYSTANDER, lineId: "cli_claimed" as never }, context),
+    ).toEqual({
       lineId: "cli_claimed",
       version: 0,
     });
@@ -926,8 +950,11 @@ describe("claimed cart per-stream concurrency", () => {
     const before = await h.versionOf(CLAIMED_SOURCE);
 
     const [claimant, anonymous] = await Promise.allSettled([
-      h.runtime.setLineQuantity({ accountId: CLAIMANT, lineId: "cli_claimed" as never, quantity: 7 }, context),
-      h.runtime.setLineQuantity(
+      cartAttemptDriver(h.runtime).setLineQuantity(
+        { accountId: CLAIMANT, lineId: "cli_claimed" as never, quantity: 7 },
+        context,
+      ),
+      cartAttemptDriver(h.runtime).setLineQuantity(
         { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, quantity: 8 },
         context,
       ),
@@ -949,7 +976,7 @@ describe("claimed cart per-stream concurrency", () => {
     // different lines of it.
     const loadedVersion = await h.versionOf(CLAIMED_SOURCE);
 
-    const winner = await h.runtime.setLineQuantity(
+    const winner = await cartAttemptDriver(h.runtime).setLineQuantity(
       { accountId: CLAIMANT, lineId: "cli_b" as never, quantity: 3 },
       context,
     );
@@ -971,7 +998,7 @@ describe("claimed cart per-stream concurrency", () => {
     expect(conflict).toMatchObject({ code: "concurrency_conflict" });
     expect(await h.versionOf(CLAIMED_SOURCE)).toBe(loadedVersion + 1);
 
-    const retried = await h.runtime.setLineQuantity(
+    const retried = await cartAttemptDriver(h.runtime).setLineQuantity(
       { accountId: CLAIMANT, lineId: "cli_a" as never, quantity: 2 },
       context,
     );

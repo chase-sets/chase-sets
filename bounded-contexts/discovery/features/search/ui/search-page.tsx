@@ -22,6 +22,7 @@ import {
   Grid,
   LinkButton,
   ListingCard,
+  LiveRegion,
   Slot,
   NoResultsRecovery,
   PlatformCredibilityCue,
@@ -373,7 +374,10 @@ export type BulkAddSearchActionData =
       mergedLineCount: number;
       failedLineCount: number;
       requestedLineCount: number;
-    }>;
+      failedLines?: readonly Readonly<{ title: string; message: string | null }>[];
+    }>
+  | Readonly<{ status: "bulk-ambiguous"; preview: DiscoveryBulkCartPreview; attemptId: string }>
+  | Readonly<{ status: "bulk-not-applied"; preview: DiscoveryBulkCartPreview; message: string | null }>;
 
 export type BulkAddSearchState = Readonly<{
   status: "idle" | "submitting";
@@ -381,7 +385,11 @@ export type BulkAddSearchState = Readonly<{
   error?: string | null;
   onPreview: () => void;
   onCommit: () => void;
+  /** Explicitly resends an ambiguous commit under the same attempt id; never automatic. */
+  onResend?: () => void;
 }>;
+
+const BULK_ADD_RESULT_HEADING_ID = "search-bulk-add-result";
 
 function selectedFacetValues(facet: DiscoveryFacetGroup) {
   return facet.values.filter((value) => value.selected);
@@ -825,7 +833,8 @@ export function SearchPage({
     bulkPreview &&
     !bulkPreview.overLimit &&
     bulkPreview.eligibleCount > 0 &&
-    bulkActionData?.status !== "bulk-added",
+    bulkActionData?.status !== "bulk-added" &&
+    bulkActionData?.status !== "bulk-ambiguous",
   );
 
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
@@ -839,6 +848,9 @@ export function SearchPage({
     }
     if (bulkActionData?.status === "bulk-added") {
       notifyCartCountChanged(bulkActionData.addedLineCount + bulkActionData.mergedLineCount);
+    }
+    if (bulkActionData?.status === "bulk-ambiguous" || bulkActionData?.status === "bulk-not-applied") {
+      globalThis.document?.getElementById(BULK_ADD_RESULT_HEADING_ID)?.focus();
     }
   }, [bulkActionData]);
 
@@ -1410,6 +1422,42 @@ export function SearchPage({
                   limit: bulkPreview.limit,
                 })}
               />
+            ) : null}
+            {bulkActionData?.status === "bulk-ambiguous" || bulkActionData?.status === "bulk-not-applied" ? (
+              <Stack gap={2}>
+                <Heading level={3} visualSize={5} id={BULK_ADD_RESULT_HEADING_ID} tabIndex={-1}>
+                  {bulkActionData.status === "bulk-ambiguous"
+                    ? t("discovery.features.search.ui.searchPage.bulk.ambiguous.title")
+                    : t("discovery.features.search.ui.searchPage.bulk.not.applied.title")}
+                </Heading>
+                <LiveRegion politeness="polite">
+                  <Text tone="secondary">
+                    {bulkActionData.status === "bulk-ambiguous"
+                      ? t("discovery.features.search.ui.searchPage.bulk.ambiguous.description")
+                      : (bulkActionData.message ??
+                        t("discovery.features.search.ui.searchPage.bulk.not.applied.description"))}
+                  </Text>
+                </LiveRegion>
+                {bulkActionData.status === "bulk-ambiguous" && bulkAdd.onResend ? (
+                  <Inline gap={2}>
+                    <Button type="button" tone="secondary" disabled={bulkBusy} onClick={bulkAdd.onResend}>
+                      {t("discovery.features.search.ui.searchPage.bulk.resend")}
+                    </Button>
+                    <LinkButton href="/account/cart" tone="secondary">
+                      {t("discovery.features.search.ui.searchPage.review.cart")}
+                    </LinkButton>
+                  </Inline>
+                ) : null}
+              </Stack>
+            ) : null}
+            {bulkActionData?.status === "bulk-added" && (bulkActionData.failedLines?.length ?? 0) > 0 ? (
+              <Stack gap={1}>
+                {bulkActionData.failedLines!.map((line, index) => (
+                  <Text key={`${line.title}-${index}`} size="sm">
+                    {line.message ? `${line.title}: ${line.message}` : line.title}
+                  </Text>
+                ))}
+              </Stack>
             ) : null}
             {bulkActionData?.status === "bulk-added" ? (
               <Banner

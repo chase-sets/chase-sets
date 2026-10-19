@@ -53,6 +53,7 @@ import {
   buildCheckoutMarketplaceSellerOptionsProjectionHandlers,
   withCheckoutProductMeasurePublicationReset,
 } from "../integrations/marketplace/marketplace-projection";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 
 /**
  * DB-tier replacement for the former seller-options readiness interpreter test.
@@ -1658,11 +1659,11 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
     await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
     const before = await listCartLines(pool, claimAccount);
 
-    await runtime.setLineQuantity(
+    await cartAttemptDriver(runtime).setLineQuantity(
       { accountId: claimAccount as never, lineId: "cli_claimed" as never, quantity: 4 },
       context,
     );
-    await runtime.setLineFulfillment(
+    await cartAttemptDriver(runtime).setLineFulfillment(
       {
         accountId: claimAccount as never,
         lineId: "cli_claimed" as never,
@@ -1695,7 +1696,7 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
 
     // The retained anonymous key is not the buyer; the claiming Account is.
     await expect(
-      runtime.setLineFulfillment(
+      cartAttemptDriver(runtime).setLineFulfillment(
         {
           accountId: claimAccount as never,
           lineId: "cli_claimed" as never,
@@ -1725,7 +1726,7 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
     const claimedRowsBefore = await readLinePages(claimedSourceA);
     const claimedStreamBefore = await readStreamEventTypes(claimedStreamA);
 
-    await runtime.setLineQuantity(
+    await cartAttemptDriver(runtime).setLineQuantity(
       { accountId: claimAccount as never, lineId: "cli_dup" as never, quantity: 9 },
       context,
     );
@@ -1764,7 +1765,10 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
       await runtime.claimCart({ sourceOwnerKey: source, accountId: claimAccount as never }, context);
     }
 
-    await runtime.removeLine({ accountId: claimAccount as never, lineId: "cli_dup" as never }, context);
+    await cartAttemptDriver(runtime).removeLine(
+      { accountId: claimAccount as never, lineId: "cli_dup" as never },
+      context,
+    );
 
     for (const owner of [claimAccount, claimedSourceA, claimedSourceB]) {
       expect(
@@ -1779,12 +1783,15 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
     const streamsBefore = await Promise.all(
       [claimAccount, claimedSourceA, claimedSourceB].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
     );
-    expect(await runtime.removeLine({ accountId: claimAccount as never, lineId: "cli_dup" as never }, context)).toEqual(
-      {
-        lineId: "cli_dup",
-        version: 0,
-      },
-    );
+    expect(
+      await cartAttemptDriver(runtime).removeLine(
+        { accountId: claimAccount as never, lineId: "cli_dup" as never },
+        context,
+      ),
+    ).toEqual({
+      lineId: "cli_dup",
+      version: 0,
+    });
     expect(
       await Promise.all(
         [claimAccount, claimedSourceA, claimedSourceB].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
@@ -1816,7 +1823,7 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
         lineId: "cli_race_b" as never,
         quantity: 7,
       });
-      const winner = await runtime.setLineQuantity(
+      const winner = await cartAttemptDriver(runtime).setLineQuantity(
         { accountId: claimAccount as never, lineId: "cli_race_a" as never, quantity: 4 },
         context,
       );
@@ -1841,7 +1848,7 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
       });
 
       // One retry reloads and converges; both lines end up set.
-      const retried = await rivalRuntime.setLineQuantity(
+      const retried = await cartAttemptDriver(rivalRuntime).setLineQuantity(
         { accountId: claimAccount as never, lineId: "cli_race_b" as never, quantity: 7 },
         context,
       );
@@ -1857,7 +1864,7 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
       // The retained anonymous key is refused on the same stream, before append.
       const settled = await readStreamEventTypes(claimedStreamA);
       await expect(
-        rivalRuntime.setLineQuantity(
+        cartAttemptDriver(rivalRuntime).setLineQuantity(
           { accountId: claimedSourceA as never, lineId: "cli_race_a" as never, quantity: 99 },
           context,
         ),

@@ -21,6 +21,7 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { cartReadinessDecisionsFromSnapshot, createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
 import { createCheckoutSessionRuntime, OrderCartCleanupError } from "./runtime";
@@ -149,13 +150,37 @@ const secondSellerCartLine: CheckoutCartLineRow = {
   ],
 };
 
+/** A Cart double whose every attempt commits: each line command succeeds once. */
+function committedCartAttempt() {
+  return vi.fn<CheckoutCartServices["executeCartAttempt"]>(async (request) => ({
+    replayed: false,
+    result: {
+      schemaVersion: 1,
+      kind: request.kind,
+      fingerprint: "0".repeat(64),
+      actorBinding: { kind: request.ownerKey.startsWith("anon_") ? "anonymous" : "account", digest: "0".repeat(64) },
+      target: request.target,
+      requestHash: request.requestHash,
+      ownerStatus: "committed",
+      vector: request.commands.map((command, index) => ({
+        index,
+        command: command.type,
+        outcome: "succeeded",
+        lineId: "lineId" in command ? command.lineId : null,
+        status: command.type === "checkout" ? "checked-out" : "removed",
+        version: 1,
+        message: null,
+      })),
+    },
+  }));
+}
+
 function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLine]) {
   return {
     listCartLines: vi.fn(async () => lines),
     listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async () => [...lines]),
     listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
-    removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async () => ({ lineId: "cli_1" as never, version: 1 })),
-    checkout: vi.fn(async () => ({ version: 1 })),
+    executeCartAttempt: committedCartAttempt(),
     createReadinessSnapshot: vi.fn(async () => createCartReadinessSnapshot(lines)),
   };
 }
@@ -191,8 +216,7 @@ function createUnionCartServices(
       resolveLines(params.presentedAnonymousCartId),
     ),
     listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
-    removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
-    checkout: vi.fn(async () => ({ version: 1 })),
+    executeCartAttempt: committedCartAttempt(),
     createReadinessSnapshot: vi.fn<CheckoutCartServices["createReadinessSnapshot"]>(async (params) => {
       const lines = resolveLines(params.presentedAnonymousCartId);
       return createCartReadinessSnapshot(
@@ -896,8 +920,7 @@ describe("checkout session runtime", () => {
       Array.from({ length: 4 }, () => [{ accountId: "acc_buyer", presentedAnonymousCartId: anonymousCartId }]),
     );
     expect(allEvents).toHaveLength(eventCount);
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
   it("preserves aggregate cancellation refusal and reservation guards while getSession still checks readiness", async () => {
@@ -1847,8 +1870,7 @@ describe("checkout session runtime", () => {
       code: "readiness_snapshot_stale",
       message: "Cart readiness changed. Review your cart before checkout.",
     } satisfies Partial<CheckoutDomainError>);
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
   it("rejects order handoff when session lines have unassigned fulfillment", async () => {
@@ -1920,8 +1942,7 @@ describe("checkout session runtime", () => {
     ).rejects.toMatchObject({
       code: "unresolved_fulfillment",
     } satisfies Partial<CheckoutDomainError>);
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
   it("blocks unsupported delivery regions before order creation", async () => {
@@ -1979,8 +2000,7 @@ describe("checkout session runtime", () => {
     ).rejects.toMatchObject({
       code: "shipping_address_unsupported",
     } satisfies Partial<CheckoutDomainError>);
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
   it("blocks unsupported delivery countries before order creation", async () => {
@@ -2060,8 +2080,7 @@ describe("checkout session runtime", () => {
       message: "Confirm the shipping address before creating orders.",
     } satisfies Partial<CheckoutDomainError>);
 
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 
   it("blocks PO box delivery addresses before order creation", async () => {
@@ -2106,8 +2125,7 @@ describe("checkout session runtime", () => {
         "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
     } satisfies Partial<CheckoutDomainError>);
 
-    expect(cart.removeLine).not.toHaveBeenCalled();
-    expect(cart.checkout).not.toHaveBeenCalled();
+    expect(cart.executeCartAttempt).not.toHaveBeenCalled();
   });
 });
 
@@ -2153,7 +2171,7 @@ async function unionCleanupHarness(
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
   let listingSequence = 0;
   const add = async (owner: string) =>
-    cart.addLine(
+    cartAttemptDriver(cart).addLine(
       {
         accountId: owner as never,
         catalogItemId: "cat_1",
@@ -2310,7 +2328,7 @@ describe("durable union cleanup", () => {
     expect((await h.cartState(h.buyer)).lines).toEqual([]);
     // The Account never held these anonymous lines, so removing one there is an
     // absorbed no-op that reports no stream write and appends nothing.
-    expect(await h.cart.removeLine({ accountId: h.buyer, lineId: h.ids[0]! }, context)).toEqual({
+    expect(await cartAttemptDriver(h.cart).removeLine({ accountId: h.buyer, lineId: h.ids[0]! }, context)).toEqual({
       lineId: h.ids[0],
       version: 0,
     });
@@ -2370,7 +2388,10 @@ describe("durable union cleanup", () => {
     const h = await unionCleanupHarness();
     await h.copy(h.ids[0]!);
     await h.copy(h.ids[0]!, "acc_foreign", 7);
-    await h.cart.setLineQuantity({ accountId: h.anonymous as never, lineId: h.ids[0]!, quantity: 3 }, context);
+    await cartAttemptDriver(h.cart).setLineQuantity(
+      { accountId: h.anonymous as never, lineId: h.ids[0]!, quantity: 3 },
+      context,
+    );
     expect((await h.cartState(h.anonymous)).lines[0]?.quantity).toBe(3);
     expect((await h.cartState(h.buyer)).lines[0]?.quantity).toBe(1);
     const later = await h.add(h.anonymous);
@@ -2458,7 +2479,7 @@ describe("durable union cleanup", () => {
     new Error("store unavailable"),
   ])("union cleanup failure classification and concurrency propagates %s", async (failure) => {
     const h = await unionCleanupHarness();
-    const spy = vi.spyOn(h.realCart, "removeLine").mockRejectedValueOnce(failure);
+    const spy = vi.spyOn(h.realCart, "executeCartAttempt").mockRejectedValueOnce(failure);
     await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
     expect((await h.state()).orderCartCleanup?.status).toBe("pending");
     spy.mockRestore();
@@ -2491,7 +2512,8 @@ describe("durable union cleanup", () => {
       return original(input);
     });
     // Start one sweep after the removals so the barrier targets session completion, not cart conflict.
-    for (const lineId of h.ids) await h.cart.removeLine({ accountId: h.anonymous as never, lineId }, context);
+    for (const lineId of h.ids)
+      await cartAttemptDriver(h.cart).removeLine({ accountId: h.anonymous as never, lineId }, context);
     const outcomes = await Promise.allSettled([
       h.runtime().resumeOrderCartCleanup(h.params, context),
       h.runtime().resumeOrderCartCleanup(h.params, context),
@@ -2696,8 +2718,8 @@ describe("durable union cleanup across claimed streams", () => {
     for (const lineId of h.ids) await h.copy(lineId);
     // Fail after the order event and partway through the multi-stream sweep.
     const fault = vi
-      .spyOn(h.realCart, "removeLine")
-      .mockImplementationOnce(h.cart.removeLine)
+      .spyOn(h.realCart, "executeCartAttempt")
+      .mockImplementationOnce(h.cart.executeCartAttempt)
       .mockRejectedValueOnce(new Error("store unavailable"));
 
     await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
@@ -2762,20 +2784,21 @@ describe("durable union cleanup across claimed streams", () => {
       context,
       events: seed,
     });
-    const checkout = vi.spyOn(h.realCart, "checkout");
-    const removeLine = vi.spyOn(h.realCart, "removeLine");
+    const attempts = vi.spyOn(h.realCart, "executeCartAttempt");
 
     await h.runtime().recordOrdersCreated({ ...h.record, sessionId }, context);
 
-    expect(checkout.mock.calls).toEqual([[h.buyer, context]]);
-    expect(removeLine).not.toHaveBeenCalled();
+    // Exactly one cleanup attempt: the whole-cart checkout on the buyer Account,
+    // and no line removal anywhere.
+    expect(
+      attempts.mock.calls.map(([request]) => [request.ownerKey, request.commands.map((command) => command.type)]),
+    ).toEqual([[h.buyer, ["checkout"]]]);
     // The claimed device keeps every page, including the planned duplicate.
     expect((await h.cartState(h.separateClaimedSource)).lines.map((line) => line.lineId).sort()).toEqual(
       [h.ids[0]!, h.unplannedClaimedLineId].sort(),
     );
     expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual(h.ids);
-    checkout.mockRestore();
-    removeLine.mockRestore();
+    attempts.mockRestore();
   });
 });
 
@@ -2852,8 +2875,7 @@ describe("checkout session post-claim source authority", () => {
       listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async (params) =>
         resolveAuthorizedLines(params.accountId, params.presentedAnonymousCartId),
       ),
-      checkout: vi.fn<CheckoutCartServices["checkout"]>(async () => ({ version: 1 })),
-      removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
+      executeCartAttempt: committedCartAttempt(),
       listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => [...aliasOwnerKeys]),
     } satisfies CheckoutCartServices;
     const sessionMemory = createInMemoryEventStore();
@@ -3105,8 +3127,7 @@ describe("checkout session post-claim source authority", () => {
       // Nothing was read from the refused source and nothing was appended.
       expect(test.streamEventTypes(streamId), name).toEqual(beforeSession);
       expect(test.cart.listAuthorizedCartLines, name).not.toHaveBeenCalled();
-      expect(test.cart.checkout, name).not.toHaveBeenCalled();
-      expect(test.cart.removeLine, name).not.toHaveBeenCalled();
+      expect(test.cart.executeCartAttempt, name).not.toHaveBeenCalled();
     }
 
     expect(test.cartStreamEventTypes(`checkout.cart-${SOURCE}`)).toEqual([
