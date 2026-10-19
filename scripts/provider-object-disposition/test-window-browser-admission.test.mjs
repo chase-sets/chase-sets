@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { errors } from "@playwright/test";
 import { ADMISSION, TRANSITION } from "./browser-boundary/protocol.mjs";
 
 const { execute, launch, acquire, state } = vi.hoisted(() => ({
@@ -126,6 +127,11 @@ it.each([
     "spawn",
     new Error("browserType.launch: Failed to launch: SYNTHETIC_PRIVATE_MARKER"),
     { class: "spawn-failed", window: "partial", exitCode: null, exitSignal: null, refusal: null },
+  ],
+  [
+    "timeout",
+    new errors.TimeoutError("SYNTHETIC_PRIVATE_MARKER"),
+    { class: "timeout", window: "partial", exitCode: null, exitSignal: null, refusal: null },
   ],
   [
     "exit-before-ready",
