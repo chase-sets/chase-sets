@@ -28,7 +28,7 @@ The **Condition Ladder** is a card-wide monotone condition-value scale. It selec
 
 ## Pricing Goal
 
-A **Pricing Goal** is a versioned registry entry that solves one seller objective on a Demand Curve; `fixed-percentile`, `target-horizon`, and `profit-per-day` register first. It declares named numeric parameters with defaults and inclusive bounds, the curve features it requires, and whether it requires Economics. It reads Economics as facts and never derives a fee or hurdle; its explanation carries values, never copy.
+A **Pricing Goal** is a versioned registry entry that solves one seller objective on a Demand Curve; `fixed-percentile`, `target-horizon`, and `profit-per-day` register first, then the portfolio goals `hold-value` and `cash-target`, which resolve one Portfolio Plan across a listing set and decide a lone listing as a one-listing portfolio. It declares named numeric parameters with defaults and inclusive bounds, the curve features it requires, and whether it requires Economics. It reads Economics as facts and never derives a fee or hurdle; its explanation carries values, never copy.
 
 ## Goal Lifecycle
 
@@ -73,6 +73,23 @@ A **Golden Decision** is a Goal Version's recorded decision at default parameter
 ## Conformance Kit
 
 The **Conformance Kit** (`tests/conformance/`) is the executable contract every Pricing registry entry passes: goals, guardrail kinds, curve builders and Economics providers. Each run records the production registrations through `recordRegistrations`, or reads them from the enumeration a production module exports beside its own construction of the registry, fails any registration it does not exercise and an empty registry, and is required for every registry by the `pricing-registry-conformance` structure guard. The authoring steps are in `bounded-contexts/pricing/docs/pricing-goal-authoring.md`.
+
+## Portfolio Plan
+
+A **Portfolio Plan** is a portfolio goal's one answer across an explicit listing set: a single target horizon applied to every listing its curve can model, a match status (`matched`, `boundary` or `infeasible`), the target and resolved values, the reachable range, and raised, lowered, held, sparse and capped counts. Values sum one copy per listing after each listing's constraint, so the value a plan reports is the value it lists. A listing without a modeled curve is held at its current price, never guessed; one without a current price stays out of the baseline. Its id hashes the Goal Version, parameters, solver policy and the snapshot of listing prices, constraints and curves, so equal inputs resolve the same plan whatever their order or paging. A repricing round resolves one plan per policy and portfolio goal anchor and records its id on every member listing's trace.
+
+## Horizon Value Curve
+
+The **Horizon Value Curve** is a log-logistic fit of a portfolio's one-copy value against target horizon, between the exact floor and ceiling at the ends of its observed range, with its knee, marginal value per day and gain elasticity. It is a preview-only model; no round prices from it.
+
+## Capital Cycle
+
+A **Capital Cycle** sells at a value after a horizon, pays overhead, recovers the cost basis and waits out the turnaround: signed profit, profit per day, and the daily log return over horizon plus turnaround. One shared kernel computes it for Capital Turn and for the best-cycle search over a Horizon Value Curve.
+
+## Cash Target
+
+A **Cash Target** is the `cash-target` goal's amount and window. It prices a portfolio at the longest horizon whose **Expected Realized Value**, each modeled listing's one-copy price times its chance of a sale within the window at the Sell-Time Forecast read back at that price, meets the amount; when none does, it prices at the most reachable value with a `boundary` status and the reachable range.
+
 ## Repricing Preset
 
 A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from

@@ -79,6 +79,8 @@ export const pricingEnglishTranslations = {
   "pricing.features.repricingPolicies.ui.goal.fixedPercentile": "Price at the {percentile}th market percentile",
   "pricing.features.repricingPolicies.ui.goal.targetHorizon": "Sell steadily within {days} days",
   "pricing.features.repricingPolicies.ui.goal.profitPerDay": "Maximize profit per day",
+  "pricing.features.repricingPolicies.ui.goal.holdValue": "Hold value",
+  "pricing.features.repricingPolicies.ui.goal.cashTarget": "Reach {amount} in {days} days",
   "pricing.features.repricingPolicies.ui.activity.anchor.goalSolved": "Priced from your pricing goal",
   "pricing.features.repricingPolicies.ui.activity.skip.hopelessForecastHold":
     "Kept the current price: no sale is forecast within the horizon",
