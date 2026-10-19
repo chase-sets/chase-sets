@@ -67,6 +67,11 @@ export const SUBCOMMANDS = {
     description:
       "Collect secret metadata, check credential liveness, or classify credential health from the inventory.",
   },
+  "credential:rotate": {
+    script: "credential-rotate.mjs",
+    description:
+      "Validate a new assisted credential value, write it to one value group, and dispatch its proof workflows.",
+  },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
     description: "Emergency recovery guide record for platform incidents.",
