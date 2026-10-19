@@ -1,4 +1,5 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { encodeFreshWriteReceipt } from "@chase-sets/http/responses";
@@ -519,26 +520,129 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     expect(writes).toEqual(["create", "create", "update", "default", "archive"]);
   });
 
-  test("shipping field errors focus the submitted form @marketplace-account", async ({ page }) => {
-    await page.goto("/account/shipping-addresses");
-    await page.evaluate(() => {
-      const events: string[] = [];
+  test("shipping field errors focus the submitted form @marketplace-account", async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      const events: { id: string; summary: boolean }[] = [];
+      (window as unknown as { __shippingFocusins: typeof events }).__shippingFocusins = events;
       document.addEventListener("focusin", (event) => {
         const target = event.target;
-        if (target instanceof HTMLElement) events.push(target.id || target.tagName.toLowerCase());
+        if (target instanceof HTMLElement)
+          events.push({
+            id: target.id || target.tagName.toLowerCase(),
+            summary: target.matches('section[role="alert"]'),
+          });
       });
-      (window as unknown as { __shippingFocusins: string[] }).__shippingFocusins = events;
-      return events;
     });
-    const posts: string[] = [];
-    page.on("request", async (request) => {
-      if (request.method() !== "POST" || !new URL(request.url()).pathname.endsWith("/account/shipping-addresses.data"))
-        return;
-      const form = await new Response(request.postData(), {
-        headers: { "Content-Type": request.headers()["content-type"] },
-      }).formData();
-      posts.push(String(form.get("intent")));
+    await page.goto("/account/shipping-addresses");
+    let posts = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/account/shipping-addresses.data")
+        posts++;
     });
+    const transcript: { viewport: string; phase: string; posts: number; focusins: number }[] = [];
+    const summaries = page.locator('section[role="alert"]');
+    const create = page.locator('form:has(input[name="intent"][value="create"])');
+    async function fillCreate(label: string, city = "Chicago") {
+      for (const [name, value] of Object.entries({
+        label,
+        name: "Synthetic recipient",
+        line1: "1 Test St",
+        city,
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      }))
+        await create.locator(`input[name="${name}"]`).fill(value);
+    }
+    async function resetFocus() {
+      await page.evaluate(() => {
+        (window as unknown as { __shippingFocusins: unknown[] }).__shippingFocusins.length = 0;
+      });
+    }
+    async function focusEvents() {
+      return page.evaluate(
+        () => (window as unknown as { __shippingFocusins: { id: string; summary: boolean }[] }).__shippingFocusins,
+      );
+    }
+    async function revalidate() {
+      await resetFocus();
+      await page.evaluate(async () => {
+        const router = (window as unknown as { __reactRouterDataRouter: { revalidate: () => Promise<void> } })
+          .__reactRouterDataRouter;
+        await router.revalidate();
+      });
+      expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+    }
+    async function visibleBox(locator: Locator) {
+      await expect(locator).toBeVisible();
+      expect(
+        await locator.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return (
+            box.width > 0 &&
+            box.height > 0 &&
+            box.left < innerWidth &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.bottom > 0
+          );
+        }),
+      ).toBe(true);
+    }
+    async function submitOnce(form: Locator) {
+      const button = form.getByRole("button", { name: /^(Save|Update) address$/ });
+      await expect(button).toBeEnabled();
+      await button.focus();
+      await resetFocus();
+      const before = posts;
+      await button.click();
+      return before;
+    }
+    async function checkSummary(before: number, viewport: string, phase: string, dialog?: Locator) {
+      await expect(summaries).toHaveCount(1);
+      await expect(summaries).toBeFocused();
+      // Two frames cross Base UI's focus/positioning work, not an arbitrary delay.
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      );
+      await expect(summaries).toBeFocused();
+      await visibleBox(summaries);
+      const events = await focusEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0].summary).toBe(true);
+      expect(posts - before).toBe(1);
+      await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(0);
+      if (dialog) {
+        await expect(page.getByRole("dialog")).toHaveCount(1);
+        await expect(dialog.locator('section[role="alert"]')).toHaveCount(1);
+        const outer = await dialog.boundingBox();
+        const inner = await summaries.boundingBox();
+        expect(outer).not.toBeNull();
+        expect(inner).not.toBeNull();
+        expect(inner!.x).toBeGreaterThanOrEqual(outer!.x);
+        expect(inner!.y).toBeGreaterThanOrEqual(outer!.y);
+        expect(inner!.x + inner!.width).toBeLessThanOrEqual(outer!.x + outer!.width);
+        expect(inner!.y + inner!.height).toBeLessThanOrEqual(outer!.y + outer!.height);
+      }
+      transcript.push({ viewport, phase, posts: posts - before, focusins: events.length });
+      await captureResponsiveEvidence({ page, testInfo, claimId: `shipping-${viewport}-${phase}` });
+      for (const link of await summaries.getByRole("link").all()) {
+        const id = (await link.getAttribute("href"))!.slice(1);
+        const input = page.locator(`[id="${id}"]`);
+        await expect(input).toHaveCount(1);
+        expect(await input.evaluate((node) => node instanceof HTMLInputElement)).toBe(true);
+        if (dialog) expect(await dialog.locator(`[id="${id}"]`).count()).toBe(1);
+        await link.click();
+        await expect(input).toBeFocused();
+        await visibleBox(input);
+        await link.press("Enter");
+        await expect(input).toBeFocused();
+        await visibleBox(input);
+      }
+      await revalidate();
+      expect(posts - before).toBe(1);
+      await expect(page.getByRole("dialog")).toHaveCount(dialog ? 1 : 0);
+    }
     for (const viewport of [
       { width: 360, height: 800 },
       { width: 390, height: 844 },
@@ -546,65 +650,85 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     ]) {
       await page.setViewportSize(viewport);
       await page.reload();
-      const create = page.locator('form:has(input[name="intent"][value="create"])');
-      for (const [name, value] of Object.entries({
-        name: "Synthetic recipient",
-        line1: "1 Test St",
-        city: " ",
-        state: "IL",
-        postalCode: "60601",
-        country: "US",
-      }))
-        await create.locator(`input[name="${name}"]`).fill(value);
-      await create.getByRole("button", { name: "Save address", exact: true }).click();
-      const summary = page.locator('[role="alert"]');
-      await expect(summary).toBeVisible();
-      await expect(summary).toBeFocused();
-      expect(posts.at(-1)).toBe("create");
-      expect(
-        await page.evaluate(() => (window as unknown as { __shippingFocusins: string[] }).__shippingFocusins.length),
-      ).toBeGreaterThan(0);
-      const city = create.locator('input[name="city"]');
-      await summary.getByRole("link").click();
-      await expect(city).toBeFocused();
-      await summary.getByRole("link").press("Enter");
-      await expect(city).toBeFocused();
-      expect(
-        await city.evaluate((element) => {
-          const box = element.getBoundingClientRect();
-          return box.width > 0 && box.height > 0 && box.top < innerHeight && box.bottom > 0;
-        }),
-      ).toBe(true);
-    }
+      const size = `${viewport.width}x${viewport.height}`;
+      await fillCreate(`Synthetic ${size} first`, " ");
+      await checkSummary(await submitOnce(create), size, "create");
+      for (const suffix of ["first", "second"]) {
+        const label = `Synthetic ${size} ${suffix}`;
+        await fillCreate(label);
+        const before = await submitOnce(create);
+        await expect(page.getByText(label, { exact: true })).toBeVisible();
+        expect(posts - before).toBe(1);
+      }
+      const label = `Synthetic ${size} second`;
+      const row = page.getByText(label, { exact: true }).locator("..").locator("..");
+      await row.getByRole("button", { name: "Update address", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      const update = dialog.locator('form:has(input[name="intent"][value="update"])');
+      const target = await update.locator('input[name="shippingAddressId"]').inputValue();
+      await update.locator('input[name="city"]').fill(" ");
+      await checkSummary(await submitOnce(update), size, "update", dialog);
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(summaries).toHaveCount(0);
 
-    await page.setViewportSize({ width: 1024, height: 768 });
-    await page.reload();
-    const create = page.locator('form:has(input[name="intent"][value="create"])');
-    async function createAddress(label: string) {
-      for (const [name, value] of Object.entries({
-        name: "Synthetic recipient",
-        line1: "1 Test St",
-        city: "Chicago",
-        state: "IL",
-        postalCode: "60601",
-        country: "US",
-      }))
-        await create.locator(`input[name="${name}"]`).fill(value);
-      await create.locator('input[name="label"]').fill(label);
-      await create.getByRole("button", { name: "Save address", exact: true }).click();
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
+      // Required race: keep the actual rejection response, remove its row through
+      // another authenticated page, revalidate the submitting router, then release.
+      await row.getByRole("button", { name: "Update address", exact: true }).click();
+      let release!: () => void;
+      let observed!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const received = new Promise<void>((resolve) => {
+        observed = resolve;
+      });
+      const hold = async (route: import("@playwright/test").Route) => {
+        if (route.request().method() !== "POST") return route.continue();
+        const response = await route.fetch();
+        observed();
+        await held;
+        await route.fulfill({ response });
+      };
+      await page.route("**/account/shipping-addresses.data", hold);
+      await update.locator('input[name="city"]').fill(" ");
+      const before = await submitOnce(update);
+      await received;
+      const other = await page.context().newPage();
+      try {
+        await other.goto("/account/shipping-addresses");
+        const otherRow = other.getByText(label, { exact: true }).locator("..").locator("..");
+        await otherRow.getByRole("button", { name: "Archive", exact: true }).click();
+        await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+        await expect(other.getByText(label, { exact: true })).toHaveCount(0);
+        await revalidate();
+        await expect(page.locator(`form:has(input[name="shippingAddressId"][value="${target}"])`)).toHaveCount(0);
+        release();
+        await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(1);
+        await expect(summaries).toHaveCount(0);
+        await expect(page.locator('a[href*="shipping-address-"]')).toHaveCount(0);
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        expect(posts - before).toBe(1);
+        expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+        await revalidate();
+        expect(posts - before).toBe(1);
+        transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
+        await captureResponsiveEvidence({ page, testInfo, claimId: `shipping-${size}-removed-row` });
+        const firstLabel = `Synthetic ${size} first`;
+        const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
+        await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
+        await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+        await expect(other.getByText(firstLabel, { exact: true })).toHaveCount(0);
+        await revalidate();
+      } finally {
+        release();
+        await other.close();
+        await page.unroute("**/account/shipping-addresses.data", hold);
+      }
     }
-    await createAddress("Synthetic first");
-    await createAddress("Synthetic second");
-    await page.getByRole("button", { name: "Update address", exact: true }).first().click();
-    const update = page.locator('form:has(input[name="intent"][value="update"])');
-    await update.locator('input[name="city"]').fill(" ");
-    await update.getByRole("button", { name: "Update address", exact: true }).click();
-    const updateSummary = page.getByRole("dialog").locator('[role="alert"]');
-    await expect(page.getByRole("dialog")).toHaveCount(1);
-    await expect(updateSummary).toBeVisible();
-    await expect(updateSummary).toBeFocused();
-    expect(posts.at(-1)).toBe("update");
+    await testInfo.attach("shipping-field-errors-focus-request-transcript", {
+      body: JSON.stringify(transcript),
+      contentType: "application/json",
+    });
   });
 
   test("injected actor props in the real profile form are refused before mutation work", async ({ page }) => {

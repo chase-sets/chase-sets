@@ -3,6 +3,7 @@ import { useLocation } from "react-router";
 import { t } from "@chase-sets/localization";
 import { AccountMutationForm as Form, type MutationNotification } from "../../account-management/ui/controller";
 import type { MutationFailure } from "../../account-management/ui/transport";
+import { actionFields } from "../../account-management/domain/contract";
 import {
   HiddenInput,
   Badge,
@@ -25,40 +26,24 @@ import {
 } from "@chase-sets/design-system";
 import type { ShippingAddress } from "./contracts";
 
-const SHIPPING_ADDRESS_FIELDS = [
-  "label",
-  "name",
-  "company",
-  "country",
-  "line1",
-  "line2",
-  "city",
-  "state",
-  "postalCode",
-  "phone",
-  "email",
-  "makeDefault",
-] as const;
-type ShippingAddressField = (typeof SHIPPING_ADDRESS_FIELDS)[number];
-const SHIPPING_ADDRESS_FIELD_SET = new Set<string>(SHIPPING_ADDRESS_FIELDS);
-
-function fieldLabel(field: ShippingAddressField) {
-  const keys = {
-    label: "identity.features.shippingAddresses.ui.shippingAddressPage.label",
-    name: "identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name",
-    company: "identity.features.shippingAddresses.ui.shippingAddressPage.company",
-    country: "identity.features.shippingAddresses.ui.shippingAddressPage.country",
-    line1: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line1",
-    line2: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line2",
-    city: "identity.features.shippingAddresses.ui.shippingAddressPage.city",
-    state: "identity.features.shippingAddresses.ui.shippingAddressPage.state",
-    postalCode: "identity.features.shippingAddresses.ui.shippingAddressPage.postal.code",
-    phone: "identity.features.shippingAddresses.ui.shippingAddressPage.phone",
-    email: "identity.features.shippingAddresses.ui.shippingAddressPage.email",
-    makeDefault: "identity.features.shippingAddresses.ui.shippingAddressPage.default",
-  } satisfies Record<ShippingAddressField, Parameters<typeof t>[0]>;
-  return t(keys[field]);
-}
+const FIELD_LABELS = {
+  label: "identity.features.shippingAddresses.ui.shippingAddressPage.label",
+  name: "identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name",
+  company: "identity.features.shippingAddresses.ui.shippingAddressPage.company",
+  country: "identity.features.shippingAddresses.ui.shippingAddressPage.country",
+  line1: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line1",
+  line2: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line2",
+  city: "identity.features.shippingAddresses.ui.shippingAddressPage.city",
+  state: "identity.features.shippingAddresses.ui.shippingAddressPage.state",
+  postalCode: "identity.features.shippingAddresses.ui.shippingAddressPage.postal.code",
+  phone: "identity.features.shippingAddresses.ui.shippingAddressPage.phone",
+  email: "identity.features.shippingAddresses.ui.shippingAddressPage.email",
+  makeDefault: "identity.features.shippingAddresses.ui.shippingAddressPage.default",
+} satisfies Partial<Record<(typeof actionFields.create)[number], Parameters<typeof t>[0]>>;
+type ShippingAddressField = keyof typeof FIELD_LABELS;
+const SHIPPING_ADDRESS_FIELD_SET = new Set<string>(
+  actionFields.create.filter((field) => Object.hasOwn(FIELD_LABELS, field)),
+);
 
 function addressLines(address: ShippingAddress) {
   return [
@@ -195,6 +180,7 @@ function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAd
   const instanceId = useId().replaceAll(":", "");
   const location = useLocation();
   const summaryRef = useRef<HTMLElement>(null);
+  const occurrence = useRef(0);
   const [presentation, setPresentation] = useState<Readonly<{ failure: MutationFailure; occurrence: number }> | null>(
     null,
   );
@@ -216,7 +202,7 @@ function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAd
     visibleFieldErrors.length > 0
       ? visibleFieldErrors.map(({ field, message }) => ({
           fieldId: fieldId(field),
-          fieldName: fieldLabel(field),
+          fieldName: t(FIELD_LABELS[field]),
           message,
         }))
       : presentation
@@ -236,7 +222,8 @@ function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAd
       setPresentation(null);
       return;
     }
-    setPresentation((current) => ({ failure: notification.failure, occurrence: (current?.occurrence ?? 0) + 1 }));
+    occurrence.current += 1;
+    setPresentation({ failure: notification.failure, occurrence: occurrence.current });
   }, []);
 
   return (
