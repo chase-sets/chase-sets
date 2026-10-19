@@ -125,7 +125,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "bootstrap-lock-contention.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:1",
     databaseSuffix: "platform_api_bootstrap_lock_contention",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -147,7 +147,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "seed-command-full-pools.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:1",
     databaseSuffix: "platform_api_seed_command_full_pools",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -164,7 +164,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "connector-mount-gate-isolation.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:1",
     databaseSuffix: "connector_composed_7993",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -221,7 +221,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "authoritative-seed-resume-recovery.db.test.ts": Object.freeze({
-    executionUnit: "test:db:3",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_authoritative_seed_resume_recovery",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -238,7 +238,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "inventory-seed-resume.db.test.ts": Object.freeze({
-    executionUnit: "test:db:3",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_inventory_seed_resume",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -404,7 +404,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "catalog-seed-interruption-resume.db.test.ts": Object.freeze({
-    executionUnit: "test:db:3",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_catalog_seed_interruption_resume",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -466,9 +466,8 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
  * schedule model to be re-derived rather than silently absorbing the load.
  */
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
-  "test:db:1": 18,
-  "test:db:2": 29,
-  "test:db:3": 19,
+  "test:db:1": 33,
+  "test:db:2": 33,
 });
 
 /**

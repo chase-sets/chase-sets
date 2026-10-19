@@ -902,7 +902,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.expectedCaseCount).toBe(68);
     expect(result.caseCount).toBe(result.expectedCaseCount);
     expect(result.fileCount).toBe(12);
-    expect(result.partitionUnitCount).toBe(3);
+    expect(result.partitionUnitCount).toBe(2);
   });
 
   it("preserves the complete frozen seed-command file and both separate case identities", () => {
@@ -2522,7 +2522,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       );
       expect(bound.get("W4 postgres image")).toBe(capture.provenance.postgresImage);
       expect(bound.get("W4 postgres workspaceConcurrency")).toBe(String(capture.provenance.workspaceConcurrency));
-      for (const unit of ["test:db:1", "test:db:2", "test:db:3"]) {
+      for (const unit of ["test:db:1", "test:db:2"]) {
         expect(bound.get(`W1 partition ${unit}`)).toMatchObject({ maxWorkers: capture.provenance.maxWorkers });
         // CI-dependent defaults resolve as on the hosted runner, not this host.
         expect(bound.get(`W4 unit ${unit}`)).toMatchObject({
@@ -3094,7 +3094,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       {
         label: "a hosted shared-config default",
         edits: { "vitest.shared.mjs": replaceOnce("      hookTimeout: 120_000,\n", "      hookTimeout: 60_000,\n") },
-        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2"), changed("W4 unit test:db:3")],
+        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2")],
       },
       {
         label: "a workspace Vitest override",
@@ -3104,7 +3104,7 @@ describe("Platform API bootstrap DB enrollment", () => {
             "    globals: true,\n    retry: 1,\n",
           ),
         },
-        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2"), changed("W4 unit test:db:3")],
+        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2")],
       },
       {
         label: "a hosted PostgreSQL setting",
@@ -3302,7 +3302,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8")) as {
         scripts: Record<string, string>;
       };
-      for (const name of ["test:db:1", "test:db:2", "test:db:3"]) {
+      for (const name of ["test:db:1", "test:db:2"]) {
         expect(packageScripts.scripts[name]).toMatch(
           /^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /,
         );
@@ -3977,8 +3977,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     });
     const result = runFixture(fixture);
 
-    expect(result.partitionUnitCount).toBe(4);
-    expect(result.schedule.observedUnitCount).toBe(4);
+    expect(result.partitionUnitCount).toBe(3);
+    expect(result.schedule.observedUnitCount).toBe(3);
     expect(result.violations).toEqual([
       "test:db:5 selects non-DB test entry '__tests__/plain-unit.test.ts'",
       "test:db:5 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
@@ -4016,14 +4016,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(runFixture(fixture).violations).toEqual([]);
   });
 
-  it("keeps the shipped three-unit topology exactly as hosted CI selects it", () => {
+  it("keeps the shipped two-unit topology exactly as hosted CI selects it", () => {
     const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8"))
       .scripts as Record<string, string>;
     const selected = Object.keys(packageScripts)
       .filter((name) => name.startsWith("test:db:") && typeof packageScripts[name] === "string")
       .sort((left, right) => left.localeCompare(right, "en", { numeric: true }));
 
-    expect(selected).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
+    expect(selected).toEqual(["test:db:1", "test:db:2"]);
     expect(checkBootstrapDbEnrollment().schedule.units.map((unit) => unit.scriptName)).toEqual(selected);
   });
 
@@ -4709,7 +4709,7 @@ describe("bootstrap DB evidence", () => {
   it("keeps the guard prefix and both reporters on every numbered DB script", () => {
     const { scripts } = JSON.parse(readFileSync(join(testDirectory, "../package.json"), "utf8"));
     const units = Object.keys(scripts).filter((name) => /^test:db:\d+$/.test(name));
-    expect(units).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
+    expect(units).toEqual(["test:db:1", "test:db:2"]);
     for (const name of units) {
       expect(scripts[name]).toMatch(/^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /);
       expect(scripts[name]).toContain(
