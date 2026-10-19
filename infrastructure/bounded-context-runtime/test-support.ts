@@ -1095,9 +1095,9 @@ async function captureDataResetSnapshot(pool: PgTransactionalPool): Promise<Data
   }
   const keys = await pool.query<DataResetForeignKey>(`SELECT
     format('%I.%I',cn.nspname,child.relname) AS child,format('%I.%I',pn.nspname,parent.relname) AS parent,
-    ARRAY(SELECT a.attname FROM unnest(k.conkey) WITH ORDINALITY x(num,position)
+    ARRAY(SELECT a.attname::text FROM unnest(k.conkey) WITH ORDINALITY x(num,position)
       JOIN pg_attribute a ON a.attrelid=k.conrelid AND a.attnum=x.num ORDER BY position) AS columns,
-    ARRAY(SELECT a.attname FROM unnest(k.confkey) WITH ORDINALITY x(num,position)
+    ARRAY(SELECT a.attname::text FROM unnest(k.confkey) WITH ORDINALITY x(num,position)
       JOIN pg_attribute a ON a.attrelid=k.confrelid AND a.attnum=x.num ORDER BY position) AS referenced
     FROM pg_constraint k JOIN pg_class child ON child.oid=k.conrelid JOIN pg_namespace cn ON cn.oid=child.relnamespace
     JOIN pg_class parent ON parent.oid=k.confrelid JOIN pg_namespace pn ON pn.oid=parent.relnamespace
