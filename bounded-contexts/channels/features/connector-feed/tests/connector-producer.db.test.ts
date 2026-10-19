@@ -69,6 +69,23 @@ describeDb("tcgplayer-run-settlement-readback-retention / tcgplayer-run-law-read
         runSettlement: settlement,
       };
       const untouched = await h.effects();
+      if (state !== "validation-rejected") {
+        const summary = {
+          fileName: "synthetic-readback.csv",
+          dateImportedText: "synthetic import",
+          numberOfProducts: 2,
+          recordedAt: new Date().toISOString(),
+        };
+        for (const patch of [
+          { stagedReadback: null, importSummary: summary },
+          { stagedReadback: { kind: "basis-diverged", counts } },
+          { stagedReadback: { ...settlement.stagedReadback, counts: { ...counts, members: 1 } } },
+          { verificationSnapshotId: "snapshot_context_free", verificationSnapshotGeneration: 2 },
+        ]) {
+          expect((await h.request("report", { ...body, runSettlement: { ...settlement, ...patch } })).status).toBe(400);
+          expect((await h.effects()).e1).toEqual(untouched.e1);
+        }
+      }
       const leaked = {
         ...body,
         runSettlement: {
