@@ -11,7 +11,10 @@ const DURABILITY_RULES = Object.freeze([
   { name: "issue-state-condition", pattern: /\b(?:while|until|once|after)\s+(?:\[#\d+\]|#\d+)/gi },
   { name: "iso-date", pattern: /\b20\d{2}-\d{2}-\d{2}\b/g },
   { name: "exact-model-selector", pattern: /\b(?:gpt-\d[\w.-]*|claude-(?:opus|sonnet|haiku|fable)-\d[\w.-]*)\b/gi },
-  { name: "version-qualified-model-family", pattern: /\b(?:Opus|Sonnet|Haiku|Fable|Sol|Luna|Astra|GPT)[ -]?\d[\w.-]*/gi },
+  {
+    name: "version-qualified-model-family",
+    pattern: /\b(?:Opus|Sonnet|Haiku|Fable|Sol|Luna|Astra|GPT)[ -]?\d[\w.-]*/gi,
+  },
 ]);
 
 function candidateFiles(root) {
@@ -48,7 +51,10 @@ describe("skill durability guard", () => {
     const result = scanSkillFiles();
     expect(result.scannedFiles).toBeGreaterThan(0);
     expect(result.scannedFiles).toBe(result.totalCandidateFiles);
-    expect(result.findings, `scanned/total candidate files: ${result.scannedFiles}/${result.totalCandidateFiles}`).toEqual([]);
+    expect(
+      result.findings,
+      `scanned/total candidate files: ${result.scannedFiles}/${result.totalCandidateFiles}`,
+    ).toEqual([]);
   });
 
   it.each([
@@ -64,7 +70,9 @@ describe("skill durability guard", () => {
   });
 
   it("rejects a violation planted at a new Claude skill path", () => {
-    const findings = scanSkillTexts([{ file: ".claude/skills/new-skill/example.txt", text: "After #1234, use GPT 6." }]);
+    const findings = scanSkillTexts([
+      { file: ".claude/skills/new-skill/example.txt", text: "After #1234, use GPT 6." },
+    ]);
     expect(findings.map((finding) => finding.class)).toEqual(
       expect.arrayContaining(["issue-state-condition", "version-qualified-model-family"]),
     );

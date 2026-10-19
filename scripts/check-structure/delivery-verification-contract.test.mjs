@@ -264,9 +264,7 @@ function assertHostedAttemptProof(text) {
 
 function assertIssueStandardVelocity(text) {
   expect(text).toContain("Hosted CI on the pushed head is the proof for every product attempt");
-  expect(text).toContain(
-    "without its output; run it in parallel instead.",
-  );
+  expect(text).toContain("without its output; run it in parallel instead.");
   expect(text).toContain(
     "never make local E2E or another local full or harness run a gate, a prerequisite, or a PARK or stop condition.",
   );
