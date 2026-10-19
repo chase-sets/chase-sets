@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { CATALOG_CONTROL_PLANE_ACTIONS } from "../../ui/admin-control-plane/information-architecture-v2";
 import {
   assertCatalogPrimaryWorkbenchActionState,
@@ -17,8 +19,66 @@ import {
   type CatalogPrimaryWorkbenchReadModel,
   type CatalogPrimaryWorkbenchSectionKey,
 } from "./primary-workbench-admin-contracts";
+import * as selectionOwner from "./primary-workbench-selection-contracts";
 
 describe("Catalog primary workbench admin contracts", () => {
+  it("workbench exported symbol and validator ownership is complete", () => {
+    const adminFacade = readFileSync(fileURLToPath(new URL("./primary-workbench-admin-contracts.ts", import.meta.url)), "utf8");
+    const descriptorImplementation = readFileSync(
+      fileURLToPath(new URL("./primary-workbench-contract-descriptors-implementation.ts", import.meta.url)),
+      "utf8",
+    );
+    const validatorImplementation = readFileSync(
+      fileURLToPath(new URL("./primary-workbench-contract-validators-implementation.ts", import.meta.url)),
+      "utf8",
+    );
+
+    expect(adminFacade).not.toMatch(/\b(?:function|const)\s+(?:section|action|blocker|validateCatalogPrimaryWorkbench)/);
+    expect(adminFacade).toContain('export * from "./primary-workbench-selection-contracts"');
+    expect(adminFacade).toContain('export * from "./primary-workbench-contract-validators"');
+    expect(descriptorImplementation).toContain("export const catalogPrimaryWorkbenchSections");
+    expect(descriptorImplementation).toContain("export const catalogPrimaryWorkbenchBlockers");
+    expect(descriptorImplementation).not.toContain("validateCatalogPrimaryWorkbenchReadModelContract");
+    expect(validatorImplementation).toContain("export function validateCatalogPrimaryWorkbenchReadModelContract");
+    expect(validatorImplementation).toContain("function assertPrimaryWorkbenchPromotionPreview");
+    expect(validatorImplementation).not.toContain("export const catalogPrimaryWorkbenchSections");
+
+    expect(selectionOwner.catalogPrimaryWorkbenchContractVersion).toBe("catalog-primary-workbench-v2");
+    expect(readFileSync(fileURLToPath(new URL("./primary-workbench-import-sync-contracts.ts", import.meta.url)), "utf8")).toContain(
+      "CatalogPrimaryWorkbenchCatalogSyncReadModel",
+    );
+    expect(readFileSync(fileURLToPath(new URL("./primary-workbench-profile-readiness-contracts.ts", import.meta.url)), "utf8")).toContain(
+      "CatalogPrimaryWorkbenchProfileAuthoringReadModel",
+    );
+    expect(readFileSync(fileURLToPath(new URL("./primary-workbench-lifecycle-governance-contracts.ts", import.meta.url)), "utf8")).toContain(
+      "CatalogPrimaryWorkbenchGovernanceControlsReadModel",
+    );
+    expect(readFileSync(fileURLToPath(new URL("./primary-workbench-promotion-review-contracts.ts", import.meta.url)), "utf8")).toContain(
+      "CatalogPrimaryWorkbenchPromotionPreviewReadModel",
+    );
+  });
+
+  it("workbench validator family parity and omission controls", () => {
+    expect(catalogPrimaryWorkbenchSections).toHaveLength(11);
+    expect(catalogPrimaryWorkbenchActions.length).toBeGreaterThan(10);
+    expect(catalogPrimaryWorkbenchBlockers.length).toBeGreaterThan(40);
+
+    const omittedFamily = { ...catalogPrimaryWorkbenchSections[0], queryKeys: [] };
+    expect(omittedFamily.queryKeys).toEqual([]);
+    expect(catalogPrimaryWorkbenchSections[0].queryKeys.length).toBeGreaterThan(0);
+    expect(() => assertCatalogPrimaryWorkbenchBlockerCategory("omitted-family")).toThrow(
+      "Unknown primary workbench blocker category",
+    );
+  });
+
+  it("workbench facade preserves real consumer types", () => {
+    const section = catalogPrimaryWorkbenchSections.find((entry) => entry.key === "source-observation-review");
+    expect(section?.pagination).toBe("cursor");
+    expect(section?.commands).toContain("observation.reject");
+    expect(catalogPrimaryWorkbenchActions.some((entry) => entry.key === "scope.import")).toBe(true);
+    expect(catalogPrimaryWorkbenchContractVersion).toBe("catalog-primary-workbench-v2");
+  });
+
   it("defines the Stage 2 import-to-promotion workbench sections in primary-path order", () => {
     const expectedSections: readonly CatalogPrimaryWorkbenchSectionKey[] = [
       "provider-scope-selection",

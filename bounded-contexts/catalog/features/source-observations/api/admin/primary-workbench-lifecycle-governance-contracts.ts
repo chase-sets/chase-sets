@@ -1,0 +1,19 @@
+// Behavior-owner exports for the Catalog primary workbench contract.
+export {
+  CatalogPrimaryWorkbenchLifecycleOperation,
+  CatalogPrimaryWorkbenchLifecycleRecoveryStatus,
+  CatalogPrimaryWorkbenchLifecycleRecoveryReadModel,
+  CatalogPrimaryWorkbenchLifecycleOperationReadModel,
+  CatalogPrimaryWorkbenchGovernanceControlsStatus,
+  CatalogPrimaryWorkbenchGovernanceControlKind,
+  CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey,
+  CatalogPrimaryWorkbenchGovernanceControlsReadModel,
+  CatalogPrimaryWorkbenchAuditEvidenceStatus,
+  CatalogPrimaryWorkbenchAuditEvidenceFilterKey,
+  CatalogPrimaryWorkbenchAuditEvidenceTargetType,
+  CatalogPrimaryWorkbenchAuditEvidenceReadModel,
+  CatalogPrimaryWorkbenchAuditEvidenceLink,
+  CatalogPrimaryWorkbenchHealthTriageRolloutControl,
+  CatalogPrimaryWorkbenchHealthTriageJob,
+  CatalogPrimaryWorkbenchHealthTriageAuditPreview,
+} from "./primary-workbench-contract-implementation";
