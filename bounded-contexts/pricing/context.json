@@ -742,7 +742,7 @@
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
           },
-          "linkParameters": { "query": { "policyId": {} } }
+          "linkParameters": { "query": { "policyId": { "kind": "value", "maxLength": 256 } } }
         },
         {
           "routeId": "account-repricing",

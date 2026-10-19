@@ -1,5 +1,5 @@
 import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { centsToMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
+import { applyMoneyRatio } from "@chase-sets/primitives/money";
 import { DEMAND_CURVE_LAUNCH_POLICY_VALUE } from "../../features/market-estimates/domain/demand-curve-policy";
 import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../../features/forecast-ledger/domain/policy";
 import { gradingRulesVersion } from "../../features/forecast-ledger/domain/grade-ledger";
@@ -68,9 +68,9 @@ export async function seedSyntheticPricingHealthInputs(
     );
     return {
       expected: {
-        modeledValueAmount: centsToMoneyAmount(moneyToCents(listing.price_amount) * listing.quantity_cap),
+        modeledValueAmount: applyMoneyRatio(listing.price_amount, listing.quantity_cap, 1, "nearest"),
         expectedSalesListingCount: 0.5,
-        expectedSalesValueAmount: centsToMoneyAmount(Math.round(moneyToCents(listing.price_amount) / 2)),
+        expectedSalesValueAmount: applyMoneyRatio(listing.price_amount, 1, 2, "nearest"),
       },
       cleanup: async () => {
         await pool.query("DELETE FROM pricing_forecast_grades WHERE model=$1", [model]);

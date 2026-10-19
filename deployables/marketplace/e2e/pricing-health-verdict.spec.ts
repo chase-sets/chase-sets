@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
-import { createPgPool } from "@chase-sets/event-core-postgres";
+import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { seedSyntheticPricingHealthInputs } from "@chase-sets/pricing/server";
 import { formatMoney } from "@chase-sets/localization";
 import { captureAccessibilityEvidence, captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
@@ -137,8 +137,11 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
     await expect(page).toHaveURL((url) => url.searchParams.get("policyId") === policyId);
     expect((await page.request.get(`${api}?policyId=rpp_synthetic_foreign`)).status()).toBe(404);
 
-    const actor = (await (await page.request.get("/api/auth/session")).json()).actor;
-    fixture = await seedSyntheticPricingHealthInputs(pool, { accountId: actor.accountId, listingId });
+    const ownedPolicy = await page.request.get(`${policiesApi}/${policyId}`);
+    expect(ownedPolicy.status()).toBe(200);
+    const { accountId } = await ownedPolicy.json();
+    expect(typeof accountId).toBe("string");
+    fixture = await seedSyntheticPricingHealthInputs(pool, { accountId, listingId });
     await page.getByRole("button", { name: "Compute verdict", exact: true }).click();
     await expect(page.getByTestId("pricing-health-summary")).toBeVisible({ timeout: 60_000 });
     const response = await page.request.get(`${api}?policyId=${policyId}`);
@@ -295,6 +298,6 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
       )
       .toBe(0);
     await fixture?.cleanup();
-    await pool.end();
+    await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
   }
 });

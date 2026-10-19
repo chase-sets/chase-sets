@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { LoaderFunctionArgs } from "react-router";
-import { Form, redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router";
-import { Button, NativeSelect } from "@chase-sets/design-system";
+import { redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router";
+import { Button, NativeSelect, RouterForm } from "@chase-sets/design-system";
 import { defineFormAction } from "@chase-sets/platform-runtime/http";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient, PricingApiError } from "../request-support/api-client";
@@ -57,7 +57,7 @@ export default function PricingHealthRoute() {
       error={loadFailed ? copy("error.description") : actionData?.error}
       policySelector={
         data && data.policies.length > 1 ? (
-          <Form method="get" action={PRICING_HEALTH_HREF}>
+          <RouterForm method="get" action={PRICING_HEALTH_HREF}>
             <NativeSelect
               label={copy("policy")}
               name="policyId"
@@ -69,12 +69,12 @@ export default function PricingHealthRoute() {
             <Button type="submit" tone="secondary">
               {copy("show")}
             </Button>
-          </Form>
+          </RouterForm>
         ) : null
       }
       computeAction={
         data?.target && data.canCompute ? (
-          <Form method="post">
+          <RouterForm method="post">
             <input type="hidden" name="intent" value="compute" />
             <input type="hidden" name="policyId" value={data.target.policyId} />
             <Button
@@ -84,7 +84,7 @@ export default function PricingHealthRoute() {
             >
               {copy("compute")}
             </Button>
-          </Form>
+          </RouterForm>
         ) : null
       }
     />

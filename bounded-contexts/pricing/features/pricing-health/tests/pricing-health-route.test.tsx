@@ -38,7 +38,15 @@ describe("Pricing Health route", () => {
     expect(route).toMatchObject({
       routePath: "account/desk/pricing-health",
       authorization: { requiredPermissions: ["pricing.view"] },
+      linkParameters: { query: { policyId: { kind: "value", maxLength: 256 } } },
     });
+  });
+
+  it("composes the production link catalog with the explicit policy selector", async () => {
+    const { links } = await import("../../../support/runtime-support/link-intents");
+    expect(links("account-desk-pricing-health", { path: {}, query: { policyId: "rpp_owned" } }).url).toBe(
+      "https://marketplace.chasesets.com/account/desk/pricing-health?policyId=rpp_owned",
+    );
   });
 
   it.each([

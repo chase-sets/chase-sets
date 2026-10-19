@@ -709,6 +709,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "channel-connection-states.evidence.spec.ts": [0, 1, 0, 0, "seeded"],
   "manual-sync-recovery.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "repricing-policies.spec.ts": [0, 0, 1, 0, "seeded-form"],
+  "pricing-health-verdict.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "seller-time-away-capacity.spec.ts": [0, 0, 1, 0, "seeded-form"],
 };
 const trackedMarketplaceSources = execFileSync("git", ["ls-files", "-z", "--", ...censusRoots], {
