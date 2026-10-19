@@ -41,7 +41,12 @@ const body = {
   ],
 };
 
-async function createPolicy(request: APIRequestContext, pool: PgTransactionalPool, createdIds: string[], name: string) {
+async function createPolicy(
+  request: APIRequestContext,
+  pool: PgTransactionalPool,
+  createdIds: { policyId: string; accountId: string }[],
+  name: string,
+) {
   const start = await request.post(`${policiesApi}/dry-runs`, { data: body });
   expect(start.status()).toBe(202);
   const { dryRunId } = await start.json();
@@ -55,7 +60,7 @@ async function createPolicy(request: APIRequestContext, pool: PgTransactionalPoo
   expect(created.status()).toBe(201);
   const { policyId, accountId } = await created.json();
   expect(typeof policyId).toBe("string");
-  createdIds.push(policyId);
+  createdIds.push({ policyId, accountId });
   await projectSyntheticPricingHealthPolicy(pool, { accountId, policyId });
   await expect
     .poll(async () =>
@@ -83,7 +88,9 @@ async function usableAtEveryViewport(page: Page, visibleText: string) {
 
 type PricingHealthFixture = Awaited<ReturnType<typeof seedSyntheticPricingHealthInputs>>;
 type PricingHealthCleanupState = {
-  createdIds: string[];
+  createdIds: { policyId: string; accountId: string }[];
+  pendingIds: string[];
+  releaseHeldRequest?: () => void;
   fixture?: PricingHealthFixture;
   pool?: PgTransactionalPool;
 };
@@ -91,26 +98,39 @@ type PricingHealthCleanupState = {
 let cleanupState: PricingHealthCleanupState;
 
 test.beforeEach(() => {
-  cleanupState = { createdIds: [] };
+  cleanupState = { createdIds: [], pendingIds: [] };
 });
 
 test.afterEach(async ({ page }) => {
   const state = cleanupState;
-  let firstError: unknown;
+  const errors: unknown[] = [];
   const run = async (step: () => Promise<void>) => {
     try {
       await step();
     } catch (error) {
-      firstError ??= error;
+      errors.push(error);
     }
   };
 
-  for (const policyId of state.createdIds) {
+  await run(async () => {
+    state.releaseHeldRequest?.();
+    await page.unrouteAll({ behavior: "wait" });
+  });
+  for (const pendingId of state.pendingIds) {
+    await run(async () => {
+      await state.pool!.query("DELETE FROM pricing_repricing_dry_run_jobs WHERE job_id=$1", [pendingId]);
+    });
+    await run(async () => {
+      await state.pool!.query("DELETE FROM pricing_repricing_dry_runs WHERE dry_run_id=$1", [pendingId]);
+    });
+  }
+  for (const { policyId, accountId } of state.createdIds) {
     await run(async () => {
       const deleted = await page.request.post(`${policiesApi}/${policyId}/delete`);
       expect(deleted.status()).toBe(200);
-      const policy = await deleted.json();
-      await projectSyntheticPricingHealthPolicy(state.pool!, { accountId: policy.accountId, policyId });
+    });
+    await run(async () => {
+      await projectSyntheticPricingHealthPolicy(state.pool!, { accountId, policyId });
     });
   }
   await run(async () => {
@@ -128,8 +148,8 @@ test.afterEach(async ({ page }) => {
   await run(async () => {
     await (state.pool as (PgTransactionalPool & { end: () => Promise<void> }) | undefined)?.end();
   });
-  cleanupState = { createdIds: [] };
-  if (firstError) throw firstError;
+  cleanupState = { createdIds: [], pendingIds: [] };
+  if (errors.length) throw errors[0];
 });
 
 test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed", async ({
@@ -296,6 +316,7 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
+  cleanupState.releaseHeldRequest = release;
   let heldRequestCount = 0;
   await page.route(
     dataRoute,
@@ -319,6 +340,7 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
   // A synthetic future-eligible request holds the computing presentation.
   // This is not worker execution evidence; the completed run above is.
   const pendingId = `synthetic-health-pending-${Date.now()}`;
+  cleanupState.pendingIds.push(pendingId);
   await pool.query(
     `INSERT INTO pricing_repricing_dry_runs
       (dry_run_id, seller_account_id, replacing_policy_id, body, body_hash, status, requested_at, updated_at)
@@ -341,17 +363,10 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
     await pool.query("DELETE FROM pricing_repricing_dry_runs WHERE dry_run_id=$1", [pendingId]);
   }
 
-  const outageDocument = "pol_synthetic_pricing_health_outage";
-  await pool.query(
-    `INSERT INTO platform_policy_documents
-      (document_id, policy_key, context_name, schema_summary, status, value, effective_from, created_at, updated_at)
-      VALUES ($1, 'pricing.forecast-ledger', 'pricing', 'synthetic invalid-source control', 'active', '{"horizonsDays":[]}', now(), now(), now())`,
-    [outageDocument],
-  );
-  try {
-    await page.reload();
-    await usableAtEveryViewport(page, "Pricing Health is unavailable");
-  } finally {
-    await pool.query("DELETE FROM platform_policy_documents WHERE document_id=$1", [outageDocument]);
-  }
+  // Corrupt only the synthetic grade source, not the response or the cached policy registry.
+  // The real loader must translate its API's source failure into the error presentation.
+  await pool.query("UPDATE pricing_forecast_grades SET grade='null'::jsonb WHERE model='synthetic-pricing-health-e2e'");
+  expect((await page.request.get(`${api}?policyId=${policyId}`)).status()).toBe(500);
+  await page.reload();
+  await usableAtEveryViewport(page, "Pricing Health is unavailable");
 });
