@@ -234,9 +234,7 @@ function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAd
     previousLocation.current = location;
     if (
       previous.key === location.key ||
-      (previous.pathname === location.pathname &&
-        previous.search === location.search &&
-        previous.hash !== location.hash)
+      (previous.pathname === location.pathname && previous.search === location.search && location.hash !== "")
     ) {
       return;
     }
