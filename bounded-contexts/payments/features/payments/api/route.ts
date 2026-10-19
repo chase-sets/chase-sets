@@ -4,7 +4,7 @@ import {
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
-import { Hono, type Context, type MiddlewareHandler, type TypedResponse } from "hono";
+import { Hono, type Context, type TypedResponse } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
@@ -34,11 +34,13 @@ export type CreateAccountPaymentRequest = Readonly<{
 export type CreateSavedPaymentSetupSessionRequest = Readonly<{ returnUrlPath?: string | null }>;
 
 /**
- * Declares the JSON body a client sends so the route-typed payments client checks it. Nothing is
- * validated here: handlers still parse `c.req.json()` leniently, after their access checks.
+ * Declares the JSON body a client sends so the route-typed payments client checks it, and returns the handler
+ * unchanged. Nothing is validated: handlers still parse `c.req.json()` leniently, after their access checks. It
+ * wraps the handler rather than adding a middleware, because a second handler on a route is a collision in the
+ * platform API route-table census.
  */
-function jsonInput<T>(): MiddlewareHandler<PaymentsApiEnv, string, { in: { json: T }; out: {} }> {
-  return (_c, next) => next();
+function jsonInput<T>() {
+  return <R>(handler: (c: Context<PaymentsApiEnv, string, { in: { json: T }; out: {} }>) => R) => handler;
 }
 
 type PaymentsActor = NonNullable<PaymentsApiEnv["Variables"]["actor"]>;
@@ -354,83 +356,88 @@ function savedCheckoutInstrumentSnapshot(
 
 export function createAccountPaymentRoutes(services: PaymentServices, publicConfig?: PaymentProcessorPublicConfig) {
   return new Hono<PaymentsApiEnv>()
-    .post("/payments", jsonInput<CreateAccountPaymentRequest>(), async (c) => {
-      const access = paymentStartAccess(c);
-      if (access.reply) {
-        return access.reply;
-      }
-
-      const context = c.get("context");
-      if (!context) {
-        return c.json(
-          {
-            error: {
-              code: "authentication_required",
-              message: t("payments.features.payments.api.route.authentication.context.missing"),
-            },
-          },
-          401,
-        );
-      }
-
-      const body = await c.req.json();
-      const sourceContext =
-        body.sourceContext === null || body.sourceContext === undefined ? null : String(body.sourceContext);
-      const sourceReferenceId =
-        body.sourceReferenceId === null || body.sourceReferenceId === undefined ? null : String(body.sourceReferenceId);
-
-      try {
-        const payment = await services.createAccountPayment(
-          {
-            accountId: access.actor.accountId as AccountId,
-            isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
-            orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
-            currencyCode: String(body.currencyCode ?? "usd"),
-            requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
-            paymentMethodCategory:
-              body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
-                ? null
-                : String(body.paymentMethodCategory),
-            marketplaceCheckoutFeeQuoteFingerprint:
-              body.marketplaceCheckoutFeeQuoteFingerprint === null ||
-              body.marketplaceCheckoutFeeQuoteFingerprint === undefined
-                ? null
-                : String(body.marketplaceCheckoutFeeQuoteFingerprint),
-            savedCheckoutInstrumentId:
-              body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
-                ? null
-                : String(body.savedCheckoutInstrumentId),
-            savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
-              ? Boolean(body.savePaymentMethodForFuture)
-              : false,
-            returnUrlBase: resolvePublicOrigin(c.req.raw),
-            returnUrlPath:
-              body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
-            clientRiskContext: {
-              ipAddress: resolveClientAddress(c.req.raw),
-              userAgent: c.req.header("user-agent") ?? null,
-            },
-            ...(readAgenticPayment(body.agenticPayment)
-              ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
-              : {}),
-            ...(sourceContext && sourceReferenceId ? { sourceContext, sourceReferenceId } : {}),
-          },
-          context,
-        );
-
-        return c.json(payment, 201);
-      } catch (error) {
-        const rateLimited = paymentRateLimitResponse(c, error);
-        if (rateLimited) {
-          return rateLimited;
+    .post(
+      "/payments",
+      jsonInput<CreateAccountPaymentRequest>()(async (c) => {
+        const access = paymentStartAccess(c);
+        if (access.reply) {
+          return access.reply;
         }
-        const stale = staleFeeQuoteResponse(c, error);
-        if (stale) {
-          return stale;
+
+        const context = c.get("context");
+        if (!context) {
+          return c.json(
+            {
+              error: {
+                code: "authentication_required",
+                message: t("payments.features.payments.api.route.authentication.context.missing"),
+              },
+            },
+            401,
+          );
         }
-        return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
-      }
-    })
+
+        const body = await c.req.json();
+        const sourceContext =
+          body.sourceContext === null || body.sourceContext === undefined ? null : String(body.sourceContext);
+        const sourceReferenceId =
+          body.sourceReferenceId === null || body.sourceReferenceId === undefined
+            ? null
+            : String(body.sourceReferenceId);
+
+        try {
+          const payment = await services.createAccountPayment(
+            {
+              accountId: access.actor.accountId as AccountId,
+              isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
+              orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
+              currencyCode: String(body.currencyCode ?? "usd"),
+              requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
+              paymentMethodCategory:
+                body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
+                  ? null
+                  : String(body.paymentMethodCategory),
+              marketplaceCheckoutFeeQuoteFingerprint:
+                body.marketplaceCheckoutFeeQuoteFingerprint === null ||
+                body.marketplaceCheckoutFeeQuoteFingerprint === undefined
+                  ? null
+                  : String(body.marketplaceCheckoutFeeQuoteFingerprint),
+              savedCheckoutInstrumentId:
+                body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
+                  ? null
+                  : String(body.savedCheckoutInstrumentId),
+              savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
+                ? Boolean(body.savePaymentMethodForFuture)
+                : false,
+              returnUrlBase: resolvePublicOrigin(c.req.raw),
+              returnUrlPath:
+                body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
+              clientRiskContext: {
+                ipAddress: resolveClientAddress(c.req.raw),
+                userAgent: c.req.header("user-agent") ?? null,
+              },
+              ...(readAgenticPayment(body.agenticPayment)
+                ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
+                : {}),
+              ...(sourceContext && sourceReferenceId ? { sourceContext, sourceReferenceId } : {}),
+            },
+            context,
+          );
+
+          return c.json(payment, 201);
+        } catch (error) {
+          const rateLimited = paymentRateLimitResponse(c, error);
+          if (rateLimited) {
+            return rateLimited;
+          }
+          const stale = staleFeeQuoteResponse(c, error);
+          if (stale) {
+            return stale;
+          }
+          return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+        }
+      }),
+    )
     .get("/checkout/status", async (c) => {
       const access = paymentAccess(c, "orders.view", {
         allowGuestCheckout: true,
@@ -542,30 +549,33 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
         ),
       });
     })
-    .post("/payment-methods/setup-sessions", jsonInput<CreateSavedPaymentSetupSessionRequest>(), async (c) => {
-      const access = paymentAccess(c, "orders.manage");
-      if (access.reply) {
-        return access.reply;
-      }
-      const body = await c.req.json().catch(() => ({}));
-      try {
-        const setup = await services.createSavedCheckoutSetupSession({
-          accountId: access.actor.accountId as AccountId,
-          returnUrlBase: resolvePublicOrigin(c.req.raw),
-          returnUrlPath:
-            body.returnUrlPath === null || body.returnUrlPath === undefined
-              ? "/account/payment-methods"
-              : String(body.returnUrlPath),
-          // The authenticated account page always uses the embedded SetupIntent
-          // surface. Hosted setup remains available through the agent URL-
-          // elicitation MCP tool, which calls the runtime directly.
-          uiMode: "embedded",
-        });
-        return c.json(savedCheckoutSetupSessionSnapshot(setup, publicConfig), 201);
-      } catch (error) {
-        return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-      }
-    })
+    .post(
+      "/payment-methods/setup-sessions",
+      jsonInput<CreateSavedPaymentSetupSessionRequest>()(async (c) => {
+        const access = paymentAccess(c, "orders.manage");
+        if (access.reply) {
+          return access.reply;
+        }
+        const body = await c.req.json().catch(() => ({}));
+        try {
+          const setup = await services.createSavedCheckoutSetupSession({
+            accountId: access.actor.accountId as AccountId,
+            returnUrlBase: resolvePublicOrigin(c.req.raw),
+            returnUrlPath:
+              body.returnUrlPath === null || body.returnUrlPath === undefined
+                ? "/account/payment-methods"
+                : String(body.returnUrlPath),
+            // The authenticated account page always uses the embedded SetupIntent
+            // surface. Hosted setup remains available through the agent URL-
+            // elicitation MCP tool, which calls the runtime directly.
+            uiMode: "embedded",
+          });
+          return c.json(savedCheckoutSetupSessionSnapshot(setup, publicConfig), 201);
+        } catch (error) {
+          return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+        }
+      }),
+    )
     .post("/payment-methods/setup-sessions/:processorSetupReference/reconcile", async (c) => {
       const access = paymentAccess(c, "orders.manage");
       if (access.reply) {
@@ -668,77 +678,80 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
 
       return c.json(await services.getMarketplaceCheckoutFeePolicy());
     })
-    .post("/checkout/recover", jsonInput<CreateAccountPaymentRequest>(), async (c) => {
-      const access = paymentStartAccess(c);
-      if (access.reply) {
-        return access.reply;
-      }
-
-      const context = c.get("context");
-      if (!context) {
-        return c.json(
-          {
-            error: {
-              code: "authentication_required",
-              message: t("payments.features.payments.api.route.authentication.context.missing.2"),
-            },
-          },
-          401,
-        );
-      }
-
-      const body = await c.req.json();
-      try {
-        const payment = await services.recoverCheckoutPayment(
-          {
-            accountId: access.actor.accountId as AccountId,
-            isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
-            orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
-            currencyCode: String(body.currencyCode ?? "usd"),
-            requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
-            paymentMethodCategory:
-              body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
-                ? null
-                : String(body.paymentMethodCategory),
-            marketplaceCheckoutFeeQuoteFingerprint:
-              body.marketplaceCheckoutFeeQuoteFingerprint === null ||
-              body.marketplaceCheckoutFeeQuoteFingerprint === undefined
-                ? null
-                : String(body.marketplaceCheckoutFeeQuoteFingerprint),
-            savedCheckoutInstrumentId:
-              body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
-                ? null
-                : String(body.savedCheckoutInstrumentId),
-            savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
-              ? Boolean(body.savePaymentMethodForFuture)
-              : false,
-            returnUrlBase: resolvePublicOrigin(c.req.raw),
-            returnUrlPath:
-              body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
-            clientRiskContext: {
-              ipAddress: resolveClientAddress(c.req.raw),
-              userAgent: c.req.header("user-agent") ?? null,
-            },
-            ...(readAgenticPayment(body.agenticPayment)
-              ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
-              : {}),
-          },
-          context,
-        );
-
-        return c.json(payment, 201);
-      } catch (error) {
-        const rateLimited = paymentRateLimitResponse(c, error);
-        if (rateLimited) {
-          return rateLimited;
+    .post(
+      "/checkout/recover",
+      jsonInput<CreateAccountPaymentRequest>()(async (c) => {
+        const access = paymentStartAccess(c);
+        if (access.reply) {
+          return access.reply;
         }
-        const stale = staleFeeQuoteResponse(c, error);
-        if (stale) {
-          return stale;
+
+        const context = c.get("context");
+        if (!context) {
+          return c.json(
+            {
+              error: {
+                code: "authentication_required",
+                message: t("payments.features.payments.api.route.authentication.context.missing.2"),
+              },
+            },
+            401,
+          );
         }
-        return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-      }
-    })
+
+        const body = await c.req.json();
+        try {
+          const payment = await services.recoverCheckoutPayment(
+            {
+              accountId: access.actor.accountId as AccountId,
+              isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
+              orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
+              currencyCode: String(body.currencyCode ?? "usd"),
+              requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
+              paymentMethodCategory:
+                body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
+                  ? null
+                  : String(body.paymentMethodCategory),
+              marketplaceCheckoutFeeQuoteFingerprint:
+                body.marketplaceCheckoutFeeQuoteFingerprint === null ||
+                body.marketplaceCheckoutFeeQuoteFingerprint === undefined
+                  ? null
+                  : String(body.marketplaceCheckoutFeeQuoteFingerprint),
+              savedCheckoutInstrumentId:
+                body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
+                  ? null
+                  : String(body.savedCheckoutInstrumentId),
+              savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
+                ? Boolean(body.savePaymentMethodForFuture)
+                : false,
+              returnUrlBase: resolvePublicOrigin(c.req.raw),
+              returnUrlPath:
+                body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
+              clientRiskContext: {
+                ipAddress: resolveClientAddress(c.req.raw),
+                userAgent: c.req.header("user-agent") ?? null,
+              },
+              ...(readAgenticPayment(body.agenticPayment)
+                ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
+                : {}),
+            },
+            context,
+          );
+
+          return c.json(payment, 201);
+        } catch (error) {
+          const rateLimited = paymentRateLimitResponse(c, error);
+          if (rateLimited) {
+            return rateLimited;
+          }
+          const stale = staleFeeQuoteResponse(c, error);
+          if (stale) {
+            return stale;
+          }
+          return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+        }
+      }),
+    )
     .get("/checkout/recovery", async (c) => {
       const access = paymentAccess(c, "orders.view", {
         allowGuestCheckout: true,
