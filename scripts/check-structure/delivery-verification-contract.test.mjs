@@ -22,7 +22,7 @@ function assertPremiseContract(text) {
     "The issue must be open and carry neither `status:needs-replan` nor `status:tracking-only`; no comment after the brief's last edit may supersede it; the outcome must not already be present at the baseline; and a defect must still be present at the baseline when it can be shown.",
   );
   expect(premise).toContain(
-    "Product work uses fresh `origin/main`; controller work under the container `.orchestrator/` uses the installed reviewed controller head from `~/.claude/skills/native-db/identity.json`, validated as `controller-release-battery.ps1:625-634` does.",
+    "Product work uses fresh `origin/main`; controller work under the container `.orchestrator/` uses the installed reviewed controller head from `~/.claude/skills/native-db/identity.json`, validated as `controller-release-battery.ps1:646-648` does: the identity has exactly two properties, a lowercase 40-hex `head` and a lowercase 64-hex `digest`. A missing or invalid identity makes the baseline unavailable (handled as unavailable, never a negative premise); and a path the brief plans to create does not exist yet, so its absence is never a premise failure.",
   );
   expect(premise).toContain(
     "Any result except `CONFIRMED` ends the lane before an edit, push or PR, with the evidence in the report; the lane never closes or relabels the issue.",
@@ -31,7 +31,7 @@ function assertPremiseContract(text) {
     "Unavailable is not negative: `NOT_REPRODUCED` requires a reproduction that actually ran and did not show the defect, `ALREADY_DELIVERED` requires a named commit or PR at an available baseline, and a local harness, environment or lock failure or unavailable baseline yields `CONFIRMED (unverified: <reason>)` and proceeds under the existing hosted-substitution rule.",
   );
   expect(premise).toContain(
-    "In solo mode, `ALREADY_DELIVERED` closes the issue citing the commit or PR; `SUPERSEDED_BY` applies the planning supersession rule including its product-question exception; and `NOT_REPRODUCED` or `PREMISE_CHANGED` comments with evidence and then amends the brief, closes it only when no accepted product scope is dropped, or asks Todd one product question.",
+    "In solo mode, run the same check and disposition its result: `ALREADY_DELIVERED` closes the issue citing the commit or PR; `SUPERSEDED_BY` applies the planning supersession rule including its product-question exception; and `NOT_REPRODUCED` or `PREMISE_CHANGED` comments with evidence and then amends the brief, closes it only when no accepted product scope is dropped, or asks Todd one product question.",
   );
 
   const laneIndex = premise.indexOf("Before implementation guidance, run the premise check");
@@ -73,7 +73,7 @@ describe("delivery premise contract", () => {
     },
     {
       name: "drops the controller baseline",
-      from: "Product work uses fresh `origin/main`; controller work under the container `.orchestrator/` uses the installed reviewed controller head from `~/.claude/skills/native-db/identity.json`, validated as `controller-release-battery.ps1:625-634` does.",
+      from: "Product work uses fresh `origin/main`; controller work under the container `.orchestrator/` uses the installed reviewed controller head from `~/.claude/skills/native-db/identity.json`, validated as `controller-release-battery.ps1:646-648` does: the identity has exactly two properties, a lowercase 40-hex `head` and a lowercase 64-hex `digest`. A missing or invalid identity makes the baseline unavailable (handled as unavailable, never a negative premise); and a path the brief plans to create does not exist yet, so its absence is never a premise failure.",
       to: "Product work uses fresh `origin/main`.",
     },
     {
@@ -83,7 +83,7 @@ describe("delivery premise contract", () => {
     },
     {
       name: "drops the solo mapping",
-      from: "In solo mode, `ALREADY_DELIVERED` closes the issue citing the commit or PR; `SUPERSEDED_BY` applies the planning supersession rule including its product-question exception; and `NOT_REPRODUCED` or `PREMISE_CHANGED` comments with evidence and then amends the brief, closes it only when no accepted product scope is dropped, or asks Todd one product question.",
+      from: "In solo mode, run the same check and disposition its result: `ALREADY_DELIVERED` closes the issue citing the commit or PR; `SUPERSEDED_BY` applies the planning supersession rule including its product-question exception; and `NOT_REPRODUCED` or `PREMISE_CHANGED` comments with evidence and then amends the brief, closes it only when no accepted product scope is dropped, or asks Todd one product question.",
       to: "In solo mode, run the same check.",
     },
   ])("rejects a premise mutant that $name", ({ from, to }) => {
