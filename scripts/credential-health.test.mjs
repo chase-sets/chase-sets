@@ -295,6 +295,141 @@ describe("credential health classifier (AC2)", () => {
   });
 });
 
+describe("agent token accounts (#10034)", () => {
+  const daysAhead = (days, from = NOW) => new Date(from.getTime() + days * DAY).toISOString().slice(0, 10);
+  const healthyKey = entry("STRIPE_KEY");
+  const healthyMetadata = metadataOf({ staging: [["STRIPE_KEY", daysAgo(5)]] });
+
+  function inventoryWithAccounts(accounts, secrets = [healthyKey]) {
+    const { errors, inventory } = validateCredentialInventory({
+      schemaVersion: 1,
+      environments: ["production", "staging"],
+      secrets,
+      agentTier: { project: "chase-sets-agent-dev", keys: [], accounts },
+    });
+    expect(errors).toEqual([]);
+    return inventory;
+  }
+  const lanes = (tokenExpiresOn) => ({
+    name: "lanes",
+    machineAccount: "chase-sets-lanes",
+    access: "read",
+    tokenExpiresOn,
+  });
+
+  it.each([
+    [30, "success"],
+    [22, "success"],
+    [21, "warning"],
+    [20, "warning"],
+    [8, "warning"],
+    [7, "failure"],
+    [6, "failure"],
+    [0, "failure"],
+    [-1, "failure"],
+  ])("classifies a token %i days from expiry as %s with the assisted D2 levels (AC1)", (days, level) => {
+    const report = classify(inventoryWithAccounts([lanes(daysAhead(days))]), healthyMetadata);
+    expect(report.accounts).toEqual([{ name: "lanes", tokenExpiresOn: daysAhead(days), daysRemaining: days, level }]);
+    expect(report.status).toBe(level);
+  });
+
+  it("shows a null tokenExpiresOn as not issued at success, with no warning or failure (AC1)", () => {
+    const report = classify(inventoryWithAccounts([lanes(null)]), healthyMetadata);
+    expect(report.accounts).toEqual([{ name: "lanes", tokenExpiresOn: null, daysRemaining: null, level: "success" }]);
+    expect(report.status).toBe("success");
+    expect(renderCredentialHealthSummary(report)).toContain("| lanes | not issued | — | success |");
+    const alert = credentialHealthAlert(report);
+    expect(alert.status).toBe("success");
+    expect(alert.details).toBe("- success: agent token lanes not issued");
+  });
+
+  it("counts whole UTC calendar days, so the start and end of a UTC day agree", () => {
+    const inventory = inventoryWithAccounts([lanes("2026-10-24")]);
+    const at = (iso) =>
+      classifyCredentialHealth({
+        inventory,
+        metadata: healthyMetadata,
+        liveness: livenessOf(),
+        jobResults: { metadata: "success", liveness: "success" },
+        now: new Date(iso),
+      }).accounts[0];
+    expect(at("2026-10-17T00:00:00.000Z")).toMatchObject({ daysRemaining: 7, level: "failure" });
+    expect(at("2026-10-17T23:59:59.999Z")).toMatchObject({ daysRemaining: 7, level: "failure" });
+    expect(at("2026-10-16T23:59:59.999Z")).toMatchObject({ daysRemaining: 8, level: "warning" });
+    expect(at("2026-10-24T23:59:59.999Z")).toMatchObject({ daysRemaining: 0, level: "failure" });
+  });
+
+  it("puts only the name, date, days and level in the summary and the alert (AC2)", () => {
+    const inventory = inventoryWithAccounts([lanes(daysAhead(20))]);
+    const report = classify(inventory, healthyMetadata);
+    expect(Object.keys(report.accounts[0]).sort()).toEqual(["daysRemaining", "level", "name", "tokenExpiresOn"]);
+    const summary = renderCredentialHealthSummary(report);
+    expect(summary).toContain(
+      [
+        "### Agent token accounts",
+        "",
+        "| Account | Token expires | Days remaining | Level |",
+        "| --- | --- | --- | --- |",
+        `| lanes | ${daysAhead(20)} | 20 | warning |`,
+      ].join("\n"),
+    );
+    expect(summary).toContain("- Agent token accounts: 0 failure, 1 warning, 0 success");
+    const alert = credentialHealthAlert(report);
+    expect(alert).toEqual({
+      status: "warning",
+      summary:
+        "Credential health warning: 0 failure and 0 warning value groups; 0 failure and 1 warning agent token accounts; 0 collection findings.",
+      details: `- warning: agent token lanes expires ${daysAhead(20)} (20 days)`,
+    });
+  });
+
+  it("lists account rows after collection findings and before value groups, so truncation keeps them", () => {
+    const inventory = inventoryWithAccounts([lanes(daysAhead(3))]);
+    const report = classify(inventory, metadataOf({}, { failed: ["staging"] }));
+    const lines = credentialHealthAlert(report, { maxLines: 2 }).details.split("\n");
+    expect(lines[0]).toBe("- warning: metadata (staging) metadata-not-collected");
+    expect(lines[1]).toBe(`- failure: agent token lanes expires ${daysAhead(3)} (3 days)`);
+    expect(lines.at(-1)).toMatch(/^- … \d+ more in the run summary$/);
+  });
+
+  it("still warns, never success, when collection fails beside a healthy account", () => {
+    const report = classify(inventoryWithAccounts([lanes(daysAhead(60))]), null);
+    expect(report.accounts[0].level).toBe("success");
+    expect(report.status).toBe("warning");
+  });
+
+  it("attempts no metadata or liveness collection for an account", async () => {
+    const withLiveness = inventoryWithAccounts([lanes(daysAhead(60))], [doToken]);
+    const read = [];
+    const env = new Proxy(
+      {},
+      {
+        get(_target, name) {
+          read.push(name);
+          return undefined;
+        },
+      },
+    );
+    for (const scope of withLiveness.scopes) {
+      const row = await runLivenessRow({ inventory: withLiveness, scope, env, now: NOW });
+      expect(row.results.map((result) => result.name)).toEqual(scope === "staging" ? ["DIGITALOCEAN_ACCESS_TOKEN"] : []);
+    }
+    // The empty token is "absent" before any request, and no account name is read.
+    expect(read).toEqual(["DIGITALOCEAN_ACCESS_TOKEN"]);
+    const report = classify(inventoryWithAccounts([lanes(daysAhead(60))]), healthyMetadata);
+    expect(report.groups.map((group) => group.name)).toEqual(["STRIPE_KEY"]);
+    expect(report.table.map((row) => row.name)).not.toContain("lanes");
+    expect(report.findings).toEqual([]);
+  });
+
+  it("reports the repository's lanes account with the expiry #10032 recorded", () => {
+    const report = classify(repositoryInventory, null);
+    expect(report.accounts).toEqual([
+      { name: "lanes", tokenExpiresOn: "2027-01-16", daysRemaining: 91, level: "success" },
+    ]);
+  });
+});
+
 // One fake provider for every liveness kind. Each response body echoes the
 // request's credentials so a leak of response text would carry the sentinel.
 let server;
