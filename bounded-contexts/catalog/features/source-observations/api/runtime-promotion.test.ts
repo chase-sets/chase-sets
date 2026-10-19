@@ -766,7 +766,11 @@ describe("source observation runtime: promotion and reapply", () => {
     const projectionQuery = async (sql: string, params: readonly unknown[] = []) => {
       if (sql.includes("reference_record_id = ANY")) {
         const ids = Array.isArray(params[0]) ? (params[0] as readonly string[]) : [];
-        return { rows: ids.map((id) => projectedRows.get(id)).filter(Boolean) };
+        return {
+          rows: ids
+            .map((id) => projectedRows.get(id))
+            .filter((row): row is Record<string, unknown> => row !== undefined),
+        };
       }
       if (/INSERT\s+INTO\s+catalog_scope_records/.test(sql)) {
         projectedRows.set(String(params[4]), {

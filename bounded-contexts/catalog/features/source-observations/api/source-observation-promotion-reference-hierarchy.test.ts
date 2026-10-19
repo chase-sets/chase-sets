@@ -195,6 +195,8 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
       payload: fixture,
       observedAt: "2026-10-18T19:00:00.000Z",
     }).normalized;
+    if (normalized.kind !== "yugioh-set-reference")
+      throw new Error("fixture did not normalize as Yu-Gi-Oh set reference");
 
     const result = await resolvePromotionReferenceHierarchy({
       deps: h.deps,
@@ -246,7 +248,11 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
     const projectionQuery = vi.fn(async (sql: string, params?: readonly unknown[]) => {
       if (sql.includes("reference_record_id = ANY")) {
         const ids = Array.isArray(params?.[0]) ? (params?.[0] as readonly string[]) : [];
-        return { rows: ids.map((id) => projectedRows.get(id)).filter(Boolean) };
+        return {
+          rows: ids
+            .map((id) => projectedRows.get(id))
+            .filter((row): row is Record<string, unknown> => row !== undefined),
+        };
       }
       if (/INSERT\s+INTO\s+catalog_scope_records/.test(sql)) {
         const values = params ?? [];
