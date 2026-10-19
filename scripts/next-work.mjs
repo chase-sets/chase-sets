@@ -383,10 +383,8 @@ export async function attachReadiness(
   );
   const issues = new Map(facts.issues.map((issue) => [issue.number, issue]));
   for (const name of LANE_CLASSES) {
-    let evaluated = 0;
-    for (const entry of classes[name]) {
-      if (entry.action !== "implement" || evaluated >= depth) continue;
-      evaluated += 1;
+    for (const entry of classes[name].slice(0, depth)) {
+      if (entry.action !== "implement") continue;
       const issue = issues.get(entry.issue);
       const milestone = milestones.get(entry.milestone.number) ?? null;
       let result;
@@ -694,7 +692,7 @@ export function parseArguments(argv) {
       options.top = Number(value);
     }
     if (flag === "--readiness-depth") {
-      if (!/^[1-9]\d*$/.test(value))
+      if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value)))
         throw new NextWorkError("NEXT_WORK_USAGE", `--readiness-depth must be a positive integer`);
       options.readinessDepth = Number(value);
     }
@@ -764,18 +762,15 @@ export async function main({
   stdout = (text) => process.stdout.write(text),
   stderr = (text) => process.stderr.write(text),
   collect = collectNextWorkFacts,
-  readiness = null,
+  readiness = attachReadiness,
   generatedAt,
 } = {}) {
   try {
     const options = parseArguments(argv);
     const token = env.GITHUB_TOKEN || getToken();
     const facts = await collect({ token, repository: options.repository });
-    let document = rankNextWork(facts, { excludeMilestones: options.excludeMilestones, generatedAt });
-    const enrich = readiness ?? (collect === collectNextWorkFacts ? attachReadiness : null);
-    if (enrich !== null) {
-      document = await enrich(document, facts, { token, depth: options.readinessDepth });
-    }
+    const ranked = rankNextWork(facts, { excludeMilestones: options.excludeMilestones, generatedAt });
+    const document = await readiness(ranked, facts, { token, depth: options.readinessDepth });
     if (options.json !== null) writeFile(options.json, `${JSON.stringify(document, null, 2)}\n`);
     stdout(formatNextWorkText(document, options.top));
     return options.check && document.defects.length > 0 ? 1 : 0;
