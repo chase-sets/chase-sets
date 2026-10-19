@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
@@ -35,6 +35,27 @@ const base = removal ? `${removal}^` : git("merge-base", "HEAD", "origin/main").
 const legacySource = git("show", `${base}:scripts/check-structure/lost-update-write-guard.mjs`);
 const legacy = (await import(`data:text/javascript;base64,${Buffer.from(legacySource).toString("base64")}`))
   .validateLostUpdateWriteGuard;
+const candidateSource = await readFile(
+  path.join(repoRoot, "scripts/check-structure/lost-update-write-guard.mjs"),
+  "utf8",
+);
+const scannerPathspecs = [
+  ":(glob)bounded-contexts/**/read-model/**",
+  ":(glob)bounded-contexts/**/*projection.*",
+  ":(glob)bounded-contexts/**/*queue.*",
+  "bounded-contexts/channels/features/credentials/api/runtime.ts",
+];
+const compilerApiUrl = import.meta.resolve("@chase-sets/typescript-compiler-api");
+const [legacyPredicate, candidatePredicate] = await Promise.all(
+  [legacySource, candidateSource].map(async (source) => {
+    const module = await import(
+      `data:text/javascript;base64,${Buffer.from(
+        `${source.replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerApiUrl))}\nexport { isReadModelOrProjectionFile as __predicate };`,
+      ).toString("base64")}`
+    );
+    return module.__predicate;
+  }),
+);
 const validateLostUpdateWriteGuard = process.env.LOST_UPDATE_BASE_CONTROL === "1" ? legacy : candidateGuard;
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -42,11 +63,34 @@ describe("owner-local lost-update exceptions", () => {
   it("exception migration preserves complete classifications", async () => {
     const root = await fixture();
     const archive = path.join(root, "base.tar");
-    execFileSync("git", ["archive", "--format=tar", `--output=${archive}`, base, "bounded-contexts"], {
+    const inventory = git("ls-tree", "-r", "--name-only", base, "--", "bounded-contexts")
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+    expect(inventory.every((file) => legacyPredicate(file) === candidatePredicate(file))).toBe(true);
+    const scannerFiles = inventory.filter((file) => isScannerSourcePath(file, candidatePredicate));
+    const scannerFileSet = new Set(scannerFiles);
+    const sidecarPaths = removal
+      ? git("ls-tree", "-r", "--name-only", removal, "--", "bounded-contexts")
+          .trim()
+          .split(/\r?\n/)
+          .filter((file) => file.endsWith(".lost-update-exceptions.json"))
+          .filter((file) => scannerFileSet.has(file.slice(0, -".lost-update-exceptions.json".length)))
+      : [];
+    execFileSync("git", ["archive", "--format=tar", `--output=${archive}`, base, "--", ...scannerPathspecs], {
       cwd: repoRoot,
       timeout: 30000,
     });
     execFileSync("tar", ["-xf", archive, "-C", root], { timeout: 30000 });
+    if (removal && sidecarPaths.length) {
+      const sidecarArchive = path.join(root, "sidecars.tar");
+      execFileSync("git", ["archive", "--format=tar", `--output=${sidecarArchive}`, removal, "--", ...sidecarPaths], {
+        cwd: repoRoot,
+        timeout: 30000,
+      });
+      execFileSync("tar", ["-xf", sidecarArchive, "-C", root], { timeout: 30000 });
+    }
+    for (const file of scannerFiles) await access(path.join(root, file));
     const original = git("show", `${base}:${allowlistPath}`);
     await put(root, allowlistPath, original);
     const before = await legacy({ repoRoot: root });
@@ -58,9 +102,7 @@ describe("owner-local lost-update exceptions", () => {
     ];
     for (const file of files) {
       const sidecarPath = `${file}.lost-update-exceptions.json`;
-      const text = removal
-        ? git("show", `${removal}:${sidecarPath}`)
-        : await readFile(path.join(repoRoot, sidecarPath), "utf8");
+      const text = await readFile(path.join(root, sidecarPath), "utf8");
       await put(root, `${file}.lost-update-exceptions.json`, text);
       for (const entry of JSON.parse(text)) sidecars.push({ file, entry });
     }
@@ -86,9 +128,11 @@ describe("owner-local lost-update exceptions", () => {
     );
     const first = sidecars[0];
     const target = `${first.file}.lost-update-exceptions.json`;
+    const controlRoot = await fixture(first.file, await readFile(path.join(root, first.file), "utf8"));
     const records = JSON.parse(await readFile(path.join(root, target), "utf8"));
-    await put(root, target, JSON.stringify(records.slice(1)));
-    const lost = await validateLostUpdateWriteGuard({ repoRoot: root });
+    await put(controlRoot, target, JSON.stringify(records.slice(1)));
+    const lost = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
+    expect(lost.rows.some((row) => row.classification === "key-only lost-update risk")).toBe(true);
     expect(() => assertMigration(original, before, sidecars.slice(1), lost)).toThrow();
   });
 
@@ -415,4 +459,13 @@ function assertMigration(original, before, sidecars, after) {
       after.violations.some((line) => line.startsWith(`${row.id}: key-only `)),
       `missing risk diagnostic ${row.id}`,
     );
+}
+
+function isScannerSourcePath(file, predicate) {
+  return (
+    /\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(file) &&
+    !/\.(?:test|spec)\.[^.]+$/.test(file) &&
+    !/(?:^|\/)(?:node_modules|dist|tests|__tests__)(?:\/|$)/.test(file) &&
+    predicate(file)
+  );
 }
