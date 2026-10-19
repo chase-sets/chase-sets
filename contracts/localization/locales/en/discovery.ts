@@ -1000,6 +1000,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.bulk.not.applied.title": "No products were added",
   "discovery.features.search.ui.searchPage.bulk.not.applied.description": "Nothing was changed. Try the add again.",
   "discovery.features.search.ui.searchPage.bulk.resend": "Send the same add again",
+  "discovery.features.search.ui.searchPage.bulk.failed.line": "{title}: {message}",
   "discovery.features.search.ui.searchPage.buy.intent": "Buy",
   "discovery.features.search.ui.searchPage.sell": "Add product to Sell List",
   "discovery.features.search.ui.searchPage.sell.intent": "Sell",

@@ -427,33 +427,54 @@ describe("checkout cart addLine own-key probe", () => {
   }
 
   it("does not merge into a claimed-stream line", async () => {
-    const db = new CartRuntimeDb(
-      [
-        readyLine({
-          buyer_account_id: claimedSource,
-          line_id: "cli_claimed",
-          catalog_catalog_item_id: "cat_1",
-          product_id: "cat_1::",
-          fulfillment_mode: "optimize",
-          locked_listing_id: null,
-          seller_preference_id: null,
-          quantity: 1,
-        }),
-      ],
-      [{ source_owner_key: claimedSource, account_id: account }],
-    );
+    const db = new CartRuntimeDb([
+      readyLine({
+        buyer_account_id: claimedSource,
+        line_id: "cli_claimed",
+        catalog_catalog_item_id: "cat_1",
+        product_id: "cat_1::",
+        fulfillment_mode: "optimize",
+        locked_listing_id: null,
+        seller_preference_id: null,
+        quantity: 1,
+      }),
+    ]);
     const { runtime, store, eventsOn } = createClaimRuntime(db);
+
+    // The matching line sits in the claimed source's own aggregate as well as
+    // its projection, so a decision that read across the claim would merge.
+    await runtime.commandHandler({
+      streamId: `checkout.cart-${claimedSource}`,
+      command: {
+        type: "AddCartLine",
+        buyerAccountId: claimedSource as never,
+        lineId: "cli_claimed" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      },
+      context,
+    });
+    await runtime.claimCart({ sourceOwnerKey: claimedSource, accountId: account }, context);
+    const claimedEventsBefore = eventsOn(`checkout.cart-${claimedSource}`);
+    const callsBefore = db.calls.length;
 
     const result = await cartAttemptDriver(runtime).addLine(addLineParams(), context);
 
-    // The probe asked for the Account key only, with claim expansion off.
-    expect(db.cartLineQueries.map((call) => call.values)).toEqual([
-      [account, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, []],
-    ]);
+    // The add decides against the Account's own aggregate only: no cart-line
+    // projection read and no claim expansion.
+    const addCalls = db.calls.slice(callsBefore);
+    expect(addCalls.filter((call) => call.sql.includes("WITH requested_owners AS"))).toEqual([]);
+    expect(addCalls.filter((call) => call.sql.includes("checkout_cart_claims"))).toEqual([]);
     expect(result.status).toBe("added");
     expect(result.lineId).not.toBe("cli_claimed");
     expect(eventsOn(`checkout.cart-${account}`)).toEqual(["checkout.cart.line-added"]);
-    expect(eventsOn(`checkout.cart-${claimedSource}`)).toEqual([]);
+    expect(eventsOn(`checkout.cart-${claimedSource}`)).toEqual(claimedEventsBefore);
     expect(store.readAllEvents().filter((event) => event.eventType === "checkout.cart.line-quantity-set")).toEqual([]);
   });
 
@@ -513,7 +534,7 @@ describe("checkout cart addLine own-key probe", () => {
         quantity: 1,
       }),
     ]);
-    const { runtime } = createClaimRuntime(db);
+    const { runtime, eventsOn } = createClaimRuntime(db);
 
     await runtime.commandHandler({
       streamId: `checkout.cart-${claimedSource}`,
@@ -539,8 +560,11 @@ describe("checkout cart addLine own-key probe", () => {
     );
 
     expect(result).toMatchObject({ lineId: "cli_anon", status: "merged" });
-    expect(db.cartLineQueries.map((call) => call.values)).toEqual([
-      [claimedSource, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, []],
+    // The merge reads the anonymous key's own aggregate, never the projection.
+    expect(db.cartLineQueries).toEqual([]);
+    expect(eventsOn(`checkout.cart-${claimedSource}`)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.line-quantity-set",
     ]);
   });
 });

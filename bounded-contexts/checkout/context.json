@@ -1362,7 +1362,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide checkout request API clients and Checkout-owned Ordering/Payments confirmation adapters for routes and external purchase-intent entry points.",
-      "expectedConsumers": ["cart", "sell-list", "sessions"],
+      "expectedConsumers": ["cart", "command-attempts", "sell-list", "sessions"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
@@ -1373,7 +1373,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide checkout runtime service and schema composition until runtime composition can be generated.",
-      "expectedConsumers": ["cart", "sell-list", "sessions"]
+      "expectedConsumers": ["cart", "command-attempts", "sell-list", "sessions"]
     },
     "seed-support": {
       "classification": "support",

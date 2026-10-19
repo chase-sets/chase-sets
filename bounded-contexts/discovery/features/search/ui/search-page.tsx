@@ -1454,7 +1454,12 @@ export function SearchPage({
               <Stack gap={1}>
                 {bulkActionData.failedLines!.map((line, index) => (
                   <Text key={`${line.title}-${index}`} size="sm">
-                    {line.message ? `${line.title}: ${line.message}` : line.title}
+                    {line.message
+                      ? t("discovery.features.search.ui.searchPage.bulk.failed.line", {
+                          title: line.title,
+                          message: line.message,
+                        })
+                      : line.title}
                   </Text>
                 ))}
               </Stack>

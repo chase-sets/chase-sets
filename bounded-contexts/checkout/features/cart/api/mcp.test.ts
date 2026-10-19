@@ -6,6 +6,7 @@ import { createCheckoutCartMcpHandlers, type CheckoutCartMcpServices } from "./m
 import type { CheckoutCartLineRow } from "../read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "./runtime";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
 import type { CheckoutCartLineOutcome } from "../../command-attempts/api/contracts";
 
@@ -78,46 +79,55 @@ const KEYS = {
 
 /**
  * Per-command doubles behind the one cart entry point the MCP boundary
- * consumes. The adapter turns one attempt into these calls and folds their
- * answers into a committed vector; a thrown ownership refusal propagates as
- * the real decider's would.
+ * consumes. The adapter turns one attempt into these calls, forwarding the
+ * attempt's event-store context, and folds their answers into a committed
+ * vector; a thrown ownership refusal propagates as the real decider's would.
  */
 function cartCommandDoubles() {
   return {
-    addLine: vi.fn(async (_params: Readonly<Record<string, unknown> & { accountId: string }>) => ({
-      lineId: "cli_2",
-      version: 2,
-      status: "added" as const,
-    })),
-    setLineQuantity: vi.fn(async ({ lineId }: Readonly<{ accountId: string; lineId: string; quantity: number }>) => ({
-      lineId,
-      version: 3,
-    })),
-    setLineFulfillment: vi.fn(
-      async ({ lineId }: Readonly<Record<string, unknown> & { accountId: string; lineId: string }>) => ({
-        lineId,
-        version: 4,
+    addLine: vi.fn(
+      async (_params: Readonly<Record<string, unknown> & { accountId: string }>, _context: EventStoreContext) => ({
+        lineId: "cli_2",
+        version: 2,
+        status: "added" as const,
       }),
     ),
-    removeLine: vi.fn(async ({ lineId }: Readonly<{ accountId: string; lineId: string }>) => ({ lineId, version: 5 })),
+    setLineQuantity: vi.fn(
+      async (
+        { lineId }: Readonly<{ accountId: string; lineId: string; quantity: number }>,
+        _context: EventStoreContext,
+      ) => ({ lineId, version: 3 }),
+    ),
+    setLineFulfillment: vi.fn(
+      async (
+        { lineId }: Readonly<Record<string, unknown> & { accountId: string; lineId: string }>,
+        _context: EventStoreContext,
+      ) => ({ lineId, version: 4 }),
+    ),
+    removeLine: vi.fn(
+      async ({ lineId }: Readonly<{ accountId: string; lineId: string }>, _context: EventStoreContext) => ({
+        lineId,
+        version: 5,
+      }),
+    ),
   };
 }
 
 function services() {
   const commands = cartCommandDoubles();
-  const executeCartAttempt = vi.fn<CheckoutCartServices["executeCartAttempt"]>(async (request) => {
+  const executeCartAttempt = vi.fn<CheckoutCartServices["executeCartAttempt"]>(async (request, context) => {
     const vector: CheckoutCartLineOutcome[] = [];
     for (const [index, command] of request.commands.entries()) {
       const { type, ...fields } = command;
       const owner = { accountId: request.ownerKey };
       const answer =
         type === "add"
-          ? await commands.addLine({ ...owner, ...fields })
+          ? await commands.addLine({ ...owner, ...fields }, context)
           : type === "quantity"
-            ? await commands.setLineQuantity({ ...owner, ...(fields as { lineId: string; quantity: number }) })
+            ? await commands.setLineQuantity({ ...owner, ...(fields as { lineId: string; quantity: number }) }, context)
             : type === "fulfillment"
-              ? await commands.setLineFulfillment({ ...owner, ...(fields as { lineId: string }) })
-              : await commands.removeLine({ ...owner, ...(fields as { lineId: string }) });
+              ? await commands.setLineFulfillment({ ...owner, ...(fields as { lineId: string }) }, context)
+              : await commands.removeLine({ ...owner, ...(fields as { lineId: string }) }, context);
       vector.push({
         index,
         command: type,
@@ -698,11 +708,12 @@ describe("checkout cart line tools as owner-authoritative attempts", () => {
     const first = await h.call("checkout.add-cart-line", actor, addArgs("acc_1", KEYS.add));
     const eventsAfterFirst = h.memory.readAllEvents().length;
     const retry = await h.call("checkout.add-cart-line", actor, addArgs("acc_1", KEYS.add));
-    const changed = h.call("checkout.add-cart-line", actor, { ...addArgs("acc_1", KEYS.add), quantity: 5 });
+    await expect(
+      h.call("checkout.add-cart-line", actor, { ...addArgs("acc_1", KEYS.add), quantity: 5 }),
+    ).rejects.toThrow("checkout_attempt_conflict");
     const foreign = await h.call("checkout.add-cart-line", OTHER_ACTOR, addArgs("acc_2", KEYS.add));
 
     expect(retry).toEqual(first);
-    await expect(changed).rejects.toThrow("checkout_attempt_conflict");
     expect(h.memory.readAllEvents().filter((event) => event.streamId === "checkout.cart-acc_1")).toHaveLength(1);
     expect(eventsAfterFirst).toBe(2);
     // The foreign actor's identical key started its own attempt on its own cart.

@@ -2129,6 +2129,11 @@ describe("checkout session runtime", () => {
   });
 });
 
+/** Every event type one append carries, across all of the streams it writes. */
+function eventTypesOf(inputs: readonly AppendToStreamInput[]) {
+  return inputs.flatMap((input) => input.events.map((event) => event.eventType));
+}
+
 // The oracle is the real event-sourced Cart, including its typed missing-line refusal.
 async function unionCleanupHarness(
   options: Readonly<{ claimAnonymousSource?: boolean; claimSeparateSource?: boolean }> = {},
@@ -2431,25 +2436,34 @@ describe("durable union cleanup", () => {
     await h.copy(h.ids[0]!);
     await h.copy(h.ids[1]!);
     const original = h.eventStore.appendToStream.bind(h.eventStore);
+    const originalBatch = h.eventStore.appendToStreams!.bind(h.eventStore);
     let removal = 0;
-    const spy = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
-      const type = input.events[0]?.eventType;
-      const at =
-        type === "checkout.session.orders-created"
-          ? "orders"
-          : type === "checkout.session.cart-cleanup-completed"
-            ? "complete"
-            : type === "checkout.cart.line-removed"
-              ? `remove-${++removal}`
-              : "other";
+    // Session events append one stream at a time; a cart removal commits with
+    // its attempt record in one atomic batch, so each batch is one boundary.
+    const crashAt = async <T>(types: readonly string[], append: () => Promise<T>) => {
+      const at = types.includes("checkout.session.orders-created")
+        ? "orders"
+        : types.includes("checkout.session.cart-cleanup-completed")
+          ? "complete"
+          : types.includes("checkout.cart.line-removed")
+            ? `remove-${++removal}`
+            : "other";
       if (at === boundary) {
-        if (committed) await original(input);
+        if (committed) await append();
         throw new Error(`store ${h.anonymous}`);
       }
-      return original(input);
-    });
+      return append();
+    };
+    const spies = [
+      vi
+        .spyOn(h.eventStore, "appendToStream")
+        .mockImplementation((input) => crashAt(eventTypesOf([input]), () => original(input))),
+      vi
+        .spyOn(h.eventStore, "appendToStreams")
+        .mockImplementation((inputs) => crashAt(eventTypesOf(inputs), () => originalBatch(inputs))),
+    ];
     await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
-    spy.mockRestore();
+    for (const spy of spies) spy.mockRestore();
     const pending = await h.state();
     expect(pending.orderCartCleanup?.status).toBe(
       boundary === "orders" && !committed ? undefined : boundary === "complete" && committed ? "complete" : "pending",
@@ -2641,20 +2655,58 @@ describe("union cleanup concurrent cart writes", () => {
     const barrier = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const original = h.eventStore.appendToStream.bind(h.eventStore);
-    const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
-      if (input.events[0]?.eventType === "checkout.cart.line-removed" && ++arrivals <= 2) {
-        if (arrivals === 2) release();
-        await barrier;
+    const isConflict = (error: unknown) => (error as { code?: unknown } | null)?.code === "concurrency_conflict";
+    // A cart removal commits with its attempt record in one atomic batch: hold
+    // the first two so both sweeps append the same removal at the same version.
+    const originalBatch = h.eventStore.appendToStreams!.bind(h.eventStore);
+    const storeRefusals: unknown[] = [];
+    const fault = vi.spyOn(h.eventStore, "appendToStreams").mockImplementation(async (inputs) => {
+      if (!eventTypesOf(inputs).includes("checkout.cart.line-removed") || ++arrivals > 2) {
+        return originalBatch(inputs);
       }
-      return original(input);
+      if (arrivals === 2) release();
+      await barrier;
+      try {
+        return await originalBatch(inputs);
+      } catch (error) {
+        storeRefusals.push(isConflict(error) ? "concurrency_conflict" : error);
+        throw error;
+      }
+    });
+    const original = h.eventStore.appendToStream.bind(h.eventStore);
+    let completionConflicts = 0;
+    const completions = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
+      try {
+        return await original(input);
+      } catch (error) {
+        if (eventTypesOf([input]).includes("checkout.session.cart-cleanup-completed") && isConflict(error)) {
+          completionConflicts += 1;
+        }
+        throw error;
+      }
+    });
+    const executeCartAttempt = h.realCart.executeCartAttempt;
+    const contended: Awaited<ReturnType<typeof executeCartAttempt>>[] = [];
+    const attempts = vi.spyOn(h.realCart, "executeCartAttempt").mockImplementation(async (request, attemptContext) => {
+      const answer = await executeCartAttempt(request, attemptContext);
+      if (request.ownerKey === h.anonymous && request.target === h.ids[0]) contended.push(answer);
+      return answer;
     });
     const results = await Promise.allSettled([
       h.runtime().resumeOrderCartCleanup(h.params, context),
       h.runtime().resumeOrderCartCleanup(h.params, context),
     ]);
     fault.mockRestore();
-    expect(results.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    completions.mockRestore();
+    attempts.mockRestore();
+    // The store still refuses the losing append at the stale cart version, and
+    // that sweep replays the winner's recorded removal instead of failing it.
+    expect(storeRefusals).toEqual(["concurrency_conflict"]);
+    expect(contended.map((answer) => answer.replayed).sort()).toEqual([false, true]);
+    expect(contended[1]!.result).toEqual(contended[0]!.result);
+    // A sweep can still lose the session completion race, never the cart race.
+    expect(results.map((result) => result.status)).toContain("fulfilled");
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(completionConflicts);
     await h.runtime().resumeOrderCartCleanup(h.params, context);
     expect((await h.cartState(h.anonymous)).lines).toEqual([]);
     expect(

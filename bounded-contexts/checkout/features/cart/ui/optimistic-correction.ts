@@ -467,8 +467,15 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
   const source = useMemo(() => sourceMaps(sourceCartLineGroups), [sourceCartLineGroups]);
   const sourceByResourceRef = useRef(source.byResource);
   const submitting = fetcher.state !== "idle";
-  const errorMessage = typeof fetcher.data?.error === "string" ? fetcher.data.error : null;
-  const attemptState = fetcher.data?.attempt ?? null;
+  // A redirecting answer leaves the fetcher's previous data in place, so data
+  // that predates the latest submission is not its answer once it settles:
+  // a committed resend must clear the ambiguous state it resolved.
+  const latestDataRef = useRef(fetcher.data);
+  const dataBeforeSubmitRef = useRef(fetcher.data);
+  latestDataRef.current = fetcher.data;
+  const answer = submitting || fetcher.data !== dataBeforeSubmitRef.current ? fetcher.data : undefined;
+  const errorMessage = typeof answer?.error === "string" ? answer.error : null;
+  const attemptState = answer?.attempt ?? null;
   // Anything but a redirect to the fresh cart rejects the optimistic
   // projection: the owner's answer, not the local guess, decides what shows.
   const rejection = errorMessage ?? attemptState?.state ?? null;
@@ -488,6 +495,7 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
       const formData = buildCartMutationFormData(mutation);
       formData.set("attemptId", mintCheckoutCommandAttemptId());
       lastSubmissionRef.current = formData;
+      dataBeforeSubmitRef.current = latestDataRef.current;
       fetcher.submit(formData, { method: "post", action: "/account/cart" });
     },
     [fetcher],
@@ -579,14 +587,17 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
 
     inFlightRef.current = null;
     queuedRef.current = [];
-    setOptimisticByResource({});
-  }, [rejection, fetcher.data]);
+    // Each new answer re-runs this, even one repeating the last rejection; an
+    // already-empty projection keeps its identity so no render loop follows.
+    setOptimisticByResource((current) => (Object.keys(current).length === 0 ? current : {}));
+  }, [rejection, answer]);
 
   const resend = useCallback(() => {
     const submission = lastSubmissionRef.current;
     if (!submission || attemptState?.state !== "ambiguous" || submitting) {
       return;
     }
+    dataBeforeSubmitRef.current = latestDataRef.current;
     fetcher.submit(submission, { method: "post", action: "/account/cart" });
   }, [attemptState?.state, fetcher, submitting]);
 
