@@ -1,10 +1,18 @@
+import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter, once } from "node:events";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "./http";
 import { createWebApp, startWebServer, type WebAppOptions } from "./web-server";
-import { createWebServerTestRoot, webServerTestAssetBody, type WebServerTestRoot } from "./web-server-test-support";
+import {
+  createWebDeployableTestRoot,
+  createWebServerTestRoot,
+  webServerTestAssetBody,
+  type WebDeployableTestRoot,
+  type WebServerTestRoot,
+} from "./web-server-test-support";
 
 let root: WebServerTestRoot;
 const servers: Server[] = [];
@@ -150,6 +158,62 @@ describe("startWebServer", () => {
 
     expect(server.listening).toBe(false);
   });
+});
+
+describe("web deployable roots", () => {
+  let deployableRoot: WebDeployableTestRoot | undefined;
+  let child: ChildProcess | undefined;
+
+  afterEach(async () => {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      child.kill();
+      await exited;
+    }
+    child = undefined;
+    deployableRoot?.remove();
+    deployableRoot = undefined;
+  });
+
+  // A fresh process, as E2E and compose start a root, with NODE_ENV unset: the
+  // root must default it before anything loads React, or react-dom/server binds
+  // the production build against React's development build.
+  it.each(["admin-web", "marketplace", "public-web"])(
+    "%s renders a route through one React build when started without NODE_ENV",
+    async (deployable) => {
+      deployableRoot = createWebDeployableTestRoot(
+        fileURLToPath(new URL(`../../deployables/${deployable}/`, import.meta.url)),
+      );
+      const env: NodeJS.ProcessEnv = { ...process.env, PORT: "0", HOST: "127.0.0.1" };
+      delete env.NODE_ENV;
+      const started = spawn(process.execPath, ["--import", "tsx", "server.ts"], {
+        cwd: deployableRoot.rootDirectory,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      child = started;
+      let output = "";
+      started.stdout.on("data", (chunk) => (output += chunk));
+      started.stderr.on("data", (chunk) => (output += chunk));
+
+      const port = await new Promise<string>((resolve, reject) => {
+        started.stdout.on("data", () => {
+          const listening = /\[web-server\] http:\/\/127\.0\.0\.1:(\d+)/.exec(output);
+          if (listening?.[1]) resolve(listening[1]);
+        });
+        started.once("exit", (code) =>
+          reject(new Error(`${deployable} root exited ${code} before listening:\n${output}`)),
+        );
+      });
+      const response = await fetch(`http://127.0.0.1:${port}/`);
+      const body = await response.text();
+
+      expect({ status: response.status, body }, output).toEqual({
+        status: 200,
+        body: expect.stringContaining("<p>rendered</p>"),
+      });
+    },
+  );
 });
 
 describe("forwarded-origin trust", () => {

@@ -50,7 +50,9 @@ export function createWebApp({ build, rootDirectory, mode = process.env.NODE_ENV
 
 /**
  * Serves `<root>/build/server/index.js` on PORT (default 3000) and HOST (all
- * interfaces when unset), closing the server on SIGTERM or SIGINT.
+ * interfaces when unset), closing the server on SIGTERM or SIGINT. This module
+ * loads React when imported, so a root must default NODE_ENV before importing
+ * it; the default here only covers callers that already did.
  */
 export async function startWebServer(root: URL, signals: ShutdownSignalSource = process): Promise<Server> {
   process.env.NODE_ENV ??= "production";
