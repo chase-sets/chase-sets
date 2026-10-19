@@ -250,12 +250,20 @@ const canonicalBoundedContextRootFiles = new Set([
   "api.ts",
   "client.ts",
   "context.json",
+  "context.source.mjs",
   "ids.ts",
   "index.ts",
   "package.json",
   "server.ts",
   "web.ts",
 ]);
+export function isCanonicalBoundedContextRootFile(fileName) {
+  return canonicalBoundedContextRootFiles.has(fileName);
+}
+
+export function isAdmittedFeatureMetadataFile(fileName) {
+  return fileName === "metadata.json";
+}
 const allowedFeatureSubdirectories = new Set(["api", "domain", "integrations", "read-model", "tests", "ui"]);
 const singleSliceSupportFileAllowlist = [
   // Temporary migration exceptions: remove entries once each file is relocated into its owning slice.
@@ -831,6 +839,10 @@ export function isAllowedPublicExportName(value) {
     value === "./web" ||
     value === "./routes/*"
   );
+}
+
+export function singleSliceSupportSeverity({ sourceBacked, enforcementMode }) {
+  return sourceBacked || enforcementMode === "violation" ? "violation" : "warn";
 }
 
 export function findLinkIntentExportViolation(manifest, target) {
@@ -1474,14 +1486,44 @@ export function findRouteSupportPlacementViolation({ relativeFile, content, cont
   return `route loader/action modules must live under support/route-support/<route-name>/, not support/${supportDirectory}/`;
 }
 
-export function findBrowserUnsafeLocalizationExport(content) {
+function hasBrowserUnsafeLocalizationSpecifier(content) {
   const unsafePatterns = [
     /(?:^|["'])node:[^"'\n]+/,
     /(?:^|["'])(?:fs|path|crypto|pg|react-router\/node|\.\/server)(?:["'\/]|$)/,
     /(?:^|["'])[^"'\n]*\/server(?:["'\/]|$)/,
     /process\.env|globalThis\.process|window\.location\.assign/,
   ];
-  return unsafePatterns.some((pattern) => pattern.test(content));
+  return (
+    extractImportSpecifiers(content).some((specifier) => unsafePatterns.some((pattern) => pattern.test(specifier))) ||
+    /process\.env|globalThis\.process|window\.location\.assign/.test(content)
+  );
+}
+
+export function findBrowserUnsafeLocalizationExport(content) {
+  return hasBrowserUnsafeLocalizationSpecifier(content);
+}
+
+export function findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath }) {
+  const rootPath = path.resolve(contextRoot);
+  const visited = new Set();
+  const pending = [path.resolve(targetPath)];
+
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    if (visited.has(currentPath)) continue;
+    visited.add(currentPath);
+    const relativeToRoot = path.relative(rootPath, currentPath);
+    if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) continue;
+    const content = readFileSync(currentPath, "utf8");
+    if (hasBrowserUnsafeLocalizationSpecifier(content)) return currentPath;
+    for (const specifier of extractImportSpecifiers(content)) {
+      if (!specifier.startsWith(".")) continue;
+      const nextPath = resolveExistingModulePath(path.dirname(currentPath), specifier);
+      if (nextPath) pending.push(nextPath);
+    }
+  }
+
+  return null;
 }
 
 export function isThinRouteAdapter(content) {
@@ -2162,8 +2204,7 @@ export async function runStructureCheck(options = {}) {
             `package export ${publicExport} targets a missing file (${exportTarget})`,
           );
         } else if (publicExport === "./localization") {
-          const localizationSource = await readFile(resolvedTarget, "utf8");
-          if (findBrowserUnsafeLocalizationExport(localizationSource)) {
+          if (findBrowserUnsafeLocalizationReachability({ contextRoot: rootAbs, targetPath: resolvedTarget })) {
             addPathViolation(
               `${root}/package.json`,
               "./localization must be browser-safe and must not import server/runtime modules",
@@ -2706,7 +2747,7 @@ export async function runStructureCheck(options = {}) {
           );
         }
 
-        if (entry.isFile()) {
+        if (entry.isFile() && !isAdmittedFeatureMetadataFile(entry.name)) {
           addPathViolation(
             `${root}/features/${featureDirectory}/${entry.name}`,
             "feature roots must not contain loose files; place code under domain, read-model, api, ui, integrations, or tests",
@@ -2768,7 +2809,7 @@ export async function runStructureCheck(options = {}) {
         continue;
       }
 
-      if (!canonicalBoundedContextRootFiles.has(entry.name)) {
+      if (!isCanonicalBoundedContextRootFile(entry.name)) {
         addPathViolation(
           `${root}/${entry.name}`,
           "implemented bounded-context roots must keep top-level files canonical and avoid ad hoc helper files",
@@ -3713,7 +3754,12 @@ export async function runStructureCheck(options = {}) {
       const message =
         `support file in ${usageRecord.supportDirectory} is imported by only one slice (${sliceName}); ` +
         `relocate it to bounded-contexts/.../${sliceName}/`;
-      if (singleSliceSupportEnforcementMode === "warn") {
+      if (
+        singleSliceSupportSeverity({
+          sourceBacked: contextManifests.get(usageRecord.contextRoot)?.sourceBacked === true,
+          enforcementMode: singleSliceSupportEnforcementMode,
+        }) === "warn"
+      ) {
         addPathWarning(supportFile, message);
       } else {
         addPathViolation(supportFile, message);

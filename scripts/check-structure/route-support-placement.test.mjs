@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { findBrowserUnsafeLocalizationExport, findRouteSupportPlacementViolation, isThinRouteAdapter } from "./run.mjs";
+import {
+  findBrowserUnsafeLocalizationExport,
+  findBrowserUnsafeLocalizationReachability,
+  findRouteSupportPlacementViolation,
+  isAdmittedFeatureMetadataFile,
+  isAllowedPublicExportName,
+  isCanonicalBoundedContextRootFile,
+  isThinRouteAdapter,
+  singleSliceSupportSeverity,
+} from "./run.mjs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 const baseManifest = {
   directoryIntent: {
@@ -35,6 +47,38 @@ describe("route support placement guard", () => {
     expect(findBrowserUnsafeLocalizationExport('export { catalog } from "./features/catalog/locales";')).toBe(false);
     expect(findBrowserUnsafeLocalizationExport('import fs from "node:fs"; export const catalog = {};')).toBe(true);
     expect(findBrowserUnsafeLocalizationExport('export { loader } from "./server";')).toBe(true);
+    expect(isAllowedPublicExportName("./localization")).toBe(true);
+    expect(isAllowedPublicExportName("./localization/catalog")).toBe(false);
+  });
+
+  it("follows localization re-exports through the context root", () => {
+    const contextRoot = mkdtempSync(path.join(tmpdir(), "chase-sets-localization-"));
+    try {
+      const target = path.join(contextRoot, "localization.ts");
+      mkdirSync(path.join(contextRoot, "features"), { recursive: true });
+      writeFileSync(target, 'export { catalog } from "./features/catalog";\n');
+      writeFileSync(path.join(contextRoot, "features", "catalog.ts"), 'import { readFileSync } from "node:fs";\n');
+      expect(findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath: target })).toBe(
+        path.join(contextRoot, "features", "catalog.ts"),
+      );
+      writeFileSync(path.join(contextRoot, "features", "catalog.ts"), "export const catalog = {};\n");
+      expect(findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath: target })).toBeNull();
+    } finally {
+      rmSync(contextRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("admits only the canonical source and feature metadata seams", () => {
+    expect(isCanonicalBoundedContextRootFile("context.source.mjs")).toBe(true);
+    expect(isCanonicalBoundedContextRootFile("helper.mjs")).toBe(false);
+    expect(isAdmittedFeatureMetadataFile("metadata.json")).toBe(true);
+    expect(isAdmittedFeatureMetadataFile("helper.mjs")).toBe(false);
+  });
+
+  it("makes one-consumer support a violation for source-backed contexts", () => {
+    expect(singleSliceSupportSeverity({ sourceBacked: true, enforcementMode: "warn" })).toBe("violation");
+    expect(singleSliceSupportSeverity({ sourceBacked: false, enforcementMode: "warn" })).toBe("warn");
+    expect(singleSliceSupportSeverity({ sourceBacked: false, enforcementMode: "violation" })).toBe("violation");
   });
 
   it("rejects route loader and action modules outside route-support", () => {

@@ -3,12 +3,14 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import prettier from "prettier";
 import {
   analyzeLocaleCatalogModule,
   assertNoLocaleCatalogKeyCollisions,
   listTrackedLocaleModulePaths,
   syncWorkspaceMetadata,
 } from "./sync-workspace-metadata.mjs";
+import { listBoundedContextManifests, repoRoot } from "./lib/repo.mjs";
 
 const tempRoots = [];
 
@@ -110,23 +112,33 @@ afterEach(() => {
 });
 
 describe("sync-workspace-metadata --check", () => {
+  it("treats canonical context manifests as generator-owned bytes", async () => {
+    const fileInfo = await prettier.getFileInfo(path.join(repoRoot, "bounded-contexts", "inventory", "context.json"), {
+      ignorePath: path.join(repoRoot, ".prettierignore"),
+    });
+    expect(fileInfo.ignored).toBe(true);
+  });
+
   it("composes a source-backed manifest, writes its canonical bytes, and checks stale canonical data without downstream fallback", async () => {
     const fixture = await createMetadataFixture();
-    await mkdir(path.join(fixture.rootDir, "bounded-contexts", "catalog", "features"), { recursive: true });
+    await mkdir(path.join(fixture.rootDir, "bounded-contexts", "catalog", "features", "catalog"), { recursive: true });
     writeFileSync(
-      path.join(fixture.rootDir, "bounded-contexts", "catalog", "features", "catalog.metadata.mjs"),
-      'export const metadata = { localeCatalogs: ["contracts/localization/locales/en/example.ts"], apiDeployables: ["platform-api"] };\n',
+      path.join(fixture.rootDir, "bounded-contexts", "catalog", "features", "catalog", "metadata.json"),
+      '{"localeCatalogs":["contracts/localization/locales/en/example.ts"],"apiDeployables":["platform-api"]}\n',
       "utf8",
     );
     writeFileSync(
       path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.source.mjs"),
-      'import { metadata } from "./features/catalog.metadata.mjs";\nexport const contextManifest = { contextName: "catalog", ...metadata, runtimeDeployables: ["platform-worker"], deployableContributions: [{ deployable: "marketplace-web" }] };\n',
+      'import metadata from "./features/catalog/metadata.json" with { type: "json" };\nexport const contextManifest = { contextName: "catalog", ...metadata, runtimeDeployables: ["platform-worker"], deployableContributions: [{ deployable: "marketplace-web" }] };\n',
       "utf8",
     );
 
     syncWorkspaceMetadata(fixture);
     const canonicalPath = path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.json");
     const canonical = readFileSync(canonicalPath, "utf8");
+    expect(canonical).toBe(
+      '{\n  "contextName": "catalog",\n  "localeCatalogs": [\n    "contracts/localization/locales/en/example.ts"\n  ],\n  "apiDeployables": [\n    "platform-api"\n  ],\n  "runtimeDeployables": [\n    "platform-worker"\n  ],\n  "deployableContributions": [\n    {\n      "deployable": "marketplace-web"\n    }\n  ]\n}\n',
+    );
     expect(JSON.parse(canonical)).toMatchObject({ contextName: "catalog", localeCatalogs: fixture.trackedLocaleFiles });
     expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).not.toThrow();
 
@@ -135,6 +147,35 @@ describe("sync-workspace-metadata --check", () => {
       /bounded-contexts\/catalog\/context\.json is stale/,
     );
     expect(readFileSync(canonicalPath, "utf8")).toBe(`${canonical}\n`);
+  });
+
+  it("keeps canonical and downstream bytes stable when source contexts are enumerated in reverse order", async () => {
+    const fixture = await createMetadataFixture();
+    const secondDir = path.join(fixture.rootDir, "bounded-contexts", "catalog-two");
+    await mkdir(secondDir, { recursive: true });
+    writeFileSync(path.join(secondDir, "package.json"), '{"name":"@chase-sets/catalog-two"}\n');
+    writeFileSync(path.join(secondDir, "context.json"), '{"contextName":"catalog-two"}\n');
+    writeFileSync(path.join(secondDir, "context.source.mjs"), 'export default { contextName: "catalog-two" };\n');
+    fixture.workspaces.push({
+      name: "@chase-sets/catalog-two",
+      dir: secondDir,
+      dirName: "catalog-two",
+      root: "bounded-contexts",
+      packageJson: { name: "@chase-sets/catalog-two" },
+    });
+
+    const ordered = listBoundedContextManifests({ repoRoot: fixture.rootDir, workspaces: fixture.workspaces });
+    syncWorkspaceMetadata({ ...fixture, contexts: ordered });
+    const readOutputs = () =>
+      [
+        "bounded-contexts/catalog/context.json",
+        "bounded-contexts/catalog-two/context.json",
+        "contracts/localization/locales/en.ts",
+        "deployables/platform-api/src/generated/api-context-registry.ts",
+      ].map((file) => readFileSync(path.join(fixture.rootDir, file), "utf8"));
+    const first = readOutputs();
+    syncWorkspaceMetadata({ ...fixture, contexts: [...ordered].reverse() });
+    expect(readOutputs()).toEqual(first);
   });
 
   it("fails closed when a source cannot compose instead of reading canonical context.json", async () => {
@@ -152,11 +193,45 @@ describe("sync-workspace-metadata --check", () => {
     const fixture = await createMetadataFixture();
     writeFileSync(
       path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.source.mjs"),
-      'export default { contextName: "catalog", apiDeployables: ["platform-api"], apiMounts: [{ id: "catalog" }, { id: "catalog" }] };\n',
+      'export default { contextName: "catalog", apiDeployables: ["platform-api"], projectionGroups: [{ projectionName: "catalog" }, { projectionName: "catalog" }] };\n',
       "utf8",
     );
 
-    expect(() => syncWorkspaceMetadata(fixture)).toThrow(/Duplicate context contribution identity "id:catalog"/);
+    expect(() => syncWorkspaceMetadata(fixture)).toThrow(
+      /Duplicate context contribution identity "projectionName:catalog"/,
+    );
+  });
+
+  it("fails closed with the authored source path when a declared fragment is absent", async () => {
+    const fixture = await createMetadataFixture();
+    writeFileSync(
+      path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.source.mjs"),
+      'import metadata from "./features/catalog/metadata.json" with { type: "json" }; export default { contextName: "catalog", ...metadata };\n',
+      "utf8",
+    );
+
+    expect(() => syncWorkspaceMetadata(fixture)).toThrow(
+      /Failed to compose context source .*bounded-contexts.*catalog.*context\.source\.mjs/,
+    );
+  });
+
+  it("reports only canonical drift when source composition is current but canonical JSON is semantically stale", async () => {
+    const fixture = await createMetadataFixture();
+    writeFileSync(
+      path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.source.mjs"),
+      'export default { contextName: "catalog", apiDeployables: ["platform-api"] };\n',
+      "utf8",
+    );
+    syncWorkspaceMetadata(fixture);
+    const canonicalPath = path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.json");
+    const stale = JSON.parse(readFileSync(canonicalPath, "utf8"));
+    stale.apiDeployables = ["platform-worker"];
+    writeJson(canonicalPath, stale);
+
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(
+      /Workspace metadata is out of date:[\s\S]*bounded-contexts\/catalog\/context\.json is stale/,
+    );
+    expect(JSON.parse(readFileSync(canonicalPath, "utf8")).apiDeployables).toEqual(["platform-worker"]);
   });
 
   it("passes when generated metadata is current", async () => {

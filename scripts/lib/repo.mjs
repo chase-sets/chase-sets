@@ -57,7 +57,9 @@ export function listBoundedContextManifests(options = {}) {
       const sourcePath = path.join(workspace.dir, "context.source.mjs");
       const manifest = existsSync(sourcePath) ? loadContextSourceManifest(sourcePath) : readJson(manifestPath);
       if (typeof manifest?.contextName !== "string" || !manifest.contextName.trim()) {
-        throw new Error(`Context manifest must declare a non-empty contextName: ${manifestPath}`);
+        throw new Error(
+          `Context manifest must declare a non-empty contextName: ${existsSync(sourcePath) ? sourcePath : manifestPath}`,
+        );
       }
 
       return {
@@ -109,12 +111,33 @@ export function loadContextSourceManifest(sourcePath, options = {}) {
   }
 }
 
-function contributionIdentity(value) {
+const contributionIdentityFields = {
+  projectionGroups: ["projectionName"],
+  eventSubscriptions: ["sourceContextName", "projectionName"],
+  eventReactions: ["sourceContextName", "reactionName"],
+  anonymousRoutes: ["routePath", "methods"],
+  shellContributions: ["deployable", "slot", "key"],
+  hostPorts: ["portName"],
+  deployableContributions: ["deployable"],
+  accountCapabilities: ["key"],
+};
+
+function contributionIdentity(field, value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  for (const key of ["contributionId", "routeId", "projectionId", "subscriptionId", "checkpointId", "id"]) {
-    if (typeof value[key] === "string" && value[key].trim()) return `${key}:${value[key]}`;
+  const keys = field.endsWith("Inventory") ? ["id"] : contributionIdentityFields[field];
+  if (!keys) return null;
+  const parts = [];
+  for (const key of keys) {
+    const part = value[key];
+    if (Array.isArray(part)) {
+      if (part.length === 0 || !part.every((entry) => typeof entry === "string" && entry.trim())) return null;
+      parts.push(`${key}:${part.join(",")}`);
+      continue;
+    }
+    if (typeof part !== "string" || !part.trim()) return null;
+    parts.push(`${key}:${part}`);
   }
-  return null;
+  return parts.join("|");
 }
 
 export function assertUniqueContextContributionIdentities(contexts) {
@@ -124,7 +147,9 @@ export function assertUniqueContextContributionIdentities(contexts) {
     for (const [field, value] of Object.entries(context.manifest ?? {})) {
       if (!Array.isArray(value)) continue;
       for (const [index, item] of value.entries()) {
-        const identity = contributionIdentity(item);
+        // apiMounts is intentionally unkeyed: neither mountPath nor deep equality
+        // is a stable identity for the repeated marketplace mounts.
+        const identity = contributionIdentity(field, item);
         if (!identity) continue;
         const scopedIdentity = `${field}:${identity}`;
         const previous = seen.get(scopedIdentity);

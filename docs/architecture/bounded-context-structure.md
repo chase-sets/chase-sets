@@ -153,7 +153,7 @@ Bounded contexts should read as feature-first by default.
 Contexts may opt into feature-owned metadata by adding `context.source.mjs`.
 The source is the authored input and must export one JSON-serializable manifest
 object as `contextManifest`, `manifest`, or the default export. It should import
-metadata fragments from the owning `features/<slice>/` directories and compose
+`metadata.json` fragments from the owning `features/<slice>/` directories and compose
 the existing manifest shape with ordinary object and array spreads. Context-wide
 identity, admission, and ownership fields remain in this thin source; feature
 contributions retain their explicit existing order.
