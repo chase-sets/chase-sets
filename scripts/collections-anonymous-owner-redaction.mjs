@@ -401,8 +401,10 @@ async function main() {
     const { default: pg } = await import("pg");
     const { normalizePgPoolConnectionString, resolvePgPoolSslConfig } =
       await import("../infrastructure/event-core-postgres/index.ts");
-    const { redactLegacyAnonymousOwners, activateAnonymousOwnerCutover } =
-      await import("../bounded-contexts/collections/index.ts");
+    const { redactLegacyAnonymousOwners } =
+      await import("../bounded-contexts/collections/features/saved-lists/api/anonymous-owner-redaction.ts");
+    const { activateAnonymousOwnerCutover } =
+      await import("../bounded-contexts/collections/support/runtime-support/anonymous-owner-activation.ts");
     const connectionString = normalizePgPoolConnectionString(options.databaseUrl);
     pool = new pg.Pool({
       connectionString,

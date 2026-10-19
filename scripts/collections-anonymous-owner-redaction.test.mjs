@@ -568,4 +568,11 @@ test("workflow keeps credentials on exporter step and verify offline", () => {
     workflow.indexOf("      - name: Run protected"),
   );
   assert.equal((exporter.match(/secrets\./g) ?? []).length, 3);
+  const entry = readFileSync(new URL("../bounded-contexts/collections/index.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(entry, /export.*(?:redactLegacyAnonymousOwners|activateAnonymousOwnerCutover)/);
+  const script = readFileSync(new URL("./collections-anonymous-owner-redaction.mjs", import.meta.url), "utf8");
+  assert.match(
+    script,
+    /import\("\.\.\/bounded-contexts\/collections\/features\/saved-lists\/api\/anonymous-owner-redaction\.ts"\)/,
+  );
 });
