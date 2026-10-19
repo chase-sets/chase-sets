@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,12 +10,28 @@ import {
   listTrackedLocaleModulePaths,
   syncWorkspaceMetadata,
 } from "./sync-workspace-metadata.mjs";
-import { listBoundedContextManifests, repoRoot } from "./lib/repo.mjs";
+import { repoRoot } from "./lib/repo.mjs";
 
 const tempRoots = [];
 
 function writeJson(filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function snapshotFiles(rootDir) {
+  const files = [];
+  const visit = (currentPath) => {
+    for (const entry of readdirSync(currentPath, { withFileTypes: true })) {
+      const entryPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+      } else if (entry.isFile()) {
+        files.push([path.relative(rootDir, entryPath), readFileSync(entryPath, "utf8")]);
+      }
+    }
+  };
+  visit(rootDir);
+  return files.sort(([left], [right]) => left.localeCompare(right));
 }
 
 async function createMetadataFixture() {
@@ -154,8 +170,14 @@ describe("sync-workspace-metadata --check", () => {
     const secondDir = path.join(fixture.rootDir, "bounded-contexts", "catalog-two");
     await mkdir(secondDir, { recursive: true });
     writeFileSync(path.join(secondDir, "package.json"), '{"name":"@chase-sets/catalog-two"}\n');
-    writeFileSync(path.join(secondDir, "context.json"), '{"contextName":"catalog-two"}\n');
-    writeFileSync(path.join(secondDir, "context.source.mjs"), 'export default { contextName: "catalog-two" };\n');
+    writeFileSync(
+      path.join(secondDir, "context.json"),
+      '{"contextName":"catalog-two","apiDeployables":["platform-api"],"runtimeDeployables":["platform-worker"]}\n',
+    );
+    writeFileSync(
+      path.join(secondDir, "context.source.mjs"),
+      'export default { contextName: "catalog-two", apiDeployables: ["platform-api"], runtimeDeployables: ["platform-worker"] };\n',
+    );
     fixture.workspaces.push({
       name: "@chase-sets/catalog-two",
       dir: secondDir,
@@ -164,18 +186,21 @@ describe("sync-workspace-metadata --check", () => {
       packageJson: { name: "@chase-sets/catalog-two" },
     });
 
-    const ordered = listBoundedContextManifests({ repoRoot: fixture.rootDir, workspaces: fixture.workspaces });
-    syncWorkspaceMetadata({ ...fixture, contexts: ordered });
+    syncWorkspaceMetadata(fixture);
     const readOutputs = () =>
       [
         "bounded-contexts/catalog/context.json",
         "bounded-contexts/catalog-two/context.json",
         "contracts/localization/locales/en.ts",
         "deployables/platform-api/src/generated/api-context-registry.ts",
+        "deployables/platform-worker/src/generated/worker-context-registry.ts",
       ].map((file) => readFileSync(path.join(fixture.rootDir, file), "utf8"));
     const first = readOutputs();
-    syncWorkspaceMetadata({ ...fixture, contexts: [...ordered].reverse() });
-    expect(readOutputs()).toEqual(first);
+    syncWorkspaceMetadata({ ...fixture, workspaces: [...fixture.workspaces].reverse() });
+    const second = readOutputs();
+    expect(second).toEqual(first);
+    expect(second[3]).toMatch(/contextName: "catalog"[\s\S]*contextName: "catalog-two"/);
+    expect(second[4]).toMatch(/contextName: "catalog"[\s\S]*contextName: "catalog-two"/);
   });
 
   it("fails closed when a source cannot compose instead of reading canonical context.json", async () => {
@@ -228,9 +253,18 @@ describe("sync-workspace-metadata --check", () => {
     stale.apiDeployables = ["platform-worker"];
     writeJson(canonicalPath, stale);
 
-    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(
-      /Workspace metadata is out of date:[\s\S]*bounded-contexts\/catalog\/context\.json is stale/,
-    );
+    const beforeCheck = snapshotFiles(fixture.rootDir);
+    let error;
+    try {
+      syncWorkspaceMetadata({ ...fixture, check: true });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error?.message).toContain("Workspace metadata is out of date:");
+    expect(error?.message.split("\n").filter((line) => line.startsWith("- "))).toEqual([
+      "- bounded-contexts/catalog/context.json is stale",
+    ]);
+    expect(snapshotFiles(fixture.rootDir)).toEqual(beforeCheck);
     expect(JSON.parse(readFileSync(canonicalPath, "utf8")).apiDeployables).toEqual(["platform-worker"]);
   });
 

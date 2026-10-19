@@ -576,6 +576,15 @@ function extractImportSpecifiers(content) {
   return specifiers;
 }
 
+function extractLocalizationImportSpecifiers(content) {
+  return [
+    ...new Set([
+      ...extractImportSpecifiers(content),
+      ...[...content.matchAll(/(?:^|[\s;])import\s*["']([^"']+)["']/g)].map((match) => match[1]),
+    ]),
+  ];
+}
+
 export function isApprovedCrossContextTypeContractImport(relativeFile, specifier, content) {
   const contract = approvedCrossContextTypeContracts.get(specifier);
   if (!contract || !contract.importer.test(relativeFile.replaceAll("\\", "/"))) return false;
@@ -879,6 +888,32 @@ function resolveExistingModulePath(rootDir, relativeSpecifier) {
   for (const extension of moduleFileExtensions) {
     const candidate = path.join(absoluteBase, `index${extension}`);
     if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function resolveLocalizationModulePath(rootDir, relativeSpecifier) {
+  const normalized = relativeSpecifier.replace(/^\.\//, "");
+  const absoluteBase = path.join(rootDir, normalized);
+  const isFile = (candidate) => existsSync(candidate) && statSync(candidate).isFile();
+
+  if (isFile(absoluteBase)) {
+    return absoluteBase;
+  }
+
+  for (const extension of moduleFileExtensions) {
+    const candidate = `${absoluteBase}${extension}`;
+    if (isFile(candidate)) {
+      return candidate;
+    }
+  }
+
+  for (const extension of moduleFileExtensions) {
+    const candidate = path.join(absoluteBase, `index${extension}`);
+    if (isFile(candidate)) {
       return candidate;
     }
   }
@@ -1494,8 +1529,9 @@ function hasBrowserUnsafeLocalizationSpecifier(content) {
     /process\.env|globalThis\.process|window\.location\.assign/,
   ];
   return (
-    extractImportSpecifiers(content).some((specifier) => unsafePatterns.some((pattern) => pattern.test(specifier))) ||
-    /process\.env|globalThis\.process|window\.location\.assign/.test(content)
+    extractLocalizationImportSpecifiers(content).some((specifier) =>
+      unsafePatterns.some((pattern) => pattern.test(specifier)),
+    ) || /process\.env|globalThis\.process|window\.location\.assign/.test(content)
   );
 }
 
@@ -1516,9 +1552,9 @@ export function findBrowserUnsafeLocalizationReachability({ contextRoot, targetP
     if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) continue;
     const content = readFileSync(currentPath, "utf8");
     if (hasBrowserUnsafeLocalizationSpecifier(content)) return currentPath;
-    for (const specifier of extractImportSpecifiers(content)) {
+    for (const specifier of extractLocalizationImportSpecifiers(content)) {
       if (!specifier.startsWith(".")) continue;
-      const nextPath = resolveExistingModulePath(path.dirname(currentPath), specifier);
+      const nextPath = resolveLocalizationModulePath(path.dirname(currentPath), specifier);
       if (nextPath) pending.push(nextPath);
     }
   }

@@ -46,6 +46,7 @@ describe("route support placement guard", () => {
   it("keeps the exact localization surface browser-safe", () => {
     expect(findBrowserUnsafeLocalizationExport('export { catalog } from "./features/catalog/locales";')).toBe(false);
     expect(findBrowserUnsafeLocalizationExport('import fs from "node:fs"; export const catalog = {};')).toBe(true);
+    expect(findBrowserUnsafeLocalizationExport('import "node:fs"; export const catalog = {};')).toBe(true);
     expect(findBrowserUnsafeLocalizationExport('export { loader } from "./server";')).toBe(true);
     expect(isAllowedPublicExportName("./localization")).toBe(true);
     expect(isAllowedPublicExportName("./localization/catalog")).toBe(false);
@@ -63,6 +64,26 @@ describe("route support placement guard", () => {
       );
       writeFileSync(path.join(contextRoot, "features", "catalog.ts"), "export const catalog = {};\n");
       expect(findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath: target })).toBeNull();
+
+      rmSync(path.join(contextRoot, "features", "catalog.ts"));
+      mkdirSync(path.join(contextRoot, "features", "catalog"), { recursive: true });
+      writeFileSync(target, 'export { catalog } from "./features/catalog";\n');
+      writeFileSync(
+        path.join(contextRoot, "features", "catalog", "index.ts"),
+        'export { locales } from "./locales";\n',
+      );
+      writeFileSync(path.join(contextRoot, "features", "catalog", "locales.ts"), 'import "node:fs";\n');
+      expect(findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath: target })).toBe(
+        path.join(contextRoot, "features", "catalog", "locales.ts"),
+      );
+      writeFileSync(path.join(contextRoot, "features", "catalog", "locales.ts"), "export const locales = {};\n");
+      expect(findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath: target })).toBeNull();
+
+      writeFileSync(path.join(contextRoot, "features", "catalog", "index.ts"), 'import "./setup";\n');
+      writeFileSync(path.join(contextRoot, "features", "catalog", "setup.ts"), 'import "node:fs";\n');
+      expect(findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath: target })).toBe(
+        path.join(contextRoot, "features", "catalog", "setup.ts"),
+      );
     } finally {
       rmSync(contextRoot, { recursive: true, force: true });
     }
