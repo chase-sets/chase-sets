@@ -127,6 +127,7 @@ type LorcanajsonCardData = Readonly<{
   name?: string;
   number?: string | number;
   setCode?: string | number;
+  promoGrouping?: string;
   rarity?: string;
   type?: string;
   typeText?: string;
@@ -206,6 +207,8 @@ type LorcanajsonUnitKey =
 
 const lorcanajsonProofFetchedAt = "2026-06-23T00:00:00.000Z";
 const DEFAULT_LORCANAJSON_FETCH_TIMEOUT_MS = 30_000;
+const LORCANAJSON_PROMO_GROUPING_ESTIMATE_REASON =
+  "allCards.json is the only LorcanaJSON file that publishes a promo grouping's cards.";
 
 export function createLorcanajsonProviderAdapter(
   options: LorcanajsonProviderAdapterOptions = {},
@@ -252,9 +255,17 @@ function createLorcanajsonAdapter(
     async planImport(scope) {
       assertLorcanajsonUnit(scope.unitKey);
       const setCode = requireString(
-        scope.values.setCode ?? scope.values.code ?? scope.values.setId ?? scope.values.expansionId,
+        scope.values.setCode ??
+          scope.values.code ??
+          scope.values.setId ??
+          scope.values.expansionId ??
+          scope.values.setName,
         "LorcanaJSON import planning requires setCode.",
       );
+      const setFile = isLorcanajsonSetFileCode(setCode);
+      const fetchStep = setFile
+        ? "Fetch LorcanaJSON set file"
+        : "Fetch LorcanaJSON allCards.json for the promo grouping";
 
       if (scope.unitKey === LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY) {
         return {
@@ -263,15 +274,17 @@ function createLorcanajsonAdapter(
           scope: { unitKey: scope.unitKey, scopeKey: "set", values: { ...scope.values, setCode } },
           estimatedPayloads: 1,
           transportSteps: [
-            "Fetch LorcanaJSON set file",
+            fetchStep,
             "Attach set reference provenance",
-            "Use allCards.json only for option discovery",
+            ...(setFile ? ["Use allCards.json only for option discovery"] : []),
           ],
           usageEstimate: {
             requestStrategy: "bulk-first",
             estimateState: "estimated",
             estimatedRequestCount: 1,
-            estimateReason: "One selected set file contains set metadata and card list.",
+            estimateReason: setFile
+              ? "One selected set file contains set metadata and card list."
+              : LORCANAJSON_PROMO_GROUPING_ESTIMATE_REASON,
             pageSize: null,
             selectedFields: [],
             perRecordFallbackReason: null,
@@ -292,7 +305,7 @@ function createLorcanajsonAdapter(
           planKey: `lorcanajson:cards:set:${normalizeSetCode(setCode)}`,
           scope: { unitKey: scope.unitKey, scopeKey: "set", values: { ...scope.values, setCode } },
           transportSteps: [
-            "Fetch LorcanaJSON set file",
+            fetchStep,
             "Select all card payloads from the selected set",
             "Attach card reference provenance",
           ],
@@ -300,7 +313,9 @@ function createLorcanajsonAdapter(
             requestStrategy: "bulk-first",
             estimateState: "estimated",
             estimatedRequestCount: 1,
-            estimateReason: "One selected set file contains every card payload for the set.",
+            estimateReason: setFile
+              ? "One selected set file contains every card payload for the set."
+              : LORCANAJSON_PROMO_GROUPING_ESTIMATE_REASON,
             pageSize: null,
             selectedFields: [],
             perRecordFallbackReason: null,
@@ -328,16 +343,14 @@ function createLorcanajsonAdapter(
           },
         },
         estimatedPayloads: 1,
-        transportSteps: [
-          "Fetch LorcanaJSON set file",
-          "Select requested card payload",
-          "Attach card reference provenance",
-        ],
+        transportSteps: [fetchStep, "Select requested card payload", "Attach card reference provenance"],
         usageEstimate: {
           requestStrategy: "bulk-first",
           estimateState: "estimated",
           estimatedRequestCount: 1,
-          estimateReason: "A selected-card import still uses the bulk set file instead of a per-card endpoint.",
+          estimateReason: setFile
+            ? "A selected-card import still uses the bulk set file instead of a per-card endpoint."
+            : LORCANAJSON_PROMO_GROUPING_ESTIMATE_REASON,
           pageSize: null,
           selectedFields: [],
           perRecordFallbackReason: null,
@@ -351,17 +364,15 @@ function createLorcanajsonAdapter(
       assertLorcanajsonUnit(plan.unitKey);
       const fetchedAt = (options.now ?? (() => new Date()))().toISOString();
       const setCode = requireString(plan.scope.values.setCode, "LorcanaJSON payload fetch requires setCode.");
-      const sourceUrl = lorcanajsonSetUrl(setCode, options);
-      const response = await fetchLorcanajsonSet(setCode, options);
-      const set = normalizeSetFromSetResponse(response, setCode);
+      const { metadata, set, cards, sourceUrl } = await fetchLorcanajsonImportSource(setCode, options);
 
       if (plan.unitKey === LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY) {
         yield lorcanajsonEnvelope({
           unitKey: plan.unitKey,
           externalKey: `set:${set.setId}`,
-          payload: createLorcanajsonSetPayload({ response, set, sourceUrl }),
+          payload: createLorcanajsonSetPayload({ metadata, set, sourceUrl }),
           sourceUrl,
-          sourceUpdatedAt: sourceUpdatedAt(response.metadata, set.releaseDate),
+          sourceUpdatedAt: sourceUpdatedAt(metadata, set.releaseDate),
           fetchedAt,
         });
         await fetchOptions?.onProgress?.({
@@ -373,17 +384,16 @@ function createLorcanajsonAdapter(
         return;
       }
 
-      const cards = response.cards ?? [];
       if (plan.scope.scopeKey === "set") {
         for (let index = 0; index < cards.length; index += 1) {
           const card = cards[index] ?? {};
-          const payload = createLorcanajsonCardPayload({ response, set, card, sourceUrl });
+          const payload = createLorcanajsonCardPayload({ metadata, set, card, sourceUrl });
           yield lorcanajsonEnvelope({
             unitKey: plan.unitKey,
             externalKey: payload.externalKey,
             payload,
             sourceUrl,
-            sourceUpdatedAt: sourceUpdatedAt(response.metadata, set.releaseDate),
+            sourceUpdatedAt: sourceUpdatedAt(metadata, set.releaseDate),
             fetchedAt,
           });
           await fetchOptions?.onProgress?.({
@@ -401,13 +411,13 @@ function createLorcanajsonAdapter(
         throw new Error(`LorcanaJSON set '${setCode}' did not include the requested card payload.`);
       }
 
-      const payload = createLorcanajsonCardPayload({ response, set, card, sourceUrl });
+      const payload = createLorcanajsonCardPayload({ metadata, set, card, sourceUrl });
       yield lorcanajsonEnvelope({
         unitKey: plan.unitKey,
         externalKey: payload.externalKey,
         payload,
         sourceUrl,
-        sourceUpdatedAt: sourceUpdatedAt(response.metadata, set.releaseDate),
+        sourceUpdatedAt: sourceUpdatedAt(metadata, set.releaseDate),
         fetchedAt,
       });
       await fetchOptions?.onProgress?.({
@@ -550,10 +560,13 @@ async function listLorcanajsonOptions(
   if (optionKind === "sets" || optionKind === "set") {
     const response = await fetchLorcanajsonAllCards(options);
     const cardsBySetCode = countCardsBySetCode(response.cards ?? []);
+    const setOptions = Object.entries(response.sets ?? {}).map(([setKey, set]) =>
+      setOptionFromAllCardsEntry(setKey, set, response.metadata, cardsBySetCode),
+    );
     return {
-      items: Object.entries(response.sets ?? {})
-        .map(([setKey, set]) => setOptionFromAllCardsEntry(setKey, set, response.metadata, cardsBySetCode))
-        .sort((left, right) => left.label.localeCompare(right.label)),
+      items: [...setOptions, ...promoGroupingOptions(response, lorcanajsonSetCodes(response.sets))].sort(
+        (left, right) => left.label.localeCompare(right.label),
+      ),
     };
   }
 
@@ -567,7 +580,7 @@ async function listLorcanajsonOptions(
     return {
       items: (response.cards ?? []).map((card) => {
         const payload = createLorcanajsonCardPayload({
-          response,
+          metadata: response.metadata,
           set,
           card,
           sourceUrl: lorcanajsonSetUrl(setCode, options),
@@ -611,6 +624,50 @@ async function fetchLorcanajsonSet(
   return fetchJson(lorcanajsonSetUrl(setCode, options), options);
 }
 
+type LorcanajsonImportSource = Readonly<{
+  metadata: LorcanajsonMetadata | undefined;
+  set: NormalizedLorcanajsonSet;
+  cards: readonly LorcanajsonCardData[];
+  sourceUrl: string;
+}>;
+
+// A set imports from its set file without the promo cards printed in it; a promo
+// grouping has no set file, so it imports from allCards.json under its own code.
+async function fetchLorcanajsonImportSource(
+  setCode: string,
+  options: LorcanajsonProviderAdapterOptions,
+): Promise<LorcanajsonImportSource> {
+  if (isLorcanajsonSetFileCode(setCode)) {
+    const response = await fetchLorcanajsonSet(setCode, options);
+    return {
+      metadata: response.metadata,
+      set: normalizeSetFromSetResponse(response, setCode),
+      cards: (response.cards ?? []).filter((card) => !promoGroupingCode(card)),
+      sourceUrl: lorcanajsonSetUrl(setCode, options),
+    };
+  }
+
+  const promoGrouping = normalizeSetCode(setCode);
+  const response = await fetchLorcanajsonAllCards(options);
+  assertLorcanajsonPromoGroupingCode(promoGrouping, lorcanajsonSetCodes(response.sets));
+  const cards = (response.cards ?? []).filter((card) => promoGroupingCode(card) === promoGrouping);
+  if (cards.length === 0) {
+    throw new Error(`LorcanaJSON allCards.json did not include promo grouping '${promoGrouping}'.`);
+  }
+  return {
+    metadata: response.metadata,
+    set: {
+      setId: promoGrouping,
+      setCode: promoGrouping,
+      setName: promoGrouping,
+      releaseDate: null,
+      cardCount: cards.length,
+    },
+    cards,
+    sourceUrl: lorcanajsonUrl("allCards.json", options),
+  };
+}
+
 async function fetchJson<T>(url: string, options: LorcanajsonProviderAdapterOptions): Promise<T> {
   const timeoutMs = options.fetchTimeoutMs ?? DEFAULT_LORCANAJSON_FETCH_TIMEOUT_MS;
   const abortController = timeoutMs > 0 ? new AbortController() : null;
@@ -645,7 +702,7 @@ async function fetchJson<T>(url: string, options: LorcanajsonProviderAdapterOpti
 }
 
 function createLorcanajsonCardPayload(input: {
-  response: LorcanajsonSetResponse;
+  metadata: LorcanajsonMetadata | undefined;
   set: NormalizedLorcanajsonSet;
   card: LorcanajsonCardData;
   sourceUrl: string;
@@ -664,9 +721,9 @@ function createLorcanajsonCardPayload(input: {
     : [];
   const sourcePayload: LorcanajsonCompactCardSourcePayload = {
     provider: "lorcanajson",
-    formatVersion: input.response.metadata?.formatVersion ?? null,
-    generatedOn: input.response.metadata?.generatedOn ?? null,
-    set: compactSetSourcePayload(input.response.metadata, input.set),
+    formatVersion: input.metadata?.formatVersion ?? null,
+    generatedOn: input.metadata?.generatedOn ?? null,
+    set: compactSetSourcePayload(input.metadata, input.set),
     card: {
       id: cardId,
       name,
@@ -680,8 +737,8 @@ function createLorcanajsonCardPayload(input: {
   };
   const catalogHashMaterial = {
     provider: "lorcanajson" as const,
-    formatVersion: input.response.metadata?.formatVersion ?? null,
-    generatedOn: input.response.metadata?.generatedOn ?? null,
+    formatVersion: input.metadata?.formatVersion ?? null,
+    generatedOn: input.metadata?.generatedOn ?? null,
     setId: input.set.setId,
     setCode: input.set.setCode,
     setName: input.set.setName,
@@ -698,7 +755,7 @@ function createLorcanajsonCardPayload(input: {
     observationId: `lorcanajson_card_en_${cardId}`,
     externalKey: `card:${cardId}`,
     sourceUrl: input.sourceUrl,
-    sourceUpdatedAt: sourceUpdatedAt(input.response.metadata, input.set.releaseDate),
+    sourceUpdatedAt: sourceUpdatedAt(input.metadata, input.set.releaseDate),
     sourcePayload,
     catalogHashMaterial,
     mergeIdentity: {
@@ -729,15 +786,15 @@ function createLorcanajsonCardPayload(input: {
 }
 
 function createLorcanajsonSetPayload(input: {
-  response: LorcanajsonSetResponse;
+  metadata: LorcanajsonMetadata | undefined;
   set: NormalizedLorcanajsonSet;
   sourceUrl: string;
 }): Extract<LorcanajsonProviderPayload, { kind: "lorcana-set-reference" }> {
-  const sourcePayload = compactSetSourcePayload(input.response.metadata, input.set);
+  const sourcePayload = compactSetSourcePayload(input.metadata, input.set);
   const catalogHashMaterial = {
     provider: "lorcanajson" as const,
-    formatVersion: input.response.metadata?.formatVersion ?? null,
-    generatedOn: input.response.metadata?.generatedOn ?? null,
+    formatVersion: input.metadata?.formatVersion ?? null,
+    generatedOn: input.metadata?.generatedOn ?? null,
     setId: input.set.setId,
     setCode: input.set.setCode,
     setName: input.set.setName,
@@ -751,7 +808,7 @@ function createLorcanajsonSetPayload(input: {
     observationId: `lorcanajson_set_en_${input.set.setId}`,
     externalKey: `set:${input.set.setId}`,
     sourceUrl: input.sourceUrl,
-    sourceUpdatedAt: sourceUpdatedAt(input.response.metadata, input.set.releaseDate),
+    sourceUpdatedAt: sourceUpdatedAt(input.metadata, input.set.releaseDate),
     sourcePayload,
     catalogHashMaterial,
     externalCatalogItemReferences: [],
@@ -794,7 +851,7 @@ function setOptionFromAllCardsEntry(
   metadata: LorcanajsonMetadata | undefined,
   cardsBySetCode: ReadonlyMap<string, number>,
 ): ProviderOptionItem {
-  const setCode = normalizeSetCode(stringValue(set.code ?? setKey) ?? setKey);
+  const setCode = lorcanajsonSetCode(setKey, set);
   const cardCount = numberValue(set.cardCount ?? set.totalCards) ?? cardsBySetCode.get(setCode) ?? null;
   return {
     value: setCode,
@@ -811,6 +868,63 @@ function setOptionFromAllCardsEntry(
       generatedOn: metadata?.generatedOn ?? null,
     }),
   };
+}
+
+// LorcanaJSON names no promo grouping, so a grouping option's value and label are its code.
+function promoGroupingOptions(
+  response: LorcanajsonAllCardsResponse,
+  setCodes: ReadonlySet<string>,
+): ProviderOptionItem[] {
+  const cardCounts = new Map<string, number>();
+  for (const card of response.cards ?? []) {
+    const promoGrouping = promoGroupingCode(card);
+    if (promoGrouping) {
+      cardCounts.set(promoGrouping, (cardCounts.get(promoGrouping) ?? 0) + 1);
+    }
+  }
+  return [...cardCounts.keys()].sort().map((promoGrouping) => {
+    assertLorcanajsonPromoGroupingCode(promoGrouping, setCodes);
+    return {
+      value: promoGrouping,
+      label: promoGrouping,
+      metadata: optionalMetadata({
+        setId: promoGrouping,
+        setCode: promoGrouping,
+        promoGrouping,
+        cardCount: String(cardCounts.get(promoGrouping)),
+        formatVersion: response.metadata?.formatVersion ?? null,
+        generatedOn: response.metadata?.generatedOn ?? null,
+      }),
+    };
+  });
+}
+
+function assertLorcanajsonPromoGroupingCode(promoGrouping: string, setCodes: ReadonlySet<string>): void {
+  if (setCodes.has(promoGrouping)) {
+    throw new Error(`LorcanaJSON promo grouping '${promoGrouping}' collides with a set code.`);
+  }
+  if (isLorcanajsonSetFileCode(promoGrouping)) {
+    throw new Error(`LorcanaJSON promo grouping '${promoGrouping}' has the form of a set code.`);
+  }
+}
+
+// LorcanaJSON publishes a set file only for numbered sets and Q-numbered quest sets;
+// any other coordinate is a promo grouping published only in allCards.json.
+function isLorcanajsonSetFileCode(setCode: string): boolean {
+  return /^Q?\d+$/.test(normalizeSetCode(setCode));
+}
+
+function lorcanajsonSetCodes(sets: LorcanajsonAllCardsResponse["sets"]): ReadonlySet<string> {
+  return new Set(Object.entries(sets ?? {}).map(([setKey, set]) => lorcanajsonSetCode(setKey, set)));
+}
+
+function lorcanajsonSetCode(setKey: string, set: LorcanajsonSetData): string {
+  return normalizeSetCode(stringValue(set.code ?? setKey) ?? setKey);
+}
+
+function promoGroupingCode(card: LorcanajsonCardData): string | null {
+  const promoGrouping = stringValue(card.promoGrouping);
+  return promoGrouping ? normalizeSetCode(promoGrouping) : null;
 }
 
 function compactSetSourcePayload(
