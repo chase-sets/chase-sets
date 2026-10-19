@@ -14,7 +14,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");
@@ -104,7 +104,7 @@ function createSeat({
 }
 
 // encoding "buffer" keeps the helper's raw stream bytes for byte-exact checks.
-function runPwsh(args, { cwd, env, input = "", encoding = "utf8" }) {
+function runPwshRaw(args, { cwd, env, input = "", encoding = "utf8" }) {
   const result = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", ...args], {
     cwd,
     env,
@@ -116,6 +116,22 @@ function runPwsh(args, { cwd, env, input = "", encoding = "utf8" }) {
   });
   if (result.error) throw result.error;
   return result;
+}
+
+let pwshVersionChecked = false;
+function runPwsh(args, options) {
+  if (!pwshVersionChecked) {
+    const probe = runPwshRaw(["-Command", "$PSVersionTable.PSVersion.Major"], {
+      cwd: os.tmpdir(),
+      env: process.env,
+    });
+    if (probe.error) throw probe.error;
+    if (probe.status !== 0 || Number(probe.stdout.trim()) < 7) {
+      throw new Error("PowerShell 7 or newer is required");
+    }
+    pwshVersionChecked = true;
+  }
+  return runPwshRaw(args, options);
 }
 
 function runSeat(seat, script, args, env = {}, { encoding } = {}) {
@@ -210,12 +226,6 @@ function expectTokenOnlyInBwsEnvironment(seat, result) {
   expect(result.stderr).not.toContain(seat.token);
   expect(filesContaining(seat.root, seat.token, ["stub-credential.json"])).toEqual([]);
 }
-
-beforeAll(() => {
-  const probe = runPwsh(["-Command", "$PSVersionTable.PSVersion.Major"], { cwd: os.tmpdir(), env: process.env });
-  expect(probe.status).toBe(0);
-  expect(Number(probe.stdout.trim())).toBeGreaterThanOrEqual(7);
-});
 
 afterEach(() => {
   for (const root of seats.splice(0)) rmSync(root, { recursive: true, force: true });

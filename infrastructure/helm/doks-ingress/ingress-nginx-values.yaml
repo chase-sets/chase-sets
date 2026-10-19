@@ -58,6 +58,8 @@ controller:
     ssl-redirect: "true"
     custom-http-errors: "502,503,504"
     disable-proxy-intercept-errors: "true"
+    log-format-upstream: '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent "$http_user_agent" $request_length $request_time [$proxy_upstream_name] [$proxy_alternative_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status $req_id'
+    error-log-path: /dev/null
   metrics:
     enabled: true
   resources:
@@ -100,7 +102,7 @@ defaultBackend:
       cpu: 10m
       memory: 32Mi
   podAnnotations:
-    chase-sets.com/maintenance-config-sha256: 3aaf832ea25f9154e4f07ae7b2eac3d1a3c56196d8c096e1b632953f47fc3efe
+    chase-sets.com/maintenance-config-sha256: b382305861a9b08ef937616b8dc0600785bcc606d42d5e31958cd60fcd369f84
   extraConfigMaps:
     - name: ingress-nginx-maintenance
       data:
@@ -112,6 +114,7 @@ defaultBackend:
             ~*(^|,)\s*text/html[^,]*\x3B\s*q=0(?:\.0*)?(?:\s*,|$) json;
             ~*(^|,)\s*text/html(?:\s*\x3B[^,]*)?(,|$) html;
           }
+          log_format maintenance_pathname '$request_method $uri $status $http_x_code $http_x_request_id';
           map "$http_x_code:$maintenance_format" $maintenance_uri {
             default /not-found;
             "502:html" /maintenance.html;
@@ -130,6 +133,8 @@ defaultBackend:
             server_name _;
             root /opt/chase-sets-maintenance;
             default_type text/plain;
+            access_log /dev/stdout maintenance_pathname;
+            error_log /dev/null;
 
             location = /healthz {
               default_type text/plain;

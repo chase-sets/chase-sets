@@ -53,6 +53,9 @@ function assertMaintenanceConfig(candidate) {
     "ssl-redirect": "true",
     "custom-http-errors": "502,503,504",
     "disable-proxy-intercept-errors": "true",
+    "log-format-upstream":
+      '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent "$http_user_agent" $request_length $request_time [$proxy_upstream_name] [$proxy_alternative_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status $req_id',
+    "error-log-path": "/dev/null",
   });
   expect(candidateBackend).toMatchObject({
     enabled: true,
@@ -201,6 +204,25 @@ function assertMaintenanceConfig(candidate) {
 describe("ingress maintenance default backend contract", () => {
   it("pins controller policy, worker, files, negotiation, headers, and safe mounts", () => {
     assertMaintenanceConfig(values);
+  });
+
+  it("logs the default backend query-free with no error log", () => {
+    const config = data["default.conf"];
+    const server = config.slice(config.indexOf("server {"));
+    expectConfigLine(
+      config,
+      "log_format maintenance_pathname '$request_method $uri $status $http_x_code $http_x_request_id';",
+    );
+    expectConfigLine(config, "access_log /dev/stdout maintenance_pathname;");
+    expect(server).toMatch(/^\s*access_log\s+[^;]+;$/m);
+    expect(server).toMatch(/^\s*error_log\s+\/dev\/null;$/m);
+    expect(config.match(/\$[a-z_]+/g)).toEqual(
+      expect.arrayContaining(["$request_method", "$uri", "$status", "$http_x_code", "$http_x_request_id"]),
+    );
+    expect(config.match(/\$[a-z_]+/g)).not.toContain("$request");
+    expect(config).not.toMatch(
+      /\$(?:request_uri|args|query_string|is_args|arg_[a-z_]+|http_referer|http_x_original_uri)\b/,
+    );
   });
 
   it("rejects a one-byte payload mutant with its stale digest", () => {
