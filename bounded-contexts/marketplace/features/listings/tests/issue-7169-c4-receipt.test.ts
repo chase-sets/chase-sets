@@ -8,7 +8,8 @@ import { draftContext, draftMessage } from "./issue-7169-c4-fixture";
 import { createInventoryDraftListingConsumer } from "../api/inventory-draft-consumer";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { StoredEvent } from "@chase-sets/event-core/storage";
+import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import { parseGlobalPosition, type StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgPoolClient, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import { module as marketplaceModule } from "../../../index";
 import { inventoryDraftReceiptMigrations } from "../read-model/inventory-draft-receipt-schema";
@@ -121,7 +122,7 @@ function harness() {
   const client = { query, release: vi.fn() } as PgPoolClient;
   const pool = { query, connect: vi.fn(async () => client) } as PgTransactionalPool;
   const eventStore: PostgresEventStore = {
-    ...createInMemoryEventStore(),
+    ...createInMemoryEventStore().eventStore,
     readStreamInTransaction: async (_client, input) =>
       events.filter((event) => event.streamVersion >= (input.fromVersion ?? 1)).slice(0, input.limit),
     appendToStreamInTransaction: vi.fn(),
@@ -133,13 +134,13 @@ function harness() {
       eventId: "evt_c4",
       streamId: "marketplace.listing-lst_c4_1",
       streamVersion: 1,
-      globalPosition: "1",
+      globalPosition: parseGlobalPosition("1"),
       tenantId: draftContext.tenantId,
       forAccountId: draftContext.audit.forAccountId,
       performedByUserId: draftContext.audit.performedByUserId,
       eventType: "marketplace.listing.created",
-      occurredAt: message.snapshot.committedAt,
-      recordedAt: message.snapshot.committedAt,
+      occurredAt: parseIsoUtcTimestamp(message.snapshot.committedAt),
+      recordedAt: parseIsoUtcTimestamp(message.snapshot.committedAt),
       metadata: {},
       payload: {
         ...message.snapshot,
@@ -148,7 +149,7 @@ function harness() {
         feeQuoteFingerprint: "quote_c4",
         shipFromAddress: normalizeAddressSnapshot(message.snapshot.shipFromAddress, "Ship-from address"),
       },
-    } as StoredEvent);
+    } satisfies StoredEvent);
   }
   const createDraft = vi.fn(async () => {
     seedLegacy();

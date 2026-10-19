@@ -40,7 +40,7 @@ export const inventoryDraftReceiptMigrations: readonly BcSchemaMigration[] = [
       if (shape.rows.length !== 1 || !shape.rows[0]?.valid) throw new Error("Invalid Inventory draft receipt schema.");
       let after: string | null = null;
       for (;;) {
-        const page = await db.query<InventoryDraftReceiptRow>(
+        const page: { rows: InventoryDraftReceiptRow[] } = await db.query<InventoryDraftReceiptRow>(
           `SELECT message_id, tenant_id, account_id, performed_by_user_id, listing_id, intent_hash, receipt, accepted_at
            FROM marketplace_inventory_draft_receipts WHERE ($1::text IS NULL OR message_id > $1)
            ORDER BY message_id LIMIT 500`,
