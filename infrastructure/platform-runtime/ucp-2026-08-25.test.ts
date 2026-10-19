@@ -51,10 +51,10 @@ describe("UCP 2026-08-25 contract", () => {
       status: "completed",
     });
 
-    const failure = createUcpEnvelope("error", {}, [{ severity: "error", code: "bad", message: "Bad request" }]);
+    const failure = createUcpEnvelope("error", {}, [{ severity: "recoverable", code: "bad", message: "Bad request" }]);
     expect(failure).toEqual({
       ucp: { version: UCP_VERSION, status: "error" },
-      messages: [{ type: "error", severity: "error", code: "bad", content: "Bad request" }],
+      messages: [{ type: "error", severity: "recoverable", code: "bad", content: "Bad request" }],
     });
     expect(failure.messages?.[0]).toMatchObject({ type: "error", content: "Bad request" });
   });

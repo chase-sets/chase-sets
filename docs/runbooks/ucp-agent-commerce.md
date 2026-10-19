@@ -201,6 +201,20 @@ Invoke-RestMethod http://localhost:7712/ucp/v1/orders/<order-id> -Headers @{ Aut
 
 ## Incident Response
 
+## UCP 2026-08-25 Response Shape And Cutover Drill
+
+Successful REST and MCP responses use `ucp.status: "success"` and place the
+resource at the response root. Error responses use `ucp.status: "error"` with
+no resource and `messages[]` entries containing `type: "error"`, `code`,
+`content`, `severity` (`recoverable`, `requires_buyer_input`,
+`requires_buyer_review`, or `unrecoverable`), and an optional `path`.
+
+After cutover, run the deploy smoke profile-less catalog success check, verify
+both `/.well-known/ucp` and `/ucp/v1` profile routes, and compare representative
+REST and MCP catalog and checkout bytes for parity. Re-open the retired
+`2026-04-08` profile only when an onboarding platform cannot negotiate
+`2026-08-25`.
+
 For suspected replay or agent abuse:
 
 - Pause the platform/client in Identity by revoking the Linked Platform Authorization.

@@ -170,10 +170,10 @@
               "required": ["type", "severity", "code", "content"],
               "properties": {
                 "type": { "const": "error" },
-                "severity": { "type": "string", "enum": ["info", "warning", "error", "requires_buyer_input", "requires_buyer_review"] },
+                "severity": { "type": "string", "enum": ["recoverable", "requires_buyer_input", "requires_buyer_review", "unrecoverable"] },
                 "code": { "type": "string" },
                 "content": { "type": "string" },
-                "target": { "type": "string" }
+                "path": { "type": "string" }
               }
             }
           }

@@ -419,10 +419,10 @@ const UCP_MCP_CHECKOUT_HANDOFF_HTML = `<!doctype html>
       const payload = result?.structuredContent ?? result ?? {};
       const action = payload.action ?? {};
       const message = payload.messages?.[0]?.content || payload.messages?.[0]?.message || action.reason || "Use trusted Chase Sets checkout before any order or payment is finalized.";
-      const url = typeof action.url === "string" ? action.url : "";
+      const url = typeof payload.continue_url === "string" ? payload.continue_url : typeof action.url === "string" ? action.url : "";
       const checkoutId = payload.checkout?.id || payload.id || "";
 
-      if (!url && !checkoutId && payload.ucp?.status !== "success") {
+      if (!url && !checkoutId) {
         app.innerHTML = '<section class="empty">Checkout handoff details will appear here when trusted UI is required.</section>';
         return;
       }
@@ -851,7 +851,7 @@ async function negotiateUcpRequest(
   const failure = (code: string, status: UcpNegotiationFailure["status"]): UcpNegotiationFailure => ({
     code,
     status,
-    envelope: createUcpEnvelope("error", {}, [{ severity: "error", code, message: code }]),
+    envelope: createUcpEnvelope("error", {}, [{ severity: "recoverable", code, message: code }]),
   });
   if (meta.profile.kind === "malformed") return failure("invalid_profile_url", 400);
   if (meta.profile.kind === "supplied") {
@@ -1072,7 +1072,7 @@ async function signedWriteOrJsonError(request: Request) {
   return reason
     ? createUcpEnvelope("error", {}, [
         {
-          severity: "error",
+          severity: "recoverable",
           code: "signed_request_required",
           message: reason,
         },
@@ -1083,7 +1083,7 @@ async function signedWriteOrJsonError(request: Request) {
 function idempotencyRequiredEnvelope(operation: string) {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
+      severity: "recoverable",
       code: "idempotency_key_required",
       message: `Idempotency-Key is required for ${operation}.`,
     },
@@ -1093,7 +1093,7 @@ function idempotencyRequiredEnvelope(operation: string) {
 function idempotencyConflictEnvelope() {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
+      severity: "recoverable",
       code: "idempotency_key_conflict",
       message: "Idempotency-Key was already used with different request parameters.",
     },
@@ -1103,7 +1103,7 @@ function idempotencyConflictEnvelope() {
 function idempotencyInProgressEnvelope() {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "warning",
+      severity: "recoverable",
       code: "idempotency_key_in_progress",
       message: "A matching request is already in progress. Retry later.",
     },
@@ -1404,7 +1404,7 @@ async function invokeRestWrite(
     return c.json(
       createUcpEnvelope("error", {}, [
         {
-          severity: "error",
+          severity: "recoverable",
           code: "signed_request_required",
           message: signatureFailure,
         },
@@ -1684,7 +1684,7 @@ function enforceAgentGrantRateLimit(
   emitObserver(options.observer?.agentGuardrailTriggered, violation);
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
+      severity: "recoverable",
       code: "agent_grant_rate_limited",
       message: decision.reason,
     },
@@ -1694,7 +1694,7 @@ function enforceAgentGrantRateLimit(
 function ucpMcpToolLimitEnvelope(reason: string) {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
+      severity: "recoverable",
       code: "tool_call_limited",
       message: reason,
     },
@@ -1998,5 +1998,5 @@ function hasSignedWriteHeaders(request: Request) {
 function unsignedCheckoutAccessFailure(actor: ResolvedActor | null) {
   if (actor?.agentGrant?.scopes.includes("dev.ucp.shopping.checkout:manage")) return null;
   const code = actor ? "authorization_forbidden" : "authentication_required";
-  return createUcpEnvelope("error", {}, [{ severity: "error", code, message: code }]);
+  return createUcpEnvelope("error", {}, [{ severity: "recoverable", code, message: code }]);
 }

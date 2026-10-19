@@ -1005,6 +1005,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
                 }));
             }
           : async () => [],
+        getLastRecordedQuote: checkoutServices.sessions.getLastRecordedQuote,
       })
     : undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;

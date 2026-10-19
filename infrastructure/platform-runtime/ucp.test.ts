@@ -1,4 +1,8 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
+import Ajv2020 from "ajv/dist/2020";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import {
@@ -155,7 +159,7 @@ describe("UCP profile routes", () => {
   it.each([
     ["/.well-known/ucp", (app: Hono) => app.route("/.well-known", createUcpProfileRoutes())],
     ["/ucp/v1", (app: Hono) => app.route("/ucp/v1", createUcpRestRoutes())],
-  ])("serves the business profile from %s with a cache contract", async (path, mount) => {
+  ])("UCP 2026-08-25 profile validates from %s with a cache contract", async (path, mount) => {
     const app = new Hono();
     mount(app);
 
@@ -175,6 +179,30 @@ describe("UCP profile routes", () => {
         },
       },
     });
+  });
+
+  it("validates the captured UCP 2026-08-25 profile route bytes", async () => {
+    const rootPath = fileURLToPath(new URL("./__fixtures__/ucp-2026-08-25/schemas/", import.meta.url));
+    const ajv = new Ajv2020({ strict: false, validateFormats: false });
+    const visit = (directory: string) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) visit(path);
+        else if (entry.name.endsWith(".json")) ajv.addSchema(JSON.parse(readFileSync(path, "utf8")), relative(rootPath, path));
+      }
+    };
+    visit(rootPath);
+    const validate = ajv.getSchema("profile.json#/$defs/business_schema") ?? ajv.compile({ $ref: "profile.json#/$defs/business_schema" });
+    for (const [path, mount] of [
+      ["/.well-known/ucp", (app: Hono) => app.route("/.well-known", createUcpProfileRoutes())],
+      ["/ucp/v1", (app: Hono) => app.route("/ucp/v1", buildUcpRestRoutes())],
+    ] as const) {
+      const app = new Hono();
+      mount(app);
+      const response = await app.request(`https://marketplace.example${path}`);
+      const body = await response.json();
+      expect(validate(body), JSON.stringify(validate.errors)).toBe(true);
+    }
   });
 
   it("uses HTTPS for public hosts reached through internal HTTP", async () => {
@@ -390,7 +418,7 @@ describe("UCP REST routes", () => {
       .fn()
       .mockImplementationOnce(async () => ({
         ucp: { version: UCP_VERSION, status: "error" as const },
-        messages: [{ severity: "error" as const, code: "temporary_failure", message: "Try again." }],
+        messages: [{ severity: "recoverable" as const, code: "temporary_failure", message: "Try again." }],
       }))
       .mockImplementationOnce(async () => ({
         ucp: { version: UCP_VERSION, status: "success" as const },
@@ -2068,7 +2096,7 @@ describe("UCP MCP routes", () => {
               ucp: { version: UCP_VERSION, status: "error" as const },
               messages: [
                 {
-                  severity: "error" as const,
+                  severity: "recoverable" as const,
                   code: "authentication_required",
                   message: "UCP checkout requires a linked buyer account.",
                 },

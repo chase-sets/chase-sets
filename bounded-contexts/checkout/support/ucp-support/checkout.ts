@@ -55,6 +55,7 @@ type CheckoutUcpOptions = Readonly<{
   paymentHandoff?: Pick<UcpPaymentHandlerHandoff, "payment">;
   getPublicListingById: (listingId: string) => Promise<CheckoutUcpListing | null>;
   getOrderFacts: (orderIds: readonly string[], accountId: string) => Promise<readonly CheckoutUcpOrderFact[]>;
+  getLastRecordedQuote?: (sessionId: string, accountId: string) => Promise<NonNullable<CheckoutSessionRow["fulfillment_preview_snapshot"]> | null>;
   now?: () => Date;
 }>;
 
@@ -106,7 +107,14 @@ export function createCheckoutUcpHandlers(
           })));
     const state = checkoutUcpState(session, facts, payment, preview, currentTime);
     const snapshot = session.fulfillment_preview_snapshot;
-    const totals = snapshot?.totals ?? preparedPreview?.totals;
+    const retainedQuote =
+      !snapshot && !preparedPreview && options.getLastRecordedQuote
+        ? await options.getLastRecordedQuote(session.session_id, session.buyer_account_id)
+        : null;
+    const totals = snapshot?.totals ?? preparedPreview?.totals ?? preview?.totals ?? retainedQuote?.totals;
+    if (!totals) {
+      throw new CheckoutDomainError("Checkout quote is unavailable.", "validation_failed");
+    }
     const fallbackUnitPrice = totals
       ? Math.round(
           moneyToMinorUnits(totals.itemSubtotalAmount) /
@@ -115,9 +123,14 @@ export function createCheckoutUcpHandlers(
               session.lines.reduce((sum, line) => sum + line.quantity, 0),
             ),
         )
-      : 0;
-    const linePrice = (line: (typeof session.lines)[number]) =>
-      line.offerPriceAmount ? moneyToMinorUnits(line.offerPriceAmount) : fallbackUnitPrice;
+      : undefined;
+    const linePrice = (line: (typeof session.lines)[number]) => {
+      const value = line.offerPriceAmount ? moneyToMinorUnits(line.offerPriceAmount) : fallbackUnitPrice;
+      if (value === undefined) {
+        throw new CheckoutDomainError("Checkout quote is unavailable.", "validation_failed");
+      }
+      return value;
+    };
     return {
       id: session.session_id,
       status: state.status,
@@ -139,14 +152,12 @@ export function createCheckoutUcpHandlers(
           { type: "total", amount: linePrice(line) * line.quantity },
         ],
       })),
-      totals: totals
-        ? [
+      totals: [
             { type: "subtotal", amount: moneyToMinorUnits(totals.itemSubtotalAmount) },
             { type: "fulfillment", amount: moneyToMinorUnits(totals.shippingAmount) },
             { type: "tax", amount: moneyToMinorUnits(totals.salesTaxAmount) },
             { type: "total", amount: moneyToMinorUnits(totals.totalAmount) },
-          ]
-        : [],
+        ],
       links: [
         { type: "terms_of_service", url: `${resolvePublicRequestOrigin(input.request)}/terms` },
         { type: "privacy_policy", url: `${resolvePublicRequestOrigin(input.request)}/privacy` },
@@ -199,7 +210,7 @@ export function createCheckoutUcpHandlers(
     };
   const closed = () =>
     createUcpEnvelope("error", {}, [
-      { severity: "error", code: "checkout_closed", message: "Checkout is closed until public launch." },
+      { severity: "unrecoverable", code: "checkout_closed", message: "Checkout is closed until public launch." },
     ]);
   const handlers = {
     create_checkout: handler("orders.manage", async (input) => {
@@ -363,14 +374,7 @@ export function checkoutUcpState(
       checkout_expired: "This checkout has expired. Start a new checkout.",
       item_unavailable: "This item is no longer available.",
     }[code],
-    message: {
-      payment_required: "Payment is required to continue checkout.",
-      payment_confirmation_required: "Buyer confirmation is required to continue payment.",
-      checkout_expired: "This checkout has expired. Start a new checkout.",
-      item_unavailable: "This item is no longer available.",
-    }[code],
-    recoverability,
-    ...(target ? { path: target, target } : {}),
+    ...(target ? { path: target } : {}),
   });
   const completeFacts =
     session.order_ids.length > 0 &&
@@ -416,19 +420,19 @@ export function checkoutUcpState(
 function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {
   if (!input.actor)
     return createUcpEnvelope("error", {}, [
-      { severity: "error", code: "authentication_required", message: "UCP checkout requires a linked buyer account." },
+      { severity: "recoverable", code: "authentication_required", message: "UCP checkout requires a linked buyer account." },
     ]);
   if (!input.actor.permissions.includes(permission) && !input.actor.permissions.includes("guest-checkout.manage"))
     return createUcpEnvelope("error", {}, [
       {
-        severity: "error",
+        severity: "unrecoverable",
         code: "authorization_forbidden",
         message: "The linked buyer account cannot manage this checkout session.",
       },
     ]);
   if (!input.context)
     return createUcpEnvelope("error", {}, [
-      { severity: "error", code: "context_required", message: "UCP checkout requires an event-store context." },
+      { severity: "recoverable", code: "context_required", message: "UCP checkout requires an event-store context." },
     ]);
   return null;
 }
@@ -455,9 +459,9 @@ function readSelectedOptions(value: unknown) {
 function validationError(error: unknown) {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
+      severity: "recoverable",
       code: error instanceof CheckoutDomainError ? error.code : "validation_failed",
-      message: error instanceof Error ? error.message : String(error),
+      message: error instanceof CheckoutDomainError ? error.message : "Checkout validation failed.",
     },
   ]);
 }

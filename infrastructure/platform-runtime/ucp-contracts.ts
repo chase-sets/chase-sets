@@ -26,9 +26,6 @@ export function moneyToMinorUnits(value: string): number {
 export type UcpTransport = "rest" | "mcp";
 export type UcpResponseStatus = "success" | "error";
 export type UcpMessageSeverity =
-  | "info"
-  | "warning"
-  | "error"
   | "recoverable"
   | "unrecoverable"
   | "requires_buyer_input"
@@ -72,6 +69,7 @@ export type UcpMessage = Readonly<{
   code: string;
   content?: string;
   message?: string;
+  path?: string;
   target?: string;
 }>;
 
@@ -137,6 +135,12 @@ const CATALOG_SEARCH_OUTPUT_SCHEMA = {
 const CATALOG_LOOKUP_OUTPUT_SCHEMA = {
   anyOf: [
     { $ref: "https://ucp.dev/2026-08-25/schemas/shopping/catalog_lookup.json#/$defs/lookup_response" },
+    ERROR_RESPONSE_SCHEMA,
+  ],
+} as const;
+const CATALOG_GET_PRODUCT_OUTPUT_SCHEMA = {
+  anyOf: [
+    { $ref: "https://ucp.dev/2026-08-25/schemas/shopping/catalog_lookup.json#/$defs/get_product_response" },
     ERROR_RESPONSE_SCHEMA,
   ],
 } as const;
@@ -312,7 +316,7 @@ export const UCP_MCP_TOOLS = [
       },
       required: ["id"],
     },
-    outputSchema: CATALOG_LOOKUP_OUTPUT_SCHEMA,
+    outputSchema: CATALOG_GET_PRODUCT_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Loading product detail",
@@ -540,9 +544,9 @@ export function createUcpEnvelope<TPayload extends Readonly<Record<string, unkno
         ? message.message
         : (message.message as { message?: string } | undefined)?.message) ??
       message.code,
-    ...(message.target ? { target: message.target } : {}),
+    ...((message.path ?? message.target) ? { path: message.path ?? message.target } : {}),
   }));
-  const resourceKey = Object.keys(payload).find((key) => ["checkout", "product", "order"].includes(key));
+  const resourceKey = Object.keys(payload).find((key) => ["checkout", "order"].includes(key));
   const resource = resourceKey
     ? {
         ...(payload[resourceKey] as Readonly<Record<string, unknown>>),
@@ -567,7 +571,7 @@ export function createUcpEnvelope<TPayload extends Readonly<Record<string, unkno
 export function unsupportedUcpOperation(operation: string): UcpEnvelope {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
+      severity: "recoverable",
       code: "operation_not_wired",
       message: `${operation} is advertised by the UCP contract but is not wired to an owning bounded-context handler in this runtime yet.`,
     },

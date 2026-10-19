@@ -72,7 +72,7 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
         ? createUcpEnvelope("success", { product: detailRowToProduct(item, input.request) })
         : createUcpEnvelope("error", {}, [
             {
-              severity: "error",
+              severity: "unrecoverable",
               code: "product_not_found",
               message: "Discovery could not resolve the requested product.",
               target: "id",
@@ -93,15 +93,24 @@ function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
   return {
     id: row.catalog_item_id,
     title: row.title,
-    description: row.description ?? row.subtitle ?? row.title,
+    description: { plain: row.description ?? row.subtitle ?? row.title },
     subtitle: row.subtitle,
     url: productUrl,
     image_urls: imageUrls,
     availability: availability(row.market_summary),
-    price: price(
-      row.market_summary?.lowest_price_amount ?? null,
-      row.market_summary?.lowest_price_currency_code ?? null,
-    ),
+    price_range: {
+      min: priceOrZero(row.market_summary?.lowest_price_amount ?? null, row.market_summary?.lowest_price_currency_code ?? null),
+      max: priceOrZero(row.market_summary?.lowest_price_amount ?? null, row.market_summary?.lowest_price_currency_code ?? null),
+    },
+    variants: [
+      {
+        id: row.catalog_item_id,
+        title: row.title,
+        description: { plain: row.description ?? row.subtitle ?? row.title },
+        price: priceOrZero(row.market_summary?.lowest_price_amount ?? null, row.market_summary?.lowest_price_currency_code ?? null),
+        availability: availability(row.market_summary),
+      },
+    ],
     extensions: {
       chase_sets: {
         catalog_item_id: row.catalog_item_id,
@@ -121,7 +130,7 @@ function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
     },
   };
 }
-function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
+function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request, lookupIds: readonly string[] = []) {
   return {
     ...searchRowToProduct(
       {
@@ -137,7 +146,8 @@ function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
     variants: row.market_listings.map((listing) => ({
       id: listing.listing_id,
       title: listing.product_summary ?? row.title,
-      price: price(listing.price_amount, listing.price_currency_code),
+      description: { plain: listing.product_summary ?? row.title },
+      price: price(listing.price_amount, listing.price_currency_code) ?? { amount: 0, currency: "USD" },
       availability: {
         status: listing.visible_quantity > 0 ? "available" : "unavailable",
         quantity: listing.visible_quantity,
@@ -147,6 +157,7 @@ function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
         display_name: listing.seller_display_name,
       },
       selected_options: listing.selected_options,
+      ...(lookupIds.length > 0 ? { inputs: [{ id: lookupIds[0], match: "exact" }] } : {}),
       extensions: {
         chase_sets: {
           listing_id: listing.listing_id,
@@ -171,7 +182,7 @@ async function resolveProductIds(items: DiscoveryItemsServices, ids: readonly st
   const rows = await Promise.all(ids.slice(0, 20).map((id) => items.detail.getItemDetail(id)));
   return rows
     .filter((row): row is DiscoveryItemDetailRow => row !== null)
-    .map((row) => detailRowToProduct(row, request));
+    .map((row) => detailRowToProduct(row, request, ids));
 }
 
 async function readJsonObject<T extends Readonly<Record<string, unknown>>>(request: Request): Promise<T> {
@@ -277,10 +288,14 @@ function readIds(body: UcpCatalogLookupBody) {
 function price(amount: string | null, currencyCode: string | null) {
   return amount && currencyCode
     ? {
-        currency: currencyCode,
+        currency: currencyCode.toUpperCase(),
         amount: moneyToMinorUnits(amount),
       }
     : null;
+}
+
+function priceOrZero(amount: string | null, currencyCode: string | null) {
+  return price(amount, currencyCode) ?? { amount: 0, currency: (currencyCode ?? "USD").toUpperCase() };
 }
 
 function priceDisplay(amount: string | null, currencyCode: string | null) {

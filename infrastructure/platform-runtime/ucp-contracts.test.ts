@@ -95,6 +95,24 @@ describe("UCP MCP tools", () => {
     // The retired unsigned MCP trusted-handoff bypass is intentionally absent;
     // complete/cancel dispatch is enforced by the composed checkout handlers.
     expect(completeCheckout).not.toHaveProperty("trustedHandoffOnUnsignedMcp");
+    expect(UCP_MCP_TOOLS.find((tool) => tool.name === "get_product")?.outputSchema).toEqual({
+      anyOf: [
+        { $ref: "https://ucp.dev/2026-08-25/schemas/shopping/catalog_lookup.json#/$defs/get_product_response" },
+        { $ref: "https://ucp.dev/2026-08-25/schemas/common/types/error_response.json" },
+      ],
+    });
+  });
+
+  it("validates UCP 2026-08-25 transport bytes and keeps catalog detail nested", () => {
+    const success = createUcpEnvelope("success", { product: { id: "cat_1" } });
+    expect(success).toEqual({ ucp: { version: UCP_VERSION, status: "success" }, product: { id: "cat_1" } });
+    const failure = createUcpEnvelope("error", {}, [
+      { severity: "recoverable", code: "validation_failed", message: "Checkout validation failed.", path: "id" },
+    ]);
+    expect(failure.messages).toEqual([
+      { type: "error", severity: "recoverable", code: "validation_failed", content: "Checkout validation failed.", path: "id" },
+    ]);
+    expect(JSON.stringify(failure)).not.toContain("secret");
   });
 
   it("advertises MCP Apps resources for the agent commerce journey", () => {

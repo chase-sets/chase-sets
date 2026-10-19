@@ -130,11 +130,17 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
   const sessions = {
     ...writes,
     getSession: vi.fn(async (_id: string, account: string) => (account === current.buyer_account_id ? current : null)),
+    getLastRecordedQuote: vi.fn(async () => preview()),
     getPaymentSummary: vi.fn(async () => null),
   } as unknown as CheckoutSessionServices;
   const getPublicListingById = vi.fn(async () => listing as CheckoutUcpListing | null);
   const getOrderFacts = vi.fn<Parameters<typeof createCheckoutUcpHandlers>[1]["getOrderFacts"]>(async () => []);
-  const handlers = createCheckoutUcpHandlers({ sessions }, { getPublicListingById, getOrderFacts, now: () => clock });
+  const handlers = createCheckoutUcpHandlers({ sessions }, {
+    getPublicListingById,
+    getOrderFacts,
+    getLastRecordedQuote: sessions.getLastRecordedQuote,
+    now: () => clock,
+  });
   return {
     ...handlers,
     sessions,
@@ -271,7 +277,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     const result = await f.restHandlers.get_checkout(input());
     expect(result).toMatchObject({
       status: "incomplete",
-      messages: [{ code: "item_unavailable", recoverability: "unrecoverable", target: "$.line_items[0]" }],
+      messages: [{ code: "item_unavailable", severity: "unrecoverable", path: "$.line_items[0]" }],
     });
     expect(result).not.toHaveProperty("continue_url");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
@@ -289,7 +295,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
       expect(result).toMatchObject({
         status: "requires_escalation",
         continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-        messages: [{ code: "payment_confirmation_required", recoverability: "requires_buyer_input" }],
+        messages: [{ code: "payment_confirmation_required", severity: "requires_buyer_input" }],
       });
     }
     vi.mocked(f.sessions.getPaymentSummary).mockResolvedValue({ status: "captured" } as never);
@@ -317,7 +323,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
       expect(result).toMatchObject({
         status: "requires_escalation",
         continue: true,
-        messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+        messages: [{ code: "payment_required", severity: "requires_buyer_input" }],
       });
     },
   );
@@ -334,14 +340,14 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     expect(await f.restHandlers.get_checkout(input())).toMatchObject({
       status: "requires_escalation",
       expires_at: "2026-10-16T06:00:00.000Z",
-      messages: [{ recoverability: "requires_buyer_input" }],
+      messages: [{ severity: "requires_buyer_input" }],
     });
     f.setTime("2026-10-16T06:00:00Z");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
     const expired = await f.restHandlers.get_checkout(input());
     expect(expired).toMatchObject({
       status: "canceled",
-      messages: [{ code: "checkout_expired", recoverability: "unrecoverable" }],
+      messages: [{ code: "checkout_expired", severity: "unrecoverable" }],
     });
     expect(expired).not.toHaveProperty("continue_url");
     for (const op of ["update_checkout", "complete_checkout"])
@@ -386,7 +392,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     expect(result).toMatchObject({
       status: "requires_escalation",
       continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-      messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+      messages: [{ code: "payment_required", severity: "requires_buyer_input" }],
     });
     expect(JSON.stringify(result)).not.toContain("anon_raw_marker");
     noWrites(f);

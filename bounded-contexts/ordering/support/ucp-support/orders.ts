@@ -23,7 +23,7 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
       if (!orderId) {
         return createUcpEnvelope("error", {}, [
           {
-            severity: "error",
+            severity: "recoverable",
             code: "validation_failed",
             message: "Order id is required.",
             target: "id",
@@ -43,7 +43,7 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
 
       return createUcpEnvelope("error", {}, [
         {
-          severity: "error",
+          severity: "unrecoverable",
           code: "not_found",
           message: "Order not found for the linked marketplace account.",
           target: "id",
@@ -62,7 +62,7 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
     return {
       error: createUcpEnvelope("error", {}, [
         {
-          severity: "error",
+          severity: "recoverable",
           code: "authentication_required",
           message: "UCP order reads require a linked marketplace account.",
         },
@@ -74,7 +74,7 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
     return {
       error: createUcpEnvelope("error", {}, [
         {
-          severity: "error",
+          severity: "recoverable",
           code: "authorization_forbidden",
           message: "The linked marketplace account cannot view orders.",
         },
@@ -119,7 +119,7 @@ function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | 
         { type: "subtotal", amount: moneyToMinorUnits(line.line_total_amount) },
         { type: "total", amount: moneyToMinorUnits(line.line_total_amount) },
       ],
-      status: row.status === "cancelled" ? "cancelled" : row.ready_for_fulfillment_at ? "fulfilled" : "pending",
+      status: row.status === "cancelled" ? "removed" : row.ready_for_fulfillment_at ? "fulfilled" : "processing",
     })),
     fulfillment: {
       expectations: [
