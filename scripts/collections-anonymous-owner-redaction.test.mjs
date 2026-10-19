@@ -76,6 +76,38 @@ function history() {
   };
 }
 
+function nonFastForwardHistory() {
+  const root = mkdtempSync(join(tmpdir(), "collections-redaction-merge-"));
+  const git = (...args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", timeout: 10_000 }).trim();
+  git("init", "--initial-branch=main", "--quiet");
+  git("config", "user.email", "fixture@example.invalid");
+  git("config", "user.name", "Synthetic fixture");
+  writeFileSync(join(root, "README.md"), "synthetic base\n");
+  git("add", ".");
+  git("commit", "--quiet", "-m", "synthetic base");
+  git("checkout", "-q", "-b", "side");
+  mkdirSync(join(root, "bounded-contexts/collections/support/runtime-support"), { recursive: true });
+  writeFileSync(join(root, floorPath), "export const activation = true;\n");
+  git("add", ".");
+  git("commit", "--quiet", "-m", "synthetic side-branch floor");
+  const sideFloor = git("rev-parse", "HEAD");
+  git("checkout", "-q", "main");
+  writeFileSync(join(root, "README.md"), "synthetic main change\n");
+  git("add", ".");
+  git("commit", "--quiet", "-m", "synthetic main change");
+  git("merge", "--no-ff", "--quiet", "side", "-m", "synthetic merge");
+  const merge = git("rev-parse", "HEAD");
+  git("commit", "--quiet", "--allow-empty", "-m", "synthetic post-merge recovery");
+  return {
+    root,
+    git,
+    floor: merge,
+    sideFloor,
+    recovery: git("rev-parse", "HEAD"),
+    close: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
 function fixture(h, target = "staging") {
   const packet = {
     schemaVersion: "collections-cutover-gate/v1",
@@ -292,6 +324,18 @@ test("redaction-runner-binding-refuses-missing-authority", async (t) => {
   h.git("add", ".");
   h.git("commit", "--quiet", "-m", "synthetic reintroduction");
   assert.throws(() => deriveFloor(h.root), { message: "floor-ambiguous" });
+});
+
+test("redaction-runner-derives-merge-floor-from-first-parent", async (t) => {
+  const h = nonFastForwardHistory();
+  t.after(h.close);
+  assert.equal(deriveFloor(h.root), h.floor);
+  const f = fixture(h);
+  f.packet.floorCommit = h.sideFloor;
+  f.options.packetText = JSON.stringify(f.packet);
+  f.options.packetSha256 = hash(f.options.packetText);
+  await assert.rejects(runRedaction(f.options, f.dependencies), { message: "floor-mismatch" });
+  assert.equal(f.writes(), 0);
 });
 
 test("redaction-runner-activates-once", async (t) => {

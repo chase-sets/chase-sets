@@ -89,7 +89,7 @@ export function deriveFloor(root) {
   try {
     guard(git(root, "rev-parse", "--is-shallow-repository") === "false", "floor-ambiguous");
     git(root, "cat-file", "-e", `HEAD:${floorPath}`);
-    const matches = git(root, "log", "--full-history", "--diff-filter=A", "--format=%H", "HEAD", "--", floorPath)
+    const matches = git(root, "log", "--first-parent", "--diff-filter=A", "--format=%H", "HEAD", "--", floorPath)
       .split("\n")
       .filter(Boolean);
     guard(matches.length === 1 && isSha(matches[0], 40), "floor-ambiguous");
