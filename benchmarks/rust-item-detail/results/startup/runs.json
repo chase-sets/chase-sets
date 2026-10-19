@@ -1,0 +1,296 @@
+{
+ "containerRuns": [
+  {
+   "target": "node",
+   "i": 0,
+   "dockerRunMs": 1225.4327,
+   "toFirst200Ms": 1598.3741,
+   "inContainerToListenMs": 558.044921875,
+   "firstItemMs": 170.4744999999998,
+   "secondItemMs": 64.82220000000007,
+   "memAfterFirstRequests": "39.06MiB"
+  },
+  {
+   "target": "rust",
+   "i": 0,
+   "dockerRunMs": 2738.5243,
+   "toFirst200Ms": 2822.0712000000003,
+   "inContainerToListenMs": 3.486083984375,
+   "firstItemMs": 146.54689999999937,
+   "secondItemMs": 46.94709999999941,
+   "memAfterFirstRequests": "2.199MiB"
+  },
+  {
+   "target": "node",
+   "i": 1,
+   "dockerRunMs": 2439.367699999999,
+   "toFirst200Ms": 2499.044,
+   "inContainerToListenMs": 556.095458984375,
+   "firstItemMs": 206.82190000000082,
+   "secondItemMs": 65.07229999999981,
+   "memAfterFirstRequests": "38.98MiB"
+  },
+  {
+   "target": "rust",
+   "i": 1,
+   "dockerRunMs": 1444.2167000000009,
+   "toFirst200Ms": 1468.2308999999987,
+   "inContainerToListenMs": 2.80615234375,
+   "firstItemMs": 85.61700000000201,
+   "secondItemMs": 41.464099999997416,
+   "memAfterFirstRequests": "2.922MiB"
+  },
+  {
+   "target": "node",
+   "i": 2,
+   "dockerRunMs": 1507.7217999999993,
+   "toFirst200Ms": 1879.3560999999972,
+   "inContainerToListenMs": 648.08740234375,
+   "firstItemMs": 217.7935000000034,
+   "secondItemMs": 59.16070000000036,
+   "memAfterFirstRequests": "38.4MiB"
+  },
+  {
+   "target": "rust",
+   "i": 2,
+   "dockerRunMs": 2614.1528,
+   "toFirst200Ms": 2645.3051000000014,
+   "inContainerToListenMs": 2.471923828125,
+   "firstItemMs": 93.77040000000125,
+   "secondItemMs": 35.0708999999988,
+   "memAfterFirstRequests": "2.461MiB"
+  },
+  {
+   "target": "node",
+   "i": 3,
+   "dockerRunMs": 1463.2880000000005,
+   "toFirst200Ms": 1774.1039000000019,
+   "inContainerToListenMs": 602.621826171875,
+   "firstItemMs": 178.20240000000194,
+   "secondItemMs": 55.479599999998754,
+   "memAfterFirstRequests": "38.05MiB"
+  },
+  {
+   "target": "rust",
+   "i": 3,
+   "dockerRunMs": 2915.3647999999957,
+   "toFirst200Ms": 3017.604999999996,
+   "inContainerToListenMs": 2.352294921875,
+   "firstItemMs": 100.23649999999907,
+   "secondItemMs": 53.90249999999651,
+   "memAfterFirstRequests": "2.883MiB"
+  },
+  {
+   "target": "node",
+   "i": 4,
+   "dockerRunMs": 1563.4291000000012,
+   "toFirst200Ms": 1801.2432000000044,
+   "inContainerToListenMs": 518.19580078125,
+   "firstItemMs": 181.76599999999598,
+   "secondItemMs": 73.66990000000078,
+   "memAfterFirstRequests": "38.32MiB"
+  },
+  {
+   "target": "rust",
+   "i": 4,
+   "dockerRunMs": 1254.4233000000022,
+   "toFirst200Ms": 1279.666600000004,
+   "inContainerToListenMs": 3.448974609375,
+   "firstItemMs": 85.93790000000445,
+   "secondItemMs": 30.180899999999383,
+   "memAfterFirstRequests": "3.477MiB"
+  },
+  {
+   "target": "node",
+   "i": 5,
+   "dockerRunMs": 1270.8448999999964,
+   "toFirst200Ms": 1556.5751999999993,
+   "inContainerToListenMs": 535.2412109375,
+   "firstItemMs": 145.52930000000197,
+   "secondItemMs": 36.76329999999871,
+   "memAfterFirstRequests": "38.89MiB"
+  },
+  {
+   "target": "rust",
+   "i": 5,
+   "dockerRunMs": 918.0027999999947,
+   "toFirst200Ms": 946.031799999997,
+   "inContainerToListenMs": 2.388427734375,
+   "firstItemMs": 59.25639999999839,
+   "secondItemMs": 24.98279999999795,
+   "memAfterFirstRequests": "2.617MiB"
+  },
+  {
+   "target": "node",
+   "i": 6,
+   "dockerRunMs": 1162.8395999999993,
+   "toFirst200Ms": 1478.272699999994,
+   "inContainerToListenMs": 503.941162109375,
+   "firstItemMs": 187.78970000000118,
+   "secondItemMs": 58.51090000000113,
+   "memAfterFirstRequests": "39.41MiB"
+  },
+  {
+   "target": "rust",
+   "i": 6,
+   "dockerRunMs": 1534.5625,
+   "toFirst200Ms": 1555.7329000000027,
+   "inContainerToListenMs": 2.42236328125,
+   "firstItemMs": 86.87350000000151,
+   "secondItemMs": 33.49849999998696,
+   "memAfterFirstRequests": "3.012MiB"
+  },
+  {
+   "target": "node",
+   "i": 7,
+   "dockerRunMs": 1899.4526999999944,
+   "toFirst200Ms": 2082.7074999999895,
+   "inContainerToListenMs": 513.015380859375,
+   "firstItemMs": 183.89530000000377,
+   "secondItemMs": 49.08870000000752,
+   "memAfterFirstRequests": "38.93MiB"
+  },
+  {
+   "target": "rust",
+   "i": 7,
+   "dockerRunMs": 963.7373999999982,
+   "toFirst200Ms": 996.1968000000052,
+   "inContainerToListenMs": 2.3056640625,
+   "firstItemMs": 98.91259999999602,
+   "secondItemMs": 43.0911999999953,
+   "memAfterFirstRequests": "2.855MiB"
+  },
+  {
+   "target": "node",
+   "i": 8,
+   "dockerRunMs": 2511.4446000000025,
+   "toFirst200Ms": 2867.558600000004,
+   "inContainerToListenMs": 616.818603515625,
+   "firstItemMs": 191.87929999998596,
+   "secondItemMs": 54.981400000004214,
+   "memAfterFirstRequests": "38.56MiB"
+  },
+  {
+   "target": "rust",
+   "i": 8,
+   "dockerRunMs": 1056.5709999999963,
+   "toFirst200Ms": 1073.354600000006,
+   "inContainerToListenMs": 2.533447265625,
+   "firstItemMs": 85.70880000000761,
+   "secondItemMs": 32.309699999997974,
+   "memAfterFirstRequests": "2.824MiB"
+  },
+  {
+   "target": "node",
+   "i": 9,
+   "dockerRunMs": 969.9214999999967,
+   "toFirst200Ms": 1145.246100000004,
+   "inContainerToListenMs": 361.887939453125,
+   "firstItemMs": 121.00350000000617,
+   "secondItemMs": 31.93849999998929,
+   "memAfterFirstRequests": "38.41MiB"
+  },
+  {
+   "target": "rust",
+   "i": 9,
+   "dockerRunMs": 981.3977000000014,
+   "toFirst200Ms": 1010.7658000000083,
+   "inContainerToListenMs": 3.435791015625,
+   "firstItemMs": 106.2960000000021,
+   "secondItemMs": 49.45670000000973,
+   "memAfterFirstRequests": "3.73MiB"
+  }
+ ],
+ "hostRuns": [
+  {
+   "target": "node-bundle",
+   "i": 0,
+   "toFirst200Ms": 540.1714999999967,
+   "firstItemMs": 113.85059999999066
+  },
+  {
+   "target": "node-tsx-nocache",
+   "i": 0,
+   "toFirst200Ms": 7717.407399999996,
+   "firstItemMs": 124.88679999999295
+  },
+  {
+   "target": "node-tsx-cached",
+   "i": 0,
+   "toFirst200Ms": 7351.183999999994,
+   "firstItemMs": 171.73060000000987
+  },
+  {
+   "target": "node-bundle",
+   "i": 1,
+   "toFirst200Ms": 621.575800000006,
+   "firstItemMs": 179.2951999999932
+  },
+  {
+   "target": "node-tsx-nocache",
+   "i": 1,
+   "toFirst200Ms": 4996.010500000004,
+   "firstItemMs": 137.51499999999942
+  },
+  {
+   "target": "node-tsx-cached",
+   "i": 1,
+   "toFirst200Ms": 4160.315999999992,
+   "firstItemMs": 124.36969999999565
+  },
+  {
+   "target": "node-bundle",
+   "i": 2,
+   "toFirst200Ms": 446.78889999999956,
+   "firstItemMs": 137.8231999999989
+  },
+  {
+   "target": "node-tsx-nocache",
+   "i": 2,
+   "toFirst200Ms": 3241.476299999995,
+   "firstItemMs": 206.1293999999907
+  },
+  {
+   "target": "node-tsx-cached",
+   "i": 2,
+   "toFirst200Ms": 5566.308699999994,
+   "firstItemMs": 195.39280000000144
+  },
+  {
+   "target": "node-bundle",
+   "i": 3,
+   "toFirst200Ms": 731.7520000000077,
+   "firstItemMs": 144.08990000002086
+  },
+  {
+   "target": "node-tsx-nocache",
+   "i": 3,
+   "toFirst200Ms": 5323.144499999995,
+   "firstItemMs": 131.60989999998128
+  },
+  {
+   "target": "node-tsx-cached",
+   "i": 3,
+   "toFirst200Ms": 4575.43280000001,
+   "firstItemMs": 138.72950000001583
+  },
+  {
+   "target": "node-bundle",
+   "i": 4,
+   "toFirst200Ms": 559.5489999999991,
+   "firstItemMs": 137.83699999999953
+  },
+  {
+   "target": "node-tsx-nocache",
+   "i": 4,
+   "toFirst200Ms": 4599.501800000027,
+   "firstItemMs": 134.50199999997858
+  },
+  {
+   "target": "node-tsx-cached",
+   "i": 4,
+   "toFirst200Ms": 4634.81779999999,
+   "firstItemMs": 125.23470000000088
+  }
+ ]
+}

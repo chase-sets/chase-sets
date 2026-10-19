@@ -17,6 +17,7 @@ chase-sets/chase-sets#10162 (PR #10163); this branch carries the same change so 
 - `load.js`: k6 mix (80% item by id, 8% by slug, 2% retired slug, 10% categories).
 - `run.mjs <round> [fixedRate]`: per stack, restart Postgres, run the app at `--cpus 1 --memory 1g`,
   then warmup, fixed rate, 64 VUs and 256 VUs. Optional env: `PHASES`, `REDIS_URL`, `CACHE_TTL_SECONDS`.
+- `startup.mjs [iterations]`: cold start to first 200 and first DB request per image, plus Node bundled vs tsx on the host (`HOST_ONLY=1` skips containers).
 - `sample-stats.mjs`: `docker stats` sampler. `results/`: raw k6 and stats output.
 
 Containers: `rustbench-pg` (pgvector/pgvector:pg16, `--cpus 2 --memory 4g`, port 55432) and
@@ -39,3 +40,13 @@ Containers: `rustbench-pg` (pgvector/pgvector:pg16, `--cpus 2 --memory 4g`, port
 | CPU at 100 req/s | 0.64 core | 0.34 core |
 | Memory under load | 76-136 MiB | 11-33 MiB |
 | 64 VUs, 300 s cache | 173 req/s | 341 req/s |
+
+## Startup (measured, 10 container starts and 5 host starts each, medians)
+
+| Measure | Node bundle | Rust |
+| --- | --- | --- |
+| Process start to listening, in container | 546 ms | 2.5 ms |
+| First DB-backed request after start | 183 ms | 90 ms |
+| Memory after first requests | 38 MiB | 3 MiB |
+
+On the host, the same Node server took 560 ms to first 200 bundled and 4.6-5.0 s under tsx.
