@@ -5,9 +5,11 @@ import {
   evolveCheckoutSession,
   initialCheckoutSessionState,
   retainedOrderCartCleanup,
+  type CheckoutSessionCommand,
   type CheckoutSessionState,
   type CheckoutSessionEvent,
 } from "./domain";
+import type { CheckoutFulfillmentPreview } from "./fulfillment-preview";
 
 const line = {
   listingId: "lst_1",
@@ -466,5 +468,211 @@ describe("union cleanup retained state replay", () => {
         orderCartCleanup: { status: "pending", plan },
       } as unknown as CheckoutSessionState),
     ).toThrow("Invalid retained cart cleanup plan.");
+  });
+});
+
+describe("last recorded quote", () => {
+  // Keyed by the event union, so a new session event fails typecheck here until
+  // this enumeration states how it treats the retained quote.
+  const everySessionEvent: Record<CheckoutSessionEvent["type"], true> = {
+    "checkout.session.started": true,
+    "checkout.session.optimization-goal-selected": true,
+    "checkout.session.fulfillment-preview-recorded": true,
+    "checkout.session.shipping-option-selected": true,
+    "checkout.session.shipping-address-set": true,
+    "checkout.session.authenticity-check-opt-in-selected": true,
+    "checkout.session.orders-created": true,
+    "checkout.session.cart-cleanup-completed": true,
+    "checkout.session.reservations-recorded": true,
+    "checkout.session.payment-started": true,
+    "checkout.session.offer-submitted": true,
+    "checkout.session.cancelled": true,
+  };
+  const at = (minute: number) => `2026-10-18T00:${String(minute).padStart(2, "0")}:00.000Z`;
+  const quote = (revision: string, totalAmount: string): CheckoutFulfillmentPreview => ({
+    revision,
+    optimizationGoal: "lowest-total",
+    readyLineKeys: ["lst_1"],
+    unavailableLineKeys: [],
+    sellerGroups: [],
+    totals: {
+      itemSubtotalAmount: "25.00",
+      shippingAmount: "4.00",
+      salesTaxAmount: "0.00",
+      totalAmount,
+      packageCount: 1,
+    },
+    unavailableLines: [],
+    materialChangeReasons: [],
+  });
+  const q1 = quote("rev_q1", "29.00");
+  const q2 = quote("rev_q2", "31.00");
+  const reservation = {
+    holdId: "hld_1",
+    lineKey: "lst_1",
+    sellerAccountId: "acc_seller",
+    inventoryItemId: "inv_1",
+    quantity: 1,
+    expiresAt: "2026-10-18T00:30:00.000Z",
+    extensionCount: 0,
+    status: "active" as const,
+  };
+
+  function session(seen: Set<string>) {
+    return (state: CheckoutSessionState, command: CheckoutSessionCommand) => {
+      const events = decideCheckoutSession(state, command);
+      expect(events, command.type).not.toEqual([]);
+      for (const event of events) seen.add(event.type);
+      return events.reduce(evolveCheckoutSession, state);
+    };
+  }
+  const quoteFacts = (state: CheckoutSessionState) => ({
+    lastRecordedQuote: state.lastRecordedQuote,
+    fulfillmentPreviewSnapshot: state.fulfillmentPreviewSnapshot,
+    fulfillmentPreviewRevision: state.fulfillmentPreviewRevision,
+  });
+  const invalidated = (lastRecordedQuote: CheckoutFulfillmentPreview | null) => ({
+    lastRecordedQuote,
+    fulfillmentPreviewSnapshot: null,
+    fulfillmentPreviewRevision: null,
+  });
+  const start = (
+    sourceType: "buy-now" | "cart" | "offer-intent",
+    preview?: CheckoutFulfillmentPreview,
+  ): CheckoutSessionCommand => ({
+    type: "StartCheckoutSession",
+    sessionId: `chk_quote_${sourceType}` as never,
+    buyerAccountId: "acc_buyer" as never,
+    sourceType,
+    shippingOption: "standard",
+    fulfillmentPreviewRevision: preview?.revision ?? null,
+    fulfillmentPreviewSnapshot: preview ?? null,
+    ...(sourceType === "cart" ? { cartReadinessSnapshot } : {}),
+    lines: [
+      sourceType === "cart"
+        ? line
+        : sourceType === "buy-now"
+          ? { ...line, cartLineId: null }
+          : {
+              ...line,
+              listingId: null,
+              cartLineId: null,
+              lockedListingId: null,
+              fulfillmentMode: "optimize" as const,
+              offerPriceAmount: "20.00",
+              offerPriceCurrencyCode: "USD",
+            },
+    ],
+    createdAt: at(0),
+  });
+
+  function buyNowThroughInvalidationCancelAndOrders(seen: Set<string>) {
+    const apply = session(seen);
+    let state = apply(initialCheckoutSessionState, start("buy-now", q1));
+    expect(quoteFacts(state)).toEqual({
+      lastRecordedQuote: q1,
+      fulfillmentPreviewSnapshot: q1,
+      fulfillmentPreviewRevision: "rev_q1",
+    });
+
+    for (const command of [
+      { type: "SelectOptimizationGoal", optimizationGoal: "fewest-shipments", selectedAt: at(1) },
+      { type: "SelectShippingOption", shippingOption: "priority", selectedAt: at(2) },
+      { type: "SetShippingAddress", shippingAddress, selectedAt: at(3) },
+      { type: "SelectAuthenticityCheckOptIn", selected: false, quoteFingerprint: null, selectedAt: at(4) },
+      { type: "RecordCheckoutReservations", reservations: [reservation], recordedAt: at(5) },
+    ] satisfies CheckoutSessionCommand[]) {
+      state = apply(state, command);
+      expect(quoteFacts(state), command.type).toEqual(invalidated(q1));
+    }
+    expect(quoteFacts(apply(state, { type: "CancelCheckoutSession", cancelledAt: at(6) }))).toEqual(invalidated(q1));
+
+    // A revision-only record carries no quote, so the last recorded quote stays.
+    state = apply(state, {
+      type: "RecordFulfillmentPreview",
+      fulfillmentPreviewRevision: "rev_ack",
+      recordedAt: at(7),
+    });
+    expect(quoteFacts(state)).toEqual({
+      lastRecordedQuote: q1,
+      fulfillmentPreviewSnapshot: null,
+      fulfillmentPreviewRevision: "rev_ack",
+    });
+    state = apply(state, {
+      type: "RecordFulfillmentPreview",
+      fulfillmentPreviewRevision: "rev_q2",
+      fulfillmentPreviewSnapshot: q2,
+      recordedAt: at(8),
+    });
+    expect(quoteFacts(state)).toEqual({
+      lastRecordedQuote: q2,
+      fulfillmentPreviewSnapshot: q2,
+      fulfillmentPreviewRevision: "rev_q2",
+    });
+
+    // Confirm sets the address, clearing the live snapshot, just before it creates orders.
+    for (const command of [
+      { type: "SetShippingAddress", shippingAddress, selectedAt: at(9) },
+      { type: "RecordOrdersCreated", orderIds: ["ord_1" as never], recordedAt: at(10) },
+      { type: "RecordPaymentStarted", paymentId: "pay_1" as never, recordedAt: at(11) },
+    ] satisfies CheckoutSessionCommand[]) {
+      state = apply(state, command);
+      expect(quoteFacts(state), command.type).toEqual(invalidated(q2));
+    }
+  }
+
+  it("retains the last recorded quote through invalidation", () => {
+    buyNowThroughInvalidationCancelAndOrders(new Set());
+  });
+
+  it("keeps the retained quote on every other session event and stays null when never quoted", () => {
+    const seen = new Set<string>();
+    buyNowThroughInvalidationCancelAndOrders(seen);
+    const apply = session(seen);
+
+    let neverQuoted = apply(initialCheckoutSessionState, start("cart"));
+    expect(neverQuoted.lastRecordedQuote).toBeNull();
+    for (const command of [
+      { type: "SetShippingAddress", shippingAddress, selectedAt: at(1) },
+      { type: "CancelCheckoutSession", cancelledAt: at(2) },
+    ] satisfies CheckoutSessionCommand[]) {
+      neverQuoted = apply(neverQuoted, command);
+      expect(quoteFacts(neverQuoted), command.type).toEqual(invalidated(null));
+    }
+
+    let cart = apply(initialCheckoutSessionState, start("cart"));
+    for (const command of [
+      {
+        type: "RecordFulfillmentPreview",
+        fulfillmentPreviewRevision: "rev_q1",
+        fulfillmentPreviewSnapshot: q1,
+        recordedAt: at(1),
+      },
+      { type: "SetShippingAddress", shippingAddress, selectedAt: at(2) },
+      { type: "RecordOrdersCreated", orderIds: ["ord_cart" as never], recordedAt: at(3) },
+      { type: "CompleteOrderCartCleanup", completedAt: at(4) },
+    ] satisfies CheckoutSessionCommand[]) {
+      cart = apply(cart, command);
+      expect(cart.lastRecordedQuote, command.type).toEqual(q1);
+    }
+    expect(cart.orderCartCleanup?.status).toBe("complete");
+
+    let offer = apply(initialCheckoutSessionState, start("offer-intent"));
+    expect(offer.lastRecordedQuote).toBeNull();
+    for (const command of [
+      {
+        type: "RecordFulfillmentPreview",
+        fulfillmentPreviewRevision: "rev_q1",
+        fulfillmentPreviewSnapshot: q1,
+        recordedAt: at(1),
+      },
+      { type: "SetShippingAddress", shippingAddress, selectedAt: at(2) },
+      { type: "RecordOfferSubmitted", offerId: "off_1", recordedAt: at(3) },
+    ] satisfies CheckoutSessionCommand[]) {
+      offer = apply(offer, command);
+    }
+    expect(quoteFacts(offer)).toEqual(invalidated(q1));
+
+    expect([...seen].sort()).toEqual(Object.keys(everySessionEvent).sort());
   });
 });
