@@ -1,5 +1,5 @@
 /// <reference types="chrome" />
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -14,7 +14,10 @@ import { scanRetainedArtifacts } from "./retained-artifacts";
 
 // #10109 Probe: records the Chromium routing facts the connector pairing drill depends on as
 // value-free CONNECTOR_10109_RECEIPT log lines. Facts are recorded whatever they are; only the
-// instrument controls and the retained-artifact scan assert.
+// instrument controls and the retained-artifact scan assert. Playwright refuses trace overrides
+// inside a describe group, so AC4 leg 1 (the shipped trace: "on") lives in the -shipped-trace spec,
+// which sorts and runs before this file's final output scan.
+test.use({ trace: "off", screenshot: "off", video: "off" });
 
 type Row = Record<string, unknown>;
 type Outcome<T> = { resolved: T } | { rejected: string };
@@ -211,7 +214,6 @@ test.afterAll(async () => {
 });
 
 test.describe("connector routing facts with tracing off", () => {
-  test.use({ trace: "off", screenshot: "off", video: "off" });
   test.describe.configure({ timeout: 120_000 });
 
   test("connector-routing-facts-probe AC1 extension-opened tab response", async ({ trace }, testInfo) => {
@@ -481,8 +483,8 @@ test.describe("connector routing facts with tracing off", () => {
   });
 });
 
-// #10109-AC4 never signs in, pairs or creates a pairing code; the context only loads the extension.
-async function traceLeg(trace: unknown, testInfo: TestInfo, leg: string) {
+// #10109-AC4 leg 2 never signs in, pairs or creates a pairing code; the context only loads the extension.
+test("connector-routing-facts-probe AC4 leg 2 trace off", async ({ trace }, testInfo) => {
   const rows: Row[] = [];
   try {
     const installation = await launchInstallation(extension);
@@ -494,7 +496,7 @@ async function traceLeg(trace: unknown, testInfo: TestInfo, leg: string) {
     const reclose = "rejected" in close ? await settle(() => installation.context.close()) : null;
     rows.push({
       ac: "AC4",
-      leg,
+      leg: "leg-2-trace-off",
       trace,
       tracingStart: start,
       pathlessTracingStop: stop,
@@ -508,24 +510,9 @@ async function traceLeg(trace: unknown, testInfo: TestInfo, leg: string) {
   } finally {
     emit(testInfo, rows);
   }
-}
-
-test.describe("connector routing facts AC4 leg 1 under the shipped trace option", () => {
-  test("connector-routing-facts-probe AC4 leg 1 shipped trace", async ({ trace }, testInfo) => {
-    await traceLeg(trace, testInfo, "leg-1-shipped-trace");
-  });
-});
-
-test.describe("connector routing facts AC4 leg 2 with trace off", () => {
-  test.use({ trace: "off" });
-  test("connector-routing-facts-probe AC4 leg 2 trace off", async ({ trace }, testInfo) => {
-    await traceLeg(trace, testInfo, "leg-2-trace-off");
-  });
 });
 
 test.describe("connector routing facts retained output", () => {
-  test.use({ trace: "off", screenshot: "off", video: "off" });
-
   test("connector-routing-facts-probe AC4 output listing and forbidden scan", async ({}, testInfo) => {
     const rows: Row[] = [];
     try {
@@ -561,6 +548,19 @@ test.describe("connector routing facts retained output", () => {
         walk(join(root, directory));
         rows.push({ ac: "AC4", leg: "output-directory-listing", directory, files });
       }
+      // Both trace legs must have run before this listing, or their output went unscanned.
+      const traceLegs = directories.flatMap((directory) => {
+        const receipt = join(root, directory, "receipt.jsonl");
+        if (!existsSync(receipt)) return [];
+        return readFileSync(receipt, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Row)
+          .filter((row) => row.ac === "AC4" && String(row.leg).startsWith("leg-"))
+          .map((row) => String(row.leg));
+      });
+      rows.push({ ac: "AC4", leg: "trace-legs-listed", traceLegs });
+      expect(traceLegs.sort()).toEqual(["leg-1-shipped-trace", "leg-2-trace-off"]);
       const scans = directories.map((directory) => ({
         directory,
         scan: (() => {
