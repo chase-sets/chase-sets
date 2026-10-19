@@ -831,7 +831,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "54fbc3ccce1f42f9f92914e6be7c8e978ef1640dd9a7c6ec7168c280a6cfa1e0",
+      "540088676c5b7e47042d51d1fbc10e024491c274a10461048ec8e13fc10a7f05",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -2076,7 +2076,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     },
     {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
-      current: true,
+      current: false,
       fileName: "bootstrap-db-capture-38993631473.json",
       fixtureSha256: "32dca1e0b66c28f4578c2959a7b15323a127e86555155c1e23787714482b82e2",
       minimumUnitCount: 3,
@@ -2095,6 +2095,31 @@ describe("Platform API bootstrap DB enrollment", () => {
         caseManifestSha256: "acf95739611a9a0d43149339abfb008e9164dc26c5d49b7d02661678d5036013",
         commandsSha256: "db230c159f8f294a676fab11d92f3ea6a0a7aff52490c9f6d46f322b988fdb63",
         censusSha256: "670efd599e0ccd8844f14695ff97af5d5ec644d04057be4561eca61f611f6369",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: true,
+      fileName: "bootstrap-db-capture-39189188404.json",
+      fixtureSha256: "f3ed1246c7754d1fcbb78ca12ca1e2422eff547ece48b8af5ead63ac9f6e551f",
+      minimumUnitCount: 2,
+      unitProjections: [281848, 222020, 205908],
+      provenance: {
+        runId: "39189188404",
+        runAttempt: "1",
+        referenceJobId: 117857998398,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "09a69aba0a68a5d15c1b9c4afaecdb314e22edbc",
+        sourceBase: "75cbdf65969bbec4db9fa09efb5fa87f5a850e30",
+        captureParent: "75cbdf65969bbec4db9fa09efb5fa87f5a850e30",
+        artifactId: 12159592465,
+        artifactSha256: "289052208ebb786318edf9430325e680e7e7146683f127a3312d2d74ed328e8c",
+        sourceManifestSha256: "7c6dc63d4a778c241abbbf77cf7f041ad4842d32457c6e636440dbe91ec7c9bb",
+        caseManifestSha256: "acf95739611a9a0d43149339abfb008e9164dc26c5d49b7d02661678d5036013",
+        commandsSha256: "db230c159f8f294a676fab11d92f3ea6a0a7aff52490c9f6d46f322b988fdb63",
+        censusSha256: "b4efba85da0dd7b5618f98a7febde80b1a1f6c9744b3c8a353d9eda5fb1d1735",
         maxWorkers: 3,
         laneMode: null,
       },
@@ -2361,7 +2386,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     return { binding: newer, baseline };
   }
 
-  const runId = "38993631473";
+  const runId = "39189188404";
   const changed = (key: string) => `${key} changed since capture ${runId}; re-enrollment required`;
   const added = (key: string) => `${key} is workload the capture ${runId} did not measure; re-enrollment required`;
   const removed = (key: string) =>
@@ -2381,9 +2406,10 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   // The superseded live loop, kept only as the control that shows each
   // provenance-only edit below was rejected by the old broad pins, which were
-  // capture 38641988070's.
-  function broadSourceBindingMismatches(root: string) {
-    return Object.entries(readHistoricalCapture().sourceBindings)
+  // capture 38641988070's. `pairedPins` replaces a pin only for the control
+  // whose paired reference is not that capture's frozen source.
+  function broadSourceBindingMismatches(root: string, pairedPins: Readonly<Record<string, string>> = {}) {
+    return Object.entries({ ...readHistoricalCapture().sourceBindings, ...pairedPins })
       .filter(([path, digest]) => sha256Of(readFileSync(join(root, path))) !== digest)
       .map(([path]) => path);
   }
@@ -2432,8 +2458,8 @@ describe("Platform API bootstrap DB enrollment", () => {
         captureParent: capture.provenance.captureParent,
       });
       expect(baseline.source).toEqual({
-        commit: "008a50bb554b485dc29e187d381521a3463e24b6",
-        ref: "refs/pull/9710/head",
+        commit: "75cbdf65969bbec4db9fa09efb5fa87f5a850e30",
+        ref: "75cbdf65969bbec4db9fa09efb5fa87f5a850e30",
       });
       expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
       expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
@@ -2846,10 +2872,16 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   describe("unrelated source edits preserve workload enrollment", () => {
+    // Capture 38641988070's lockfile resolves a Vitest this checkout no longer
+    // installs, so W4 refuses it as a paired reference. The lockfile control, the
+    // only W5 input here, pairs with the checked-out lockfile under this
+    // whole-file pin; the other controls keep the historical frozen source.
+    const checkedOutLockfileSha256 = "8791a4d3a898dc3ef4c81734c3615aa6ef3f51242f77f9da0cb6ff4eea9e8322";
     const controls = [
       {
         label: "an unrelated lockfile entry",
         path: "pnpm-lock.yaml",
+        checkedOutSha256: checkedOutLockfileSha256,
         edit: (source: string) => {
           const marker = "resolution: {integrity: sha512-";
           const at = source.indexOf(marker, source.indexOf("\npackages:\n")) + marker.length;
@@ -2894,14 +2926,17 @@ describe("Platform API bootstrap DB enrollment", () => {
      * applies to those bytes.
      */
     async function expectOldPinRejection(
-      { path, edit }: (typeof controls)[number],
+      { path, edit, checkedOutSha256 }: (typeof controls)[number],
       base: Readonly<Record<string, WorkloadEdit>> = {},
       current = { binding: readCurrentCapture().binding, baseline: currentBaseline() },
     ) {
       const freshness = (edits: Readonly<Record<string, WorkloadEdit>>) =>
         mirrorFreshness(edits, current.baseline, current.binding);
-      const captured = readFrozenSourceFile(path);
+      const captured =
+        checkedOutSha256 === undefined ? readFrozenSourceFile(path) : readFileSync(join(repositoryRoot, path));
       expect(captured, path).not.toBeNull();
+      if (checkedOutSha256 !== undefined) expect(sha256Of(captured!), `${path} whole-file pin`).toBe(checkedOutSha256);
+      const pairedPins = checkedOutSha256 === undefined ? {} : { [path]: checkedOutSha256 };
       const withTarget = (bytes: string) => {
         const retained = Object.fromEntries(Object.entries(base).filter(([key]) => key !== path));
         return readFileSync(join(repositoryRoot, path), "utf8") === bytes ? retained : { ...retained, [path]: bytes };
@@ -2916,8 +2951,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       const edited = await freshness(withTarget(edit(captured!.toString("utf8"))));
       expect(edited.violations).toEqual([]);
 
-      const before = broadSourceBindingMismatches(reference.mirror);
-      const after = broadSourceBindingMismatches(edited.mirror);
+      const before = broadSourceBindingMismatches(reference.mirror, pairedPins);
+      const after = broadSourceBindingMismatches(edited.mirror, pairedPins);
       expect(before).not.toContain(path);
       expect([...after].sort()).toEqual([...before, path].sort());
       return { collision, before };
@@ -3134,9 +3169,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         label: "the resolved vitest version",
         edits: {
           "pnpm-lock.yaml": (source: string) =>
-            platformApiImporter(source, replaceOnce("        version: 4.1.5(", "        version: 4.1.6(")),
+            platformApiImporter(source, replaceOnce("        version: 4.1.12(", "        version: 4.1.13(")),
         },
-        expected: [refused("W4 cannot be evaluated: installed vitest 4.1.5 but the tree resolves 4.1.6")],
+        expected: [refused("W4 cannot be evaluated: installed vitest 4.1.12 but the tree resolves 4.1.13")],
       },
       {
         label: "the admin-QA seed profiles",
@@ -3346,7 +3381,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
       ).toEqual([
         `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
-        `baseline was derived from 008a50bb554b485dc29e187d381521a3463e24b6, not the capture's frozen source 0000000000000000000000000000000000006545`,
+        `baseline was derived from 75cbdf65969bbec4db9fa09efb5fa87f5a850e30, not the capture's frozen source 0000000000000000000000000000000000006545`,
       ]);
       expect(() =>
         createBootstrapDbWorkloadBaseline({
@@ -3391,13 +3426,13 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(52224);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(52381);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1893735,
+      1671992,
     );
   });
 
@@ -3407,17 +3442,17 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 317381],
-      ["test:db:2", 257917],
-      ["test:db:3", 233562],
+      ["test:db:1", 281848],
+      ["test:db:2", 222020],
+      ["test:db:3", 205908],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
       [18, 18],
       [29, 29],
       [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(808860);
-    expect(schedule.aggregateWithOverheadMs).toBe(861084);
+    expect(schedule.aggregateMs).toBe(709776);
+    expect(schedule.aggregateWithOverheadMs).toBe(762157);
     expect(schedule.minimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
   });
@@ -3429,9 +3464,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 317381],
-      ["test:db:2", 257917],
-      ["test:db:3", 233562],
+      ["test:db:1", 281848],
+      ["test:db:2", 222020],
+      ["test:db:3", 205908],
     ]);
   });
 

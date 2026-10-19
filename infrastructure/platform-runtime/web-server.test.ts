@@ -211,7 +211,11 @@ describe("forwarded-origin trust", () => {
 
   describe("with the switch on, the request origin is the one sanitized hop's forwarded host and scheme", () => {
     // The header set ingress-nginx sends with use-forwarded-headers off.
-    const hop = { host: "shop.chasesets.test", "x-forwarded-host": "shop.chasesets.test", "x-forwarded-proto": "https" };
+    const hop = {
+      host: "shop.chasesets.test",
+      "x-forwarded-host": "shop.chasesets.test",
+      "x-forwarded-proto": "https",
+    };
 
     beforeEach(() => {
       vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");

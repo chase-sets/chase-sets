@@ -240,8 +240,14 @@ describe("platform-compose-ingress in front of the shared web server", () => {
   }
 
   const controls = [
-    { control: "a foreign host", headers: (origin) => ({ Origin: withOrigin(origin, (url) => (url.hostname = "attacker.invalid")) }) },
-    { control: "a foreign scheme", headers: (origin) => ({ Origin: withOrigin(origin, (url) => (url.protocol = "https:")) }) },
+    {
+      control: "a foreign host",
+      headers: (origin) => ({ Origin: withOrigin(origin, (url) => (url.hostname = "attacker.invalid")) }),
+    },
+    {
+      control: "a foreign scheme",
+      headers: (origin) => ({ Origin: withOrigin(origin, (url) => (url.protocol = "https:")) }),
+    },
     {
       control: "a foreign port",
       headers: (origin) => ({ Origin: withOrigin(origin, (url) => (url.port = String(Number(url.port) + 1))) }),
