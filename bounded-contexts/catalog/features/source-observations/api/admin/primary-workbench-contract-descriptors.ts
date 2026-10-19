@@ -31,7 +31,7 @@ import type {
   CatalogPrimaryWorkbenchSourceOptionPageState,
   CatalogPrimaryWorkbenchSourceOptionKindReadModel,
   CatalogPrimaryWorkbenchSourceOptionPageReadModel,
-  CatalogPrimaryWorkbenchSourceOptionsReadModel
+  CatalogPrimaryWorkbenchSourceOptionsReadModel,
 } from "./primary-workbench-selection-contracts";
 import type {
   CatalogPrimaryWorkbenchCatalogSyncStatus,
@@ -40,7 +40,7 @@ import type {
   CatalogPrimaryWorkbenchSourceScopeWorksetStatus,
   CatalogPrimaryWorkbenchSourceScopeWorksetUnitState,
   CatalogPrimaryWorkbenchSourceScopeWorksetReadModel,
-  CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel
+  CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel,
 } from "./primary-workbench-import-sync-contracts";
 import type {
   CatalogPrimaryWorkbenchReadinessReadModel,
@@ -65,7 +65,7 @@ import type {
   CatalogPrimaryWorkbenchProfileSectionWorkspace,
   CatalogPrimaryWorkbenchProfileCloneDraftReadModel,
   CatalogPrimaryWorkbenchProfileAuthoringReadModel,
-  CatalogPrimaryWorkbenchImportJobsReadModel
+  CatalogPrimaryWorkbenchImportJobsReadModel,
 } from "./primary-workbench-profile-readiness-contracts";
 import type {
   CatalogPrimaryWorkbenchHealthTriageReadModel,
@@ -88,7 +88,7 @@ import type {
   CatalogPrimaryWorkbenchAuditEvidenceLink,
   CatalogPrimaryWorkbenchHealthTriageRolloutControl,
   CatalogPrimaryWorkbenchHealthTriageJob,
-  CatalogPrimaryWorkbenchHealthTriageAuditPreview
+  CatalogPrimaryWorkbenchHealthTriageAuditPreview,
 } from "./primary-workbench-lifecycle-governance-contracts";
 import type {
   CatalogPrimaryWorkbenchSourceObservationReviewReadModel,
@@ -114,7 +114,7 @@ import type {
   CatalogPrimaryWorkbenchPromotionResultReadModel,
   CatalogPrimaryWorkbenchActionReadModel,
   CatalogPrimaryWorkbenchSecurityPrivacyReadModel,
-  CatalogPrimaryWorkbenchInstrumentationReadModel
+  CatalogPrimaryWorkbenchInstrumentationReadModel,
 } from "./primary-workbench-promotion-review-contracts";
 export const catalogPrimaryWorkbenchSections = [
   section({

@@ -6,14 +6,16 @@ import { isSafePrimaryWorkbenchReturnPath } from "./primary-workbench-shared-con
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogMergeCandidateReviewCommandPreview } from "../promotion/catalog-merge-candidate-review-command-payloads";
 import type {
-  CatalogAdminControlPlaneFreshnessState,
-  CatalogAdminControlPlanePaginationMode,
   CatalogAdminControlPlaneQueryKey,
   CatalogAdminControlPlaneDiagnostic,
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
   CatalogAdminJobConsistency,
   CatalogAdminProfileVersionPointer,
 } from "./admin-control-plane-read-model-contracts";
+import type {
+  CatalogAdminControlPlaneFreshnessState,
+  CatalogAdminControlPlanePaginationMode,
+} from "./admin-control-plane-read-model-slos";
 import type {
   CatalogIntegrationAuditEvidenceCategory,
   CatalogIntegrationAuditEvidenceEventName,
