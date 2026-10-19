@@ -24,7 +24,7 @@ function assertVerificationContract(text) {
     /^- Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling\. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR\.$/m,
   );
   expect(text).toMatch(
-    /^- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof \(\[#4388 ruling\]\([^)\s]+\)\)\. While \[#8159\]\([^)\s]+\) is open, a full local `verify:test-db` is never a prerequisite for push, draft, ready or landing\.[^\r\n]* Hosted gates, timeouts, skips and reviews are unchanged\.$/m,
+    /^- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof\. Focused local `test:db` runs for the touched files remain useful diagnostics\. Hosted gates, timeouts, skips and reviews are unchanged\.$/m,
   );
   expect(text).toMatch(
     /^\*\*Draft semantics\.\*\* Open the PR as a draft once scoped checks and affected focused checks are green and the Quality Packet is complete; disclose the exact-head PLAN_ONLY evidence\.[^\r\n]*$/m,
@@ -71,17 +71,17 @@ function assertDeliveryDecisionRouting(text) {
   );
   expect(text).not.toMatch(/batch all such questions into one message to Todd/);
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing\*\* [^\r\n]*: the host decides same-attempt, in-scope repairs itself [^\r\n]* and records each as `decision-resolved` with its reasoning\./m,
+    /^ {2}- \*\*Decision routing:?\*\*:? [^\r\n]*the host decides same-attempt, in-scope repairs itself [^\r\n]* and records each as `decision-resolved` with its reasoning\./m,
   );
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing\*\*[^\r\n]* An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds\./m,
+    /^ {2}- \*\*Decision routing:?\*\*[^\r\n]* An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds\./m,
   );
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing\*\*[^\r\n]* A decision lane may not return `TODD_RULING_NEEDED`: if it believes Todd must decide, that is a finding the host resolves with a second independent lane\. Independent code\/planning review and review-contract\/v2 are unchanged\.$/m,
+    /^ {2}- \*\*Decision routing:?\*\*[^\r\n]* A decision lane may not return `TODD_RULING_NEEDED`: if it believes Todd must decide, that is a finding the host resolves with a second independent lane\. Independent code\/planning review and review-contract\/v2 are unchanged\.$/m,
   );
   expect(text).not.toMatch(/attempt\s+ceiling/i);
   expect(text).toMatch(
-    /^ {2}- \*\*Todd receives only two kinds of question\*\* [^\r\n]*: product priority or scope changes, and operator actions no lane can perform\. Package an operator action as one concrete, runnable step\. Never escalate another review pass, revision, replan, step-back verdict or proof route to Todd; the host routes those decisions\.$/m,
+    /^ {2}- \*\*Todd receives only two kinds of question:?\*\* product priority or scope changes, and operator actions no lane can perform\. Package an operator action as one concrete, runnable step\. Never escalate another review pass, revision, replan, step-back verdict or proof route to Todd; the host routes those decisions\.$/m,
   );
 }
 
@@ -248,10 +248,10 @@ const issueStandard = readProse(".agents/skills/planning/references/issue-standa
 
 function assertHostedAttemptProof(text) {
   expect(text).toMatch(
-    /^- Hosted CI is the proof for every product attempt, not only DB \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build\. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing\. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it\. When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body\.$/m,
+    /^- Hosted CI is the proof for every product attempt, not only DB\. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build\. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing\. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it\. When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body\.$/m,
   );
   expect(text).toMatch(
-    /^- An implementation attempt counts only when a pushed head receives a hosted CI verdict or an exact-head review verdict \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. Attempt counts are telemetry and step-back triggers, never a stop; no attempt count parks your issue \(\[#4388 ruling\]\([^)\s]+6022146271\)\)\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling \(helper scripts, probes, config\) do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
+    /^- An implementation attempt counts only when a pushed head receives a hosted CI verdict or an exact-head review verdict\. Attempt counts are telemetry and step-back triggers, never a stop; no attempt count parks your issue\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling \(helper scripts, probes, config\) do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
   );
   expect(text).toContain(
     "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head.",
@@ -265,7 +265,7 @@ function assertHostedAttemptProof(text) {
 function assertIssueStandardVelocity(text) {
   expect(text).toContain("Hosted CI on the pushed head is the proof for every product attempt");
   expect(text).toContain(
-    "without its output ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)); run it in parallel instead.",
+    "without its output; run it in parallel instead.",
   );
   expect(text).toContain(
     "never make local E2E or another local full or harness run a gate, a prerequisite, or a PARK or stop condition.",
