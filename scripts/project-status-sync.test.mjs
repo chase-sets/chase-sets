@@ -287,7 +287,7 @@ describe("project status derivation", () => {
   it("keeps #6169 native-type precedence as the only Epic authority", () => {
     expect(isEpic(issue({ issueType: { name: "Epic" }, labels: [] }))).toBe(true);
     expect(isEpic(issue({ issueType: { name: "Slice" }, labels: [{ name: "kind:epic" }] }))).toBe(false);
-    expect(isEpic(issue({ labels: [{ name: "kind:epic" }] }))).toBe(true);
+    expect(isEpic(issue({ labels: [{ name: "kind:epic" }] }))).toBe(false);
   });
 
   it("plans only real status transitions", () => {
@@ -668,9 +668,9 @@ const OPEN_STATE_DECISION_TABLE = [
     expected: "Epic",
   },
   {
-    name: "untyped legacy kind:epic issue",
+    name: "untyped kind:epic issue",
     subject: issue({ number: 4001, labels: [{ name: "kind:epic" }] }),
-    expected: "Epic",
+    expected: "Backlog",
   },
   {
     name: "native Epic carrying an open blocking dependency",
@@ -687,12 +687,12 @@ const OPEN_STATE_DECISION_TABLE = [
     expected: "Epic",
   },
   {
-    name: "pathological untyped legacy epic that also carries status:tracking-only",
+    name: "untyped kind:epic issue carrying status:tracking-only",
     subject: issue({ number: 4002, labels: [{ name: "kind:epic" }, { name: "status:tracking-only" }] }),
-    expected: "Epic",
+    expected: "Tracking",
   },
   {
-    name: "native Slice carrying the legacy kind:epic label but otherwise classified",
+    name: "native Slice carrying kind:epic label but otherwise classified",
     subject: issue({
       number: 6001,
       issueType: { name: "Slice" },
@@ -701,7 +701,7 @@ const OPEN_STATE_DECISION_TABLE = [
     expected: "Refined",
   },
   {
-    name: "native Slice carrying the legacy kind:epic label and nothing else",
+    name: "native Slice carrying kind:epic label and nothing else",
     subject: issue({ number: 6002, issueType: { name: "Slice" }, labels: [{ name: "kind:epic" }] }),
     expected: "Backlog",
   },
@@ -895,9 +895,9 @@ describe("planner correction and lane ownership", () => {
       derived: "Epic",
     },
     {
-      name: "untyped legacy Epic",
+      name: "untyped kind:epic issue",
       subject: issue({ labels: [{ name: "kind:epic" }], milestone: null }),
-      derived: "Epic",
+      derived: "Backlog",
     },
     {
       name: "tracking-only continuity record",
