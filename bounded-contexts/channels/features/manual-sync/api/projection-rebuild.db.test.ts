@@ -2,9 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
   composeModuleSchemaSql,
@@ -27,9 +27,14 @@ describeDb("manual-sync command ownership survives the actual TCGplayer CSV proj
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pool = createMultiContextTestPools(urls).channels;
   });
+  const dataReset = createMultiContextTestDataReset(
+    () => ({ channels: pool }),
+    async () => {
+      await pool.query(composeModuleSchemaSql(channelsModule));
+    },
+  );
   beforeEach(async () => {
-    await resetMultiContextTestSchemas({ channels: pool });
-    await pool.query(composeModuleSchemaSql(channelsModule));
+    await dataReset.reset();
   });
   afterAll(async () => closeMultiContextTestPools({ channels: pool }));
 

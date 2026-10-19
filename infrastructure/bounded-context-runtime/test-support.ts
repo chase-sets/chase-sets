@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { threadId } from "node:worker_threads";
 import type { BcApiModule, BcSeedOptions } from "@chase-sets/bounded-context-module";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
-import { afterEach, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 import {
   bootstrapContextDatabase,
   createProjectionAwarePool,
@@ -327,6 +330,195 @@ function resolvePgPoolDatabaseTarget(pool: PgTransactionalPool): unknown {
   } catch {
     return pool;
   }
+}
+
+// #9344 scratch arm B (never landed): opt-in once-per-file bootstrap with a per-test data reset.
+// The first reset runs the default DDL reset and bootstrap, then records one baseline per database
+// target. Later resets are dependency-ordered row DELETE, re-insert of bootstrap-written rows and
+// nontransactional setval of owned sequence/identity positions: no relation rewrite or index build.
+// Schema/role/extension/UNLOGGED and other DDL-mutating tests remain on the default reset and are
+// listed as static opt-outs in the preregistration; this helper never diverts at runtime.
+export type MultiContextTestDataReset = Readonly<{ reset: () => Promise<void> }>;
+
+type TestDataResetKind = "ddl-bootstrap" | "data";
+
+type TestDataBaseline = Readonly<{
+  pool: PgTransactionalPool;
+  resetSql: string;
+}>;
+
+const testDataResetLedgerDirectory = fileURLToPath(new URL("../../artifacts/9344-reset-ledger/", import.meta.url));
+
+export function createMultiContextTestDataReset(
+  resolvePools: () => Readonly<Record<string, unknown>>,
+  bootstrap: () => Promise<void>,
+): MultiContextTestDataReset {
+  let baselines: readonly TestDataBaseline[] | undefined;
+
+  return {
+    async reset() {
+      const pools = resolvePools();
+      const targets = testDataResetTargetPools(pools);
+      const current =
+        baselines &&
+        baselines.length === targets.length &&
+        baselines.every((baseline, index) => baseline.pool === targets[index])
+          ? baselines
+          : undefined;
+      if (current) {
+        recordTestDataReset("data");
+        await forEachWithConcurrency(current, testSchemaResetConcurrency, (baseline) =>
+          baseline.pool.query(baseline.resetSql),
+        );
+        return;
+      }
+
+      recordTestDataReset("ddl-bootstrap");
+      await resetMultiContextTestSchemas(pools);
+      await bootstrap();
+      baselines = await Promise.all(targets.map(captureTestDataBaseline));
+    },
+  };
+}
+
+// Same database-target dedup as resetMultiContextTestSchemas (#8124 40P01 guard).
+function testDataResetTargetPools(pools: Readonly<Record<string, unknown>>): readonly PgTransactionalPool[] {
+  const poolsByDatabaseTarget = new Map<unknown, PgTransactionalPool>();
+
+  for (const pool of Object.values(pools).filter(isPgTransactionalPool)) {
+    const databaseTarget = resolvePgPoolDatabaseTarget(pool);
+    if (!poolsByDatabaseTarget.has(databaseTarget)) {
+      poolsByDatabaseTarget.set(databaseTarget, pool);
+    }
+  }
+
+  return [...poolsByDatabaseTarget.values()];
+}
+
+function recordTestDataReset(kind: TestDataResetKind): void {
+  const state = expect.getState();
+  mkdirSync(testDataResetLedgerDirectory, { recursive: true });
+  appendFileSync(
+    `${testDataResetLedgerDirectory}${process.pid}-${threadId}.jsonl`,
+    `${JSON.stringify({ kind, file: state.testPath ?? "", test: state.currentTestName ?? "" })}\n`,
+  );
+}
+
+const ownedRole = "(SELECT oid FROM pg_roles WHERE rolname = current_user)";
+const ownedRelations = `SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relowner = ${ownedRole} AND n.nspname NOT LIKE 'pg\\_toast%'`;
+
+async function captureTestDataBaseline(pool: PgTransactionalPool): Promise<TestDataBaseline> {
+  const unsupported = await pool.query<{ item: string }>(
+    `SELECT format('%s %s', c.relkind, c.relname) AS item FROM pg_class c
+      WHERE c.oid IN (${ownedRelations}) AND c.relkind IN ('m', 'f')
+     UNION ALL
+     SELECT format('trigger %s', t.tgname) FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgrelid IN (${ownedRelations})
+     UNION ALL
+     SELECT format('rule %s', r.rulename) FROM pg_rewrite r JOIN pg_class c ON c.oid = r.ev_class
+      WHERE r.ev_class IN (${ownedRelations}) AND c.relkind IN ('r', 'p')`,
+  );
+  if (unsupported.rows.length > 0) {
+    throw new Error(
+      `#9344 data reset cannot preserve equivalence over ${unsupported.rows.map((row) => row.item).join(", ")}; this site must opt out.`,
+    );
+  }
+
+  const tables = await pool.query<{ oid: number; name: string; columns: string[] }>(
+    `SELECT c.oid::int AS oid, format('%I.%I', n.nspname, c.relname) AS name,
+       ARRAY(SELECT quote_ident(a.attname) FROM pg_attribute a
+         WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
+         ORDER BY a.attnum) AS columns
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.oid IN (${ownedRelations}) AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+       AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
+     ORDER BY 2`,
+  );
+  const references = await pool.query<{ child: number; parent: number }>(
+    `SELECT conrelid::int AS child, confrelid::int AS parent FROM pg_constraint
+     WHERE contype = 'f' AND conrelid <> confrelid AND conrelid IN (${ownedRelations}) AND confrelid IN (${ownedRelations})`,
+  );
+  const deleteOrder = orderTablesReferencingFirst(
+    tables.rows.map((table) => table.oid),
+    references.rows,
+  ).map((oid) => tables.rows.find((table) => table.oid === oid)!);
+
+  const baselineRows =
+    tables.rows.length === 0
+      ? []
+      : (
+          await pool.query<{ name: string; rows: string | null }>(
+            tables.rows
+              .map(
+                (table) =>
+                  `SELECT ${quoteSqlLiteral(table.name)} AS name, (SELECT json_agg(b9344_row)::text FROM ${table.name} b9344_row) AS rows`,
+              )
+              .join("\nUNION ALL\n"),
+          )
+        ).rows;
+  const rowsByTable = new Map(baselineRows.filter((row) => row.rows !== null).map((row) => [row.name, row.rows!]));
+
+  const sequences = await pool.query<{ name: string; position: string }>(
+    `SELECT quote_literal(format('%I.%I', schemaname, sequencename)) AS name,
+       CASE WHEN last_value IS NULL THEN format('%s, false', start_value) ELSE format('%s, true', last_value) END AS position
+     FROM pg_sequences WHERE sequenceowner = current_user ORDER BY 1`,
+  );
+
+  const statements = [
+    ...deleteOrder.map((table) => `DELETE FROM ${table.name};`),
+    ...[...deleteOrder]
+      .reverse()
+      .filter((table) => rowsByTable.has(table.name))
+      .map((table) => {
+        const columns = table.columns.join(", ");
+        return `INSERT INTO ${table.name} (${columns}) OVERRIDING SYSTEM VALUE SELECT ${columns} FROM json_populate_recordset(NULL::${table.name}, ${quoteSqlDollar(rowsByTable.get(table.name)!)}::json);`;
+      }),
+    ...(sequences.rows.length === 0
+      ? []
+      : [
+          `SELECT ${sequences.rows.map((sequence) => `setval(${sequence.name}::regclass, ${sequence.position})`).join(", ")};`,
+        ]),
+  ];
+
+  return { pool, resetSql: statements.join("\n") };
+}
+
+function orderTablesReferencingFirst(
+  oids: readonly number[],
+  references: readonly Readonly<{ child: number; parent: number }>[],
+): number[] {
+  const referencers = new Map(oids.map((oid) => [oid, new Set<number>()]));
+  for (const reference of references) {
+    referencers.get(reference.parent)?.add(reference.child);
+  }
+
+  const ordered: number[] = [];
+  const remaining = new Set(oids);
+  while (remaining.size > 0) {
+    const ready = [...remaining].filter((oid) => [...referencers.get(oid)!].every((child) => !remaining.has(child)));
+    if (ready.length === 0) {
+      throw new Error("#9344 data reset found a foreign-key cycle; this site must opt out.");
+    }
+    for (const oid of ready) {
+      remaining.delete(oid);
+      ordered.push(oid);
+    }
+  }
+
+  return ordered;
+}
+
+function quoteSqlLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function quoteSqlDollar(value: string): string {
+  let tag = "$b9344$";
+  while (value.includes(tag)) {
+    tag = `$b9344${randomUUID().replaceAll("-", "")}$`;
+  }
+
+  return `${tag}${value}${tag}`;
 }
 
 export async function closeMultiContextTestPools(pools: Readonly<Record<string, unknown>>): Promise<void> {

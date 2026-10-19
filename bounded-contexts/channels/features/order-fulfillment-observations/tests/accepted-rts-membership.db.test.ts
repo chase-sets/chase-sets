@@ -3,6 +3,7 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
@@ -43,9 +44,12 @@ describeDb("accepted RTS owner", () => {
     await ensureMultiContextTestDatabases(baseUrl!, urls);
     pools = createMultiContextTestPools(urls);
   });
+  const dataReset = createMultiContextTestDataReset(
+    () => pools,
+    () => bootstrapContextDatabase(channelsModule, pools.channels),
+  );
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await dataReset.reset();
     await seedTargets();
   });
   afterAll(async () => {

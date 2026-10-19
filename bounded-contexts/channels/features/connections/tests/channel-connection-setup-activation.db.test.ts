@@ -4,9 +4,9 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../../../index";
@@ -31,10 +31,15 @@ describeDb("channel-connection-setup-activation", () => {
     pools = createMultiContextTestPools(urls);
   });
 
+  const dataReset = createMultiContextTestDataReset(
+    () => pools,
+    async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    },
+  );
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
-    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await dataReset.reset();
   });
 
   afterAll(async () => closeMultiContextTestPools(pools));

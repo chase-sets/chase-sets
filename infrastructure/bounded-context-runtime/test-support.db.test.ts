@@ -170,6 +170,57 @@ describeDb("multi-context schema reset cold acquisition concurrency", () => {
   });
 });
 
+describeDb("DDL-reset arm B relfilenode discriminator", () => {
+  it("keeps heap, index, sequence and TOAST relfilenodes across the data-reset primitive", async () => {
+    const pool = createPgPool(adminDatabaseUrl!) as PgTransactionalPool & Readonly<{ end: () => Promise<void> }>;
+    const suffix = `${process.pid}_${Date.now()}`;
+    const table = `ddl_reset_probe_${suffix}`;
+    const index = `${table}_payload_idx`;
+    try {
+      await pool.query(`CREATE TABLE ${table} (id bigint GENERATED ALWAYS AS IDENTITY, payload text NOT NULL);`);
+      await pool.query(`CREATE INDEX ${index} ON ${table} (payload);`);
+      await pool.query(`INSERT INTO ${table} (payload) VALUES ('seed'), (repeat('x', 4096));`);
+      const before = await pool.query<{ relname: string; relfilenode: string; reltoastrelid: string }>(
+        `SELECT c.relname, c.relfilenode::text, c.reltoastrelid::text FROM pg_class c
+         WHERE c.relname IN ('${table}', '${index}') OR c.oid = pg_get_serial_sequence('${table}', 'id')::regclass
+         ORDER BY c.relname`,
+      );
+      await pool.query(`DELETE FROM ${table};`);
+      await pool.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), 1, false);`);
+      const after = await pool.query<{ relname: string; relfilenode: string; reltoastrelid: string }>(
+        `SELECT c.relname, c.relfilenode::text, c.reltoastrelid::text FROM pg_class c
+         WHERE c.relname IN ('${table}', '${index}') OR c.oid = pg_get_serial_sequence('${table}', 'id')::regclass
+         ORDER BY c.relname`,
+      );
+      expect(after.rows).toEqual(before.rows);
+    } finally {
+      await pool.query(`DROP TABLE IF EXISTS ${table} CASCADE`);
+      await pool.end();
+    }
+  });
+
+  it("fails the relfilenode guard for the TRUNCATE RESTART IDENTITY bypass mutant", async () => {
+    const pool = createPgPool(adminDatabaseUrl!) as PgTransactionalPool & Readonly<{ end: () => Promise<void> }>;
+    const suffix = `${process.pid}_${Date.now()}_mutant`;
+    const table = `ddl_reset_probe_${suffix}`;
+    try {
+      await pool.query(`CREATE TABLE ${table} (id bigint GENERATED ALWAYS AS IDENTITY, payload text NOT NULL);`);
+      await pool.query(`INSERT INTO ${table} (payload) VALUES ('seed'), (repeat('x', 4096));`);
+      const before = await pool.query<{ relfilenode: string; reltoastrelid: string }>(
+        `SELECT relfilenode::text, reltoastrelid::text FROM pg_class WHERE relname = '${table}'`,
+      );
+      await pool.query(`TRUNCATE ${table} RESTART IDENTITY;`);
+      const after = await pool.query<{ relfilenode: string; reltoastrelid: string }>(
+        `SELECT relfilenode::text, reltoastrelid::text FROM pg_class WHERE relname = '${table}'`,
+      );
+      expect(after.rows).not.toEqual(before.rows);
+    } finally {
+      await pool.query(`DROP TABLE IF EXISTS ${table} CASCADE`);
+      await pool.end();
+    }
+  });
+});
+
 function observeResetQueries(
   pool: PgTransactionalPool & PoolDiagnostics & Readonly<{ end: () => Promise<void> }>,
 ): CloseableObservedPool {

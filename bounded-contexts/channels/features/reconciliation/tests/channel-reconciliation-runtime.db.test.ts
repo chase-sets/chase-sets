@@ -8,6 +8,7 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
@@ -94,10 +95,15 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
   });
+  const dataReset = createMultiContextTestDataReset(
+    () => pools,
+    async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    },
+  );
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
-    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await dataReset.reset();
   });
   afterAll(async () => closeMultiContextTestPools(pools));
 

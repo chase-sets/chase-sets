@@ -4,6 +4,7 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
@@ -27,15 +28,22 @@ type Pools = Readonly<Record<"channels", PgTransactionalPool>>;
 /** One disposable Channels database per suite; each test starts from a reset, booted schema and one TCGplayer connection. */
 export function liveExportDatabase(name: string, options: Readonly<{ boot: boolean }> = { boot: true }) {
   const state: { pools?: Pools } = {};
+  const dataReset = createMultiContextTestDataReset(
+    () => state.pools!,
+    () => bootstrapContextDatabase(channelsModule, state.pools!.channels),
+  );
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(baseUrl!, ["channels"], name);
     await ensureMultiContextTestDatabases(baseUrl!, urls);
     state.pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(state.pools!);
-    if (!options.boot) return;
-    await bootstrapContextDatabase(channelsModule, state.pools!.channels);
+    // #9344 B opt-out: boot:false suites build their schema from an empty database, so they keep the DDL reset.
+    if (!options.boot) {
+      await resetMultiContextTestSchemas(state.pools!);
+      return;
+    }
+    await dataReset.reset();
     await seedConnection(state.pools!.channels, connectionId);
   });
   afterAll(async () => {

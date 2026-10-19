@@ -8,6 +8,7 @@ import {
   createInternalSystemTestActor,
   createInternalSystemTestRequestContext,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createTestApp,
   createTestEventStoreContext,
   ensureMultiContextTestDatabases,
@@ -218,6 +219,35 @@ describe("test-support API route helpers", () => {
 });
 
 describe("test-support database ownership", () => {
+  it("bootstraps once, then uses the captured data-reset plan without catalog diversion", async () => {
+    const queries: string[] = [];
+    const pool = {
+      options: { connectionString: "postgresql://channels:channels@localhost/channels" },
+      query: async (sql: string) => {
+        queries.push(sql);
+        if (sql.includes("relkind IN ('m', 'f')")) return { rows: [] };
+        if (sql.includes("FROM pg_class c JOIN pg_namespace")) return { rows: [] };
+        if (sql.includes("FROM pg_sequences")) return { rows: [] };
+        return { rows: [] };
+      },
+    };
+    let bootstrapCount = 0;
+    const reset = createMultiContextTestDataReset(
+      () => ({ channels: pool }),
+      async () => {
+        bootstrapCount += 1;
+      },
+    );
+
+    await reset.reset();
+    await reset.reset();
+
+    expect(bootstrapCount).toBe(1);
+    expect(queries[0]).toContain("DROP OWNED BY CURRENT_USER CASCADE");
+    expect(queries.at(-1)).toBe("");
+    expect(queries.some((sql) => sql.includes("md5(coalesce"))).toBe(false);
+  });
+
   it("creates per-context owned database URLs from an admin connection", () => {
     const urls = createMultiContextTestDatabaseUrls(
       "postgresql://postgres:postgres@localhost:5432/postgres",

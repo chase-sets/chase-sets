@@ -3,6 +3,7 @@ import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chas
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
@@ -39,10 +40,13 @@ describeDb("channel publication browser support", () => {
     pool = createMultiContextTestPools(urls).channels;
   });
 
+  const dataReset = createMultiContextTestDataReset(
+    () => ({ channels: pool }),
+    () => bootstrapContextDatabase(channelsModule, pool),
+  );
   beforeEach(async () => {
     delete process.env.PLAYWRIGHT_SKIP_WEB_SERVER;
-    await resetMultiContextTestSchemas({ channels: pool });
-    await bootstrapContextDatabase(channelsModule, pool);
+    await dataReset.reset();
   });
 
   afterEach(() => {

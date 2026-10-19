@@ -2,10 +2,10 @@ import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vites
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   ensureMultiContextTestDatabases,
   createMultiContextTestPools,
   closeMultiContextTestPools,
-  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as inventoryModule } from "@chase-sets/inventory";
@@ -67,10 +67,15 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await ensureMultiContextTestDatabases(baseUrl!, urls);
     pools = createMultiContextTestPools(urls);
   });
+  const dataReset = createMultiContextTestDataReset(
+    () => pools,
+    async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    },
+  );
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
-    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await dataReset.reset();
     await seed();
   });
   afterAll(async () => closeMultiContextTestPools(pools));

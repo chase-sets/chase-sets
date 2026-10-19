@@ -2,9 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { composeModuleSchemaSql, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -34,9 +34,14 @@ describeDb("manual-sync browser scenario seed", () => {
     pool = pools.channels;
     inventoryPool = pools.inventory;
   });
+  const dataReset = createMultiContextTestDataReset(
+    () => ({ channels: pool }),
+    async () => {
+      await pool.query(composeModuleSchemaSql(channelsModule));
+    },
+  );
   beforeEach(async () => {
-    await resetMultiContextTestSchemas({ channels: pool });
-    await pool.query(composeModuleSchemaSql(channelsModule));
+    await dataReset.reset();
   });
   afterAll(async () => closeMultiContextTestPools({ channels: pool, inventory: inventoryPool }));
 
