@@ -11,6 +11,36 @@ function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
+function enabledEvents(call) {
+  return new URLSearchParams(call.init.body).getAll("enabled_events[]");
+}
+
+function expectNoV2EventsSentToV1Endpoints(calls) {
+  for (const call of calls.filter((entry) => entry.url.endsWith("/v1/webhook_endpoints"))) {
+    expect(enabledEvents(call).filter((event) => event.startsWith("v2."))).toEqual([]);
+  }
+}
+
+async function createWithRecordedCalls(overrides) {
+  const calls = [];
+  const bodies = [
+    { id: "we_payment", secret: "whsec_payment" },
+    { id: "we_connect", secret: "whsec_connect" },
+    { id: "hook_easypost" },
+  ];
+  await createProviderWebhooks(
+    { ...input, ...overrides },
+    {
+      randomBytes: () => Buffer.from("easy-secret"),
+      fetch: async (url, init) => {
+        calls.push({ url, init });
+        return response(bodies.shift());
+      },
+    },
+  );
+  return calls;
+}
+
 const input = {
   namespace: "chase-sets-verify-123-1",
   baseUrl: "https://verify-123-1-marketplace.preview.chasesets.com",
@@ -171,5 +201,117 @@ describe("provider webhook lifecycle", () => {
       }),
     ).rejects.toThrow("returned 500");
     expect(methods).toEqual(["POST", "POST", "DELETE"]);
+  });
+
+  it("sends the v2-mode Connect endpoint only money-movement events", async () => {
+    const calls = await createWithRecordedCalls({ stripeConnectAccountsApi: "v2" });
+
+    expect(new URLSearchParams(calls[1].init.body).get("connect")).toBe("true");
+    expect(enabledEvents(calls[1])).toEqual(["payout.paid", "payout.failed"]);
+    expect(enabledEvents(calls[0])).toEqual(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS);
+    expectNoV2EventsSentToV1Endpoints(calls);
+  });
+
+  it("defaults to the v2 posture when no Connect Accounts API is selected", async () => {
+    const calls = await createWithRecordedCalls({});
+
+    expect(enabledEvents(calls[1])).toEqual(["payout.paid", "payout.failed"]);
+    expectNoV2EventsSentToV1Endpoints(calls);
+  });
+
+  it("sends the v1-mode Connect endpoint account readiness followed by money-movement events", async () => {
+    const calls = await createWithRecordedCalls({ stripeConnectAccountsApi: "v1" });
+
+    expect(enabledEvents(calls[1])).toEqual(["account.updated", "payout.paid", "payout.failed"]);
+    expect(enabledEvents(calls[0])).toEqual(STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS);
+    expectNoV2EventsSentToV1Endpoints(calls);
+  });
+
+  it("fails the v2-name guard assertion when a v1 endpoint request carries a v2 event", () => {
+    const body = new URLSearchParams({ connect: "true" });
+    body.append("enabled_events[]", "v2.core.account[requirements].updated");
+    body.append("enabled_events[]", "payout.paid");
+
+    expect(() =>
+      expectNoV2EventsSentToV1Endpoints([{ url: "https://api.stripe.com/v1/webhook_endpoints", init: { body } }]),
+    ).toThrow();
+  });
+
+  it("refuses an unknown Connect Accounts API posture before any provider call", async () => {
+    const calls = [];
+    await expect(
+      createProviderWebhooks(
+        { ...input, stripeConnectAccountsApi: "v3" },
+        {
+          fetch: async (url, init) => {
+            calls.push({ url, init });
+            return response({ id: "we_unexpected", secret: "whsec_unexpected" });
+          },
+        },
+      ),
+    ).rejects.toThrow("STRIPE_CONNECT_ACCOUNTS_API must be one of: v1, v2.");
+    expect(calls).toEqual([]);
+  });
+
+  it("names the rejected Connect endpoint and its status, and deletes the payment endpoint", async () => {
+    const calls = [];
+    const failure = await createProviderWebhooks(
+      { ...input, stripeConnectAccountsApi: "v2" },
+      {
+        randomBytes: () => Buffer.from("easy-secret"),
+        fetch: async (url, init) => {
+          calls.push({ url, method: init.method });
+          if (init.method === "DELETE") return response({ id: "we_payment", deleted: true });
+          if (calls.length === 1) return response({ id: "we_payment", secret: "whsec_payment" });
+          return response({ error: { message: "Invalid enabled_events[0]: must be one of account.updated" } }, 400);
+        },
+      },
+    ).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toMatch(/^Provider webhook create failed for the connect endpoint: /u);
+    expect(failure.message).toContain("returned 400");
+    for (const secret of ["sk_test_fixture", "EZTKfixture", "whsec_payment", Buffer.from("easy-secret").toString("hex")]) {
+      expect(failure.message).not.toContain(secret);
+    }
+    expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "DELETE"]);
+    expect(calls[2].url).toBe("https://api.stripe.com/v1/webhook_endpoints/we_payment");
+  });
+
+  it("names the payment and EasyPost endpoints when their create is rejected", async () => {
+    const paymentFailure = await createProviderWebhooks(input, {
+      fetch: async () => response({ error: "nope" }, 400),
+    }).catch((error) => error);
+    expect(paymentFailure.message).toMatch(/^Provider webhook create failed for the payment endpoint: .*returned 400/u);
+
+    let call = 0;
+    const easyPostFailure = await createProviderWebhooks(input, {
+      randomBytes: () => Buffer.from("easy-secret"),
+      fetch: async (_url, init) => {
+        call += 1;
+        if (init.method === "DELETE") return response({ deleted: true });
+        if (call <= 2) return response({ id: `we_${call}`, secret: `whsec_${call}` });
+        return response({ error: "nope" }, 422);
+      },
+    }).catch((error) => error);
+    expect(easyPostFailure.message).toMatch(/^Provider webhook create failed for the easypost endpoint: .*returned 422/u);
+  });
+
+  it("redacts known secret values that a provider error body echoes", async () => {
+    const easyPostSecret = Buffer.from("easy-secret").toString("hex");
+    let call = 0;
+    const failure = await createProviderWebhooks(input, {
+      randomBytes: () => Buffer.from("easy-secret"),
+      fetch: async (_url, init) => {
+        call += 1;
+        if (init.method === "DELETE") return response({ deleted: true });
+        if (call <= 2) return response({ id: `we_${call}`, secret: `whsec_${call}` });
+        return response({ error: `webhook_secret ${easyPostSecret} rejected for sk_test_fixture` }, 422);
+      },
+    }).catch((error) => error);
+
+    expect(failure.message).toContain("[masked]");
+    expect(failure.message).not.toContain(easyPostSecret);
+    expect(failure.message).not.toContain("sk_test_fixture");
   });
 });
