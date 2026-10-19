@@ -219,9 +219,9 @@ export function parseSupersedesSection(body) {
       findings.push({
         code: "BRIEF_SUPERSEDES_FORMAT",
         line: index + 1,
-        message: seen.has(number)
-          ? `Supersedes predecessor #${number} is listed more than once.`
-          : "Supersedes items must be `- #<n> full` or `- #<n> partial: <dropped criteria>`.",
+        message: !valid
+          ? "Supersedes items must be `- #<n> full` or `- #<n> partial: <dropped criteria>`."
+          : `Supersedes predecessor #${number} is listed more than once.`,
       });
       continue;
     }

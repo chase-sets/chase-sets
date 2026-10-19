@@ -311,6 +311,12 @@ describe("supersedes declaration", () => {
     expect(parsed.entries).toEqual([]);
     expect(parsed.findings).toMatchObject([{ code: "BRIEF_SUPERSEDES_FORMAT", line: 3 }]);
   });
+
+  it("reports malformed duplicate items as format errors", () => {
+    const parsed = parseSupersedesSection("### Supersedes\n\n- #123 full\n- #123 partial:\n");
+    expect(parsed.findings).toHaveLength(1);
+    expect(parsed.findings[0].message).toContain("Supersedes items must be");
+  });
 });
 
 describe("planning integration", () => {

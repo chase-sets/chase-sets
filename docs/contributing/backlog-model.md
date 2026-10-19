@@ -305,23 +305,6 @@ at most one run is running and one is pending. Newly added board items receive
 their status on the next successful run. The orchestrator's `board-reconcile.ps1`
 also dispatches the workflow after clearing lane-owned statuses or finding blank
 ones.
-### Closure and supersession
-
-Judge a replacement over the whole successor set. When it is `full`, the
-planner closes the predecessor in the same registration pass as `duplicate`
-when scope is identical or `not planned` otherwise, and each successor names
-the predecessor. When it is `partial`, the planner removes only the dropped
-criteria in place and records the successor set; partial supersession never
-adds `status:needs-replan`. A closed `not planned` or `duplicate` predecessor is
-orphaned when every successor that names it `full` is itself closed `not planned`;
-the planner who closes the last such successor reopens the predecessor or files
-a new issue naming it `full`.
-
-Every new non-Epic, including host and review follow-ups, gets a home after a
-duplicate search: a committed milestone, Candidate capabilities, or Operations
-for machine-generated incidents. `Deferred / Incubation` is used only on
-Todd's explicit deferral; Epics stay unmilestoned and write-once.
-
 Precedence, first match wins:
 
 | # | Fact | Status |
@@ -368,6 +351,27 @@ controller-alignment work.
 
 Refinement is pulled forward wave by wave, not applied to the whole corpus
 (anti-ratchet). Do not mass-refine; refine the next wave's worth.
+
+### Closure and supersession
+
+Judge a replacement over the whole successor set. When it is `full`, the
+planner closes the predecessor in the same registration pass as `duplicate`
+when scope is identical or `not planned` otherwise, with one comment naming the
+successor set; each successor names the predecessor in its `### Supersedes`
+section, and the planner never waits for a successor to land. When it is
+`partial`, the planner removes only the dropped criteria in place and records
+the successor set; partial supersession never adds `status:needs-replan`. A
+closed `not planned` or `duplicate` predecessor is orphaned when at least one
+issue names it `full` and every such issue is itself closed `not planned`; the
+planner who closes the last such successor reopens the predecessor or files a
+new issue naming it `full`.
+
+Every new non-Epic, including host and review follow-ups, gets a home after a
+duplicate search: a committed milestone, Candidate capabilities, or Operations
+for machine-generated incidents. `Deferred / Incubation` is used only on
+Todd's explicit deferral; Epics stay unmilestoned and write-once, and
+superseding an Epic takes a superseding comment, plus closure when it is
+`full`.
 
 ### Controller consumer
 

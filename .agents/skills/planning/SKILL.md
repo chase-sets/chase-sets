@@ -120,7 +120,7 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    path the planned change replaces or makes redundant, including code, docs,
    flags, and workflows. Stage 2-light for Issues still requires this check.
    The supersession inventory covers existing paths, including open issues
-   found by searching the planned outcome terms and predicted footprint paths;
+   found by searching the planned outcome terms and predicted footprint paths.
    Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
@@ -185,22 +185,25 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      comment naming the successor set; every successor names the predecessor in
      its `### Supersedes` section, and the planner never waits for a successor
      to land;
-   - for `partial`, remove only the dropped criteria in place, post one comment
-     naming those criteria and the successor set, and never add
-     `status:needs-replan`;
-     If the remainder is not a coherent slice, close the
+   - for `partial`, in the same registration pass remove only the dropped
+     criteria in place, then post one comment naming those criteria and the
+     successor set, and never add `status:needs-replan`; the edited body takes
+     the ordinary readiness check on its new revision before any further
+     dispatch. If the remainder is not a coherent slice, close the
      predecessor as `not planned` and file one fixed-scope issue with the
      remainder, naming the old issue `full` in its `### Supersedes` section;
    - if either class would drop accepted product scope, leave the predecessor
      unchanged and route one product question to Todd;
    - the `planning-repair/v1` boundary is unchanged: its input is a closed PR,
+     and it is not the supersession route. When the predecessor is already in
+     a planning-repair round, the supersession comment is input to that round,
      and a `REPLACED` original remains open as `status:tracking-only` until its
-     replacements land;
+     replacements land. The `full`, `partial` and product-question rules above
+     never apply to an issue's own repair replacements;
    - a closed `not planned` or `duplicate` predecessor is orphaned when at
      least one issue names it `full` and every such successor is itself closed
      `not planned`; reopen it or file a new issue naming it `full` when the last
      successor closes that way;
-     reopen an orphaned predecessor or file a new issue naming it `full` when the last `not planned` successor closes;
    - every new non-Epic, including host and review follow-ups, gets a home
      after a duplicate search: a committed milestone, Candidate capabilities,
      or Operations for machine-generated incidents;

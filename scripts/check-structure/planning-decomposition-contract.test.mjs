@@ -24,19 +24,19 @@ const parentageRule = Object.freeze({
 
 const supersessionRule = Object.freeze({
   discoveryOpenIssues:
-    "including open issues found by searching the planned outcome terms and predicted footprint paths;",
+    "including open issues found by searching the planned outcome terms and predicted footprint paths.",
   wholeSuccessorSet:
     "judge coverage over the whole successor set: `full` carries every accepted acceptance criterion, `partial` replaces named criteria only, and `adjacent` shares a theme but triggers no action;",
   fullDisposition:
     "for `full`, in the same registration pass close the predecessor as `duplicate` when scope is identical or `not planned` otherwise, with one comment naming the successor set;",
   partialDisposition:
-    "for `partial`, remove only the dropped criteria in place, post one comment naming those criteria and the successor set, and never add `status:needs-replan`;",
+    "for `partial`, in the same registration pass remove only the dropped criteria in place, then post one comment naming those criteria and the successor set, and never add `status:needs-replan`; the edited body takes the ordinary readiness check on its new revision before any further dispatch.",
   productQuestion:
     "if either class would drop accepted product scope, leave the predecessor unchanged and route one product question to Todd;",
   repairBoundary:
-    "the `planning-repair/v1` boundary is unchanged: its input is a closed PR, and a `REPLACED` original remains open as `status:tracking-only` until its replacements land;",
+    "the `planning-repair/v1` boundary is unchanged: its input is a closed PR, and it is not the supersession route. When the predecessor is already in a planning-repair round, the supersession comment is input to that round, and a `REPLACED` original remains open as `status:tracking-only` until its replacements land. The `full`, `partial` and product-question rules above never apply to an issue's own repair replacements;",
   orphanedAcceptance:
-    "reopen an orphaned predecessor or file a new issue naming it `full` when the last `not planned` successor closes;",
+    "a closed `not planned` or `duplicate` predecessor is orphaned when at least one issue names it `full` and every such successor is itself closed `not planned`;",
   filingHome:
     "every new non-Epic, including host and review follow-ups, gets a home after a duplicate search: a committed milestone, Candidate capabilities, or Operations for machine-generated incidents;",
   deferredTodd: "use `Deferred / Incubation` only on Todd's explicit deferral;",
@@ -220,6 +220,17 @@ describe("repository routing", () => {
       expect(registrationSection(skill)).toContain(
         "7. **Registration.** Register each issue in the repository its change merges\n   into. A `chase-sets/chase-sets-controller` issue uses the same brief\n   standard and pressure test. Its milestone and release follow that\n   repository's controller-orchestrator skill. Create on GitHub",
       );
+    }
+  });
+
+  it("states the closure and supersession contract in the backlog model", () => {
+    const normalized = backlogModel.replace(/\s+/g, " ");
+    for (const clause of [
+      "with one comment naming the successor set; each successor names the predecessor in its `### Supersedes` section, and the planner never waits for a successor to land.",
+      "at least one issue names it `full` and every such issue is itself closed `not planned`",
+      "superseding an Epic takes a superseding comment, plus closure when it is `full`.",
+    ]) {
+      expect(normalized).toContain(clause);
     }
   });
 });
