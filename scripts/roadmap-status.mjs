@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-classify.mjs";
+import { parseSupersedesSection } from "./brief-lint.mjs";
 import { derivePullWindow } from "./dispatch-window.mjs";
 import { compareOutcomeMilestones, isExecutableOutcome, readOutcomePolicy } from "./milestone-policy.mjs";
 
@@ -75,6 +76,8 @@ const TIMELINE_CONCURRENCY = 8;
 const EPIC_SUB_ISSUE_CAPACITY = 100;
 const EPIC_SUB_ISSUE_WARNING_THRESHOLD = 90;
 const MILESTONE_EVENTS = new Set(["milestoned", "demilestoned"]);
+export const BACKLOG_RELEVANCE_KEEP_OPEN_MARKER = "<!-- backlog-relevance:R3 keep-open -->";
+const BACKLOG_RELEVANCE_ROW_CAP = 25;
 function authorityError(code, message = code) {
   return new RoadmapIssueEnumerationError(code, message);
 }
@@ -1286,6 +1289,225 @@ export function summarizeWaves({
   return { rows, windowDays, epicCapacities };
 }
 
+// Backlog relevance: each category's qualifying condition is removed by its
+// disposition, so a dispositioned row drops out on the next run. It is computed
+// only after core authority succeeds, never blocks the splice, and a category
+// that cannot be decided renders `unknown`, never zero.
+
+function relevanceError(code) {
+  return new RoadmapIssueEnumerationError(code, code);
+}
+
+function validRelevancePage(page) {
+  return (
+    hasOnlyKeys(page, ["totalCount", "pageInfo", "nodes"]) &&
+    isNonNegativeSafeInteger(page.totalCount) &&
+    Array.isArray(page.nodes) &&
+    hasOnlyKeys(page.pageInfo, ["hasNextPage", "endCursor"]) &&
+    typeof page.pageInfo.hasNextPage === "boolean" &&
+    (page.pageInfo.endCursor === null || requiredString(page.pageInfo.endCursor)) &&
+    (!page.pageInfo.hasNextPage || requiredString(page.pageInfo.endCursor))
+  );
+}
+
+function validRelevanceIssue(node) {
+  return hasOnlyKeys(node, ["number", "closedByPullRequestsReferences"]) && isPositiveSafeInteger(node.number);
+}
+
+function validRelevanceReference(node) {
+  if (!hasOnlyKeys(node, ["merged", "mergedAt"])) return false;
+  if (node.merged === true) return parseTimezoneInstant(node.mergedAt) !== null;
+  return node.merged === false && node.mergedAt === null;
+}
+
+function validRelevanceComment(node) {
+  return (
+    hasOnlyKeys(node, ["createdAt", "body"]) &&
+    parseTimezoneInstant(node.createdAt) !== null &&
+    typeof node.body === "string"
+  );
+}
+
+async function collectRelevanceConnection({ scope, loadPage, validateNode, firstPage = () => loadPage(null) }) {
+  const nodes = [];
+  const cursors = new Set();
+  let expectedTotal = null;
+  let page = await firstPage();
+  for (;;) {
+    if (!validRelevancePage(page)) throw relevanceError(`ROADMAP_RELEVANCE_R3_${scope}_PAGE_INVALID`);
+    expectedTotal ??= page.totalCount;
+    if (page.totalCount !== expectedTotal) throw relevanceError(`ROADMAP_RELEVANCE_R3_${scope}_TOTAL_CHANGED`);
+    const collectedBefore = nodes.length;
+    for (const node of page.nodes) {
+      if (!validateNode(node)) throw relevanceError(`ROADMAP_RELEVANCE_R3_${scope}_NODE_INVALID`);
+      nodes.push(node);
+    }
+    if (!page.pageInfo.hasNextPage) break;
+    if (
+      nodes.length === collectedBefore ||
+      nodes.length >= expectedTotal ||
+      cursors.has(page.pageInfo.endCursor)
+    ) {
+      throw relevanceError(`ROADMAP_RELEVANCE_R3_${scope}_COUNT_MISMATCH`);
+    }
+    cursors.add(page.pageInfo.endCursor);
+    page = await loadPage(page.pageInfo.endCursor);
+  }
+  if (nodes.length !== expectedTotal) throw relevanceError(`ROADMAP_RELEVANCE_R3_${scope}_COUNT_MISMATCH`);
+  return nodes;
+}
+
+// R3 decides only on complete collections: every open issue, every closing
+// reference, and every comment of an issue with a merged reference.
+export async function collectBacklogRelevanceDelivered({ loadIssues, loadReferences, loadComments }) {
+  const issues = await collectRelevanceConnection({
+    scope: "ISSUES",
+    loadPage: loadIssues,
+    validateNode: validRelevanceIssue,
+  });
+  if (new Set(issues.map((issue) => issue.number)).size !== issues.length) {
+    throw relevanceError("ROADMAP_RELEVANCE_R3_ISSUES_DUPLICATE");
+  }
+  const delivered = [];
+  for (const issue of issues) {
+    const references = await collectRelevanceConnection({
+      scope: "REFERENCES",
+      firstPage: async () => issue.closedByPullRequestsReferences,
+      loadPage: (after) => loadReferences(issue.number, after),
+      validateNode: validRelevanceReference,
+    });
+    const merges = references
+      .filter((reference) => reference.merged)
+      .map((reference) => parseTimezoneInstant(reference.mergedAt));
+    if (merges.length === 0) continue;
+    const latestMergeMs = Math.max(...merges);
+    const comments = await collectRelevanceConnection({
+      scope: "COMMENTS",
+      loadPage: (after) => loadComments(issue.number, after),
+      validateNode: validRelevanceComment,
+    });
+    const keptOpen = comments.some(
+      (comment) =>
+        comment.body.includes(BACKLOG_RELEVANCE_KEEP_OPEN_MARKER) &&
+        parseTimezoneInstant(comment.createdAt) > latestMergeMs,
+    );
+    if (!keptOpen) delivered.push(issue.number);
+  }
+  return delivered.sort((left, right) => left - right);
+}
+
+function closedNotPlanned(issue) {
+  return issue.state === "closed" && issue.state_reason === "not_planned";
+}
+
+function supersedesDeclarations(issues) {
+  const namersByNumber = new Map();
+  const unparsed = [];
+  for (const issue of issues) {
+    // Valid sibling entries still count; the body itself is listed as unparsed.
+    const parsed = parseSupersedesSection(issue.body);
+    if (parsed.findings.length > 0) unparsed.push(issue.number);
+    for (const entry of parsed.entries) {
+      if (entry.coverage !== "full") continue;
+      if (!namersByNumber.has(entry.number)) namersByNumber.set(entry.number, []);
+      namersByNumber.get(entry.number).push(issue);
+    }
+  }
+  return { namersByNumber, unparsed: unparsed.sort((left, right) => left - right) };
+}
+
+function relevanceCategory(decide) {
+  try {
+    const { rows, unparsed = [] } = decide();
+    return { status: "known", rows: rows.sort((left, right) => left.number - right.number), unparsed };
+  } catch (error) {
+    return { status: "unknown", reason: error?.code ?? "ROADMAP_RELEVANCE_CATEGORY_FAILED" };
+  }
+}
+
+function namerNumbers(namers) {
+  return namers.map((namer) => namer.number).sort((left, right) => left - right);
+}
+
+// `issues` is the core REST inventory merged with native type facts; `delivered`
+// is the R3 collection outcome: { status: "known", numbers } or
+// { status: "unknown", reason }.
+export function summarizeBacklogRelevance({ issues, delivered }) {
+  let declarations = null;
+  const readDeclarations = () => (declarations ??= supersedesDeclarations(issues));
+  return {
+    unhomed: relevanceCategory(() => ({
+      rows: issues
+        .filter((issue) => issue.state === "open" && !issue.milestone && !isEpic(issue))
+        .map((issue) => ({ number: issue.number })),
+    })),
+    superseded: relevanceCategory(() => {
+      const { namersByNumber, unparsed } = readDeclarations();
+      const rows = [];
+      for (const issue of issues) {
+        if (issue.state !== "open") continue;
+        const namers = (namersByNumber.get(issue.number) ?? []).filter((namer) => !closedNotPlanned(namer));
+        if (namers.length > 0) rows.push({ number: issue.number, namers: namerNumbers(namers) });
+      }
+      return { rows, unparsed };
+    }),
+    delivered: relevanceCategory(() => {
+      if (delivered?.status !== "known") throw relevanceError(delivered?.reason ?? "ROADMAP_RELEVANCE_R3_MISSING");
+      return { rows: delivered.numbers.map((number) => ({ number })) };
+    }),
+    orphaned: relevanceCategory(() => {
+      const { namersByNumber, unparsed } = readDeclarations();
+      const rows = [];
+      for (const issue of issues) {
+        if (issue.state !== "closed" || !["not_planned", "duplicate"].includes(issue.state_reason)) continue;
+        const namers = namersByNumber.get(issue.number) ?? [];
+        if (namers.length > 0 && namers.every(closedNotPlanned)) {
+          rows.push({ number: issue.number, namers: namerNumbers(namers) });
+        }
+      }
+      return { rows, unparsed };
+    }),
+  };
+}
+
+const BACKLOG_RELEVANCE_CATEGORIES = [
+  ["unhomed", "R1 Unhomed", "open non-Epic with no milestone"],
+  ["superseded", "R2 Superseded", "open, named `full` in the `### Supersedes` of an issue not closed as not planned"],
+  ["delivered", "R3 Delivered", "open with a merged closing pull request and no later keep-open marker"],
+  ["orphaned", "R4 Orphaned", "closed as not planned or duplicate, named `full` only by issues closed as not planned"],
+];
+
+function capped(count) {
+  return count > BACKLOG_RELEVANCE_ROW_CAP ? ` (first ${BACKLOG_RELEVANCE_ROW_CAP} shown)` : "";
+}
+
+function renderBacklogRelevance(relevance) {
+  const lines = [
+    "",
+    "## Backlog relevance",
+    "",
+    `Each row leaves once dispositioned; at most ${BACKLOG_RELEVANCE_ROW_CAP} issues per category, ascending. ` +
+      `A comment containing \`${BACKLOG_RELEVANCE_KEEP_OPEN_MARKER}\` posted after the latest merge keeps an R3 issue open.`,
+  ];
+  for (const [key, label, condition] of BACKLOG_RELEVANCE_CATEGORIES) {
+    const category = relevance[key];
+    if (category.status !== "known") {
+      lines.push("", `**${label}** — ${condition}: unknown: ${category.reason}`);
+      continue;
+    }
+    lines.push("", `**${label}** — ${condition}: **${category.rows.length}**${capped(category.rows.length)}`);
+    for (const row of category.rows.slice(0, BACKLOG_RELEVANCE_ROW_CAP)) {
+      const namers = row.namers ? ` — named by ${row.namers.map((number) => `#${number}`).join(", ")}` : "";
+      lines.push(`- #${row.number}${namers}`);
+    }
+    for (const number of category.unparsed.slice(0, BACKLOG_RELEVANCE_ROW_CAP)) lines.push(`- unparsed: #${number}`);
+    if (category.unparsed.length > BACKLOG_RELEVANCE_ROW_CAP) {
+      lines.push(`- unparsed: ${category.unparsed.length - BACKLOG_RELEVANCE_ROW_CAP} more`);
+    }
+  }
+  return lines;
+}
+
 export function renderRoadmapStatus(summary) {
   const lines = [
     START_MARKER,
@@ -1402,6 +1624,7 @@ export function renderRoadmapStatus(summary) {
     "**Refined ≡ classified** = open, non-Epic, executable milestone + `priority:*` + `area:*` + `kind:*`, excluding `status:tracking-only`. Unrefined far-horizon work is expected, not a defect.",
   );
   if (refinedInventory) lines.push("", renderRefinedInventoryCapMarker(refinedInventory.record));
+  if (summary.backlogRelevance) lines.push(...renderBacklogRelevance(summary.backlogRelevance));
   lines.push("", END_MARKER);
 
   return lines.join("\n");
@@ -1580,6 +1803,53 @@ query($id:ID!, $after:String) {
   }
 }`;
 
+const BACKLOG_RELEVANCE_ISSUES_QUERY = `
+# BACKLOG_RELEVANCE_ISSUES_SENTINEL
+query($owner:String!, $name:String!, $after:String) {
+  repository(owner:$owner, name:$name) {
+    issues(first:100, after:$after, states:[OPEN]) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        closedByPullRequestsReferences(first:20, includeClosedPrs:false) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes { merged mergedAt }
+        }
+      }
+    }
+  }
+}`;
+
+const BACKLOG_RELEVANCE_REFERENCES_QUERY = `
+# BACKLOG_RELEVANCE_REFERENCES_SENTINEL
+query($owner:String!, $name:String!, $number:Int!, $after:String) {
+  repository(owner:$owner, name:$name) {
+    issue(number:$number) {
+      closedByPullRequestsReferences(first:20, after:$after, includeClosedPrs:false) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { merged mergedAt }
+      }
+    }
+  }
+}`;
+
+const BACKLOG_RELEVANCE_COMMENTS_QUERY = `
+# BACKLOG_RELEVANCE_COMMENTS_SENTINEL
+query($owner:String!, $name:String!, $number:Int!, $after:String) {
+  repository(owner:$owner, name:$name) {
+    issue(number:$number) {
+      comments(first:100, after:$after) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { createdAt body }
+      }
+    }
+  }
+}`;
+
 async function graphql(query, variables, token, request) {
   const response = await gh(
     "https://api.github.com/graphql",
@@ -1624,6 +1894,31 @@ export async function collectLiveMonthlyRefinedInventory({ repository, token, re
     }),
   );
   return { window, ...stabilized };
+}
+
+// Never throws: any R3 failure becomes its `unknown` reason so the rest of the
+// block still renders and the splice still runs.
+async function collectLiveBacklogRelevanceDelivered({ owner, name, token, request }) {
+  const load = async (query, variables, path) => path(await graphql(query, { owner, name, ...variables }, token, request));
+  try {
+    const numbers = await collectBacklogRelevanceDelivered({
+      loadIssues: (after) => load(BACKLOG_RELEVANCE_ISSUES_QUERY, { after }, (data) => data?.repository?.issues),
+      loadReferences: (number, after) =>
+        load(
+          BACKLOG_RELEVANCE_REFERENCES_QUERY,
+          { number, after },
+          (data) => data?.repository?.issue?.closedByPullRequestsReferences,
+        ),
+      loadComments: (number, after) =>
+        load(BACKLOG_RELEVANCE_COMMENTS_QUERY, { number, after }, (data) => data?.repository?.issue?.comments),
+    });
+    return { status: "known", numbers };
+  } catch (error) {
+    return {
+      status: "unknown",
+      reason: error instanceof RoadmapIssueEnumerationError ? error.code : "ROADMAP_RELEVANCE_R3_REQUEST_FAILED",
+    };
+  }
 }
 
 async function appendStepSummary(env, block) {
@@ -1747,6 +2042,10 @@ export async function main({
     }
     summary.refinedInventoryAuthority = { record, currentRefined };
   }
+  summary.backlogRelevance = summarizeBacklogRelevance({
+    issues,
+    delivered: await collectLiveBacklogRelevanceDelivered({ owner, name, token, request }),
+  });
   const block = renderRoadmapStatus(summary);
   writeOutput(block);
   await appendSummary(env, block);
