@@ -257,10 +257,7 @@ function validateScopedStepMap(chain, surfaces) {
         (step.classification === MAY_NARROW &&
           (!Array.isArray(step.include) || step.include.length === 0 || typeof step.rule !== "string"))
       ) {
-        throw new StaticScopeDerivationError(
-          "STATIC_SCOPE_STEPS_MAP_INVALID",
-          `invalid scoped step in ${link.name}`,
-        );
+        throw new StaticScopeDerivationError("STATIC_SCOPE_STEPS_MAP_INVALID", `invalid scoped step in ${link.name}`);
       }
     }
   }
@@ -349,9 +346,7 @@ export function selectVerifyStaticLinks({
       return selectScopedSteps(link, entry, changedFiles).link;
     });
     const fullStepSkips = selected.flatMap((link) =>
-      Array.isArray(link.skippedSteps)
-        ? link.skippedSteps.map((step) => ({ link, step, rule: step.rule }))
-        : [],
+      Array.isArray(link.skippedSteps) ? link.skippedSteps.map((step) => ({ link, step, rule: step.rule })) : [],
     );
     return { selected, skipped: [], excluded, fullReason, guardTests, stepSkips: fullStepSkips };
   }

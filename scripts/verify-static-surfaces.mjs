@@ -11,9 +11,12 @@ export const MAY_NARROW = "may-narrow";
 const exact = (...values) => values.map((value) => ({ kind: "exact", value }));
 const prefix = (...values) => values.map((value) => ({ kind: "prefix", value }));
 const regex = (...values) => values.map((value) => ({ kind: "regex", value }));
-const brandFoilProofInputSurface = Object.freeze([
-  ...new Set([...BRAND_FOIL_PROOF_INPUT_PATHS, ...BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS]),
-].map((value) => ({ kind: "exact", value })));
+const brandFoilProofInputSurface = Object.freeze(
+  [...new Set([...BRAND_FOIL_PROOF_INPUT_PATHS, ...BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS])].map((value) => ({
+    kind: "exact",
+    value,
+  })),
+);
 const brandFoilProofStepSurface = Object.freeze([
   { kind: "prefix", value: "scripts/check-structure" },
   { kind: "exact", value: "pnpm-lock.yaml" },

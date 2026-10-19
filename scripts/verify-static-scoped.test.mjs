@@ -1001,7 +1001,8 @@ describe("scoped check:structure steps", () => {
       readPackageJson: () => ({
         scripts: {
           "verify:static": "pnpm run check:structure",
-          "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+          "check:structure":
+            "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
         },
       }),
       surfaces: { "check:structure": structureSurface },
@@ -1053,7 +1054,8 @@ describe("scoped check:structure steps", () => {
       readPackageJson: () => ({
         scripts: {
           "verify:static": "pnpm run check:structure",
-          "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+          "check:structure":
+            "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
         },
       }),
       surfaces: { "check:structure": structureSurface },
@@ -1081,7 +1083,8 @@ describe("scoped check:structure steps", () => {
       readPackageJson: () => ({
         scripts: {
           "verify:static": "pnpm run check:structure",
-          "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+          "check:structure":
+            "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
         },
       }),
       surfaces: {
