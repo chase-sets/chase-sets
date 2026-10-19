@@ -1,6 +1,10 @@
 // Behavior-owner exports for the Catalog primary workbench contract.
 export {
   catalogPrimaryWorkbenchContractVersion,
+  catalogPrimaryWorkbenchProviderTransportCategories,
+  catalogPrimaryWorkbenchRouteSections,
+} from "./primary-workbench-contract-implementation";
+export type {
   CatalogPrimaryWorkbenchContractVersion,
   CatalogPrimaryWorkbenchSectionKey,
   CatalogPrimaryWorkbenchCommandKey,
@@ -8,14 +12,12 @@ export {
   CatalogPrimaryWorkbenchActionState,
   CatalogPrimaryWorkbenchBlockerCategory,
   CatalogPrimaryWorkbenchProviderTransportCategory,
-  catalogPrimaryWorkbenchProviderTransportCategories,
   CatalogPrimaryWorkbenchPromotionDisposition,
   CatalogPrimaryWorkbenchPromotionScopeKind,
   CatalogPrimaryWorkbenchPromotionOutcomeCountKey,
   CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
   CatalogPrimaryWorkbenchPromotionProfileSemantics,
   CatalogPrimaryWorkbenchRouteContextKey,
-  catalogPrimaryWorkbenchRouteSections,
   CatalogPrimaryWorkbenchCopyKey,
   CatalogPrimaryWorkbenchInstrumentationDimension,
   CatalogPrimaryWorkbenchDeploySkewMode,

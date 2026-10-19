@@ -1,5 +1,5 @@
-// Behavior-owner exports for the Catalog primary workbench contract.
-export {
+// Behavior-owner type exports for the Catalog primary workbench contract.
+export type {
   CatalogPrimaryWorkbenchProfileAuthoringStatus,
   CatalogPrimaryWorkbenchProfileLifecycleRestrictionCode,
   CatalogPrimaryWorkbenchProfileImmutableFactKey,
