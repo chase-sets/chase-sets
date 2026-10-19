@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
 
 import { renderAccountManagementPage as render } from "../../account-management/ui/test-support";
-import { describe, expect, it } from "vitest";
+import { webcrypto } from "node:crypto";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as routerApi from "react-router";
 import { ShippingAddressPage } from "./shipping-address-page";
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 function expectAutocomplete(markup: string, name: string, value: string) {
   expect(markup).toMatch(new RegExp(`<input(?=[^>]*\\bname="${name}")(?=[^>]*\\bautocomplete="${value}")[^>]*>`, "i"));
@@ -74,5 +83,42 @@ describe("ShippingAddressPage", () => {
       expectAutocomplete(markup, name, autocomplete);
     }
     expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.bg-surface-2")).toHaveLength(1);
+  });
+
+  it("shipping field errors are presented by the submitted form with one focused summary", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    vi.spyOn(routerApi, "UNSAFE_decodeViaTurboStream").mockResolvedValue({
+      value: {
+        data: {
+          failure: {
+            kind: "validation",
+            status: 400,
+            code: "validation_failed",
+            message: "City is required.",
+            intent: "create",
+            classification: "FIELD",
+            errors: { fieldErrors: { city: ["City is required."] }, formErrors: [] },
+          },
+        },
+      },
+    } as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("synthetic", { status: 400 })),
+    );
+
+    const { container } = render(<ShippingAddressPage addresses={[]} />, "/account/shipping-addresses");
+    const form = screen.getByRole("button", { name: "Save address" }).closest("form");
+    expect(form).not.toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save address" }).matches(":disabled")).toBe(false));
+    fireEvent.submit(form!);
+
+    const summary = await screen.findByRole("alert");
+    const city = container.querySelector('input[name="city"]');
+    expect(summary.textContent).toContain("City");
+    expect(city?.getAttribute("aria-invalid")).toBe("true");
+    expect(summary.querySelector(`a[href="#${city?.id}"]`)).not.toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(summary));
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
   });
 });
