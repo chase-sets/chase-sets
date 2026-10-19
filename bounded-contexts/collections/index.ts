@@ -1,4 +1,6 @@
 export { default as contextManifest } from "./context.json" with { type: "json" };
+export { redactLegacyAnonymousOwners } from "./features/saved-lists/api/anonymous-owner-redaction";
+export { activateAnonymousOwnerCutover } from "./support/runtime-support/anonymous-owner-activation";
 
 import {
   buildEventSubscriptionsFromManifest,
