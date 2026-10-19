@@ -1343,11 +1343,7 @@ async function collectRelevanceConnection({ scope, loadPage, validateNode, first
       nodes.push(node);
     }
     if (!page.pageInfo.hasNextPage) break;
-    if (
-      nodes.length === collectedBefore ||
-      nodes.length >= expectedTotal ||
-      cursors.has(page.pageInfo.endCursor)
-    ) {
+    if (nodes.length === collectedBefore || nodes.length >= expectedTotal || cursors.has(page.pageInfo.endCursor)) {
       throw relevanceError(`ROADMAP_RELEVANCE_R3_${scope}_COUNT_MISMATCH`);
     }
     cursors.add(page.pageInfo.endCursor);
@@ -1899,7 +1895,8 @@ export async function collectLiveMonthlyRefinedInventory({ repository, token, re
 // Never throws: any R3 failure becomes its `unknown` reason so the rest of the
 // block still renders and the splice still runs.
 async function collectLiveBacklogRelevanceDelivered({ owner, name, token, request }) {
-  const load = async (query, variables, path) => path(await graphql(query, { owner, name, ...variables }, token, request));
+  const load = async (query, variables, path) =>
+    path(await graphql(query, { owner, name, ...variables }, token, request));
   try {
     const numbers = await collectBacklogRelevanceDelivered({
       loadIssues: (after) => load(BACKLOG_RELEVANCE_ISSUES_QUERY, { after }, (data) => data?.repository?.issues),

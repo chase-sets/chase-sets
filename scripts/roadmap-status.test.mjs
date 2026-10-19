@@ -2850,13 +2850,13 @@ describe("backlog relevance", () => {
   const R1 = "**R1 Unhomed** — open non-Epic with no milestone";
   const R2 = "**R2 Superseded** — open, named `full` in the `### Supersedes` of an issue not closed as not planned";
   const R3 = "**R3 Delivered** — open with a merged closing pull request and no later keep-open marker";
-  const R4 =
-    "**R4 Orphaned** — closed as not planned or duplicate, named `full` only by issues closed as not planned";
+  const R4 = "**R4 Orphaned** — closed as not planned or duplicate, named `full` only by issues closed as not planned";
 
   const supersedes = (...items) => `### Context\n\nFixture.\n\n### Supersedes\n\n${items.join("\n")}\n`;
   const merged = (mergedAt) => ({ merged: true, mergedAt });
   const comment = (createdAt, body = "Progress note.") => ({ createdAt, body });
-  const keepOpen = (createdAt) => comment(createdAt, `Population receipts pending. ${BACKLOG_RELEVANCE_KEEP_OPEN_MARKER}`);
+  const keepOpen = (createdAt) =>
+    comment(createdAt, `Population receipts pending. ${BACKLOG_RELEVANCE_KEEP_OPEN_MARKER}`);
 
   function relevanceIssue(
     number,
@@ -3116,7 +3116,10 @@ describe("backlog relevance", () => {
       relevanceIssue(706, { state: "closed", stateReason: "not_planned", body: supersedes("- #707 full") }),
       relevanceIssue(707, { state: "closed", stateReason: "duplicate" }),
     ];
-    const block = renderRelevance(issues, { status: "unknown", reason: "ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH" });
+    const block = renderRelevance(issues, {
+      status: "unknown",
+      reason: "ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH",
+    });
 
     expect(categoryLines(block)).toEqual([
       `${R1}: **0**`,
