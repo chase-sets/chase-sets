@@ -421,7 +421,7 @@ function projectDependency(raw) {
   };
 }
 
-function projectComment(raw) {
+export function projectComment(raw) {
   if (
     !raw ||
     !nonNegativeInteger(raw.id) ||
@@ -1389,7 +1389,7 @@ export function validateIssueReadinessReceipt(receipt) {
   return [...new Set(errors)];
 }
 
-function extractReceipt(commentBody) {
+export function extractReceipt(commentBody) {
   if (typeof commentBody !== "string") return null;
   const start = commentBody.indexOf(RECEIPT_START_MARKER);
   const end = commentBody.indexOf(RECEIPT_END_MARKER);
@@ -1448,7 +1448,7 @@ export function renderIssueReadinessComment(receipt, previousVerifiedReceipt = n
   ].join("\n");
 }
 
-function stableBotComments(comments) {
+export function stableBotComments(comments) {
   return comments.filter(
     (comment) =>
       comment.author.login === BOT_LOGIN && comment.author.type === "Bot" && comment.body.includes(COMMENT_MARKER),
@@ -1533,7 +1533,7 @@ export async function upsertIssueReadinessComment({
   });
 }
 
-function sameMilestoneRevision(receiptMilestone, currentMilestone) {
+export function sameMilestoneRevision(receiptMilestone, currentMilestone) {
   if (receiptMilestone === null || currentMilestone === null) return receiptMilestone === currentMilestone;
   return (
     currentMilestone !== undefined &&
