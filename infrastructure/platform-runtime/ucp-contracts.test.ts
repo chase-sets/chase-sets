@@ -110,7 +110,13 @@ describe("UCP MCP tools", () => {
       { severity: "recoverable", code: "validation_failed", message: "Checkout validation failed.", path: "id" },
     ]);
     expect(failure.messages).toEqual([
-      { type: "error", severity: "recoverable", code: "validation_failed", content: "Checkout validation failed.", path: "id" },
+      {
+        type: "error",
+        severity: "recoverable",
+        code: "validation_failed",
+        content: "Checkout validation failed.",
+        path: "id",
+      },
     ]);
     expect(JSON.stringify(failure)).not.toContain("secret");
   });

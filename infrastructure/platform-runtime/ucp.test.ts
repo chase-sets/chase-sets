@@ -188,11 +188,14 @@ describe("UCP profile routes", () => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const path = join(directory, entry.name);
         if (entry.isDirectory()) visit(path);
-        else if (entry.name.endsWith(".json")) ajv.addSchema(JSON.parse(readFileSync(path, "utf8")), relative(rootPath, path));
+        else if (entry.name.endsWith(".json"))
+          ajv.addSchema(JSON.parse(readFileSync(path, "utf8")), relative(rootPath, path));
       }
     };
     visit(rootPath);
-    const validate = ajv.getSchema("profile.json#/$defs/business_schema") ?? ajv.compile({ $ref: "profile.json#/$defs/business_schema" });
+    const validate =
+      ajv.getSchema("profile.json#/$defs/business_schema") ??
+      ajv.compile({ $ref: "profile.json#/$defs/business_schema" });
     for (const [path, mount] of [
       ["/.well-known/ucp", (app: Hono) => app.route("/.well-known", createUcpProfileRoutes())],
       ["/ucp/v1", (app: Hono) => app.route("/ucp/v1", buildUcpRestRoutes())],

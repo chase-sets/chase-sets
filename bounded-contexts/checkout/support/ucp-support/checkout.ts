@@ -55,7 +55,10 @@ type CheckoutUcpOptions = Readonly<{
   paymentHandoff?: Pick<UcpPaymentHandlerHandoff, "payment">;
   getPublicListingById: (listingId: string) => Promise<CheckoutUcpListing | null>;
   getOrderFacts: (orderIds: readonly string[], accountId: string) => Promise<readonly CheckoutUcpOrderFact[]>;
-  getLastRecordedQuote?: (sessionId: string, accountId: string) => Promise<NonNullable<CheckoutSessionRow["fulfillment_preview_snapshot"]> | null>;
+  getLastRecordedQuote?: (
+    sessionId: string,
+    accountId: string,
+  ) => Promise<NonNullable<CheckoutSessionRow["fulfillment_preview_snapshot"]> | null>;
   now?: () => Date;
 }>;
 
@@ -153,11 +156,11 @@ export function createCheckoutUcpHandlers(
         ],
       })),
       totals: [
-            { type: "subtotal", amount: moneyToMinorUnits(totals.itemSubtotalAmount) },
-            { type: "fulfillment", amount: moneyToMinorUnits(totals.shippingAmount) },
-            { type: "tax", amount: moneyToMinorUnits(totals.salesTaxAmount) },
-            { type: "total", amount: moneyToMinorUnits(totals.totalAmount) },
-        ],
+        { type: "subtotal", amount: moneyToMinorUnits(totals.itemSubtotalAmount) },
+        { type: "fulfillment", amount: moneyToMinorUnits(totals.shippingAmount) },
+        { type: "tax", amount: moneyToMinorUnits(totals.salesTaxAmount) },
+        { type: "total", amount: moneyToMinorUnits(totals.totalAmount) },
+      ],
       links: [
         { type: "terms_of_service", url: `${resolvePublicRequestOrigin(input.request)}/terms` },
         { type: "privacy_policy", url: `${resolvePublicRequestOrigin(input.request)}/privacy` },
@@ -420,7 +423,11 @@ export function checkoutUcpState(
 function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {
   if (!input.actor)
     return createUcpEnvelope("error", {}, [
-      { severity: "recoverable", code: "authentication_required", message: "UCP checkout requires a linked buyer account." },
+      {
+        severity: "recoverable",
+        code: "authentication_required",
+        message: "UCP checkout requires a linked buyer account.",
+      },
     ]);
   if (!input.actor.permissions.includes(permission) && !input.actor.permissions.includes("guest-checkout.manage"))
     return createUcpEnvelope("error", {}, [

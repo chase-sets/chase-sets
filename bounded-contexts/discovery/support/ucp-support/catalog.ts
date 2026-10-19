@@ -99,15 +99,24 @@ function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
     image_urls: imageUrls,
     availability: availability(row.market_summary),
     price_range: {
-      min: priceOrZero(row.market_summary?.lowest_price_amount ?? null, row.market_summary?.lowest_price_currency_code ?? null),
-      max: priceOrZero(row.market_summary?.lowest_price_amount ?? null, row.market_summary?.lowest_price_currency_code ?? null),
+      min: priceOrZero(
+        row.market_summary?.lowest_price_amount ?? null,
+        row.market_summary?.lowest_price_currency_code ?? null,
+      ),
+      max: priceOrZero(
+        row.market_summary?.lowest_price_amount ?? null,
+        row.market_summary?.lowest_price_currency_code ?? null,
+      ),
     },
     variants: [
       {
         id: row.catalog_item_id,
         title: row.title,
         description: { plain: row.description ?? row.subtitle ?? row.title },
-        price: priceOrZero(row.market_summary?.lowest_price_amount ?? null, row.market_summary?.lowest_price_currency_code ?? null),
+        price: priceOrZero(
+          row.market_summary?.lowest_price_amount ?? null,
+          row.market_summary?.lowest_price_currency_code ?? null,
+        ),
         availability: availability(row.market_summary),
       },
     ],

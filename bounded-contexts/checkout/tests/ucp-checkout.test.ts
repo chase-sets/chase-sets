@@ -135,12 +135,15 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
   } as unknown as CheckoutSessionServices;
   const getPublicListingById = vi.fn(async () => listing as CheckoutUcpListing | null);
   const getOrderFacts = vi.fn<Parameters<typeof createCheckoutUcpHandlers>[1]["getOrderFacts"]>(async () => []);
-  const handlers = createCheckoutUcpHandlers({ sessions }, {
-    getPublicListingById,
-    getOrderFacts,
-    getLastRecordedQuote: sessions.getLastRecordedQuote,
-    now: () => clock,
-  });
+  const handlers = createCheckoutUcpHandlers(
+    { sessions },
+    {
+      getPublicListingById,
+      getOrderFacts,
+      getLastRecordedQuote: sessions.getLastRecordedQuote,
+      now: () => clock,
+    },
+  );
   return {
     ...handlers,
     sessions,

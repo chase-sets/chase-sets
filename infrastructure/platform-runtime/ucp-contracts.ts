@@ -25,11 +25,7 @@ export function moneyToMinorUnits(value: string): number {
 
 export type UcpTransport = "rest" | "mcp";
 export type UcpResponseStatus = "success" | "error";
-export type UcpMessageSeverity =
-  | "recoverable"
-  | "unrecoverable"
-  | "requires_buyer_input"
-  | "requires_buyer_review";
+export type UcpMessageSeverity = "recoverable" | "unrecoverable" | "requires_buyer_input" | "requires_buyer_review";
 
 export type UcpServiceDeclaration = Readonly<{
   version: string;
