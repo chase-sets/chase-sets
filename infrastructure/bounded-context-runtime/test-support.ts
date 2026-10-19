@@ -347,7 +347,13 @@ type TestDataBaseline = Readonly<{
   resetSql: string;
 }>;
 
-const testDataResetLedgerDirectory = fileURLToPath(new URL("../../artifacts/9344-reset-ledger/", import.meta.url));
+function testDataResetLedgerDirectory(): string {
+  // Vitest's browser-facing module graph can expose a non-file import.meta.url; do not
+  // convert that URL at module evaluation time for callers that never use the scratch helper.
+  return import.meta.url.startsWith("file:")
+    ? fileURLToPath(new URL("../../artifacts/9344-reset-ledger/", import.meta.url))
+    : `${process.cwd()}/artifacts/9344-reset-ledger/`;
+}
 
 export function createMultiContextTestDataReset(
   resolvePools: () => Readonly<Record<string, unknown>>,
@@ -397,9 +403,10 @@ function testDataResetTargetPools(pools: Readonly<Record<string, unknown>>): rea
 
 function recordTestDataReset(kind: TestDataResetKind): void {
   const state = expect.getState();
-  mkdirSync(testDataResetLedgerDirectory, { recursive: true });
+  const ledgerDirectory = testDataResetLedgerDirectory();
+  mkdirSync(ledgerDirectory, { recursive: true });
   appendFileSync(
-    `${testDataResetLedgerDirectory}${process.pid}-${threadId}.jsonl`,
+    `${ledgerDirectory}${process.pid}-${threadId}.jsonl`,
     `${JSON.stringify({ kind, file: state.testPath ?? "", test: state.currentTestName ?? "" })}\n`,
   );
 }
