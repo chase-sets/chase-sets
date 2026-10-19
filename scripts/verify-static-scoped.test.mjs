@@ -95,15 +95,21 @@ function oracleResolveFile(candidate) {
 function oracleSpecifiers(sourceFile) {
   const specifiers = [];
   for (const statement of sourceFile.statements) {
-    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) specifiers.push(statement.moduleSpecifier.text);
-    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier))
+      specifiers.push(statement.moduleSpecifier.text);
+    if (
+      ts.isExportDeclaration(statement) &&
+      statement.moduleSpecifier &&
+      ts.isStringLiteral(statement.moduleSpecifier)
+    ) {
       specifiers.push(statement.moduleSpecifier.text);
     }
   }
   const visit = (node) => {
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const argument = node.arguments[0];
-      if (!argument || !ts.isStringLiteral(argument)) throw new Error(`oracle found non-literal import in ${sourceFile.fileName}`);
+      if (!argument || !ts.isStringLiteral(argument))
+        throw new Error(`oracle found non-literal import in ${sourceFile.fileName}`);
       specifiers.push(argument.text);
     }
     ts.forEachChild(node, visit);
@@ -121,14 +127,21 @@ function oracleStaticImportClosure() {
     if (discovered.has(current)) continue;
     discovered.add(current);
     const source = readFileSync(path.join(repoRoot, current), "utf8");
-    const scriptKind = /\.tsx?$/.test(current) ? ts.ScriptKind.TSX : /\.jsx?$/.test(current) ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
+    const scriptKind = /\.tsx?$/.test(current)
+      ? ts.ScriptKind.TSX
+      : /\.jsx?$/.test(current)
+        ? ts.ScriptKind.JSX
+        : ts.ScriptKind.JS;
     const sourceFile = ts.createSourceFile(current, source, ts.ScriptTarget.Latest, true, scriptKind);
     for (const specifier of oracleSpecifiers(sourceFile)) {
       if (specifier.startsWith("node:")) continue;
       if (!specifier.startsWith("@chase-sets/")) continue;
       if (specifier.startsWith("./") || specifier.startsWith("../")) {
-        const relative = path.relative(repoRoot, path.resolve(repoRoot, path.dirname(current), specifier)).replaceAll("\\", "/");
-        if (relative.startsWith("../") || path.isAbsolute(relative)) throw new Error(`oracle import escaped repository: ${specifier}`);
+        const relative = path
+          .relative(repoRoot, path.resolve(repoRoot, path.dirname(current), specifier))
+          .replaceAll("\\", "/");
+        if (relative.startsWith("../") || path.isAbsolute(relative))
+          throw new Error(`oracle import escaped repository: ${specifier}`);
         pending.push(oracleResolveFile(relative));
         continue;
       }
@@ -138,8 +151,19 @@ function oracleStaticImportClosure() {
       const workspace = packages.get(packageName);
       if (!workspace) throw new Error(`oracle workspace package is unmapped: ${specifier}`);
       pending.push(path.relative(repoRoot, workspace.packageJsonPath).replaceAll("\\", "/"));
-      const target = workspace.packageJson.exports?.["."]?.default ?? workspace.packageJson.exports?.["."] ?? workspace.packageJson.module ?? workspace.packageJson.main ?? "index.mjs";
-      pending.push(oracleResolveFile(path.relative(repoRoot, path.join(workspace.dir, typeof target === "string" ? target : "index.mjs")).replaceAll("\\", "/")));
+      const target =
+        workspace.packageJson.exports?.["."]?.default ??
+        workspace.packageJson.exports?.["."] ??
+        workspace.packageJson.module ??
+        workspace.packageJson.main ??
+        "index.mjs";
+      pending.push(
+        oracleResolveFile(
+          path
+            .relative(repoRoot, path.join(workspace.dir, typeof target === "string" ? target : "index.mjs"))
+            .replaceAll("\\", "/"),
+        ),
+      );
     }
   }
   return [...discovered].sort();
@@ -1063,60 +1087,63 @@ describe("scoped check:structure steps", () => {
   it.each(["docs/readme.md", "scripts/guest-buy-now-freshness-probe.mjs", "bounded-contexts/catalog/README.md"])(
     "skips the brand-foil proof step outside its inputs: %s",
     async (changedPath) => {
-    const steps = [];
-    const output = [];
-    const status = await runVerifyStaticScoped({
-      env: { CHANGED_FILES_JSON: JSON.stringify([changedPath]) },
-      readPackageJson: () => ({
-        scripts: {
-          "verify:static": "pnpm run check:structure",
-          "check:structure":
-            "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
-        },
-      }),
-      surfaces: { "check:structure": structureSurface },
-      guardSurfaces: {},
-      dependencies: noFanoutDependencies(),
-      runStep: (step) => {
-        steps.push(step.command);
-        return 0;
-      },
-      runGuardTests: () => 0,
-      stdout: (line) => output.push(line),
-    });
-
-    expect(status).toBe(0);
-    expect(steps).toEqual(["node ./scripts/check-structure.mjs"]);
-    expect(output).toContain(
-      `[SKIPPED-BY-SCOPE] check:structure > brand-foil-proof: ${structureSurface.scopedSteps[1].rule}`,
-    );
-    if (changedPath.startsWith("scripts/guest")) expect(output.some((line) => line.includes("[VERIFY_STATIC_FULL]"))).toBe(true);
-    },
-  );
-
-  it.each([...BRAND_FOIL_PROOF_INPUT_PATHS, ...oracleStaticImportClosure(), "scripts/check-structure/not-in-closure.mjs", "pnpm-lock.yaml"])(
-    "runs the brand-foil proof after the aggregate for proof input %s",
-    (changedPath) => {
-      const plan = selectVerifyStaticLinks({
-        chain: [
-          {
-            name: "check:structure",
-            command: "pnpm run check:structure",
-            forwarded: "",
-            script: "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+      const steps = [];
+      const output = [];
+      const status = await runVerifyStaticScoped({
+        env: { CHANGED_FILES_JSON: JSON.stringify([changedPath]) },
+        readPackageJson: () => ({
+          scripts: {
+            "verify:static": "pnpm run check:structure",
+            "check:structure":
+              "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
           },
-        ],
-        changedFiles: [changedPath],
+        }),
         surfaces: { "check:structure": structureSurface },
         guardSurfaces: {},
-        repoRoot,
         dependencies: noFanoutDependencies(),
+        runStep: (step) => {
+          steps.push(step.command);
+          return 0;
+        },
+        runGuardTests: () => 0,
+        stdout: (line) => output.push(line),
       });
-      const structure = plan.selected.find(({ name }) => name === "check:structure");
-      expect(structure.selectedSteps.map(({ name }) => name)).toEqual(["aggregate", "brand-foil-proof"]);
-      expect(structure.skippedSteps).toEqual([]);
+
+      expect(status).toBe(0);
+      expect(steps).toEqual(["node ./scripts/check-structure.mjs"]);
+      expect(output).toContain(
+        `[SKIPPED-BY-SCOPE] check:structure > brand-foil-proof: ${structureSurface.scopedSteps[1].rule}`,
+      );
+      if (changedPath.startsWith("scripts/guest"))
+        expect(output.some((line) => line.includes("[VERIFY_STATIC_FULL]"))).toBe(true);
     },
   );
+
+  it.each([
+    ...BRAND_FOIL_PROOF_INPUT_PATHS,
+    ...oracleStaticImportClosure(),
+    "scripts/check-structure/not-in-closure.mjs",
+    "pnpm-lock.yaml",
+  ])("runs the brand-foil proof after the aggregate for proof input %s", (changedPath) => {
+    const plan = selectVerifyStaticLinks({
+      chain: [
+        {
+          name: "check:structure",
+          command: "pnpm run check:structure",
+          forwarded: "",
+          script: "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+        },
+      ],
+      changedFiles: [changedPath],
+      surfaces: { "check:structure": structureSurface },
+      guardSurfaces: {},
+      repoRoot,
+      dependencies: noFanoutDependencies(),
+    });
+    const structure = plan.selected.find(({ name }) => name === "check:structure");
+    expect(structure.selectedSteps.map(({ name }) => name)).toEqual(["aggregate", "brand-foil-proof"]);
+    expect(structure.skippedSteps).toEqual([]);
+  });
 
   it("runs aggregate then proof and stops on aggregate status", async () => {
     const executions = [];
@@ -1126,7 +1153,8 @@ describe("scoped check:structure steps", () => {
         readPackageJson: () => ({
           scripts: {
             "verify:static": "pnpm run check:structure",
-            "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+            "check:structure":
+              "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
           },
         }),
         surfaces: { "check:structure": structureSurface },
@@ -1211,20 +1239,50 @@ describe("scoped check:structure steps", () => {
   });
 
   it.each([
-    { name: "other link", surfaces: { "other": { scopedSteps: [{ name: "step", command: "node x", classification: ALWAYS_RUN }] } } },
+    {
+      name: "other link",
+      surfaces: { other: { scopedSteps: [{ name: "step", command: "node x", classification: ALWAYS_RUN }] } },
+    },
     { name: "empty", surfaces: { "check:structure": { ...structureSurface, scopedSteps: [] } } },
-    { name: "missing include", surfaces: { "check:structure": { ...structureSurface, scopedSteps: [{ name: "step", command: "node x", classification: MAY_NARROW, rule: "x" }] } } },
-    { name: "bad classification", surfaces: { "check:structure": { ...structureSurface, scopedSteps: [{ name: "step", command: "node x", classification: "nope" }] } } },
+    {
+      name: "missing include",
+      surfaces: {
+        "check:structure": {
+          ...structureSurface,
+          scopedSteps: [{ name: "step", command: "node x", classification: MAY_NARROW, rule: "x" }],
+        },
+      },
+    },
+    {
+      name: "bad classification",
+      surfaces: {
+        "check:structure": {
+          ...structureSurface,
+          scopedSteps: [{ name: "step", command: "node x", classification: "nope" }],
+        },
+      },
+    },
   ])("rejects an invalid step map: $name", async ({ surfaces }) => {
     const output = [];
     const links = [];
     const status = await runVerifyStaticScoped({
       env: { CHANGED_FILES_JSON: '["docs/readme.md"]' },
-      readPackageJson: () => ({ scripts: surfaces.other ? { "verify:static": "pnpm run other", other: "node x" } : { "verify:static": "pnpm run check:structure", "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs" } }),
+      readPackageJson: () => ({
+        scripts: surfaces.other
+          ? { "verify:static": "pnpm run other", other: "node x" }
+          : {
+              "verify:static": "pnpm run check:structure",
+              "check:structure":
+                "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+            },
+      }),
       surfaces,
       guardSurfaces: {},
       dependencies: noFanoutDependencies(),
-      runLink: (link) => { links.push(link); return 0; },
+      runLink: (link) => {
+        links.push(link);
+        return 0;
+      },
       runGuardTests: () => 0,
       stdout: (line) => output.push(line),
       stderr: (line) => output.push(line),
@@ -1239,11 +1297,23 @@ describe("scoped check:structure steps", () => {
     const output = [];
     const status = await runVerifyStaticScoped({
       env: { CHANGED_FILES_JSON: '["docs/readme.md"]' },
-      readPackageJson: () => ({ scripts: { "verify:static": "pnpm run check:structure", "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs" } }),
+      readPackageJson: () => ({
+        scripts: {
+          "verify:static": "pnpm run check:structure",
+          "check:structure":
+            "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+        },
+      }),
       surfaces: { "check:structure": structureSurface },
       guardSurfaces: {},
-      dependencies: { listWorkspacePackages: () => [{ name: "one" }, { name: "two" }], classifyChanges: () => ({ affectedWorkspaces: ["one", "two"] }) },
-      runStep: (step) => { steps.push(step.name); return 0; },
+      dependencies: {
+        listWorkspacePackages: () => [{ name: "one" }, { name: "two" }],
+        classifyChanges: () => ({ affectedWorkspaces: ["one", "two"] }),
+      },
+      runStep: (step) => {
+        steps.push(step.name);
+        return 0;
+      },
       runGuardTests: () => 0,
       stdout: (line) => output.push(line),
     });

@@ -14,7 +14,11 @@ function scriptKind(file) {
 
 function resolveFile(root, candidate) {
   const normalized = candidate.replaceAll("\\", "/");
-  const candidates = [normalized, ...[".mjs", ".js", ".ts", ".tsx", ".jsx", ".json"].map((ext) => `${normalized}${ext}`), ...["index.mjs", "index.js", "index.ts", "index.tsx"].map((name) => path.posix.join(normalized, name))];
+  const candidates = [
+    normalized,
+    ...[".mjs", ".js", ".ts", ".tsx", ".jsx", ".json"].map((ext) => `${normalized}${ext}`),
+    ...["index.mjs", "index.js", "index.ts", "index.tsx"].map((name) => path.posix.join(normalized, name)),
+  ];
   for (const relative of candidates) if (existsSync(path.join(root, relative))) return relative;
   throw new Error(`unresolved static import: ${normalized}`);
 }
@@ -22,13 +26,16 @@ function resolveFile(root, candidate) {
 function staticModuleSpecifiers(sourceFile) {
   const specifiers = [];
   for (const statement of sourceFile.statements) {
-    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) specifiers.push(statement.moduleSpecifier.text);
-    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)) specifiers.push(statement.moduleSpecifier.text);
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier))
+      specifiers.push(statement.moduleSpecifier.text);
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier))
+      specifiers.push(statement.moduleSpecifier.text);
   }
   function visit(node) {
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const argument = node.arguments[0];
-      if (!argument || !ts.isStringLiteral(argument)) throw new Error(`non-literal dynamic import in ${sourceFile.fileName}`);
+      if (!argument || !ts.isStringLiteral(argument))
+        throw new Error(`non-literal dynamic import in ${sourceFile.fileName}`);
       specifiers.push(argument.text);
     }
     ts.forEachChild(node, visit);
@@ -43,7 +50,8 @@ function resolveSpecifier(root, fromRelative, specifier, packages) {
   if (specifier.startsWith("./") || specifier.startsWith("../")) {
     const absolute = path.resolve(root, path.dirname(fromRelative), specifier);
     const relative = path.relative(root, absolute).replaceAll("\\", "/");
-    if (relative.startsWith("../") || path.isAbsolute(relative)) throw new Error(`static import escapes repository: ${specifier}`);
+    if (relative.startsWith("../") || path.isAbsolute(relative))
+      throw new Error(`static import escapes repository: ${specifier}`);
     return [resolveFile(root, relative)];
   }
   const parts = specifier.split("/");
@@ -51,9 +59,26 @@ function resolveSpecifier(root, fromRelative, specifier, packages) {
   const workspace = packages.get(packageName);
   if (!workspace) throw new Error(`unmapped workspace package import: ${specifier}`);
   const packageJsonRelative = path.relative(root, workspace.packageJsonPath).replaceAll("\\", "/");
-  if (parts.length > 0) return [packageJsonRelative, resolveFile(root, path.relative(root, path.join(workspace.dir, parts.join("/"))).replaceAll("\\", "/"))];
-  const target = workspace.packageJson.exports?.["."]?.default ?? workspace.packageJson.exports?.["."] ?? workspace.packageJson.module ?? workspace.packageJson.main ?? "index.mjs";
-  return [packageJsonRelative, resolveFile(root, path.relative(root, path.join(workspace.dir, typeof target === "string" ? target : "index.mjs")).replaceAll("\\", "/"))];
+  if (parts.length > 0)
+    return [
+      packageJsonRelative,
+      resolveFile(root, path.relative(root, path.join(workspace.dir, parts.join("/"))).replaceAll("\\", "/")),
+    ];
+  const target =
+    workspace.packageJson.exports?.["."]?.default ??
+    workspace.packageJson.exports?.["."] ??
+    workspace.packageJson.module ??
+    workspace.packageJson.main ??
+    "index.mjs";
+  return [
+    packageJsonRelative,
+    resolveFile(
+      root,
+      path
+        .relative(root, path.join(workspace.dir, typeof target === "string" ? target : "index.mjs"))
+        .replaceAll("\\", "/"),
+    ),
+  ];
 }
 
 export function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
@@ -64,9 +89,16 @@ export function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
     const relativePath = pending.pop();
     if (discovered.has(relativePath)) continue;
     discovered.add(relativePath);
-    const sourceFile = ts.createSourceFile(relativePath, readFileSync(path.join(root, relativePath), "utf8"), ts.ScriptTarget.Latest, true, scriptKind(relativePath));
+    const sourceFile = ts.createSourceFile(
+      relativePath,
+      readFileSync(path.join(root, relativePath), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind(relativePath),
+    );
     for (const specifier of staticModuleSpecifiers(sourceFile)) {
-      for (const resolved of resolveSpecifier(root, relativePath, specifier, packages)) if (!discovered.has(resolved)) pending.push(resolved);
+      for (const resolved of resolveSpecifier(root, relativePath, specifier, packages))
+        if (!discovered.has(resolved)) pending.push(resolved);
     }
   }
   return Object.freeze([...discovered].sort());
