@@ -2078,7 +2078,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
       current: true,
       fileName: "bootstrap-db-capture-38993631473.json",
-      fixtureSha256: "f1fdf9549b61d422027bef2c802200d3faaf09811529a0af96f62b8681972f62",
+      fixtureSha256: "32dca1e0b66c28f4578c2959a7b15323a127e86555155c1e23787714482b82e2",
       minimumUnitCount: 3,
       unitProjections: [317381, 257917, 233562],
       provenance: {
@@ -2136,7 +2136,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       });
     }
     expect(capture.files).toHaveLength(12);
-    expect(capture.nonBootstrapFiles).toHaveLength(current ? 4 : 6);
+    expect(capture.nonBootstrapFiles).toHaveLength(6);
     expect(capture.files.flatMap((file) => file.cases)).toHaveLength(68);
     for (const file of capture.files) {
       if (current) {
@@ -3074,8 +3074,8 @@ describe("Platform API bootstrap DB enrollment", () => {
               "__tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
             )(
               replaceOnce(
-                "__tests__/operator-session/operator-extension-route-contract.db.test.ts __tests__/seed-command-catalog.db.test.ts ",
-                "__tests__/operator-session/operator-extension-route-contract.db.test.ts ",
+                "__tests__/operator-session/operator-session-push.db.test.ts __tests__/seed-command-catalog.db.test.ts ",
+                "__tests__/operator-session/operator-session-push.db.test.ts ",
               )(source),
             ),
         },
