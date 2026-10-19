@@ -48,6 +48,8 @@ export type GoldenQueryResult = Readonly<{
   category: RelevanceCategory;
   coverage: readonly string[];
   expectedItemIds: readonly string[];
+  request?: GoldenQuery["request"];
+  requiresSummary?: boolean;
   resultItemIds: readonly string[];
   passed: boolean;
   recallAt10: number | null;
@@ -210,6 +212,7 @@ export function evaluateGoldenQuery(
       query: goldenQuery.query,
       category: goldenQuery.category,
       coverage: goldenQuery.coverage,
+      request: goldenQuery.request,
       expectedItemIds: [],
       resultItemIds,
       passed: resultItemIds.length === 0,
@@ -228,6 +231,8 @@ export function evaluateGoldenQuery(
     query: goldenQuery.query,
     category: goldenQuery.category,
     coverage: goldenQuery.coverage,
+    request: goldenQuery.request,
+    requiresSummary: Object.keys(goldenQuery.expected.summaries ?? {}).length > 0,
     expectedItemIds: expected,
     resultItemIds,
     passed: found.length === expected.length && exactTop1 !== false && summaryFailures.length === 0,
@@ -255,11 +260,26 @@ export function summarizeRelevanceMode(mode: RelevanceMode, cases: readonly Gold
 
 export function relevanceAcceptance(
   mode: RelevanceMode,
-  query: Pick<GoldenQuery, "category" | "coverage">,
+  query: Pick<GoldenQuery, "category" | "coverage" | "request"> & Readonly<{ requiresSummary?: boolean }>,
 ): "gate" | "delta" {
   const coverage = new Set(query.coverage);
+  const request = query.request;
+  const explicitFilters =
+    request &&
+    (request.language !== undefined ||
+      request.inStock !== undefined ||
+      request.priceMin !== undefined ||
+      request.priceMax !== undefined ||
+      (request.dimensionFilters?.length ?? 0) > 0 ||
+      request.sort === "price_asc" ||
+      request.sort === "price_desc");
   if (mode === "hybrid")
-    return coverage.has("protected-identifier") || coverage.has("explicit-filters") || coverage.has("variant-summary")
+    return coverage.has("protected-identifier") ||
+      coverage.has("collector-number") ||
+      coverage.has("explicit-filters") ||
+      coverage.has("variant-summary") ||
+      explicitFilters ||
+      query.requiresSummary
       ? "gate"
       : "delta";
   if (mode === "semantic-fallback" && coverage.has("unprotected-extra-term")) return "delta";

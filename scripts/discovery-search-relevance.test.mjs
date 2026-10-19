@@ -11,6 +11,7 @@ import {
   parseRelevanceEmbeddingOptions,
   embeddingInputKey,
   createRelevanceFixtureProvider,
+  resolveRelevanceSnapshotOutput,
 } from "./discovery-search-relevance-embeddings.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -44,6 +45,11 @@ describe("Discovery search relevance runner", () => {
       out: "artifacts/real.json",
     });
     expect(() => parseRelevanceEmbeddingOptions(["--provider=voyage"])).toThrow(/out/);
+    expect(resolveRelevanceSnapshotOutput(root, "artifacts/test-vectors.json", () => true)).toBe(
+      path.resolve(root, "artifacts/test-vectors.json"),
+    );
+    expect(() => resolveRelevanceSnapshotOutput(root, "../outside.json", () => true)).toThrow(/inside/);
+    expect(() => resolveRelevanceSnapshotOutput(root, "tracked.json", () => false)).toThrow(/ignored/);
     const { buildDiscoveryEmbeddingDocument } =
       await import("../bounded-contexts/discovery/features/search/domain/embedding-document.ts");
     const { normalizeQueryForEmbedding } =

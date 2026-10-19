@@ -117,6 +117,15 @@ export function createRelevanceFixtureProvider(providerName, env, createProvider
   return createProvider({ apiKey: env.VOYAGE_API_KEY });
 }
 
+export function resolveRelevanceSnapshotOutput(root, out, isIgnored) {
+  const output = path.resolve(root, out);
+  const relative = path.relative(root, output);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Error("Snapshot output must be inside the repository.");
+  if (!isIgnored(output)) throw new Error("Snapshot output must be ignored.");
+  return output;
+}
+
 export async function buildRelevanceEmbeddingFixture({
   catalogItems,
   goldenQueries,
@@ -210,12 +219,22 @@ async function main() {
     await import("../bounded-contexts/discovery/features/search/domain/embedding-document.ts");
   const { normalizeQueryForEmbedding } =
     await import("../bounded-contexts/discovery/features/search/domain/query-embedding-cache.ts");
+  const { validateGoldenQuery } =
+    await import("../bounded-contexts/discovery/features/search/domain/relevance-evaluation.ts");
+  if (goldenQueries.length < 50 || goldenQueries.length > 100)
+    throw new Error("Golden query fixture must contain 50-100 cases.");
+  goldenQueries.forEach(validateGoldenQuery);
   let provider;
   const outputPath = path.resolve(root, options.out ?? path.join(fixtureDirectory, "fixture-embeddings.json"));
   if (options.provider === "voyage") {
-    if (!outputPath.startsWith(root + path.sep))
-      throw new Error("Snapshot output must be an ignored file inside the repository.");
-    execFileSync("git", ["check-ignore", "--quiet", "--", outputPath], { cwd: root, timeout: 30_000, stdio: "pipe" });
+    resolveRelevanceSnapshotOutput(root, outputPath, (output) => {
+      try {
+        execFileSync("git", ["check-ignore", "--quiet", "--", output], { cwd: root, timeout: 30_000, stdio: "pipe" });
+        return true;
+      } catch {
+        return false;
+      }
+    });
     const { createVoyageEmbeddingProvider } =
       await import("../bounded-contexts/discovery/features/search/integrations/voyage-embedding-provider.ts");
     provider = createRelevanceFixtureProvider("voyage", process.env, createVoyageEmbeddingProvider);

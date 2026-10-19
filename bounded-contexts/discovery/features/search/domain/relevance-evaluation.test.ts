@@ -52,6 +52,7 @@ describe("Discovery relevance evaluation", () => {
     expect(relevance.relevanceAcceptance("lexical-only", negative)).toBe("gate");
     expect(relevance.relevanceAcceptance("semantic-fallback", negative)).toBe("delta");
     expect(relevance.relevanceAcceptance("hybrid", identifier)).toBe("gate");
+    expect(relevance.relevanceAcceptance("hybrid", { ...exact, request: { language: "en" } })).toBe("gate");
   });
 
   it("right IDs wrong summary fails", () => {
