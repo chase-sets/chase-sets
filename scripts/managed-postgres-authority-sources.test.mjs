@@ -220,6 +220,37 @@ const catalogCountLifecycleDelta = [
     purpose: "application-runtime",
   },
 ];
+// #9962 adds the read-only preview-pool census workflow's provider authority grants.
+const previewPoolCensusDelta = [
+  ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+  ["name:Configure staging Kubernetes context (read-only)#5", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Configure staging Kubernetes context (read-only)#5", "SPACES_SECRET_KEY", "spaces-evidence"],
+  [
+    "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "digitalocean-ops",
+  ],
+  [
+    "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "digitalocean-ops",
+  ],
+  ["uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f", "SPACES_SECRET_KEY", "spaces-evidence"],
+  [
+    "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "digitalocean-ops",
+  ],
+  ["uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e", "SPACES_SECRET_KEY", "spaces-evidence"],
+].map(([stepAnchor, secretName, purpose]) => ({
+  file: ".github/workflows/platform-preview-pool-census.yml",
+  jobId: "census",
+  stepAnchor,
+  secretName,
+  purpose,
+}));
 // #9293 adds only the two deployment values at the five existing Secret-apply sinks.
 const ebayAccountDeletionDelta = [
   {
@@ -541,10 +572,11 @@ describe("managed Postgres authority source generator", () => {
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
+        ...previewPoolCensusDelta,
         ...credentialHealthDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1622);
+    expect(expected.grants).toHaveLength(1649);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);

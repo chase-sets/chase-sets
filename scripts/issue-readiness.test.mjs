@@ -11,7 +11,9 @@ import {
   ISSUE_READINESS_RULES,
   ISSUE_READINESS_SCHEMA_VERSION,
   PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
+  CONTROLLER_TREE_PATHS,
   consumeIssueReadinessReceipt,
+  controllerTreeFootprintPaths,
   evaluateProspectiveIssueReadiness,
   main,
   parseIssueFormBody,
@@ -2028,5 +2030,62 @@ describe("slice form and trusted-base workflow integration", () => {
 
   it("registers the new workflow as a non-release CI surface", () => {
     expect(releaseQualificationScopeRegistry.workflows["issue-readiness.yml"]).toBe("ci");
+  });
+});
+
+describe("repository routing of the footprint", () => {
+  function footprintRule(footprint) {
+    const result = prospectiveResult(replaceField(fixture.readyBody, "Footprint & chain", footprint));
+    return result.checkedRules.find((entry) => entry.id === "ready-05-footprint-operators");
+  }
+
+  // Real footprint lines from issues that moved to chase-sets/chase-sets-controller.
+  const controllerFootprints = [
+    "`.orchestrator/dispatch-gate-intent-v1.schema.json`, `.orchestrator/dispatch-lane.ps1`. Callers: the dispatch gate.",
+    "`.orchestrator/controller-skills/milestone-orchestrator/SKILL.md` section 5. Callers: the orchestrator host.",
+    "`.orchestrator/contracts/review-v2.md` and its consumer. Callers: review lanes.",
+  ];
+
+  it("refuses a footprint that changes controller-tree files", () => {
+    for (const footprint of controllerFootprints) {
+      expect(footprintRule(footprint)).toEqual({
+        id: "ready-05-footprint-operators",
+        status: "fail",
+        reasonCodes: ["FOOTPRINT_IN_CONTROLLER_REPOSITORY"],
+      });
+    }
+  });
+
+  it("allows machine-local paths and callers in the other repository", () => {
+    const allowed = [
+      // #9452 and #9975 name machine-local evidence and operator package paths.
+      "- `.orchestrator/logs/operator-s1-20261011/lib/receiver.mjs`\n- `.orchestrator/logs/operator-s1-20261011/runners/issue-9295.mjs`\nNo repo changes. Callers: #9296.",
+      "`.orchestrator/operator-7334-staged-import/controls.mjs`, `scripts/catalog/import.mjs`. Callers: the staged import.",
+      "`scripts/milestone-policy.mjs`, `.orchestrator/platform-handoff.md`, `.orchestrator/orchestration-log.jsonl`, `.orchestrator/with-secrets.ps1`. Callers: next-work.",
+      "`scripts/next-work.mjs`. Callers: `.orchestrator/dispatch-lane.ps1` reads the ranked list.",
+    ];
+    for (const footprint of allowed) {
+      expect(footprintRule(footprint)).toEqual({ id: "ready-05-footprint-operators", status: "pass", reasonCodes: [] });
+    }
+  });
+
+  it("reports both reason codes, sorted, when both conditions fail", () => {
+    // A root controller file is not an evidence pointer, so a footprint naming only
+    // root controller files also lacks the declaration.
+    expect(footprintRule("`bootstrap-container.ps1` (constructed). Callers: container setup.").reasonCodes).toEqual([
+      "FOOTPRINT_IN_CONTROLLER_REPOSITORY",
+      "FOOTPRINT_OR_OPERATOR_DECLARATION_MISSING",
+    ]);
+    expect(footprintRule("`.orchestrator/dispatch-lane.ps1` only").reasonCodes).toEqual([
+      "FOOTPRINT_IN_CONTROLLER_REPOSITORY",
+      "FOOTPRINT_OR_OPERATOR_DECLARATION_MISSING",
+    ]);
+  });
+
+  it("matches only exact controller roots", () => {
+    expect(controllerTreeFootprintPaths("x.orchestrator/dispatch-lane.ps1 `./.orchestrator/lease.ps1`")).toEqual([
+      "./.orchestrator/lease.ps1",
+    ]);
+    expect(CONTROLLER_TREE_PATHS.topLevelExclusions).toContain("with-secrets.ps1");
   });
 });
