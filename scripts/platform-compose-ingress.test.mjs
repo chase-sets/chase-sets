@@ -1,4 +1,5 @@
 import { once } from "node:events";
+import { request as httpRequest } from "node:http";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "../infrastructure/platform-runtime/http.ts";
@@ -215,22 +216,33 @@ describe("platform-compose-ingress in front of the shared web server", () => {
     return stack;
   }
 
-  async function postThroughIngress({ ingressPort }, headers) {
+  // Node's HTTP client, not sendRaw: the ingress streams the request body
+  // upstream, so a client that half-closes after writing gets an empty reply.
+  function postThroughIngress({ ingressPort }, headers) {
     const body = "intent=probe";
-    const response = await sendRaw(
-      ingressPort,
-      [
-        "POST / HTTP/1.1",
-        `Host: ${publicHost}`,
-        ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
-        "Content-Type: application/x-www-form-urlencoded",
-        `Content-Length: ${body.length}`,
-        "Connection: close",
-        "",
-        body,
-      ].join("\r\n"),
-    );
-    return Number(response.split(" ", 2)[1]);
+    return new Promise((resolve, reject) => {
+      const request = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: ingressPort,
+          method: "POST",
+          path: "/",
+          agent: false,
+          headers: {
+            host: publicHost,
+            ...headers,
+            "content-type": "application/x-www-form-urlencoded",
+            "content-length": String(Buffer.byteLength(body)),
+          },
+        },
+        (response) => {
+          response.resume();
+          response.once("end", () => resolve(response.statusCode));
+        },
+      );
+      request.once("error", reject);
+      request.end(body);
+    });
   }
 
   function withOrigin(origin, edit) {
