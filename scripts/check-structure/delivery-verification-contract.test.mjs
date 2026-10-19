@@ -1,11 +1,56 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 const instruction = readFileSync(new URL("../../.agents/skills/delivery/SKILL.md", import.meta.url), "utf8");
 const readProse = (relativePath) =>
   readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8").replace(/\s+/g, " ");
 const planningSkill = readProse(".agents/skills/planning/SKILL.md");
 const backlogModel = readProse("docs/contributing/backlog-model.md");
+const codexDeliveryPrompt = parseYaml(
+  readFileSync(new URL("../../.agents/skills/delivery/agents/openai.yaml", import.meta.url), "utf8"),
+).interface;
+
+function assertCodexDeliveryPromptContract(value) {
+  expect(Object.keys(value)).toEqual(["display_name", "short_description", "default_prompt"]);
+  expect(value.display_name).toBe("Delivery");
+  expect(value.short_description).toBe("Deliver changes with bounded-context evidence");
+  expect(value.default_prompt).toContain(
+    "In lane mode (orchestrator dispatch) stop at a pushed draft PR plus a completion report — do not launch reviewers or mark your own PR ready; it may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green; never enqueue or merge;",
+  );
+  expect(value.default_prompt).not.toContain("ready, non-draft");
+  expect(value.default_prompt).not.toContain("the host marks it ready");
+  expect(value.default_prompt).toContain(
+    "in solo mode land through the merge queue only after confirming no orchestrator lease is active.",
+  );
+}
+
+describe("Codex delivery default prompt contract", () => {
+  it("pins the ruled draft-review lane boundary without changing the solo clause", () => {
+    assertCodexDeliveryPromptContract(codexDeliveryPrompt);
+  });
+
+  it.each([
+    {
+      name: "restores the ready non-draft boundary",
+      mutate: (prompt) => prompt.replace(
+        "In lane mode (orchestrator dispatch) stop at a pushed draft PR plus a completion report — do not launch reviewers or mark your own PR ready; it may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green; never enqueue or merge;",
+        "In lane mode (orchestrator dispatch) stop at a green, ready, non-draft PR plus a completion report — never enqueue or merge;",
+      ),
+    },
+    {
+      name: "names an actor for the draft-to-ready mutation",
+      mutate: (prompt) => prompt.replace(
+        "it may become ready only after a host-dispatched exact-head independent PASS",
+        "the host marks it ready only after a host-dispatched exact-head independent PASS",
+      ),
+    },
+  ])("rejects a lane-boundary mutant that $name", ({ mutate }) => {
+    const mutant = { ...codexDeliveryPrompt, default_prompt: mutate(codexDeliveryPrompt.default_prompt) };
+    expect(mutant.default_prompt).not.toBe(codexDeliveryPrompt.default_prompt);
+    expect(() => assertCodexDeliveryPromptContract(mutant)).toThrow();
+  });
+});
 
 function assertPremiseContract(text) {
   const premiseStart = text.indexOf("### Premise check (before the first edit)");
