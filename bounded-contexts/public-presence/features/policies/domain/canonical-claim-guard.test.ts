@@ -100,7 +100,7 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2051-2071",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2383-2403",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
@@ -125,7 +125,7 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2179-2186",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2511-2518",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
@@ -153,7 +153,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2627-2668",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2959-3000",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -180,7 +180,7 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1231-1273",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1530-1572",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -962,7 +962,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2135-2146"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2467-2478"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
