@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData, seedReferenceData } from "./seed";
+import { ygojsonYugiohSetReferenceProviderProfile } from "../../source-observations/api/providers/ygojson/executable-mapping-contract";
+import { ygoprodeckYugiohSetReferenceProviderProfile } from "../../source-observations/api/providers/ygoprodeck/executable-mapping-contract";
 
 const retryLocalProjectionBlockedStream = vi.hoisted(() =>
   vi.fn<typeof import("@chase-sets/bounded-context-runtime").retryLocalProjectionBlockedStream>(
@@ -46,9 +48,22 @@ describe("reference data seed", () => {
       }),
     );
     expect(firstRunDetails.filter((detail) => detail.key === "yu-gi-oh-official-card-game")).toHaveLength(1);
-    expect(catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame).toBe(
-      "ref_seed_yu_gi_oh_official_card_game",
+    const productLineId = catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame;
+    expect(firstRunDetails).toContainEqual(
+      expect.objectContaining({
+        referenceRecordId: productLineId,
+        typeKey: "product-line",
+        key: "yu-gi-oh-official-card-game",
+      }),
     );
+    expect(
+      [ygoprodeckYugiohSetReferenceProviderProfile, ygojsonYugiohSetReferenceProviderProfile].map((profile) =>
+        profile.referenceHierarchyMapping.referenceRecords.find((rule) => rule.ruleKey === "yugioh-product-line"),
+      ),
+    ).toEqual([
+      expect.objectContaining({ recordId: { kind: "static", referenceRecordId: productLineId } }),
+      expect.objectContaining({ recordId: { kind: "static", referenceRecordId: productLineId } }),
+    ]);
   });
 
   it("reconciles Magic reference roots and Time Spiral without recreating Pokemon reference data", async () => {
@@ -510,6 +525,8 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
     reviewStatus: string | undefined;
   }[] = [];
   const details: {
+    referenceRecordId?: string;
+    typeKey?: string;
     key: string | undefined;
     name?: string;
     attributes?: unknown;
@@ -641,6 +658,8 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
       }) => {
         commands.push({ streamId, type: command.type, key: command.key });
         details.push({
+          referenceRecordId: command.referenceRecordId,
+          typeKey: command.typeKey,
           key: command.key,
           name: command.name?.values?.en,
           attributes: command.attributes,

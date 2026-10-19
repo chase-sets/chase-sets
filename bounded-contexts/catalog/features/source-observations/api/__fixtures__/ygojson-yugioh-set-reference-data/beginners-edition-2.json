@@ -126,16 +126,10 @@
             }
           }
         },
-        "formats": [
-          "ocg"
-        ],
-        "editions": [
-          "unlimited"
-        ],
+        "formats": ["ocg"],
+        "editions": ["unlimited"],
         "externalIDs": {
-          "dbIDs": [
-            78801001
-          ]
+          "dbIDs": [78801001]
         }
       },
       "jp": {
@@ -1147,30 +1141,18 @@
             }
           }
         },
-        "formats": [
-          "ocg"
-        ],
-        "editions": [
-          "unlimited"
-        ],
+        "formats": ["ocg"],
+        "editions": ["unlimited"],
         "externalIDs": {
-          "dbIDs": [
-            3312001
-          ]
+          "dbIDs": [3312001]
         }
       }
     },
     "contents": [
       {
-        "locales": [
-          "kr"
-        ],
-        "formats": [
-          "ocg"
-        ],
-        "editions": [
-          "unlimited"
-        ],
+        "locales": ["kr"],
+        "formats": ["ocg"],
+        "editions": ["unlimited"],
         "image": "https://ms.yugipedia.com//a/a0/BP2-BoosterKR.png",
         "cards": [
           {
@@ -2677,15 +2659,9 @@
         "externalIDs": {}
       },
       {
-        "locales": [
-          "jp"
-        ],
-        "formats": [
-          "ocg"
-        ],
-        "editions": [
-          "unlimited"
-        ],
+        "locales": ["jp"],
+        "formats": ["ocg"],
+        "editions": ["unlimited"],
         "image": "https://ms.yugipedia.com//d/de/BE2-BoosterJP.png",
         "cards": [
           {

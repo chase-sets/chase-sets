@@ -156,7 +156,32 @@ function harness(projected: readonly ProjectedReferenceRecord[] = []) {
 
 describe("promotion reference hierarchy provisioning against authoritative Reference Data histories", () => {
   it("promotes the captured YGOJSON set through the seeded hierarchy and scope projection", async () => {
-    const h = harness();
+    const h = harness([
+      {
+        reference_record_id: "ref_seed_pokemon_trading_card_game",
+        type_key: "product-line",
+        key: "pokemon-trading-card-game",
+        attributes: {},
+      },
+      {
+        reference_record_id: "ref_seed_magic_the_gathering",
+        type_key: "product-line",
+        key: "magic-the-gathering",
+        attributes: {},
+      },
+      {
+        reference_record_id: "ref_seed_one_piece_card_game",
+        type_key: "product-line",
+        key: "one-piece-card-game",
+        attributes: {},
+      },
+      {
+        reference_record_id: "ref_seed_disney_lorcana",
+        type_key: "product-line",
+        key: "disney-lorcana",
+        attributes: {},
+      },
+    ]);
     const fixture = JSON.parse(
       readFileSync(
         fileURLToPath(
@@ -175,12 +200,23 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
       deps: h.deps,
       referenceData: h.referenceData,
       profile: ygojsonYugiohSetReferenceProviderProfile,
-      normalized: normalized as never,
+      normalized,
       context,
     });
     expect(result.referenceRecordIdsByTypeKey["product-line"]).toBe(
       catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
     );
+    const productLineStream = `catalog.reference-record-${catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame}`;
+    expect(await h.eventStore.readStream({ streamId: productLineStream })).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.reference-record.created",
+        payload: expect.objectContaining({ key: "yu-gi-oh-official-card-game", typeKey: "product-line" }),
+      }),
+    );
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).not.toBe("ref_seed_pokemon_trading_card_game");
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).not.toBe("ref_seed_magic_the_gathering");
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).not.toBe("ref_seed_one_piece_card_game");
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).not.toBe("ref_seed_disney_lorcana");
     expect(result.targetReferenceRecordId).toBe("ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a");
 
     const setStream = `catalog.reference-record-${result.targetReferenceRecordId}`;
@@ -206,25 +242,37 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
       await h.eventStore.readStream({ streamId: "catalog.reference-record-ref_ygojson_product_line_yu_gi_oh" }),
     ).toEqual([]);
 
-    const parentRows = {
-      [catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame]: {
-        scope_record_id: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
-        reference_record_id: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
-        product_domain: "yugioh",
-        scope_kind: "product-line",
-        product_line_scope_record_id: null,
-        series_scope_record_id: null,
-      },
-    };
+    const projectedRows = new Map<string, Record<string, unknown>>();
     const projectionQuery = vi.fn(async (sql: string, params?: readonly unknown[]) => {
       if (sql.includes("reference_record_id = ANY")) {
         const ids = Array.isArray(params?.[0]) ? (params?.[0] as readonly string[]) : [];
-        return { rows: ids.map((id) => parentRows[id]).filter(Boolean) };
+        return { rows: ids.map((id) => projectedRows.get(id)).filter(Boolean) };
+      }
+      if (/INSERT\s+INTO\s+catalog_scope_records/.test(sql)) {
+        const values = params ?? [];
+        const row = {
+          scope_record_id: values[0],
+          product_domain: values[1],
+          scope_kind: values[2],
+          reference_type_key: values[3],
+          reference_record_id: values[4],
+          reference_record_key: values[5],
+          parent_scope_record_id: values[8] ?? null,
+          product_line_scope_record_id: values[9] ?? null,
+          series_scope_record_id: values[10] ?? null,
+          lifecycle_status: values[16] ?? "draft",
+        };
+        projectedRows.set(String(values[4]), row);
+        return { rows: [] };
+      }
+      if (/UPDATE\s+catalog_scope_records/.test(sql)) {
+        const row = projectedRows.get(String(params?.[0]));
+        if (row) row.lifecycle_status = params?.[1];
+        return { rows: [] };
       }
       return { rows: [] };
     });
     const handlers = buildCatalogScopeRegistryProjectionHandlers({ query: projectionQuery });
-    const productLineStream = `catalog.reference-record-${catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame}`;
     for (const streamId of [productLineStream, setStream]) {
       for (const event of await h.eventStore.readStream({ streamId })) {
         const handler = handlers[event.eventType];
@@ -236,17 +284,16 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
         } as never);
       }
     }
-    const insert = projectionQuery.mock.calls.find(
-      ([sql, params]) =>
-        sql.includes("INSERT INTO catalog_scope_records") && params?.[1] === "yugioh" && params?.[2] === "set",
-    );
-    expect(insert?.[1]?.[1]).toBe("yugioh");
-    expect(insert?.[1]?.[2]).toBe("set");
-    expect(insert?.[1]?.[8]).toBe(catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame);
+    const setRow = projectedRows.get(result.targetReferenceRecordId);
+    expect(setRow).toMatchObject({
+      product_domain: "yugioh",
+      scope_kind: "set",
+      lifecycle_status: "active",
+      parent_scope_record_id: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+    });
     expect(
-      projectionQuery.mock.calls.filter(([sql]) => sql.includes("INSERT INTO catalog_scope_records")),
-    ).toHaveLength(2);
-    expect(projectionQuery.mock.calls.filter(([sql]) => sql.includes("UPDATE catalog_scope_records"))).toHaveLength(2);
+      [...projectedRows.values()].filter((row) => row.product_domain === "yugioh" && row.scope_kind === "set"),
+    ).toHaveLength(1);
   });
 
   it.each<[string, readonly ("create" | "publish")[]]>([

@@ -258,7 +258,11 @@ const ygojsonBaseProviderProfile = {
   providerKey: "ygojson",
   displayName: "YGOJSON",
   status: "active",
-  capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+  capabilities: [
+    "provider-option-query",
+    "source-observation-import",
+    "external-reference-extraction",
+  ],
   supportedScopes: ["set-name", "product"],
   languageOptions: ["en"],
   optionQueries: ygojsonOptionQueries,
@@ -369,7 +373,10 @@ const ygojsonBaseProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
-export const ygojsonYugiohSetReferenceProviderProfile = ygojsonBaseProviderProfile;
+export const ygojsonYugiohSetReferenceProviderProfile = {
+  ...ygojsonBaseProviderProfile,
+  capabilities: [...ygojsonBaseProviderProfile.capabilities, "reference-data-promotion"],
+} as const satisfies CatalogProviderIntegrationProfile;
 
 export const ygojsonYugiohSealedProductReferenceProviderProfile = {
   ...ygojsonBaseProviderProfile,

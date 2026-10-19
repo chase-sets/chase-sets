@@ -237,7 +237,8 @@ export async function resolveReferenceDataPromotionHierarchy(input: {
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized;
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized;
   context: EventStoreContext;
 }): Promise<{
   targetReferenceRecordId: ReferenceRecordId;

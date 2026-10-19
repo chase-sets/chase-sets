@@ -406,6 +406,7 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "catalog|Reference Record|ref_seed_expansion_twilight_masquerade|twilight-masquerade",
   "catalog|Reference Record|ref_seed_expansion_wizards_black_star_promos|wizards-black-star-promos",
   "catalog|Reference Record|ref_seed_magic_the_gathering|magic-the-gathering",
+  "catalog|Reference Record|ref_seed_yu_gi_oh_official_card_game|yu-gi-oh-official-card-game",
   "catalog|Reference Record|ref_seed_one_piece_card_game|one-piece-card-game",
   "catalog|Reference Record|ref_seed_pokemon_trading_card_game|pokemon-trading-card-game",
   "catalog|Reference Record|ref_seed_ravensburger|ravensburger",
