@@ -187,10 +187,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.seller-capacity.reached",
-        "ordering.seller-capacity.cleared"
-      ],
+      "eventTypes": ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"],
       "streamPrefixes": "<undefined>",
       "order": 21
     },
@@ -304,9 +301,7 @@
         "checkout.cart.line-quantity-set",
         "checkout.cart.line-removed"
       ],
-      "streamPrefixes": [
-        "checkout."
-      ],
+      "streamPrefixes": ["checkout."],
       "order": 0
     },
     {
@@ -326,9 +321,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.checkout-affordances-published"
-      ],
+      "eventTypes": ["payments.checkout-affordances-published"],
       "streamPrefixes": "<undefined>",
       "order": 26
     },
@@ -444,9 +437,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "settlement.payout-readiness.recorded"
-      ],
+      "eventTypes": ["settlement.payout-readiness.recorded"],
       "streamPrefixes": "<undefined>",
       "order": 24
     },
@@ -490,9 +481,7 @@
         "checkout.session.shipping-option-selected",
         "checkout.session.started"
       ],
-      "streamPrefixes": [
-        "checkout.session-"
-      ],
+      "streamPrefixes": ["checkout.session-"],
       "order": 2
     }
   ],
@@ -671,10 +660,7 @@
         "ordering.seller-capacity.reached": "<function>",
         "ordering.seller-capacity.cleared": "<function>"
       },
-      "eventTypes": [
-        "ordering.seller-capacity.reached",
-        "ordering.seller-capacity.cleared"
-      ],
+      "eventTypes": ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -772,9 +758,7 @@
       "handlers": {
         "payments.checkout-affordances-published": "<function>"
       },
-      "eventTypes": [
-        "payments.checkout-affordances-published"
-      ],
+      "eventTypes": ["payments.checkout-affordances-published"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -886,9 +870,7 @@
       "handlers": {
         "settlement.payout-readiness.recorded": "<function>"
       },
-      "eventTypes": [
-        "settlement.payout-readiness.recorded"
-      ],
+      "eventTypes": ["settlement.payout-readiness.recorded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

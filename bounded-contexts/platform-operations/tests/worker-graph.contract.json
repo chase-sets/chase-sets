@@ -19,10 +19,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
       "streamPrefixes": "<undefined>",
       "order": 55
     },
@@ -54,9 +51,7 @@
         "experience.platform-feedback.reviewed",
         "experience.platform-feedback.submitted"
       ],
-      "streamPrefixes": [
-        "platform-operations."
-      ],
+      "streamPrefixes": ["platform-operations."],
       "order": 0
     },
     {
@@ -76,12 +71,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-operations.public-doc-article-review.confirmed"
-      ],
-      "streamPrefixes": [
-        "platform-operations.public-doc-review-"
-      ],
+      "eventTypes": ["platform-operations.public-doc-article-review.confirmed"],
+      "streamPrefixes": ["platform-operations.public-doc-review-"],
       "order": 1
     },
     {
@@ -108,9 +99,7 @@
         "marketplace.report.submitted",
         "platform-operations.reported-content.action-recorded"
       ],
-      "streamPrefixes": [
-        "platform-operations.reported-content-"
-      ],
+      "streamPrefixes": ["platform-operations.reported-content-"],
       "order": 2
     },
     {
@@ -143,9 +132,7 @@
         "payments.payment-disputed",
         "platform-operations.risk-alert.action-recorded"
       ],
-      "streamPrefixes": [
-        "platform-operations.risk-alert-"
-      ],
+      "streamPrefixes": ["platform-operations.risk-alert-"],
       "order": 3
     },
     {
@@ -166,13 +153,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
-      "streamPrefixes": [
-        "platform-policy.document-"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
       "order": 7
     },
     {
@@ -192,9 +174,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.revised"
-      ],
+      "eventTypes": ["platform-policy.document.revised"],
       "streamPrefixes": "<undefined>",
       "order": 56
     },
@@ -215,9 +195,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-operations.public-doc-article-review.confirmed"
-      ],
+      "eventTypes": ["platform-operations.public-doc-article-review.confirmed"],
       "streamPrefixes": "<undefined>",
       "order": 57
     },
@@ -265,9 +243,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-operations.reported-content.action-recorded"
-      ],
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "streamPrefixes": "<undefined>",
       "order": 61
     },
@@ -288,9 +264,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "identity.account.created"
-      ],
+      "eventTypes": ["identity.account.created"],
       "streamPrefixes": "<undefined>",
       "order": 62
     },
@@ -312,10 +286,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "marketplace.listing.created",
-        "marketplace.review.submitted"
-      ],
+      "eventTypes": ["marketplace.listing.created", "marketplace.review.submitted"],
       "streamPrefixes": "<undefined>",
       "order": 63
     },
@@ -337,10 +308,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.payment-created",
-        "payments.payment-disputed"
-      ],
+      "eventTypes": ["payments.payment-created", "payments.payment-disputed"],
       "streamPrefixes": "<undefined>",
       "order": 64
     },
@@ -361,9 +329,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-operations.risk-alert.action-recorded"
-      ],
+      "eventTypes": ["platform-operations.risk-alert.action-recorded"],
       "streamPrefixes": "<undefined>",
       "order": 65
     },
@@ -385,10 +351,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "order": 82
     },
@@ -410,10 +373,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.payment-captured",
-        "payments.payment-refunded"
-      ],
+      "eventTypes": ["payments.payment-captured", "payments.payment-refunded"],
       "streamPrefixes": "<undefined>",
       "order": 83
     },
@@ -434,9 +394,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.order.line-item-amounts-published"
-      ],
+      "eventTypes": ["ordering.order.line-item-amounts-published"],
       "streamPrefixes": "<undefined>",
       "order": 71
     },
@@ -457,9 +415,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.payment-created"
-      ],
+      "eventTypes": ["payments.payment-created"],
       "streamPrefixes": "<undefined>",
       "order": 72
     },
@@ -503,9 +459,7 @@
         "support.attachment-operation.staged",
         "support.attachment-operation.stored"
       ],
-      "streamPrefixes": [
-        "support.attachment-operation-"
-      ],
+      "streamPrefixes": ["support.attachment-operation-"],
       "order": 5
     },
     {
@@ -525,9 +479,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "inventory.reservation.released"
-      ],
+      "eventTypes": ["inventory.reservation.released"],
       "streamPrefixes": "<undefined>",
       "order": 75
     },
@@ -626,9 +578,7 @@
         "support.support-request.return-refund-released",
         "support.support-request.review-reminder-emitted"
       ],
-      "streamPrefixes": [
-        "support."
-      ],
+      "streamPrefixes": ["support."],
       "order": 4
     },
     {
@@ -649,13 +599,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "support.support-request.opened",
-        "support.support-request.resolved"
-      ],
-      "streamPrefixes": [
-        "support."
-      ],
+      "eventTypes": ["support.support-request.opened", "support.support-request.resolved"],
+      "streamPrefixes": ["support."],
       "order": 6
     },
     {
@@ -749,10 +694,7 @@
         "platform-policy.document.created": "<function>",
         "platform-policy.document.revised": "<function>"
       },
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -773,9 +715,7 @@
       "handlers": {
         "platform-policy.document.revised": "<function>"
       },
-      "eventTypes": [
-        "platform-policy.document.revised"
-      ],
+      "eventTypes": ["platform-policy.document.revised"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -795,9 +735,7 @@
       "handlers": {
         "platform-operations.public-doc-article-review.confirmed": "<function>"
       },
-      "eventTypes": [
-        "platform-operations.public-doc-article-review.confirmed"
-      ],
+      "eventTypes": ["platform-operations.public-doc-article-review.confirmed"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -844,9 +782,7 @@
       "handlers": {
         "platform-operations.reported-content.action-recorded": "<function>"
       },
-      "eventTypes": [
-        "platform-operations.reported-content.action-recorded"
-      ],
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -866,9 +802,7 @@
       "handlers": {
         "identity.account.created": "<function>"
       },
-      "eventTypes": [
-        "identity.account.created"
-      ],
+      "eventTypes": ["identity.account.created"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -890,10 +824,7 @@
         "marketplace.listing.created": "<function>",
         "marketplace.review.submitted": "<function>"
       },
-      "eventTypes": [
-        "marketplace.listing.created",
-        "marketplace.review.submitted"
-      ],
+      "eventTypes": ["marketplace.listing.created", "marketplace.review.submitted"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -915,10 +846,7 @@
         "payments.payment-created": "<function>",
         "payments.payment-disputed": "<function>"
       },
-      "eventTypes": [
-        "payments.payment-created",
-        "payments.payment-disputed"
-      ],
+      "eventTypes": ["payments.payment-created", "payments.payment-disputed"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -938,9 +866,7 @@
       "handlers": {
         "platform-operations.risk-alert.action-recorded": "<function>"
       },
-      "eventTypes": [
-        "platform-operations.risk-alert.action-recorded"
-      ],
+      "eventTypes": ["platform-operations.risk-alert.action-recorded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -961,10 +887,7 @@
         "ordering.order.created": "<function>",
         "ordering.order.cancelled": "<function>"
       },
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -986,10 +909,7 @@
         "payments.payment-captured": "<function>",
         "payments.payment-refunded": "<function>"
       },
-      "eventTypes": [
-        "payments.payment-captured",
-        "payments.payment-refunded"
-      ],
+      "eventTypes": ["payments.payment-captured", "payments.payment-refunded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -1009,9 +929,7 @@
       "handlers": {
         "ordering.order.line-item-amounts-published": "<function>"
       },
-      "eventTypes": [
-        "ordering.order.line-item-amounts-published"
-      ],
+      "eventTypes": ["ordering.order.line-item-amounts-published"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -1032,9 +950,7 @@
       "handlers": {
         "payments.payment-created": "<function>"
       },
-      "eventTypes": [
-        "payments.payment-created"
-      ],
+      "eventTypes": ["payments.payment-created"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -1059,9 +975,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "inventory.reservation.released"
-      ],
+      "eventTypes": ["inventory.reservation.released"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 75

@@ -144,9 +144,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "marketplace.offer.accepted"
-      ],
+      "eventTypes": ["marketplace.offer.accepted"],
       "streamPrefixes": "<undefined>",
       "order": 50
     },
@@ -295,9 +293,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "settlement.protection-coverage.settled.v1"
-      ],
+      "eventTypes": ["settlement.protection-coverage.settled.v1"],
       "streamPrefixes": "<undefined>",
       "order": 76
     },
@@ -331,9 +327,7 @@
         "ordering.order.reservation-confirmed",
         "ordering.order.reservation-released"
       ],
-      "streamPrefixes": [
-        "ordering."
-      ],
+      "streamPrefixes": ["ordering."],
       "order": 2
     },
     {
@@ -354,10 +348,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.delivered"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered"],
       "streamPrefixes": "<undefined>",
       "order": 71
     },
@@ -422,10 +413,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "order": 69
     },
@@ -475,12 +463,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.order.created"
-      ],
-      "streamPrefixes": [
-        "ordering."
-      ],
+      "eventTypes": ["ordering.order.created"],
+      "streamPrefixes": ["ordering."],
       "order": 4
     },
     {
@@ -538,9 +522,7 @@
         "ordering.postage-policy.retired",
         "ordering.postage-policy.revised"
       ],
-      "streamPrefixes": [
-        "ordering."
-      ],
+      "streamPrefixes": ["ordering."],
       "order": 1
     },
     {
@@ -560,9 +542,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "support.support-request.resolved"
-      ],
+      "eventTypes": ["support.support-request.resolved"],
       "streamPrefixes": "<undefined>",
       "order": 65
     }
@@ -701,9 +681,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "marketplace.offer.accepted"
-      ],
+      "eventTypes": ["marketplace.offer.accepted"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 50
@@ -841,9 +819,7 @@
       "handlers": {
         "settlement.protection-coverage.settled.v1": "<function>"
       },
-      "eventTypes": [
-        "settlement.protection-coverage.settled.v1"
-      ],
+      "eventTypes": ["settlement.protection-coverage.settled.v1"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -864,10 +840,7 @@
         "fulfillment.shipment.created": "<function>",
         "fulfillment.shipment.delivered": "<function>"
       },
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.delivered"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -930,10 +903,7 @@
         "ordering.order.created": "<function>",
         "ordering.order.cancelled": "<function>"
       },
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -1011,9 +981,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "support.support-request.resolved"
-      ],
+      "eventTypes": ["support.support-request.resolved"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 65

@@ -19,10 +19,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.dispatched",
-        "fulfillment.shipment.delivered"
-      ],
+      "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
       "streamPrefixes": "<undefined>",
       "order": 50
     },
@@ -44,10 +41,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "order": 40
     },
@@ -68,9 +62,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.refund-issued"
-      ],
+      "eventTypes": ["payments.refund-issued"],
       "streamPrefixes": "<undefined>",
       "order": 60
     },
@@ -92,10 +84,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "identity.account-capability.granted",
-        "identity.account-capability.revoked"
-      ],
+      "eventTypes": ["identity.account-capability.granted", "identity.account-capability.revoked"],
       "streamPrefixes": "<undefined>",
       "order": 35
     },
@@ -259,9 +248,7 @@
         "auth.session.revoked",
         "auth.session.started"
       ],
-      "streamPrefixes": [
-        "auth."
-      ],
+      "streamPrefixes": ["auth."],
       "order": 0
     },
     {
@@ -281,12 +268,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "auth.magic-link.requested"
-      ],
-      "streamPrefixes": [
-        "auth."
-      ],
+      "eventTypes": ["auth.magic-link.requested"],
+      "streamPrefixes": ["auth."],
       "order": 1
     }
   ],
@@ -302,10 +285,7 @@
         "fulfillment.shipment.dispatched": "<function>",
         "fulfillment.shipment.delivered": "<function>"
       },
-      "eventTypes": [
-        "fulfillment.shipment.dispatched",
-        "fulfillment.shipment.delivered"
-      ],
+      "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -327,10 +307,7 @@
         "ordering.order.created": "<function>",
         "ordering.order.cancelled": "<function>"
       },
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -351,9 +328,7 @@
       "handlers": {
         "payments.refund-issued": "<function>"
       },
-      "eventTypes": [
-        "payments.refund-issued"
-      ],
+      "eventTypes": ["payments.refund-issued"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -374,10 +349,7 @@
         "identity.account-capability.granted": "<function>",
         "identity.account-capability.revoked": "<function>"
       },
-      "eventTypes": [
-        "identity.account-capability.granted",
-        "identity.account-capability.revoked"
-      ],
+      "eventTypes": ["identity.account-capability.granted", "identity.account-capability.revoked"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

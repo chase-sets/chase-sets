@@ -363,42 +363,169 @@ describe("platform worker projection wake interest graph", () => {
   });
 
   it("worker assembly rejects missing and misrouted members", () => {
-    expect(() => verifyAssembly([...workerContextRegistry, workerContextRegistry[0]]), "duplicate registration").toThrow();
+    expect(
+      () => verifyAssembly([...workerContextRegistry, workerContextRegistry[0]]),
+      "duplicate registration",
+    ).toThrow();
     for (const context of admittedContexts) {
       const registry = workerContextRegistry.filter((entry) => entry.contextName !== context.contextName);
       expect(() => verifyAssembly(registry), context.contextName).toThrow();
-      expect(() => verifyAssembly(registry, ownerContracts.filter((owner) => owner.contextName !== context.contextName)), `${context.contextName}: registry and expectation removed together`).toThrow();
-      expect(() => verifyAssembly(workerContextRegistry, ownerContracts.filter((owner) => owner.contextName !== context.contextName)), `${context.contextName}: missing owner contract`).toThrow();
+      expect(
+        () =>
+          verifyAssembly(
+            registry,
+            ownerContracts.filter((owner) => owner.contextName !== context.contextName),
+          ),
+        `${context.contextName}: registry and expectation removed together`,
+      ).toThrow();
+      expect(
+        () =>
+          verifyAssembly(
+            workerContextRegistry,
+            ownerContracts.filter((owner) => owner.contextName !== context.contextName),
+          ),
+        `${context.contextName}: missing owner contract`,
+      ).toThrow();
     }
 
     const changeCheckout = (change: (module: BcApiModule) => BcApiModule): WorkerContextRegistry =>
-      workerContextRegistry.map((entry) => entry.contextName === "checkout" ? { ...entry, module: change(entry.module) } : entry);
-    const changeSubscriptions = (change: (subscriptions: readonly BcEventSubscription[]) => readonly BcEventSubscription[]) =>
-      changeCheckout((module) => ({ ...module, buildSubscriptions: (services) => change(module.buildSubscriptions!(services)) }));
+      workerContextRegistry.map((entry) =>
+        entry.contextName === "checkout" ? { ...entry, module: change(entry.module) } : entry,
+      );
+    const changeSubscriptions = (
+      change: (subscriptions: readonly BcEventSubscription[]) => readonly BcEventSubscription[],
+    ) =>
+      changeCheckout((module) => ({
+        ...module,
+        buildSubscriptions: (services) => change(module.buildSubscriptions!(services)),
+      }));
     const mutations: readonly [string, WorkerContextRegistry][] = [
       ["missing subscription", changeSubscriptions((subscriptions) => subscriptions.slice(1))],
-      ["missing self-subscription", changeSubscriptions((subscriptions) => subscriptions.filter((subscription) => subscription.sourceContextName !== "checkout"))],
+      [
+        "missing self-subscription",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.filter((subscription) => subscription.sourceContextName !== "checkout"),
+        ),
+      ],
       ["duplicate subscription", changeSubscriptions((subscriptions) => [...subscriptions, subscriptions[0]])],
-      ["missing handler", changeSubscriptions((subscriptions) => subscriptions.map((subscription, index) => index ? subscription : { ...subscription, handlers: Object.fromEntries(Object.entries(subscription.handlers).slice(1)) }))],
-      ["missing event", changeSubscriptions((subscriptions) => subscriptions.map((subscription, index) => index ? subscription : { ...subscription, eventTypes: subscription.eventTypes?.slice(1) }))],
-      ["wrong source", changeSubscriptions((subscriptions) => subscriptions.map((subscription, index) => index ? subscription : { ...subscription, sourceContextName: "auth" }))],
-      ["wrong version", changeSubscriptions((subscriptions) => subscriptions.map((subscription, index) => index ? subscription : { ...subscription, subscriptionVersion: subscription.subscriptionVersion + 1 }))],
-      ["missing version", changeSubscriptions((subscriptions) => subscriptions.map((subscription, index) => { if (index) return subscription; const malformed = { ...subscription }; Reflect.deleteProperty(malformed, "subscriptionVersion"); return malformed; }))],
-      ["missing local projector", changeCheckout((module) => ({ ...module, projectionHandlerSets: (services) => module.projectionHandlerSets!(services).filter((set) => set.projectionName !== "checkout.session-projection") }))],
-      ["missing implementation export", changeCheckout((module) => { const malformed = { ...module }; Reflect.deleteProperty(malformed, "createServices"); return malformed; })],
+      [
+        "missing handler",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) =>
+            index
+              ? subscription
+              : { ...subscription, handlers: Object.fromEntries(Object.entries(subscription.handlers).slice(1)) },
+          ),
+        ),
+      ],
+      [
+        "missing event",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) =>
+            index ? subscription : { ...subscription, eventTypes: subscription.eventTypes?.slice(1) },
+          ),
+        ),
+      ],
+      [
+        "wrong source",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) =>
+            index ? subscription : { ...subscription, sourceContextName: "auth" },
+          ),
+        ),
+      ],
+      [
+        "wrong version",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) =>
+            index ? subscription : { ...subscription, subscriptionVersion: subscription.subscriptionVersion + 1 },
+          ),
+        ),
+      ],
+      [
+        "missing version",
+        changeSubscriptions((subscriptions) =>
+          subscriptions.map((subscription, index) => {
+            if (index) return subscription;
+            const malformed = { ...subscription };
+            Reflect.deleteProperty(malformed, "subscriptionVersion");
+            return malformed;
+          }),
+        ),
+      ],
+      [
+        "missing local projector",
+        changeCheckout((module) => ({
+          ...module,
+          projectionHandlerSets: (services) =>
+            module.projectionHandlerSets!(services).filter(
+              (set) => set.projectionName !== "checkout.session-projection",
+            ),
+        })),
+      ],
+      [
+        "missing implementation export",
+        changeCheckout((module) => {
+          const malformed = { ...module };
+          Reflect.deleteProperty(malformed, "createServices");
+          return malformed;
+        }),
+      ],
       ["malformed context", changeCheckout((module) => ({ ...module, contextName: "synthetic-wrong-context" }))],
     ];
     for (const [label, registry] of mutations) expect(() => verifyAssembly(registry), label).toThrow();
 
     const runtime = verifyAssembly();
     const brokenAssemblies: readonly [string, WorkerHostRuntime][] = [
-      ["missing checkpoint", { ...runtime, subscriptionRunners: runtime.subscriptionRunners.map((runner, index) => index ? runner : (() => { const malformed = { ...runner }; Reflect.deleteProperty(malformed, "checkpointKey"); return malformed; })()) }],
-      ["duplicate runner", { ...runtime, subscriptionRunners: [...runtime.subscriptionRunners, runtime.subscriptionRunners[0]] }],
-      ["wrong target", { ...runtime, subscriptionRunners: runtime.subscriptionRunners.map((runner, index) => index ? runner : { ...runner, targetContextName: "checkout" }) }],
-      ["missing interest edge", { ...runtime, projectionGroups: runtime.projectionGroups.map((group, index) => index ? group : { ...group, subscriptionRunners: group.subscriptionRunners.slice(1) }) }],
-      ["misrouted interest edge", { ...runtime, projectionGroups: runtime.projectionGroups.map((group, index) => index ? group : { ...group, targetContextName: "synthetic-wrong-target" }) }],
+      [
+        "missing checkpoint",
+        {
+          ...runtime,
+          subscriptionRunners: runtime.subscriptionRunners.map((runner, index) =>
+            index
+              ? runner
+              : (() => {
+                  const malformed = { ...runner };
+                  Reflect.deleteProperty(malformed, "checkpointKey");
+                  return malformed;
+                })(),
+          ),
+        },
+      ],
+      [
+        "duplicate runner",
+        { ...runtime, subscriptionRunners: [...runtime.subscriptionRunners, runtime.subscriptionRunners[0]] },
+      ],
+      [
+        "wrong target",
+        {
+          ...runtime,
+          subscriptionRunners: runtime.subscriptionRunners.map((runner, index) =>
+            index ? runner : { ...runner, targetContextName: "checkout" },
+          ),
+        },
+      ],
+      [
+        "missing interest edge",
+        {
+          ...runtime,
+          projectionGroups: runtime.projectionGroups.map((group, index) =>
+            index ? group : { ...group, subscriptionRunners: group.subscriptionRunners.slice(1) },
+          ),
+        },
+      ],
+      [
+        "misrouted interest edge",
+        {
+          ...runtime,
+          projectionGroups: runtime.projectionGroups.map((group, index) =>
+            index ? group : { ...group, targetContextName: "synthetic-wrong-target" },
+          ),
+        },
+      ],
     ];
-    for (const [label, broken] of brokenAssemblies) expect(() => assertWorkerAssembly(broken, admittedContexts, ownerContracts, "public"), label).toThrow();
+    for (const [label, broken] of brokenAssemblies)
+      expect(() => assertWorkerAssembly(broken, admittedContexts, ownerContracts, "public"), label).toThrow();
   });
 
   it("owner contracts retain the previous graph coverage", () => {

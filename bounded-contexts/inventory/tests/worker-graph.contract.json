@@ -81,12 +81,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "inventory.channel-stock-allocation.set"
-      ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "eventTypes": ["inventory.channel-stock-allocation.set"],
+      "streamPrefixes": ["inventory."],
       "order": 6
     },
     {
@@ -106,9 +102,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.return-shipment.facility-intake-completed.v1"
-      ],
+      "eventTypes": ["fulfillment.return-shipment.facility-intake-completed.v1"],
       "streamPrefixes": "<undefined>",
       "order": 31
     },
@@ -130,10 +124,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.returned"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.returned"],
       "streamPrefixes": "<undefined>",
       "order": 30
     },
@@ -154,12 +145,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.created"
-      ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "eventTypes": ["fulfillment.shipment.created"],
+      "streamPrefixes": ["inventory."],
       "order": 9
     },
     {
@@ -179,12 +166,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "inventory.hold-collision-recorded"
-      ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "eventTypes": ["inventory.hold-collision-recorded"],
+      "streamPrefixes": ["inventory."],
       "order": 5
     },
     {
@@ -217,9 +200,7 @@
         "inventory.hold.placed",
         "inventory.hold.released"
       ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "streamPrefixes": ["inventory."],
       "order": 4
     },
     {
@@ -258,9 +239,7 @@
         "inventory.item.offline-sale-recorded",
         "inventory.restock-decision.recorded"
       ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "streamPrefixes": ["inventory."],
       "order": 2
     },
     {
@@ -282,14 +261,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "inventory.item.adjusted",
-        "inventory.item.created",
-        "inventory.item.stock-authority-claimed"
-      ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "eventTypes": ["inventory.item.adjusted", "inventory.item.created", "inventory.item.stock-authority-claimed"],
+      "streamPrefixes": ["inventory."],
       "order": 3
     },
     {
@@ -310,10 +283,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "order": 20
     },
@@ -361,9 +331,7 @@
         "inventory.recovered-item.transferred.v1",
         "inventory.recovered-item.value-reported.v1"
       ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "streamPrefixes": ["inventory."],
       "order": 10
     },
     {
@@ -390,9 +358,7 @@
         "inventory.reservation.rejected",
         "inventory.reservation.released"
       ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "streamPrefixes": ["inventory."],
       "order": 7
     },
     {
@@ -413,13 +379,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "inventory.restock-decision.pending",
-        "inventory.restock-decision.recorded"
-      ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "eventTypes": ["inventory.restock-decision.pending", "inventory.restock-decision.recorded"],
+      "streamPrefixes": ["inventory."],
       "order": 8
     },
     {
@@ -446,9 +407,7 @@
         "inventory.storage-location.created",
         "inventory.storage-location.updated"
       ],
-      "streamPrefixes": [
-        "inventory."
-      ],
+      "streamPrefixes": ["inventory."],
       "order": 1
     }
   ],
@@ -525,9 +484,7 @@
       "handlers": {
         "fulfillment.return-shipment.facility-intake-completed.v1": "<function>"
       },
-      "eventTypes": [
-        "fulfillment.return-shipment.facility-intake-completed.v1"
-      ],
+      "eventTypes": ["fulfillment.return-shipment.facility-intake-completed.v1"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -549,10 +506,7 @@
         "fulfillment.shipment.created": "<function>",
         "fulfillment.shipment.returned": "<function>"
       },
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.returned"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.returned"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -573,10 +527,7 @@
         "ordering.order.created": "<function>",
         "ordering.order.cancelled": "<function>"
       },
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

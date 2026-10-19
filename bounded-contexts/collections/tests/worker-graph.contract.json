@@ -180,9 +180,7 @@
       "projectionCascadeChunkSize": 100,
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.market-price.estimated"
-      ],
+      "eventTypes": ["pricing.market-price.estimated"],
       "streamPrefixes": "<undefined>",
       "order": 40
     },
@@ -230,9 +228,7 @@
         "collections.saved-list.line-reordered",
         "collections.saved-list.visibility-changed"
       ],
-      "streamPrefixes": [
-        "collections."
-      ],
+      "streamPrefixes": ["collections."],
       "order": 3
     }
   ],
@@ -404,9 +400,7 @@
       "handlers": {
         "pricing.market-price.estimated": "<function>"
       },
-      "eventTypes": [
-        "pricing.market-price.estimated"
-      ],
+      "eventTypes": ["pricing.market-price.estimated"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

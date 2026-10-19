@@ -145,9 +145,7 @@
         "marketplace.review-hold.released",
         "marketplace.review-hold.terminal-recorded"
       ],
-      "streamPrefixes": [
-        "marketplace.review-"
-      ],
+      "streamPrefixes": ["marketplace.review-"],
       "order": 40
     },
     {
@@ -208,9 +206,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-operations.reported-content.listing-removal-directed"
-      ],
+      "eventTypes": ["platform-operations.reported-content.listing-removal-directed"],
       "streamPrefixes": "<undefined>",
       "order": 95
     },
@@ -330,9 +326,7 @@
         "marketplace.offer.work-progressed",
         "marketplace.offer.work-requested"
       ],
-      "streamPrefixes": [
-        "marketplace."
-      ],
+      "streamPrefixes": ["marketplace."],
       "order": 0
     },
     {
@@ -352,9 +346,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.market-price.estimated"
-      ],
+      "eventTypes": ["pricing.market-price.estimated"],
       "streamPrefixes": "<undefined>",
       "order": 94
     },
@@ -390,9 +382,7 @@
         "marketplace.offer-policy.stopped",
         "marketplace.offer.buyer-policy-bound"
       ],
-      "streamPrefixes": [
-        "marketplace."
-      ],
+      "streamPrefixes": ["marketplace."],
       "order": 3
     },
     {
@@ -435,9 +425,7 @@
         "marketplace.offer.submitted",
         "marketplace.offer.withdrawn"
       ],
-      "streamPrefixes": [
-        "marketplace."
-      ],
+      "streamPrefixes": ["marketplace."],
       "order": 2
     },
     {
@@ -499,9 +487,7 @@
         "marketplace.review-hold.released",
         "marketplace.review-hold.terminal-recorded"
       ],
-      "streamPrefixes": [
-        "marketplace.review-hold-"
-      ],
+      "streamPrefixes": ["marketplace.review-hold-"],
       "order": 5
     },
     {
@@ -548,9 +534,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-operations.reported-content.action-recorded"
-      ],
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "streamPrefixes": "<undefined>",
       "order": 92
     },
@@ -571,12 +555,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "marketplace.review.revealed"
-      ],
-      "streamPrefixes": [
-        "marketplace.review-"
-      ],
+      "eventTypes": ["marketplace.review.revealed"],
+      "streamPrefixes": ["marketplace.review-"],
       "order": 6
     },
     {
@@ -642,9 +622,7 @@
         "marketplace.review.updated",
         "marketplace.review.withdrawn"
       ],
-      "streamPrefixes": [
-        "marketplace.review-"
-      ],
+      "streamPrefixes": ["marketplace.review-"],
       "order": 4
     },
     {
@@ -779,10 +757,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.dispatched"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.dispatched"],
       "streamPrefixes": "<undefined>",
       "order": 96
     },
@@ -803,9 +778,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "support.support-request.resolved"
-      ],
+      "eventTypes": ["support.support-request.resolved"],
       "streamPrefixes": "<undefined>",
       "order": 97
     },
@@ -826,9 +799,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "settlement.wallet.negative-balance-collections-opened"
-      ],
+      "eventTypes": ["settlement.wallet.negative-balance-collections-opened"],
       "streamPrefixes": "<undefined>",
       "order": 91
     },
@@ -850,13 +821,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
-      "streamPrefixes": [
-        "platform-policy.document-"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
       "order": 7
     }
   ],
@@ -995,9 +961,7 @@
         "marketplace.review-hold.released",
         "marketplace.review-hold.terminal-recorded"
       ],
-      "streamPrefixes": [
-        "marketplace.review-"
-      ],
+      "streamPrefixes": ["marketplace.review-"],
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
       "checkpointBatchSize": "<undefined>",
@@ -1060,9 +1024,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "platform-operations.reported-content.listing-removal-directed"
-      ],
+      "eventTypes": ["platform-operations.reported-content.listing-removal-directed"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 95
@@ -1168,9 +1130,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "pricing.market-price.estimated"
-      ],
+      "eventTypes": ["pricing.market-price.estimated"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 94
@@ -1242,9 +1202,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "platform-operations.reported-content.action-recorded"
-      ],
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 92
@@ -1395,10 +1353,7 @@
         "fulfillment.shipment.created": "<function>",
         "fulfillment.shipment.dispatched": "<function>"
       },
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.dispatched"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.dispatched"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -1418,9 +1373,7 @@
       "handlers": {
         "support.support-request.resolved": "<function>"
       },
-      "eventTypes": [
-        "support.support-request.resolved"
-      ],
+      "eventTypes": ["support.support-request.resolved"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -1440,9 +1393,7 @@
       "handlers": {
         "settlement.wallet.negative-balance-collections-opened": "<function>"
       },
-      "eventTypes": [
-        "settlement.wallet.negative-balance-collections-opened"
-      ],
+      "eventTypes": ["settlement.wallet.negative-balance-collections-opened"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

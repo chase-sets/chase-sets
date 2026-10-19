@@ -169,9 +169,7 @@
         "fulfillment.unidentified-return-package.reconciled.v1",
         "fulfillment.unidentified-return-package.recorded.v1"
       ],
-      "streamPrefixes": [
-        "fulfillment."
-      ],
+      "streamPrefixes": ["fulfillment."],
       "order": 2
     },
     {
@@ -226,9 +224,7 @@
         "fulfillment.shipment.packing-started",
         "fulfillment.shipment.returned"
       ],
-      "streamPrefixes": [
-        "fulfillment."
-      ],
+      "streamPrefixes": ["fulfillment."],
       "order": 0
     },
     {
@@ -248,12 +244,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.delivered"
-      ],
-      "streamPrefixes": [
-        "fulfillment."
-      ],
+      "eventTypes": ["fulfillment.shipment.delivered"],
+      "streamPrefixes": ["fulfillment."],
       "order": 1
     },
     {

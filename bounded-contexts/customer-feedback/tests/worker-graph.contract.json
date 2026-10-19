@@ -61,9 +61,7 @@
         "customer-feedback.case.work-item-linked",
         "customer-feedback.case.work-item-unlinked"
       ],
-      "streamPrefixes": [
-        "customer-feedback."
-      ],
+      "streamPrefixes": ["customer-feedback."],
       "order": 3
     },
     {
@@ -96,9 +94,7 @@
         "customer-feedback.invitation.presented",
         "customer-feedback.survey.submitted"
       ],
-      "streamPrefixes": [
-        "customer-feedback."
-      ],
+      "streamPrefixes": ["customer-feedback."],
       "order": 1
     },
     {
@@ -141,9 +137,7 @@
         "customer-feedback.response.redacted",
         "customer-feedback.survey.submitted"
       ],
-      "streamPrefixes": [
-        "customer-feedback."
-      ],
+      "streamPrefixes": ["customer-feedback."],
       "order": 0
     },
     {
@@ -164,10 +158,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "customer-feedback.survey.submitted",
-        "customer-feedback.response.redacted"
-      ],
+      "eventTypes": ["customer-feedback.survey.submitted", "customer-feedback.response.redacted"],
       "streamPrefixes": "<undefined>",
       "order": 10
     },
@@ -227,9 +218,7 @@
         "customer-feedback.case.work-item-linked",
         "customer-feedback.case.work-item-unlinked"
       ],
-      "streamPrefixes": [
-        "customer-feedback."
-      ],
+      "streamPrefixes": ["customer-feedback."],
       "order": 2
     },
     {
@@ -249,9 +238,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "notifications.customer-feedback.delivery-reported"
-      ],
+      "eventTypes": ["notifications.customer-feedback.delivery-reported"],
       "streamPrefixes": "<undefined>",
       "order": 20
     },
@@ -273,13 +260,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
-      "streamPrefixes": [
-        "platform-policy.document-"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
       "order": 4
     }
   ],
@@ -298,10 +280,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "customer-feedback.survey.submitted",
-        "customer-feedback.response.redacted"
-      ],
+      "eventTypes": ["customer-feedback.survey.submitted", "customer-feedback.response.redacted"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 10
@@ -319,9 +298,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "notifications.customer-feedback.delivery-reported"
-      ],
+      "eventTypes": ["notifications.customer-feedback.delivery-reported"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 20

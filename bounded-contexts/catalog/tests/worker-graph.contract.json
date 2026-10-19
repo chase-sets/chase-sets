@@ -79,9 +79,7 @@
         "catalog.field.created",
         "catalog.field.deprecated"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 7
     },
     {
@@ -194,9 +192,7 @@
         "catalog.reference-record.published",
         "catalog.reference-record.revised"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 11
     },
     {
@@ -227,9 +223,7 @@
         "catalog.category.published",
         "catalog.category.revised"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 9
     },
     {
@@ -298,9 +292,7 @@
         "catalog.field.created",
         "catalog.field.deprecated"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 5
     },
     {
@@ -329,9 +321,7 @@
         "catalog.alias.rejected",
         "catalog.alias.revoked"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 17
     },
     {
@@ -358,9 +348,7 @@
         "catalog.attention-item.dismissed",
         "catalog.attention-item.restored"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 18
     },
     {
@@ -401,9 +389,7 @@
         "catalog.blueprint.published",
         "catalog.blueprint.revised"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 6
     },
     {
@@ -434,9 +420,7 @@
         "catalog.category.published",
         "catalog.category.revised"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 8
     },
     {
@@ -475,9 +459,7 @@
         "catalog.component.field-rule-removed",
         "catalog.component.rules-configured"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 4
     },
     {
@@ -518,9 +500,7 @@
         "catalog.dimension.options-reordered",
         "catalog.dimension.revised"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 0
     },
     {
@@ -551,9 +531,7 @@
         "catalog.display-template.published",
         "catalog.display-template.revised"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 1
     },
     {
@@ -584,9 +562,7 @@
         "catalog.field.created",
         "catalog.field.deprecated"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 2
     },
     {
@@ -651,9 +627,7 @@
         "catalog.catalog-item.retired",
         "catalog.catalog-item.tags-set"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 10
     },
     {
@@ -673,12 +647,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "catalog.product-contents.resolved"
-      ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "eventTypes": ["catalog.product-contents.resolved"],
+      "streamPrefixes": ["catalog."],
       "order": 12
     },
     {
@@ -705,9 +675,7 @@
         "catalog.catalog-item.product-measures-publication-part-recorded",
         "catalog.catalog-item.product-measures-resolved"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 13
     },
     {
@@ -736,9 +704,7 @@
         "catalog.provider-scope-mapping.rejected",
         "catalog.provider-scope-mapping.revoked"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 15
     },
     {
@@ -779,9 +745,7 @@
         "catalog.reference-type.published",
         "catalog.reference-type.revised"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 3
     },
     {
@@ -812,9 +776,7 @@
         "catalog.reference-record.published",
         "catalog.reference-record.revised"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 14
     },
     {
@@ -875,9 +837,7 @@
         "catalog.source-observation.rejected",
         "catalog.source-observation.source-payload-chunk-recorded"
       ],
-      "streamPrefixes": [
-        "catalog."
-      ],
+      "streamPrefixes": ["catalog."],
       "order": 16
     }
   ],

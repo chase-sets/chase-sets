@@ -19,13 +19,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
-      "streamPrefixes": [
-        "platform-policy.document-"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
       "order": 6
     },
     {
@@ -113,13 +108,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.economics-fact-override-cleared",
-        "pricing.economics-fact-override-set"
-      ],
-      "streamPrefixes": [
-        "pricing."
-      ],
+      "eventTypes": ["pricing.economics-fact-override-cleared", "pricing.economics-fact-override-set"],
+      "streamPrefixes": ["pricing."],
       "order": 5
     },
     {
@@ -139,12 +129,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.repricing-policy.evaluated"
-      ],
-      "streamPrefixes": [
-        "pricing."
-      ],
+      "eventTypes": ["pricing.repricing-policy.evaluated"],
+      "streamPrefixes": ["pricing."],
       "order": 7
     },
     {
@@ -166,11 +152,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.delivered",
-        "fulfillment.shipment.returned"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
       "streamPrefixes": "<undefined>",
       "order": 50
     },
@@ -275,12 +257,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.market-price.estimated"
-      ],
-      "streamPrefixes": [
-        "pricing."
-      ],
+      "eventTypes": ["pricing.market-price.estimated"],
+      "streamPrefixes": ["pricing."],
       "order": 1
     },
     {
@@ -301,10 +279,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "authenticity.case.opened",
-        "authenticity.case.verdict-recorded"
-      ],
+      "eventTypes": ["authenticity.case.opened", "authenticity.case.verdict-recorded"],
       "streamPrefixes": "<undefined>",
       "order": 100
     },
@@ -327,11 +302,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.delivered",
-        "fulfillment.shipment.returned"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
       "streamPrefixes": "<undefined>",
       "order": 70
     },
@@ -352,9 +323,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "identity.account.badge-assigned"
-      ],
+      "eventTypes": ["identity.account.badge-assigned"],
       "streamPrefixes": "<undefined>",
       "order": 80
     },
@@ -403,10 +372,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.payment-captured",
-        "payments.payment-fraud-warning-received"
-      ],
+      "eventTypes": ["payments.payment-captured", "payments.payment-fraud-warning-received"],
       "streamPrefixes": "<undefined>",
       "order": 90
     },
@@ -428,10 +394,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "settlement.account-linkage.flagged",
-        "settlement.account-linkage.cleared"
-      ],
+      "eventTypes": ["settlement.account-linkage.flagged", "settlement.account-linkage.cleared"],
       "streamPrefixes": "<undefined>",
       "order": 110
     },
@@ -492,9 +455,7 @@
         "pricing.recommendation.proposed",
         "pricing.recommendation.published"
       ],
-      "streamPrefixes": [
-        "pricing."
-      ],
+      "streamPrefixes": ["pricing."],
       "order": 0
     },
     {
@@ -514,12 +475,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.repricing-policy.evaluated"
-      ],
-      "streamPrefixes": [
-        "pricing."
-      ],
+      "eventTypes": ["pricing.repricing-policy.evaluated"],
+      "streamPrefixes": ["pricing."],
       "order": 4
     },
     {
@@ -572,9 +529,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.market-price.estimated"
-      ],
+      "eventTypes": ["pricing.market-price.estimated"],
       "streamPrefixes": "<undefined>",
       "order": 32
     },
@@ -596,13 +551,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.repricing-halt.engaged",
-        "pricing.repricing-halt.released"
-      ],
-      "streamPrefixes": [
-        "pricing."
-      ],
+      "eventTypes": ["pricing.repricing-halt.engaged", "pricing.repricing-halt.released"],
+      "streamPrefixes": ["pricing."],
       "order": 3
     },
     {
@@ -633,9 +583,7 @@
         "pricing.repricing-policy.resumed",
         "pricing.repricing-policy.revised"
       ],
-      "streamPrefixes": [
-        "pricing."
-      ],
+      "streamPrefixes": ["pricing."],
       "order": 2
     }
   ],
@@ -717,11 +665,7 @@
         "fulfillment.shipment.delivered": "<function>",
         "fulfillment.shipment.returned": "<function>"
       },
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.delivered",
-        "fulfillment.shipment.returned"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -825,10 +769,7 @@
         "authenticity.case.opened": "<function>",
         "authenticity.case.verdict-recorded": "<function>"
       },
-      "eventTypes": [
-        "authenticity.case.opened",
-        "authenticity.case.verdict-recorded"
-      ],
+      "eventTypes": ["authenticity.case.opened", "authenticity.case.verdict-recorded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -850,11 +791,7 @@
         "fulfillment.shipment.delivered": "<function>",
         "fulfillment.shipment.returned": "<function>"
       },
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.delivered",
-        "fulfillment.shipment.returned"
-      ],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -874,9 +811,7 @@
       "handlers": {
         "identity.account.badge-assigned": "<function>"
       },
-      "eventTypes": [
-        "identity.account.badge-assigned"
-      ],
+      "eventTypes": ["identity.account.badge-assigned"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -923,10 +858,7 @@
         "payments.payment-captured": "<function>",
         "payments.payment-fraud-warning-received": "<function>"
       },
-      "eventTypes": [
-        "payments.payment-captured",
-        "payments.payment-fraud-warning-received"
-      ],
+      "eventTypes": ["payments.payment-captured", "payments.payment-fraud-warning-received"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -947,10 +879,7 @@
         "settlement.account-linkage.flagged": "<function>",
         "settlement.account-linkage.cleared": "<function>"
       },
-      "eventTypes": [
-        "settlement.account-linkage.flagged",
-        "settlement.account-linkage.cleared"
-      ],
+      "eventTypes": ["settlement.account-linkage.flagged", "settlement.account-linkage.cleared"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -1030,9 +959,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "pricing.market-price.estimated"
-      ],
+      "eventTypes": ["pricing.market-price.estimated"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 32

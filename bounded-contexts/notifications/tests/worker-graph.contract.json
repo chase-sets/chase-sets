@@ -46,10 +46,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "fulfillment.shipment.dispatched",
-        "fulfillment.shipment.delivered"
-      ],
+      "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
       "streamPrefixes": "<undefined>",
       "order": 30
     },
@@ -71,10 +68,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "inventory.hold.consumed",
-        "inventory.restock-decision.pending"
-      ],
+      "eventTypes": ["inventory.hold.consumed", "inventory.restock-decision.pending"],
       "streamPrefixes": "<undefined>",
       "order": 40
     },
@@ -95,9 +89,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "marketplace.seller-listing-availability.enabled"
-      ],
+      "eventTypes": ["marketplace.seller-listing-availability.enabled"],
       "streamPrefixes": "<undefined>",
       "order": 60
     },
@@ -119,10 +111,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "order": 20
     },
@@ -184,9 +173,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "pricing.repricing-activity.digest-requested"
-      ],
+      "eventTypes": ["pricing.repricing-activity.digest-requested"],
       "streamPrefixes": "<undefined>",
       "order": 90
     },
@@ -207,9 +194,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "settlement.payout-readiness.recorded"
-      ],
+      "eventTypes": ["settlement.payout-readiness.recorded"],
       "streamPrefixes": "<undefined>",
       "order": 50
     }
@@ -251,10 +236,7 @@
         "fulfillment.shipment.dispatched": "<function>",
         "fulfillment.shipment.delivered": "<function>"
       },
-      "eventTypes": [
-        "fulfillment.shipment.dispatched",
-        "fulfillment.shipment.delivered"
-      ],
+      "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -275,10 +257,7 @@
         "inventory.hold.consumed": "<function>",
         "inventory.restock-decision.pending": "<function>"
       },
-      "eventTypes": [
-        "inventory.hold.consumed",
-        "inventory.restock-decision.pending"
-      ],
+      "eventTypes": ["inventory.hold.consumed", "inventory.restock-decision.pending"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -298,9 +277,7 @@
       "handlers": {
         "marketplace.seller-listing-availability.enabled": "<function>"
       },
-      "eventTypes": [
-        "marketplace.seller-listing-availability.enabled"
-      ],
+      "eventTypes": ["marketplace.seller-listing-availability.enabled"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -321,10 +298,7 @@
         "ordering.order.created": "<function>",
         "ordering.order.cancelled": "<function>"
       },
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -384,9 +358,7 @@
       "handlers": {
         "pricing.repricing-activity.digest-requested": "<function>"
       },
-      "eventTypes": [
-        "pricing.repricing-activity.digest-requested"
-      ],
+      "eventTypes": ["pricing.repricing-activity.digest-requested"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -407,9 +379,7 @@
       "handlers": {
         "settlement.payout-readiness.recorded": "<function>"
       },
-      "eventTypes": [
-        "settlement.payout-readiness.recorded"
-      ],
+      "eventTypes": ["settlement.payout-readiness.recorded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

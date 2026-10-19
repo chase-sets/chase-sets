@@ -33,9 +33,7 @@
         "authenticity.case.returned",
         "authenticity.case.verdict-recorded"
       ],
-      "streamPrefixes": [
-        "authenticity."
-      ],
+      "streamPrefixes": ["authenticity."],
       "order": 0
     }
   ],

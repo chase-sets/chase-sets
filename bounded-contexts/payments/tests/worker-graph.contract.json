@@ -19,10 +19,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "identity.account.badge-assigned",
-        "identity.account.badge-removed"
-      ],
+      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
       "streamPrefixes": "<undefined>",
       "order": 30
     },
@@ -70,9 +67,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.payment-disputed"
-      ],
+      "eventTypes": ["payments.payment-disputed"],
       "streamPrefixes": "<undefined>",
       "order": 32
     },
@@ -100,9 +95,7 @@
         "payments.payment-fraud-review-opened",
         "payments.payment-fraud-warning-received"
       ],
-      "streamPrefixes": [
-        "payments."
-      ],
+      "streamPrefixes": ["payments."],
       "order": 2
     },
     {
@@ -155,9 +148,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "order": 20
     },
@@ -178,9 +169,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.payment-captured"
-      ],
+      "eventTypes": ["payments.payment-captured"],
       "streamPrefixes": "<undefined>",
       "order": 21
     },
@@ -247,9 +236,7 @@
         "payments.payment-liability-shift-recorded",
         "payments.payment-refunded"
       ],
-      "streamPrefixes": [
-        "payments."
-      ],
+      "streamPrefixes": ["payments."],
       "order": 0
     },
     {
@@ -269,12 +256,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.payment-captured"
-      ],
-      "streamPrefixes": [
-        "payments."
-      ],
+      "eventTypes": ["payments.payment-captured"],
+      "streamPrefixes": ["payments."],
       "order": 1
     },
     {
@@ -296,14 +279,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.refund-failed",
-        "payments.refund-issued",
-        "payments.refund-requested"
-      ],
-      "streamPrefixes": [
-        "payments."
-      ],
+      "eventTypes": ["payments.refund-failed", "payments.refund-issued", "payments.refund-requested"],
+      "streamPrefixes": ["payments."],
       "order": 3
     },
     {
@@ -324,13 +301,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "payments.refund-failed",
-        "payments.refund-issued"
-      ],
-      "streamPrefixes": [
-        "payments."
-      ],
+      "eventTypes": ["payments.refund-failed", "payments.refund-issued"],
+      "streamPrefixes": ["payments."],
       "order": 4
     },
     {
@@ -433,9 +405,7 @@
         "payments.wallet-funding-refunded",
         "payments.wallet-funding-submission-claimed"
       ],
-      "streamPrefixes": [
-        "payments."
-      ],
+      "streamPrefixes": ["payments."],
       "order": 5
     },
     {
@@ -456,13 +426,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
-      "streamPrefixes": [
-        "platform-policy.document-"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
       "order": 6
     }
   ],
@@ -477,10 +442,7 @@
         "identity.account.badge-assigned": "<function>",
         "identity.account.badge-removed": "<function>"
       },
-      "eventTypes": [
-        "identity.account.badge-assigned",
-        "identity.account.badge-removed"
-      ],
+      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -530,9 +492,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "payments.payment-disputed"
-      ],
+      "eventTypes": ["payments.payment-disputed"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 32
@@ -578,9 +538,7 @@
       "handlers": {
         "ordering.order.cancelled": "<function>"
       },
-      "eventTypes": [
-        "ordering.order.cancelled"
-      ],
+      "eventTypes": ["ordering.order.cancelled"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -600,9 +558,7 @@
       "handlers": {
         "payments.payment-captured": "<function>"
       },
-      "eventTypes": [
-        "payments.payment-captured"
-      ],
+      "eventTypes": ["payments.payment-captured"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

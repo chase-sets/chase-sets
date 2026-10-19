@@ -19,13 +19,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
-      "streamPrefixes": [
-        "platform-policy.document-"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
       "order": 5
     },
     {
@@ -191,9 +186,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "inventory.recovered-item.value-reported.v1"
-      ],
+      "eventTypes": ["inventory.recovered-item.value-reported.v1"],
       "streamPrefixes": "<undefined>",
       "order": 61
     },
@@ -214,9 +207,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "support.support-request.platform-coverage-requested.v1"
-      ],
+      "eventTypes": ["support.support-request.platform-coverage-requested.v1"],
       "streamPrefixes": "<undefined>",
       "order": 12
     },
@@ -289,9 +280,7 @@
         "settlement.payout.provider-references-recorded",
         "settlement.payout.requested"
       ],
-      "streamPrefixes": [
-        "settlement."
-      ],
+      "streamPrefixes": ["settlement."],
       "order": 3
     },
     {
@@ -311,12 +300,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "settlement.payout-readiness.recorded"
-      ],
-      "streamPrefixes": [
-        "settlement."
-      ],
+      "eventTypes": ["settlement.payout-readiness.recorded"],
+      "streamPrefixes": ["settlement."],
       "order": 2
     },
     {
@@ -336,12 +321,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "settlement.payout.completed"
-      ],
-      "streamPrefixes": [
-        "settlement."
-      ],
+      "eventTypes": ["settlement.payout.completed"],
+      "streamPrefixes": ["settlement."],
       "order": 4
     },
     {
@@ -374,9 +355,7 @@
         "settlement.protection-coverage.reserved.v1",
         "settlement.protection-coverage.settled.v1"
       ],
-      "streamPrefixes": [
-        "settlement."
-      ],
+      "streamPrefixes": ["settlement."],
       "order": 1
     },
     {
@@ -485,9 +464,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "settlement.protection-coverage.settled.v1"
-      ],
+      "eventTypes": ["settlement.protection-coverage.settled.v1"],
       "streamPrefixes": "<undefined>",
       "order": 13
     },
@@ -537,9 +514,7 @@
         "settlement.wallet.spend-hold-released",
         "settlement.wallet.staging-proof-credit-posted"
       ],
-      "streamPrefixes": [
-        "settlement."
-      ],
+      "streamPrefixes": ["settlement."],
       "order": 0
     }
   ],
@@ -696,9 +671,7 @@
       "handlers": {
         "inventory.recovered-item.value-reported.v1": "<function>"
       },
-      "eventTypes": [
-        "inventory.recovered-item.value-reported.v1"
-      ],
+      "eventTypes": ["inventory.recovered-item.value-reported.v1"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -718,9 +691,7 @@
       "handlers": {
         "support.support-request.platform-coverage-requested.v1": "<function>"
       },
-      "eventTypes": [
-        "support.support-request.platform-coverage-requested.v1"
-      ],
+      "eventTypes": ["support.support-request.platform-coverage-requested.v1"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
@@ -866,9 +837,7 @@
       "handlers": {
         "settlement.protection-coverage.settled.v1": "<function>"
       },
-      "eventTypes": [
-        "settlement.protection-coverage.settled.v1"
-      ],
+      "eventTypes": ["settlement.protection-coverage.settled.v1"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

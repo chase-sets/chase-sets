@@ -416,10 +416,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "ordering.seller-capacity.reached",
-        "ordering.seller-capacity.cleared"
-      ],
+      "eventTypes": ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"],
       "streamPrefixes": "<undefined>",
       "order": 31
     },
@@ -1038,10 +1035,7 @@
         "ordering.seller-capacity.reached": "<function>",
         "ordering.seller-capacity.cleared": "<function>"
       },
-      "eventTypes": [
-        "ordering.seller-capacity.reached",
-        "ordering.seller-capacity.cleared"
-      ],
+      "eventTypes": ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

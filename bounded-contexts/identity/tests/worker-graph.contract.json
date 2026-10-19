@@ -35,9 +35,7 @@
         "identity.account.reactivated",
         "identity.account.suspended"
       ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "streamPrefixes": ["identity."],
       "order": 0
     },
     {
@@ -66,9 +64,7 @@
         "identity.api-key.rotated",
         "identity.api-key.used"
       ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "streamPrefixes": ["identity."],
       "order": 5
     },
     {
@@ -89,13 +85,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "identity.consent.recorded",
-        "identity.consent.withdrawn"
-      ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "eventTypes": ["identity.consent.recorded", "identity.consent.withdrawn"],
+      "streamPrefixes": ["identity."],
       "order": 7
     },
     {
@@ -116,13 +107,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "identity.consent.recorded",
-        "identity.consent.withdrawn"
-      ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "eventTypes": ["identity.consent.recorded", "identity.consent.withdrawn"],
+      "streamPrefixes": ["identity."],
       "order": 6
     },
     {
@@ -143,10 +129,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "marketplace.listing.created",
-        "marketplace.offer.submitted"
-      ],
+      "eventTypes": ["marketplace.listing.created", "marketplace.offer.submitted"],
       "streamPrefixes": "<undefined>",
       "order": 10
     },
@@ -167,12 +150,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "identity.founders-cohort.founder-number-claimed"
-      ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "eventTypes": ["identity.founders-cohort.founder-number-claimed"],
+      "streamPrefixes": ["identity."],
       "order": 4
     },
     {
@@ -205,9 +184,7 @@
         "identity.invitation.expired",
         "identity.invitation.resent"
       ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "streamPrefixes": ["identity."],
       "order": 3
     },
     {
@@ -236,9 +213,7 @@
         "identity.membership.revoked",
         "identity.membership.role-changed"
       ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "streamPrefixes": ["identity."],
       "order": 2
     },
     {
@@ -267,9 +242,7 @@
         "identity.shipping-address.default-set",
         "identity.shipping-address.updated"
       ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "streamPrefixes": ["identity."],
       "order": 9
     },
     {
@@ -289,12 +262,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "identity.user-preferences.updated"
-      ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "eventTypes": ["identity.user-preferences.updated"],
+      "streamPrefixes": ["identity."],
       "order": 8
     },
     {
@@ -337,9 +306,7 @@
         "identity.user.social-login-linked",
         "identity.user.suspended"
       ],
-      "streamPrefixes": [
-        "identity."
-      ],
+      "streamPrefixes": ["identity."],
       "order": 1
     },
     {
@@ -360,13 +327,8 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": [
-        "platform-policy.document.created",
-        "platform-policy.document.revised"
-      ],
-      "streamPrefixes": [
-        "platform-policy.document-"
-      ],
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
       "order": 10
     }
   ],
@@ -385,10 +347,7 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure",
-      "eventTypes": [
-        "marketplace.listing.created",
-        "marketplace.offer.submitted"
-      ],
+      "eventTypes": ["marketplace.listing.created", "marketplace.offer.submitted"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 10
