@@ -1,8 +1,41 @@
-import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { applyMoneyRatio } from "@chase-sets/primitives/money";
 import { DEMAND_CURVE_LAUNCH_POLICY_VALUE } from "../../features/market-estimates/domain/demand-curve-policy";
 import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../../features/forecast-ledger/domain/policy";
 import { gradingRulesVersion } from "../../features/forecast-ledger/domain/grade-ledger";
+import {
+  buildRepricingPolicyProjectionHandlers,
+  repricingPolicyStreamId,
+} from "../../features/repricing-policies/read-model/projection";
+
+/** Establish only synthetic policy discovery inputs from their actual retained events, never a health summary. */
+export async function projectSyntheticPricingHealthPolicy(
+  pool: PgTransactionalPool,
+  input: Readonly<{ accountId: string; policyId: string }>,
+) {
+  const events = await createPostgresEventStore({ pool }).readStream({
+    streamId: repricingPolicyStreamId(input.policyId),
+    limit: 10,
+  });
+  const created = events[0];
+  if (
+    events.length === 0 ||
+    events.length >= 10 ||
+    created?.eventType !== "pricing.repricing-policy.created" ||
+    created.payload.accountId !== input.accountId ||
+    created.payload.policyId !== input.policyId ||
+    typeof created.payload.name !== "string" ||
+    !/^Synthetic (Pricing Health browser|health policy)/.test(created.payload.name) ||
+    events.some(
+      (event) => !["pricing.repricing-policy.created", "pricing.repricing-policy.deleted"].includes(event.eventType),
+    )
+  ) {
+    throw new Error("Synthetic Pricing Health refuses a foreign, non-fixture, truncated or unexpected policy stream.");
+  }
+  const handlers = buildRepricingPolicyProjectionHandlers(pool);
+  for (const event of events) await handlers[event.eventType]!(toTransportEvent(event));
+}
 
 /** Owned browser/DB fixture inputs only. The real dry-run worker must produce the summary. */
 export async function seedSyntheticPricingHealthInputs(

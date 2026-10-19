@@ -16,7 +16,10 @@ import { createPricingHealthRoutes } from "../api/route";
 import { createRepricingDryRunServices, hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { REPRICING_ENGINE_LAUNCH_POLICY_VALUE } from "../../repricing-engine/domain/policy";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
-import { seedSyntheticPricingHealthInputs } from "../../../support/runtime-support/pricing-health-browser-seed";
+import {
+  projectSyntheticPricingHealthPolicy,
+  seedSyntheticPricingHealthInputs,
+} from "../../../support/runtime-support/pricing-health-browser-seed";
 import { gradingRulesVersion } from "../../forecast-ledger/domain/grade-ledger";
 import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../../forecast-ledger/domain/policy";
 import { listForecastGrades } from "../../forecast-ledger/read-model/queries";
@@ -102,12 +105,10 @@ describeDb("Pricing Health real loader and grade queries", () => {
         createdAt: now,
       },
     });
-    await pools.pricing.query(
-      `INSERT INTO pricing_repricing_policies (policy_id, seller_account_id, name, status, scope_kind,
-         excluded_listing_ids, rules, max_changes_per_day, created_at, updated_at)
-       VALUES ($1, $2, 'Synthetic health policy', 'active', 'all-listings', '{}', $3::jsonb, 100, $4, $4)`,
-      [id, accountId, JSON.stringify(body.rules), now],
-    );
+    await expect(
+      projectSyntheticPricingHealthPolicy(pools.pricing, { policyId: id, accountId: "acc_foreign_probe" }),
+    ).rejects.toThrow("refuses");
+    await projectSyntheticPricingHealthPolicy(pools.pricing, { policyId: id, accountId });
     return body;
   }
 

@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { seedSyntheticPricingHealthInputs } from "@chase-sets/pricing/server";
+import { projectSyntheticPricingHealthPolicy, seedSyntheticPricingHealthInputs } from "@chase-sets/pricing/server";
 import { formatMoney } from "@chase-sets/localization";
 import { captureAccessibilityEvidence, captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { signInThroughMarketplaceForm } from "./support/auth";
@@ -41,7 +41,7 @@ const body = {
   ],
 };
 
-async function createPolicy(request: APIRequestContext, name: string) {
+async function createPolicy(request: APIRequestContext, pool: PgTransactionalPool, createdIds: string[], name: string) {
   const start = await request.post(`${policiesApi}/dry-runs`, { data: body });
   expect(start.status()).toBe(202);
   const { dryRunId } = await start.json();
@@ -53,7 +53,10 @@ async function createPolicy(request: APIRequestContext, name: string) {
     .toBe("completed");
   const created = await request.post(policiesApi, { data: { dryRunId, name } });
   expect(created.status()).toBe(201);
-  const { policyId } = await created.json();
+  const { policyId, accountId } = await created.json();
+  expect(typeof policyId).toBe("string");
+  createdIds.push(policyId);
+  await projectSyntheticPricingHealthPolicy(pool, { accountId, policyId });
   await expect
     .poll(async () =>
       (await (await request.get(policiesApi)).json()).some((p: { policyId: string }) => p.policyId === policyId),
@@ -109,8 +112,10 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
     await expect(page).toHaveURL(/\/account\/desk\/repricing(?:\?|$)/);
     // Shared seller suite is serial. Remove only this spec's interrupted policies.
     const existing = await (await page.request.get(policiesApi)).json();
-    for (const policy of existing.filter((p: { name: string }) => p.name?.startsWith(prefix)))
+    for (const policy of existing.filter((p: { name: string }) => p.name?.startsWith(prefix))) {
       expect((await page.request.post(`${policiesApi}/${policy.policyId}/delete`)).status()).toBe(200);
+      await projectSyntheticPricingHealthPolicy(pool, { accountId: policy.accountId, policyId: policy.policyId });
+    }
     await expect
       .poll(
         async () =>
@@ -122,14 +127,12 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
     await usableAtEveryViewport(page, "No active repricing policy");
     await expect(page.getByRole("link", { name: "Create repricing policy", exact: true })).toBeVisible();
 
-    const policyId = await createPolicy(page.request, `${prefix} incumbent`);
-    created.push(policyId);
+    const policyId = await createPolicy(page.request, pool, created, `${prefix} incumbent`);
     await page.reload();
     await usableAtEveryViewport(page, "No verdict for this policy revision yet");
     await expect(page.getByRole("button", { name: "Compute verdict", exact: true })).toBeVisible();
     expect((await (await page.request.get(api)).json()).health).toBeNull();
-    const second = await createPolicy(page.request, `${prefix} second`);
-    created.push(second);
+    await createPolicy(page.request, pool, created, `${prefix} second`);
     await page.reload();
     await usableAtEveryViewport(page, "Select an active policy to see its verdict");
     await page.getByRole("combobox", { name: "Active policy", exact: true }).selectOption(policyId);
@@ -288,16 +291,27 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
       await pool.query("DELETE FROM platform_policy_documents WHERE document_id=$1", [outageDocument]);
     }
   } finally {
-    for (const policyId of created)
-      expect((await page.request.post(`${policiesApi}/${policyId}/delete`)).status()).toBe(200);
-    await expect
-      .poll(
-        async () =>
-          (await (await page.request.get(policiesApi)).json()).filter((p: { status: string }) => p.status === "active")
-            .length,
-      )
-      .toBe(0);
-    await fixture?.cleanup();
-    await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
+    try {
+      for (const policyId of created) {
+        const deleted = await page.request.post(`${policiesApi}/${policyId}/delete`);
+        expect(deleted.status()).toBe(200);
+        const policy = await deleted.json();
+        await projectSyntheticPricingHealthPolicy(pool, { accountId: policy.accountId, policyId });
+      }
+      await expect
+        .poll(
+          async () =>
+            (await (await page.request.get(policiesApi)).json()).filter(
+              (p: { status: string }) => p.status === "active",
+            ).length,
+        )
+        .toBe(0);
+    } finally {
+      try {
+        await fixture?.cleanup();
+      } finally {
+        await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
+      }
+    }
   }
 });
