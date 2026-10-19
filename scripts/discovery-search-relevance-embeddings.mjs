@@ -147,7 +147,7 @@ export async function buildRelevanceEmbeddingFixture({
       categoryNames: item.categories,
       keyFieldValues: item.naturalKey
         ? [
-            `${item.naturalKey.cardNumber} ${item.naturalKey.setCode} ${item.naturalKey.setCode} set ${item.naturalKey.setCode}`,
+            `${item.naturalKey.cardNumber} ${item.naturalKey.setCode} ${item.naturalKey.setCode} set code ${item.naturalKey.setCode}`,
           ]
         : [],
       resolvedAliases: {
