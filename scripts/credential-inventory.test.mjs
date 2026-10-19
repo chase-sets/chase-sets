@@ -322,9 +322,17 @@ describe("agent tier in the credential inventory (AC1)", () => {
     ["a name with an underscore", [{ ...lanes, name: "lanes_1" }], [nameError("lanes_1")]],
     ["a 64-character name", [{ ...lanes, name: "a".repeat(64) }], [nameError("a".repeat(64))]],
     ["a non-string name", [{ ...lanes, name: 7 }], [nameError("accounts[0]")]],
-    ["a duplicate account", [lanes, { ...lanes, tokenExpiresOn: null }], ["agentTier account lanes: duplicate account"]],
+    [
+      "a duplicate account",
+      [lanes, { ...lanes, tokenExpiresOn: null }],
+      ["agentTier account lanes: duplicate account"],
+    ],
     ["an unknown account field", [{ ...lanes, token: "x" }], ["agentTier account lanes: unknown key token"]],
-    ["an empty machineAccount", [{ ...lanes, machineAccount: "" }], ["agentTier account lanes: machineAccount must be a printable name"]],
+    [
+      "an empty machineAccount",
+      [{ ...lanes, machineAccount: "" }],
+      ["agentTier account lanes: machineAccount must be a printable name"],
+    ],
     ["write access", [{ ...lanes, access: "write" }], ["agentTier account lanes: access must be read"]],
     ["a non-object account", ["lanes"], ["agentTier account accounts[0]: account must be an object"]],
   ])("rejects an agentTier account with %s", (_label, accounts, messages) => {

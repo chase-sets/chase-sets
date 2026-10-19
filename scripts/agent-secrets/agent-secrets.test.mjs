@@ -869,7 +869,12 @@ describe("with-secrets.ps1 -Check token expiry (#10034)", { timeout: helperLaunc
   const DAY = 86_400_000;
   const utcToday = () => Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
   const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
-  const account = (name, tokenExpiresOn) => ({ name, machineAccount: `chase-sets-${name}`, access: "read", tokenExpiresOn });
+  const account = (name, tokenExpiresOn) => ({
+    name,
+    machineAccount: `chase-sets-${name}`,
+    access: "read",
+    tokenExpiresOn,
+  });
   // The synthetic-tier inventory with the given agentTier.accounts.
   const withAccounts = (accounts) => {
     const value = JSON.parse(syntheticTierInventory);
@@ -965,11 +970,12 @@ describe("with-secrets.ps1 -Check token expiry (#10034)", { timeout: helperLaunc
     const result = runPwsh(["-Command", script], { cwd: seat.root, env: helperEnvironment() });
 
     expect(result.status).toBe(0);
-    expect(unixLines(result.stdout).trim().split("\n").map((line) => JSON.parse(line))).toEqual([
-      { Date: "2026-11-09", Days: 21 },
-      { Date: "2026-11-10", Days: 22 },
-      null,
-    ]);
+    expect(
+      unixLines(result.stdout)
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toEqual([{ Date: "2026-11-09", Days: 21 }, { Date: "2026-11-10", Days: 22 }, null]);
     expect(bwsCalls(seat)).toEqual([]);
     expect(credentialCalls(seat)).toEqual([]);
   });

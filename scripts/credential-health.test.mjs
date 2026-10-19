@@ -412,7 +412,9 @@ describe("agent token accounts (#10034)", () => {
     );
     for (const scope of withLiveness.scopes) {
       const row = await runLivenessRow({ inventory: withLiveness, scope, env, now: NOW });
-      expect(row.results.map((result) => result.name)).toEqual(scope === "staging" ? ["DIGITALOCEAN_ACCESS_TOKEN"] : []);
+      expect(row.results.map((result) => result.name)).toEqual(
+        scope === "staging" ? ["DIGITALOCEAN_ACCESS_TOKEN"] : [],
+      );
     }
     // The empty token is "absent" before any request, and no account name is read.
     expect(read).toEqual(["DIGITALOCEAN_ACCESS_TOKEN"]);
