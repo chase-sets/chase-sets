@@ -470,6 +470,20 @@ export type CatalogProviderReferenceHierarchyRecordRule = Readonly<{
   attributes?: readonly CatalogProviderReferenceHierarchyAttributeRule[];
   relationships?: readonly CatalogProviderReferenceHierarchyRelationshipRule[];
   requiredPaths?: readonly string[];
+  languageEdition?: CatalogProviderReferenceHierarchyLanguageEditionRule;
+}>;
+
+/**
+ * Makes a provider record one language edition of the provider product. The
+ * payload language is recorded in `attributeKey`, and reuse accepts only a
+ * record holding it. Any other language than `unqualifiedLanguageCode`
+ * qualifies the provider record id and key, so each language gets its own
+ * record; a payload without a language provisions no record.
+ */
+export type CatalogProviderReferenceHierarchyLanguageEditionRule = Readonly<{
+  languageCodePath: string;
+  attributeKey: string;
+  unqualifiedLanguageCode: string;
 }>;
 
 export type CatalogProviderReferenceHierarchyRecordIdRule =

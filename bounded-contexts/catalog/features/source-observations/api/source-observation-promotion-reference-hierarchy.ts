@@ -16,7 +16,6 @@ import {
   type ReferenceRecordEvent,
   type ReferenceRecordState,
   type ReferenceTypeEvent,
-  type ReferenceRelationship,
 } from "../../reference-data/domain/domain";
 import {
   type SourceObservationLorcanaCardPrintNormalized,
@@ -33,7 +32,11 @@ import {
   type SourceObservationYugiohSealedProductNormalized,
 } from "../domain/domain";
 import { type CatalogProviderIntegrationProfile } from "./provider-integration-profiles";
-import { provisionCatalogProviderReferenceHierarchy } from "./promotion/provider-reference-hierarchy-provisioner";
+import {
+  holdsLanguageEdition,
+  provisionCatalogProviderReferenceHierarchy,
+  type CatalogProviderReferenceRecordProvision,
+} from "./promotion/provider-reference-hierarchy-provisioner";
 
 export type CatalogItemPromotableSourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
@@ -420,15 +423,7 @@ async function ensureReferenceRecord(
     referenceData: ReferenceDataServices;
     context: EventStoreContext;
   },
-  def: {
-    referenceRecordId: ReferenceRecordId;
-    typeKey: string;
-    key: string;
-    name: string;
-    description: string;
-    attributes?: Readonly<Record<string, JsonValue>>;
-    relationships?: readonly ReferenceRelationship[];
-  },
+  def: CatalogProviderReferenceRecordProvision,
 ): Promise<ReferenceRecordId> {
   const { referenceRecordId, streamId, state, version } = await readProvisionableReferenceRecord(
     input.deps,
@@ -488,15 +483,14 @@ type ReferenceRecordReuseCandidate = Readonly<{
  * provider attribute) still holding. A lagging projection can therefore never
  * redirect provisioning to a record that was renamed or re-keyed away, and a
  * stream the evolver would fold but the decider could never have produced is
- * refused instead of folded. The returned version is the fence for any write.
+ * refused instead of folded. A record that does not hold the requested
+ * language edition is refused too: its key or id cannot be given to a second
+ * record, and reusing it would mix language editions. The returned version is
+ * the fence for any write.
  */
 async function readProvisionableReferenceRecord(
   deps: CatalogRuntimeDeps,
-  def: {
-    referenceRecordId: ReferenceRecordId;
-    typeKey: string;
-    key: string;
-  },
+  def: Pick<CatalogProviderReferenceRecordProvision, "referenceRecordId" | "typeKey" | "key" | "languageEdition">,
   candidate: ReferenceRecordReuseCandidate | null,
 ): Promise<{
   referenceRecordId: ReferenceRecordId;
@@ -528,6 +522,9 @@ async function readProvisionableReferenceRecord(
   if (history.length > 0 ? !represented : candidate !== null) {
     throw new Error(`promotion-reference-history-invalid:${streamId}`);
   }
+  if (history.length > 0 && !holdsLanguageEdition(state.attributes, def.languageEdition)) {
+    throw new Error(`promotion-reference-language-edition-conflict:${streamId}`);
+  }
   return { referenceRecordId, streamId, state, version: history[history.length - 1]?.streamVersion ?? 0 };
 }
 
@@ -542,11 +539,7 @@ function scalarAttributeText(value: JsonValue | undefined): string | null {
 
 async function findExistingReferenceRecord(
   deps: CatalogRuntimeDeps,
-  def: {
-    typeKey: string;
-    key: string;
-    attributes?: Readonly<Record<string, JsonValue>>;
-  },
+  def: Pick<CatalogProviderReferenceRecordProvision, "typeKey" | "key" | "attributes" | "languageEdition">,
 ): Promise<ReferenceRecordReuseCandidate | null> {
   const existing = await deps.db.query<{ reference_record_id: string }>(
     `SELECT reference_record_id
@@ -566,10 +559,7 @@ async function findExistingReferenceRecord(
 
 async function findReferenceRecordByProviderAttribute(
   deps: CatalogRuntimeDeps,
-  def: {
-    typeKey: string;
-    attributes?: Readonly<Record<string, JsonValue>>;
-  },
+  def: Pick<CatalogProviderReferenceRecordProvision, "typeKey" | "attributes" | "languageEdition">,
 ): Promise<ReferenceRecordReuseCandidate | null> {
   const providerAttribute = Object.entries(def.attributes ?? {}).find(
     ([key, value]) => isProviderReferenceAttributeKey(key) && typeof value === "string" && value.trim().length > 0,
@@ -582,16 +572,23 @@ async function findReferenceRecordByProviderAttribute(
     return null;
   }
 
-  const existing = await deps.db.query<{ reference_record_id: string }>(
-    `SELECT reference_record_id
+  const existing = await deps.db.query<{
+    reference_record_id: string;
+    attributes: Readonly<Record<string, JsonValue>> | null;
+  }>(
+    `SELECT reference_record_id, attributes
      FROM catalog_reference_records
      WHERE type_key = $1
        AND attributes ->> $2 = $3
-     LIMIT 1`,
+     ORDER BY reference_record_id`,
     [def.typeKey, attributeKey, attributeValue],
   );
 
-  const referenceRecordId = existing.rows[0]?.reference_record_id;
+  // Every language edition of a provider product shares its provider id, so
+  // only the record holding the requested language edition is a candidate.
+  const referenceRecordId = existing.rows.find((row) =>
+    holdsLanguageEdition(row.attributes ?? {}, def.languageEdition),
+  )?.reference_record_id;
   return referenceRecordId
     ? {
         referenceRecordId: referenceRecordId as ReferenceRecordId,

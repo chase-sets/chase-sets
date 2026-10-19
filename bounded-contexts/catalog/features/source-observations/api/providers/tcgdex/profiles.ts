@@ -219,6 +219,7 @@ export const tcgdexPokemonTcgProviderProfile = {
         attributeKeys: [
           "abbreviation",
           "card-count",
+          "language-editions",
           "parallel-set-card-count",
           "printed-card-count",
           "release-date",
@@ -282,6 +283,12 @@ export const tcgdexPokemonTcgProviderProfile = {
           values: { expansionName: { kind: "path", path: "expansionName" } },
         },
         requiredPaths: ["expansionId", "expansionName"],
+        // A TCGdex expansion id names one product per language (#10038).
+        languageEdition: {
+          languageCodePath: "languageCode",
+          attributeKey: "language-editions",
+          unqualifiedLanguageCode: "en",
+        },
         attributes: [
           { attributeKey: "tcgdex-set-id", value: { kind: "path", path: "expansionId" } },
           { attributeKey: "release-date", value: { kind: "path", path: "releaseDate" }, optional: true },

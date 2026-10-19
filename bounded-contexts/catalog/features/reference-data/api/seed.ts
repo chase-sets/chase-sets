@@ -4,8 +4,12 @@ import { retryLocalProjectionBlockedStream } from "@chase-sets/bounded-context-r
 import type { CatalogValue } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
-import { sendSeedCommand } from "../../../support/seed-support/context";
-import { loadSeedAggregateState, loadSeedStreamEvents } from "../../../support/seed-support/aggregate-state";
+import { seedContext, sendSeedCommand } from "../../../support/seed-support/context";
+import {
+  loadSeedAggregateState,
+  loadSeedStreamEvents,
+  type SeedAggregateState,
+} from "../../../support/seed-support/aggregate-state";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import {
   evolveReferenceRecord,
@@ -13,6 +17,7 @@ import {
   initialReferenceRecordState,
   initialReferenceTypeState,
   type ReferenceRecordEvent,
+  type ReferenceRecordState,
   type ReferenceRelationship,
   type ReferenceTypeEvent,
 } from "../domain/domain";
@@ -95,6 +100,7 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
     attributeKeys: [
       "abbreviation",
       "card-count",
+      "language-editions",
       "parallel-set-card-count",
       "printed-card-count",
       "release-date",
@@ -599,6 +605,7 @@ async function reconcileReferenceRecord(services: CatalogServices, def: Referenc
     await createReferenceRecord(services, def);
     return;
   }
+  await addMissingSeedAttributes(services, def, streamId, aggregate);
   if (aggregate.kind === "draft") {
     await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
       type: "PublishReferenceRecord",
@@ -606,6 +613,45 @@ async function reconcileReferenceRecord(services: CatalogServices, def: Referenc
   }
 }
 
+/**
+ * Adds seed attribute keys an existing record lacks, keeping every value it
+ * already holds, including one an operator edited. The revision is fenced to
+ * the history read here, so a concurrent edit refuses instead of being lost.
+ */
+async function addMissingSeedAttributes(
+  services: CatalogServices,
+  def: ReferenceRecordDef,
+  streamId: string,
+  aggregate: SeedAggregateState<ReferenceRecordState, ReferenceRecordEvent>,
+): Promise<void> {
+  const { state } = aggregate;
+  const missing = Object.entries(def.attributes ?? {}).filter(
+    ([attributeKey]) => !Object.hasOwn(state.attributes, attributeKey),
+  );
+  if (missing.length === 0) {
+    return;
+  }
+
+  await services.referenceData.referenceRecordCommandHandler({
+    streamId,
+    command: {
+      type: "ReviseReferenceRecord",
+      typeKey: def.typeKey,
+      key: def.key,
+      name: state.name ?? localizedTextMapFromEnglish(def.name),
+      description: state.description,
+      attributes: { ...state.attributes, ...Object.fromEntries(missing) },
+      relationships: state.relationships,
+    },
+    context: seedContext,
+    expectedVersion: aggregate.events.length,
+  });
+  console.log(
+    `  Reference Record "${def.name}" reconciled with additive attributes ${missing.map(([attributeKey]) => attributeKey).join(", ")}`,
+  );
+}
+
+/** A seeded Pokemon expansion is the English edition of its product. */
 function expansion(
   key: string,
   name: string,
@@ -619,7 +665,7 @@ function expansion(
     key,
     name,
     description: `${name} Pokemon TCG expansion.`,
-    attributes,
+    attributes: { ...attributes, "language-editions": ["en"] },
     relationships: [{ relationshipType: "part-of", referenceId: seriesId }],
   };
 }
