@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { BRIEF_MAX_BYTES, lintBrief, main } from "./brief-lint.mjs";
+import { BRIEF_MAX_BYTES, lintBrief, main, parseSupersedesSection } from "./brief-lint.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const issueReadinessFixture = JSON.parse(
@@ -266,6 +266,59 @@ describe("salvage wording", () => {
   });
 });
 
+describe("supersedes declaration", () => {
+  it("treats an absent section as an empty declaration", () => {
+    expect(parseSupersedesSection("# Brief\n\nNo predecessor.\n")).toEqual({ entries: [], findings: [] });
+    expect(codes(conformingBrief())).not.toContain("BRIEF_SUPERSEDES_FORMAT");
+  });
+
+  it("parses full and partial predecessor entries", () => {
+    const body = "### Supersedes\n\n- #7815 full\n- #8355 partial: catalog acceptance and import evidence\n";
+    expect(parseSupersedesSection(body)).toEqual({
+      entries: [
+        { number: 7815, coverage: "full", dropped: null },
+        { number: 8355, coverage: "partial", dropped: "catalog acceptance and import evidence" },
+      ],
+      findings: [],
+    });
+    expect(codes(body)).toEqual([]);
+  });
+
+  it("keeps valid entries while reporting malformed, unknown, duplicate, and empty partial items", () => {
+    const body = [
+      "### Supersedes",
+      "",
+      "- #7815 full",
+      "- #8355 partial:",
+      "- #8642 adjacent",
+      "- #7815 partial: duplicate predecessor",
+    ].join("\n");
+    const parsed = parseSupersedesSection(body);
+    expect(parsed.entries).toEqual([{ number: 7815, coverage: "full", dropped: null }]);
+    expect(parsed.findings).toHaveLength(3);
+    expect(parsed.findings.every((finding) => finding.code === "BRIEF_SUPERSEDES_FORMAT")).toBe(true);
+    expect(parsed.findings.map((finding) => finding.line)).toEqual([4, 5, 6]);
+    expect(codes(body)).toEqual(["BRIEF_SUPERSEDES_FORMAT", "BRIEF_SUPERSEDES_FORMAT", "BRIEF_SUPERSEDES_FORMAT"]);
+  });
+
+  it.each([
+    ["- #123", "incomplete item"],
+    ["- #123 almost", "unknown coverage"],
+    ["- #123 partial:", "empty partial reason"],
+    ["* #123 full", "wrong list marker"],
+  ])("rejects %s (%s)", (item) => {
+    const parsed = parseSupersedesSection(`### Supersedes\n\n${item}\n`);
+    expect(parsed.entries).toEqual([]);
+    expect(parsed.findings).toMatchObject([{ code: "BRIEF_SUPERSEDES_FORMAT", line: 3 }]);
+  });
+
+  it("reports malformed duplicate items as format errors", () => {
+    const parsed = parseSupersedesSection("### Supersedes\n\n- #123 full\n- #123 partial:\n");
+    expect(parsed.findings).toHaveLength(1);
+    expect(parsed.findings[0].message).toContain("Supersedes items must be");
+  });
+});
+
 describe("planning integration", () => {
   it("carries the ruled limits verbatim in both skill mirrors and the slice template", () => {
     const paths = [
@@ -300,6 +353,16 @@ describe("planning integration", () => {
       ])
         expect(source.split(clause)).toHaveLength(2);
     }
+  });
+
+  it("documents the optional Supersedes declaration in both issue standards", () => {
+    const declaration =
+      "**Supersedes (optional).** When this issue replaces an open predecessor,\n  declare one predecessor per item using exactly `- #<n> full` or\n  `- #<n> partial: <dropped criteria>`.";
+    const sources = [".agents", ".claude"].map((root) =>
+      readFileSync(path.join(repoRoot, root, "skills/planning/references/issue-standard.md"), "utf8"),
+    );
+    expect(sources[0]).toBe(sources[1]);
+    for (const source of sources) expect(source).toContain(declaration);
   });
 
   it("returns a discriminating CLI status", async () => {

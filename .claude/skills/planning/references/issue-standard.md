@@ -11,6 +11,11 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   codebase is the main token sink and the main source of wrong-guess rework.
 - **Scope fence.** What is in; what is explicitly out. Non-goals prevent scope
   creep and anti-ratchet violations.
+- **Supersedes (optional).** When this issue replaces an open predecessor,
+  declare one predecessor per item using exactly `- #<n> full` or
+  `- #<n> partial: <dropped criteria>`. `full` means the successor set carries
+  every accepted criterion; `partial` names the criteria removed from the old
+  issue. An absent section means that no predecessor is superseded.
 - **Decisions already made.** Settled rulings with links (ADR, epic comment,
   decision issue). A worker never re-litigates a settled decision; a worker who
   hits an UNsettled one stops and escalates (see the delivery skill).
@@ -83,6 +88,16 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   records `not applicable — fast path`.
 - **Tier + routing hint.** Fast or full path (blast radius), and
   presentation-vs-system for lane assignment.
+
+The optional declaration is a `### Supersedes` section containing one item per
+predecessor:
+
+```markdown
+### Supersedes
+
+- #1234 full
+- #5678 partial: dropped acceptance criteria
+```
 
 ## Quality-surface declarations
 
