@@ -612,18 +612,22 @@ function attemptRuntime(createSetupSession: PaymentProcessorGateway["createSetup
     ...createFakePaymentProcessorGateway(),
     createSetupSession: vi.fn(createSetupSession),
   };
+  const { eventStore } = createInMemoryEventStore();
   const runtime = createPaymentRuntime({
-    // The setup command never reads declines or runs a webhook transaction.
+    // The setup command never reads declines or runs a webhook or default-change transaction.
     cardDeclineStore: { check: async () => null, record: async () => undefined },
     runWebhookTransaction: async () => {
       throw new Error("Webhooks are not part of this test.");
     },
-    eventStore: createInMemoryEventStore().eventStore,
+    runPaymentTransaction: async () => {
+      throw new Error("Default changes are not part of this test.");
+    },
+    eventStore,
     checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => undefined },
     db: db as never,
     processorGateway,
   });
-  return { runtime, processorGateway };
+  return { runtime, processorGateway, eventStore, db };
 }
 
 const hostedSetup = (reference: string) => ({
@@ -702,6 +706,97 @@ describe("issue-10014 AC4 owner-authoritative start-payment-method-setup", () =>
     expect(processorGateway.createSetupSession).toHaveBeenCalledTimes(1);
     expect(JSON.stringify({ crashed, replay, records: harness.records })).not.toContain("SYNTHETIC_PRIVATE");
   });
+
+  type Runtime = ReturnType<typeof attemptRuntime>;
+  const unconfirmedResult = {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: "The saved payment method request could not be confirmed. Check again with the same request.",
+      },
+    ],
+  };
+  /** Fails the `n`th append to the attempt stream once, before it writes or after it committed. */
+  const failAttemptAppend =
+    (n: number, timing: "before" | "after") =>
+    ({ eventStore }: Runtime) => {
+      const append = eventStore.appendToStream;
+      let appends = 0;
+      Object.assign(eventStore, {
+        appendToStream: async (input: Parameters<typeof append>[0]) => {
+          if (!input.streamId.startsWith("payments.saved-checkout-instrument-attempt-") || ++appends !== n) {
+            return append(input);
+          }
+          if (timing === "after") await append(input);
+          throw new Error("SYNTHETIC_PRIVATE_STORAGE_DETAIL");
+        },
+      });
+    };
+  /** Fails the next statement containing `fragment` once. */
+  const failStatement =
+    (fragment: string) =>
+    ({ db }: Runtime) => {
+      const query = db.query;
+      let failed = false;
+      db.query = async (sql, params) => {
+        if (failed || !sql.includes(fragment)) return query(sql, params);
+        failed = true;
+        throw new Error("SYNTHETIC_PRIVATE_STORAGE_DETAIL");
+      };
+    };
+
+  it.each<readonly [string, (runtime: Runtime) => void, number, readonly ("hosted" | "unconfirmed")[], number]>([
+    ["the started append before it commits", failAttemptAppend(1, "before"), 1, ["unconfirmed", "hosted", "hosted"], 1],
+    [
+      "the started append after it committed",
+      failAttemptAppend(1, "after"),
+      1,
+      ["unconfirmed", "unconfirmed", "unconfirmed"],
+      0,
+    ],
+    [
+      "the setup row write after the send",
+      failStatement("INSERT INTO payments_saved_checkout_setup_sessions"),
+      1,
+      ["unconfirmed", "unconfirmed", "unconfirmed"],
+      1,
+    ],
+    [
+      "the replay lookup",
+      failStatement("FROM payments_saved_checkout_setup_sessions"),
+      2,
+      ["hosted", "unconfirmed", "hosted"],
+      1,
+    ],
+    ["the completion append", failAttemptAppend(2, "before"), 1, ["unconfirmed", "hosted", "hosted"], 1],
+  ])(
+    "closes a failure of %s as unconfirmed with no private text and no second setup",
+    async (_label, inject, failBeforeCall, outcomes, setups) => {
+      const runtime = attemptRuntime(async () => hostedSetup("cs_SYNTHETIC_ONCE"));
+      const harness = setupRouteHarness(runtime.runtime);
+
+      const bodies = [];
+      for (const call of [1, 2, 3]) {
+        if (call === failBeforeCall) inject(runtime);
+        bodies.push(await harness.call({}));
+      }
+
+      expect(
+        bodies.map((body) =>
+          JSON.stringify(body.result) === JSON.stringify(unconfirmedResult)
+            ? "unconfirmed"
+            : (body.result.structuredContent as { url?: string } | undefined)?.url ===
+                "https://checkout.stripe.test/cs_SYNTHETIC_ONCE"
+              ? "hosted"
+              : body.result,
+        ),
+      ).toEqual(outcomes);
+      expect(runtime.processorGateway.createSetupSession).toHaveBeenCalledTimes(setups);
+      expect(JSON.stringify({ bodies, records: harness.records })).not.toContain("SYNTHETIC_PRIVATE");
+      expect(JSON.stringify({ bodies, records: harness.records })).not.toContain("SYNTHETIC_CLIENT_SECRET");
+    },
+  );
 
   it("refuses another Agent Grant's identical key on the account as attempt_conflict with no URL", async () => {
     const { runtime, processorGateway } = attemptRuntime(async () => hostedSetup("cs_SYNTHETIC_GRANT"));

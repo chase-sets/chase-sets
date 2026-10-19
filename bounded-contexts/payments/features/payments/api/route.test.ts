@@ -916,11 +916,19 @@ describe("payments routes", () => {
     expect(JSON.stringify(bodies)).not.toContain("SYNTHETIC_PRIVATE_DETAIL");
 
     // Only a pre-send refusal may answer 400 (the caller then mints a fresh id); an unknown
-    // failure after `started` must never look refused.
-    vi.mocked(services.createSavedCheckoutSetupSession).mockRejectedValueOnce(new Error("SYNTHETIC_DB_FAILURE"));
-    const unknown = await post("setup-sessions", { accountId: "acc_buyer", attemptId });
-    expect(unknown.status).toBe(500);
-    expect(await unknown.text()).not.toContain("SYNTHETIC_DB_FAILURE");
+    // failure after `started` must never look refused, echo its text, or reach the framework.
+    const unknownFailure = () => Object.assign(new Error("SYNTHETIC_DB_FAILURE"), { code: "23505" });
+    vi.mocked(services.createSavedCheckoutSetupSession).mockRejectedValueOnce(unknownFailure());
+    vi.mocked(services.setSavedCheckoutInstrumentDefault).mockRejectedValueOnce(unknownFailure());
+    vi.mocked(services.removeSavedCheckoutInstrument).mockRejectedValueOnce(unknownFailure());
+    for (const path of ["setup-sessions", "sci_card_1/default", "sci_card_1/remove"]) {
+      const unknown = await post(path, { accountId: "acc_buyer", attemptId });
+      expect(unknown.status).toBe(503);
+      const body = await unknown.text();
+      expect(JSON.parse(body).error.code).toBe("attempt_unconfirmed");
+      expect(body).not.toContain("SYNTHETIC_DB_FAILURE");
+      expect(body).not.toContain("23505");
+    }
   });
 
   it("returns payment method reconciliation with the authoritative list snapshot", async () => {

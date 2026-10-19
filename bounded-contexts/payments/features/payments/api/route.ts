@@ -139,7 +139,8 @@ async function readSavedCheckoutInstrumentCommand(
 
 /**
  * Maps a saved payment method command failure. Only a pre-send refusal answers 400, which lets the
- * caller retry with a fresh attempt id; any other failure is rethrown, never reported as refused.
+ * caller retry with a fresh attempt id; any other failure is the closed unconfirmed outcome, never
+ * reported as refused and never echoed or rethrown to the framework error handler.
  */
 function savedCheckoutInstrumentCommandFailure(
   c: { json: (body: unknown, status?: number) => Response },
@@ -154,18 +155,21 @@ function savedCheckoutInstrumentCommandFailure(
       409,
     );
   }
-  if (code === "attempt_unconfirmed") {
-    return c.json(
-      {
-        error: { code, message: t("payments.features.payments.api.route.saved.payment.method.attempt.unconfirmed") },
-      },
-      503,
-    );
-  }
-  if (error instanceof PaymentsDomainError || error instanceof ProviderWriteRefused) {
+  if (
+    code !== "attempt_unconfirmed" &&
+    (error instanceof PaymentsDomainError || error instanceof ProviderWriteRefused)
+  ) {
     return c.json({ error: { code: "validation_failed", message: error.message } }, 400);
   }
-  throw error;
+  return c.json(
+    {
+      error: {
+        code: "attempt_unconfirmed",
+        message: t("payments.features.payments.api.route.saved.payment.method.attempt.unconfirmed"),
+      },
+    },
+    503,
+  );
 }
 
 function requireEventStoreContext(c: { get(key: "context"): EventStoreContext | null | undefined }) {

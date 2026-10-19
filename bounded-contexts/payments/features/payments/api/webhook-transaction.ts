@@ -20,11 +20,42 @@ export type PaymentWebhookResult = Readonly<{
   failure_class?: "inbox-conflict" | "handler-failure";
 }>;
 
-export type PaymentWebhookTransaction = Readonly<{
+export type PaymentTransaction = Readonly<{
   db: PgQueryable;
   eventStore: EventStore;
   lock: (key: string) => Promise<void>;
 }>;
+
+export type PaymentWebhookTransaction = PaymentTransaction;
+
+/**
+ * Runs `work` in one database transaction: its rows and event appends commit or roll back
+ * together, and `lock` takes a transaction-scoped advisory lock, so it serializes across replicas
+ * and releases at commit or rollback.
+ */
+export type PaymentTransactionRunner = <T>(work: (transaction: PaymentTransaction) => Promise<T>) => Promise<T>;
+
+export function createPaymentTransactionRunner(
+  pool: PgTransactionalPool,
+  store: PostgresEventStore,
+): PaymentTransactionRunner {
+  return (work) =>
+    withPgTransaction(pool, (client) =>
+      work({
+        db: client,
+        eventStore: {
+          readStream: (input) => store.readStreamInTransaction(client, input),
+          appendToStream: (input) => store.appendToStreamInTransaction(client, input),
+          readAll: async () => {
+            throw new Error("A payment transaction cannot read all streams.");
+          },
+        },
+        lock: async (key) => {
+          await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`payments-command:${key}`]);
+        },
+      }),
+    );
+}
 
 export type PaymentWebhookRunner = (
   entry: ProviderWebhookInboxEntry,

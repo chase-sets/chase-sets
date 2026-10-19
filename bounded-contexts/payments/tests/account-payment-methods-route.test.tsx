@@ -35,6 +35,8 @@ vi.mock("@stripe/stripe-js", () => ({
 }));
 
 import AccountPaymentMethodsRoute, { action, loader } from "../routes/marketplace/account-payment-methods";
+import { PaymentsApiError } from "../client";
+import { classifySavedPaymentMethodAttemptFailure } from "../support/request-support/saved-payment-method-attempt";
 
 const cardMethod = {
   instrument_id: "sci_card",
@@ -590,5 +592,33 @@ describe("issue-10014 AC6 methods-page attempt states on the real data router", 
     expect(within(card).queryByRole("button", { name: "Remove" })).toBeNull();
     expect(within(card).getByRole("button", { name: "Reload" })).toBeTruthy();
     expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
+  });
+});
+
+describe("issue-10014 saved payment method attempt failure classifier", () => {
+  const apiError = (status: number, code?: string) =>
+    new PaymentsApiError(status, { error: { ...(code ? { code } : {}), message: "SYNTHETIC_PRIVATE_DETAIL" } });
+
+  it.each([
+    ["a transport failure", new TypeError("SYNTHETIC_PRIVATE_DETAIL"), "unconfirmed", null],
+    ["attempt_unconfirmed", apiError(503, "attempt_unconfirmed"), "unconfirmed", "attempt_unconfirmed"],
+    ["attempt_conflict", apiError(409, "attempt_conflict"), "conflict", "attempt_conflict"],
+    ["account_changed over its 409", apiError(409, "account_changed"), "account-changed", "account_changed"],
+    ["authentication_required", apiError(401, "authentication_required"), "reauth-required", "authentication_required"],
+    ["a bare 401", apiError(401), "reauth-required", null],
+    ["authorization_forbidden", apiError(403, "authorization_forbidden"), "refused", "authorization_forbidden"],
+    ["not_found", apiError(404, "not_found"), "refused", "not_found"],
+    ["validation_failed", apiError(400, "validation_failed"), "refused", "validation_failed"],
+    ["a known refusal code over a 5xx", apiError(503, "validation_failed"), "refused", "validation_failed"],
+    ["a known unconfirmed code over a 4xx", apiError(400, "attempt_unconfirmed"), "unconfirmed", "attempt_unconfirmed"],
+    ["an unknown code on a 409", apiError(409, "SYNTHETIC_UNKNOWN"), "conflict", null],
+    ["an inherited property name as a code", apiError(400, "toString"), "refused", null],
+    ["an unknown 4xx", apiError(422), "refused", null],
+    ["an unknown 5xx", apiError(500), "unconfirmed", null],
+  ] as const)("classifies %s by code, then status, then transport", (_label, error, state, code) => {
+    const result = classifySavedPaymentMethodAttemptFailure(error);
+
+    expect(result).toEqual({ state, code });
+    expect(JSON.stringify(result)).not.toContain("SYNTHETIC");
   });
 });

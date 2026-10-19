@@ -8,7 +8,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventRecordToStore, EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PaymentProcessorGateway } from "@chase-sets/payment-processing";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
@@ -41,31 +41,63 @@ const freshAttemptId = () => {
   return `00000000-0000-4000-8000-${String(ids).padStart(12, "0")}`;
 };
 
+type Runtime = "primary" | "replica";
+type Statement = Readonly<{ runtime: Runtime; client: number; sql: string; params: readonly unknown[] }>;
+const passThrough = (_statement: Statement, run: () => Promise<unknown>) => run();
+
 describe("saved-instrument-attempt (synthetic DB proof)", () => {
   let pools: Readonly<Record<"payments", PgTransactionalPool>>;
+  // A second pool on the same database stands in for another replica's runtime.
+  let replicaPools: Readonly<Record<"payments", PgTransactionalPool>>;
   let writes: string[] = [];
+  let intercept: (statement: Statement, run: () => Promise<unknown>) => Promise<unknown> = passThrough;
+  let clients = 0;
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseUrl, ["payments"], "saved_instrument_attempt");
     await ensureMultiContextTestDatabases(databaseUrl, urls);
     pools = createMultiContextTestPools(urls);
-    // Counts Payments saved-instrument read-model writes made through the shared pool.
-    const query = pools.payments.query.bind(pools.payments);
-    (pools.payments as { query: unknown }).query = (...args: Parameters<typeof query>) => {
-      const sql = typeof args[0] === "string" ? args[0] : "";
-      if (/^\s*(INSERT|UPDATE|DELETE|WITH)\b/i.test(sql) && /payments_saved_checkout/.test(sql)) writes.push(sql);
-      return query(...args);
-    };
+    replicaPools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(paymentsModule, pools.payments);
     writes = [];
+    intercept = passThrough;
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+    if (replicaPools) await closeMultiContextTestPools(replicaPools);
   });
 
-  function harness(overrides: Partial<PaymentProcessorGateway> = {}) {
+  /**
+   * The pool a runtime sees. Every statement, pooled or on a transaction client, passes through
+   * `intercept` (which may hold it at a barrier or fail it before or after it runs) and is counted
+   * in `writes` when it writes a saved-instrument table.
+   */
+  function observedPool(pool: PgTransactionalPool, runtime: Runtime): PgTransactionalPool {
+    const observe =
+      (client: number, query: PgQueryable["query"]) =>
+      (sql: string, params: readonly unknown[] = []) =>
+        intercept({ runtime, client, sql, params }, async () => {
+          const result = await query(sql, params);
+          if (/^\s*(INSERT|UPDATE|DELETE|WITH)\b/i.test(sql) && /payments_saved_checkout/.test(sql)) writes.push(sql);
+          return result;
+        });
+    return {
+      query: observe(0, pool.query.bind(pool)) as PgQueryable["query"],
+      async connect() {
+        const client = await pool.connect();
+        clients += 1;
+        return {
+          query: observe(clients, client.query.bind(client)) as PgQueryable["query"],
+          release: (error?: unknown) => client.release(error),
+        };
+      },
+      idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    };
+  }
+
+  function harness(overrides: Partial<PaymentProcessorGateway> = {}, runtime: Runtime = "primary") {
     const calls = { createCustomer: 0, createSetupSession: 0, detach: 0 };
     const eventStore = createPostgresEventStore({ pool: pools.payments });
     const startedExists = async (setupReferenceId: string) =>
@@ -101,7 +133,8 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       },
       ...overrides,
     };
-    const services = createPaymentsServices(pools.payments, { processorGateway }).payments;
+    const pool = runtime === "primary" ? pools.payments : replicaPools.payments;
+    const services = createPaymentsServices(observedPool(pool, runtime), { processorGateway }).payments;
     return {
       calls,
       services,
@@ -140,6 +173,50 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
   async function streamEvents(eventStore: ReturnType<typeof createPostgresEventStore>, attemptId: string) {
     return eventStore.readStream({ streamId: streamIdFor(attemptId), limit: 500 });
   }
+
+  async function eventTypes(eventStore: ReturnType<typeof createPostgresEventStore>, attemptId: string) {
+    return (await streamEvents(eventStore, attemptId)).map((event) => event.eventType);
+  }
+
+  async function defaults() {
+    return (
+      await pools.payments.query<{ instrument_id: string }>(
+        "SELECT instrument_id FROM payments_saved_checkout_instruments WHERE account_id = $1 AND is_default",
+        [accountId],
+      )
+    ).rows.map((row) => row.instrument_id);
+  }
+
+  async function publications() {
+    const eventStore = createPostgresEventStore({ pool: pools.payments });
+    return (await eventStore.readStream({ streamId: `payments.checkout-affordances-${accountId}`, limit: 500 })).length;
+  }
+
+  const isDefaultWrite = (sql: string) => /SET is_default = instrument_id/.test(sql);
+  // The event store's first statement of every append, so it marks which stream a client appends to.
+  const streamUpsert = (statement: Statement, streamId: string) =>
+    /INSERT INTO event_store_streams/.test(statement.sql) && statement.params[0] === streamId;
+  const isAttemptLock = (statement: Statement, attemptId?: string) =>
+    /pg_advisory_xact_lock/.test(statement.sql) &&
+    (attemptId === undefined || statement.params[0] === `payments-command:${streamIdFor(attemptId)}`);
+  const deferred = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+  // A barrier opens after a bound instead of hanging, so a red head fails on its assertions.
+  const bounded = async (promise: Promise<void>) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      promise,
+      new Promise<void>((done) => {
+        timer = setTimeout(done, 20_000);
+      }),
+    ]);
+    clearTimeout(timer);
+  };
 
   async function appendHistory(attemptId: string, events: readonly EventRecordToStore[]) {
     const eventStore = createPostgresEventStore({ pool: pools.payments });
@@ -515,6 +592,45 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       },
     );
 
+    it.each(
+      (["default", "remove"] as const).flatMap((kind) =>
+        (["started-only", "started+completed"] as const).map((shape) => [kind, shape] as const),
+      ),
+    )(
+      "a %s history (%s) whose retained target is not the request's fails closed, first and day after",
+      async (kind, shape) => {
+        const { calls, services, eventStore } = harness();
+        await seedTargets();
+        await seedInstrument("sci_SYNTHETIC_FOREIGN");
+        const attemptId = freshAttemptId();
+        // The request's own fingerprint over another retained instrument; the receipt matches its
+        // `started`, so only the target binding can refuse it.
+        const requestFingerprint = fingerprint(kind, "sci_SYNTHETIC_TARGET");
+        const history: EventRecordToStore[] = [
+          started(kind, "sci_SYNTHETIC_FOREIGN", { fingerprint: requestFingerprint }),
+          {
+            eventType: SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
+            payload: {
+              version: 1,
+              kind,
+              instrumentId: "sci_SYNTHETIC_FOREIGN",
+              auditId: `audit_${kind}_${sha256(JSON.stringify([streamIdFor(attemptId), requestFingerprint]))}`,
+            },
+          },
+        ];
+        await appendHistory(attemptId, shape === "started-only" ? history.slice(0, 1) : history);
+        const retained = await streamEvents(eventStore, attemptId);
+        const replay = replayFor(services, kind, attemptId);
+        for (let day = 0; day < 2; day += 1) {
+          await expect(replay()).rejects.toMatchObject({ code: "attempt_unconfirmed" });
+        }
+        expect(calls).toMatchObject({ createCustomer: 0, createSetupSession: 0, detach: 0 });
+        expect(writes).toEqual([]);
+        expect(await defaults()).toEqual([]);
+        expect(await streamEvents(eventStore, attemptId)).toEqual(retained);
+      },
+    );
+
     it("day-after replay from every retained state appends nothing and calls nothing", async () => {
       const { calls, services, eventStore, writes } = harness({
         async detachSavedPaymentMethod() {
@@ -568,5 +684,222 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         ),
       ).toEqual(retained);
     });
+  });
+
+  describe("F1 default effect under the attempt lock", () => {
+    beforeEach(async () => {
+      await seedInstrument("sci_SYNTHETIC_A", "ready", true);
+      await seedInstrument("sci_SYNTHETIC_B");
+    });
+
+    it("applies an exact default racing on two runtimes once: one update, audit row and publication", async () => {
+      const primary = harness();
+      const replica = harness({}, "replica");
+      const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId: freshAttemptId() };
+      // The first runtime to reach its default update holds there until the other is admitted (it
+      // asks for the attempt lock, or reaches its own update), so both copies are in flight at once.
+      const admitted = { primary: deferred(), replica: deferred() };
+      intercept = async (statement, run) => {
+        if (isAttemptLock(statement) || isDefaultWrite(statement.sql)) admitted[statement.runtime].resolve();
+        if (isDefaultWrite(statement.sql)) {
+          await bounded(admitted[statement.runtime === "primary" ? "replica" : "primary"].promise);
+        }
+        return run();
+      };
+
+      const results = await Promise.all([
+        primary.services.setSavedCheckoutInstrumentDefault(command, context),
+        replica.services.setSavedCheckoutInstrumentDefault(command, context),
+      ]);
+
+      expect(results).toEqual([
+        expect.objectContaining({ instrument_id: "sci_SYNTHETIC_B", is_default: true }),
+        expect.objectContaining({ instrument_id: "sci_SYNTHETIC_B", is_default: true }),
+      ]);
+      expect(writes.filter(isDefaultWrite)).toHaveLength(1);
+      expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
+      expect(await publications()).toBe(1);
+      expect(await defaults()).toEqual(["sci_SYNTHETIC_B"]);
+      expect(await eventTypes(primary.eventStore, command.attemptId)).toEqual([
+        SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED,
+        SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
+      ]);
+    });
+
+    it("never lets a delayed exact duplicate overwrite a later completed distinct default", async () => {
+      const primary = harness();
+      const replica = harness({}, "replica");
+      const duplicateAdmitted = deferred();
+      const releaseDuplicate = deferred();
+      let firstHeld = false;
+      let duplicateHeld = false;
+      // The duplicate (replica) is admitted, then held before the attempt lock (or, without one,
+      // before its update) until its first copy and a later distinct default have both completed.
+      intercept = async (statement, run) => {
+        const step = isAttemptLock(statement) || isDefaultWrite(statement.sql);
+        if (statement.runtime === "replica" && step && !duplicateHeld) {
+          duplicateHeld = true;
+          duplicateAdmitted.resolve();
+          await releaseDuplicate.promise;
+        }
+        if (statement.runtime === "primary" && isDefaultWrite(statement.sql) && !firstHeld) {
+          firstHeld = true;
+          await bounded(duplicateAdmitted.promise);
+        }
+        return run();
+      };
+      const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId: freshAttemptId() };
+
+      const first = primary.services.setSavedCheckoutInstrumentDefault(command, context);
+      const duplicate = replica.services.setSavedCheckoutInstrumentDefault(command, context);
+      try {
+        await expect(first).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: true });
+        await primary.services.setSavedCheckoutInstrumentDefault(
+          { accountId, instrumentId: "sci_SYNTHETIC_A", attemptId: freshAttemptId() },
+          context,
+        );
+        expect(await defaults()).toEqual(["sci_SYNTHETIC_A"]);
+      } finally {
+        releaseDuplicate.resolve();
+      }
+
+      await expect(duplicate).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: false });
+      expect(await defaults()).toEqual(["sci_SYNTHETIC_A"]);
+      expect(writes.filter(isDefaultWrite)).toHaveLength(2);
+      expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
+      expect(await auditRows("sci_SYNTHETIC_A")).toEqual([{ action: "set-default" }]);
+      expect(await publications()).toBe(2);
+    });
+
+    type Interruption = (statement: Statement, attemptId: string, locked: ReadonlySet<number>) => boolean;
+    it.each<readonly [string, Interruption, "before" | "after"]>([
+      [
+        "the default update",
+        (statement) => /INSERT INTO payments_saved_checkout_instrument_audit/.test(statement.sql),
+        "before",
+      ],
+      ["the audit row", (statement) => streamUpsert(statement, `payments.checkout-affordances-${accountId}`), "before"],
+      [
+        "the publication",
+        (statement, attemptId, locked) =>
+          locked.has(statement.client) && streamUpsert(statement, streamIdFor(attemptId)),
+        "before",
+      ],
+      [
+        "the completion, before COMMIT",
+        (statement, _id, locked) => locked.has(statement.client) && statement.sql === "COMMIT",
+        "before",
+      ],
+      [
+        "COMMIT, once it committed",
+        (statement, _id, locked) => locked.has(statement.client) && statement.sql === "COMMIT",
+        "after",
+      ],
+    ])(
+      "an interruption after %s leaves started-only with no effect, or completed with one; replay converges once",
+      async (_label, interrupts, timing) => {
+        const { services, eventStore } = harness();
+        const attemptId = freshAttemptId();
+        const locked = new Set<number>();
+        let interrupted = false;
+        intercept = async (statement, run) => {
+          if (isAttemptLock(statement, attemptId)) locked.add(statement.client);
+          if (interrupted || !interrupts(statement, attemptId, locked)) return run();
+          interrupted = true;
+          if (timing === "after") await run();
+          throw new Error("SYNTHETIC_PRIVATE_INTERRUPTION");
+        };
+        const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId };
+
+        const failure = await services
+          .setSavedCheckoutInstrumentDefault(command, context)
+          .catch((error: Error) => error);
+        expect(failure).toMatchObject({ code: "attempt_unconfirmed" });
+        expect(String((failure as Error).message)).not.toContain("SYNTHETIC_PRIVATE");
+        const committed = timing === "after";
+        expect(await eventTypes(eventStore, attemptId)).toEqual(
+          committed
+            ? [SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED, SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED]
+            : [SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED],
+        );
+        expect(await defaults()).toEqual([committed ? "sci_SYNTHETIC_B" : "sci_SYNTHETIC_A"]);
+        expect(await auditRows("sci_SYNTHETIC_B")).toHaveLength(committed ? 1 : 0);
+        expect(await publications()).toBe(committed ? 1 : 0);
+
+        intercept = passThrough;
+        const before = writes.length;
+        await expect(services.setSavedCheckoutInstrumentDefault(command, context)).resolves.toMatchObject({
+          is_default: true,
+        });
+        expect(writes.slice(before).filter(isDefaultWrite)).toHaveLength(committed ? 0 : 1);
+        expect(await defaults()).toEqual(["sci_SYNTHETIC_B"]);
+        expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
+        expect(await publications()).toBe(1);
+        expect(await eventTypes(eventStore, attemptId)).toEqual([
+          SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED,
+          SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
+        ]);
+      },
+    );
+  });
+
+  describe("F3 a failed started append is attempt_unconfirmed, never private text", () => {
+    it.each([
+      ["default", "before"],
+      ["default", "after"],
+      ["remove", "before"],
+      ["remove", "after"],
+    ] as const)(
+      "%s: an append failing %s its commit replays without a second processor write",
+      async (kind, timing) => {
+        const { calls, services, eventStore } = harness();
+        await seedInstrument("sci_SYNTHETIC_A", "ready", true);
+        await seedInstrument("sci_SYNTHETIC_B");
+        const attemptId = freshAttemptId();
+        const appending = new Set<number>();
+        let failed = false;
+        intercept = async (statement, run) => {
+          if (!failed && streamUpsert(statement, streamIdFor(attemptId))) {
+            if (timing === "before") {
+              failed = true;
+              throw new Error("SYNTHETIC_PRIVATE_STORAGE_DETAIL");
+            }
+            appending.add(statement.client);
+          }
+          if (!failed && appending.has(statement.client) && statement.sql === "COMMIT") {
+            failed = true;
+            await run();
+            throw new Error("SYNTHETIC_PRIVATE_STORAGE_DETAIL");
+          }
+          return run();
+        };
+        const command = () =>
+          kind === "default"
+            ? services.setSavedCheckoutInstrumentDefault(
+                { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId },
+                context,
+              )
+            : services.removeSavedCheckoutInstrument(
+                { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId },
+                context,
+              );
+
+        const failure = await command().catch((error: Error) => error);
+        expect(failure).toMatchObject({ code: "attempt_unconfirmed" });
+        expect(JSON.stringify({ message: (failure as Error).message, failure })).not.toContain("SYNTHETIC_PRIVATE");
+        expect(await streamEvents(eventStore, attemptId)).toHaveLength(timing === "after" ? 1 : 0);
+        expect(calls.detach).toBe(0);
+
+        intercept = passThrough;
+        const replay = await command().catch((error: Error) => error);
+        if (kind === "remove" && timing === "after") {
+          // A started remove never re-sends its detach; it stays unconfirmed for provider convergence.
+          expect(replay).toMatchObject({ code: "attempt_unconfirmed" });
+        } else {
+          expect(replay).toMatchObject(kind === "default" ? { is_default: true } : { readiness: "removed" });
+        }
+        expect(calls.detach).toBe(kind === "remove" && timing === "before" ? 1 : 0);
+      },
+    );
   });
 });

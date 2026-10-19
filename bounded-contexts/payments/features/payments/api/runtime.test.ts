@@ -15,8 +15,8 @@ import {
   PaymentsRateLimitExceededError,
   createPaymentRuntime as createRuntime,
 } from "./runtime";
-import { createPaymentWebhookRunner } from "./webhook-transaction";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPaymentTransactionRunner, createPaymentWebhookRunner } from "./webhook-transaction";
+import type { PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import { ProviderWebhookError, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { readFileSync } from "node:fs";
@@ -223,24 +223,29 @@ describe("payments money consolidation", () => {
 });
 
 function createPaymentRuntime(
-  deps: Omit<Parameters<typeof createRuntime>[0], "runWebhookTransaction" | "cardDeclineStore"> &
+  deps: Omit<
+    Parameters<typeof createRuntime>[0],
+    "runWebhookTransaction" | "runPaymentTransaction" | "cardDeclineStore"
+  > &
     Partial<Pick<Parameters<typeof createRuntime>[0], "cardDeclineStore">>,
 ) {
   const pool: PgTransactionalPool = {
     query: deps.db.query,
     connect: async () => ({ query: deps.db.query, release: () => undefined }),
   };
+  const store: PostgresEventStore = {
+    ...deps.eventStore,
+    readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
+    appendToStreamInTransaction: (_client, input) => deps.eventStore.appendToStream(input),
+    appendToStreamsInTransaction: async () => {
+      throw new Error("Synthetic payment runtime does not use transaction-local multi-stream appends.");
+    },
+  };
   return createRuntime({
     cardDeclineStore: { check: vi.fn(async () => null), record: vi.fn(async () => undefined) },
     ...deps,
-    runWebhookTransaction: createPaymentWebhookRunner(pool, {
-      ...deps.eventStore,
-      readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
-      appendToStreamInTransaction: (_client, input) => deps.eventStore.appendToStream(input),
-      appendToStreamsInTransaction: async () => {
-        throw new Error("Synthetic payment runtime does not use transaction-local multi-stream appends.");
-      },
-    }),
+    runWebhookTransaction: createPaymentWebhookRunner(pool, store),
+    runPaymentTransaction: createPaymentTransactionRunner(pool, store),
   });
 }
 

@@ -13,7 +13,7 @@ import { recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
 import { cardDeclineSurface, type CardDeclineStore } from "./card-decline-store";
 import type { ProviderWebhookTelemetry, ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { decideWebhookPayment, paymentWebhookErrorFromUnknown } from "./webhook-errors";
-import type { PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
+import type { PaymentTransactionRunner, PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import { centsToMoneyAmount, moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
@@ -130,6 +130,7 @@ import {
 type PaymentRuntimeDeps = Readonly<{
   cardDeclineStore: CardDeclineStore;
   runWebhookTransaction: PaymentWebhookRunner;
+  runPaymentTransaction: PaymentTransactionRunner;
   walletFunding?: WalletFundingServices;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
@@ -821,6 +822,19 @@ function processorAttemptFailure(error: unknown) {
     : savedCheckoutInstrumentAttemptUnconfirmed();
 }
 
+/**
+ * Saved-instrument command boundary: validation, conflict and definitive refusals pass through; any
+ * other (storage or transport) failure may follow a commit, so it becomes `attempt_unconfirmed` and
+ * its raw text never reaches a caller, MCP result or REST response.
+ */
+async function closeSavedCheckoutInstrumentAttemptFailure<T>(command: () => Promise<T>): Promise<T> {
+  try {
+    return await command();
+  } catch (error) {
+    throw error instanceof PaymentsDomainError ? error : processorAttemptFailure(error);
+  }
+}
+
 function hasExactKeys(value: Readonly<Record<string, unknown>>, keys: readonly string[]) {
   return Object.keys(value).sort().join() === [...keys].sort().join();
 }
@@ -836,6 +850,8 @@ function savedCheckoutInstrumentAttempt(
     attemptId: string;
     kind: SavedCheckoutInstrumentAttemptKind;
     fingerprint: string;
+    /** The requested instrument of a default or remove; setup mints its target, so `null`. */
+    instrumentId: string | null;
     context: EventStoreContext;
   }>,
 ) {
@@ -898,10 +914,11 @@ function savedCheckoutInstrumentAttempt(
       : null;
   }
 
-  async function read(): Promise<SavedCheckoutInstrumentAttemptHistory> {
+  /** Reads the complete history; a transaction passes its own `store` so the read joins its lock. */
+  async function read(store: EventStore = eventStore): Promise<SavedCheckoutInstrumentAttemptHistory> {
     let events: readonly StoredEvent[];
     try {
-      events = await readCompleteStream(eventStore, {
+      events = await readCompleteStream(store, {
         streamId,
         maxEvents: SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_MAX_EVENTS,
       });
@@ -912,8 +929,14 @@ function savedCheckoutInstrumentAttempt(
     const started = parseStarted(events[0]!);
     if (!started || events.length > 2) throw savedCheckoutInstrumentAttemptUnconfirmed();
     if (started.fingerprint !== fingerprint) throw savedCheckoutInstrumentAttemptConflict();
-    // Equal fingerprints always share a kind; a different kind is a poisoned history.
-    if (started.kind !== kind) throw savedCheckoutInstrumentAttemptUnconfirmed();
+    // Equal fingerprints always share a kind and a requested instrument; anything else is a
+    // poisoned history, refused before its retained target is used.
+    if (
+      started.kind !== kind ||
+      (kind !== "setup" && (started as Record<string, unknown>).instrumentId !== input.instrumentId)
+    ) {
+      throw savedCheckoutInstrumentAttemptUnconfirmed();
+    }
     if (events.length === 1) return { state: "started", started };
     const receipt = parseReceipt(events[1]!, started);
     if (!receipt) throw savedCheckoutInstrumentAttemptUnconfirmed();
@@ -922,6 +945,7 @@ function savedCheckoutInstrumentAttempt(
 
   return {
     auditId,
+    streamId,
     read,
     /** Appends `started` at `no_stream`; a concurrent first append yields the winner's history. */
     async start(target: SavedCheckoutInstrumentAttemptTarget): Promise<SavedCheckoutInstrumentAttemptHistory> {
@@ -942,9 +966,9 @@ function savedCheckoutInstrumentAttempt(
       return { state: "fresh", started };
     },
     /** Appends the first receipt; a concurrent completion of the same attempt is accepted. */
-    async complete(receipt: SavedCheckoutInstrumentAttemptReceipt) {
+    async complete(receipt: SavedCheckoutInstrumentAttemptReceipt, store: EventStore = eventStore) {
       try {
-        await eventStore.appendToStream({
+        await store.appendToStream({
           streamId,
           expectedVersion: 1,
           context,
@@ -953,7 +977,7 @@ function savedCheckoutInstrumentAttempt(
           ],
         });
       } catch {
-        if ((await read()).state !== "completed") throw savedCheckoutInstrumentAttemptUnconfirmed();
+        if ((await read(store)).state !== "completed") throw savedCheckoutInstrumentAttemptUnconfirmed();
       }
     },
   };
@@ -1461,10 +1485,14 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     };
   }
 
-  async function publishCheckoutAffordances(accountId: AccountId, context: EventStoreContext) {
-    const instruments = await listSavedCheckoutInstruments(deps.db, accountId);
+  async function publishCheckoutAffordances(
+    accountId: AccountId,
+    context: EventStoreContext,
+    store: Pick<PaymentRuntimeDeps, "db" | "eventStore"> = deps,
+  ) {
+    const instruments = await listSavedCheckoutInstruments(store.db, accountId);
     const publishedAt = new Date().toISOString();
-    await deps.eventStore.appendToStream({
+    await store.eventStore.appendToStream({
       streamId: `payments.checkout-affordances-${accountId}`,
       expectedVersion: "any",
       events: [
@@ -1506,6 +1534,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         uiMode: null,
         returnUrl: null,
       }),
+      instrumentId,
       context,
     });
     const target = async () => {
@@ -1782,81 +1811,85 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     },
     listSavedCheckoutInstruments: (accountId) => listSavedCheckoutInstruments(deps.db, accountId),
     ensureProviderCustomer: (params) => ensureProviderCustomer(deps, params),
-    async createSavedCheckoutSetupSession(params, context) {
-      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
-      const attemptId = requireSavedCheckoutInstrumentAttemptId(params.attemptId);
-      const window =
-        params.evidenceWindow === null
-          ? null
-          : (params.evidenceWindow ?? (await deps.evidenceWindowCorrelation?.currentOpenWindow()));
-      const windowInput =
-        params.evidenceWindow !== undefined || deps.evidenceWindowCorrelation ? { evidenceWindow: window ?? null } : {};
-      if (window && params.uiMode !== "embedded") admitGovernedSetupInput(params);
-      const uiMode = params.uiMode ?? "hosted";
-      const returnUrl = normalizeSavedCheckoutSetupReturnUrl(params.returnUrlBase, params.returnUrlPath);
-      const attempt = savedCheckoutInstrumentAttempt(deps.eventStore, {
-        accountId,
-        attemptId,
-        kind: "setup",
-        fingerprint: savedCheckoutInstrumentAttemptFingerprint({
+    createSavedCheckoutSetupSession: (params, context) =>
+      closeSavedCheckoutInstrumentAttemptFailure(async () => {
+        const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+        const attemptId = requireSavedCheckoutInstrumentAttemptId(params.attemptId);
+        const window =
+          params.evidenceWindow === null
+            ? null
+            : (params.evidenceWindow ?? (await deps.evidenceWindowCorrelation?.currentOpenWindow()));
+        const windowInput =
+          params.evidenceWindow !== undefined || deps.evidenceWindowCorrelation
+            ? { evidenceWindow: window ?? null }
+            : {};
+        if (window && params.uiMode !== "embedded") admitGovernedSetupInput(params);
+        const uiMode = params.uiMode ?? "hosted";
+        const returnUrl = normalizeSavedCheckoutSetupReturnUrl(params.returnUrlBase, params.returnUrlPath);
+        const attempt = savedCheckoutInstrumentAttempt(deps.eventStore, {
+          accountId,
+          attemptId,
           kind: "setup",
-          accountId,
-          agentGrantId: params.agentGrantId,
+          fingerprint: savedCheckoutInstrumentAttemptFingerprint({
+            kind: "setup",
+            accountId,
+            agentGrantId: params.agentGrantId,
+            instrumentId: null,
+            uiMode,
+            returnUrl,
+          }),
           instrumentId: null,
-          uiMode,
-          returnUrl,
-        }),
-        context,
-      });
-      let history = await attempt.read();
-      if (history.state === "absent") history = await attempt.start({ setupReferenceId: createId("scs") });
-      if (history.state === "absent") throw savedCheckoutInstrumentAttemptUnconfirmed();
-      const { setupReferenceId } = history.started as Readonly<{ setupReferenceId: string }>;
-      if (history.state !== "fresh") {
-        // A replay returns the stored session and never asks the processor whether a lost create committed.
-        const stored = await getSavedCheckoutSetupSessionBySetupReference(deps.db, setupReferenceId);
-        if (!stored || stored.account_id !== accountId) throw savedCheckoutInstrumentAttemptUnconfirmed();
-        if (history.state === "started") await attempt.complete({ setupReferenceId });
-        return stored;
-      }
+          context,
+        });
+        let history = await attempt.read();
+        if (history.state === "absent") history = await attempt.start({ setupReferenceId: createId("scs") });
+        if (history.state === "absent") throw savedCheckoutInstrumentAttemptUnconfirmed();
+        const { setupReferenceId } = history.started as Readonly<{ setupReferenceId: string }>;
+        if (history.state !== "fresh") {
+          // A replay returns the stored session and never asks the processor whether a lost create committed.
+          const stored = await getSavedCheckoutSetupSessionBySetupReference(deps.db, setupReferenceId);
+          if (!stored || stored.account_id !== accountId) throw savedCheckoutInstrumentAttemptUnconfirmed();
+          if (history.state === "started") await attempt.complete({ setupReferenceId });
+          return stored;
+        }
 
-      const consentId = createId("consent");
-      let customer: ProviderCustomerRow;
-      let setupSession: Awaited<ReturnType<PaymentProcessorGateway["createSetupSession"]>>;
-      try {
-        customer = await ensureProviderCustomer(deps, { accountId, ...windowInput });
-        setupSession = await deps.processorGateway.createSetupSession({
-          ...windowInput,
-          ...(window ? { setupReferenceId } : {}),
+        const consentId = createId("consent");
+        let customer: ProviderCustomerRow;
+        let setupSession: Awaited<ReturnType<PaymentProcessorGateway["createSetupSession"]>>;
+        try {
+          customer = await ensureProviderCustomer(deps, { accountId, ...windowInput });
+          setupSession = await deps.processorGateway.createSetupSession({
+            ...windowInput,
+            ...(window ? { setupReferenceId } : {}),
+            accountId,
+            providerCustomerReference: customer.provider_customer_reference,
+            currencyCode: "usd",
+            returnUrl: `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}setupReferenceId=${encodeURIComponent(setupReferenceId)}`,
+            uiMode,
+            consentId,
+            consentText: SAVE_PAYMENT_CONSENT_TEXT,
+            idempotencyKey: `payments:account:${accountId}:setup:${setupReferenceId}`,
+          });
+        } catch (error) {
+          throw processorAttemptFailure(error);
+        }
+
+        const stored = await recordSavedCheckoutSetupSession(deps.db, {
+          setupReferenceId,
           accountId,
+          agentGrantId: params.agentGrantId ?? null,
+          provider: setupSession.processorName,
           providerCustomerReference: customer.provider_customer_reference,
-          currencyCode: "usd",
-          returnUrl: `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}setupReferenceId=${encodeURIComponent(setupReferenceId)}`,
-          uiMode,
+          processorSetupReference: setupSession.processorSetupReference,
+          processorClientSecret: setupSession.processorClientSecret,
+          processorRedirectUrl: setupSession.processorRedirectUrl,
+          processorStatus: setupSession.processorStatus,
           consentId,
           consentText: SAVE_PAYMENT_CONSENT_TEXT,
-          idempotencyKey: `payments:account:${accountId}:setup:${setupReferenceId}`,
         });
-      } catch (error) {
-        throw processorAttemptFailure(error);
-      }
-
-      const stored = await recordSavedCheckoutSetupSession(deps.db, {
-        setupReferenceId,
-        accountId,
-        agentGrantId: params.agentGrantId ?? null,
-        provider: setupSession.processorName,
-        providerCustomerReference: customer.provider_customer_reference,
-        processorSetupReference: setupSession.processorSetupReference,
-        processorClientSecret: setupSession.processorClientSecret,
-        processorRedirectUrl: setupSession.processorRedirectUrl,
-        processorStatus: setupSession.processorStatus,
-        consentId,
-        consentText: SAVE_PAYMENT_CONSENT_TEXT,
-      });
-      await attempt.complete({ setupReferenceId });
-      return stored;
-    },
+        await attempt.complete({ setupReferenceId });
+        return stored;
+      }),
     async reconcileSavedCheckoutSetupSession(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const setupReference = normalizeRequiredText(params.setupReference, "Setup reference is required.");
@@ -1888,57 +1921,70 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       await publishCheckoutAffordances(accountId, context);
       return instrument;
     },
-    async setSavedCheckoutInstrumentDefault(params, context) {
-      const { attempt, history, instrument } = await admitSavedCheckoutInstrumentAttempt("default", params, context);
-      if (history.state === "completed" || !instrument) return instrument;
-      // Started-only or fresh: no processor call, so the local write and fingerprint audit repeat safely.
-      await setSavedCheckoutInstrumentDefault(deps.db, {
-        accountId: instrument.account_id,
-        instrumentId: instrument.instrument_id,
-      });
-      await recordSavedCheckoutInstrumentAudit(deps.db, {
-        auditId: attempt.auditId,
-        instrumentId: instrument.instrument_id,
-        accountId: instrument.account_id,
-        action: "set-default",
-        performedByAccountId: instrument.account_id,
-      });
-      await publishCheckoutAffordances(instrument.account_id as AccountId, context);
-      await attempt.complete({ instrumentId: instrument.instrument_id, auditId: attempt.auditId });
-      return getSavedCheckoutInstrument(deps.db, {
-        accountId: instrument.account_id,
-        instrumentId: instrument.instrument_id,
-      });
-    },
-    async removeSavedCheckoutInstrument(params, context) {
-      const { attempt, history, instrument } = await admitSavedCheckoutInstrumentAttempt("remove", params, context);
-      if (history.state === "completed" || !instrument) return instrument;
-      const accountId = instrument.account_id as AccountId;
-      // Remove never re-sends: a locally removed instrument completes with zero detach and zero audit.
-      if (instrument.readiness === "removed") {
-        await attempt.complete({ instrumentId: instrument.instrument_id, auditId: null });
-        return instrument;
-      }
-      if (history.state === "started") throw savedCheckoutInstrumentAttemptUnconfirmed();
-      if (instrument.provider_reference) {
-        try {
-          await deps.processorGateway.detachSavedPaymentMethod(instrument.provider_reference);
-        } catch (error) {
-          throw processorAttemptFailure(error);
+    setSavedCheckoutInstrumentDefault: (params, context) =>
+      closeSavedCheckoutInstrumentAttemptFailure(async () => {
+        const { attempt, history, instrument } = await admitSavedCheckoutInstrumentAttempt("default", params, context);
+        if (history.state === "completed" || !instrument) return instrument;
+        // Started-only or fresh: no processor call. The effect commits with the receipt under the
+        // attempt lock, so a duplicate admitted before completion rereads the receipt and applies
+        // nothing, and an interruption commits no effect at all.
+        return deps.runPaymentTransaction(async (transaction) => {
+          await transaction.lock(attempt.streamId);
+          const current = await attempt.read(transaction.eventStore);
+          const lookup = { accountId: instrument.account_id, instrumentId: instrument.instrument_id };
+          const target = await getSavedCheckoutInstrument(transaction.db, lookup);
+          if (current.state === "completed") {
+            if (!target) throw savedCheckoutInstrumentAttemptUnconfirmed();
+            return target;
+          }
+          if (current.state !== "started") throw savedCheckoutInstrumentAttemptUnconfirmed();
+          if (!target || target.readiness === "removed") return null;
+          await setSavedCheckoutInstrumentDefault(transaction.db, lookup);
+          await recordSavedCheckoutInstrumentAudit(transaction.db, {
+            auditId: attempt.auditId,
+            instrumentId: instrument.instrument_id,
+            accountId: instrument.account_id,
+            action: "set-default",
+            performedByAccountId: instrument.account_id,
+          });
+          await publishCheckoutAffordances(instrument.account_id as AccountId, context, transaction);
+          await attempt.complete(
+            { instrumentId: instrument.instrument_id, auditId: attempt.auditId },
+            transaction.eventStore,
+          );
+          return getSavedCheckoutInstrument(transaction.db, lookup);
+        });
+      }),
+    removeSavedCheckoutInstrument: (params, context) =>
+      closeSavedCheckoutInstrumentAttemptFailure(async () => {
+        const { attempt, history, instrument } = await admitSavedCheckoutInstrumentAttempt("remove", params, context);
+        if (history.state === "completed" || !instrument) return instrument;
+        const accountId = instrument.account_id as AccountId;
+        // Remove never re-sends: a locally removed instrument completes with zero detach and zero audit.
+        if (instrument.readiness === "removed") {
+          await attempt.complete({ instrumentId: instrument.instrument_id, auditId: null });
+          return instrument;
         }
-      }
-      await markSavedCheckoutInstrumentRemoved(deps.db, { accountId, instrumentId: instrument.instrument_id });
-      await recordSavedCheckoutInstrumentAudit(deps.db, {
-        auditId: attempt.auditId,
-        instrumentId: instrument.instrument_id,
-        accountId,
-        action: "removed",
-        performedByAccountId: accountId,
-      });
-      await publishCheckoutAffordances(accountId, context);
-      await attempt.complete({ instrumentId: instrument.instrument_id, auditId: attempt.auditId });
-      return getSavedCheckoutInstrument(deps.db, { accountId, instrumentId: instrument.instrument_id });
-    },
+        if (history.state === "started") throw savedCheckoutInstrumentAttemptUnconfirmed();
+        if (instrument.provider_reference) {
+          try {
+            await deps.processorGateway.detachSavedPaymentMethod(instrument.provider_reference);
+          } catch (error) {
+            throw processorAttemptFailure(error);
+          }
+        }
+        await markSavedCheckoutInstrumentRemoved(deps.db, { accountId, instrumentId: instrument.instrument_id });
+        await recordSavedCheckoutInstrumentAudit(deps.db, {
+          auditId: attempt.auditId,
+          instrumentId: instrument.instrument_id,
+          accountId,
+          action: "removed",
+          performedByAccountId: accountId,
+        });
+        await publishCheckoutAffordances(accountId, context);
+        await attempt.complete({ instrumentId: instrument.instrument_id, auditId: attempt.auditId });
+        return getSavedCheckoutInstrument(deps.db, { accountId, instrumentId: instrument.instrument_id });
+      }),
     async revokeSavedCheckoutInstrumentsForAgentGrant(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const agentGrantId = normalizeRequiredText(params.agentGrantId, "Agent grant is required.");
