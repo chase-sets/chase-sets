@@ -188,12 +188,20 @@ export function parseSupersedesSection(body) {
   const findings = [];
   const seen = new Set();
   const section = sections[0];
-  const end = sectionEnd(markdown.headings, section.headingIndex, markdown.lines.length);
+  const end =
+    markdown.headings
+      .slice(section.headingIndex + 1)
+      .find(
+        (heading) =>
+          heading.level <= section.heading.level && !/^\s*(?:[-+*]|\d+[.)])\s+/.test(markdown.lines[heading.index]),
+      )?.index ?? markdown.lines.length;
   const headingLines = new Set(markdown.headings.map((heading) => heading.index));
 
   for (let index = section.heading.index + 1; index < end; index += 1) {
     const raw = markdown.lines[index];
-    if (headingLines.has(index) || isInertDeclarationContentLine(raw, markdown.ignoredLines, index)) continue;
+    const isListItem = /^\s*(?:[-+*]|\d+[.)])\s+/.test(raw);
+    if ((headingLines.has(index) && !isListItem) || isInertDeclarationContentLine(raw, markdown.ignoredLines, index))
+      continue;
     const line = raw.trim();
     if (!line) continue;
 

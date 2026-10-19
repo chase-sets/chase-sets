@@ -118,8 +118,9 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    art, and an explicit **don't-rebuild check** — shipped surfaces get pointers,
    never reimplementation. Run a **supersession check**: inventory every existing
    path the planned change replaces or makes redundant, including code, docs,
-   flags, workflows, and open issues found by searching the planned outcome
-   terms and predicted footprint paths. Stage 2-light for Issues still requires this check.
+   flags, and workflows. Stage 2-light for Issues still requires this check.
+   The supersession inventory covers existing paths, including open issues
+   found by searching the planned outcome terms and predicted footprint paths;
    Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
@@ -186,7 +187,8 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      to land;
    - for `partial`, remove only the dropped criteria in place, post one comment
      naming those criteria and the successor set, and never add
-     `status:needs-replan`. If the remainder is not a coherent slice, close the
+     `status:needs-replan`;
+     If the remainder is not a coherent slice, close the
      predecessor as `not planned` and file one fixed-scope issue with the
      remainder, naming the old issue `full` in its `### Supersedes` section;
    - if either class would drop accepted product scope, leave the predecessor
@@ -198,6 +200,7 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      least one issue names it `full` and every such successor is itself closed
      `not planned`; reopen it or file a new issue naming it `full` when the last
      successor closes that way;
+     Reopen an orphaned predecessor or file a new issue naming it `full` when the last `not planned` successor closes;
    - every new non-Epic, including host and review follow-ups, gets a home
      after a duplicate search: a committed milestone, Candidate capabilities,
      or Operations for machine-generated incidents;
