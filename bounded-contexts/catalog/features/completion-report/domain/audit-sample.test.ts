@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CatalogAuditSampleRequestError,
+  assertCatalogAuditSampleEnvelope,
   catalogAuditSampleForm,
   catalogAuditSamplePublicPath,
   parseCatalogAuditSampleRequest,
@@ -54,7 +55,6 @@ describe("parseCatalogAuditSampleRequest", () => {
     ["magic=40", "audit-1", "magic=40"],
     ["magic=40/x", "audit-1", "magic=40/x"],
     ["magic=-1/0", "audit-1", "magic=-1/0"],
-    ["magic=1001/0", "audit-1", "magic=1001/0"],
     ["Magic=1/1", "audit-1", "Magic=1/1"],
     ["magic=1/1,magic=2/2", "audit-1", "magic"],
     ["pokemon=1/1,pokemon:en=1/1", "audit-1", "pokemon"],
@@ -64,6 +64,31 @@ describe("parseCatalogAuditSampleRequest", () => {
   ])("refuses %j with seed %j by name", (strata, seed, named) => {
     expect(() => parseCatalogAuditSampleRequest({ strata, seed })).toThrow(CatalogAuditSampleRequestError);
     expect(() => parseCatalogAuditSampleRequest({ strata, seed })).toThrow(named);
+  });
+
+  it("accepts the fixed audit allocation at exactly 275 items and refuses any larger total", () => {
+    const fixed = parseCatalogAuditSampleRequest({ strata: auditAllocation, seed: "audit-1" });
+    expect(fixed.strata.reduce((total, stratum) => total + stratum.singles + stratum.sealed, 0)).toBe(275);
+    for (const strata of [
+      "magic=276/0",
+      "magic=200/76",
+      "magic=1001/0",
+      "magic=99999999999999999999/0",
+      auditAllocation.replace("lorcana=40/10", "lorcana=40/11"),
+    ]) {
+      expect(() => parseCatalogAuditSampleRequest({ strata, seed: "audit-1" })).toThrow(CatalogAuditSampleRequestError);
+      expect(() => parseCatalogAuditSampleRequest({ strata, seed: "audit-1" })).toThrow("at most 275");
+    }
+  });
+
+  it("refuses a request built without the parser when it exceeds the 275-item envelope", () => {
+    const fixed = parseCatalogAuditSampleRequest({ strata: auditAllocation, seed: "audit-1" });
+    expect(() => assertCatalogAuditSampleEnvelope(fixed)).not.toThrow();
+    const oversized = {
+      ...fixed,
+      strata: [...fixed.strata, { productDomain: "x", languageCode: null, singles: 1, sealed: 0 }],
+    };
+    expect(() => assertCatalogAuditSampleEnvelope(oversized)).toThrow("276");
   });
 });
 
@@ -100,24 +125,76 @@ describe("selectCatalogAuditSample", () => {
     expect(selectCatalogAuditSample(request, [...population].reverse())).toEqual(first);
   });
 
-  it("AC1: a different seed differs where a stratum has more items than its allocation", () => {
-    const left = selectCatalogAuditSample(request, population);
-    const right = selectCatalogAuditSample({ ...request, seed: "audit-2026-11" }, population);
-    const ids = (sample: typeof left, form: "singles" | "sealed") =>
-      sample.items
-        .filter((item) => item.productDomain === "magic" && item.productForm === form)
-        .map((item) => item.catalogItemId);
-    expect(ids(left, "singles")).toHaveLength(40);
-    expect(ids(right, "singles")).toHaveLength(40);
-    expect(ids(right, "singles")).not.toEqual(ids(left, "singles"));
-    expect(ids(right, "sealed")).not.toEqual(ids(left, "sealed"));
-    // Strata at or under their allocation take every item for any seed.
-    const pokemon = (sample: typeof left) =>
-      sample.items
-        .filter((item) => item.productDomain === "pokemon")
-        .map((item) => item.catalogItemId)
+  it("AC1: a rotated population still gives the same seed the same IDs", () => {
+    const rotated = [...population.slice(41), ...population.slice(0, 41)];
+    expect(selectCatalogAuditSample(request, rotated)).toEqual(selectCatalogAuditSample(request, population));
+  });
+
+  // A finite stratum has finitely many possible samples, so distinct seeds may
+  // collide. With slack (more items than the allocation) each seed selects
+  // exactly the allocation; alpha/beta is a documented differing pair and
+  // s1/s2 is the accepted collision from review 10079-review-r1.
+  describe("AC1: seeds on a slack stratum (3 items, 2 allocated)", () => {
+    const slack = parseCatalogAuditSampleRequest({ strata: "magic=2/0", seed: "alpha" });
+    const slackPopulation = Array.from({ length: 3 }, (_, index) => ({
+      catalogItemId: `id${index}`,
+      productDomain: "magic",
+      languageCode: "en",
+      productForm: "single-card",
+    }));
+    const selected = (seed: string) =>
+      selectCatalogAuditSample({ ...slack, seed }, slackPopulation)
+        .items.map((item) => item.catalogItemId)
         .sort();
-    expect(pokemon(right)).toEqual(pokemon(left));
+
+    it("selects exactly the allocation for every seed", () => {
+      for (const seed of ["alpha", "beta", "s1", "s2"]) expect(selected(seed)).toHaveLength(2);
+    });
+
+    it("alpha and beta select different items", () => {
+      expect(selected("alpha")).toEqual(["id0", "id1"]);
+      expect(selected("beta")).toEqual(["id1", "id2"]);
+    });
+
+    it("accepts that s1 and s2 select the same items", () => {
+      expect(selected("s1")).toEqual(["id0", "id2"]);
+      expect(selected("s2")).toEqual(selected("s1"));
+    });
+  });
+
+  it("AC1: a saturated or short stratum selects every item for every seed with the same shortfall", () => {
+    const bounded = [
+      ...items("cat_single", 3, { productDomain: "magic", languageCode: "en", productForm: "magic-card-print" }),
+      ...items("cat_sealed", 2, { productDomain: "magic", languageCode: "en", productForm: "booster-pack" }),
+    ];
+    const samples = ["alpha", "beta", "s1", "s2", "audit-2026-10"].map((seed) =>
+      selectCatalogAuditSample(parseCatalogAuditSampleRequest({ strata: "magic=3/4", seed }), bounded),
+    );
+    for (const sample of samples) {
+      expect(sample.items.map((item) => item.catalogItemId).sort()).toEqual(
+        bounded.map((item) => item.catalogItemId).sort(),
+      );
+      expect(sample.strata).toEqual([
+        {
+          productDomain: "magic",
+          languageCode: null,
+          productForm: "singles",
+          allocated: 3,
+          available: 3,
+          sampled: 3,
+          shortfall: 0,
+        },
+        {
+          productDomain: "magic",
+          languageCode: null,
+          productForm: "sealed",
+          allocated: 4,
+          available: 2,
+          sampled: 2,
+          shortfall: 2,
+        },
+      ]);
+    }
   });
 
   it("AC1: pins the sample for a fixed seed so any change to the selection fails", () => {

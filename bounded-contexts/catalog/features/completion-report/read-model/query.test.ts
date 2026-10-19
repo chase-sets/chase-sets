@@ -36,6 +36,28 @@ import {
   withCatalogCompletionReadSnapshot,
 } from "./query";
 
+describe("queryProductionCatalogCompletionFacts sample envelope", () => {
+  it("refuses a sample over the 275-item audit envelope before opening a connection", async () => {
+    const fixed = parseCatalogAuditSampleRequest({ strata: "magic=200/75", seed: "s1" });
+    const oversized = { ...fixed, strata: [{ ...fixed.strata[0]!, sealed: 76 }] };
+    let connections = 0;
+    const pool = {
+      connect: async () => {
+        connections += 1;
+        throw new Error("the envelope check must run before any connection");
+      },
+    } as unknown as PgTransactionalPool;
+    await expect(
+      queryProductionCatalogCompletionFacts(pool, {
+        batchId: "batch-1",
+        observedAt: "2026-10-18T00:00:00.000Z",
+        sample: oversized,
+      }),
+    ).rejects.toThrow("at most 275");
+    expect(connections).toBe(0);
+  });
+});
+
 describe("classifyProviderProductionClass", () => {
   it("classifies active production, validation lifecycles, and retired units", () => {
     expect(classifyProviderProductionClass({ lifecycle: "active", active: true })).toBe("production");

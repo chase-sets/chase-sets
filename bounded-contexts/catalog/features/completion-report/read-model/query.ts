@@ -6,6 +6,7 @@ import {
   type CatalogMergeCandidateApplicationReconciliation,
 } from "../../source-observations/api/source-observation-merge-candidate-bulk-job-runtime";
 import {
+  assertCatalogAuditSampleEnvelope,
   selectCatalogAuditSample,
   type CatalogAuditSample,
   type CatalogAuditSampleRequest,
@@ -119,6 +120,7 @@ export async function queryProductionCatalogCompletionFacts(
     sample?: CatalogAuditSampleRequest | null;
   }>,
 ): Promise<ProductionCatalogDatabaseFacts> {
+  if (input.sample) assertCatalogAuditSampleEnvelope(input.sample);
   return withCatalogCompletionReadSnapshot(pool, (tx) => readProductionCatalogCompletionFacts(tx, input));
 }
 

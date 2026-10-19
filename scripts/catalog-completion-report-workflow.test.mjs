@@ -5,6 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { parseCatalogCompletionArgs } from "./catalog-production-completion-report.ts";
 import { repoRoot } from "./lib/repo.mjs";
 
 const workflowPath = ".github/workflows/catalog-completion-report.yml";
@@ -129,6 +130,13 @@ describe("catalog completion report workflow contract", () => {
     expect(report).toContain('if [ -n "$SAMPLE_SEED" ]; then');
     expect(report).toContain('sample_args=(--sample "$AUDIT_SAMPLE_ALLOCATION" --sample-seed "$SAMPLE_SEED")');
     expect(report).toContain('"${sample_args[@]}"');
+    // The workflow's allocation goes through the CLI's own parser and fills the
+    // 275-item audit envelope exactly.
+    const { sample } = parseCatalogCompletionArgs(
+      ["--facts", "database", "--sample", job.env.AUDIT_SAMPLE_ALLOCATION, "--sample-seed", "s1"],
+      {},
+    );
+    expect(sample.strata.reduce((total, stratum) => total + stratum.singles + stratum.sealed, 0)).toBe(275);
   });
 
   it("runs the database-mode report from env, never interpolating inputs into scripts", () => {

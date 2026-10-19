@@ -225,6 +225,10 @@ describe("catalog completion verifier database mode", () => {
     expect(() =>
       parseCatalogCompletionArgs(["--facts", "database", "--sample", "magic=1", "--sample-seed", "s1"], {}),
     ).toThrow("[sample-invalid]");
+    // The 275-item audit envelope is refused at argument parsing, before any read.
+    expect(() =>
+      parseCatalogCompletionArgs(["--facts", "database", "--sample", "magic=200/76", "--sample-seed", "s1"], {}),
+    ).toThrow(/\[sample-invalid\].*at most 275/);
   });
 
   it("adds the sample to the database record only when requested and keeps it support-safe", () => {

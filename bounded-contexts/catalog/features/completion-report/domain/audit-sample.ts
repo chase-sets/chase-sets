@@ -3,9 +3,13 @@ import { createHash } from "node:crypto";
 // Seeded audit sample of published Catalog Items for the cross-source audit.
 // A request names strata as `domain[:language]=singles/sealed`; each stratum
 // form takes its allocation from the batch's active items in a seed-ranked
-// order, so a seed always reproduces the same sample from the same items. A
-// stratum with fewer items takes all of them and reports the shortfall. The
-// sample carries only Catalog identifiers and relative public paths.
+// order, so a seed always reproduces the same sample from the same items in
+// any input order. A stratum with no more items than its allocation takes all
+// of them for every seed and reports the shortfall. A stratum with slack takes
+// exactly its allocation; it has finitely many possible samples, so distinct
+// seeds may select the same one. A request totals at most the 275 items of the
+// fixed audit allocation. The sample carries only Catalog identifiers and
+// relative public paths.
 
 export type CatalogAuditSampleForm = "singles" | "sealed";
 
@@ -65,7 +69,8 @@ export class CatalogAuditSampleRequestError extends Error {
   }
 }
 
-const maxStratumAllocation = 1000;
+// The fixed six-stratum audit allocation's total; no request may exceed it.
+export const catalogAuditSampleMaxItems = 275;
 const stratumEntryPattern = /^([a-z][a-z0-9-]*)(?::([a-z]{2,3}))?=(\d+)\/(\d+)$/;
 // The seed is echoed into support-facing evidence, so it is a plain token.
 const seedPattern = /^[A-Za-z0-9._-]{1,64}$/;
@@ -93,11 +98,6 @@ export function parseCatalogAuditSampleRequest(
     }
     const [, productDomain, languageCode, singles, sealed] = match;
     const allocation = { singles: Number(singles), sealed: Number(sealed) };
-    if (allocation.singles > maxStratumAllocation || allocation.sealed > maxStratumAllocation) {
-      throw new CatalogAuditSampleRequestError(
-        `Audit sample stratum ${entry} exceeds ${maxStratumAllocation} items per form.`,
-      );
-    }
     // A domain is sampled either as a whole or per language, never both, so
     // no item can fall in two strata.
     const sameDomain = strata.filter((stratum) => stratum.productDomain === productDomain);
@@ -111,7 +111,22 @@ export function parseCatalogAuditSampleRequest(
     }
     strata.push({ productDomain: productDomain!, languageCode: languageCode ?? null, ...allocation });
   }
-  return { seed: input.seed, strata };
+  const request = { seed: input.seed, strata };
+  assertCatalogAuditSampleEnvelope(request);
+  return request;
+}
+
+// Refuses a request whose allocation totals more than the audit envelope. The
+// parser and the database read both call it, so no caller reaches the read
+// with a larger request. A non-numeric total from a hand-built request fails
+// the comparison and is refused too.
+export function assertCatalogAuditSampleEnvelope(request: CatalogAuditSampleRequest): void {
+  const total = request.strata.reduce((sum, stratum) => sum + stratum.singles + stratum.sealed, 0);
+  if (!(total <= catalogAuditSampleMaxItems)) {
+    throw new CatalogAuditSampleRequestError(
+      `The audit sample allocation totals ${total} items; the audit envelope is at most ${catalogAuditSampleMaxItems}.`,
+    );
+  }
 }
 
 const sealedForms = new Set([
