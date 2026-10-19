@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 
 const expectedInventory = [
-  ["bounded-contexts/settlement/features/payouts/api/runtime.ts", "getCommittedPayoutLedgerEntry"],
+  ["bounded-contexts/settlement/features/payouts/api/payout-primitives.ts", "getCommittedPayoutLedgerEntry"],
   ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "cleanupCommitMetadata"],
   ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "existingStartedSession"],
   [
