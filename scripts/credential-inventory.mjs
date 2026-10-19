@@ -40,7 +40,7 @@ const ENTRY_KEYS = new Set([
 const AGENT_TIER_KEYS = new Set(["project", "keys"]);
 const AGENT_TIER_KEY_KEYS = new Set(["name", "testPrefixes"]);
 // Liveness kinds that reach a whole provider account, and name classes the
-// #10031 decision keeps out of the agent tier whatever their scope.
+// agent-tier decision keeps out of the tier whatever their scope.
 const AGENT_TIER_REFUSED_LIVENESS = Object.freeze(["digitalocean-account", "spaces-list-buckets"]);
 const AGENT_TIER_REFUSED_PREFIXES = Object.freeze(["DIGITALOCEAN_", "SES_", "TCGPLAYER_"]);
 const AGENT_TIER_REFUSED_INFIX = "ADMIN_PASSWORD";
@@ -252,7 +252,7 @@ function validateAgentTier(tier, byName, errors) {
   };
 }
 
-// #10031 Q2: a Spaces pair joins only when neither member's scope reaches
+// The Spaces pair rule: a pair joins only when neither member's scope reaches
 // production and no production-reaching entry uses its spaces-bucket bucket.
 function validateAgentTierSpacesPair(entry, partners, byName, label, errors) {
   const holder = SPACES_LIVENESS_KINDS.includes(entry.liveness?.kind)
