@@ -26,7 +26,7 @@ import committedGoldens from "./evidence-canonicalization.goldens.json" with { t
 // Counts Sharp instances and pixel decodes (toBuffer) so "rejected before decode" is proven by counts, not timing.
 const decoder = vi.hoisted(() => ({ instances: 0, decodes: 0 }));
 vi.mock("sharp", async (importOriginal) => {
-  const actual = (await importOriginal<{ default: typeof import("sharp") }>()).default;
+  const actual = (await importOriginal<typeof import("sharp")>()).default;
   return {
     default: new Proxy(actual, {
       apply(target, thisArg, args: Parameters<typeof actual>) {
