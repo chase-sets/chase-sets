@@ -12,7 +12,9 @@ const adminWebBaseUrl = process.env.ADMIN_WEB_URL ?? sandbox.urls.adminWeb;
 const marketplaceBaseUrl = process.env.MARKETPLACE_WEB_URL ?? sandbox.urls.marketplaceWeb;
 const publicWebBaseUrl = process.env.PUBLIC_WEB_URL ?? sandbox.urls.publicWeb;
 const isCi = Boolean(process.env.CI);
-const renderedCopySweep = process.env.CHASE_SETS_RENDERED_COPY_SWEEP === "1";
+const renderedCopySweep = process.argv.some(
+  (argument, index) => argument === "--grep" && process.argv[index + 1] === "@rendered-copy",
+);
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
 const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_URL);
 // The browser-e2e dev-system targets boot platform-api, platform-worker,

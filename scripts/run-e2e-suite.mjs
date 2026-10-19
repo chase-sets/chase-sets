@@ -183,7 +183,6 @@ async function main() {
         process.env.CHASE_SETS_BROWSER_E2E_SYSTEM !== "production"
       )
         throw new Error("rendered-copy requires a fresh production browser stack");
-      process.env.CHASE_SETS_RENDERED_COPY_SWEEP = "1";
       process.env.CI = "true";
       listRenderedCopy(args);
       rmSync(path.join(rootDir, renderedCopyObservationDirectory), { recursive: true, force: true });
