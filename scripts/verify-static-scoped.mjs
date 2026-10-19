@@ -478,6 +478,10 @@ export async function runVerifyStaticScoped({
       stderr(`[${error.code}] ${error.message}.`);
       return 1;
     }
+    if (error.code === "STATIC_SCOPE_STEPS_MAP_INVALID") {
+      stderr(`[${error.code}] ${error.message}.`);
+      return 1;
+    }
     stderr(`[STATIC_SCOPE_CLASSIFICATION_FAILED] ${error.message}. Running the full local static link set.`);
     plan = selectVerifyStaticLinks({
       chain,

@@ -1,9 +1,78 @@
-import {
-  BRAND_FOIL_PROOF_INPUT_PATHS,
-  BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS,
-} from "./check-structure/brand-foil-proof.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
+import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
+import { BRAND_FOIL_PROOF_ENTRY_PATHS, BRAND_FOIL_PROOF_INPUT_PATHS } from "./check-structure/brand-foil-proof.mjs";
 
-export { BRAND_FOIL_PROOF_INPUT_PATHS, BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS };
+export { BRAND_FOIL_PROOF_INPUT_PATHS };
+
+function scriptKind(file) {
+  if (/\.tsx?$/.test(file)) return ts.ScriptKind.TSX;
+  if (/\.jsx?$/.test(file)) return ts.ScriptKind.JSX;
+  return ts.ScriptKind.JS;
+}
+
+function resolveFile(root, candidate) {
+  const normalized = candidate.replaceAll("\\", "/");
+  const candidates = [normalized, ...[".mjs", ".js", ".ts", ".tsx", ".jsx", ".json"].map((ext) => `${normalized}${ext}`), ...["index.mjs", "index.js", "index.ts", "index.tsx"].map((name) => path.posix.join(normalized, name))];
+  for (const relative of candidates) if (existsSync(path.join(root, relative))) return relative;
+  throw new Error(`unresolved static import: ${normalized}`);
+}
+
+function staticModuleSpecifiers(sourceFile) {
+  const specifiers = [];
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) specifiers.push(statement.moduleSpecifier.text);
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)) specifiers.push(statement.moduleSpecifier.text);
+  }
+  function visit(node) {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const argument = node.arguments[0];
+      if (!argument || !ts.isStringLiteral(argument)) throw new Error(`non-literal dynamic import in ${sourceFile.fileName}`);
+      specifiers.push(argument.text);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return specifiers;
+}
+
+function resolveSpecifier(root, fromRelative, specifier, packages) {
+  if (specifier.startsWith("node:")) return [];
+  if (!specifier.startsWith("@chase-sets/")) return [];
+  if (specifier.startsWith("./") || specifier.startsWith("../")) {
+    const absolute = path.resolve(root, path.dirname(fromRelative), specifier);
+    const relative = path.relative(root, absolute).replaceAll("\\", "/");
+    if (relative.startsWith("../") || path.isAbsolute(relative)) throw new Error(`static import escapes repository: ${specifier}`);
+    return [resolveFile(root, relative)];
+  }
+  const parts = specifier.split("/");
+  const packageName = specifier.startsWith("@") ? `${parts.shift()}/${parts.shift()}` : parts.shift();
+  const workspace = packages.get(packageName);
+  if (!workspace) throw new Error(`unmapped workspace package import: ${specifier}`);
+  const packageJsonRelative = path.relative(root, workspace.packageJsonPath).replaceAll("\\", "/");
+  if (parts.length > 0) return [packageJsonRelative, resolveFile(root, path.relative(root, path.join(workspace.dir, parts.join("/"))).replaceAll("\\", "/"))];
+  const target = workspace.packageJson.exports?.["."]?.default ?? workspace.packageJson.exports?.["."] ?? workspace.packageJson.module ?? workspace.packageJson.main ?? "index.mjs";
+  return [packageJsonRelative, resolveFile(root, path.relative(root, path.join(workspace.dir, typeof target === "string" ? target : "index.mjs")).replaceAll("\\", "/"))];
+}
+
+export function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
+  const packages = new Map(listWorkspacePackages({ repoRoot: root }).map((workspace) => [workspace.name, workspace]));
+  const pending = [...BRAND_FOIL_PROOF_ENTRY_PATHS];
+  const discovered = new Set();
+  while (pending.length > 0) {
+    const relativePath = pending.pop();
+    if (discovered.has(relativePath)) continue;
+    discovered.add(relativePath);
+    const sourceFile = ts.createSourceFile(relativePath, readFileSync(path.join(root, relativePath), "utf8"), ts.ScriptTarget.Latest, true, scriptKind(relativePath));
+    for (const specifier of staticModuleSpecifiers(sourceFile)) {
+      for (const resolved of resolveSpecifier(root, relativePath, specifier, packages)) if (!discovered.has(resolved)) pending.push(resolved);
+    }
+  }
+  return Object.freeze([...discovered].sort());
+}
+
+export const BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS = collectBrandFoilProofStaticImportPaths();
 
 export const ALWAYS_RUN = "always-run";
 export const MAY_NARROW = "may-narrow";

@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import ts from "@chase-sets/typescript-compiler-api";
 import { findGitKeySetTripwireViolations } from "./check-structure/catalog-localization-keyset-tripwire.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
@@ -21,12 +22,12 @@ import {
 import {
   ALWAYS_RUN,
   BRAND_FOIL_PROOF_INPUT_PATHS,
-  BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS,
   MAY_NARROW,
   VERIFY_STATIC_GUARD_TEST_SURFACES,
   VERIFY_STATIC_SCOPED_EXCLUSIONS,
   VERIFY_STATIC_SURFACES,
 } from "./verify-static-surfaces.mjs";
+import { BRAND_FOIL_PROOF_ENTRY_PATHS } from "./check-structure/brand-foil-proof.mjs";
 
 const temporaryDirectories = [];
 
@@ -76,6 +77,72 @@ function assertOnlyTestScriptsWasRemoved(basePlan, repairedPlan) {
     basePlan.skipped.map(({ link }) => link.name).filter((name) => name !== "test:scripts"),
   );
   expect(repairedPlan.excluded.map(({ link }) => link.name)).toEqual(["test:scripts"]);
+}
+
+function oracleResolveFile(candidate) {
+  const normalized = candidate.replaceAll("\\", "/");
+  const candidates = [
+    normalized,
+    ...[".mjs", ".js", ".ts", ".tsx", ".jsx", ".json"].map((extension) => `${normalized}${extension}`),
+    ...["index.mjs", "index.js", "index.ts", "index.tsx"].map((name) => path.posix.join(normalized, name)),
+  ];
+  for (const relative of candidates) {
+    if (existsSync(path.join(repoRoot, relative))) return relative;
+  }
+  throw new Error(`oracle could not resolve ${normalized}`);
+}
+
+function oracleSpecifiers(sourceFile) {
+  const specifiers = [];
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) specifiers.push(statement.moduleSpecifier.text);
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)) {
+      specifiers.push(statement.moduleSpecifier.text);
+    }
+  }
+  const visit = (node) => {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const argument = node.arguments[0];
+      if (!argument || !ts.isStringLiteral(argument)) throw new Error(`oracle found non-literal import in ${sourceFile.fileName}`);
+      specifiers.push(argument.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return specifiers;
+}
+
+function oracleStaticImportClosure() {
+  const packages = new Map(listWorkspacePackages({ repoRoot }).map((workspace) => [workspace.name, workspace]));
+  const pending = [...BRAND_FOIL_PROOF_ENTRY_PATHS];
+  const discovered = new Set();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (discovered.has(current)) continue;
+    discovered.add(current);
+    const source = readFileSync(path.join(repoRoot, current), "utf8");
+    const scriptKind = /\.tsx?$/.test(current) ? ts.ScriptKind.TSX : /\.jsx?$/.test(current) ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
+    const sourceFile = ts.createSourceFile(current, source, ts.ScriptTarget.Latest, true, scriptKind);
+    for (const specifier of oracleSpecifiers(sourceFile)) {
+      if (specifier.startsWith("node:")) continue;
+      if (!specifier.startsWith("@chase-sets/")) continue;
+      if (specifier.startsWith("./") || specifier.startsWith("../")) {
+        const relative = path.relative(repoRoot, path.resolve(repoRoot, path.dirname(current), specifier)).replaceAll("\\", "/");
+        if (relative.startsWith("../") || path.isAbsolute(relative)) throw new Error(`oracle import escaped repository: ${specifier}`);
+        pending.push(oracleResolveFile(relative));
+        continue;
+      }
+      if (!specifier.startsWith("@chase-sets/")) continue;
+      const parts = specifier.split("/");
+      const packageName = `${parts.shift()}/${parts.shift()}`;
+      const workspace = packages.get(packageName);
+      if (!workspace) throw new Error(`oracle workspace package is unmapped: ${specifier}`);
+      pending.push(path.relative(repoRoot, workspace.packageJsonPath).replaceAll("\\", "/"));
+      const target = workspace.packageJson.exports?.["."]?.default ?? workspace.packageJson.exports?.["."] ?? workspace.packageJson.module ?? workspace.packageJson.main ?? "index.mjs";
+      pending.push(oracleResolveFile(path.relative(repoRoot, path.join(workspace.dir, typeof target === "string" ? target : "index.mjs")).replaceAll("\\", "/")));
+    }
+  }
+  return [...discovered].sort();
 }
 
 function execGit(rootDir, args) {
@@ -993,11 +1060,13 @@ describe("focused-local command-plan boundary", () => {
 describe("scoped check:structure steps", () => {
   const structureSurface = VERIFY_STATIC_SURFACES["check:structure"];
 
-  it("skips the brand-foil proof step outside its inputs", async () => {
+  it.each(["docs/readme.md", "scripts/guest-buy-now-freshness-probe.mjs", "bounded-contexts/catalog/README.md"])(
+    "skips the brand-foil proof step outside its inputs: %s",
+    async (changedPath) => {
     const steps = [];
     const output = [];
     const status = await runVerifyStaticScoped({
-      env: { CHANGED_FILES_JSON: '["docs/readme.md"]' },
+      env: { CHANGED_FILES_JSON: JSON.stringify([changedPath]) },
       readPackageJson: () => ({
         scripts: {
           "verify:static": "pnpm run check:structure",
@@ -1021,9 +1090,11 @@ describe("scoped check:structure steps", () => {
     expect(output).toContain(
       `[SKIPPED-BY-SCOPE] check:structure > brand-foil-proof: ${structureSurface.scopedSteps[1].rule}`,
     );
-  });
+    if (changedPath.startsWith("scripts/guest")) expect(output.some((line) => line.includes("[VERIFY_STATIC_FULL]"))).toBe(true);
+    },
+  );
 
-  it.each([...BRAND_FOIL_PROOF_INPUT_PATHS, ...BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS, "pnpm-lock.yaml"])(
+  it.each([...BRAND_FOIL_PROOF_INPUT_PATHS, ...oracleStaticImportClosure(), "scripts/check-structure/not-in-closure.mjs", "pnpm-lock.yaml"])(
     "runs the brand-foil proof after the aggregate for proof input %s",
     (changedPath) => {
       const plan = selectVerifyStaticLinks({
@@ -1046,6 +1117,34 @@ describe("scoped check:structure steps", () => {
       expect(structure.skippedSteps).toEqual([]);
     },
   );
+
+  it("runs aggregate then proof and stops on aggregate status", async () => {
+    const executions = [];
+    const run = (aggregateStatus) =>
+      runVerifyStaticScoped({
+        env: { CHANGED_FILES_JSON: JSON.stringify(["pnpm-lock.yaml"]) },
+        readPackageJson: () => ({
+          scripts: {
+            "verify:static": "pnpm run check:structure",
+            "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+          },
+        }),
+        surfaces: { "check:structure": structureSurface },
+        guardSurfaces: {},
+        dependencies: noFanoutDependencies(),
+        runStep: (step) => {
+          executions.push(step.name);
+          return step.name === "aggregate" ? aggregateStatus : 0;
+        },
+        runGuardTests: () => 0,
+        stdout: () => {},
+      });
+    expect(await run(0)).toBe(0);
+    expect(executions).toEqual(["aggregate", "brand-foil-proof"]);
+    executions.length = 0;
+    expect(await run(7)).toBe(7);
+    expect(executions).toEqual(["aggregate"]);
+  });
 
   it("runs check:structure whole on forced-full derivation", async () => {
     const links = [];
@@ -1076,7 +1175,7 @@ describe("scoped check:structure steps", () => {
   });
 
   it("runs check:structure whole when its steps drift from package.json", async () => {
-    const steps = [];
+    const links = [];
     const output = [];
     const status = await runVerifyStaticScoped({
       env: { CHANGED_FILES_JSON: '["docs/readme.md"]' },
@@ -1095,18 +1194,62 @@ describe("scoped check:structure steps", () => {
       },
       guardSurfaces: {},
       dependencies: noFanoutDependencies(),
-      runStep: (step) => {
-        steps.push(step.command);
+      runLink: (link) => {
+        links.push(link);
         return 0;
       },
-      runLink: () => 0,
       runGuardTests: () => 0,
       stdout: (line) => output.push(line),
     });
 
     expect(status).toBe(0);
-    expect(steps).toEqual([]);
+    expect(links).toHaveLength(1);
+    expect(links[0].command).toBe("pnpm run check:structure");
+    expect(links[0].selectedSteps).toBeUndefined();
+    expect(links[0].scopedStepsStale).toBe(true);
     expect(output.join("\n")).toContain("[STATIC_SCOPE_STEPS_STALE]");
+  });
+
+  it.each([
+    { name: "other link", surfaces: { "other": { scopedSteps: [{ name: "step", command: "node x", classification: ALWAYS_RUN }] } } },
+    { name: "empty", surfaces: { "check:structure": { ...structureSurface, scopedSteps: [] } } },
+    { name: "missing include", surfaces: { "check:structure": { ...structureSurface, scopedSteps: [{ name: "step", command: "node x", classification: MAY_NARROW, rule: "x" }] } } },
+    { name: "bad classification", surfaces: { "check:structure": { ...structureSurface, scopedSteps: [{ name: "step", command: "node x", classification: "nope" }] } } },
+  ])("rejects an invalid step map: $name", async ({ surfaces }) => {
+    const output = [];
+    const links = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["docs/readme.md"]' },
+      readPackageJson: () => ({ scripts: surfaces.other ? { "verify:static": "pnpm run other", other: "node x" } : { "verify:static": "pnpm run check:structure", "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs" } }),
+      surfaces,
+      guardSurfaces: {},
+      dependencies: noFanoutDependencies(),
+      runLink: (link) => { links.push(link); return 0; },
+      runGuardTests: () => 0,
+      stdout: (line) => output.push(line),
+      stderr: (line) => output.push(line),
+    });
+    expect(status).toBe(1);
+    expect(output.join("\n")).toContain("[STATIC_SCOPE_STEPS_MAP_INVALID]");
+    expect(links).toEqual([]);
+  });
+
+  it("narrows the proof under all-workspace escalation", async () => {
+    const steps = [];
+    const output = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["docs/readme.md"]' },
+      readPackageJson: () => ({ scripts: { "verify:static": "pnpm run check:structure", "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs" } }),
+      surfaces: { "check:structure": structureSurface },
+      guardSurfaces: {},
+      dependencies: { listWorkspacePackages: () => [{ name: "one" }, { name: "two" }], classifyChanges: () => ({ affectedWorkspaces: ["one", "two"] }) },
+      runStep: (step) => { steps.push(step.name); return 0; },
+      runGuardTests: () => 0,
+      stdout: (line) => output.push(line),
+    });
+    expect(status).toBe(0);
+    expect(steps).toEqual(["aggregate"]);
+    expect(output.some((line) => line.includes("[VERIFY_STATIC_FULL]"))).toBe(true);
   });
 });
 
