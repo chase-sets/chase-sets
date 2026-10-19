@@ -491,11 +491,7 @@ function deriveInheritedOwnerCandidates(root = repositoryRoot) {
   const inheritedOwnerTokenPattern =
     /CHASE_SETS_HEAVY_SLOT_ID|CHASE_SETS_HEAVY_SLOT_TRANSPORT|findHeavySlotClient\(|acquireHeavySlot\(/;
   return tracked
-    .filter(
-      (file) =>
-        file.startsWith("scripts/") &&
-        file.endsWith(".test.mjs"),
-    )
+    .filter((file) => file.startsWith("scripts/") && file.endsWith(".test.mjs"))
     .filter((file) => {
       const source = readFileSync(path.join(root, file), "utf8");
       return (
@@ -506,7 +502,11 @@ function deriveInheritedOwnerCandidates(root = repositoryRoot) {
     .sort();
 }
 
-function classifyInheritedOwnerCandidates(candidates, listed = inheritedOwnerScriptTests, waivers = inheritedOwnerWaivers) {
+function classifyInheritedOwnerCandidates(
+  candidates,
+  listed = inheritedOwnerScriptTests,
+  waivers = inheritedOwnerWaivers,
+) {
   const listedSet = new Set(listed);
   const waivedSet = new Set(Object.keys(waivers));
   return {
