@@ -44,9 +44,9 @@
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/provider-webhook-inbox": "workspace:*",
     "@chase-sets/seller-attention-queue": "workspace:*",
-    "hono": "^4.12.12",
+    "hono": "^4.13.13",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router": "^7.14.0"
+    "react-router": "^7.18.4"
   }
 }

@@ -29,7 +29,7 @@
     "@chase-sets/market-estimate-display": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
-    "hono": "^4.12.12",
+    "hono": "^4.13.13",
     "react": "^19.2.5"
   },
   "devDependencies": {
