@@ -4,6 +4,7 @@ import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
   buyerVisibleListingPredicateSql,
   buyerVisibleListingQuantitySql,
+  buyerVisibleOfferPredicateSql,
 } from "../../../support/market-support/listing-visibility";
 import type {
   DiscoveryAccountOfferMatchWithTerms,
@@ -497,9 +498,7 @@ export async function getDiscoveryItemDetail(
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
      WHERE offer.catalog_catalog_item_id = $1
-       AND offer.status = 'submitted'
-       AND offer.price_currency_code IS NOT NULL
-       AND offer.offer_stream_version > 0
+       AND ${buyerVisibleOfferPredicateSql("offer", "account")}
      ORDER BY
        offer.price_currency_code ASC,
        offer.price_amount::numeric DESC,
@@ -591,8 +590,10 @@ export async function getDiscoveryItemDetailSellerOverlay(
            listing.listing_id ASC
          LIMIT 1
        ) AS listing ON true
+       INNER JOIN discovery_market_accounts AS buyer
+         ON buyer.account_id = offer.buyer_account_id
        WHERE offer.catalog_catalog_item_id = $2
-         AND offer.status = 'submitted'
+         AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}
      )
      SELECT
        offer.offer_id,

@@ -156,6 +156,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "review-eligibility": "runtime-library",
     "seller-attention-queue": "runtime-library",
     "seller-desk": "runtime-library",
+    "tcgplayer-market-observations": "event-store-persistence",
   }),
 
   // Migration mechanisms (historical paths). Renamed copies are caught by the
@@ -260,9 +261,10 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-coverage.yml": "ci",
     "platform-database-restore-drill.yml": "release",
     "platform-db-duration-drift.yml": "ci",
+    "platform-dependency-audit.yml": "ci",
     "platform-delivery-health.yml": "ci",
+    "platform-credential-health.yml": "ci",
     "platform-digitalocean-drift-digest.yml": "ci",
-    "platform-digitalocean-token-rotation-reminder.yml": "ci",
     "platform-doks-foundation.yml": "release",
     "platform-emergency-recovery.yml": "release",
     "platform-ephemeral-verification.yml": "release",

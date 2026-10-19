@@ -85,6 +85,49 @@ export function compareOutcomeMilestones(left, right) {
   );
 }
 
+function milestoneNumber(milestone) {
+  if (Number.isSafeInteger(milestone?.number) && milestone.number > 0) return milestone.number;
+  fail("OUTCOME_MILESTONE_IDENTITY_INVALID", milestone);
+}
+
+/**
+ * Ranks outcomes by `order` alone across tracks, then by milestone number.
+ * Track names never decide; outcomes without metadata sort last.
+ */
+export function compareOutcomeOrder(left, right) {
+  const leftPolicy = readOutcomePolicy(left);
+  const rightPolicy = readOutcomePolicy(right);
+  if (leftPolicy === null || rightPolicy === null) {
+    if (leftPolicy !== rightPolicy) return leftPolicy === null ? 1 : -1;
+  } else if (leftPolicy.order !== rightPolicy.order) {
+    return leftPolicy.order - rightPolicy.order;
+  }
+  return milestoneNumber(left) - milestoneNumber(right);
+}
+
+/**
+ * Groups executable outcomes that share an `order`, across tracks. The caller
+ * passes only the outcomes it ranks; a tie never fails the ranking itself.
+ */
+export function findOutcomeOrderTies(milestones) {
+  const byOrder = new Map();
+  for (const milestone of milestones) {
+    if (!isExecutableOutcome(milestone)) continue;
+    const { order } = readOutcomePolicy(milestone);
+    const numbers = byOrder.get(order) ?? new Set();
+    numbers.add(milestoneNumber(milestone));
+    byOrder.set(order, numbers);
+  }
+  return [...byOrder]
+    .filter(([, numbers]) => numbers.size > 1)
+    .sort(([left], [right]) => left - right)
+    .map(([order, numbers]) => ({
+      code: "OUTCOME_ORDER_TIE",
+      order,
+      milestones: [...numbers].sort((left, right) => left - right),
+    }));
+}
+
 export function isExecutableOutcome(milestone) {
   const policy = readOutcomePolicy(milestone);
   return policy !== null && policy.status === "committed" && String(milestone?.state ?? "").toLowerCase() === "open";

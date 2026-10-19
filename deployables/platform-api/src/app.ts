@@ -66,7 +66,7 @@ import {
   createInventoryHoldCleanupAuthorityForPool,
   type RecordExternalChannelSale,
   type InventoryDraftListingCreator,
-  type InventorySavedListImportBatchCreator,
+  type InventoryServices,
 } from "@chase-sets/inventory/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -664,13 +664,7 @@ export function createPlatformApiHost(
     abort: (input, context) => admissionAuthority().abort(input, context),
   };
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
-    const inventoryServices = runtime?.services.inventory as
-      | {
-          importBatches?: {
-            createSavedListImportBatch?: InventorySavedListImportBatchCreator;
-          };
-        }
-      | undefined;
+    const inventoryServices = runtime?.services.inventory as InventoryServices | undefined;
     const createBatch = inventoryServices?.importBatches?.createSavedListImportBatch;
     if (!createBatch) {
       throw new Error("Inventory Saved List import service is unavailable.");

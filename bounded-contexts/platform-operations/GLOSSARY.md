@@ -187,6 +187,22 @@ A **Responsibility Reason Code** is the stable, machine-readable, flow-prefixed 
 
 A **Case Status** describes where a Support Request is in its lifecycle, such as waiting on a party, ready for Support, resolved, closed, or cancelled. It is independent from the remedy and responsibility facts recorded at resolution.
 
+## Feature Flags
+
+A **Feature Flag Definition** is the platform-owned declaration of a flag key and its **Flag Fallback Value**. The fallback is the definition's value when no authored environment document supplies a value; it is not a targeting default.
+
+A **Feature Flag Document** is the versioned, owner-attributed record of one flag's staging and production **Flag Environment State** values, including targeting inputs and the **Targeting Default** for each environment.
+
+A **Flag Environment State** is the closed per-environment state of a Feature Flag Document: enablement, account and badge targeting, percentage basis points, and its Targeting Default.
+
+A **Targeting Default** is the environment document's boolean value used by a future flag reader when its targeting rules do not select an account or badge. It is distinct from a Feature Flag Definition's Flag Fallback Value.
+
+A **Targeting Rule** is a future evaluation rule that selects whether a Flag Environment State applies to an eligible account or request. Evaluation behavior is not part of this contract.
+
+A **Flag Revision** is one immutable authored revision of a Feature Flag Document, identified by its document id and update instant.
+
+A **Flag Evaluation Context** is reserved for #7185; no type or evaluation behavior is shipped by this contract.
+
 ## Planned Platform Policy Enforcement
 
 These planned terms pre-register upcoming platform policy and enforcement language. They are not shipped behavior until Platform Operations adds the corresponding queues, operator workflows, and audit facts.

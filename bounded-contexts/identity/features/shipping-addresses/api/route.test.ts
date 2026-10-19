@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { t } from "@chase-sets/localization";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
@@ -10,7 +11,11 @@ import {
   initialShippingAddressBookState,
   normalizeShippingAddressSnapshot,
 } from "../domain/domain";
-import { ShippingAddressUndeliverableError } from "../domain/errors";
+import {
+  SHIPPING_ADDRESS_REQUIRED_MESSAGES,
+  ShippingAddressFieldError,
+  ShippingAddressUndeliverableError,
+} from "../domain/errors";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -33,7 +38,11 @@ const addressBody = {
   makeDefault: true,
 };
 
-function buildApp(services: ShippingAddressServices, resolvedActor: ResolvedActor = actor) {
+function buildApp(
+  services: ShippingAddressServices,
+  resolvedActor: ResolvedActor = actor,
+  accountManagement?: Parameters<typeof shippingAddressRoutes>[1],
+) {
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", resolvedActor);
@@ -47,7 +56,7 @@ function buildApp(services: ShippingAddressServices, resolvedActor: ResolvedActo
     } as EventStoreContext);
     await next();
   });
-  app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services));
+  app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services, accountManagement));
   return app;
 }
 
@@ -66,6 +75,55 @@ function buildServices(overrides: Partial<ShippingAddressServices> = {}) {
 }
 
 describe("shipping address API route", () => {
+  it.each(
+    (Object.keys(SHIPPING_ADDRESS_REQUIRED_MESSAGES) as (keyof typeof SHIPPING_ADDRESS_REQUIRED_MESSAGES)[]).flatMap(
+      (field) => [
+        { field, method: "POST", suffix: "" },
+        { field, method: "PUT", suffix: "/adr_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      ],
+    ),
+  )("keyed field rejection preserves exact unkeyed bytes for $method $field", async ({ field, method, suffix }) => {
+    const services = buildServices({
+      verifyShippingAddress: vi.fn(async () => {
+        throw new ShippingAddressFieldError(field);
+      }),
+    });
+    const accountManagement = {
+      submit: vi.fn(async () => ({
+        outcome: "not-recorded",
+        code: "validation-failed",
+        shippingAddressField: field,
+      })),
+      lookup: vi.fn(),
+    } as Parameters<typeof shippingAddressRoutes>[1];
+    const message = t(SHIPPING_ADDRESS_REQUIRED_MESSAGES[field]);
+    const path = `/accounts/acc_1/shipping-addresses${suffix}`;
+    const request = { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(addressBody) };
+    const response = await buildApp(services, actor, accountManagement).request(path, {
+      ...request,
+      headers: { ...request.headers, "Idempotency-Key": "9230f01b-7871-420b-9c32-37139f80f749" },
+    });
+    const unkeyed = await buildApp(services).request(path, request);
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(unkeyed.status).toBe(400);
+    const bytes = await response.text();
+    expect(JSON.parse(bytes)).toEqual({
+      error: { code: "validation_failed", message, details: [{ field, code: "required", message }] },
+    });
+    const unkeyedBytes = await unkeyed.text();
+    expect(JSON.parse(bytes)).toEqual(JSON.parse(unkeyedBytes));
+    expect(bytes).toBe(unkeyedBytes);
+    expect(accountManagement!.submit).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        action: method === "POST" ? "create" : "update",
+        target: method === "POST" ? null : "adr_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      }),
+    );
+    expect(services.verifyShippingAddress).toHaveBeenCalledTimes(1);
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
   it("preserves rejection parity and no write", async () => {
     const written = vi.fn();
     const services = buildServices({

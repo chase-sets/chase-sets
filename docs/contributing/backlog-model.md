@@ -110,6 +110,36 @@ Native dependencies carry each gate's prerequisites and native sub-issues carry
 capability structure. Neither milestone order nor a prose chain is a correctness
 edge.
 
+### Repository routing
+
+An issue lives in the repository its change merges into.
+
+- `chase-sets/chase-sets` holds every change to tracked Chase Sets files:
+  product code, `scripts/`, `docs/`, `.github/`, the repository's own
+  `AGENTS.md`, and the delivery and planning skills. This holds even when the
+  reason for the change is orchestration.
+- `chase-sets/chase-sets-controller` holds every change to tracked controller
+  files: the `.orchestrator/` runtime, contracts, fixtures and released
+  controller skills, the container scripts and instructions, and the
+  controller-orchestrator skill.
+- Route by the tracked files an issue changes. Callers, evidence and logs in the
+  other repository never move an issue.
+- An issue that changes no tracked file lives with the loop whose work it
+  serves. Machine-local output, such as `.orchestrator/logs/`, belongs to
+  neither tree.
+- A change that needs both repositories is one issue per repository. Link them
+  with a native dependency in landing order. An edit the brief marks as
+  conditional stays a note in the primary issue's scope fence, not its
+  footprint, until it is needed.
+- An outcome whose acceptance needs both repositories gets a milestone in each
+  repository, with the same title. Each milestone holds only its own
+  repository's issues.
+- An unplanned candidate that spans both repositories stays where most of its
+  change lands, and is split when it is promoted.
+- An issue filed in the wrong repository is moved, not copied. Use a transfer,
+  or reopen the original and close the copy, so exactly one open issue remains,
+  and keep its dependency and parent links.
+
 ### Agents own placement and priority
 
 Todd's steering is an override, not a required approval queue. Planning and the
@@ -121,12 +151,14 @@ issue belongs in or require him to maintain ranks.
 
 Apply this placement test at intake:
 
-1. Identify the issue's observable acceptance and the capability that owns it.
-2. If a committed outcome requires that acceptance, place the issue there and
+1. Identify the repository the change merges into (Repository routing). File
+   the issue there.
+2. Identify the issue's observable acceptance and the capability that owns it.
+3. If a committed outcome requires that acceptance, place the issue there and
    wire its genuine gate/prerequisite relationship.
-3. If it independently delivers another approved outcome, create or select a
+4. If it independently delivers another approved outcome, create or select a
    bounded outcome with its own acceptance, gate, and agent-chosen order.
-4. Otherwise keep the triaged capability in a candidate milestone. Promote only
+5. Otherwise keep the triaged capability in a candidate milestone. Promote only
    a bounded, usable subset when the delivery frontier can consume it.
 
 Choose routine outcome order from existing steering, correctness and external
@@ -355,10 +387,15 @@ Completion forecasting is owned by #7465.
 ## Scheduling mechanisms
 
 - **Milestone** owns finite acceptance, membership, terminal evidence and scope.
-- **Outcome order** is agent-owned order within a named track, with Todd steering
-  taking precedence. It is independent of title, creation order and dates. The
-  board's `Outcome order` Number field is a sync-owned display projection of the
-  shared comparator (track, order, stable identity); configure its field ID in
+- **Outcome order** is agent-owned order across all committed outcomes, with
+  Todd steering taking precedence. Committed outcomes compare by their outcome
+  `order` alone, across tracks, then by milestone number; track names never
+  decide rank. Track remains a label for the per-track pull window. Two ranked
+  committed outcomes with the same `order` are an `OUTCOME_ORDER_TIE` defect: the
+  tie is broken by milestone number and never fails the ranking. Outcome order
+  is independent of title, creation order and dates. The board's `Outcome order`
+  Number field is a sync-owned display projection of the same comparison
+  (`compareOutcomeOrder`); configure its field ID in
   `DELIVERY_OUTCOME_ORDER_FIELD_ID`. Agents edit the milestone authority, never
   this projection. Sort the execution view by Outcome order, then Dispatch rank.
 - **Blocker** is a native correctness edge, never a scheduling opinion.
@@ -377,13 +414,29 @@ request against the file being split.
 
 ## Selection (the orchestrator contract)
 
+`scripts/next-work.mjs` is the computed Selection. It reads live GitHub facts
+in one paced, read-only pass and reports the ranked runnable frontier as
+`next-work/v1` (text, or JSON with `--json <path>`). Every open issue is either ranked once or counted
+once under its first exclusion reason (`EPIC`, `TRACKING_ONLY`, `NO_MILESTONE`,
+`NOT_COMMITTED_OUTCOME`, `EXCLUDED_MILESTONE`, `BLOCKED`). Each ranked issue
+carries one action (`operator-wait`, `replan`, `planning-repair`, `decide`,
+`pr-open` or `implement`) and belongs to one **lane class**: `product` is
+`kind:product`; `ops` is `kind:ops` or a title starting `[controller]`; `other`
+is everything else. `--exclude-milestone` takes the platform-owned milestones.
+`--check` exits 1 when the report has defects, such as an `OUTCOME_ORDER_TIE`;
+incomplete facts exit 2 and write no file.
+
 1. Exclude Epics, tracking-only records, candidates, Deferred / Incubation and
    Operations. Preserve existing ownership for active lanes.
-2. Apply current Todd steering and actual emergency interrupts. Then consume
-   the per-track committed pull window from `scripts/dispatch-window.mjs`.
-   That helper uses the shared milestone policy; never derive title order again.
-3. Within the selected outcome, work Dispatch rank, then priority and native
-   dependency topology. Agents update ranks; Todd never has to supply them.
+2. Apply current Todd steering, then take the computed Selection: each lane
+   class is ranked by outcome order then milestone number, Dispatch rank
+   (missing last), priority p0 to p3 (missing last), dependency unlock count
+   (descending) and issue number. An evidenced p0 emergency may run ahead of
+   its rank only with a recorded `p0-emergency` reason (#9946). The per-track
+   committed pull window from `scripts/dispatch-window.mjs` uses the same
+   milestone policy; never derive title order again.
+3. Within an outcome, Dispatch rank, then priority and native dependency
+   topology order the work. Agents update ranks; Todd never has to supply them.
 4. Open native blockers make a slice unrunnable. Entry and terminal evidence
    gates cannot run before the state they observe exists. External operator
    windows are queued outside implementation lanes.

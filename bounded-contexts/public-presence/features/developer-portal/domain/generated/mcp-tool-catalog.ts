@@ -2439,7 +2439,8 @@ export const mcpToolCatalog = [
   {
     name: "inventory.commit-import-batch",
     title: "Commit Inventory Import Batch",
-    description: "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
+    description:
+      "Accept a durable job to commit reviewed import rows into Inventory Items and draft Listings; read the job for its outcome.",
     availability: "available",
     serviceId: "inventory",
     risk: "sensitive",
@@ -2477,139 +2478,26 @@ export const mcpToolCatalog = [
     },
     outputSchema: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
+      required: ["receiptVersion", "jobId", "batchId", "status"],
       properties: {
-        batch_id: {
-          type: "string",
-          description: "Import batch identifier.",
+        receiptVersion: {
+          type: "integer",
+          description: "Durable import acceptance receipt version (1).",
         },
-        account_id: {
+        jobId: {
           type: "string",
-          description: "Account that owns the import batch.",
+          description: "Durable commit job identity.",
+        },
+        batchId: {
+          type: "string",
+          description: "Inventory import batch identity.",
         },
         status: {
           type: "string",
-          description: "Import batch status.",
-          enum: ["uploaded", "committed"],
-        },
-        source_key: {
-          type: "string",
-          description: "Configured import source key.",
-        },
-        adapter_version: {
-          type: "integer",
-          description: "Version of the import adapter contract.",
-        },
-        quantity_mode: {
-          type: "string",
-          description: "How row quantities affect stock.",
-          enum: ["add", "replace"],
-        },
-        total_count: {
-          type: "integer",
-          description: "Total row count.",
-        },
-        accepted_count: {
-          type: "integer",
-          description: "Accepted row count.",
-        },
-        rejected_count: {
-          type: "integer",
-          description: "Rejected row count.",
-        },
-        committed_count: {
-          type: "integer",
-          description: "Committed row count.",
-        },
-        created_at: {
-          type: "string",
-          description: "Creation timestamp.",
-        },
-        updated_at: {
-          type: "string",
-          description: "Last update timestamp.",
-        },
-        rows: {
-          type: "array",
-          description: "Import batch rows.",
-          items: {
-            type: "object",
-            description: "Inventory import batch row.",
-            additionalProperties: true,
-            required: [
-              "row_id",
-              "batch_id",
-              "row_number",
-              "status",
-              "quantity_mode",
-              "resolution_status",
-              "validation_errors",
-              "created_at",
-              "updated_at",
-            ],
-            properties: {
-              row_id: {
-                type: "string",
-                description: "Import batch row identifier.",
-              },
-              batch_id: {
-                type: "string",
-                description: "Import batch identifier.",
-              },
-              row_number: {
-                type: "integer",
-                description: "Source row number.",
-              },
-              status: {
-                type: "string",
-                description: "Import row status.",
-                enum: ["accepted", "rejected", "committed"],
-              },
-              quantity_mode: {
-                type: "string",
-                description: "How row quantities affect stock.",
-                enum: ["add", "replace"],
-              },
-              resolution_status: {
-                type: "string",
-                description: "Catalog resolution status.",
-                enum: ["native", "resolved", "unresolved"],
-              },
-              validation_errors: {
-                type: "array",
-                description: "Validation errors for the row.",
-                items: {
-                  type: "string",
-                  description: "Validation error.",
-                },
-              },
-              created_at: {
-                type: "string",
-                description: "Creation timestamp.",
-              },
-              updated_at: {
-                type: "string",
-                description: "Last update timestamp.",
-              },
-            },
-          },
+          description: "accepted; read the durable job for its terminal outcome.",
         },
       },
-      required: [
-        "batch_id",
-        "account_id",
-        "status",
-        "source_key",
-        "adapter_version",
-        "quantity_mode",
-        "total_count",
-        "accepted_count",
-        "rejected_count",
-        "committed_count",
-        "created_at",
-        "updated_at",
-        "rows",
-      ],
     },
     permissionBoundary: {
       scope: "account",
@@ -2634,7 +2522,8 @@ export const mcpToolCatalog = [
   {
     name: "inventory.create-import-batch",
     title: "Create Inventory Import Batch",
-    description: "Create a review-first import batch from CSV text or pre-parsed provider rows.",
+    description:
+      "Accept a recoverable import validation job from CSV text or pre-parsed provider rows. Read the exact attempt receipt after a possible send; acceptance is not validation or stock commit.",
     availability: "available",
     serviceId: "inventory",
     risk: "sensitive",
@@ -2666,7 +2555,20 @@ export const mcpToolCatalog = [
           items: {
             type: "object",
             description: "Parsed row with rowNumber and string values.",
-            additionalProperties: true,
+            additionalProperties: false,
+            required: ["rowNumber", "values"],
+            properties: {
+              rowNumber: {
+                type: "integer",
+                description: "Distinct positive source row identity.",
+              },
+              values: {
+                type: "object",
+                description:
+                  "Text cells normalized by the selected source adapter; unknown upload fields are not retained.",
+                additionalProperties: true,
+              },
+            },
           },
         },
         defaultStorageLocationId: {
@@ -2681,7 +2583,7 @@ export const mcpToolCatalog = [
         },
         sourceFilename: {
           type: "string",
-          description: "Original file or connector source name.",
+          description: "Optional display hint, discarded and never retained with the import.",
         },
         idempotencyKey: {
           type: "string",
@@ -2700,139 +2602,27 @@ export const mcpToolCatalog = [
     },
     outputSchema: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
+      required: ["receiptVersion", "jobId", "batchId", "status"],
       properties: {
-        batch_id: {
-          type: "string",
-          description: "Import batch identifier.",
+        receiptVersion: {
+          type: "integer",
+          description: "Durable import acceptance receipt version (1).",
         },
-        account_id: {
+        jobId: {
           type: "string",
-          description: "Account that owns the import batch.",
+          description: "Durable validation job identity.",
+        },
+        batchId: {
+          type: "string",
+          description: "Recoverable import batch identity.",
         },
         status: {
           type: "string",
-          description: "Import batch status.",
-          enum: ["uploaded", "committed"],
-        },
-        source_key: {
-          type: "string",
-          description: "Configured import source key.",
-        },
-        adapter_version: {
-          type: "integer",
-          description: "Version of the import adapter contract.",
-        },
-        quantity_mode: {
-          type: "string",
-          description: "How row quantities affect stock.",
-          enum: ["add", "replace"],
-        },
-        total_count: {
-          type: "integer",
-          description: "Total row count.",
-        },
-        accepted_count: {
-          type: "integer",
-          description: "Accepted row count.",
-        },
-        rejected_count: {
-          type: "integer",
-          description: "Rejected row count.",
-        },
-        committed_count: {
-          type: "integer",
-          description: "Committed row count.",
-        },
-        created_at: {
-          type: "string",
-          description: "Creation timestamp.",
-        },
-        updated_at: {
-          type: "string",
-          description: "Last update timestamp.",
-        },
-        rows: {
-          type: "array",
-          description: "Import batch rows.",
-          items: {
-            type: "object",
-            description: "Inventory import batch row.",
-            additionalProperties: true,
-            required: [
-              "row_id",
-              "batch_id",
-              "row_number",
-              "status",
-              "quantity_mode",
-              "resolution_status",
-              "validation_errors",
-              "created_at",
-              "updated_at",
-            ],
-            properties: {
-              row_id: {
-                type: "string",
-                description: "Import batch row identifier.",
-              },
-              batch_id: {
-                type: "string",
-                description: "Import batch identifier.",
-              },
-              row_number: {
-                type: "integer",
-                description: "Source row number.",
-              },
-              status: {
-                type: "string",
-                description: "Import row status.",
-                enum: ["accepted", "rejected", "committed"],
-              },
-              quantity_mode: {
-                type: "string",
-                description: "How row quantities affect stock.",
-                enum: ["add", "replace"],
-              },
-              resolution_status: {
-                type: "string",
-                description: "Catalog resolution status.",
-                enum: ["native", "resolved", "unresolved"],
-              },
-              validation_errors: {
-                type: "array",
-                description: "Validation errors for the row.",
-                items: {
-                  type: "string",
-                  description: "Validation error.",
-                },
-              },
-              created_at: {
-                type: "string",
-                description: "Creation timestamp.",
-              },
-              updated_at: {
-                type: "string",
-                description: "Last update timestamp.",
-              },
-            },
-          },
+          description: "Acceptance does not assert validation or stock commit.",
+          enum: ["accepted"],
         },
       },
-      required: [
-        "batch_id",
-        "account_id",
-        "status",
-        "source_key",
-        "adapter_version",
-        "quantity_mode",
-        "total_count",
-        "accepted_count",
-        "rejected_count",
-        "committed_count",
-        "created_at",
-        "updated_at",
-        "rows",
-      ],
     },
     permissionBoundary: {
       scope: "account",
@@ -2848,8 +2638,8 @@ export const mcpToolCatalog = [
         matchInputField: "confirmationText",
       },
       idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
+      idempotencyAuthority: "owner",
+      dryRunSupported: false,
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use after source rows are fetched and before committing stock or draft listings."],
@@ -5511,7 +5301,7 @@ export const mcpToolCatalog = [
         },
         dryRun: {
           type: "boolean",
-          description: "Validate without creating a hosted setup session.",
+          description: "Dry runs are not supported; omit or pass false. True is refused before any setup work.",
         },
       },
     },
@@ -5561,7 +5351,7 @@ export const mcpToolCatalog = [
       },
       idempotencyKey: "required",
       idempotencyAuthority: "platform",
-      dryRunSupported: true,
+      dryRunSupported: false,
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: [

@@ -57,10 +57,10 @@ product priority or scope change, or an operator action no lane can perform
 Other unresolved product, legal and provider-authority choices inside accepted
 scope go to the orchestrator as host. The host decides same-attempt, in-scope
 repairs itself and records its reasoning. An independent decision lane is
-required only for a change to accepted scope or acceptance criteria, an attempt
-ceiling, ownership or authority, or a cross-lineage question; its verdict is
-final. A decision lane may not return `TODD_RULING_NEEDED`; if it believes Todd
-must decide, the host resolves that finding with a second independent lane.
+required only for a change to accepted scope or acceptance criteria, ownership
+or authority, or a cross-lineage question; its verdict is final. A decision
+lane may not return `TODD_RULING_NEEDED`; if it believes Todd must decide, the
+host resolves that finding with a second independent lane.
 Do not use candidate placement to hide stopped implementation or active lanes.
 Planning recovery queries `status:needs-replan` across all milestones, including
 candidates; candidate status only excludes ordinary implementation dispatch.
@@ -110,8 +110,10 @@ solely to adopt it.
 
 Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milestone: all.
 
-1. **Intake.** Outcome statement, why-now, constraints, and (milestone tier)
-   track placement plus entry/exit gates against other milestones.
+1. **Intake.** Outcome statement, why-now, constraints, the repository each
+   issue's change merges into (`docs/contributing/backlog-model.md`,
+   Repository routing), and (milestone tier) track placement plus entry/exit
+   gates against other milestones.
 2. **Discovery.** Repo evidence sweep: owning contexts' README/GLOSSARY, prior
    art, and an explicit **don't-rebuild check** — shipped surfaces get pointers,
    never reimplementation. Run a **supersession check**: inventory every existing
@@ -155,8 +157,12 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    Decomposition; tier shortcuts never skip the supersession check or placement.
 6. **Pressure test.** Adversarial pass in a FRESH context (independent agent)
    per `references/pressure-test.md`. Repair findings before registration.
-7. **Registration.** Create on GitHub (issue forms under `.github/ISSUE_TEMPLATE/`)
-   and wire the structure natively — prose is not structure:
+7. **Registration.** Register each issue in the repository its change merges
+   into. A `chase-sets/chase-sets-controller` issue uses the same brief
+   standard and pressure test. Its milestone and release follow that
+   repository's controller-orchestrator skill. Create on GitHub (issue forms
+   under `.github/ISSUE_TEMPLATE/`) and wire the structure natively — prose is
+   not structure:
    - every child **attached as a sub-issue** of its epic (one parent per slice);
    - every chain link recorded as a **GitHub issue dependency**, not only as a
      `Blocked by #N` line;

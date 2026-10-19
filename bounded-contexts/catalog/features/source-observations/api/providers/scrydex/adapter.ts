@@ -1364,7 +1364,11 @@ function planScrydexSetImport(
   const productLabel = scrydexProductLabel(productDomain);
   const productSegment = scrydexProductSegment(productDomain);
   const expansionId = requireString(
-    scope.values.expansionId ?? scope.values.setId ?? scope.values.id ?? scope.values.parentValue,
+    scope.values.expansionId ??
+      scope.values.setId ??
+      scope.values.id ??
+      scope.values.parentValue ??
+      scope.values.setName,
     `Scrydex ${productLabel} set reference import planning requires expansionId.`,
   );
   return {
@@ -1394,8 +1398,12 @@ async function planScrydexCardImport(
 ): Promise<ProviderImportPlan> {
   const productLabel = scrydexProductLabel(productDomain);
   const productSegment = scrydexProductSegment(productDomain);
-  const cardId = stringValue(scope.values.cardId ?? scope.values.id);
-  if (cardId) {
+  const hasExplicitCardId = scope.values.cardId !== undefined || scope.values.id !== undefined;
+  if (hasExplicitCardId) {
+    const cardId = requireString(
+      scope.values.cardId ?? scope.values.id,
+      `Scrydex ${productLabel} card import planning requires cardId.`,
+    );
     return {
       unitKey: scope.unitKey,
       planKey: `scrydex:${productSegment}:card:${normalizePlanSegment(cardId)}`,
@@ -1416,7 +1424,7 @@ async function planScrydexCardImport(
   }
 
   const expansionId = requireString(
-    scope.values.expansionId ?? scope.values.setId ?? scope.values.parentValue,
+    scope.values.expansionId ?? scope.values.setId ?? scope.values.parentValue ?? scope.values.setName,
     `Scrydex ${productLabel} card import planning requires expansionId or cardId.`,
   );
   const observation = await readScrydexCardEstimate(scope, expansionId, options);
@@ -1452,8 +1460,13 @@ async function planScrydexSealedImport(
 ): Promise<ProviderImportPlan> {
   const productLabel = scrydexProductLabel(productDomain);
   const productSegment = scrydexProductSegment(productDomain);
-  const sealedProductId = stringValue(scope.values.sealedProductId ?? scope.values.sealedId ?? scope.values.id);
-  if (sealedProductId) {
+  const hasExplicitSealedProductId =
+    scope.values.sealedProductId !== undefined || scope.values.sealedId !== undefined || scope.values.id !== undefined;
+  if (hasExplicitSealedProductId) {
+    const sealedProductId = requireString(
+      scope.values.sealedProductId ?? scope.values.sealedId ?? scope.values.id,
+      `Scrydex ${productLabel} sealed-product import planning requires sealedProductId.`,
+    );
     return {
       unitKey: scope.unitKey,
       planKey: `scrydex:${productSegment}:sealed:${normalizePlanSegment(sealedProductId)}`,
@@ -1478,7 +1491,7 @@ async function planScrydexSealedImport(
   }
 
   const expansionId = requireString(
-    scope.values.expansionId ?? scope.values.setId ?? scope.values.parentValue,
+    scope.values.expansionId ?? scope.values.setId ?? scope.values.parentValue ?? scope.values.setName,
     `Scrydex ${productLabel} sealed-product import planning requires expansionId or sealedProductId.`,
   );
   const admission = currentProviderSendAdmission();

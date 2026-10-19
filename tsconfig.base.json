@@ -447,6 +447,9 @@
       "@chase-sets/event-core/public-event-payloads": [
         "./contracts/event-core/public-event-payloads/index.ts"
       ],
+      "@chase-sets/event-core/public-event-payloads/collections": [
+        "./contracts/event-core/public-event-payloads/collections.ts"
+      ],
       "@chase-sets/event-core/public-event-payloads/inventory": [
         "./contracts/event-core/public-event-payloads/inventory.ts"
       ],
@@ -753,6 +756,9 @@
       "@chase-sets/platform-runtime/evidence-window-provider-write-executor": [
         "./infrastructure/platform-runtime/evidence-window-provider-write-executor.ts"
       ],
+      "@chase-sets/platform-runtime/feature-flags/contract": [
+        "./infrastructure/platform-runtime/feature-flags/contract.ts"
+      ],
       "@chase-sets/platform-runtime/health": [
         "./infrastructure/platform-runtime/health.ts"
       ],
@@ -989,6 +995,9 @@
       ],
       "@chase-sets/stripe-payments": [
         "./infrastructure/stripe-payments/index.ts"
+      ],
+      "@chase-sets/tcgplayer-market-observations": [
+        "./contracts/tcgplayer-market-observations/index.ts"
       ],
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"

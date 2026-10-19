@@ -1,19 +1,22 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { useState, type ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inventoryAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads";
 import { hasTranslation } from "@chase-sets/localization";
-import type { InventoryOfflineSaleResult } from "../../../client";
+import { createInventoryApiClient, type InventoryOfflineSaleResult } from "../../../client";
+import { InventoryMutationProvider } from "../../../support/request-support/mutation-form";
+import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import { InventoryItemDetailPage } from "./inventory-item-detail-page";
 import { InventoryItemListPage } from "./inventory-item-list-page";
 import type { InventoryItemDetail, InventoryItemListItem } from "./contracts";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -171,12 +174,14 @@ describe("inventory item pages", () => {
     expect(html).not.toContain("$4.25");
   });
 
-  it("renders catalog item creation as a visible search and selection flow", () => {
+  it("renders catalog item creation as a suggestion combobox with an empty identity until a choice hydrates", () => {
     const html = renderInventoryRoute(<InventoryItemListPage data={{ items: [] }} locations={[]} />);
 
-    expect(html).toContain("Search catalog");
-    expect(html).toMatch(/<select[^>]*name="catalogItemId"/);
-    expect(html).not.toMatch(/<input[^>]*name="catalogItemId"/);
+    expect(html).toMatch(/<input[^>]*role="combobox"/);
+    expect(html).toContain("Search or paste catalog item");
+    expect(html.match(/name="catalogItemId"/g)).toHaveLength(1);
+    expect(html).toMatch(/<input(?=[^>]*name="catalogItemId")(?=[^>]*value="")(?=[^>]*type="hidden")/);
+    expect(html).toMatch(/<button(?=[^>]*type="submit")(?=[^>]*disabled)/);
     expect(html).toMatch(/<input[^>]*name="acquisitionCostCurrencyCode"/);
   });
 
@@ -463,5 +468,481 @@ describe.each([
     expect(results).toHaveLength(1);
     expect(results[0]?.textContent).toContain("Authoritative available quantity: 2");
     await waitFor(() => expect(document.activeElement).toBe(visibleTrigger));
+  });
+});
+
+const pickerRequestPattern = /^(\/api\/marketplace\/items\/suggest\?q=[^&]+|\/api\/inventory\/catalog-items\/[^/?&]+)$/;
+
+const conditionSchema: NonNullable<InventoryCatalogItemSnapshot["product_schema"]> = {
+  canonicalDimensionOrder: [{ dimensionId: "condition", dimensionName: "Condition" }],
+  dimensions: [
+    {
+      dimensionId: "condition",
+      dimensionName: "Condition",
+      required: true,
+      appliesWhen: [],
+      allowedOptions: [
+        { optionId: "near_mint", code: "NM", label: "Near Mint" },
+        { optionId: "lightly_played", code: "LP", label: "Lightly Played" },
+      ],
+    },
+  ],
+};
+
+function catalogSnapshot(overrides: Partial<InventoryCatalogItemSnapshot> = {}): InventoryCatalogItemSnapshot {
+  return {
+    catalog_item_id: "cat_etb",
+    language_code: "en",
+    title: "Elite Trainer Box",
+    subtitle: "Scarlet & Violet",
+    blueprint_id: "bpr_sealed",
+    status: "active",
+    product_schema: conditionSchema,
+    updated_at: "2026-05-13T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+// The alias row's label never contains the typed "ETB"; a default substring filter would hide it.
+const etbSuggestions = [
+  {
+    catalogItemId: "cat_etb",
+    title: "Elite Trainer Box",
+    subtitle: "Scarlet & Violet",
+    slug: "elite-trainer-box-cat-etb",
+    category: "Sealed Product",
+  },
+  { catalogItemId: "cat_etb_case", title: "ETB Case", subtitle: null, slug: "etb-case-cat-etb-case", category: null },
+];
+
+function suggestionsResponse(items: readonly unknown[]) {
+  return Response.json({ items, count: items.length });
+}
+
+function deferredResponse() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+function stubPickerFetch(respond: (url: string) => Response | Promise<Response>) {
+  const fetch = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => Promise.resolve(respond(String(input))));
+  vi.stubGlobal("fetch", fetch);
+  return fetch;
+}
+
+function requestedUrls(fetch: { mock: { calls: ReadonlyArray<readonly [RequestInfo | URL, RequestInit?]> } }) {
+  return fetch.mock.calls.map(([input]) => String(input));
+}
+
+function expectOnlyPickerRequests(fetch: Parameters<typeof requestedUrls>[0]) {
+  for (const url of requestedUrls(fetch)) {
+    expect(url).toMatch(pickerRequestPattern);
+  }
+}
+
+// Mirrors the account-inventory route: the create form is writable only inside the recovery provider.
+function renderCreateItemForm(props: Partial<ComponentProps<typeof InventoryItemListPage>> = {}) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/",
+        element: (
+          <InventoryMutationProvider authority={{ accountId: "acc_1", actorUserId: "usr_1" }}>
+            <InventoryItemListPage data={{ items: [] }} locations={[]} {...props} />
+          </InventoryMutationProvider>
+        ),
+      },
+    ],
+    { initialEntries: ["/"] },
+  );
+  render(<RouterProvider router={router} />);
+  const input = screen.getByRole("combobox", { name: "Catalog item" }) as HTMLInputElement;
+  const form = input.closest("form")!;
+  expect(form.getAttribute("aria-disabled")).toBeNull();
+  return { input, form };
+}
+
+function hiddenCatalogItemId() {
+  return (document.querySelector('input[name="catalogItemId"]') as HTMLInputElement).value;
+}
+
+function createButton() {
+  // An open listbox hides the rest of the page from the accessibility tree; the gate is read either way.
+  return screen.getByRole("button", { name: "Create inventory item", hidden: true }) as HTMLButtonElement;
+}
+
+function optionLabels() {
+  return within(screen.getByRole("listbox", { name: "Catalog item" }))
+    .queryAllByRole("option")
+    .map((option) => option.textContent?.trim());
+}
+
+// A bare change event looks like autofill to the combobox, so open it the way a seller's click does first.
+async function openAndEnter(user: ReturnType<typeof userEvent.setup>, input: HTMLInputElement, value: string) {
+  await user.click(input);
+  fireEvent.change(input, { target: { value } });
+}
+
+describe("inventory create-item Catalog picker", () => {
+  afterEach(() => window.sessionStorage.clear());
+
+  it("renders server-ordered suggestions unfiltered, including an alias label that omits the typed text", async () => {
+    const user = userEvent.setup();
+    const fetch = stubPickerFetch(() => suggestionsResponse(etbSuggestions));
+    const { input } = renderCreateItemForm();
+
+    await openAndEnter(user, input, "ETB");
+
+    await waitFor(() => expect(optionLabels()).toEqual(["Elite Trainer Box - Scarlet & Violet", "ETB Case"]));
+    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=ETB"]);
+    expect(screen.getByText("Choose the catalog item from the visible search results.")).toBeTruthy();
+    expect(hiddenCatalogItemId()).toBe("");
+  });
+
+  it("stays idle under two trimmed characters and settles 250 ms before one suggestions request", () => {
+    vi.useFakeTimers();
+    const fetch = stubPickerFetch(() => suggestionsResponse([]));
+    const { input } = renderCreateItemForm();
+
+    fireEvent.change(input, { target: { value: " c " } });
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.queryByText("Searching catalog items...")).toBeNull();
+
+    fireEvent.change(input, { target: { value: " ch " } });
+    expect(screen.getByText("Searching catalog items...")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(249);
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=ch"]);
+  });
+
+  it.each([
+    {
+      state: "populated",
+      response: () => suggestionsResponse(etbSuggestions),
+      status: "Choose the catalog item from the visible search results.",
+      invalid: false,
+    },
+    {
+      state: "empty",
+      response: () => suggestionsResponse([]),
+      status: "No active catalog items matched that search.",
+      invalid: false,
+    },
+    {
+      state: "error",
+      response: () => Response.json({ error: { message: "Suggestions are unavailable." } }, { status: 503 }),
+      status: "Suggestions are unavailable.",
+      invalid: true,
+    },
+  ])("announces the $state suggestions state", async ({ response, status, invalid }) => {
+    const fetch = stubPickerFetch(response);
+    const { input } = renderCreateItemForm();
+
+    fireEvent.change(input, { target: { value: "ETB" } });
+
+    await screen.findByText(status);
+    expect(input.getAttribute("aria-invalid") === "true").toBe(invalid);
+    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=ETB"]);
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(createButton().disabled).toBe(true);
+  });
+
+  it("aborts superseded suggestions, ignores reverse-order completions, and drops an aborted request on idle", async () => {
+    const stale = deferredResponse();
+    const latest = deferredResponse();
+    const abandoned = deferredResponse();
+    const fetch = vi
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(() => latest.promise)
+      .mockImplementationOnce(() => abandoned.promise);
+    vi.stubGlobal("fetch", fetch);
+    const { input } = renderCreateItemForm();
+
+    await openAndEnter(userEvent.setup(), input, "char");
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    fireEvent.change(input, { target: { value: "chariz" } });
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      latest.resolve(
+        suggestionsResponse([
+          { catalogItemId: "cat_zard", title: "Charizard", subtitle: null, slug: "charizard", category: null },
+        ]),
+      );
+    });
+    await waitFor(() => expect(optionLabels()).toEqual(["Charizard"]));
+    await act(async () => {
+      stale.resolve(
+        suggestionsResponse([
+          { catalogItemId: "cat_old", title: "Charmander", subtitle: null, slug: "old", category: null },
+        ]),
+      );
+    });
+    expect(optionLabels()).toEqual(["Charizard"]);
+
+    fireEvent.change(input, { target: { value: "charizard ex" } });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    fireEvent.change(input, { target: { value: "c" } });
+    expect(fetch.mock.calls[2]?.[1]?.signal?.aborted).toBe(true);
+    await act(async () => {
+      abandoned.resolve(
+        suggestionsResponse([
+          { catalogItemId: "cat_late", title: "Late Result", subtitle: null, slug: "late", category: null },
+        ]),
+      );
+    });
+    expect(screen.queryByRole("option", { name: "Late Result" })).toBeNull();
+    expect(screen.queryByText("Searching catalog items...")).toBeNull();
+    expect(requestedUrls(fetch)).toEqual([
+      "/api/marketplace/items/suggest?q=char",
+      "/api/marketplace/items/suggest?q=chariz",
+      "/api/marketplace/items/suggest?q=charizard+ex",
+    ]);
+  });
+
+  it("loads a pasted Catalog item ID with one exact GET and keeps it unselected until it is chosen", async () => {
+    const user = userEvent.setup();
+    const fetch = stubPickerFetch(() => Response.json(catalogSnapshot()));
+    const { input } = renderCreateItemForm();
+
+    await openAndEnter(user, input, "  cat_etb  ");
+
+    const candidate = await screen.findByRole("option", { name: "Elite Trainer Box - Scarlet & Violet" });
+    expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_etb"]);
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(screen.queryByLabelText("Condition")).toBeNull();
+    expect(createButton().disabled).toBe(true);
+
+    await user.click(candidate);
+
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
+    expect(createButton().disabled).toBe(false);
+    expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_etb"]);
+  });
+
+  it("restores a create-item handoff ID with one exact GET, zero suggestions, and its saved Options", async () => {
+    const fetch = stubPickerFetch(() => Response.json(catalogSnapshot()));
+    const { input } = renderCreateItemForm({
+      createItemDraft: {
+        catalogItemId: "cat_etb",
+        selectedOptions: [{ dimensionId: "condition", optionId: "lightly_played" }],
+      },
+    });
+
+    expect(screen.getByText("Loading catalog item...")).toBeTruthy();
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+    expect(input.value).toBe("Elite Trainer Box - Scarlet & Violet");
+    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("lightly_played");
+    expect(createButton().disabled).toBe(false);
+    await new Promise((settle) => setTimeout(settle, 300));
+    expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_etb"]);
+  });
+
+  it("hydrates only an explicit choice, gates creation on hydration, and keeps a repeat choice request-free", async () => {
+    const user = userEvent.setup();
+    const hydration = deferredResponse();
+    const fetch = stubPickerFetch((url) =>
+      url.startsWith("/api/marketplace/") ? suggestionsResponse(etbSuggestions) : hydration.promise,
+    );
+    const { input, form } = renderCreateItemForm();
+
+    await openAndEnter(user, input, "ETB");
+    await user.click(await screen.findByRole("option", { name: "Elite Trainer Box - Scarlet & Violet" }));
+
+    expect(requestedUrls(fetch)).toEqual([
+      "/api/marketplace/items/suggest?q=ETB",
+      "/api/inventory/catalog-items/cat_etb",
+    ]);
+    expect(screen.getByText("Loading catalog item...")).toBeTruthy();
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(screen.queryByLabelText("Condition")).toBeNull();
+    expect(createButton().disabled).toBe(true);
+
+    await act(async () => {
+      hydration.resolve(Response.json(catalogSnapshot()));
+    });
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
+    expect(createButton().disabled).toBe(false);
+
+    await user.click(input);
+    await user.click(await screen.findByRole("option", { name: "Elite Trainer Box - Scarlet & Violet" }));
+    expect(requestedUrls(fetch)).toHaveLength(2);
+
+    const payload = [...new FormData(form).entries()].map(([key, value]) => [key, String(value)]);
+    expect(payload).toEqual(
+      expect.arrayContaining([
+        ["catalogItemId", "cat_etb"],
+        ["selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }])],
+        ["selectedOptions:condition", "near_mint"],
+      ]),
+    );
+    const serialized = JSON.stringify(payload);
+    for (const metadata of ["elite-trainer-box-cat-etb", "Sealed Product", "Elite Trainer Box", "ETB"]) {
+      expect(serialized).not.toContain(metadata);
+    }
+    expectOnlyPickerRequests(fetch);
+  });
+
+  it.each([
+    {
+      failure: "missing",
+      response: () =>
+        Response.json({ error: { code: "not_found", message: "Catalog item not found." } }, { status: 404 }),
+      message: "Catalog item not found.",
+    },
+    {
+      failure: "inactive",
+      response: () => Response.json(catalogSnapshot({ status: "archived" })),
+      message: "This catalog item is not active. Choose an active catalog item.",
+    },
+  ])("clears a $failure choice and blocks creation without a fallback search", async ({ response, message }) => {
+    const user = userEvent.setup();
+    const fetch = stubPickerFetch((url) =>
+      url.startsWith("/api/marketplace/") ? suggestionsResponse(etbSuggestions) : response(),
+    );
+    const { input } = renderCreateItemForm();
+
+    await openAndEnter(user, input, "ETB");
+    await user.click(await screen.findByRole("option", { name: "Elite Trainer Box - Scarlet & Violet" }));
+
+    await screen.findByText(message);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(screen.queryByLabelText("Condition")).toBeNull();
+    expect(createButton().disabled).toBe(true);
+    await new Promise((settle) => setTimeout(settle, 300));
+    expect(requestedUrls(fetch)).toEqual([
+      "/api/marketplace/items/suggest?q=ETB",
+      "/api/inventory/catalog-items/cat_etb",
+    ]);
+  });
+
+  it("refuses stale saved Options, offers the item unselected, and resets Options on an explicit choice", async () => {
+    const user = userEvent.setup();
+    const fetch = stubPickerFetch(() => Response.json(catalogSnapshot()));
+    const { input } = renderCreateItemForm({
+      createItemDraft: {
+        catalogItemId: "cat_etb",
+        selectedOptions: [{ dimensionId: "condition", optionId: "damaged" }],
+      },
+    });
+
+    await screen.findByText(
+      "The saved product options no longer match this catalog item. Choose the catalog item again to set its options.",
+    );
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(screen.queryByLabelText("Condition")).toBeNull();
+    expect(createButton().disabled).toBe(true);
+
+    await user.click(input);
+    await user.click(await screen.findByRole("option", { name: "Elite Trainer Box - Scarlet & Violet" }));
+
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
+    expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_etb"]);
+  });
+
+  it("keeps creation blocked while a hydrated item's required Options are incomplete", async () => {
+    stubPickerFetch(() =>
+      Response.json(
+        catalogSnapshot({
+          product_schema: {
+            canonicalDimensionOrder: [
+              ...conditionSchema.canonicalDimensionOrder,
+              { dimensionId: "grade", dimensionName: "Grade" },
+            ],
+            dimensions: [
+              ...conditionSchema.dimensions,
+              { dimensionId: "grade", dimensionName: "Grade", required: true, appliesWhen: [], allowedOptions: [] },
+            ],
+          },
+        }),
+      ),
+    );
+    renderCreateItemForm({ createItemDraft: { catalogItemId: "cat_etb", selectedOptions: [] } });
+
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+    expect(screen.getByLabelText("Grade")).toBeTruthy();
+    expect(createButton().disabled).toBe(true);
+  });
+
+  it("clears the hydrated identity and Options when the seller edits the text", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(catalogSnapshot())),
+    );
+    const { input, form } = renderCreateItemForm({
+      createItemDraft: { catalogItemId: "cat_etb", selectedOptions: [] },
+    });
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+
+    fireEvent.change(input, { target: { value: "Elite Trainer" } });
+
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(screen.queryByLabelText("Condition")).toBeNull();
+    expect(createButton().disabled).toBe(true);
+    expect(new FormData(form).get("selectedOptions")).toBe("[]");
+  });
+
+  it.each([
+    {
+      path: "pasted",
+      text: "cat_etb",
+      requests: ["/api/inventory/catalog-items/cat_etb", "/api/inventory/catalog-items/cat_etb"],
+    },
+    {
+      path: "suggested",
+      text: "ETB",
+      requests: [
+        "/api/inventory/catalog-items/cat_etb",
+        "/api/marketplace/items/suggest?q=ETB",
+        "/api/inventory/catalog-items/cat_etb",
+      ],
+    },
+  ])(
+    "does not restore saved Options when the seller edits and then chooses the same $path ID",
+    async ({ text, requests }) => {
+      const user = userEvent.setup();
+      const fetch = stubPickerFetch((url) =>
+        url.startsWith("/api/marketplace/") ? suggestionsResponse(etbSuggestions) : Response.json(catalogSnapshot()),
+      );
+      const { input, form } = renderCreateItemForm({
+        createItemDraft: {
+          catalogItemId: "cat_etb",
+          selectedOptions: [{ dimensionId: "condition", optionId: "lightly_played" }],
+        },
+      });
+      await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+      expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("lightly_played");
+
+      await openAndEnter(user, input, text);
+      await user.click(await screen.findByRole("option", { name: "Elite Trainer Box - Scarlet & Violet" }));
+
+      await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+      expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
+      expect(new FormData(form).get("selectedOptions")).toBe(
+        JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }]),
+      );
+      expect(requestedUrls(fetch)).toEqual(requests);
+    },
+  );
+
+  it("no longer exposes the zero-caller substring Catalog search on the Inventory client", () => {
+    expect("searchCatalogItems" in createInventoryApiClient({ fetch: vi.fn() })).toBe(false);
   });
 });

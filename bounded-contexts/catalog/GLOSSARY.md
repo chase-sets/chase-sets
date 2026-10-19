@@ -49,6 +49,8 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Product Content Line`
 - `Product Content Type`
 - `Product Content Inclusion Policy`
+- `TCGplayer Market Observation Request`
+- `TCGplayer Market Observation Batch`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
@@ -192,6 +194,8 @@ A `Held-Set Export` is a seller's TCGplayer Live CSV used by a Catalog operator 
 A `Production Catalog Completion Report` is the versioned, Catalog-owned contract and verifier that decides whether a production Catalog synchronization is complete, reconciled, and convergent. It reconciles a frozen Scope Sync Batch completion manifest against a launch cutoff: eligible Catalog Scope Records and accepted Provider Scope Mappings, expected versus planned provider units, per-unit terminal state after the cutoff, Source Observation and merge-candidate dispositions, promotion outcomes, intended launch Catalog Item counts, approved asset-processing failures, and credited-provider usage. Completeness is derived from the manifest and never inferred from a hardcoded provider list.
 
 Every scope or provider unit excluded from required coverage carries one stable reason — `ineligible`, `validation-only`, `comparison-only`, `unapproved`, `retired`, `rollout-blocked`, `provider-unavailable`, `mapping-missing`, or `operator-deferred`. Missing mappings, never-synced or stale or failed units, unresolved merge conflicts, duplicate-prevention blocks, blocked promotions, and unexplained exclusions are launch blockers. Repeat-run reconciliation compares a re-execution against the accepted manifest and fails on duplicate Catalog truth, a changed plan fingerprint, or unexpected new work. The retained ops verifier emits support-safe JSON plus a human summary and exits nonzero for any launch blocker.
+
+`Provider Agreement` is the database-mode report aggregate of current merge-candidate observations by product domain and matcher fact key. Each candidate and field contributes exactly one of `agreed`, `single-source`, `mismatch`, `absent`, or `intra-provider-conflict`; mismatch pairs count unordered provider pairs once. Identity fallback values are omitted from agreement evidence, and only current candidate membership is observed.
 
 ## Provider Scope Observation
 

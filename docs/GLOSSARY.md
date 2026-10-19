@@ -127,6 +127,14 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Merchant Offer ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Stable Google-facing offer id derived from immutable Chase Sets Listing identity. |
 | External Seller ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Google marketplace seller identifier derived from Chase Sets Account identity for multi-seller Merchant Center submissions. |
 | Platform Feedback | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Internal product feedback, not public account reputation. |
+| Feature Flag Definition | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Platform-owned flag key and fallback declaration. |
+| Feature Flag Document | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Versioned staging and production flag state record. |
+| Flag Fallback Value | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Definition-level boolean used when no environment document supplies a value. |
+| Targeting Default | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Environment-level boolean used when targeting does not select an account or badge. |
+| Flag Revision | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Immutable authored revision of a Feature Flag Document. |
+| Flag Environment State | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Closed per-environment enablement and targeting state. |
+| Targeting Rule | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Future rule for selecting whether an environment state applies. |
+| Flag Evaluation Context | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Reserved term for #7185; no shipped type or behavior. |
 | Affected Line Item Amount | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Order-line amount and currency fact used by Support to cap offers and adjudications; Payments and Settlement still own accounting. |
 | Affected Line Item Amount Contract | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Support validation boundary for selected lines, one currency, and a non-exceeding remedy amount. |
 | Sign-In Identifier | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Contact value Auth accepts to start an authentication journey, such as email or phone. |

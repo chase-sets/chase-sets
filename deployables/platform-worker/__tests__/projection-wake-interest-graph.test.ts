@@ -307,6 +307,21 @@ describe("platform worker projection wake interest graph", () => {
     expect(listingDirectiveRunners.map((runner) => runner.checkpointKey)).toEqual([
       "marketplace-listing-moderation-reaction:platform-operations:v1",
     ]);
+    const checkoutIdentityRunner = runtime.subscriptionRunners.find(
+      (runner) =>
+        runner.targetContextName === "checkout" &&
+        runner.projectionName === "checkout-seller-accounts-projection" &&
+        runner.sourceContextName === "identity",
+    );
+    expect(checkoutIdentityRunner).toMatchObject({
+      checkpointKey: "checkout-seller-accounts-projection:identity:v2",
+      subscriptionVersion: 2,
+      eventTypes: expect.arrayContaining([
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed",
+      ]),
+    });
     const inheritedRunners = runtime.subscriptionRunners.filter(
       (runner) => !fundingRunners.includes(runner) && !listingDirectiveRunners.includes(runner),
     );
@@ -347,7 +362,7 @@ describe("platform worker projection wake interest graph", () => {
       fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
     ).toEqual({
       count: 258,
-      sha256: "fec827319f92e563dc9597ca0becd23a69bd83033c2da8c879ead71f022f6c1d",
+      sha256: "a0a4b78f2186f139aa0a6b9780f223abdb187fba678b0fc227b1e1662de57640",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -376,7 +391,7 @@ describe("platform worker projection wake interest graph", () => {
       ),
     ).toEqual({
       count: 258,
-      sha256: "6460c03abc7a8e37c688909d1877e67d8e90276d926dc3a99e41e7fb1bda4a4c",
+      sha256: "09c2432558e5f0e0e3eb55ce3dc182add41d57c12c9d3414f02f8d62e6d505b4",
     });
     expect(
       fingerprint(
@@ -387,18 +402,18 @@ describe("platform worker projection wake interest graph", () => {
       ),
     ).toEqual({
       count: 161,
-      sha256: "8e3ce7ec3af9763ae8d2602228610b67aab5111a28d8bde9ed112092972559c8",
+      sha256: "d4ac6107c16b410b49509fd605d926bc4671d38d2e5ed8732ad112a420550aad",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
       count: 161,
-      sha256: "993a28a5c1bc7e1a0e22ddcbf214f9cddd6723dead3736a346c0179e12a65cfa",
+      sha256: "4e50714ef055ca0e81c2369a30332df6a081e05366e4fcb3e7e56f84f83e6589",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
       count: 258,
-      sha256: "d91a65af11a150d2dc3a63906d8fcaeeb40ebd045ed21c1127fc244b323942a7",
+      sha256: "4ba7df55af4b6150febd8d8982549abdb72d0b16f8da0247d26da24a68685188",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 125,

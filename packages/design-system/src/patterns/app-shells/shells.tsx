@@ -5,6 +5,7 @@ import { NavigationDrawer } from "../../components/feedback";
 import { SkipLink, layoutWidthClasses, type LayoutWidth } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
 import { Page } from "./page-layouts";
+import { useSearchRowPhase } from "./search-row-phase";
 
 function shellGeometryClasses(hasBottomNavigation: boolean, hasSearch = false, hasSectionBar = false): string {
   return cx(
@@ -31,6 +32,18 @@ export interface MarketplaceShellProps {
   sidebar?: ReactNode;
   children?: ReactNode;
   width?: LayoutWidth;
+  /**
+   * Opt-in for the below-md collapse-on-scroll search row. The destructuring
+   * default `false` is the single owner-side arming expression: callers that
+   * omit it render byte-identically to a shell without the behavior.
+   */
+  collapseSearchOnScroll?: boolean;
+  /**
+   * Canonical pathname of the active matched route (never a raw URL spelling
+   * and never pathname+search+hash); the shell compares it once against the
+   * registered result route to resolve the search-row scroll policy.
+   */
+  routeIdentity?: string;
 }
 
 export function MarketplaceShell({
@@ -45,22 +58,60 @@ export function MarketplaceShell({
   sidebar,
   children,
   width = "full",
+  collapseSearchOnScroll = false,
+  routeIdentity,
 }: MarketplaceShellProps) {
   const content = <div className="space-y-6">{children}</div>;
   const hasBottomNavigation = bottomNavItems.length > 0;
+  const { phase: searchRowPhase, headerRef } = useSearchRowPhase({
+    enabled: collapseSearchOnScroll,
+    hasSearch: Boolean(search),
+    routeIdentity: routeIdentity ?? "",
+  });
+  const searchRowState = searchRowPhase === "inert" ? undefined : searchRowPhase;
+  // TopNav receives the visual row state for every render of an opted-in shell
+  // with a search slot — including the inert phase, whose visuals are the
+  // expanded ones with exact-main geometry through TopNav's max-md scoping — so
+  // the search control's DOM structure is stable across server render,
+  // hydration, phase changes, and md crossings and the control never remounts.
+  const topNavSearchRowState =
+    collapseSearchOnScroll && search ? (searchRowPhase === "collapsed" ? "collapsed" : "expanded") : undefined;
+  const topNav = (
+    <TopNav
+      brand={brand}
+      items={topNavItems}
+      activeKey={activeKey}
+      onSelect={onNavSelect}
+      search={search}
+      actions={actions}
+      width={width}
+      searchRowState={topNavSearchRowState}
+    />
+  );
 
   return (
-    <div className={cx("min-h-screen bg-background", shellGeometryClasses(hasBottomNavigation, Boolean(search)))}>
+    <div
+      data-search-row-state={searchRowState}
+      className={cx(
+        "min-h-screen bg-background",
+        shellGeometryClasses(hasBottomNavigation, Boolean(search)),
+        // The collapsed geometry override rides the same element as the state
+        // attribute: the variant's attribute name is the exact string published
+        // above, so the class-plus-attribute selector strictly outranks the
+        // bare-class declaration from shellGeometryClasses.
+        collapseSearchOnScroll && "data-[search-row-state=collapsed]:[--shell-header-height:4rem]",
+      )}
+    >
       <SkipLink />
-      <TopNav
-        brand={brand}
-        items={topNavItems}
-        activeKey={activeKey}
-        onSelect={onNavSelect}
-        search={search}
-        actions={actions}
-        width={width}
-      />
+      {collapseSearchOnScroll ? (
+        // display:contents wrapper exists only to hand the hook the exact header
+        // element for live focus containment; it renders no box of its own.
+        <div ref={headerRef} className="contents">
+          {topNav}
+        </div>
+      ) : (
+        topNav
+      )}
       <main id="main-content" tabIndex={-1} className="relative z-0">
         <Page width={width}>
           {hero}

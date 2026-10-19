@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentOAuthScope } from "@chase-sets/auth-context";
+import { buildAgentConnectorPackaging } from "./agent-connector-packaging";
 import {
   CORE_MCP_SERVICE_IDS,
   EXTERNAL_MCP_SERVICE_IDS,
@@ -333,6 +334,34 @@ describe("MCP service catalog", () => {
     expect(validateObject({ ...required, unexpected: true }, schema!)).toContain("unexpected is not allowed.");
   });
 
+  it("keeps payment-method setup dryRun a closed boolean while the source and connector contracts declare it unsupported", () => {
+    const tool = findMcpTool("payments.start-payment-method-setup");
+    const schema = tool?.inputSchema;
+    expect(tool?.guardrails.dryRunSupported).toBe(false);
+    expect(schema?.additionalProperties).toBe(false);
+    expect(schema?.properties.dryRun).toMatchObject({ type: "boolean" });
+    expect(schema?.required).not.toContain("dryRun");
+
+    const required = {
+      accountId: "acc_1",
+      returnUrl: "https://app.chasesets.test/account/payment-methods",
+      idempotencyKey: "setup-1",
+      confirmationText: "Start Payment Method Setup.",
+    };
+    expect(validateObject(required, schema!)).toEqual([]);
+    expect(validateObject({ ...required, dryRun: false }, schema!)).toEqual([]);
+    expect(validateObject({ ...required, dryRun: "true" }, schema!)).toEqual([
+      "dryRun expected boolean but received string.",
+    ]);
+    expect(validateObject({ ...required, unexpected: true }, schema!)).toEqual(["unexpected is not allowed."]);
+
+    const registration = buildAgentConnectorPackaging().registration.tools.find(
+      (entry) => entry.name === "payments.start-payment-method-setup",
+    );
+    expect(registration?.dry_run_supported).toBe(false);
+    expect(registration?.input_schema).toEqual(schema);
+  });
+
   it("requires the complete price pair in closed Marketplace listing write schemas", () => {
     const createSchema = findMcpTool("marketplace.create-listing")?.inputSchema;
     const updateSchema = findMcpTool("marketplace.update-listing-price")?.inputSchema;
@@ -433,16 +462,21 @@ describe("MCP service catalog", () => {
       updated_at: "2026-05-28T00:00:00.000Z",
       rows: [],
     };
+    const importAcceptanceOutput = {
+      receiptVersion: 1,
+      jobId: "job_1",
+      batchId: "imb_1",
+      status: "accepted",
+    };
 
     expect(validateOutputSchema(findMcpTool("inventory.list-import-sources")?.outputSchema, listSourcesOutput)).toEqual(
       [],
     );
-    for (const toolName of [
-      "inventory.create-import-batch",
-      "inventory.get-import-batch",
-      "inventory.commit-import-batch",
-    ]) {
+    for (const toolName of ["inventory.get-import-batch"]) {
       expect(validateOutputSchema(findMcpTool(toolName)?.outputSchema, importBatchOutput)).toEqual([]);
+    }
+    for (const toolName of ["inventory.create-import-batch", "inventory.commit-import-batch"]) {
+      expect(validateOutputSchema(findMcpTool(toolName)?.outputSchema, importAcceptanceOutput)).toEqual([]);
     }
     expect(
       validateOutputSchema(findMcpTool("checkout.get-cart")?.outputSchema, {

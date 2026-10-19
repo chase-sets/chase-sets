@@ -1,4 +1,4 @@
-import type { BcApiModule, BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { BcApiModule, BcSchemaMigration, BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import {
   eventCorePostgresSchemaSql,
   eventStoreEventsReadIndexStatements,
@@ -27,6 +27,7 @@ export const PROJECTION_GROUP_REVISIONS_TABLE = "event_projection_group_revision
 export const PROJECTION_GROUP_GENERATIONS_TABLE = "event_projection_group_generations";
 export const SCHEMA_MIGRATIONS_TABLE = "bounded_context_schema_migrations";
 export const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const CONCURRENTLY_KEYWORD_RE = /\bconcurrently\b/i;
 const DISCARD_SCHEMA_BOOTSTRAP_CLIENT = true;
 
 export type SchemaBootstrapOptions = Readonly<{
@@ -600,14 +601,14 @@ function createSchemaMigrationsTableSql(): string {
 )`;
 }
 
-async function applySchemaMigration(
-  client: PgPoolClient,
-  migration: Readonly<{
-    migrationId: string;
-    description: string;
-    statements: readonly string[];
-  }>,
-): Promise<void> {
+async function applySchemaMigration(client: PgPoolClient, migration: BcSchemaMigration): Promise<void> {
+  const { dataStep } = migration;
+  if (dataStep && migration.statements.some((statement) => CONCURRENTLY_KEYWORD_RE.test(statement))) {
+    throw new Error(
+      `Schema migration ${migration.migrationId} has a data step, so its statements run in a transaction and cannot use CONCURRENTLY.`,
+    );
+  }
+
   const existing = await client.query(`SELECT 1 FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE migration_id = $1`, [
     migration.migrationId,
   ]);
@@ -615,6 +616,24 @@ async function applySchemaMigration(
     return;
   }
 
+  if (!dataStep) {
+    await applyStatementsAndLedgerRow(client, migration);
+    return;
+  }
+
+  await client.query("BEGIN");
+  try {
+    await dataStep(concurrentlyRefusingMigrationClient(client, migration.migrationId));
+    await applyStatementsAndLedgerRow(client, migration);
+    await client.query("COMMIT");
+  } catch (error) {
+    // The bootstrap client is discarded with this error, which also ends the transaction if ROLLBACK fails.
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  }
+}
+
+async function applyStatementsAndLedgerRow(client: PgPoolClient, migration: BcSchemaMigration): Promise<void> {
   for (const statement of migration.statements) {
     await client.query(statement);
   }
@@ -624,6 +643,20 @@ async function applySchemaMigration(
      VALUES ($1, $2, now())`,
     [migration.migrationId, migration.description],
   );
+}
+
+function concurrentlyRefusingMigrationClient(client: PgPoolClient, migrationId: string): BcSchemaMigrationClient {
+  return {
+    async query<Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) {
+      if (CONCURRENTLY_KEYWORD_RE.test(text)) {
+        throw new Error(
+          `Schema migration ${migrationId} data step SQL cannot use CONCURRENTLY inside the migration transaction.`,
+        );
+      }
+
+      return client.query<Row>(text, values);
+    },
+  };
 }
 
 function removeEventCoreMigrationStatements(schemaSql: string): string {

@@ -925,7 +925,6 @@ jobs:
       TF_VAR_platform_admin_password: pr-validation-password-please-rotate
       TF_VAR_platform_admin_display_name: Platform Admin
       TF_VAR_discord_invite_url: https://discord.gg/pr-validation
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
       TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
       TF_VAR_scrydex_team_id: pr-validation-scrydex-team
       TF_VAR_google_social_login_client_id: ""
@@ -1034,7 +1033,6 @@ jobs:
       TF_VAR_easypost_api_key: EZTK_pr_validation
       TF_VAR_voyage_api_key: ""
       TF_VAR_easypost_mode: test
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
       TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
       TF_VAR_scrydex_team_id: pr-validation-scrydex-team
       TF_VAR_google_social_login_client_id: google-pr-validation-client
@@ -1478,7 +1476,6 @@ jobs:
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
           TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
           TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
           TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
         run: |
@@ -1510,11 +1507,11 @@ jobs:
           export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
           export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
           export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
-          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
       - name: Deploy preview Kubernetes release
+        id: preview_deploy
         env:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
         run: |
@@ -1654,6 +1651,34 @@ jobs:
           PLATFORM_API_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
           PLATFORM_AUTH_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
         run: pnpm run stripe:money-smoke -- --edge-check --seller-flow
+
+      # #10022: a structural preview Postgres snapshot just after the smokes
+      # (connection ceiling and reservations, then held client connections by
+      # database, role and state; never query text or client addresses). A
+      # failed probe is reported, not retried, and never fails the job itself.
+      - name: Snapshot preview Postgres connections
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          pnpm run platform:kubernetes-deployment -- preview-postgres-snapshot \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" ||
+            echo "::warning::Preview Postgres connection snapshot failed; this run records no held-connection count."
+
+      # Server-side evidence for a failure after a successful deploy (deploy
+      # failures keep the diagnostics step above): workload state, events and
+      # log tails, plus preview-postgres and its snapshot. Never masks the
+      # original failure.
+      - name: Capture preview server diagnostics
+        if: failure() && steps.preview_deploy.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --preview-postgres true || true
 
   compose-preview-smoke:
     name: Compose Boot Smoke

@@ -2,12 +2,13 @@
 // Minimal path-based reverse proxy standing in for the Kubernetes ingress
 // (infrastructure/helm/platform templates) in the CI compose boot+smoke job.
 // Real preview/staging/production ingress routes each domain's
-// `/.well-known`, `/ucp`, `/mcp`, and `/api...` paths straight to the
-// platform-api Service and everything else to that domain's web service; a
-// browser (or platform-smoke.mjs) never reaches the web app process for API
-// paths. Compose has no ingress layer, so this process fills that gap for
-// exactly one domain per invocation, using the SAME prefix list the Helm
-// chart renders (`platformApiIngressPrefixes`) so the two can never drift.
+// `/.well-known`, `/ucp`, `/mcp`, `/channel-connector`, and `/api...` paths
+// straight to the platform-api Service and everything else to that domain's
+// web service; a browser (or platform-smoke.mjs) never reaches the web app
+// process for API paths. Compose has no ingress layer, so this process fills
+// that gap for exactly one domain per invocation, using the SAME prefix list
+// the Helm chart renders (`platformApiIngressPrefixes`) so the two can never
+// drift.
 import { createServer } from "node:http";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -28,15 +29,13 @@ import { platformApiIngressPrefixes } from "./render-platform-helm-values.mjs";
 // responses for the domain actually requested (landing vs. marketplace vs.
 // admin), not the api-target's own host.
 const hopByHopRequestHeaders = new Set(["host", "connection", "content-length"]);
+const clientForwardedRequestHeaders = new Set(["x-forwarded-host", "x-forwarded-proto"]);
 
-function xForwardedHeaders(request) {
-  const forwardedHost = request.headers.host;
-  if (!forwardedHost) {
-    return {};
-  }
+export function xForwardedHeaders(request) {
+  const forwardedHost = request.headers?.host;
   return {
-    "x-forwarded-host": forwardedHost,
-    "x-forwarded-proto": "http",
+    ...(forwardedHost ? { "x-forwarded-host": forwardedHost } : {}),
+    "x-forwarded-proto": request.socket?.encrypted || request.connection?.encrypted ? "https" : "http",
   };
 }
 
@@ -47,7 +46,12 @@ export function shouldRouteToApi(pathname, prefixes = platformApiIngressPrefixes
 function forwardableRequestHeaders(headers) {
   const forwarded = new Headers();
   for (const [name, value] of Object.entries(headers)) {
-    if (value === undefined || hopByHopRequestHeaders.has(name.toLowerCase())) {
+    const normalizedName = name.toLowerCase();
+    if (
+      value === undefined ||
+      hopByHopRequestHeaders.has(normalizedName) ||
+      clientForwardedRequestHeaders.has(normalizedName)
+    ) {
       continue;
     }
     if (Array.isArray(value)) {
@@ -69,9 +73,7 @@ export function createComposeIngressServer({ label, webTarget, apiTarget, fetchI
     try {
       const headers = forwardableRequestHeaders(request.headers);
       for (const [name, value] of Object.entries(xForwardedHeaders(request))) {
-        if (!headers.has(name)) {
-          headers.set(name, value);
-        }
+        headers.set(name, value);
       }
 
       const upstreamResponse = await fetchImpl(new URL(pathname, targetBase), {

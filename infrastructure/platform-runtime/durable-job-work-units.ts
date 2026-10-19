@@ -561,8 +561,9 @@ export function createPostgresDurableJobWorkUnitStore<
       return Number(result.rowCount ?? 0) > 0;
     },
     releaseClaim: async (input) => {
-      const result = await db.query(
-        `UPDATE ${workUnitsTable}
+      return runDurableWorkUnitWrite(db, async (queryable) => {
+        const result = await queryable.query(
+          `UPDATE ${workUnitsTable}
          SET state = 'queued',
              claim_owner_id = NULL,
              claim_token = NULL,
@@ -574,9 +575,25 @@ export function createPostgresDurableJobWorkUnitStore<
            AND claim_token = $4
            AND state = 'running'
            AND claimed_until > now()`,
-        [input.jobId, input.unitId, input.claimOwnerId, input.claimToken],
-      );
-      return Number(result.rowCount ?? 0) > 0;
+          [input.jobId, input.unitId, input.claimOwnerId, input.claimToken],
+        );
+        if (Number(result.rowCount ?? 0) === 0) return false;
+        await queryable.query(`SELECT job_id FROM ${jobsTable} WHERE job_id = $1 FOR UPDATE`, [input.jobId]);
+        const parent = await queryable.query<PrefixedJobRow>(
+          `UPDATE ${jobsTable} AS job
+           SET status = 'queued', updated_at = now()
+           WHERE job.job_id = $1 AND job.status = 'running'
+             AND NOT EXISTS (
+               SELECT 1 FROM ${workUnitsTable} AS unit
+               WHERE unit.job_id = job.job_id AND unit.state = 'running' AND unit.claimed_until > now()
+             )
+           RETURNING ${prefixedJobColumns("job")}`,
+          [input.jobId],
+        );
+        if (parent.rows[0])
+          await appendEvent(queryable, mapPrefixedJobRow<TJobPayload, TJobProgress, TJobResult>(parent.rows[0]));
+        return true;
+      });
     },
     recordTerminal: async (input) => {
       return runDurableWorkUnitWrite(db, async (queryable) => {
@@ -615,7 +632,12 @@ export function createPostgresDurableJobWorkUnitStore<
           return "unit-claim-missing";
         }
 
-        await queryable.query(`SELECT job_id FROM ${jobsTable} WHERE job_id = $1 FOR UPDATE`, [input.jobId]);
+        const parent = await queryable.query<Readonly<{ job_id: string }>>(
+          `SELECT job_id FROM ${jobsTable} WHERE job_id = $1 AND status IN ('queued', 'running') FOR UPDATE`,
+          [input.jobId],
+        );
+        if (!parent.rows[0]) return "parent-already-terminal";
+
         const parentUpdate = input.resolveParentUpdate ? await input.resolveParentUpdate(queryable) : input;
         const result = await queryable.query<PrefixedJobRow>(
           `UPDATE ${jobsTable} AS job
