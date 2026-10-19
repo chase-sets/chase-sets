@@ -800,7 +800,7 @@ function ordinaryE2eSuiteIdsForChangedFile(filePath) {
 export function e2eSuiteIdsForChangedFile(filePath) {
   const suites = ordinaryE2eSuiteIdsForChangedFile(filePath);
   const seedFamily =
-    /^bounded-contexts\/(?:auth|identity|marketplace|catalog|channels|payments|fulfillment|platform-operations|customer-feedback|discovery)\/(?:support\/runtime-support\/seed\.ts|features\/[^/]+\/api\/seed\.ts)$/.test(
+    /^bounded-contexts\/(?:auth|catalog|checkout|commercial-terms|fulfillment|identity|inventory|marketplace|ordering|payments|platform-operations|pricing|settlement)\/support\/(?:runtime-support|authoring-support)\/seed\.ts$/.test(
       normalizeFilePath(filePath),
     );
   return orderE2eSuiteIds([

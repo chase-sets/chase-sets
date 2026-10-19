@@ -100,8 +100,8 @@ describe("rendered-copy real-provider selection corpus", () => {
         fixture.cases.map((entry) => entry.path),
       );
       base = head;
-      const from = fixture.cases[5].path;
-      const to = fixture.cases[0].path;
+      const from = "bounded-contexts/payments/features/payments/api/provider-webhook-paths.ts";
+      const to = "infrastructure/stripe-payments/index.ts";
       rmSync(path.join(directory, to));
       base = commit();
       git(["mv", from, to]);
