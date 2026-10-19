@@ -13,6 +13,7 @@ import {
   managedPostgresCaMountPath,
   managedPostgresCaSecretKey,
   managedPostgresCaVolumeName,
+  platformHelmPreviewPostgresName,
   previewWildcardTlsSecretName,
   previewWildcardTlsSecretNamespace,
 } from "./render-platform-helm-values.mjs";
@@ -591,7 +592,83 @@ export function buildDiagnosticsCommands(options = {}) {
         tailLines,
       ],
     ]),
+    ...(options.previewPostgres ? buildPreviewPostgresDiagnosticsCommands(options) : []),
   ];
+}
+
+// Structural only: the connection ceiling, its reservations, and held client
+// connections grouped by database, role and state. Never query text or client addresses.
+export const previewPostgresConnectionSnapshotStatements = [
+  "SHOW max_connections",
+  "SHOW superuser_reserved_connections",
+  "SHOW reserved_connections",
+  "SELECT datname, usename, state, count(*) AS connections FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid() GROUP BY datname, usename, state ORDER BY datname, usename, state",
+  "SELECT count(*) AS held_client_connections FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()",
+];
+
+export function buildPreviewPostgresConnectionSnapshotCommands(options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const deployment = platformHelmPreviewPostgresName({ releaseName: options.release ?? defaultRelease });
+  return [
+    [
+      "kubectl",
+      [
+        "exec",
+        "--namespace",
+        namespace,
+        `deployment/${deployment}`,
+        "--container",
+        "postgres",
+        "--",
+        "psql",
+        "--no-psqlrc",
+        "--username",
+        "postgres",
+        "--dbname",
+        "postgres",
+        "--set",
+        "ON_ERROR_STOP=1",
+        "--pset",
+        "pager=off",
+        ...previewPostgresConnectionSnapshotStatements.flatMap((statement) => ["--command", statement]),
+      ],
+    ],
+  ];
+}
+
+function buildPreviewPostgresDiagnosticsCommands(options) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const release = options.release ?? defaultRelease;
+  const deployment = platformHelmPreviewPostgresName({ releaseName: release });
+  const selector = `app.kubernetes.io/instance=${release},app.kubernetes.io/component=preview-postgres`;
+  const tailLines = String(options.tailLines ?? 300);
+  const serverLog = { redact: "postgres-server-log" };
+  return [
+    ["kubectl", ["get", "deployment", deployment, "--namespace", namespace, "--output", "wide"]],
+    ["kubectl", ["describe", "deployment", deployment, "--namespace", namespace]],
+    ["kubectl", ["get", "pods", "--namespace", namespace, "--selector", selector, "--output", "wide"]],
+    ["kubectl", ["describe", "pods", "--namespace", namespace, "--selector", selector]],
+    [
+      "kubectl",
+      ["logs", "--namespace", namespace, "--selector", selector, "--all-containers", "--tail", tailLines],
+      serverLog,
+    ],
+    [
+      "kubectl",
+      ["logs", "--namespace", namespace, "--selector", selector, "--all-containers", "--previous", "--tail", tailLines],
+      serverLog,
+    ],
+    ...buildPreviewPostgresConnectionSnapshotCommands(options),
+  ];
+}
+
+// PostgreSQL logs a failed statement's text (log_min_error_statement=error), and preview role
+// DDL embeds its password literal, so server-log tails drop every statement before printing.
+export function redactPostgresServerLog(output) {
+  return redactDiagnosticOutput(output).replace(
+    /\b(STATEMENT|QUERY|CONTEXT):[^\n]*(?:\n[ \t]+[^\n]*)*/g,
+    "$1:  [REDACTED]",
+  );
 }
 
 export function buildDeploymentEvidence(options = {}) {
@@ -3246,24 +3323,62 @@ export async function helmReleaseExists(options = {}) {
   }
 }
 
+// One hung diagnostics command (a stuck exec or log stream) is killed instead of consuming the step budget.
+export const diagnosticsCommandDeadlineMs = 60_000;
+
+async function runDiagnosticsCommand(options, command, args, captureOutput) {
+  const clock = options.clock ?? systemClock;
+  try {
+    return await runProcess({
+      command: command === "kubectl" ? (options.kubectlPath ?? "kubectl") : command,
+      args,
+      spawn: options.spawn,
+      captureOutput,
+      allowFailure: true,
+      deadline: { clock, at: clock.now() + diagnosticsCommandDeadlineMs },
+    });
+  } catch (error) {
+    if (!(error instanceof ProcessDeadlineError)) throw error;
+    console.error(error.message);
+    return { stdout: "", stderr: error.message, code: null };
+  }
+}
+
 export async function capturePlatformKubernetesDiagnostics(options = {}) {
   const commands = buildDiagnosticsCommands(options);
   const results = [];
 
-  for (const [command, args] of commands) {
-    const result = await runProcess({
-      command: command === "kubectl" ? (options.kubectlPath ?? "kubectl") : command,
-      args,
-      spawn: options.spawn,
-      captureOutput: Boolean(options.captureOutput),
-      allowFailure: true,
-    });
+  for (const [command, args, output] of commands) {
+    const serverLog = output?.redact === "postgres-server-log";
+    const result = await runDiagnosticsCommand(options, command, args, Boolean(options.captureOutput) || serverLog);
+    if (serverLog) {
+      result.stdout = redactPostgresServerLog(result.stdout);
+      result.stderr = redactPostgresServerLog(result.stderr);
+      if (!options.captureOutput) {
+        process.stdout.write(result.stdout);
+        process.stderr.write(result.stderr);
+      }
+    }
     if (options.captureOutput) {
       results.push({ command, args, ...result });
     }
   }
 
   return { commandCount: commands.length, commands: results };
+}
+
+// Prints the D4 snapshot to the job log; the exit code reports a failed probe without retrying it.
+export async function capturePreviewPostgresConnectionSnapshot(options = {}) {
+  let failed = 0;
+  for (const [command, args] of buildPreviewPostgresConnectionSnapshotCommands(options)) {
+    const result = await runDiagnosticsCommand(options, command, args, false);
+    if (result.code !== 0) failed += 1;
+  }
+  if (failed > 0) {
+    console.error(`Preview Postgres connection snapshot failed (${failed} command(s)); no snapshot was recorded.`);
+    return 1;
+  }
+  return 0;
 }
 
 export async function promotePlatformRollouts(options = {}) {
@@ -3622,6 +3737,7 @@ export function parseArgs(argv, env = process.env) {
       "abort",
       "rollback",
       "diagnostics",
+      "preview-postgres-snapshot",
       "plan",
       "capture-rollback-target",
       "verify-deployment-transition",
@@ -3630,7 +3746,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--attempts-out <path>] [--admission-retry-rollback-target <path>] [--deploy-attempts <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|preview-postgres-snapshot|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--attempts-out <path>] [--admission-retry-rollback-target <path>] [--deploy-attempts <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--preview-postgres true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -3650,6 +3766,7 @@ export function parseArgs(argv, env = process.env) {
     timeout: readOption(rest, "--timeout", env.CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT ?? defaultTimeout),
     rolloutsEnabled: readBooleanOption(rest, "--rollouts-enabled", env.ARGO_ROLLOUTS_ENABLED),
     quiesceWorkers: readBooleanOption(rest, "--quiesce-workers", env.CHASE_SETS_SCENARIO_SEED_QUIESCE_WORKERS),
+    previewPostgres: readBooleanOption(rest, "--preview-postgres"),
     betaWaveSize: readOption(rest, "--beta-wave-size", env.BETA_WAVE_SIZE),
     betaWaveRolloutExposure: readOption(rest, "--beta-wave-rollout-exposure", env.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT),
     managedPostgresCaSha256: readOption(rest, "--managed-postgres-ca-sha256", env.MANAGED_POSTGRES_CA_SHA256),
@@ -3905,6 +4022,10 @@ async function main(argv, env = process.env, overrides = {}) {
     });
     console.log(JSON.stringify(evidence, null, 2));
     return 0;
+  }
+
+  if (options.command === "preview-postgres-snapshot") {
+    return capturePreviewPostgresConnectionSnapshot(options);
   }
 
   const diagnostics = await capturePlatformKubernetesDiagnostics({
