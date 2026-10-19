@@ -189,7 +189,7 @@ describe("SupportRequestListPage", () => {
                     reader.onerror = reject;
                     reader.readAsArrayBuffer(value);
                   });
-                  native.append(key, new NodeFile([bytes], value.name, { type: value.type }) as File);
+                  native.append(key, new File([bytes], value.name, { type: value.type }));
                 }
               }
               return action({ ...args, request: await multipartRequest(args.request.url, native) });

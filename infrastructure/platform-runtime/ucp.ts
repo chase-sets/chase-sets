@@ -1,4 +1,10 @@
-import { createHash, createPrivateKey, createPublicKey, verify as verifySignatureBytes } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  verify as verifySignatureBytes,
+  type JsonWebKey as NodeJsonWebKey,
+} from "node:crypto";
 import { Hono, type Context } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -980,12 +986,40 @@ function validateSignatureInputCoverage(
   return null;
 }
 
+// node:crypto reads these JWK members with ordinary property access, so inherited and
+// non-enumerable members are key material that the own-enumerable spread alone drops.
+const NODE_JWK_KEY_MEMBERS = [
+  "kty",
+  "crv",
+  "x",
+  "y",
+  "d",
+  "n",
+  "e",
+  "p",
+  "q",
+  "dp",
+  "dq",
+  "qi",
+] satisfies readonly (keyof JsonWebKey)[];
+
+function completeNodeJwk(nodeJwk: NodeJsonWebKey, jwk: JsonWebKey) {
+  for (const member of NODE_JWK_KEY_MEMBERS) {
+    const value = jwk[member];
+    if (value !== undefined) {
+      nodeJwk[member] = value;
+    }
+  }
+}
+
 function publicKeyAlgorithm(jwk: JsonWebKey) {
   return jwk.alg === "EdDSA" || jwk.crv === "Ed25519" ? null : "sha256";
 }
 
 function publicJwkForPrivateKey(key: UcpBusinessSigningKey): UcpSigningJsonWebKey {
-  const publicJwk = createPublicKey(createPrivateKey({ key: key.privateJwk, format: "jwk" })).export({ format: "jwk" });
+  const nodeJwk: NodeJsonWebKey = { ...key.privateJwk };
+  completeNodeJwk(nodeJwk, key.privateJwk);
+  const publicJwk = createPublicKey(createPrivateKey({ key: nodeJwk, format: "jwk" })).export({ format: "jwk" });
   return {
     ...publicJwk,
     kid: key.kid,
@@ -1044,7 +1078,9 @@ async function verifyHttpMessageSignature(
   }
 
   try {
-    const key = createPublicKey({ key: jwk, format: "jwk" });
+    const nodeJwk: NodeJsonWebKey = { ...jwk };
+    completeNodeJwk(nodeJwk, jwk);
+    const key = createPublicKey({ key: nodeJwk, format: "jwk" });
     const base = signatureBase(request, input.components, input.params);
     const verified = verifySignatureBytes(publicKeyAlgorithm(jwk), Buffer.from(base), key, signature);
     return verified ? null : "HTTP Message Signature verification failed.";

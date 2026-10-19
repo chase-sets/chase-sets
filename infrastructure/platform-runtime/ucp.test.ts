@@ -1,4 +1,4 @@
-import { createHash, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import {
@@ -29,6 +29,7 @@ import {
   createUcpRestRoutes as buildUcpRestRoutes,
   createUcpProfileResolver,
   createUcpEnvelope,
+  publicUcpBusinessSigningKeys,
   type CreateUcpRoutesOptions,
   type UcpProfileResolver,
 } from "./ucp";
@@ -108,7 +109,8 @@ function signedHeadersWithKey(
     }),
     `"@signature-params": ${signatureParams}`,
   ].join("\n");
-  const signature = createSign("sha256").update(signatureBase).end().sign(privateKey).toString("base64");
+  const algorithm = privateKey.asymmetricKeyType === "ed25519" ? null : "sha256";
+  const signature = sign(algorithm, Buffer.from(signatureBase), privateKey).toString("base64");
 
   return {
     "Content-Type": "application/json",
@@ -128,6 +130,45 @@ function createDeferred<T = void>() {
     reject = innerReject;
   });
   return { promise, resolve, reject };
+}
+
+const JWK_REPRESENTATIONS = ["own", "inherited", "non-enumerable"] as const;
+type JwkRepresentation = (typeof JWK_REPRESENTATIONS)[number];
+
+// Node reads JWK members with ordinary property access, so inherited and non-enumerable
+// members are valid key material that an own-enumerable copy would silently drop.
+function representJwk(jwk: JsonWebKey, representation: JwkRepresentation): JsonWebKey {
+  if (representation === "own") {
+    return Object.freeze({ ...jwk });
+  }
+  if (representation === "inherited") {
+    return Object.freeze(Object.create(Object.freeze({ ...jwk })));
+  }
+  const hidden = {};
+  for (const [member, value] of Object.entries(jwk)) {
+    Object.defineProperty(hidden, member, { value, enumerable: false });
+  }
+  return Object.freeze(hidden);
+}
+
+function jwkShape(jwk: object) {
+  return [Object.getOwnPropertyDescriptors(jwk), Object.getOwnPropertyDescriptors(Object.getPrototypeOf(jwk))];
+}
+
+function thrownBy(action: () => unknown): Error {
+  try {
+    action();
+  } catch (error) {
+    if (error instanceof Error) {
+      return error;
+    }
+    throw error;
+  }
+  throw new Error("Expected the action to throw.");
+}
+
+function errorFacts(error: Error) {
+  return { name: error.name, message: error.message, code: Reflect.get(error, "code") };
 }
 
 describe("UCP profile routes", () => {
@@ -245,6 +286,61 @@ describe("UCP profile routes", () => {
     expect(profile.signing_keys[0]).not.toHaveProperty("d");
     expect(profile.ucp.signing_keys[0]).not.toHaveProperty("d");
   });
+
+  const businessSigningCurves = [
+    { alg: "ES256", namedCurve: "P-256" },
+    { alg: "ES384", namedCurve: "P-384" },
+    { alg: "ES512", namedCurve: "P-521" },
+  ] as const;
+
+  it.each(
+    businessSigningCurves.flatMap((curve) =>
+      JWK_REPRESENTATIONS.map((representation) => ({ ...curve, representation })),
+    ),
+  )(
+    "publishes the $alg business key from $representation private JWK members",
+    async ({ alg, namedCurve, representation }) => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve });
+      const privateJwk = representJwk(privateKey.export({ format: "jwk" }), representation);
+      const shapeBefore = jwkShape(privateJwk);
+      const app = new Hono().route(
+        "/.well-known",
+        createUcpProfileRoutes({ businessSigningKeys: { current: { kid: "merchant-2026", alg, privateJwk } } }),
+      );
+
+      const response = await app.request("https://marketplace.example/.well-known/ucp");
+
+      expect(response.status).toBe(200);
+      const profile = await response.json();
+      const publishedKey = {
+        ...createPublicKey(privateKey).export({ format: "jwk" }),
+        kid: "merchant-2026",
+        alg,
+        use: "sig",
+      };
+      expect(profile.signing_keys).toEqual([publishedKey]);
+      expect(profile.ucp.signing_keys).toEqual([publishedKey]);
+      expect(jwkShape(privateJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  it.each(JWK_REPRESENTATIONS)(
+    "rejects a public-only business key from %s JWK members with the Node key error",
+    (representation) => {
+      const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const publicJwk = publicKey.export({ format: "jwk" });
+      const expected = thrownBy(() => createPrivateKey({ key: publicJwk, format: "jwk" }));
+      const privateJwk = representJwk(publicJwk, representation);
+      const shapeBefore = jwkShape(privateJwk);
+
+      const actual = thrownBy(() =>
+        publicUcpBusinessSigningKeys({ current: { kid: "merchant-2026", alg: "ES256", privateJwk } }),
+      );
+
+      expect(errorFacts(actual)).toEqual(errorFacts(expected));
+      expect(jwkShape(privateJwk)).toEqual(shapeBefore);
+    },
+  );
 });
 
 describe("UCP REST routes", () => {
@@ -540,6 +636,97 @@ describe("UCP REST routes", () => {
       checkout: { id: "chk_signed" },
     });
   });
+
+  const signatureKeyFamilies = [
+    { family: "RSA", generate: () => generateKeyPairSync("rsa", { modulusLength: 2048 }) },
+    { family: "EC P-256", generate: () => generateKeyPairSync("ec", { namedCurve: "P-256" }) },
+    { family: "Ed25519", generate: () => generateKeyPairSync("ed25519") },
+  ] as const;
+  const signatureKeyCases = signatureKeyFamilies.flatMap((keyFamily) =>
+    JWK_REPRESENTATIONS.map((representation) => ({ ...keyFamily, representation })),
+  );
+
+  async function signedWriteWithResolvedKey(signingKey: KeyObject, resolvedJwk: JsonWebKey) {
+    const handler = vi.fn(async () => ({
+      ucp: { version: UCP_VERSION, status: "ok" as const },
+      checkout: { id: "chk_signed" },
+    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: { create_checkout: handler },
+        signatureVerification: { keyResolver: async () => resolvedJwk },
+      }),
+    );
+    const body = JSON.stringify({ source: { type: "cart" } });
+    const response = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers: signedHeadersWithKey("POST", "/ucp/v1/checkout-sessions", body, signingKey, {
+        "Idempotency-Key": "idem_signed",
+      }),
+    });
+    return { response, handler };
+  }
+
+  it.each(signatureKeyCases)(
+    "verifies $family signatures against $representation resolver JWK members",
+    async ({ generate, representation }) => {
+      const { privateKey, publicKey } = generate();
+      const resolvedJwk = representJwk(publicKey.export({ format: "jwk" }), representation);
+      const shapeBefore = jwkShape(resolvedJwk);
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(200);
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(jwkShape(resolvedJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  it.each(signatureKeyCases)(
+    "rejects $family signatures from another key against $representation resolver JWK members",
+    async ({ generate, representation }) => {
+      const { privateKey } = generate();
+      const resolvedJwk = representJwk(generate().publicKey.export({ format: "jwk" }), representation);
+      const shapeBefore = jwkShape(resolvedJwk);
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(400);
+      expect(handler).not.toHaveBeenCalled();
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ message: "HTTP Message Signature verification failed." }],
+      });
+      expect(jwkShape(resolvedJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  const unusableResolverJwks: readonly JsonWebKey[] = [
+    { kty: "oct", k: "AAAA" },
+    { kty: "EC", crv: "P-256", x: "AAAA" },
+  ];
+
+  it.each(
+    unusableResolverJwks.flatMap((jwk) => JWK_REPRESENTATIONS.map((representation) => ({ jwk, representation }))),
+  )(
+    "reports the Node key error for unusable $jwk.kty resolver JWK members held as $representation",
+    async ({ jwk, representation }) => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const expected = thrownBy(() => createPublicKey({ key: { ...jwk }, format: "jwk" }));
+      const resolvedJwk = representJwk(jwk, representation);
+      const shapeBefore = jwkShape(resolvedJwk);
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(400);
+      expect(handler).not.toHaveBeenCalled();
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ message: expected.message }],
+      });
+      expect(jwkShape(resolvedJwk)).toEqual(shapeBefore);
+    },
+  );
 
   it("rejects signed writes when created is stale", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", {
