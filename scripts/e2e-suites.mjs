@@ -135,14 +135,26 @@ export const e2eSuites = Object.freeze([
     requiresDisplay: true,
     estimatedDurationSeconds: 60,
   },
+  {
+    id: "rendered_copy",
+    label: "Rendered Copy Sweep",
+    deployable: "marketplace",
+    journeys: ["seeded rendered-copy observations"],
+    grep: "@rendered-copy",
+    estimatedDurationSeconds: 900,
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
 const suitesById = new Map(e2eSuites.map((suite) => [suite.id, suite]));
-const allMarketplaceSuiteIds = e2eSuites.filter((suite) => suite.deployable === "marketplace").map((suite) => suite.id);
+const allMarketplaceSuiteIds = e2eSuites
+  .filter((suite) => suite.deployable === "marketplace" && suite.id !== "rendered_copy")
+  .map((suite) => suite.id);
 const allAdminWebSuiteIds = e2eSuites.filter((suite) => suite.deployable === "admin-web").map((suite) => suite.id);
 const allBrowserSuiteIds = e2eSuites
-  .filter((suite) => suite.deployable === "marketplace" || suite.deployable === "admin-web")
+  .filter(
+    (suite) => suite.id !== "rendered_copy" && (suite.deployable === "marketplace" || suite.deployable === "admin-web"),
+  )
   .map((suite) => suite.id);
 const defaultSuiteBatchSize = 2;
 const fallbackEstimatedSuiteDurationSeconds = 300;
@@ -159,7 +171,7 @@ const browserRuntimePatterns = [
   /^react-router\.config\.[cm]?[tj]s$/,
   /^playwright\.config\.ts$/,
   /^scripts\/e2e-suites\.mjs$/,
-  /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json)$/,
+  /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json|rendered-copy\.ts)$/,
   /^scripts\/validate-responsive-evidence-artifacts\.mjs$/,
   /^scripts\/run-e2e-suite\.mjs$/,
   /^docker-compose\.dev\.yml$/,
@@ -254,6 +266,21 @@ const e2eSpecSuiteOwnership = [
   {
     pattern: /^deployables\/marketplace\/e2e\/marketplace-shell-header\.spec\.ts$/,
     suites: ["marketplace_browse"],
+  },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/rendered-copy-sweep\.spec\.ts$/,
+    suites: ["marketplace_account", "marketplace_seller"],
+  },
+  {
+    pattern: /^deployables\/admin-web\/e2e\/rendered-copy-sweep\.spec\.ts$/,
+    suites: [
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_access",
+    ],
   },
 ];
 
@@ -600,6 +627,27 @@ export function e2eSuiteById(suiteId) {
   return suitesById.get(suiteId);
 }
 
+export const renderedCopyOwningSuiteIds = Object.freeze([
+  "marketplace_account",
+  "marketplace_seller",
+  "catalog_admin_integrations",
+  "catalog_admin_modeling",
+  "admin_growth",
+  "admin_commerce",
+  "admin_support",
+  "admin_access",
+]);
+
+// Ordinary balancing stays generic. Only browser dispatch isolates this substrate.
+export function batchBrowserE2eSuiteIds(suiteIds) {
+  const dedicated =
+    suiteIds.includes("rendered_copy") || suiteIds.some((id) => renderedCopyOwningSuiteIds.includes(id));
+  return [
+    ...batchE2eSuiteIds(suiteIds.filter((id) => id !== "rendered_copy")),
+    ...(dedicated ? ["rendered_copy"] : []),
+  ];
+}
+
 export function estimatedE2eSuiteDurationSeconds(suiteId) {
   return e2eSuiteById(suiteId)?.estimatedDurationSeconds ?? fallbackEstimatedSuiteDurationSeconds;
 }
@@ -686,7 +734,7 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
   return contextSuiteOwnership.get(contextName) ?? [];
 }
 
-export function e2eSuiteIdsForChangedFile(filePath) {
+function ordinaryE2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
 
   if (
@@ -747,6 +795,18 @@ export function e2eSuiteIdsForChangedFile(filePath) {
   }
 
   return boundedContextSuiteIdsForChangedFile(normalized, boundedContextMatch[1] ?? "");
+}
+
+export function e2eSuiteIdsForChangedFile(filePath) {
+  const suites = ordinaryE2eSuiteIdsForChangedFile(filePath);
+  const seedFamily =
+    /^bounded-contexts\/(?:auth|identity|marketplace|catalog|channels|payments|fulfillment|platform-operations|customer-feedback|discovery)\/(?:support\/runtime-support\/seed\.ts|features\/[^/]+\/api\/seed\.ts)$/.test(
+      normalizeFilePath(filePath),
+    );
+  return orderE2eSuiteIds([
+    ...suites,
+    ...(seedFamily && !suites.some((id) => renderedCopyOwningSuiteIds.includes(id)) ? ["rendered_copy"] : []),
+  ]);
 }
 
 export function chromiumProbeCallerViolations(workspaces, suites = e2eSuites) {

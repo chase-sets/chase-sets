@@ -1,4 +1,60 @@
 {
+  "renderedCopy": {
+    "baseSha": "89d932d8de7e68f6805898c5231fe2ad6c3bb794",
+    "cases": [
+      {
+        "path": "infrastructure/stripe-payments/index.ts",
+        "selected": false,
+        "reason": "Stripe infrastructure is not browser-owned"
+      },
+      {
+        "path": "infrastructure/provider-webhook-inbox/index.ts",
+        "selected": false,
+        "reason": "provider-webhook infrastructure is not browser-owned"
+      },
+      {
+        "path": "contracts/provider-credentials/index.ts",
+        "selected": false,
+        "reason": "provider-credentials contract is not browser-owned"
+      },
+      {
+        "path": "infrastructure/digitalocean/platform/main.tf",
+        "selected": false,
+        "reason": "DigitalOcean infrastructure is not browser-owned"
+      },
+      {
+        "path": "bounded-contexts/payments/tests/stripe-release-channel.test.ts",
+        "selected": false,
+        "reason": "payments-provider test-only negative control"
+      },
+      {
+        "path": "bounded-contexts/payments/features/payments/api/provider-webhook-paths.ts",
+        "selected": true,
+        "reason": "payments-provider API retains old marketplace_account ownership despite provider spelling"
+      },
+      { "path": "tsconfig.base.json", "selected": true, "reason": "root browser runtime retains all owning suites" },
+      {
+        "path": "deployables/marketplace/app/smoke-auth-support.test.ts",
+        "selected": false,
+        "reason": "smoke-auth test-only negative control"
+      },
+      {
+        "path": "bounded-contexts/auth/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "Auth seed retains old marketplace_account ownership"
+      },
+      {
+        "path": "bounded-contexts/identity/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: sibling seeded tuple family now triggers the dedicated sweep"
+      },
+      {
+        "path": "infrastructure/playwright-evidence/rendered-copy.ts",
+        "selected": true,
+        "reason": "intentional delta: the new substrate is a browser runtime input"
+      }
+    ]
+  },
   "baseSha": "6dd05a038a8863a1b28a96d68ccdb7906a16bed4",
   "incidentHead": "6ad07d20f93f9e6fa5baef975583b71d9b4a1aac",
   "incident": [
@@ -124,7 +180,7 @@
     },
     {
       "family": "browserRuntimePatterns:11",
-      "pattern": "/^infrastructure\\/playwright-evidence\\/(?:index\\.ts|package\\.json|responsive-evidence-manifest\\.json)$/",
+      "pattern": "/^infrastructure\\/playwright-evidence\\/(?:index\\.ts|package\\.json|responsive-evidence-manifest\\.json|rendered-copy\\.ts)$/",
       "suites": null,
       "path": "infrastructure/playwright-evidence/index.ts",
       "trackedCandidates": 3,
@@ -639,6 +695,29 @@
       "pattern": "/^deployables\\/marketplace\\/e2e\\/marketplace-shell-header\\.spec\\.ts$/",
       "suites": ["marketplace_browse"],
       "path": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:18",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/rendered-copy-sweep\\.spec\\.ts$/",
+      "suites": ["marketplace_account", "marketplace_seller"],
+      "path": "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:19",
+      "pattern": "/^deployables\\/admin-web\\/e2e\\/rendered-copy-sweep\\.spec\\.ts$/",
+      "suites": [
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_access"
+      ],
+      "path": "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
@@ -2350,6 +2429,27 @@
       "changedFiles": ["deployables/marketplace/e2e/marketplace-shell-header.spec.ts"],
       "suiteIds": ["marketplace_browse"],
       "batches": ["marketplace_browse"]
+    },
+    {
+      "changedFiles": ["deployables/marketplace/e2e/rendered-copy-sweep.spec.ts"],
+      "suiteIds": ["marketplace_account", "marketplace_seller"],
+      "batches": ["marketplace_account,marketplace_seller"]
+    },
+    {
+      "changedFiles": ["deployables/admin-web/e2e/rendered-copy-sweep.spec.ts"],
+      "suiteIds": [
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_support",
+        "catalog_admin_modeling,admin_access",
+        "admin_growth,admin_commerce"
+      ]
     }
   ]
 }
