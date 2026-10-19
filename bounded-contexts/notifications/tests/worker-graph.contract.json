@@ -1,0 +1,424 @@
+{
+  "contextName": "notifications",
+  "runners": [
+    {
+      "subscriptionName": "notifications.customer-feedback-facts-projection",
+      "handlerKind": "projection",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "sourceContextName": "customer-feedback",
+      "targetContextName": "notifications",
+      "subscriptionVersion": 1,
+      "checkpointKey": "notifications-source-facts-outbox-projection:customer-feedback:v1",
+      "handlers": {
+        "customer-feedback.case.attention-requested": "<function>",
+        "customer-feedback.case.follow-up-requested": "<function>",
+        "customer-feedback.attention.digest-requested": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "customer-feedback.case.attention-requested",
+        "customer-feedback.case.follow-up-requested",
+        "customer-feedback.attention.digest-requested"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 70
+    },
+    {
+      "subscriptionName": "notifications.fulfillment-facts-projection",
+      "handlerKind": "projection",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "notifications",
+      "subscriptionVersion": 2,
+      "checkpointKey": "notifications-source-facts-outbox-projection:fulfillment:v2",
+      "handlers": {
+        "fulfillment.shipment.dispatched": "<function>",
+        "fulfillment.shipment.delivered": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 30
+    },
+    {
+      "subscriptionName": "notifications.inventory-facts-projection",
+      "handlerKind": "projection",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "sourceContextName": "inventory",
+      "targetContextName": "notifications",
+      "subscriptionVersion": 1,
+      "checkpointKey": "notifications-source-facts-outbox-projection:inventory:v1",
+      "handlers": {
+        "inventory.hold.consumed": "<function>",
+        "inventory.restock-decision.pending": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "inventory.hold.consumed",
+        "inventory.restock-decision.pending"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 40
+    },
+    {
+      "subscriptionName": "notifications.marketplace-facts-projection",
+      "handlerKind": "projection",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "sourceContextName": "marketplace",
+      "targetContextName": "notifications",
+      "subscriptionVersion": 1,
+      "checkpointKey": "notifications-source-facts-outbox-projection:marketplace:v1",
+      "handlers": {
+        "marketplace.seller-listing-availability.enabled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.seller-listing-availability.enabled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 60
+    },
+    {
+      "subscriptionName": "notifications.ordering-facts-projection",
+      "handlerKind": "projection",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "sourceContextName": "ordering",
+      "targetContextName": "notifications",
+      "subscriptionVersion": 1,
+      "checkpointKey": "notifications-source-facts-outbox-projection:ordering:v1",
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.cancelled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 20
+    },
+    {
+      "subscriptionName": "notifications.support-dispute-facts-projection",
+      "handlerKind": "projection",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "sourceContextName": "platform-operations",
+      "targetContextName": "notifications",
+      "subscriptionVersion": 1,
+      "checkpointKey": "notifications-source-facts-outbox-projection:platform-operations:v1",
+      "handlers": {
+        "support.support-request.opened": "<function>",
+        "support.support-request.response-recorded": "<function>",
+        "support.support-request.offer-declined": "<function>",
+        "support.support-request.escalated": "<function>",
+        "support.support-request.resolved": "<function>",
+        "support.support-request.cancelled": "<function>",
+        "support.support-request.response-reminder-emitted": "<function>",
+        "support.support-request.return-delivered": "<function>",
+        "support.support-request.return-condition-disputed": "<function>",
+        "support.support-request.return-refund-released": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.response-recorded",
+        "support.support-request.offer-declined",
+        "support.support-request.escalated",
+        "support.support-request.resolved",
+        "support.support-request.cancelled",
+        "support.support-request.response-reminder-emitted",
+        "support.support-request.return-delivered",
+        "support.support-request.return-condition-disputed",
+        "support.support-request.return-refund-released"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 80
+    },
+    {
+      "subscriptionName": "notifications.pricing-repricing-facts-projection",
+      "handlerKind": "projection",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "sourceContextName": "pricing",
+      "targetContextName": "notifications",
+      "subscriptionVersion": 1,
+      "checkpointKey": "notifications-source-facts-outbox-projection:pricing:v1",
+      "handlers": {
+        "pricing.repricing-activity.digest-requested": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "pricing.repricing-activity.digest-requested"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 90
+    },
+    {
+      "subscriptionName": "notifications.settlement-facts-projection",
+      "handlerKind": "projection",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "sourceContextName": "settlement",
+      "targetContextName": "notifications",
+      "subscriptionVersion": 1,
+      "checkpointKey": "notifications-source-facts-outbox-projection:settlement:v1",
+      "handlers": {
+        "settlement.payout-readiness.recorded": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "settlement.payout-readiness.recorded"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 50
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscriptionName": "notifications.customer-feedback-facts-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "customer-feedback",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "customer-feedback.case.attention-requested": "<function>",
+        "customer-feedback.case.follow-up-requested": "<function>",
+        "customer-feedback.attention.digest-requested": "<function>"
+      },
+      "eventTypes": [
+        "customer-feedback.case.attention-requested",
+        "customer-feedback.case.follow-up-requested",
+        "customer-feedback.attention.digest-requested"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 70
+    },
+    {
+      "subscriptionName": "notifications.fulfillment-facts-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "fulfillment",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 2,
+      "handlers": {
+        "fulfillment.shipment.dispatched": "<function>",
+        "fulfillment.shipment.delivered": "<function>"
+      },
+      "eventTypes": [
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 30
+    },
+    {
+      "subscriptionName": "notifications.inventory-facts-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "inventory",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "inventory.hold.consumed": "<function>",
+        "inventory.restock-decision.pending": "<function>"
+      },
+      "eventTypes": [
+        "inventory.hold.consumed",
+        "inventory.restock-decision.pending"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 40
+    },
+    {
+      "subscriptionName": "notifications.marketplace-facts-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "marketplace",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.seller-listing-availability.enabled": "<function>"
+      },
+      "eventTypes": [
+        "marketplace.seller-listing-availability.enabled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 60
+    },
+    {
+      "subscriptionName": "notifications.ordering-facts-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "ordering",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.cancelled": "<function>"
+      },
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 20
+    },
+    {
+      "subscriptionName": "notifications.support-dispute-facts-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "platform-operations",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "support.support-request.opened": "<function>",
+        "support.support-request.response-recorded": "<function>",
+        "support.support-request.offer-declined": "<function>",
+        "support.support-request.escalated": "<function>",
+        "support.support-request.resolved": "<function>",
+        "support.support-request.cancelled": "<function>",
+        "support.support-request.response-reminder-emitted": "<function>",
+        "support.support-request.return-delivered": "<function>",
+        "support.support-request.return-condition-disputed": "<function>",
+        "support.support-request.return-refund-released": "<function>"
+      },
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.response-recorded",
+        "support.support-request.offer-declined",
+        "support.support-request.escalated",
+        "support.support-request.resolved",
+        "support.support-request.cancelled",
+        "support.support-request.response-reminder-emitted",
+        "support.support-request.return-delivered",
+        "support.support-request.return-condition-disputed",
+        "support.support-request.return-refund-released"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 80
+    },
+    {
+      "subscriptionName": "notifications.pricing-repricing-facts-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "pricing",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "pricing.repricing-activity.digest-requested": "<function>"
+      },
+      "eventTypes": [
+        "pricing.repricing-activity.digest-requested"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 90
+    },
+    {
+      "subscriptionName": "notifications.settlement-facts-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "settlement",
+      "sourceContextMount": "when-mounted",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "settlement.payout-readiness.recorded": "<function>"
+      },
+      "eventTypes": [
+        "settlement.payout-readiness.recorded"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 50
+    }
+  ]
+}

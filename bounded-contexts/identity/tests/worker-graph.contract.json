@@ -1,0 +1,397 @@
+{
+  "contextName": "identity",
+  "runners": [
+    {
+      "subscriptionName": "identity.identity-account-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-account-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-account-projection:identity:v1",
+      "handlers": {
+        "identity.account.created": "<function>",
+        "identity.account.profile-updated": "<function>",
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>",
+        "identity.account.founders-window-opened": "<function>",
+        "identity.account.badge-assigned": "<function>",
+        "identity.account.badge-removed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.account.badge-assigned",
+        "identity.account.badge-removed",
+        "identity.account.closed",
+        "identity.account.created",
+        "identity.account.founders-window-opened",
+        "identity.account.profile-updated",
+        "identity.account.reactivated",
+        "identity.account.suspended"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 0
+    },
+    {
+      "subscriptionName": "identity.identity-api-key-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-api-key-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-api-key-projection:identity:v1",
+      "handlers": {
+        "identity.api-key.created": "<function>",
+        "identity.api-key.rotated": "<function>",
+        "identity.api-key.revoked": "<function>",
+        "identity.api-key.used": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.api-key.created",
+        "identity.api-key.revoked",
+        "identity.api-key.rotated",
+        "identity.api-key.used"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 5
+    },
+    {
+      "subscriptionName": "identity.identity-consent-current-state-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-consent-current-state-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-consent-current-state-projection:identity:v1",
+      "handlers": {
+        "identity.consent.recorded": "<function>",
+        "identity.consent.withdrawn": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.consent.recorded",
+        "identity.consent.withdrawn"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 7
+    },
+    {
+      "subscriptionName": "identity.identity-consent-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-consent-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-consent-projection:identity:v1",
+      "handlers": {
+        "identity.consent.recorded": "<function>",
+        "identity.consent.withdrawn": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.consent.recorded",
+        "identity.consent.withdrawn"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 6
+    },
+    {
+      "subscriptionName": "identity.founder-claim-reaction",
+      "handlerKind": "reaction",
+      "projectionName": "identity-founder-claim-reaction",
+      "sourceContextName": "marketplace",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-founder-claim-reaction:marketplace:v1",
+      "handlers": {
+        "marketplace.listing.created": "<function>",
+        "marketplace.offer.submitted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.offer.submitted"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 10
+    },
+    {
+      "subscriptionName": "identity.identity-founders-cohort-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-founders-cohort-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-founders-cohort-projection:identity:v1",
+      "handlers": {
+        "identity.founders-cohort.founder-number-claimed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.founders-cohort.founder-number-claimed"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 4
+    },
+    {
+      "subscriptionName": "identity.identity-invitation-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-invitation-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-invitation-projection:identity:v1",
+      "handlers": {
+        "identity.invitation.created": "<function>",
+        "identity.invitation.resent": "<function>",
+        "identity.invitation.cancelled": "<function>",
+        "identity.invitation.accepted": "<function>",
+        "identity.invitation.declined": "<function>",
+        "identity.invitation.expired": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.invitation.accepted",
+        "identity.invitation.cancelled",
+        "identity.invitation.created",
+        "identity.invitation.declined",
+        "identity.invitation.expired",
+        "identity.invitation.resent"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 3
+    },
+    {
+      "subscriptionName": "identity.identity-membership-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-membership-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-membership-projection:identity:v1",
+      "handlers": {
+        "identity.membership.granted": "<function>",
+        "identity.membership.role-changed": "<function>",
+        "identity.membership.revoked": "<function>",
+        "identity.membership.reinstated": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.membership.granted",
+        "identity.membership.reinstated",
+        "identity.membership.revoked",
+        "identity.membership.role-changed"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 2
+    },
+    {
+      "subscriptionName": "identity.identity-shipping-address-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-shipping-address-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-shipping-address-projection:identity:v1",
+      "handlers": {
+        "identity.shipping-address.added": "<function>",
+        "identity.shipping-address.updated": "<function>",
+        "identity.shipping-address.default-set": "<function>",
+        "identity.shipping-address.archived": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.shipping-address.added",
+        "identity.shipping-address.archived",
+        "identity.shipping-address.default-set",
+        "identity.shipping-address.updated"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 9
+    },
+    {
+      "subscriptionName": "identity.identity-user-preferences-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-user-preferences-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-user-preferences-projection:identity:v1",
+      "handlers": {
+        "identity.user-preferences.updated": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.user-preferences.updated"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 8
+    },
+    {
+      "subscriptionName": "identity.identity-user-projection",
+      "handlerKind": "projection",
+      "projectionName": "identity-user-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-user-projection:identity:v1",
+      "handlers": {
+        "identity.user.created": "<function>",
+        "identity.user.profile-updated": "<function>",
+        "identity.user.contact-method-added": "<function>",
+        "identity.user.contact-method-verified": "<function>",
+        "identity.user.auth-method-enabled": "<function>",
+        "identity.user.auth-method-disabled": "<function>",
+        "identity.user.password-credential-attached": "<function>",
+        "identity.user.passkey-registered": "<function>",
+        "identity.user.social-login-linked": "<function>",
+        "identity.user.suspended": "<function>",
+        "identity.user.reactivated": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.user.auth-method-disabled",
+        "identity.user.auth-method-enabled",
+        "identity.user.contact-method-added",
+        "identity.user.contact-method-verified",
+        "identity.user.created",
+        "identity.user.passkey-registered",
+        "identity.user.password-credential-attached",
+        "identity.user.profile-updated",
+        "identity.user.reactivated",
+        "identity.user.social-login-linked",
+        "identity.user.suspended"
+      ],
+      "streamPrefixes": [
+        "identity."
+      ],
+      "order": 1
+    },
+    {
+      "subscriptionName": "identity.platform-policy-document-projection",
+      "handlerKind": "projection",
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "platform-policy-document-projection:identity:v1",
+      "handlers": {
+        "platform-policy.document.created": "<function>",
+        "platform-policy.document.revised": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "platform-policy.document.created",
+        "platform-policy.document.revised"
+      ],
+      "streamPrefixes": [
+        "platform-policy.document-"
+      ],
+      "order": 10
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscriptionName": "identity.founder-claim-reaction",
+      "handlerKind": "reaction",
+      "sourceContextName": "marketplace",
+      "projectionName": "identity-founder-claim-reaction",
+      "reactionName": "identity-founder-claim-reaction",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.listing.created": "<function>",
+        "marketplace.offer.submitted": "<function>"
+      },
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure",
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.offer.submitted"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 10
+    }
+  ]
+}

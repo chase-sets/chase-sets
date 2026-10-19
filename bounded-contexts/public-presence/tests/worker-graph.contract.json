@@ -1,0 +1,201 @@
+{
+  "contextName": "public-presence",
+  "runners": [
+    {
+      "subscriptionName": "public-presence.platform-policy-document-projection",
+      "handlerKind": "projection",
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextName": "public-presence",
+      "targetContextName": "public-presence",
+      "subscriptionVersion": 1,
+      "checkpointKey": "platform-policy-document-projection:public-presence:v1",
+      "handlers": {
+        "platform-policy.document.created": "<function>",
+        "platform-policy.document.revised": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "platform-policy.document.created",
+        "platform-policy.document.revised"
+      ],
+      "streamPrefixes": [
+        "platform-policy.document-"
+      ],
+      "order": 2
+    },
+    {
+      "subscriptionName": "public-presence.waitlist-projection",
+      "handlerKind": "projection",
+      "projectionName": "public-presence-waitlist-projection",
+      "sourceContextName": "public-presence",
+      "targetContextName": "public-presence",
+      "subscriptionVersion": 1,
+      "checkpointKey": "public-presence-waitlist-projection:public-presence:v1",
+      "handlers": {
+        "public-presence.waitlist-signup.recorded": "<function>",
+        "public-presence.waitlist-signup.updated": "<function>",
+        "public-presence.waitlist-signup.cohort-quality-provided": "<function>",
+        "public-presence.waitlist-signup.admitted": "<function>",
+        "public-presence.waitlist-referral-code.issued": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "public-presence.waitlist-signup.recorded",
+        "public-presence.waitlist-signup.updated",
+        "public-presence.waitlist-signup.cohort-quality-provided",
+        "public-presence.waitlist-signup.admitted",
+        "public-presence.waitlist-referral-code.issued"
+      ],
+      "streamPrefixes": [
+        "public-presence.waitlist-signup-"
+      ],
+      "order": 10
+    },
+    {
+      "subscriptionName": "public-presence.waitlist-transactional-email",
+      "handlerKind": "projection",
+      "projectionName": "public-presence-waitlist-transactional-email-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "public-presence",
+      "subscriptionVersion": 1,
+      "checkpointKey": "public-presence-waitlist-transactional-email-projection:identity:v1",
+      "handlers": {
+        "identity.account.founders-window-opened": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.account.founders-window-opened"
+      ],
+      "streamPrefixes": [
+        "identity.account-"
+      ],
+      "order": 21
+    },
+    {
+      "subscriptionName": "public-presence.waitlist-transactional-email",
+      "handlerKind": "projection",
+      "projectionName": "public-presence-waitlist-transactional-email-projection",
+      "sourceContextName": "public-presence",
+      "targetContextName": "public-presence",
+      "subscriptionVersion": 1,
+      "checkpointKey": "public-presence-waitlist-transactional-email-projection:public-presence:v1",
+      "handlers": {
+        "public-presence.waitlist-signup.recorded": "<function>",
+        "public-presence.waitlist-signup.admitted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "public-presence.waitlist-signup.recorded",
+        "public-presence.waitlist-signup.admitted"
+      ],
+      "streamPrefixes": [
+        "public-presence.waitlist-signup-"
+      ],
+      "order": 20
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscriptionName": "public-presence.waitlist-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "public-presence",
+      "projectionName": "public-presence-waitlist-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "public-presence.waitlist-signup.recorded": "<function>",
+        "public-presence.waitlist-signup.updated": "<function>",
+        "public-presence.waitlist-signup.cohort-quality-provided": "<function>",
+        "public-presence.waitlist-signup.admitted": "<function>",
+        "public-presence.waitlist-referral-code.issued": "<function>"
+      },
+      "eventTypes": [
+        "public-presence.waitlist-signup.recorded",
+        "public-presence.waitlist-signup.updated",
+        "public-presence.waitlist-signup.cohort-quality-provided",
+        "public-presence.waitlist-signup.admitted",
+        "public-presence.waitlist-referral-code.issued"
+      ],
+      "streamPrefixes": [
+        "public-presence.waitlist-signup-"
+      ],
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 10
+    },
+    {
+      "subscriptionName": "public-presence.waitlist-transactional-email",
+      "handlerKind": "projection",
+      "sourceContextName": "identity",
+      "projectionName": "public-presence-waitlist-transactional-email-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account.founders-window-opened": "<function>"
+      },
+      "eventTypes": [
+        "identity.account.founders-window-opened"
+      ],
+      "streamPrefixes": [
+        "identity.account-"
+      ],
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 21
+    },
+    {
+      "subscriptionName": "public-presence.waitlist-transactional-email",
+      "handlerKind": "projection",
+      "sourceContextName": "public-presence",
+      "projectionName": "public-presence-waitlist-transactional-email-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "public-presence.waitlist-signup.recorded": "<function>",
+        "public-presence.waitlist-signup.admitted": "<function>"
+      },
+      "eventTypes": [
+        "public-presence.waitlist-signup.recorded",
+        "public-presence.waitlist-signup.admitted"
+      ],
+      "streamPrefixes": [
+        "public-presence.waitlist-signup-"
+      ],
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 20
+    }
+  ]
+}

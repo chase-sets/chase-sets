@@ -1,0 +1,1022 @@
+{
+  "contextName": "ordering",
+  "runners": [
+    {
+      "subscriptionName": "ordering.identity-account-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-account-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-account-projection:identity:v1",
+      "handlers": {
+        "identity.account.created": "<function>",
+        "identity.account.profile-updated": "<function>",
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 20
+    },
+    {
+      "subscriptionName": "ordering.fulfillment-cancellation-inputs",
+      "handlerKind": "projection",
+      "projectionName": "ordering-fulfillment-cancellation-inputs",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-fulfillment-cancellation-inputs:fulfillment:v1",
+      "handlers": {
+        "fulfillment.shipment.created": "<function>",
+        "fulfillment.shipment.packing-started": "<function>",
+        "fulfillment.shipment.package-prepared": "<function>",
+        "fulfillment.shipment.label-attached": "<function>",
+        "fulfillment.shipment.dispatched": "<function>",
+        "fulfillment.shipment.cancelled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.packing-started",
+        "fulfillment.shipment.package-prepared",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 70
+    },
+    {
+      "subscriptionName": "ordering.inventory-reservation-outcomes",
+      "handlerKind": "reaction",
+      "projectionName": "ordering-inventory-reservation-outcomes",
+      "sourceContextName": "inventory",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-inventory-reservation-outcomes:inventory:v1",
+      "handlers": {
+        "inventory.reservation.confirmed": "<function>",
+        "inventory.reservation.rejected": "<function>",
+        "inventory.reservation.released": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "inventory.reservation.confirmed",
+        "inventory.reservation.rejected",
+        "inventory.reservation.released"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 45
+    },
+    {
+      "subscriptionName": "ordering.inventory-supply-input-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-inventory-supply-input-projection",
+      "sourceContextName": "inventory",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-inventory-supply-input-projection:inventory:v1",
+      "handlers": {
+        "inventory.item.created": "<function>",
+        "inventory.item.adjusted": "<function>",
+        "inventory.hold.placed": "<function>",
+        "inventory.hold.converted": "<function>",
+        "inventory.hold.extended": "<function>",
+        "inventory.hold.released": "<function>",
+        "inventory.hold.expired": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.converted",
+        "inventory.hold.extended",
+        "inventory.hold.released",
+        "inventory.hold.expired"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 40
+    },
+    {
+      "subscriptionName": "ordering.marketplace-offer-acceptance",
+      "handlerKind": "reaction",
+      "projectionName": "ordering-marketplace-offer-acceptance",
+      "sourceContextName": "marketplace",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 4,
+      "checkpointKey": "ordering-marketplace-offer-acceptance:marketplace:v4",
+      "handlers": {
+        "marketplace.offer.accepted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.offer.accepted"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 50
+    },
+    {
+      "subscriptionName": "ordering.marketplace-supply-input-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-marketplace-supply-input-projection",
+      "sourceContextName": "catalog",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-marketplace-supply-input-projection:catalog:v1",
+      "handlers": {
+        "catalog.catalog-item.product-measures-resolved": "<function>",
+        "catalog.catalog-item.product-measures-publication-part-recorded": "<function>",
+        "catalog.catalog-item.product-measures-publication-completed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 31
+    },
+    {
+      "subscriptionName": "ordering.marketplace-supply-input-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-marketplace-supply-input-projection",
+      "sourceContextName": "marketplace",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 3,
+      "checkpointKey": "ordering-marketplace-supply-input-projection:marketplace:v3",
+      "handlers": {
+        "marketplace.listing.created": "<function>",
+        "marketplace.listing.price-updated": "<function>",
+        "marketplace.listing.quantity-cap-updated": "<function>",
+        "marketplace.listing.purchase-limits-updated": "<function>",
+        "marketplace.listing.published": "<function>",
+        "marketplace.listing.paused": "<function>",
+        "marketplace.listing.withdrawn": "<function>",
+        "marketplace.seller-listing-availability.disabled": "<function>",
+        "marketplace.seller-listing-availability.enabled": "<function>",
+        "marketplace.seller-order-capacity.set": "<function>",
+        "marketplace.seller-order-capacity.cleared": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.purchase-limits-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-order-capacity.set",
+        "marketplace.seller-order-capacity.cleared"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 30
+    },
+    {
+      "subscriptionName": "ordering.order-money-timeline-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-order-money-timeline-projection:payments:v1",
+      "handlers": {
+        "payments.refund-requested": "<function>",
+        "payments.refund-issued": "<function>",
+        "payments.refund-failed": "<function>",
+        "payments.payment-refunded": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "payments.refund-requested",
+        "payments.refund-issued",
+        "payments.refund-failed",
+        "payments.payment-refunded"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 74
+    },
+    {
+      "subscriptionName": "ordering.order-money-timeline-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "sourceContextName": "platform-operations",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-order-money-timeline-projection:platform-operations:v1",
+      "handlers": {
+        "support.support-request.opened": "<function>",
+        "support.support-request.resolved": "<function>",
+        "support.support-request.closed": "<function>",
+        "support.support-request.cancelled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.closed",
+        "support.support-request.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 75
+    },
+    {
+      "subscriptionName": "ordering.order-money-timeline-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "sourceContextName": "settlement",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-order-money-timeline-projection:settlement:v1",
+      "handlers": {
+        "settlement.protection-coverage.settled.v1": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "settlement.protection-coverage.settled.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 76
+    },
+    {
+      "subscriptionName": "ordering.ordering-order-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-projection",
+      "sourceContextName": "ordering",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-order-projection:ordering:v1",
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.reservation-confirmed": "<function>",
+        "ordering.order.pending-payment-recorded": "<function>",
+        "ordering.order.cancelled": "<function>",
+        "ordering.order.reservation-released": "<function>",
+        "ordering.order.ready-for-fulfillment-recorded": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "ordering.order.cancelled",
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.ready-for-fulfillment-recorded",
+        "ordering.order.reservation-confirmed",
+        "ordering.order.reservation-released"
+      ],
+      "streamPrefixes": [
+        "ordering."
+      ],
+      "order": 2
+    },
+    {
+      "subscriptionName": "ordering.order-review-opportunity-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 2,
+      "checkpointKey": "ordering-order-review-opportunity-projection:fulfillment:v2",
+      "handlers": {
+        "fulfillment.shipment.created": "<function>",
+        "fulfillment.shipment.delivered": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.delivered"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 71
+    },
+    {
+      "subscriptionName": "ordering.order-review-opportunity-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "sourceContextName": "marketplace",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 2,
+      "checkpointKey": "ordering-order-review-opportunity-projection:marketplace:v2",
+      "handlers": {
+        "marketplace.review.submitted": "<function>",
+        "marketplace.review.updated": "<function>",
+        "marketplace.review.withdrawn": "<function>",
+        "marketplace.review.revealed": "<function>",
+        "marketplace.review-hold.placed": "<function>",
+        "marketplace.review-hold.extended": "<function>",
+        "marketplace.review-hold.reduced": "<function>",
+        "marketplace.review-hold.released": "<function>",
+        "marketplace.review-hold.terminal-recorded": "<function>",
+        "marketplace.review-scoring.disposition-projected.v1": "<function>",
+        "marketplace.review-opportunity.changed.v1": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.review.submitted",
+        "marketplace.review.updated",
+        "marketplace.review.withdrawn",
+        "marketplace.review.revealed",
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded",
+        "marketplace.review-scoring.disposition-projected.v1",
+        "marketplace.review-opportunity.changed.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 73
+    },
+    {
+      "subscriptionName": "ordering.order-review-opportunity-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "sourceContextName": "ordering",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 2,
+      "checkpointKey": "ordering-order-review-opportunity-projection:ordering:v2",
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.cancelled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 69
+    },
+    {
+      "subscriptionName": "ordering.order-review-opportunity-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "sourceContextName": "platform-operations",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 2,
+      "checkpointKey": "ordering-order-review-opportunity-projection:platform-operations:v2",
+      "handlers": {
+        "support.support-request.opened": "<function>",
+        "support.support-request.resolved": "<function>",
+        "support.support-request.cancelled": "<function>",
+        "support.support-request.remedy-authorized.v1": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.cancelled",
+        "support.support-request.remedy-authorized.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 72
+    },
+    {
+      "subscriptionName": "ordering.ordering-order-transactional-email-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-order-transactional-email-projection",
+      "sourceContextName": "ordering",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-order-transactional-email-projection:ordering:v1",
+      "handlers": {
+        "ordering.order.created": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "ordering.order.created"
+      ],
+      "streamPrefixes": [
+        "ordering."
+      ],
+      "order": 4
+    },
+    {
+      "subscriptionName": "ordering.payment-capture",
+      "handlerKind": "reaction",
+      "projectionName": "ordering-payment-capture",
+      "sourceContextName": "payments",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-payment-capture:payments:v1",
+      "handlers": {
+        "payments.payment-created": "<function>",
+        "payments.payment-captured": "<function>",
+        "payments.payment-failed": "<function>",
+        "payments.payment-cancelled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "payments.payment-created",
+        "payments.payment-captured",
+        "payments.payment-failed",
+        "payments.payment-cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 60
+    },
+    {
+      "subscriptionName": "ordering.ordering-postage-policy-projection",
+      "handlerKind": "projection",
+      "projectionName": "ordering-postage-policy-projection",
+      "sourceContextName": "ordering",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-postage-policy-projection:ordering:v1",
+      "handlers": {
+        "ordering.postage-policy.created": "<function>",
+        "ordering.postage-policy.revised": "<function>",
+        "ordering.postage-policy.activated": "<function>",
+        "ordering.postage-policy.retired": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "ordering.postage-policy.activated",
+        "ordering.postage-policy.created",
+        "ordering.postage-policy.retired",
+        "ordering.postage-policy.revised"
+      ],
+      "streamPrefixes": [
+        "ordering."
+      ],
+      "order": 1
+    },
+    {
+      "subscriptionName": "ordering.support-cancellation",
+      "handlerKind": "reaction",
+      "projectionName": "ordering-support-cancellation",
+      "sourceContextName": "platform-operations",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "ordering-support-cancellation:platform-operations:v1",
+      "handlers": {
+        "support.support-request.resolved": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "support.support-request.resolved"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 65
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscriptionName": "ordering.identity-account-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "identity",
+      "projectionName": "ordering-account-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account.created": "<function>",
+        "identity.account.profile-updated": "<function>",
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>"
+      },
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 20
+    },
+    {
+      "subscriptionName": "ordering.fulfillment-cancellation-inputs",
+      "handlerKind": "projection",
+      "sourceContextName": "fulfillment",
+      "projectionName": "ordering-fulfillment-cancellation-inputs",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "fulfillment.shipment.created": "<function>",
+        "fulfillment.shipment.packing-started": "<function>",
+        "fulfillment.shipment.package-prepared": "<function>",
+        "fulfillment.shipment.label-attached": "<function>",
+        "fulfillment.shipment.dispatched": "<function>",
+        "fulfillment.shipment.cancelled": "<function>"
+      },
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.packing-started",
+        "fulfillment.shipment.package-prepared",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 70
+    },
+    {
+      "subscriptionName": "ordering.inventory-reservation-outcomes",
+      "handlerKind": "reaction",
+      "sourceContextName": "inventory",
+      "projectionName": "ordering-inventory-reservation-outcomes",
+      "reactionName": "ordering-inventory-reservation-outcomes",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "inventory.reservation.confirmed": "<function>",
+        "inventory.reservation.rejected": "<function>",
+        "inventory.reservation.released": "<function>"
+      },
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure",
+      "eventTypes": [
+        "inventory.reservation.confirmed",
+        "inventory.reservation.rejected",
+        "inventory.reservation.released"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 45
+    },
+    {
+      "subscriptionName": "ordering.inventory-supply-input-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "inventory",
+      "projectionName": "ordering-inventory-supply-input-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "inventory.item.created": "<function>",
+        "inventory.item.adjusted": "<function>",
+        "inventory.hold.placed": "<function>",
+        "inventory.hold.converted": "<function>",
+        "inventory.hold.extended": "<function>",
+        "inventory.hold.released": "<function>",
+        "inventory.hold.expired": "<function>"
+      },
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.converted",
+        "inventory.hold.extended",
+        "inventory.hold.released",
+        "inventory.hold.expired"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 40
+    },
+    {
+      "subscriptionName": "ordering.marketplace-offer-acceptance",
+      "handlerKind": "reaction",
+      "sourceContextName": "marketplace",
+      "projectionName": "ordering-marketplace-offer-acceptance",
+      "reactionName": "ordering-marketplace-offer-acceptance",
+      "subscriptionVersion": 4,
+      "handlers": {
+        "marketplace.offer.accepted": "<function>"
+      },
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure",
+      "eventTypes": [
+        "marketplace.offer.accepted"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 50
+    },
+    {
+      "subscriptionName": "ordering.marketplace-supply-input-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "catalog",
+      "projectionName": "ordering-marketplace-supply-input-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "catalog.catalog-item.product-measures-resolved": "<function>",
+        "catalog.catalog-item.product-measures-publication-part-recorded": "<function>",
+        "catalog.catalog-item.product-measures-publication-completed": "<function>"
+      },
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 31
+    },
+    {
+      "subscriptionName": "ordering.marketplace-supply-input-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "marketplace",
+      "projectionName": "ordering-marketplace-supply-input-projection",
+      "subscriptionVersion": 3,
+      "handlers": {
+        "marketplace.listing.created": "<function>",
+        "marketplace.listing.price-updated": "<function>",
+        "marketplace.listing.quantity-cap-updated": "<function>",
+        "marketplace.listing.purchase-limits-updated": "<function>",
+        "marketplace.listing.published": "<function>",
+        "marketplace.listing.paused": "<function>",
+        "marketplace.listing.withdrawn": "<function>",
+        "marketplace.seller-listing-availability.disabled": "<function>",
+        "marketplace.seller-listing-availability.enabled": "<function>",
+        "marketplace.seller-order-capacity.set": "<function>",
+        "marketplace.seller-order-capacity.cleared": "<function>"
+      },
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.purchase-limits-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-order-capacity.set",
+        "marketplace.seller-order-capacity.cleared"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 30
+    },
+    {
+      "subscriptionName": "ordering.order-money-timeline-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "payments",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.refund-requested": "<function>",
+        "payments.refund-issued": "<function>",
+        "payments.refund-failed": "<function>",
+        "payments.payment-refunded": "<function>"
+      },
+      "eventTypes": [
+        "payments.refund-requested",
+        "payments.refund-issued",
+        "payments.refund-failed",
+        "payments.payment-refunded"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 74
+    },
+    {
+      "subscriptionName": "ordering.order-money-timeline-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "platform-operations",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "support.support-request.opened": "<function>",
+        "support.support-request.resolved": "<function>",
+        "support.support-request.closed": "<function>",
+        "support.support-request.cancelled": "<function>"
+      },
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.closed",
+        "support.support-request.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 75
+    },
+    {
+      "subscriptionName": "ordering.order-money-timeline-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "settlement",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "settlement.protection-coverage.settled.v1": "<function>"
+      },
+      "eventTypes": [
+        "settlement.protection-coverage.settled.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 76
+    },
+    {
+      "subscriptionName": "ordering.order-review-opportunity-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "fulfillment",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "subscriptionVersion": 2,
+      "handlers": {
+        "fulfillment.shipment.created": "<function>",
+        "fulfillment.shipment.delivered": "<function>"
+      },
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.delivered"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 71
+    },
+    {
+      "subscriptionName": "ordering.order-review-opportunity-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "marketplace",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "subscriptionVersion": 2,
+      "handlers": {
+        "marketplace.review.submitted": "<function>",
+        "marketplace.review.updated": "<function>",
+        "marketplace.review.withdrawn": "<function>",
+        "marketplace.review.revealed": "<function>",
+        "marketplace.review-hold.placed": "<function>",
+        "marketplace.review-hold.extended": "<function>",
+        "marketplace.review-hold.reduced": "<function>",
+        "marketplace.review-hold.released": "<function>",
+        "marketplace.review-hold.terminal-recorded": "<function>",
+        "marketplace.review-scoring.disposition-projected.v1": "<function>",
+        "marketplace.review-opportunity.changed.v1": "<function>"
+      },
+      "eventTypes": [
+        "marketplace.review.submitted",
+        "marketplace.review.updated",
+        "marketplace.review.withdrawn",
+        "marketplace.review.revealed",
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded",
+        "marketplace.review-scoring.disposition-projected.v1",
+        "marketplace.review-opportunity.changed.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 73
+    },
+    {
+      "subscriptionName": "ordering.order-review-opportunity-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "ordering",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "subscriptionVersion": 2,
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.cancelled": "<function>"
+      },
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 69
+    },
+    {
+      "subscriptionName": "ordering.order-review-opportunity-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "platform-operations",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "subscriptionVersion": 2,
+      "handlers": {
+        "support.support-request.opened": "<function>",
+        "support.support-request.resolved": "<function>",
+        "support.support-request.cancelled": "<function>",
+        "support.support-request.remedy-authorized.v1": "<function>"
+      },
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.cancelled",
+        "support.support-request.remedy-authorized.v1"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 72
+    },
+    {
+      "subscriptionName": "ordering.payment-capture",
+      "handlerKind": "reaction",
+      "sourceContextName": "payments",
+      "projectionName": "ordering-payment-capture",
+      "reactionName": "ordering-payment-capture",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.payment-created": "<function>",
+        "payments.payment-captured": "<function>",
+        "payments.payment-failed": "<function>",
+        "payments.payment-cancelled": "<function>"
+      },
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure",
+      "eventTypes": [
+        "payments.payment-created",
+        "payments.payment-captured",
+        "payments.payment-failed",
+        "payments.payment-cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 60
+    },
+    {
+      "subscriptionName": "ordering.support-cancellation",
+      "handlerKind": "reaction",
+      "sourceContextName": "platform-operations",
+      "projectionName": "ordering-support-cancellation",
+      "reactionName": "ordering-support-cancellation",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "support.support-request.resolved": "<function>"
+      },
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure",
+      "eventTypes": [
+        "support.support-request.resolved"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 65
+    }
+  ]
+}

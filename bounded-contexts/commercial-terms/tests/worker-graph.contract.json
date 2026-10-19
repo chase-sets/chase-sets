@@ -1,0 +1,152 @@
+{
+  "contextName": "commercial-terms",
+  "runners": [
+    {
+      "subscriptionName": "commercial-terms.account-projection",
+      "handlerKind": "projection",
+      "projectionName": "commercial-terms-account-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "commercial-terms",
+      "subscriptionVersion": 1,
+      "checkpointKey": "commercial-terms-account-projection:identity:v1",
+      "handlers": {
+        "identity.account.created": "<function>",
+        "identity.account.profile-updated": "<function>",
+        "identity.account.founders-window-opened": "<function>",
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.founders-window-opened",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 10
+    },
+    {
+      "subscriptionName": "commercial-terms.founders-window-reaction",
+      "handlerKind": "reaction",
+      "projectionName": "commercial-terms-founders-window-reaction",
+      "sourceContextName": "identity",
+      "targetContextName": "commercial-terms",
+      "subscriptionVersion": 1,
+      "checkpointKey": "commercial-terms-founders-window-reaction:identity:v1",
+      "handlers": {
+        "identity.account.founders-window-opened": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.account.founders-window-opened"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 11
+    },
+    {
+      "subscriptionName": "commercial-terms.platform-policy-document-projection",
+      "handlerKind": "projection",
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextName": "commercial-terms",
+      "targetContextName": "commercial-terms",
+      "subscriptionVersion": 1,
+      "checkpointKey": "platform-policy-document-projection:commercial-terms:v1",
+      "handlers": {
+        "platform-policy.document.created": "<function>",
+        "platform-policy.document.revised": "<function>",
+        "commercial-terms.schedule.created": "<function>",
+        "commercial-terms.schedule.revised": "<function>",
+        "commercial-terms.agreement.created": "<function>",
+        "commercial-terms.agreement.revised": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "commercial-terms.agreement.created",
+        "commercial-terms.agreement.revised",
+        "commercial-terms.schedule.created",
+        "commercial-terms.schedule.revised",
+        "platform-policy.document.created",
+        "platform-policy.document.revised"
+      ],
+      "streamPrefixes": [
+        "platform-policy.document-",
+        "commercial-terms.schedule-",
+        "commercial-terms.agreement-"
+      ],
+      "order": 0
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscriptionName": "commercial-terms.account-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "identity",
+      "projectionName": "commercial-terms-account-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account.created": "<function>",
+        "identity.account.profile-updated": "<function>",
+        "identity.account.founders-window-opened": "<function>",
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>"
+      },
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.founders-window-opened",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 10
+    },
+    {
+      "subscriptionName": "commercial-terms.founders-window-reaction",
+      "handlerKind": "reaction",
+      "sourceContextName": "identity",
+      "projectionName": "commercial-terms-founders-window-reaction",
+      "reactionName": "commercial-terms-founders-window-reaction",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account.founders-window-opened": "<function>"
+      },
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure",
+      "eventTypes": [
+        "identity.account.founders-window-opened"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 11
+    }
+  ]
+}

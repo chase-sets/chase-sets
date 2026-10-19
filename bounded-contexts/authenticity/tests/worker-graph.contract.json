@@ -1,0 +1,43 @@
+{
+  "contextName": "authenticity",
+  "runners": [
+    {
+      "subscriptionName": "authenticity.authenticity-case-projection",
+      "handlerKind": "projection",
+      "projectionName": "authenticity-case-projection",
+      "sourceContextName": "authenticity",
+      "targetContextName": "authenticity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "authenticity-case-projection:authenticity:v1",
+      "handlers": {
+        "authenticity.case.opened": "<function>",
+        "authenticity.case.inbound-tracking-recorded": "<function>",
+        "authenticity.case.received": "<function>",
+        "authenticity.case.inspection-started": "<function>",
+        "authenticity.case.verdict-recorded": "<function>",
+        "authenticity.case.forwarded": "<function>",
+        "authenticity.case.returned": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "authenticity.case.forwarded",
+        "authenticity.case.inbound-tracking-recorded",
+        "authenticity.case.inspection-started",
+        "authenticity.case.opened",
+        "authenticity.case.received",
+        "authenticity.case.returned",
+        "authenticity.case.verdict-recorded"
+      ],
+      "streamPrefixes": [
+        "authenticity."
+      ],
+      "order": 0
+    }
+  ],
+  "subscriptions": []
+}

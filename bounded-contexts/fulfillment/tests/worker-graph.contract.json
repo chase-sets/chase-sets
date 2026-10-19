@@ -1,0 +1,437 @@
+{
+  "contextName": "fulfillment",
+  "runners": [
+    {
+      "subscriptionName": "fulfillment.account-projection",
+      "handlerKind": "projection",
+      "projectionName": "fulfillment-account-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "fulfillment",
+      "subscriptionVersion": 1,
+      "checkpointKey": "fulfillment-account-projection:identity:v1",
+      "handlers": {
+        "identity.account.created": "<function>",
+        "identity.account.profile-updated": "<function>",
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 10
+    },
+    {
+      "subscriptionName": "fulfillment.order-group-admission-subscription",
+      "handlerKind": "projection",
+      "projectionName": "fulfillment-order-group-admission-subscription",
+      "sourceContextName": "ordering",
+      "targetContextName": "fulfillment",
+      "subscriptionVersion": 1,
+      "checkpointKey": "fulfillment-order-group-admission-subscription:ordering:v1",
+      "handlers": {
+        "ordering.order-group.admission-requested": "<function>",
+        "ordering.order-group.formed": "<function>",
+        "ordering.order-group.admission-aborted": "<function>",
+        "ordering.order-group.member-removed": "<function>",
+        "ordering.order-group.dissolved": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "ordering.order-group.admission-requested",
+        "ordering.order-group.formed",
+        "ordering.order-group.admission-aborted",
+        "ordering.order-group.member-removed",
+        "ordering.order-group.dissolved"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 15
+    },
+    {
+      "subscriptionName": "fulfillment.order-source-projection",
+      "handlerKind": "projection",
+      "projectionName": "fulfillment-order-source-projection",
+      "sourceContextName": "ordering",
+      "targetContextName": "fulfillment",
+      "subscriptionVersion": 1,
+      "checkpointKey": "fulfillment-order-source-projection:ordering:v1",
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.pending-payment-recorded": "<function>",
+        "ordering.order.cancelled": "<function>",
+        "ordering.order.ready-for-fulfillment-recorded": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 20
+    },
+    {
+      "subscriptionName": "fulfillment.payment-fraud-source-projection",
+      "handlerKind": "projection",
+      "projectionName": "fulfillment-payment-fraud-source-projection",
+      "sourceContextName": "payments",
+      "targetContextName": "fulfillment",
+      "subscriptionVersion": 1,
+      "checkpointKey": "fulfillment-payment-fraud-source-projection:payments:v1",
+      "handlers": {
+        "payments.payment-fraud-warning-received": "<function>",
+        "payments.payment-fraud-review-opened": "<function>",
+        "payments.payment-fraud-review-closed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "payments.payment-fraud-warning-received",
+        "payments.payment-fraud-review-opened",
+        "payments.payment-fraud-review-closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 30
+    },
+    {
+      "subscriptionName": "fulfillment.fulfillment-return-shipment-projection",
+      "handlerKind": "projection",
+      "projectionName": "fulfillment-return-shipment-projection",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "fulfillment",
+      "subscriptionVersion": 1,
+      "checkpointKey": "fulfillment-return-shipment-projection:fulfillment:v1",
+      "handlers": {
+        "fulfillment.return-shipment.requested.v1": "<function>",
+        "fulfillment.return-shipment.requested.v2": "<function>",
+        "fulfillment.return-shipment.label-ready.v1": "<function>",
+        "fulfillment.return-shipment.label-purchase-failed.v1": "<function>",
+        "fulfillment.return-shipment.label-voided.v1": "<function>",
+        "fulfillment.return-shipment.carrier-accepted.v1": "<function>",
+        "fulfillment.return-shipment.in-transit-recorded.v1": "<function>",
+        "fulfillment.return-shipment.delivered.v1": "<function>",
+        "fulfillment.return-shipment.facility-intake-completed.v1": "<function>",
+        "fulfillment.return-shipment.facility-intake-corrected.v1": "<function>",
+        "fulfillment.return-shipment.duplicate-intake-scan-observed.v1": "<function>",
+        "fulfillment.return-shipment.cancelled.v1": "<function>",
+        "fulfillment.return-shipment.expired.v1": "<function>",
+        "fulfillment.return-shipment.exception-raised.v1": "<function>",
+        "fulfillment.unidentified-return-package.recorded.v1": "<function>",
+        "fulfillment.unidentified-return-package.reconciled.v1": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "fulfillment.return-shipment.cancelled.v1",
+        "fulfillment.return-shipment.carrier-accepted.v1",
+        "fulfillment.return-shipment.delivered.v1",
+        "fulfillment.return-shipment.duplicate-intake-scan-observed.v1",
+        "fulfillment.return-shipment.exception-raised.v1",
+        "fulfillment.return-shipment.expired.v1",
+        "fulfillment.return-shipment.facility-intake-completed.v1",
+        "fulfillment.return-shipment.facility-intake-corrected.v1",
+        "fulfillment.return-shipment.in-transit-recorded.v1",
+        "fulfillment.return-shipment.label-purchase-failed.v1",
+        "fulfillment.return-shipment.label-ready.v1",
+        "fulfillment.return-shipment.label-voided.v1",
+        "fulfillment.return-shipment.requested.v1",
+        "fulfillment.return-shipment.requested.v2",
+        "fulfillment.unidentified-return-package.reconciled.v1",
+        "fulfillment.unidentified-return-package.recorded.v1"
+      ],
+      "streamPrefixes": [
+        "fulfillment."
+      ],
+      "order": 2
+    },
+    {
+      "subscriptionName": "fulfillment.fulfillment-shipment-projection",
+      "handlerKind": "projection",
+      "projectionName": "fulfillment-shipment-projection",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "fulfillment",
+      "subscriptionVersion": 1,
+      "checkpointKey": "fulfillment-shipment-projection:fulfillment:v1",
+      "handlers": {
+        "fulfillment.channel-fulfillment-record.created": "<function>",
+        "fulfillment.shipment.created": "<function>",
+        "fulfillment.shipment.packing-started": "<function>",
+        "fulfillment.shipment.packing-line-confirmed": "<function>",
+        "fulfillment.shipment.packing-line-unconfirmed": "<function>",
+        "fulfillment.shipment.packing-line-quantity-set": "<function>",
+        "fulfillment.shipment.package-prepared": "<function>",
+        "fulfillment.shipment.label-attached": "<function>",
+        "fulfillment.shipment.label-purchase-failed": "<function>",
+        "fulfillment.shipment.label-voided": "<function>",
+        "fulfillment.shipment.label-refund-status-recorded": "<function>",
+        "fulfillment.shipment.cancelled": "<function>",
+        "fulfillment.shipment.dispatched": "<function>",
+        "fulfillment.shipment.delivered": "<function>",
+        "fulfillment.shipment.returned": "<function>",
+        "fulfillment.shipment.cancellation-conflict-recorded": "<function>",
+        "fulfillment.shipment.exception-raised": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "fulfillment.channel-fulfillment-record.created",
+        "fulfillment.shipment.cancellation-conflict-recorded",
+        "fulfillment.shipment.cancelled",
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.delivered",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.exception-raised",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.label-purchase-failed",
+        "fulfillment.shipment.label-refund-status-recorded",
+        "fulfillment.shipment.label-voided",
+        "fulfillment.shipment.package-prepared",
+        "fulfillment.shipment.packing-line-confirmed",
+        "fulfillment.shipment.packing-line-quantity-set",
+        "fulfillment.shipment.packing-line-unconfirmed",
+        "fulfillment.shipment.packing-started",
+        "fulfillment.shipment.returned"
+      ],
+      "streamPrefixes": [
+        "fulfillment."
+      ],
+      "order": 0
+    },
+    {
+      "subscriptionName": "fulfillment.fulfillment-shipment-transactional-email-projection",
+      "handlerKind": "projection",
+      "projectionName": "fulfillment-shipment-transactional-email-projection",
+      "sourceContextName": "fulfillment",
+      "targetContextName": "fulfillment",
+      "subscriptionVersion": 1,
+      "checkpointKey": "fulfillment-shipment-transactional-email-projection:fulfillment:v1",
+      "handlers": {
+        "fulfillment.shipment.delivered": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "fulfillment.shipment.delivered"
+      ],
+      "streamPrefixes": [
+        "fulfillment."
+      ],
+      "order": 1
+    },
+    {
+      "subscriptionName": "fulfillment.support-return-source-projection",
+      "handlerKind": "projection",
+      "projectionName": "fulfillment-support-return-source-projection",
+      "sourceContextName": "platform-operations",
+      "targetContextName": "fulfillment",
+      "subscriptionVersion": 2,
+      "checkpointKey": "fulfillment-support-return-source-projection:platform-operations:v2",
+      "handlers": {
+        "support.support-request.opened": "<function>",
+        "support.support-request.affected-line-items-recorded": "<function>",
+        "support.support-request.remedy-authorized.v1": "<function>",
+        "support.support-request.resolved": "<function>",
+        "support.support-request.cancelled": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.affected-line-items-recorded",
+        "support.support-request.remedy-authorized.v1",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 40
+    }
+  ],
+  "subscriptions": [
+    {
+      "subscriptionName": "fulfillment.account-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "identity",
+      "projectionName": "fulfillment-account-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account.created": "<function>",
+        "identity.account.profile-updated": "<function>",
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>"
+      },
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 10
+    },
+    {
+      "subscriptionName": "fulfillment.order-group-admission-subscription",
+      "handlerKind": "projection",
+      "sourceContextName": "ordering",
+      "projectionName": "fulfillment-order-group-admission-subscription",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "ordering.order-group.admission-requested": "<function>",
+        "ordering.order-group.formed": "<function>",
+        "ordering.order-group.admission-aborted": "<function>",
+        "ordering.order-group.member-removed": "<function>",
+        "ordering.order-group.dissolved": "<function>"
+      },
+      "eventTypes": [
+        "ordering.order-group.admission-requested",
+        "ordering.order-group.formed",
+        "ordering.order-group.admission-aborted",
+        "ordering.order-group.member-removed",
+        "ordering.order-group.dissolved"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 15
+    },
+    {
+      "subscriptionName": "fulfillment.order-source-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "ordering",
+      "projectionName": "fulfillment-order-source-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "ordering.order.created": "<function>",
+        "ordering.order.pending-payment-recorded": "<function>",
+        "ordering.order.cancelled": "<function>",
+        "ordering.order.ready-for-fulfillment-recorded": "<function>"
+      },
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 20
+    },
+    {
+      "subscriptionName": "fulfillment.payment-fraud-source-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "payments",
+      "projectionName": "fulfillment-payment-fraud-source-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.payment-fraud-warning-received": "<function>",
+        "payments.payment-fraud-review-opened": "<function>",
+        "payments.payment-fraud-review-closed": "<function>"
+      },
+      "eventTypes": [
+        "payments.payment-fraud-warning-received",
+        "payments.payment-fraud-review-opened",
+        "payments.payment-fraud-review-closed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 30
+    },
+    {
+      "subscriptionName": "fulfillment.support-return-source-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "platform-operations",
+      "projectionName": "fulfillment-support-return-source-projection",
+      "subscriptionVersion": 2,
+      "handlers": {
+        "support.support-request.opened": "<function>",
+        "support.support-request.affected-line-items-recorded": "<function>",
+        "support.support-request.remedy-authorized.v1": "<function>",
+        "support.support-request.resolved": "<function>",
+        "support.support-request.cancelled": "<function>"
+      },
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.affected-line-items-recorded",
+        "support.support-request.remedy-authorized.v1",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 40
+    }
+  ]
+}
