@@ -9,10 +9,14 @@ Agents call this instead of reading secrets. The machine-account token is read
 from Windows Credential Manager and handed only to the bws process environment;
 it never reaches an argument list, this script's environment or a file.
 -Command forwards the child's output with the token and every project value
-replaced by [redacted]; -Check and -ListKeys print no values. Every failure
-prints one fixed classification (missing-token, denied, bws-failed,
-unparseable-list or unscrubbable-value), never exception text or bws output.
-CHASE_SETS_AGENT_SECRETS=deny refuses every mode.
+replaced by [redacted]; -Check and -ListKeys print no values. Before reading
+the token, -Command and -Check read the agent tier from the credential
+inventory of the checkout this script sits in; after listing the project they
+refuse while it holds a key outside the tier or a value without one of its
+key's test prefixes, so -Command never reaches bws run. Every failure prints
+one fixed classification (missing-token, denied, bws-failed, unparseable-list,
+unscrubbable-value, inventory-unavailable or tier-violation), never exception
+text, bws output or a value. CHASE_SETS_AGENT_SECRETS=deny refuses every mode.
 
 Only this script's own streams are scrubbed: a value the command writes to a
 file, a socket, or in a transformed form is not caught.
@@ -285,11 +289,12 @@ function Invoke-Bws {
 # -Command only builds its scrub set from the values. Any shape other than an
 # array of objects with a string value and a string key free of control
 # characters is unparseable, so a key can never forge an extra output line.
+# Keys[i] names Values[i]; Names is the same keys sorted.
 function ConvertFrom-SecretList([string]$Json) {
   $document = $null
   try {
     $document = [Text.Json.JsonDocument]::Parse($Json, [Text.Json.JsonDocumentOptions]::new())
-    $names = [Collections.Generic.List[string]]::new()
+    $keys = [Collections.Generic.List[string]]::new()
     $values = [Collections.Generic.List[string]]::new()
     foreach ($secret in $document.RootElement.EnumerateArray()) {
       $key = $secret.GetProperty('key')
@@ -297,11 +302,12 @@ function ConvertFrom-SecretList([string]$Json) {
       if ($key.ValueKind -ne [Text.Json.JsonValueKind]::String -or $value.ValueKind -ne [Text.Json.JsonValueKind]::String) { return $null }
       $name = $key.GetString()
       if ($name -notmatch '^[^\p{Cc}]+\z') { return $null }
-      $names.Add($name)
+      $keys.Add($name)
       $values.Add($value.GetString())
     }
+    $names = [Collections.Generic.List[string]]::new($keys)
     $names.Sort([StringComparer]::Ordinal)
-    return [pscustomobject]@{ Names = $names.ToArray(); Values = $values.ToArray() }
+    return [pscustomobject]@{ Names = $names.ToArray(); Keys = $keys.ToArray(); Values = $values.ToArray() }
   } catch {
     return $null
   } finally {
@@ -319,6 +325,57 @@ function Get-ProjectSecretList([string]$BwsPath, [string]$ProjectId, [string]$To
   $list
 }
 
+# Reads agentTier.keys from a credential inventory as an ordinal map from key
+# name to its test prefixes. The full inventory rules live in
+# scripts/credential-inventory.mjs; this read only needs the tier's shape, and
+# a missing file, unparseable JSON or any other shape (including a duplicate
+# name) returns $null.
+function Read-AgentTier([string]$Path) {
+  $document = $null
+  try {
+    $document = [Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($Path), [Text.Json.JsonDocumentOptions]::new())
+    $tier = [Collections.Generic.Dictionary[string, string[]]]::new([StringComparer]::Ordinal)
+    foreach ($key in $document.RootElement.GetProperty('agentTier').GetProperty('keys').EnumerateArray()) {
+      $name = $key.GetProperty('name')
+      if ($name.ValueKind -ne [Text.Json.JsonValueKind]::String -or $name.GetString().Length -eq 0) { return $null }
+      $prefixes = [Collections.Generic.List[string]]::new()
+      foreach ($prefix in $key.GetProperty('testPrefixes').EnumerateArray()) {
+        if ($prefix.ValueKind -ne [Text.Json.JsonValueKind]::String -or $prefix.GetString().Length -eq 0) { return $null }
+        $prefixes.Add($prefix.GetString())
+      }
+      $tier.Add($name.GetString(), $prefixes.ToArray())
+    }
+    return [pscustomobject]@{ Prefixes = $tier }
+  } catch {
+    return $null
+  } finally {
+    if ($null -ne $document) { $document.Dispose() }
+  }
+}
+
+# Refuses while the project holds a key the tier does not list, or a value
+# that starts with none of its key's test prefixes (an empty list admits any
+# value). Values are compared in memory; only key names are printed.
+function Assert-AgentTier($List, $Tier) {
+  $violations = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+  for ($i = 0; $i -lt $List.Keys.Count; $i++) {
+    $key = $List.Keys[$i]
+    $prefixes = $null
+    if (-not $Tier.Prefixes.TryGetValue($key, [ref]$prefixes)) {
+      [void]$violations.Add("$key (not an agent-tier key)")
+      continue
+    }
+    if ($prefixes.Count -eq 0) { continue }
+    $value = $List.Values[$i]
+    if (-not ($prefixes.Where({ $value.StartsWith($_, [StringComparison]::Ordinal) }, 'First').Count)) {
+      [void]$violations.Add("$key (value without a test prefix)")
+    }
+  }
+  if ($violations.Count -gt 0) {
+    Stop-WithClassification 'tier-violation' "$([string]::Join(', ', $violations)); nothing was run"
+  }
+}
+
 # Dot-sourcing defines the functions above for tests and runs nothing.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
@@ -327,6 +384,15 @@ Set-StrictMode -Version Latest
 
 if ($env:CHASE_SETS_AGENT_SECRETS -eq 'deny') {
   Stop-WithClassification 'denied' 'CHASE_SETS_AGENT_SECRETS=deny; this lane may not use agent secrets'
+}
+
+# -ListKeys prints names only, so it stays available to inspect a violation.
+$tier = $null
+if ($PSCmdlet.ParameterSetName -ne 'ListKeys') {
+  $tier = Read-AgentTier (Join-Path $PSScriptRoot '..' '..' '.github' 'credential-inventory.json')
+  if ($null -eq $tier) {
+    Stop-WithClassification 'inventory-unavailable' '.github/credential-inventory.json beside this checkout is missing, unparseable or has no valid agentTier; nothing was run'
+  }
 }
 
 $classification = 'bws-failed'
@@ -345,9 +411,12 @@ try {
 
   switch ($PSCmdlet.ParameterSetName) {
     'Command' {
-      # The scrub set is read before `run`; a value added between the two
-      # calls is not scrubbed.
-      $secrets = @($token) + (Get-ProjectSecretList -BwsPath $bws -ProjectId $projectId -Token $token).Values
+      # The tier guard and the scrub set both read the list before `run`; a
+      # value added between the two calls is neither checked nor scrubbed.
+      $list = Get-ProjectSecretList -BwsPath $bws -ProjectId $projectId -Token $token
+      Assert-AgentTier $list $tier
+      $secrets = @($token) + $list.Values
+      $list = $null
       Initialize-SecretScrubber
       foreach ($secret in $secrets) {
         if (-not [AgentSecretScrubber]::IsScrubbable($secret)) {
@@ -361,8 +430,9 @@ try {
       exit $result.ExitCode
     }
     'Check' {
-      $names = (Get-ProjectSecretList -BwsPath $bws -ProjectId $projectId -Token $token).Names
-      [Console]::Out.WriteLine("OK: account '$Account' can read project $projectId ($($names.Count) keys).")
+      $list = Get-ProjectSecretList -BwsPath $bws -ProjectId $projectId -Token $token
+      Assert-AgentTier $list $tier
+      [Console]::Out.WriteLine("OK: account '$Account' can read project $projectId ($($list.Names.Count) keys).")
     }
     'ListKeys' {
       foreach ($name in (Get-ProjectSecretList -BwsPath $bws -ProjectId $projectId -Token $token).Names) {

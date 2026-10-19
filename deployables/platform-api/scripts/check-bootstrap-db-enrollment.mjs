@@ -1502,12 +1502,311 @@ function bootBearingCaseCount(partition) {
   return partition.bootBearingCases === "all" ? partition.cases.length : partition.bootBearingCases.length;
 }
 
-function unprojectedExecutionUnitSchedule() {
+// ---------------------------------------------------------------------------
+// Measured one-fewer-unit floor. Per-file timings depend on the topology they
+// were measured under, so one capture's model can call a unit count feasible
+// that hosted CI has measured as infeasible. A paired capture of the same
+// frozen workload at one fewer unit, whose own projection exceeds the per-unit
+// ceiling, raises the effective minimum to the shipped count. It never lowers
+// the model's minimum, and absent or unbound evidence changes no violation.
+// ---------------------------------------------------------------------------
+
+/**
+ * The declared floor: `null`, or the frozen result of
+ * deriveBootstrapDbMeasuredOneFewerUnitFloor over two committed captures, which
+ * the Unit test binds to those captures.
+ */
+export const bootstrapDbMeasuredOneFewerUnitFloor = null;
+
+const measuredFloorProvenanceFields = Object.freeze([
+  "node",
+  "pnpm",
+  "vitest",
+  "imageOS",
+  "imageVersion",
+  "postgresImageDigests",
+  "maxWorkers",
+  "workspaceConcurrency",
+  "laneMode",
+  "modeledUnitCeilingMs",
+  "modeledAggregateCeilingMs",
+]);
+const measuredFloorModelFields = Object.freeze([
+  "executionUnitCeilingMs",
+  "aggregateCeilingMs",
+  "maxWorkersPerExecutionUnit",
+]);
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function measuredCaptureGap(capture) {
+  if (!isRecord(capture)) return "it is not a record";
+  for (const field of ["provenance", "model", "sourceBindings"]) {
+    if (!isRecord(capture[field])) return `${field} is not a record`;
+  }
+  const modelViolations = validateScheduleModelShape(capture.model).violations;
+  if (modelViolations.length > 0) return modelViolations[0];
+  const missing = measuredFloorProvenanceFields.find((field) => !Object.hasOwn(capture.provenance, field));
+  if (missing) return `provenance does not declare ${missing}`;
+  if (
+    typeof capture.provenance.artifactSha256 !== "string" ||
+    !/^[0-9a-f]{64}$/.test(capture.provenance.artifactSha256)
+  ) {
+    return "provenance artifactSha256 is not a SHA-256 digest";
+  }
+  if (!Array.isArray(capture.files) || !Array.isArray(capture.nonBootstrapFiles)) {
+    return "files and nonBootstrapFiles are not both lists";
+  }
+  if (capture.files.length === 0 || capture.files.length > capture.model.maximumScheduledFileCount) {
+    return `it measures ${capture.files.length} bootstrap files, outside 1 to ${capture.model.maximumScheduledFileCount}`;
+  }
+  const textFields = (record, fields) => isRecord(record) && fields.every((field) => typeof record[field] === "string");
+  for (const file of capture.files) {
+    if (
+      !textFields(file, ["fileName", "testPath", "sourceSha256", "executionUnit"]) ||
+      !dbPartitionScriptNamePattern.test(file.executionUnit) ||
+      !Array.isArray(file.cases) ||
+      !file.cases.every(
+        (testCase) =>
+          textFields(testCase, ["name", "identity"]) &&
+          Number.isFinite(testCase.durationMs) &&
+          testCase.durationMs >= 0,
+      )
+    ) {
+      return "a bootstrap file is not a measured file record";
+    }
+  }
+  if (!capture.nonBootstrapFiles.every((file) => textFields(file, ["testPath", "sourceSha256"]))) {
+    return "a non-bootstrap file is not a measured file record";
+  }
+  if (new Set(capture.files.map((file) => file.fileName)).size !== capture.files.length) {
+    return "it measures a bootstrap file more than once";
+  }
+  if (new Set(capture.nonBootstrapFiles.map((file) => file.testPath)).size !== capture.nonBootstrapFiles.length) {
+    return "it measures a non-bootstrap file more than once";
+  }
+  return null;
+}
+
+/** Each unit's projection: Σceil(case durationMs) + testFileFixedCostMs per file, under the capture's own model. */
+function projectMeasuredCaptureUnits(capture) {
+  const durationsByUnit = new Map();
+  for (const file of capture.files) {
+    const durationMs =
+      file.cases.reduce((total, testCase) => total + Math.ceil(testCase.durationMs), 0) +
+      capture.model.testFileFixedCostMs;
+    durationsByUnit.set(file.executionUnit, [...(durationsByUnit.get(file.executionUnit) ?? []), durationMs]);
+  }
+  return [...durationsByUnit.keys()].sort(compareExecutionUnitNames).map((scriptName) => ({
+    scriptName,
+    makespanMs: executionUnitMakespanMs(durationsByUnit.get(scriptName), capture.model),
+  }));
+}
+
+function firstMeasuredCaptureDifference(shippedCapture, pairedCapture) {
+  const pairedFiles = new Map(pairedCapture.files.map((file) => [file.fileName, file]));
+  const caseKeys = (file) => file.cases.map(({ name, identity }) => [name, identity]);
+  for (const file of shippedCapture.files) {
+    const paired = pairedFiles.get(file.fileName);
+    const difference = !paired
+      ? "is missing from the paired capture"
+      : paired.testPath !== file.testPath
+        ? "has a different testPath"
+        : paired.sourceSha256 !== file.sourceSha256
+          ? "has a different sourceSha256"
+          : !sameJson(caseKeys(paired), caseKeys(file))
+            ? "has different ordered case names or identities"
+            : null;
+    if (difference) {
+      return `the paired capture's bootstrap files differ from the shipped capture's: ${file.fileName} ${difference}`;
+    }
+    pairedFiles.delete(file.fileName);
+  }
+  const [unshippedFileName] = pairedFiles.keys();
+  if (unshippedFileName !== undefined) {
+    return `the paired capture's bootstrap files differ from the shipped capture's: ${unshippedFileName} is not in the shipped capture`;
+  }
+
+  const shippedNonBootstrap = new Map(
+    shippedCapture.nonBootstrapFiles.map((file) => [file.testPath, file.sourceSha256]),
+  );
+  const pairedNonBootstrap = new Map(pairedCapture.nonBootstrapFiles.map((file) => [file.testPath, file.sourceSha256]));
+  for (const testPath of new Set([...shippedNonBootstrap.keys(), ...pairedNonBootstrap.keys()])) {
+    if (shippedNonBootstrap.get(testPath) !== pairedNonBootstrap.get(testPath)) {
+      return `the paired capture's nonBootstrapFiles differ from the shipped capture's at ${testPath}`;
+    }
+  }
+
+  const bindingPaths = new Set([
+    ...Object.keys(shippedCapture.sourceBindings),
+    ...Object.keys(pairedCapture.sourceBindings),
+  ]);
+  for (const path of bindingPaths) {
+    if (
+      !Object.hasOwn(shippedCapture.sourceBindings, path) ||
+      !Object.hasOwn(pairedCapture.sourceBindings, path) ||
+      shippedCapture.sourceBindings[path] !== pairedCapture.sourceBindings[path]
+    ) {
+      return `the paired capture's sourceBindings differ from the shipped capture's at ${path}`;
+    }
+  }
+
+  for (const field of measuredFloorProvenanceFields) {
+    if (!sameJson(shippedCapture.provenance[field], pairedCapture.provenance[field])) {
+      return `the paired capture's provenance ${field} differs from the shipped capture's`;
+    }
+  }
+  for (const field of measuredFloorModelFields) {
+    if (shippedCapture.model[field] !== pairedCapture.model[field]) {
+      return `the paired capture's model ${field} differs from the shipped capture's`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Derives the floor from a shipped capture and a paired capture of the same
+ * frozen workload whose only topology delta is its unit assignment. The paired
+ * capture has to measure exactly one fewer unit, its own projection has to
+ * exceed the per-unit ceiling, and the shipped capture's own projection has to
+ * fit both ceilings. Projections never use observed wall time.
+ */
+export function deriveBootstrapDbMeasuredOneFewerUnitFloor({ shippedCapture, pairedCapture } = {}) {
+  const refuse = (refusal) => ({ floor: null, refusal });
+  for (const [label, capture] of [
+    ["shipped", shippedCapture],
+    ["paired", pairedCapture],
+  ]) {
+    const gap = measuredCaptureGap(capture);
+    if (gap) return refuse(`the ${label} capture is malformed: ${gap}`);
+  }
+
+  const difference = firstMeasuredCaptureDifference(shippedCapture, pairedCapture);
+  if (difference) return refuse(difference);
+
+  const shippedUnits = projectMeasuredCaptureUnits(shippedCapture);
+  const pairedUnits = projectMeasuredCaptureUnits(pairedCapture);
+  if (pairedUnits.length !== shippedUnits.length - 1) {
+    return refuse(
+      `the paired capture measures ${pairedUnits.length} execution unit(s), not one fewer than the shipped ` +
+        `capture's ${shippedUnits.length}`,
+    );
+  }
+  // Both captures declare these ceilings identically; the comparison above refuses otherwise.
+  const { executionUnitCeilingMs, aggregateCeilingMs } = shippedCapture.model;
+  const pairedPeakMs = Math.max(...pairedUnits.map((unit) => unit.makespanMs));
+  if (pairedPeakMs <= executionUnitCeilingMs) {
+    return refuse(
+      `the paired capture's ${pairedUnits.length}-unit projection peaks at ${pairedPeakMs}ms, within the ` +
+        `${executionUnitCeilingMs}ms per-unit ceiling`,
+    );
+  }
+  if (!assignmentIsFeasible(shippedUnits, shippedCapture.model)) {
+    return refuse(
+      `the shipped capture's own ${shippedUnits.length}-unit projection exceeds the ${executionUnitCeilingMs}ms ` +
+        `per-unit ceiling or the ${aggregateCeilingMs}ms aggregate`,
+    );
+  }
+
+  return {
+    floor: Object.freeze({
+      shippedReferenceRunId: shippedCapture.model.referenceRunId,
+      pairedReferenceRunId: pairedCapture.model.referenceRunId,
+      pairedReferenceJobId: pairedCapture.model.referenceJobId,
+      pairedArtifactSha256: pairedCapture.provenance.artifactSha256,
+      unitCount: pairedUnits.length,
+      assignment: Object.freeze(
+        Object.fromEntries(pairedCapture.files.map((file) => [file.fileName, file.executionUnit])),
+      ),
+      unitMakespansMs: Object.freeze(Object.fromEntries(pairedUnits.map((unit) => [unit.scriptName, unit.makespanMs]))),
+    }),
+    refusal: null,
+  };
+}
+
+/** Whether a declared floor applies to this projected schedule, and why. */
+function measuredOneFewerUnitFloorVerdict({
+  floor,
+  modelRefused,
+  scheduleModel,
+  partitionFileNames,
+  shippedUnits,
+  aggregateWithOverheadMs,
+}) {
+  const notApplied = (reason) => ({ applied: false, reason });
+  if (floor === null || floor === undefined) return notApplied("no measured one-fewer-unit floor is declared");
+  if (modelRefused)
+    return notApplied("the schedule model refused, so the measured one-fewer-unit floor is not applied");
+  if (!isRecord(floor) || !isRecord(floor.assignment) || !isRecord(floor.unitMakespansMs)) {
+    return notApplied("the measured one-fewer-unit floor is not a floor record");
+  }
+  if (floor.shippedReferenceRunId !== scheduleModel.referenceRunId) {
+    return notApplied(
+      `the measured one-fewer-unit floor binds shipped reference run ${floor.shippedReferenceRunId}, not the ` +
+        `schedule model's ${scheduleModel.referenceRunId}`,
+    );
+  }
+  const assignedFiles = Object.keys(floor.assignment);
+  if (
+    assignedFiles.length !== partitionFileNames.length ||
+    !partitionFileNames.every((fileName) => Object.hasOwn(floor.assignment, fileName))
+  ) {
+    return notApplied("the measured one-fewer-unit floor assignment does not cover exactly the manifested files");
+  }
+  const assignedUnitCount = new Set(Object.values(floor.assignment)).size;
+  if (assignedUnitCount !== floor.unitCount) {
+    return notApplied(
+      `the measured one-fewer-unit floor assignment spans ${assignedUnitCount} unit(s), not its declared ${floor.unitCount}`,
+    );
+  }
+  if (floor.unitCount !== shippedUnits.length - 1) {
+    return notApplied(
+      `the measured one-fewer-unit floor measures ${floor.unitCount} unit(s), not one fewer than the ` +
+        `${shippedUnits.length} observed`,
+    );
+  }
+  const [binding] = Object.entries(floor.unitMakespansMs)
+    .filter(([, makespanMs]) => Number.isFinite(makespanMs) && makespanMs > scheduleModel.executionUnitCeilingMs)
+    .sort(([, left], [, right]) => right - left);
+  if (!binding) {
+    return notApplied(
+      `no unit of the measured one-fewer-unit floor exceeds the ${scheduleModel.executionUnitCeilingMs}ms per-unit ceiling`,
+    );
+  }
+  if (
+    shippedUnits.some((unit) => unit.makespanMs > scheduleModel.executionUnitCeilingMs) ||
+    aggregateWithOverheadMs > scheduleModel.aggregateCeilingMs
+  ) {
+    return notApplied(
+      "the shipped schedule exceeds the per-unit ceiling or the aggregate, so the measured one-fewer-unit floor " +
+        "is not applied",
+    );
+  }
+  return {
+    applied: true,
+    reason:
+      `measured capture run ${floor.pairedReferenceRunId} projects ${binding[0]} at ${binding[1]}ms, above the ` +
+      `${scheduleModel.executionUnitCeilingMs}ms per-unit ceiling, at ${floor.unitCount} units`,
+  };
+}
+
+function unprojectedExecutionUnitSchedule(measuredOneFewerUnitFloor) {
   return {
     units: [],
     files: [],
     observedUnitCount: 0,
     minimumUnitCount: null,
+    effectiveMinimumUnitCount: null,
+    measuredOneFewerUnitFloor: measuredOneFewerUnitFloorVerdict({
+      floor: measuredOneFewerUnitFloor,
+      modelRefused: true,
+    }),
     aggregateMs: 0,
     aggregateWithOverheadMs: 0,
     oneFewerUnit: null,
@@ -1526,6 +1825,7 @@ function projectExecutionUnitSchedule({
   observedUnitNames,
   executionUnitBootBearingCaseCeilings,
   scheduleModel,
+  measuredOneFewerUnitFloor,
 }) {
   const violations = [];
   const scheduledFiles = partitionFileNames.map((fileName) => {
@@ -1586,15 +1886,28 @@ function projectExecutionUnitSchedule({
   }
 
   const { minimumUnitCount, refusal, oneFewer } = calculateMinimumAndOneFewer(scheduledFiles, scheduleModel);
+  const floorVerdict = measuredOneFewerUnitFloorVerdict({
+    floor: measuredOneFewerUnitFloor,
+    modelRefused: Boolean(refusal),
+    scheduleModel,
+    partitionFileNames,
+    shippedUnits,
+    aggregateWithOverheadMs,
+  });
+  const effectiveMinimumUnitCount = refusal
+    ? null
+    : floorVerdict.applied
+      ? Math.max(minimumUnitCount, shippedUnits.length)
+      : minimumUnitCount;
   if (refusal) {
     violations.push(refusal);
-  } else if (shippedUnits.length > minimumUnitCount) {
+  } else if (shippedUnits.length > effectiveMinimumUnitCount) {
     violations.push(
       `the shipped topology spends ${shippedUnits.length} execution units where the schedule model's ` +
         `minimumUnitCount for the same file set is ${minimumUnitCount}; execution units of one workspace run ` +
         "serially, so an unnecessary unit is spent aggregate budget",
     );
-  } else if (shippedUnits.length < minimumUnitCount) {
+  } else if (shippedUnits.length < effectiveMinimumUnitCount) {
     violations.push(
       `the shipped topology spends ${shippedUnits.length} execution units below the schedule model's ` +
         `minimumUnitCount of ${minimumUnitCount}`,
@@ -1612,6 +1925,8 @@ function projectExecutionUnitSchedule({
     files: scheduledFiles,
     observedUnitCount: shippedUnits.length,
     minimumUnitCount: minimumUnitCount ?? null,
+    effectiveMinimumUnitCount,
+    measuredOneFewerUnitFloor: floorVerdict,
     aggregateMs,
     aggregateWithOverheadMs,
     oneFewerUnit: oneFewer
@@ -1635,6 +1950,7 @@ export function checkBootstrapDbEnrollment({
   executionUnitBootBearingCaseCeilings = bootstrapDbExecutionUnitBootBearingCaseCeilings,
   scheduleModel = bootstrapDbScheduleModel,
   nonBootstrapCensus = platformApiNonBootstrapDbCensus,
+  measuredOneFewerUnitFloor = bootstrapDbMeasuredOneFewerUnitFloor,
 } = {}) {
   const root = platformApiRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const testDirectory = resolve(root, "__tests__");
@@ -1925,8 +2241,9 @@ export function checkBootstrapDbEnrollment({
         observedUnitNames,
         executionUnitBootBearingCaseCeilings,
         scheduleModel: validatedScheduleModel,
+        measuredOneFewerUnitFloor,
       })
-    : unprojectedExecutionUnitSchedule();
+    : unprojectedExecutionUnitSchedule(measuredOneFewerUnitFloor);
   violations.push(...schedule.violations);
 
   return {
@@ -1943,6 +2260,8 @@ export function checkBootstrapDbEnrollment({
       files: schedule.files,
       observedUnitCount: schedule.observedUnitCount,
       minimumUnitCount: schedule.minimumUnitCount,
+      effectiveMinimumUnitCount: schedule.effectiveMinimumUnitCount,
+      measuredOneFewerUnitFloor: schedule.measuredOneFewerUnitFloor,
       aggregateMs: schedule.aggregateMs,
       aggregateWithOverheadMs: schedule.aggregateWithOverheadMs,
       oneFewerUnit: schedule.oneFewerUnit,
@@ -1992,6 +2311,12 @@ export function formatBootstrapDbEnrollmentResult(result) {
       `${formatSeconds(bootstrapDbScheduleModel.aggregateCeilingMs)}`,
     `  minimumUnitCount ${schedule.minimumUnitCount} observedUnitCount ${schedule.observedUnitCount}`,
   );
+  if (schedule.measuredOneFewerUnitFloor.applied) {
+    lines.push(
+      `  measured one-fewer-unit floor applied: ${schedule.measuredOneFewerUnitFloor.reason}; ` +
+        `effectiveMinimumUnitCount ${schedule.effectiveMinimumUnitCount}`,
+    );
+  }
 
   if (schedule.oneFewerUnit) {
     lines.push(`  one-fewer-unit alternative (${schedule.oneFewerUnit.unitCount} unit(s)), best available assignment:`);
