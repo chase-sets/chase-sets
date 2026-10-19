@@ -53,9 +53,36 @@ function helperEnvironment(overrides = {}) {
   return { ...env, ...overrides };
 }
 
-function createSeat({ credential = true, bws = {}, token = `sentinel-token-${randomUUID()}` } = {}) {
-  const root = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-"));
-  seats.push(root);
+const repositoryInventory = readFileSync(path.join(repoRoot, ".github", "credential-inventory.json"), "utf8");
+// The repository inventory with a synthetic agent tier admitting secretList's
+// KEY_n names with any value, for cases that exercise something other than the
+// tier guard.
+const syntheticTierInventory = JSON.stringify({
+  ...JSON.parse(repositoryInventory),
+  agentTier: {
+    project: "chase-sets-agent-dev",
+    keys: [0, 1, 2, 3].map((n) => ({ name: `KEY_${n}`, testPrefixes: [] })),
+  },
+});
+
+// A seat mirrors the checkout layout the helper reads its inventory from:
+// <repo>/scripts/agent-secrets/with-secrets.ps1 and
+// <repo>/.github/credential-inventory.json. `inventory` is the file's text, or
+// null for no file.
+function createSeat({
+  credential = true,
+  bws = {},
+  token = `sentinel-token-${randomUUID()}`,
+  inventory = syntheticTierInventory,
+} = {}) {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-"));
+  seats.push(repo);
+  const root = path.join(repo, "scripts", "agent-secrets");
+  mkdirSync(root, { recursive: true });
+  if (inventory !== null) {
+    mkdirSync(path.join(repo, ".github"));
+    writeFileSync(path.join(repo, ".github", "credential-inventory.json"), inventory);
+  }
   for (const name of ["with-secrets.ps1", "set-bitwarden-agent-token.ps1"]) {
     copyFileSync(path.join(here, name), path.join(root, name));
   }
@@ -107,6 +134,9 @@ function secretList(values) {
 }
 
 const encodings = ["utf8", "utf16le", "utf16be"];
+
+// The helper's own lines end in CRLF on Windows.
+const unixLines = (text) => text.replace(/\r\n/g, "\n");
 
 function encode(text, encoding) {
   if (encoding === "utf8") return Buffer.from(text, "utf8");
@@ -671,6 +701,164 @@ describe("with-secrets.ps1 refusals", { timeout: helperLaunchTimeoutMs }, () => 
   });
 });
 
+describe("with-secrets.ps1 agent tier guard", { timeout: helperLaunchTimeoutMs }, () => {
+  // Values shaped like the agent tier in the repository inventory.
+  const compliant = () => ({
+    EASYPOST_API_KEY: `EZTK${randomUUID()}`,
+    SEED_PACKS_SPACES_ACCESS_ID: `DO00${randomUUID()}`,
+    SEED_PACKS_SPACES_SECRET_KEY: `seed-secret-${randomUUID()}`,
+    STRIPE_PUBLISHABLE_KEY: `pk_test_${randomUUID()}`,
+    STRIPE_SECRET_KEY: `rk_test_${randomUUID()}`,
+  });
+  const project = (values) =>
+    JSON.stringify(
+      Object.entries(values).map(([key, value]) => ({
+        id: randomUUID(),
+        organizationId: randomUUID(),
+        projectId,
+        key,
+        value,
+      })),
+    );
+
+  it.each([
+    ["inherited", []],
+    ["-NoInheritEnv", ["-NoInheritEnv"]],
+  ])("runs the command when every key and value is in the repository's agent tier (%s)", (_name, flags) => {
+    const seat = createSeat({ inventory: repositoryInventory, bws: { list: project(compliant()), stdout: "ran\n" } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello", ...flags]);
+
+    expect(unixLines(result.stderr)).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("ran\n");
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
+  });
+
+  it.each([
+    ["an unlisted key", "SCRYDEX_API_KEY", `sentinel-unlisted-${randomUUID()}`, "not an agent-tier key", []],
+    [
+      "an sk_live_ sentinel under STRIPE_SECRET_KEY",
+      "STRIPE_SECRET_KEY",
+      `sk_live_sentinel${randomUUID()}`,
+      "value without a test prefix",
+      [],
+    ],
+    [
+      "an EZAK sentinel under EASYPOST_API_KEY",
+      "EASYPOST_API_KEY",
+      `EZAKsentinel${randomUUID()}`,
+      "value without a test prefix",
+      [],
+    ],
+    [
+      "an sk_live_ sentinel under STRIPE_SECRET_KEY with -NoInheritEnv",
+      "STRIPE_SECRET_KEY",
+      `sk_live_sentinel${randomUUID()}`,
+      "value without a test prefix",
+      ["-NoInheritEnv"],
+    ],
+    [
+      "a key differing only in case",
+      "stripe_secret_key",
+      `sk_test_sentinel${randomUUID()}`,
+      "not an agent-tier key",
+      [],
+    ],
+  ])("refuses %s as tier-violation before bws run, naming only the key", (_name, key, sentinel, reason, flags) => {
+    const values = { ...compliant(), [key]: sentinel };
+    const seat = createSeat({ inventory: repositoryInventory, bws: { list: project(values), stdout: "ran\n" } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello", ...flags]);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(unixLines(result.stderr)).toBe(`with-secrets: tier-violation: ${key} (${reason}); nothing was run\n`);
+    for (const value of Object.values(values)) {
+      expect(result.stdout).not.toContain(value);
+      expect(result.stderr).not.toContain(value);
+    }
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
+    expect(filesContaining(seat.root, sentinel, ["fake-bws.json"])).toEqual([]);
+  });
+
+  it("names every violating key in ordinal order", () => {
+    const values = {
+      ...compliant(),
+      STRIPE_PUBLISHABLE_KEY: `pk_live_${randomUUID()}`,
+      VOYAGE_API_KEY: "pa-voyage-x1",
+    };
+    const seat = createSeat({ inventory: repositoryInventory, bws: { list: project(values) } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"]);
+
+    expect(result.status).not.toBe(0);
+    expect(unixLines(result.stderr)).toBe(
+      "with-secrets: tier-violation: STRIPE_PUBLISHABLE_KEY (value without a test prefix), VOYAGE_API_KEY (not an agent-tier key); nothing was run\n",
+    );
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
+  });
+
+  it("refuses -Check with tier-violation and passes a compliant project", () => {
+    const violating = createSeat({
+      inventory: repositoryInventory,
+      bws: { list: project({ ...compliant(), DIGITALOCEAN_ACCESS_TOKEN: `dop_v1_${randomUUID()}` }) },
+    });
+    const refused = runSeat(violating, "with-secrets.ps1", ["-Check"]);
+    expect(refused.status).not.toBe(0);
+    expect(refused.stdout).toBe("");
+    expect(unixLines(refused.stderr)).toBe(
+      "with-secrets: tier-violation: DIGITALOCEAN_ACCESS_TOKEN (not an agent-tier key); nothing was run\n",
+    );
+
+    const passing = createSeat({ inventory: repositoryInventory, bws: { list: project(compliant()) } });
+    const checked = runSeat(passing, "with-secrets.ps1", ["-Check"]);
+    expect(checked.status).toBe(0);
+    expect(checked.stdout.trim()).toBe(`OK: account 'lanes' can read project ${projectId} (5 keys).`);
+  });
+
+  it.each([
+    ["a missing inventory", null],
+    ["an unparseable inventory", '{"schemaVersion": 1, "agentTier": {'],
+    ["an inventory without agentTier", JSON.stringify({ schemaVersion: 1, environments: [], secrets: [] })],
+    [
+      "an agentTier key without testPrefixes",
+      JSON.stringify({ agentTier: { project: "chase-sets-agent-dev", keys: [{ name: "KEY_0" }] } }),
+    ],
+    [
+      "a duplicate agentTier key",
+      JSON.stringify({
+        agentTier: {
+          project: "chase-sets-agent-dev",
+          keys: [
+            { name: "KEY_0", testPrefixes: [] },
+            { name: "KEY_0", testPrefixes: ["sk_test_"] },
+          ],
+        },
+      }),
+    ],
+  ])("refuses -Command and -Check on %s as inventory-unavailable before reading the token", (_name, inventory) => {
+    for (const args of [["-Command", "Write-Output hello"], ["-Check"]]) {
+      const seat = createSeat({ inventory, bws: { list: secretList(["sentinel-value-inventory"]), stdout: "ran\n" } });
+      const result = runSeat(seat, "with-secrets.ps1", args);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).toBe("");
+      expect(unixLines(result.stderr)).toBe(
+        "with-secrets: inventory-unavailable: .github/credential-inventory.json beside this checkout is missing, unparseable or has no valid agentTier; nothing was run\n",
+      );
+      expect(credentialCalls(seat)).toEqual([]);
+      expect(bwsCalls(seat)).toEqual([]);
+    }
+  });
+
+  it("lets -ListKeys print names without an inventory, so a tier violation can be inspected", () => {
+    const seat = createSeat({ inventory: null, bws: { list: secretList(["sentinel-value-listkeys"]) } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-ListKeys"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("KEY_0");
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
+  });
+});
+
 describe("set-bitwarden-agent-token.ps1", { timeout: helperLaunchTimeoutMs }, () => {
   it("refuses redirected stdin without writing a credential", () => {
     const seat = createSeat();
@@ -745,6 +933,10 @@ describe("repo AGENTS.md", () => {
     expect(agents).toContain("pwsh -NoProfile -File scripts/agent-secrets/with-secrets.ps1 -Command '<cmd>'");
     expect(agents).toContain("../main/scripts/agent-secrets/");
     expect(agents).toContain("never write injected values to a file");
+    expect(agents).toContain("(docs/runbooks/credential-rotation.md#agent-tier)");
+    expect(readFileSync(path.join(repoRoot, "docs", "runbooks", "credential-rotation.md"), "utf8")).toContain(
+      "\n## Agent Tier\n",
+    );
     expect(agents).not.toContain(["orchestrator", "with-secrets"].join("/"));
     for (const [named] of agents.matchAll(/scripts\/agent-secrets\/[\w.-]+\.ps1/g)) {
       expect(existsSync(path.join(repoRoot, named))).toBe(true);
