@@ -1,0 +1,16 @@
+{
+ "rb-rust": {
+  "samples": 72,
+  "cpuAvgPct": 33.8,
+  "cpuMaxPct": 70.17,
+  "memAvgMiB": 11.7,
+  "memMaxMiB": 12.4
+ },
+ "rustbench-pg": {
+  "samples": 72,
+  "cpuAvgPct": 121.3,
+  "cpuMaxPct": 168.37,
+  "memAvgMiB": 188.1,
+  "memMaxMiB": 191.3
+ }
+}

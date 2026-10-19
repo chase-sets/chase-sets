@@ -1,0 +1,23 @@
+{
+ "rb-node": {
+  "samples": 114,
+  "cpuAvgPct": 103.8,
+  "cpuMaxPct": 112.54,
+  "memAvgMiB": 106.4,
+  "memMaxMiB": 108.5
+ },
+ "rustbench-pg": {
+  "samples": 114,
+  "cpuAvgPct": 130,
+  "cpuMaxPct": 181.57,
+  "memAvgMiB": 195.9,
+  "memMaxMiB": 198.5
+ },
+ "rustbench-redis": {
+  "samples": 114,
+  "cpuAvgPct": 5.4,
+  "cpuMaxPct": 17.49,
+  "memAvgMiB": 74.4,
+  "memMaxMiB": 88.5
+ }
+}
