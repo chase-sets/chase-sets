@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { Hono } from "hono";
 import type { PricingApiEnv } from "../../../api";
 import { createPricingHealthRoutes } from "../api/route";
 import type { PricingHealthServices } from "../api/services";
 import contextManifest from "../../../context.json";
 import { SELLER_DESK_SURFACES } from "../../../../../contracts/seller-desk";
-import { action, loader } from "../../../routes/marketplace/account-desk-pricing-health";
+import PricingHealthRoute, { action, loader } from "../../../routes/marketplace/account-desk-pricing-health";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -28,6 +31,9 @@ function setup(permissions: string[] | null = ["pricing.view", "pricing.manage"]
 
 describe("Pricing Health route", () => {
   it("registers the canonical Seller Desk page and authorized route", () => {
+    expect(
+      readFileSync(new URL("../../../../../contracts/seller-desk/blueprint.md", import.meta.url), "utf8"),
+    ).toContain("| Pricing Health | page | `/pricing-health` |");
     expect(SELLER_DESK_SURFACES.find(({ id }) => id === "pricing-health")).toMatchObject({
       kind: "page",
       routePath: "/account/desk/pricing-health",
@@ -89,6 +95,44 @@ describe("Pricing Health route", () => {
 });
 
 describe("Mounted Pricing Health loader and action", () => {
+  it("renders the mounted route with canonical selector and compute forms", () => {
+    const Stub = createRoutesStub([
+      {
+        path: "/account/desk/pricing-health",
+        Component: PricingHealthRoute,
+        loader: () => null,
+      },
+    ]);
+    const html = renderToStaticMarkup(
+      <Stub
+        initialEntries={["/account/desk/pricing-health"]}
+        hydrationData={{
+          loaderData: {
+            "0": {
+              data: {
+                policies: [
+                  { policyId: "rpp_owned", name: "Owned policy" },
+                  { policyId: "rpp_second", name: "Second policy" },
+                ],
+                target: { policyId: "rpp_owned", name: "Owned policy" },
+                health: null,
+                run: null,
+                grades: [],
+                computing: false,
+                canCompute: true,
+              },
+              loadFailed: false,
+            },
+          },
+        }}
+      />,
+    );
+    expect(html).toContain("Show verdict");
+    expect(html).toContain("Compute verdict");
+    expect(html).toContain('method="get"');
+    expect(html).toContain('method="post"');
+  });
+
   function transport(status = 200, permissions = ["pricing.view", "pricing.manage"]) {
     const calls: Request[] = [];
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {

@@ -66,7 +66,7 @@ describeDb("Pricing Health real loader and grade queries", () => {
     };
   }
 
-  async function policy(id = "rpp_synthetic_health", accountId = "acc_7910") {
+  async function policy(id: `rpp_${string}` = "rpp_synthetic_health", accountId: `acc_${string}` = "acc_7910") {
     const body = {
       ...dryRunBody,
       rules: dryRunBody.rules.map((rule) => ({
@@ -145,7 +145,8 @@ describeDb("Pricing Health real loader and grade queries", () => {
     expect(await worker.processNextDryRunJob({ claimOwnerId: "synthetic-health", claimTtlMs: 300_000 })).toBe(1);
     const read = (await health.getHealth("acc_7910", undefined, now))!;
     expect(read.health?.currencies.USD?.modeledValueAmount).toBe(fixture.expected.modeledValueAmount);
-    expect(read.health?.currencies.USD?.expectedSales.listingCount).toBe(0.5);
+    expect(read.health?.currencies.USD?.expectedSales.listingCount).toBe(0.6321205588285577);
+    expect(read.health?.currencies.USD?.expectedSales.valueAmount).toBe(fixture.expected.expectedSalesValueAmount);
     const app = new Hono<PricingApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", { accountId: "acc_7910", permissions: ["pricing.view"] } as never);

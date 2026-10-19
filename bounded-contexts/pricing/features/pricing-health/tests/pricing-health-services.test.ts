@@ -53,7 +53,7 @@ describe("Pricing Health current revision authority", () => {
       .mockResolvedValue({ value: FORECAST_LEDGER_LAUNCH_POLICY_VALUE } as never);
     const services = createPricingHealthServices({
       db,
-      policies: { resolvePolicy },
+      policies: { resolvePolicy: resolvePolicy as never },
       repricingPolicies: { loadOwnedRepricingPolicy },
       repricingEngine: { enqueueDryRun },
     });

@@ -44,8 +44,15 @@ export async function seedSyntheticPricingHealthInputs(
      model_version, policy_revision_id, ladder_method, anchor_condition, exposure_start_reason, sales_coverage,
      supply_status, own_seller_exclusion_applied, built_at, currency_code, fresh_until)
     VALUES ($1, $2, 1, 'Near Mint', 'Normal', 'English', $3, $3, $4, 'synthetic', NULL, 'history-window',
-      'synthetic', 'observed', true, $5, 'USD', $5::timestamptz + interval '1 day')`,
-      [listing.catalog_item_id, listing.product_id, model, `${documentId}:${now}`, now],
+      'synthetic', 'observed', true, $5, 'USD', $6)`,
+      [
+        listing.catalog_item_id,
+        listing.product_id,
+        model,
+        `${documentId}:${now}`,
+        now,
+        new Date(Date.parse(now) + DEMAND_CURVE_LAUNCH_POLICY_VALUE.freshForHours * 3_600_000).toISOString(),
+      ],
     );
     await db.query(
       `INSERT INTO pricing_demand_curve_points
@@ -69,8 +76,11 @@ export async function seedSyntheticPricingHealthInputs(
     return {
       expected: {
         modeledValueAmount: applyMoneyRatio(listing.price_amount, listing.quantity_cap, 1, "nearest"),
-        expectedSalesListingCount: 0.5,
-        expectedSalesValueAmount: applyMoneyRatio(listing.price_amount, 1, 2, "nearest"),
+        // median = ln(2) * 7 / 1; P = 1 - 0.5^(7 / median) = 1 - exp(-1).
+        expectedSalesListingCount: 1 - Math.exp(-1),
+        expectedSalesValueAmount: ((Math.round(Number(listing.price_amount) * 100) * (1 - Math.exp(-1))) / 100).toFixed(
+          2,
+        ),
       },
       cleanup: async () => {
         await pool.query("DELETE FROM pricing_forecast_grades WHERE model=$1", [model]);

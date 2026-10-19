@@ -1,5 +1,5 @@
 import { formatDateTime, formatMoney } from "@chase-sets/localization";
-import { Badge, Banner, Card, KeyValueList, Stack } from "@chase-sets/design-system";
+import { Badge, Banner, Card, KeyValueList, Stack, Text } from "@chase-sets/design-system";
 import type { RepricingHealthSummary } from "../../repricing-engine/api/health-summary";
 import type { PricingHealthRun } from "../read-model/queries";
 import { healthCopy as copy, healthNumber as number, healthPercent as percent, healthReasonLabel } from "./copy";
@@ -68,7 +68,14 @@ export function HealthSummary({
               <KeyValueList
                 items={[
                   { key: copy("s1"), value: money(summary.listedValueAmount) },
-                  { key: copy("s2"), value: <span data-testid="health-s2">{money(summary.modeledValueAmount)}</span> },
+                  {
+                    key: copy("s2"),
+                    value: (
+                      <Text element="span" size="sm" tone="inherit" data-testid="health-s2">
+                        {money(summary.modeledValueAmount)}
+                      </Text>
+                    ),
+                  },
                   { key: copy("delta"), value: money(summary.modeledValueDeltaAmount) },
                   {
                     key: copy("s3"),
@@ -101,12 +108,12 @@ export function HealthSummary({
                   {
                     key: copy("s6"),
                     value: (
-                      <span data-testid="health-s6">
+                      <Text element="span" size="sm" tone="inherit" data-testid="health-s6">
                         {copy("sales.value", {
                           listings: number(summary.expectedSales.listingCount),
                           value: money(summary.expectedSales.valueAmount),
                         })}
-                      </span>
+                      </Text>
                     ),
                   },
                   { key: copy("s7.hopeless"), value: risk("hopeless") },

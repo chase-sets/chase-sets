@@ -150,13 +150,13 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
     expect(stored.target.policyId).toBe(policyId);
     expect(stored.health.currencies.USD.modeledValueAmount).toBe(fixture.expected.modeledValueAmount);
     expect(stored.health.currencies.USD.expectedSales).toEqual({
-      listingCount: 0.5,
+      listingCount: 0.6321205588285577,
       valueAmount: fixture.expected.expectedSalesValueAmount,
     });
     // Both exact values come through the real loader. No route interception or summary injection.
     await expect(page.getByTestId("health-s2")).toHaveText(formatMoney(fixture.expected.modeledValueAmount, "USD"));
     await expect(page.getByTestId("health-s6")).toHaveText(
-      `0.5 listings; ${formatMoney(fixture.expected.expectedSalesValueAmount, "USD")}`,
+      `0.6321 listings; ${formatMoney(fixture.expected.expectedSalesValueAmount, "USD")}`,
     );
     await expect(page.getByTestId("forecast-grade-panel")).toContainText("Sold share");
     await expect(page.getByTestId("forecast-grade-panel")).toContainText("across all sellers using this goal version");

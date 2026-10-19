@@ -3,7 +3,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { seedSyntheticPricingHealthInputs } from "../../../support/runtime-support/pricing-health-browser-seed";
 
 describe("Pricing Health browser input fixture", () => {
-  it("uses exact money arithmetic for quantities and half-cent expected sales", async () => {
+  it("uses exact money arithmetic for quantities and the canonical curve sale probability", async () => {
     const query: PgTransactionalPool["query"] = async <Row>(sql: string) => ({
       rows: (sql.includes("FROM pricing_market_listing_inputs")
         ? [
@@ -24,8 +24,8 @@ describe("Pricing Health browser input fixture", () => {
     });
     expect(fixture.expected).toEqual({
       modeledValueAmount: "59.97",
-      expectedSalesListingCount: 0.5,
-      expectedSalesValueAmount: "10.00",
+      expectedSalesListingCount: 0.6321205588285577,
+      expectedSalesValueAmount: "12.64",
     });
     await fixture.cleanup();
   });

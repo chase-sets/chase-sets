@@ -84,11 +84,13 @@ describe("Pricing Health page states", () => {
 
   it("distinguishes no policy, explicit selection, loading, empty population, computing and source error", () => {
     expect(
-      renderToStaticMarkup(<PricingHealthPage data={{ ...data, policies: [], target: null, health: null }} />),
+      renderToStaticMarkup(
+        <PricingHealthPage data={{ ...data, policies: [], target: null, health: null, run: null, grades: [] }} />,
+      ),
     ).toContain("Create repricing policy");
-    expect(renderToStaticMarkup(<PricingHealthPage data={{ ...data, target: null, health: null }} />)).toContain(
-      "Select an active policy",
-    );
+    expect(
+      renderToStaticMarkup(<PricingHealthPage data={{ ...data, target: null, health: null, run: null, grades: [] }} />),
+    ).toContain("Select an active policy");
     expect(renderToStaticMarkup(<PricingHealthPage data={null} loading />)).toContain('aria-busy="true"');
     expect(
       renderToStaticMarkup(<PricingHealthPage data={{ ...data, health: summarizeHealth([], health.capturedAt) }} />),

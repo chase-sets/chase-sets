@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router";
-import { Button, NativeSelect, RouterForm } from "@chase-sets/design-system";
+import { Button, NativeSelect } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import { defineFormAction } from "@chase-sets/platform-runtime/http";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient, PricingApiError } from "../request-support/api-client";
