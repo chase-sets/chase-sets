@@ -8,6 +8,113 @@ import { classifyChanges, listChangedFiles, toGithubOutputMap, toOutputMap } fro
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
+import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
+
+describe("rendered-copy real-provider selection corpus", () => {
+  it("preserves current-main owning selection for modified, added, deleted and --no-renames paths", async () => {
+    const fixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8")).renderedCopy;
+    const directory = mkdtempSync(path.join(tmpdir(), "rendered-copy-selection-"));
+    const git = (args) =>
+      execFileSync("git", args, {
+        cwd: directory,
+        encoding: "utf8",
+        timeout: 30_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+    const priorSource = execFileSync("git", ["show", `${fixture.baseSha}:scripts/e2e-suites.mjs`], {
+      encoding: "utf8",
+      timeout: 30_000,
+    }).replace(
+      '"./lib/risk-policy-v1.mjs"',
+      JSON.stringify(pathToFileURL(path.resolve("scripts/lib/risk-policy-v1.mjs")).href),
+    );
+    const priorFile = path.join(directory, "prior.mjs");
+    writeFileSync(priorFile, priorSource);
+    const prior = await import(pathToFileURL(priorFile).href);
+    const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
+    const write = (filename, content) => {
+      const target = path.join(directory, filename);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, content);
+    };
+    const commit = () => {
+      git(["add", "."]);
+      git([
+        "-c",
+        "user.name=Synthetic selection",
+        "-c",
+        "user.email=synthetic@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--quiet",
+        "-m",
+        "Synthetic path operation",
+      ]);
+      return git(["rev-parse", "HEAD"]);
+    };
+    const check = (base, head, paths) => {
+      const changed = listChangedFiles(base, head, { cwd: directory });
+      expect(changed).toEqual([...paths].sort());
+      for (const entry of fixture.cases) {
+        const relevant = changed.filter((filename) => filename === entry.path);
+        if (!relevant.length) continue;
+        const old = prior.e2eSuiteIdsForChangedFile(entry.path).some((id) => owners.has(id));
+        const scope = classifyChanges({ changedFiles: relevant });
+        const selected = JSON.parse(toOutputMap(scope).e2e_suite_batches_json).includes("rendered_copy");
+        expect(selected, `${entry.path}: ${entry.reason}`).toBe(entry.selected);
+        expect(!old || selected, `never narrower: ${entry.path}`).toBe(true);
+        expect(entry.reason.length).toBeGreaterThan(20);
+        if (selected !== old) expect(entry.reason).toMatch(/^intentional delta:/);
+      }
+    };
+    try {
+      git(["init", "--quiet"]);
+      for (const entry of fixture.cases) {
+        if (!entry.reason.startsWith("intentional delta: the new"))
+          expect(existsSync(entry.path), entry.path).toBe(true);
+        write(entry.path, "Synthetic baseline\n");
+      }
+      let base = commit();
+      for (const entry of fixture.cases) write(entry.path, "Synthetic modified\n");
+      let head = commit();
+      check(
+        base,
+        head,
+        fixture.cases.map((entry) => entry.path),
+      );
+      base = head;
+      for (const entry of fixture.cases) rmSync(path.join(directory, entry.path));
+      head = commit();
+      check(
+        base,
+        head,
+        fixture.cases.map((entry) => entry.path),
+      );
+      base = head;
+      for (const entry of fixture.cases) write(entry.path, "Synthetic added\n");
+      head = commit();
+      check(
+        base,
+        head,
+        fixture.cases.map((entry) => entry.path),
+      );
+      base = head;
+      const from = "bounded-contexts/payments/features/payments/api/provider-webhook-paths.ts";
+      const to = "infrastructure/stripe-payments/index.ts";
+      rmSync(path.join(directory, to));
+      base = commit();
+      git(["mv", from, to]);
+      head = commit();
+      check(base, head, [from, to]);
+      console.log(
+        `RENDERED_COPY_PROVIDER_CORPUS base=${fixture.baseSha} cases=${fixture.cases.length} operations=modified,added,deleted,renamed--no-renames`,
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 const priorProductionIntegrationRules = [
   {
@@ -722,7 +829,20 @@ function withPublicPresenceAffected(names) {
 // Public Presence joins the affected and direct lists once and the unit gate
 // turns on. An empty diff, and an empty list that requires DB tests (the
 // all-DB sweep), keep their captured outputs.
+function withRenderedCopyOutput(output) {
+  const batches = JSON.parse(output.e2e_suite_batches_json);
+  const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
+  return {
+    ...output,
+    e2e_suite_batches_json: JSON.stringify([
+      ...batches,
+      ...(batches.some((batch) => batch.split(",").some((id) => owners.has(id))) ? ["rendered_copy"] : []),
+    ]),
+  };
+}
+
 function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
+  baseOutputMap = withRenderedCopyOutput(baseOutputMap);
   const affected = JSON.parse(baseOutputMap.affected_workspaces_json);
   if (
     JSON.parse(baseOutputMap.changed_files_json).length === 0 ||
@@ -770,7 +890,7 @@ function expectOnlyPublicPresenceEnrollmentDelta(changedFiles) {
   const expected = expectedPublicPresenceEnrollment(base, workspaces);
   const label = JSON.stringify(changedFiles);
   expect(head, label).toEqual(expected);
-  expect(toGithubOutputMap(head), label).toEqual(baseChangeScope.toGithubOutputMap(expected));
+  expect(toGithubOutputMap(head), label).toEqual(withRenderedCopyOutput(baseChangeScope.toGithubOutputMap(expected)));
   return { base, head };
 }
 
@@ -2381,7 +2501,9 @@ describe("change-scope", () => {
       changedFiles: ["package.json"],
       workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
     });
-    const suiteBatches = JSON.parse(toOutputMap(scope).e2e_suite_batches_json);
+    const allBatches = JSON.parse(toOutputMap(scope).e2e_suite_batches_json);
+    expect(allBatches.filter((batch) => batch.includes("rendered_copy"))).toEqual(["rendered_copy"]);
+    const suiteBatches = allBatches.filter((batch) => batch !== "rendered_copy");
     const oldStaticBatches = [
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",

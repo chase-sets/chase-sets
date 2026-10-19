@@ -52,8 +52,7 @@ Set the outcome metadata and issue Dispatch rank, record material placement
 reasons on the roadmap, and preserve current steering until achieved or
 superseded. Never ask Todd which milestone to use, make him supply routine
 ranks, or turn missing priority evidence into a Decision. Send Todd only a
-product priority or scope change, or an operator action no lane can perform
-([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838628573)).
+product priority or scope change, or an operator action no lane can perform.
 Other unresolved product, legal and provider-authority choices inside accepted
 scope go to the orchestrator as host. The host decides same-attempt, in-scope
 repairs itself and records its reasoning. An independent decision lane is
@@ -119,6 +118,8 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    never reimplementation. Run a **supersession check**: inventory every existing
    path the planned change replaces or makes redundant, including code, docs,
    flags, and workflows. Stage 2-light for Issues still requires this check.
+   The supersession inventory covers existing paths, including open issues
+   found by searching the planned outcome terms and predicted footprint paths.
    Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
@@ -175,6 +176,39 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      attached successor carries that parentage, detach the predecessor from the
      parent in the same registration pass. If no successor is attached to the
      parent, keep the predecessor's parent link;
+   - judge coverage over the whole successor set: `full` carries every
+     accepted acceptance criterion, `partial` replaces named criteria only,
+     and `adjacent` shares a theme but triggers no action;
+   - for `full`, in the same registration pass close the predecessor as
+     `duplicate` when scope is identical or `not planned` otherwise, with one
+     comment naming the successor set; every successor names the predecessor in
+     its `### Supersedes` section, and the planner never waits for a successor
+     to land;
+   - for `partial`, in the same registration pass remove only the dropped
+     criteria in place, then post one comment naming those criteria and the
+     successor set, and never add `status:needs-replan`; the edited body takes
+     the ordinary readiness check on its new revision before any further
+     dispatch. If the remainder is not a coherent slice, close the
+     predecessor as `not planned` and file one fixed-scope issue with the
+     remainder, naming the old issue `full` in its `### Supersedes` section;
+   - if either class would drop accepted product scope, leave the predecessor
+     unchanged and route one product question to Todd;
+   - the `planning-repair/v1` boundary is unchanged: its input is a closed PR,
+     and it is not the supersession route. When the predecessor is already in
+     a planning-repair round, the supersession comment is input to that round,
+     and a `REPLACED` original remains open as `status:tracking-only` until its
+     replacements land. The `full`, `partial` and product-question rules above
+     never apply to an issue's own repair replacements;
+   - a closed `not planned` or `duplicate` predecessor is orphaned when at
+     least one issue names it `full` and every such successor is itself closed
+     `not planned`; reopen it or file a new issue naming it `full` when the last
+     successor closes that way;
+   - every new non-Epic, including host and review follow-ups, gets a home
+     after a duplicate search: a committed milestone, Candidate capabilities,
+     or Operations for machine-generated incidents;
+   - use `Deferred / Incubation` only on Todd's explicit deferral;
+     Epics stay unmilestoned and write-once; superseding an Epic takes a
+     superseding comment, plus closure when it is `full`;
    - every open slice classified (`refined ≡ classified`) with a wave milestone
      + `priority:*` + `area:*` + `kind:*`, excluding Epics,
      `status:tracking-only`, candidate outcomes, `Deferred / Incubation`, and `Operations` (the
@@ -183,8 +217,6 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    - parent attachment is reported, not gating: attach a slice to the Epic that
      owns its acceptance when one exists. A future parent-or-standalone gate
      and any `status:standalone` label require a new fixed-scope change;
-     [#6174](https://github.com/chase-sets/chase-sets/issues/6174) records that
-     this is not current behavior;
    - the delivery board's **Status** is derived, never hand-written: a native
      **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
      projects to `Tracking`. Create the authoritative type or label and let

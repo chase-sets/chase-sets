@@ -103,6 +103,21 @@ contract. Malformed or duplicate metadata is an explicit error, never a
 fallback to title interpretation. A milestone without outcome metadata is not
 an outcome, regardless of its title.
 
+Todd's active priority override is recorded separately beside the outcome
+marker:
+
+```html
+<!-- steering: {"version":1,"source":"https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123","until":"until the priority question is answered"} -->
+```
+
+The steering marker has exactly `version`, `source` and `until` keys. Version is
+`1`; `source` is the GitHub issue-comment URL holding Todd's ruling; and `until`
+is non-empty prose of at most 500 characters. A marked open committed outcome
+is ranked ahead of every unmarked outcome in its lane class. The `steering`
+section of `next-work/v1` lists those marked executable outcomes; a marker on a
+candidate, unmarked or otherwise non-executable open milestone is the
+`STEERING_ON_NON_EXECUTABLE` defect. Malformed metadata fails closed.
+
 Terminal gate references remain in the description's `Exit gates:` clause,
 ending at `Canonical sequencing:`. List current terminal evidence issues there;
 put history, predecessor links, and decision references outside that clause.
@@ -170,9 +185,23 @@ Favor finishing the current usable outcome over starting adjacent improvements.
 Do not starve product work with general delivery-tooling improvements.
 
 Record explicit Todd steering in the roadmap with its scope and stated end
-condition. If no end condition is stated, preserve it until the requested
-outcome is achieved or Todd supersedes it. Agents translate that steering into
-outcome order and issue Dispatch rank; they do not ask Todd to edit either.
+condition, and put the ruling's comment URL in the outcome's steering marker.
+If no end condition is stated, preserve it until the requested outcome is
+achieved or Todd supersedes it. A clause that puts an outcome first, or requires
+it immediately after or ahead of a marked outcome, or says to prioritize it, is
+dispositioned `mark`;
+one that only orders unmarked outcomes is `order` and uses a unique outcome
+`order` without a marker. Never mark an `order` clause: a marker lifts the
+outcome above every unmarked outcome. Every marker's `source` is the comment
+holding Todd's ruling; a clause recorded only in a milestone description cites
+the #4129 placement comment that records it. Once its condition is met, it is
+`ended` only after the host files the priority question as a comment on
+#4388 under the milestone-orchestrator section 11 rule and Todd answers it.
+Remove the marker only after that answer and record the removal on #4129. Agents
+translate active steering into outcome order and issue Dispatch rank; they do
+not ask Todd to edit either.
+The milestone description must be a string; other shapes fail closed with
+`STEERING_DESCRIPTION_INVALID`, and an `until` value must not contain the HTML comment closing delimiter.
 A later calculated score or routine review cannot silently reverse steering.
 Only genuinely new product, legal, provider-authority, or similarly consequential
 choices outside accepted scope use the existing decision route.
@@ -352,6 +381,27 @@ controller-alignment work.
 Refinement is pulled forward wave by wave, not applied to the whole corpus
 (anti-ratchet). Do not mass-refine; refine the next wave's worth.
 
+### Closure and supersession
+
+Judge a replacement over the whole successor set. When it is `full`, the
+planner closes the predecessor in the same registration pass as `duplicate`
+when scope is identical or `not planned` otherwise, with one comment naming the
+successor set; each successor names the predecessor in its `### Supersedes`
+section, and the planner never waits for a successor to land. When it is
+`partial`, the planner removes only the dropped criteria in place and records
+the successor set; partial supersession never adds `status:needs-replan`. A
+closed `not planned` or `duplicate` predecessor is orphaned when at least one
+issue names it `full` and every such issue is itself closed `not planned`; the
+planner who closes the last such successor reopens the predecessor or files a
+new issue naming it `full`.
+
+Every new non-Epic, including host and review follow-ups, gets a home after a
+duplicate search: a committed milestone, Candidate capabilities, or Operations
+for machine-generated incidents. `Deferred / Incubation` is used only on
+Todd's explicit deferral; Epics stay unmilestoned and write-once, and
+superseding an Epic takes a superseding comment, plus closure when it is
+`full`.
+
 ### Controller consumer
 
 The reviewed installed milestone-orchestrator is an out-of-band consumer of the
@@ -396,8 +446,10 @@ Completion forecasting is owned by #7465.
   is independent of title, creation order and dates. The board's `Outcome order`
   Number field is a sync-owned display projection of the same comparison
   (`compareOutcomeOrder`); configure its field ID in
-  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. Agents edit the milestone authority, never
-  this projection. Sort the execution view by Outcome order, then Dispatch rank.
+  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. The projection ranks committed outcomes in
+  `chase-sets/chase-sets` only and clears Outcome order on other-repository rows.
+  Agents edit the milestone authority, never this projection. Sort the execution
+  view by Outcome order, then Dispatch rank.
 - **Blocker** is a native correctness edge, never a scheduling opinion.
 - **Dispatch rank** is agent-maintained issue order inside the selected outcome.
   Agents refresh it when steering, blockers, or gate progress materially changes.
@@ -428,8 +480,9 @@ incomplete facts exit 2 and write no file.
 
 1. Exclude Epics, tracking-only records, candidates, Deferred / Incubation and
    Operations. Preserve existing ownership for active lanes.
-2. Apply current Todd steering, then take the computed Selection: each lane
-   class is ranked by outcome order then milestone number, Dispatch rank
+2. Apply current Todd steering from each milestone's steering marker, then take
+   the computed Selection: each lane class is ranked by marked outcomes first,
+   then outcome order and milestone number, Dispatch rank
    (missing last), priority p0 to p3 (missing last), dependency unlock count
    (descending) and issue number. An evidenced p0 emergency may run ahead of
    its rank only with a recorded `p0-emergency` reason (#9946). The per-track

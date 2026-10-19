@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { collisionFixtureVector, deriveCollisionProjection } from "./collision-path.mts";
 import { RouteCensusError } from "./errors.mts";
 import { loadTargetHonoAuthority } from "./target-authority.mts";
-import { repoRoot } from "./test-support.mjs";
+import { repoRoot, targetHonoVersion } from "./test-support.mjs";
 
 describe("target-derived collision path vector", () => {
   it("executes every mount, optional, custom, wildcard, trailing, and malformed vector", async () => {
     const authority = await loadTargetHonoAuthority(repoRoot);
-    expect(authority.packageVersion).toBe("4.12.18");
+    expect(authority.packageVersion).toBe(targetHonoVersion);
     expect(authority.moduleRealpath.toLowerCase()).toContain(repoRoot.toLowerCase());
     expect(authority.helperExports).toEqual(["mergePath", "checkOptionalParameter", "splitRoutingPath", "getPattern"]);
     const projections = new Map();
