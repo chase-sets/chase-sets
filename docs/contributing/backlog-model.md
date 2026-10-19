@@ -345,8 +345,8 @@ Precedence, first match wins:
 | 7 | otherwise | `Backlog` |
 
 Any other closure reason fails closed rather than guessing. Row 3 outranks row
-4: the *form* of the work is authoritative. A native **Slice** is therefore
-handled by the ordinary rows 5–7, regardless of labels.
+4: the *form* of the work is authoritative. Labels never make an issue an
+Epic, so a native **Slice** takes rows 4–7 like any other non-Epic.
 
 `Epic` and `Tracking` are **non-executable** statuses. They are never dispatch
 candidates, and a normal slice wrongly placed in either is corrected back to
