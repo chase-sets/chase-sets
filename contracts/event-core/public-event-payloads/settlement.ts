@@ -1,6 +1,7 @@
 // Settlement-owned public event payloads.
 import type { AccountId } from "../../primitives/typed-ids";
 import type { AccountLinkageClearedPayload, AccountLinkageFlaggedPayload } from "../account-linkage-facts";
+import type { PayoutReviewHoldPayload } from "../payout-review-hold-facts";
 import type {
   ProtectionCoverageRejectedV1Payload,
   ProtectionCoverageReservedV1Payload,
@@ -136,4 +137,6 @@ export type SettlementEventPayloads = Readonly<{
   "settlement.support-hold.placed.v1": SettlementSupportHoldPlacedPayload;
   "settlement.support-hold.released.v1": SettlementSupportHoldReleasedPayload;
   "settlement.support-hold.consumed.v1": SettlementSupportHoldConsumedPayload;
+  "settlement.payout-review-hold.placed": PayoutReviewHoldPayload;
+  "settlement.payout-review-hold.released": PayoutReviewHoldPayload;
 }>;

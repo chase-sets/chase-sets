@@ -487,6 +487,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "payoutReviewHoldCrossContext",
+      "providedBy": "platform-api",
+      "purpose": "Settlement-owned payout review hold command port used by the risk-alert action before recording its action fact."
+    },
+    {
       "portName": "providerConnectionsCrossContext",
       "providedBy": "platform-api",
       "purpose": "Catalog and Channels owner-authored read-only Provider Connection sources, composed without transferring credential custody."

@@ -16,6 +16,7 @@ export const settlementWakeRegistryEntry = registryEntry({
     "ordering:ordering-order-money-timeline-projection",
     "pricing:pricing-market-trades-projection",
     "settlement:platform-policy-document-projection",
+    "settlement:settlement-account-risk-source-projection",
     "settlement:settlement-payout-projection",
     "settlement:settlement-payout-readiness-projection",
     "settlement:settlement-support-hold-projection",

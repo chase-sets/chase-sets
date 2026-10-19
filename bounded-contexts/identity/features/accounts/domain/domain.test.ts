@@ -131,7 +131,7 @@ describe("account domain", () => {
     expect(assignedAgain).toEqual([]);
   });
 
-  it("removes operator-managed account badges idempotently", () => {
+  it("refuses the retired manual payout review badge", () => {
     const createdState = decideAccount(initialAccountState, {
       type: "CreateAccount",
       accountId: "acc_founder" as never,
@@ -139,23 +139,9 @@ describe("account domain", () => {
       accountType: "business",
       displayName: "Founding Store",
     }).reduce(evolveAccount, initialAccountState);
-    const assignedState = decideAccount(createdState, {
-      type: "AssignAccountBadge",
-      badgeKey: "manual-payout-review",
-    }).reduce(evolveAccount, createdState);
-
-    const removed = decideAccount(assignedState, {
-      type: "RemoveAccountBadge",
-      badgeKey: "manual-payout-review",
-    });
-    const removedState = removed.reduce(evolveAccount, assignedState);
-    const removedAgain = decideAccount(removedState, {
-      type: "RemoveAccountBadge",
-      badgeKey: "manual-payout-review",
-    });
-
-    expect(removedState.badges).toEqual([]);
-    expect(removedAgain).toEqual([]);
+    expect(() => decideAccount(createdState, { type: "AssignAccountBadge", badgeKey: "manual-payout-review" })).toThrow(
+      "Settlement payout review hold",
+    );
   });
 
   it("keeps numbered founding account badges permanent", () => {
@@ -177,7 +163,7 @@ describe("account domain", () => {
     );
   });
 
-  it("assigns seller trust and manual payout review badges", () => {
+  it("assigns seller trust and refuses manual payout review", () => {
     const createdState = decideAccount(initialAccountState, {
       type: "CreateAccount",
       accountId: "acc_trust" as never,
@@ -190,12 +176,10 @@ describe("account domain", () => {
       type: "AssignAccountBadge",
       badgeKey: "trusted-seller",
     }).reduce(evolveAccount, createdState);
-    const reviewState = decideAccount(trustedState, {
-      type: "AssignAccountBadge",
-      badgeKey: "manual-payout-review",
-    }).reduce(evolveAccount, trustedState);
-
-    expect(reviewState.badges).toEqual(["manual-payout-review", "trusted-seller"]);
+    expect(() => decideAccount(trustedState, { type: "AssignAccountBadge", badgeKey: "manual-payout-review" })).toThrow(
+      "Settlement payout review hold",
+    );
+    expect(trustedState.badges).toEqual(["trusted-seller"]);
   });
 
   it.each([

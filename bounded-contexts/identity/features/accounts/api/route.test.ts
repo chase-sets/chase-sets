@@ -228,7 +228,7 @@ describe("account API route", () => {
     expect(services.commandHandler).not.toHaveBeenCalled();
   });
 
-  it("allows a platform admin to remove an account badge", async () => {
+  it("rejects a platform admin attempting to remove the retired manual payout review badge", async () => {
     const services = buildServices({
       commandHandler: vi.fn(async () => ({
         state: { status: "active", badges: [] },
@@ -241,20 +241,8 @@ describe("account API route", () => {
       { method: "DELETE" },
     );
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      id: "acc_1",
-      badges: [],
-    });
-    expect(services.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: {
-          type: "RemoveAccountBadge",
-          badgeKey: "manual-payout-review",
-        },
-        streamId: "identity.account-acc_1",
-      }),
-    );
+    expect(response.status).toBe(400);
+    expect(services.commandHandler).not.toHaveBeenCalled();
   });
 
   it("returns the command-side account when the account projection is not available", async () => {

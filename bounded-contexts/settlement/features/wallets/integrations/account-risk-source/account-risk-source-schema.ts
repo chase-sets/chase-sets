@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS settlement_account_risk_sources (
   account_created_at timestamptz NULL,
   trusted_seller boolean NOT NULL DEFAULT false,
   manual_payout_review boolean NOT NULL DEFAULT false,
+  payout_review_hold boolean NOT NULL DEFAULT false,
+  payout_review_hold_stream_version bigint NOT NULL DEFAULT 0,
   stripe_fraud_flag boolean NOT NULL DEFAULT false,
   stripe_fraud_flagged_at timestamptz NULL,
   stripe_fraud_signal_count integer NOT NULL DEFAULT 0,
@@ -29,6 +31,12 @@ CREATE TABLE IF NOT EXISTS settlement_account_risk_sources (
 
 ALTER TABLE settlement_account_risk_sources
   ADD COLUMN IF NOT EXISTS chargeback_7d_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false;
+
+ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS payout_review_hold_stream_version bigint NOT NULL DEFAULT 0;
 
 ALTER TABLE settlement_account_risk_sources
   ADD COLUMN IF NOT EXISTS chargeback_30d_count integer NOT NULL DEFAULT 0;
@@ -173,6 +181,14 @@ CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
 `;
 
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261017_settlement_payout_review_hold",
+    description: "Persist Settlement payout review hold projection state and stream version.",
+    statements: [
+      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false`,
+      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS payout_review_hold_stream_version bigint NOT NULL DEFAULT 0`,
+    ],
+  },
   {
     migrationId: "20260907_settlement_listing_risk_currency",
     description:
