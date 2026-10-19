@@ -1,8 +1,12 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseDiscoverySearchRelevanceOptions, validateFixtures } from "./discovery-search-relevance.mjs";
+import {
+  parseDiscoverySearchRelevanceOptions,
+  runRankedInputEvaluation,
+  validateFixtures,
+} from "./discovery-search-relevance.mjs";
 import {
   deterministicSparseEmbedding,
   expandSparseEmbedding,
@@ -111,6 +115,98 @@ describe("Discovery search relevance runner", () => {
     expect(parseDiscoverySearchRelevanceOptions(["--embedding-fixture=artifacts/real.json"]).embeddingFixture).toBe(
       "artifacts/real.json",
     );
+  });
+
+  it("evaluates ranked input through parsing, reports, and gate enforcement", async () => {
+    const [catalogItems, goldenQueries, embeddingFixture] = await Promise.all([
+      readJson("catalog-items.json"),
+      readJson("golden-queries.json"),
+      readJson("fixture-embeddings.json"),
+    ]);
+    const rankedInputs = Object.fromEntries(
+      ["lexical-only", "semantic-fallback", "hybrid"].map((mode) => [
+        mode,
+        Object.fromEntries(
+          goldenQueries.map((goldenQuery) => {
+            if (goldenQuery.expected.kind === "no-results") return [goldenQuery.id, []];
+            const summaries = goldenQuery.expected.summaries ?? {};
+            return [
+              goldenQuery.id,
+              goldenQuery.expected.itemIds.map((catalogItemId) => ({
+                catalogItemId,
+                ...(Object.hasOwn(summaries, catalogItemId) ? { summary: summaries[catalogItemId] } : {}),
+              })),
+            ];
+          }),
+        ),
+      ]),
+    );
+    const rankedInput = {
+      goldenQueries,
+      sourceHash: embeddingFixture.sourceHash,
+      embeddingModel: embeddingFixture.model,
+      dimensions: embeddingFixture.dimensions,
+      catalogItemCount: catalogItems.length,
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      rankedInputs,
+    };
+    const tempDir = await mkdtemp(path.join(root, "artifacts/discovery-search-relevance-test-"));
+    try {
+      const rankedInputPath = path.join(tempDir, "ranked-input.json");
+      await writeFile(rankedInputPath, `${JSON.stringify(rankedInput)}\n`, "utf8");
+      expect(parseDiscoverySearchRelevanceOptions([`--ranked-input=${rankedInputPath}`]).rankedInput).toBe(
+        rankedInputPath,
+      );
+
+      const passJson = path.join(tempDir, "pass.json");
+      const passMarkdown = path.join(tempDir, "pass.md");
+      const comparison = await runRankedInputEvaluation({
+        rankedInput: rankedInputPath,
+        jsonOut: passJson,
+        markdownOut: passMarkdown,
+        enforceGate: true,
+      });
+      expect(comparison.comparison.passed).toBe(true);
+      expect(JSON.parse(await readFile(passJson, "utf8")).comparison.passed).toBe(true);
+      expect(await readFile(passMarkdown, "utf8")).toContain("Result: **PASS**");
+
+      const gatedFailureInput = structuredClone(rankedInput);
+      gatedFailureInput.rankedInputs["lexical-only"]["exact-01"] = [];
+      const gatedFailurePath = path.join(tempDir, "gated-failure.json");
+      await writeFile(gatedFailurePath, `${JSON.stringify(gatedFailureInput)}\n`, "utf8");
+      await expect(
+        runRankedInputEvaluation({
+          rankedInput: gatedFailurePath,
+          jsonOut: path.join(tempDir, "gated-failure.json.out"),
+          markdownOut: path.join(tempDir, "gated-failure.md"),
+          enforceGate: true,
+        }),
+      ).rejects.toThrow(/Discovery relevance gate failed/);
+      const reportOnly = await runRankedInputEvaluation({
+        rankedInput: gatedFailurePath,
+        jsonOut: path.join(tempDir, "report-only.json"),
+        markdownOut: path.join(tempDir, "report-only.md"),
+        enforceGate: false,
+      });
+      expect(reportOnly.comparison.gateFailures).toEqual(
+        expect.arrayContaining([expect.stringContaining("lexical-only/exact-01")]),
+      );
+
+      const missingRankedInput = structuredClone(rankedInput);
+      delete missingRankedInput.rankedInputs.hybrid["exact-01"];
+      const missingRankedInputPath = path.join(tempDir, "missing-ranked-input.json");
+      await writeFile(missingRankedInputPath, `${JSON.stringify(missingRankedInput)}\n`, "utf8");
+      await expect(
+        runRankedInputEvaluation({
+          rankedInput: missingRankedInputPath,
+          jsonOut: path.join(tempDir, "missing.json"),
+          markdownOut: path.join(tempDir, "missing.md"),
+          enforceGate: true,
+        }),
+      ).rejects.toThrow(/Missing ranked input/);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("keeps deterministic embeddings finite, normalized, and 1024-dimensional", () => {
