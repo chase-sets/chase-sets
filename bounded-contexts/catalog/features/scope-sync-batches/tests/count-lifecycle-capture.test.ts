@@ -47,8 +47,17 @@ describe("staging count capture lifecycle", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
-  it("reaches conforming through the ten-action loopback with bounded debits", async () => {
+  it("RUN-G1 reaches CONFORMING through the eleven-action loopback under an advancing clock", async () => {
     const fixture = await createCountCaptureDbFixture(pools.catalog);
+    // One clock for runner, routes, lifecycle and store; every read advances it, so
+    // no two observations share an instant and the seal is a genuinely later read.
+    let at = Date.parse(fixture.clock.now);
+    Object.defineProperty(fixture.clock, "now", {
+      get: () => new Date((at += 7)).toISOString(),
+      set: (value: string) => {
+        at = Date.parse(value);
+      },
+    });
     const app = new Hono<{ Variables: { context: typeof captureContext; actor: ReturnType<typeof captureActor> } }>();
     app.use("*", async (c, next) => {
       c.set("context", captureContext);
@@ -72,11 +81,18 @@ describe("staging count capture lifecycle", () => {
         { selection: fixture.selection, budget: fixture.budget },
       ],
       "capture-freeze": ["/count-capture/freeze", { runnerRunId: "300", runnerRunAttempt: 1 }],
+      "capture-complete": ["/count-capture/complete", { runnerRunId: "300", runnerRunAttempt: 1 }],
     };
+    const intents: string[] = [];
+    let sealed: { runId: string; frozenAt: string } | null = null;
     const action = async (intent: string, fields: Readonly<Record<string, string>>) => {
+      intents.push(intent);
       const [path, baseBody] = paths[intent]!;
       const body = { ...baseBody };
-      if (intent === "capture-freeze") body.collection = JSON.parse(fields.collection);
+      // The superseded protocol sent its collection with the seal; it is forwarded as sent.
+      if (fields.collection) body.collection = JSON.parse(fields.collection);
+      if (fields.dispatchId) body.dispatchId = fields.dispatchId;
+      if (fields.runId) body.runId = fields.runId;
       if (intent === "count-acquire") {
         const quote = fields.quoteId ? { quoteId: fields.quoteId, fingerprint: fields.countFingerprint } : {};
         Object.assign(body, quote);
@@ -93,19 +109,32 @@ describe("staging count capture lifecycle", () => {
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error(`action-${intent}-${response.status}`);
-      return response.json();
+      const value = await response.json();
+      if (intent === "capture-freeze") sealed = value;
+      return value;
     };
+    const supplied: string[] = [];
     const result = await runCountCaptureJourney(
       identity,
       action,
       () => fixture.clock.now,
-      async () => countCaptureCollectionSchema.parse({ ...authority.collection, collectedAt: fixture.clock.now }),
+      async (_deployment, collectedAt) => {
+        supplied.push(collectedAt);
+        return countCaptureCollectionSchema.parse({ ...authority.collection, collectedAt });
+      },
     );
-    const receipt = result;
-    expect(receipt.schemaVersion).toBe("scope-sync-count-lifecycle/v1");
-    expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
-    expect(receipt.classification.verdict).toBe("CONFORMING");
-    expect("sends" in receipt ? receipt.sends.length : 0).toBeLessThanOrEqual(11);
+    const validation = validateCountLifecycleReceipt(result);
+    expect(validation.classification).toMatchObject({ verdict: "CONFORMING", reasons: [] });
+    expect(validation.valid).toBe(true);
+    expect(intents.slice(-2)).toEqual(["capture-freeze", "capture-complete"]);
+    const receipt = result as Extract<typeof result, { freezeCollection: unknown }>;
+    expect(receipt.frozenAt).toBe(sealed!.frozenAt);
+    expect(receipt.freezeCollection.collectedAt).toBe(supplied[1]);
+    expect(Date.parse(receipt.freezeCollection.collectedAt)).toBeGreaterThan(Date.parse(receipt.frozenAt));
+    expect(receipt.sends.length).toBeLessThanOrEqual(11);
+    // The one retained receipt is the returned one, on the sealed run.
+    const [run] = await captureRuns(fixture);
+    expect(run).toMatchObject({ status: "frozen", frozenAt: receipt.frozenAt, receipt });
   });
 
   const captureDeps = (
@@ -153,6 +182,7 @@ describe("staging count capture lifecycle", () => {
       preview: "/preview",
       "pre-confirm-planner-read": "/count-capture/pre-confirm",
       "capture-freeze": "/count-capture/freeze",
+      "capture-complete": "/count-capture/complete",
     };
     const authority = captureAuthority();
     const identity = { sha: authority.runnerSha, dispatchId: authority.dispatchId, scopeRecordId: captureScope };
@@ -168,8 +198,16 @@ describe("staging count capture lifecycle", () => {
               : intent === "pre-confirm-planner-read"
                 ? { selection: f.selection, budget: f.budget, planFingerprint: fields.planFingerprint }
                 : intent === "capture-freeze"
-                  ? { runnerRunId: "300", runnerRunAttempt: 1, collection: JSON.parse(fields.collection) }
-                  : {};
+                  ? { dispatchId: fields.dispatchId, runnerRunId: "300", runnerRunAttempt: 1 }
+                  : intent === "capture-complete"
+                    ? {
+                        runId: fields.runId,
+                        dispatchId: fields.dispatchId,
+                        runnerRunId: "300",
+                        runnerRunAttempt: 1,
+                        collection: JSON.parse(fields.collection!),
+                      }
+                    : {};
       if (intent === "pre-confirm-planner-read") body.planFingerprint = fields.planFingerprint;
       const post = async () =>
         await app.request(`https://admin.staging.chasesets.com/api/catalog/scope-sync-batches${routePaths[intent]}`, {
@@ -189,7 +227,7 @@ describe("staging count capture lifecycle", () => {
       identity,
       action,
       () => f.clock.now,
-      async () => countCaptureCollectionSchema.parse({ ...authority.collection, collectedAt: f.clock.now }),
+      async (_deployment, collectedAt) => countCaptureCollectionSchema.parse({ ...authority.collection, collectedAt }),
     );
     return { result, intents, identity };
   }

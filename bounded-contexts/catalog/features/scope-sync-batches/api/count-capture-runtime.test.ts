@@ -10,12 +10,25 @@ import {
 } from "../../source-observations/api/providers/count-capture-transport";
 import { validateCountLifecycleReceipt } from "../domain/count-lifecycle-receipt";
 import { captureNow } from "../tests/count-capture-planner-fixture";
-import { captureAuthority, captureScope } from "../tests/count-capture-session-fixture";
+import { captureActor, captureAuthority, captureScope } from "../tests/count-capture-session-fixture";
 import {
   captureStoreMutant,
   captureLifecycleMutant,
   captureEffectsMutant,
 } from "../tests/count-capture-counts-mutants";
+
+type Fixture = ReturnType<typeof captureCountsFixture>;
+const sealInput = { dispatchId: "synthetic-dispatch", runnerRunId: "300", runnerRunAttempt: 1 } as const;
+const boundCollection = (collectedAt: string) => ({
+  ...captureAuthority().collection,
+  outcome: "bound" as const,
+  collectedAt,
+});
+// The causal close: seal, then one completion of the acknowledged run.
+async function close(f: Fixture, collection = boundCollection(f.clock.now)) {
+  const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+  return f.lifecycle.complete(captureSession(), { runId: sealed.runId, ...sealInput, collection });
+}
 
 describe("capture reads and freeze", () => {
   it.each(["overflow", "malformed-result", "uncommitted-result"] as const)(
@@ -75,11 +88,7 @@ describe("capture reads and freeze", () => {
     expect(f.writer.preConfirmPlannerRead).toHaveBeenCalledTimes(1);
     const calls = f.fetch.mock.calls.length;
     f.clock.now = "2026-10-13T08:04:11.000Z";
-    const { receipt } = await f.lifecycle.freeze(captureSession(), {
-      runnerRunId: "300",
-      runnerRunAttempt: 1,
-      collection: { ...captureAuthority().collection, outcome: "bound", collectedAt: f.clock.now },
-    });
+    const { receipt } = await close(f);
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
     expect(receipt.classification).toMatchObject({ verdict: "CONFORMING" });
     expect(f.fetch).toHaveBeenCalledTimes(calls);
@@ -106,10 +115,11 @@ describe("capture reads and freeze", () => {
     const f = captureCountsFixture();
     await f.ready();
     const before = f.fetch.mock.calls.length;
-    const { receipt } = await f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 });
+    const { receipt } = await close(f);
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
     expect(receipt.classification.verdict).toBe("INCOMPLETE");
     expect(f.run().status).toBe("frozen");
+    const runId = f.run().runId;
     const actions = [
       () => f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority: captureAuthority() }),
       () => f.lifecycle.initialNotice(captureSession()),
@@ -125,7 +135,8 @@ describe("capture reads and freeze", () => {
           budget: f.budget,
           planFingerprint: "a".repeat(64),
         }),
-      () => f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 }),
+      () => f.lifecycle.freeze(captureSession(), sealInput),
+      () => f.lifecycle.complete(captureSession(), { runId, ...sealInput, collection: boundCollection(f.clock.now) }),
     ];
     for (const action of actions) await expect(action()).rejects.toThrow(CountCaptureStopped);
     expect(f.fetch).toHaveBeenCalledTimes(before);
@@ -193,11 +204,7 @@ describe("capture reads and freeze", () => {
         );
         return read();
       });
-      return f.lifecycle.freeze(captureSession(), {
-        runnerRunId: "300",
-        runnerRunAttempt: 1,
-        collection: { ...captureAuthority().collection, outcome: "bound", collectedAt: f.clock.now },
-      });
+      return close(f);
     };
     const real = captureCountsFixture();
     await expect(attempt(real)).rejects.toThrow(CountCaptureStopped);
@@ -228,11 +235,7 @@ describe("capture reads and freeze", () => {
       });
       if (missing === "effects") f.readEffects.mockRejectedValueOnce(new Error("Unknown local effects."));
       else f.readCountEvidence.mockResolvedValueOnce({ ...(await f.readCountEvidence()), complete: false });
-      const { receipt } = await f.lifecycle.freeze(captureSession(), {
-        runnerRunId: "300",
-        runnerRunAttempt: 1,
-        collection: { ...captureAuthority().collection, outcome: "bound", collectedAt: f.clock.now },
-      });
+      const { receipt } = await close(f);
       expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
       expect(receipt.classification.verdict).toBe("INCOMPLETE");
       if (missing === "effects" && "evidence" in receipt) expect(receipt.evidence.effects).toBeUndefined();
@@ -246,7 +249,7 @@ describe("capture reads and freeze", () => {
       await f.ready();
       const baseline = await f.readEffects(f.clock.now);
       f.readEffects.mockResolvedValueOnce({ ...baseline, [effect]: baseline[effect] + 1 });
-      const { receipt } = await f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 });
+      const { receipt } = await close(f);
       expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
       expect(receipt.classification).toMatchObject({
         verdict: "FAILED",
@@ -265,15 +268,17 @@ describe("capture reads and freeze", () => {
         planFingerprint: "f".repeat(64),
       }),
     ).rejects.toThrow(CountCaptureStopped);
-    const { receipt } = await f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 });
+    const { receipt } = await close(f);
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
+    expect(receipt).toMatchObject({ reason: "capture-stopped", phase: "freeze" });
     expect(receipt.classification.verdict).toBe("FAILED");
+    expect(f.run().seal).toEqual({ from: "stopped", runnerRunId: "300", runnerRunAttempt: 1 });
   });
 
   it("post-freeze guard-disabled mutant reopens the sealed run", async () => {
     const attempt = async (f: ReturnType<typeof captureCountsFixture>) => {
       await f.ready();
-      await f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 });
+      await f.lifecycle.freeze(captureSession(), sealInput);
       return f.lifecycle.quote(captureSession(), { selection: f.selection, budget: f.budget });
     };
     await expect(attempt(captureCountsFixture())).rejects.toThrow(CountCaptureStopped);
@@ -305,11 +310,7 @@ describe("capture reads and freeze", () => {
       condition === "unknown"
         ? { ...collection, outcome: "unknown" as const, reason: "inventory-truncated" as const, binding: null }
         : { ...collection, binding: { ...collection.binding, jobId: "201" } };
-    const { receipt } = await f.lifecycle.freeze(captureSession(), {
-      runnerRunId: "300",
-      runnerRunAttempt: 1,
-      collection: freezeCollection,
-    });
+    const { receipt } = await close(f, freezeCollection);
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
     expect(receipt.classification).toMatchObject({
       verdict: "INCOMPLETE",
@@ -329,11 +330,7 @@ describe("capture reads and freeze", () => {
         planFingerprint: preview.planFingerprint,
       });
       f.readEffects.mockResolvedValueOnce({ ...(await f.readEffects(f.clock.now)), batches: 3 });
-      return f.lifecycle.freeze(captureSession(), {
-        runnerRunId: "300",
-        runnerRunAttempt: 1,
-        collection: { ...captureAuthority().collection, outcome: "bound", collectedAt: f.clock.now },
-      });
+      return close(f);
     };
     const real = await attempt(captureCountsFixture());
     expect(real.receipt.classification.verdict).toBe("FAILED");
@@ -343,5 +340,182 @@ describe("capture reads and freeze", () => {
     expect(mutant.receipt.classification.verdict).toBe("CONFORMING");
     // The shipped validator rejects the mutant's false classification.
     expect(validateCountLifecycleReceipt(mutant.receipt).valid).toBe(false);
+  });
+});
+
+describe("seal and exact-run completion", () => {
+  async function previewed(f: Fixture) {
+    await f.acquire();
+    f.clock.now = captureNow;
+    const preview = await f.lifecycle.preview(captureSession(), { selection: f.selection, budget: f.budget });
+    await f.lifecycle.preConfirm(captureSession(), {
+      selection: f.selection,
+      budget: f.budget,
+      planFingerprint: preview.planFingerprint,
+    });
+  }
+
+  it("seals without collecting or assembling and acknowledges the server boundary", async () => {
+    const f = captureCountsFixture();
+    await previewed(f);
+    const calls = f.fetch.mock.calls.length;
+    const appended = f.memory.history.length;
+    // The superseded seal-and-assemble request is refused before anything is sealed.
+    await expect(
+      f.lifecycle.freeze(captureSession(), {
+        ...sealInput,
+        collection: boundCollection(f.clock.now),
+      } as typeof sealInput),
+    ).rejects.toThrow();
+    expect(f.memory.history).toHaveLength(appended);
+    expect(f.run().status).toBe("open");
+    f.clock.now = "2026-10-13T08:05:40.000Z";
+    expect(await f.lifecycle.freeze(captureSession(), sealInput)).toEqual({
+      runId: f.run().runId,
+      frozenAt: "2026-10-13T08:05:40.000Z",
+    });
+    expect(f.run()).toMatchObject({
+      status: "frozen",
+      frozenAt: "2026-10-13T08:05:40.000Z",
+      seal: { from: "open", runnerRunId: "300", runnerRunAttempt: 1 },
+      receipt: null,
+    });
+    expect(f.memory.history).toHaveLength(appended + 1);
+    expect(f.readEffects).toHaveBeenCalledTimes(1);
+    expect(f.readCountEvidence).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(calls);
+  });
+
+  it("seals only for the run's own dispatch", async () => {
+    const f = captureCountsFixture();
+    await previewed(f);
+    const appended = f.memory.history.length;
+    await expect(
+      f.lifecycle.freeze(captureSession(), { ...sealInput, dispatchId: "synthetic-other-dispatch" }),
+    ).rejects.toThrow(CountCaptureStopped);
+    expect(f.memory.history).toHaveLength(appended);
+    expect(f.run().status).toBe("open");
+  });
+
+  it("qualifies the post-seal collection and retains the one receipt with the seal's boundary", async () => {
+    const f = captureCountsFixture();
+    await previewed(f);
+    f.clock.now = "2026-10-13T08:05:40.000Z";
+    const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+    f.clock.now = "2026-10-13T08:05:41.250Z";
+    const { receipt } = await f.lifecycle.complete(captureSession(), {
+      runId: sealed.runId,
+      ...sealInput,
+      collection: boundCollection(f.clock.now),
+    });
+    expect(validateCountLifecycleReceipt(receipt)).toMatchObject({
+      valid: true,
+      classification: { verdict: "CONFORMING" },
+    });
+    expect(receipt).toMatchObject({
+      frozenAt: sealed.frozenAt,
+      freezeCollection: { collectedAt: "2026-10-13T08:05:41.250Z" },
+    });
+    expect(f.run()).toMatchObject({ status: "frozen", frozenAt: sealed.frozenAt, receipt });
+  });
+
+  it("retains a genuinely pre-boundary collection as INCOMPLETE, never CONFORMING", async () => {
+    const f = captureCountsFixture();
+    await previewed(f);
+    f.clock.now = "2026-10-13T08:05:40.000Z";
+    const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+    const { receipt } = await f.lifecycle.complete(captureSession(), {
+      runId: sealed.runId,
+      ...sealInput,
+      collection: boundCollection("2026-10-13T08:05:39.999Z"),
+    });
+    expect(validateCountLifecycleReceipt(receipt)).toMatchObject({
+      valid: true,
+      classification: { verdict: "INCOMPLETE", reasons: ["freeze-unknown-or-drift"] },
+    });
+  });
+
+  it("refuses every foreign, malformed or repeated completion without touching the sealed history", async () => {
+    const f = captureCountsFixture();
+    await previewed(f);
+    const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+    const genuine = { runId: sealed.runId, ...sealInput, collection: boundCollection(f.clock.now) };
+    const calls = f.fetch.mock.calls.length;
+    const appended = f.memory.history.length;
+    const sealedRun = f.run();
+    const refused = [
+      () =>
+        f.lifecycle.complete(
+          captureSession({ actor: captureActor({ sessionId: "synthetic-other-session" }) }),
+          genuine,
+        ),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, runId: "00000000-0000-4000-8000-0000000000ff" }),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, dispatchId: "synthetic-other-dispatch" }),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, runnerRunId: "301" }),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, runnerRunAttempt: 2 }),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, collection: undefined } as never),
+      () =>
+        f.lifecycle.complete(captureSession(), {
+          ...genuine,
+          collection: { ...genuine.collection, collectedAt: "2026-10-13" },
+        }),
+      () => f.lifecycle.complete(captureSession(), { ...genuine, frozenAt: f.clock.now } as never),
+    ];
+    for (const attempt of refused) await expect(attempt()).rejects.toThrow();
+    expect(f.memory.history).toHaveLength(appended);
+    expect(f.run()).toEqual(sealedRun);
+    const { receipt } = await f.lifecycle.complete(captureSession(), genuine);
+    expect(f.memory.history).toHaveLength(appended + 1);
+    const completed = f.run();
+    // A duplicate cannot replace the receipt, move the boundary, reopen or send.
+    await expect(f.lifecycle.complete(captureSession(), genuine)).rejects.toThrow(CountCaptureStopped);
+    await expect(
+      f.lifecycle.complete(captureSession(), { ...genuine, collection: boundCollection("2026-10-13T08:09:00.000Z") }),
+    ).rejects.toThrow(CountCaptureStopped);
+    await expect(f.lifecycle.freeze(captureSession(), sealInput)).rejects.toThrow(CountCaptureStopped);
+    expect(f.memory.history).toHaveLength(appended + 1);
+    expect(f.run()).toEqual(completed);
+    expect(f.run()).toMatchObject({ status: "frozen", frozenAt: sealed.frozenAt, receipt });
+    expect(f.fetch).toHaveBeenCalledTimes(calls);
+  });
+
+  it("leaves an interrupted collection sealed, receipt-free and refusing every day-after action", async () => {
+    const f = captureCountsFixture();
+    await previewed(f);
+    const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
+    const calls = f.fetch.mock.calls.length;
+    const appended = f.memory.history.length;
+    const interrupted = f.run();
+    expect(interrupted).toMatchObject({ status: "frozen", receipt: null });
+    f.clock.now = "2026-10-14T08:05:00.000Z";
+    const actions = [
+      () => f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority: captureAuthority() }),
+      () => f.lifecycle.initialNotice(captureSession()),
+      () => f.lifecycle.usage(captureSession()),
+      () => f.lifecycle.quote(captureSession(), { selection: f.selection, budget: f.budget }),
+      () => f.lifecycle.quoteReadback(captureSession()),
+      () => f.lifecycle.finalNotice(captureSession()),
+      () => f.lifecycle.acquire(captureSession(), { quoteId: f.quote.quoteId, fingerprint: f.quote.fingerprint }),
+      () => f.lifecycle.preview(captureSession(), { selection: f.selection, budget: f.budget }),
+      () =>
+        f.lifecycle.preConfirm(captureSession(), {
+          selection: f.selection,
+          budget: f.budget,
+          planFingerprint: "a".repeat(64),
+        }),
+      () => f.lifecycle.freeze(captureSession(), sealInput),
+      // Past the run's lifetime even the exact-run completion refuses: the sealed run
+      // can never later become CONFORMING.
+      () =>
+        f.lifecycle.complete(captureSession(), {
+          runId: sealed.runId,
+          ...sealInput,
+          collection: boundCollection(f.clock.now),
+        }),
+    ];
+    for (const action of actions) await expect(action()).rejects.toThrow();
+    expect(f.memory.history).toHaveLength(appended);
+    expect(f.run()).toEqual(interrupted);
+    expect(f.fetch).toHaveBeenCalledTimes(calls);
   });
 });
