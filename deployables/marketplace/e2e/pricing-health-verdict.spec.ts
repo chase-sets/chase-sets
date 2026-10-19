@@ -132,12 +132,6 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
     await usableAtEveryViewport(page, "No verdict for this policy revision yet");
     await expect(page.getByRole("button", { name: "Compute verdict", exact: true })).toBeVisible();
     expect((await (await page.request.get(api)).json()).health).toBeNull();
-    await createPolicy(page.request, pool, created, `${prefix} second`);
-    await page.reload();
-    await usableAtEveryViewport(page, "Select an active policy to see its verdict");
-    await page.getByRole("combobox", { name: "Active policy", exact: true }).selectOption(policyId);
-    await page.getByRole("button", { name: "Show verdict", exact: true }).click();
-    await expect(page).toHaveURL((url) => url.searchParams.get("policyId") === policyId);
     expect((await page.request.get(`${api}?policyId=rpp_synthetic_foreign`)).status()).toBe(404);
 
     const ownedPolicy = await page.request.get(`${policiesApi}/${policyId}`);
@@ -156,6 +150,8 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
       listingCount: 0.6321205588285577,
       valueAmount: fixture.expected.expectedSalesValueAmount,
     });
+    await page.goto("/account/desk/pricing-health");
+    expect((await (await page.request.get(api)).json()).target.policyId).toBe(policyId);
     // Both exact values come through the real loader. No route interception or summary injection.
     await expect(page.getByTestId("health-s2")).toHaveText(formatMoney(fixture.expected.modeledValueAmount, "USD"));
     await expect(page.getByTestId("health-s6")).toHaveText(
@@ -171,6 +167,17 @@ test("mounted Pricing Health reads a nonempty stored verdict and disclosed cohor
     await page.setViewportSize(viewports[2]!);
     await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-health-populated-2" });
     await captureAccessibilityEvidence({ page, testInfo, surface: "Pricing Health populated platform grades" });
+
+    await createPolicy(page.request, pool, created, `${prefix} second`);
+    await page.reload();
+    await usableAtEveryViewport(page, "Select an active policy to see its verdict");
+    await page.getByRole("combobox", { name: "Active policy", exact: true }).selectOption(policyId);
+    await page.getByRole("button", { name: "Show verdict", exact: true }).click();
+    await expect(page).toHaveURL((url) => url.searchParams.get("policyId") === policyId);
+    await expect(page.getByTestId("health-s2")).toHaveText(formatMoney(fixture.expected.modeledValueAmount, "USD"));
+    await expect(page.getByTestId("health-s6")).toHaveText(
+      `0.6321 listings; ${formatMoney(fixture.expected.expectedSalesValueAmount, "USD")}`,
+    );
 
     // Separate synthetic presentation controls mutate only this spec's retained
     // snapshot, after the nonempty real-worker/live-loader proof above.

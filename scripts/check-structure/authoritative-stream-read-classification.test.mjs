@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 20,
-      authoritativeSites: 20,
+      discoveredCallCandidates: 21,
+      authoritativeSites: 21,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -113,6 +113,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
         "CANONICAL",
       ],
+      ["bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts", "CANONICAL"],
       ["contracts/event-core/complete-stream.ts", "HELPER"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],

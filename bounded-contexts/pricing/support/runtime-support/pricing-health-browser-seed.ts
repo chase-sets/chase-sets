@@ -1,5 +1,6 @@
 import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { applyMoneyRatio } from "@chase-sets/primitives/money";
 import { DEMAND_CURVE_LAUNCH_POLICY_VALUE } from "../../features/market-estimates/domain/demand-curve-policy";
 import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../../features/forecast-ledger/domain/policy";
@@ -14,7 +15,10 @@ export async function projectSyntheticPricingHealthPolicy(
   pool: PgTransactionalPool,
   input: Readonly<{ accountId: string; policyId: string }>,
 ) {
-  const events = await createPostgresEventStore({ pool }).readStream({
+  const events = await createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),
+  }).readStream({
     streamId: repricingPolicyStreamId(input.policyId),
     limit: 10,
   });
