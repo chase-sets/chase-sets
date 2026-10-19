@@ -127,18 +127,38 @@ def classify(previous, current, uid, image, initial, target_device):
     return _classify(previous, current, uid, image, initial, target_device, None)
 
 
+def _candidate(record, image, initial, target_device):
+    """Every possible root or member is a candidate; UID alone never is."""
+    identity = record['image']
+    return (record['namespace'] != initial or identity == image or
+            (identity is not None and identity[0] == target_device and
+             record['path'].startswith(TARGET.as_posix() + '/')))
+
+
+def _exited(before, record):
+    """Only an imaged process turning into a same-start user zombie has exited."""
+    return (before['start'] == record['start'] and before['image'] is not None and
+            record['image'] is None and record.get('state') == 'Z' and record.get('kernel') is False)
+
+
 def _classify(previous, current, uid, image, initial, target_device, witness):
     def ambiguous(predicate, records, repeated=0, length=0):
         if witness is not None:
             witness.append(witness_record(predicate, records, uid, image, initial, target_device, repeated, length))
         return AMBIGUOUS
 
+    def candidate(*records):
+        return any(_candidate(record, image, initial, target_device) for record in records)
+
     for pid, record in current.items():
         before = previous.get(pid)
-        if before and (before['start'] != record['start'] or before['image'] != record['image']):
+        # Identity is PID and start (#10023). Drift and parent order can hide an
+        # owner only when either record is a candidate.
+        if (before and (before['start'] != record['start'] or before['image'] != record['image']) and
+                not _exited(before, record) and candidate(before, record)):
             return ambiguous('identity-drift', (before, record))
         parent = current.get(record['parent'])
-        if parent and parent['start'] > record['start']:
+        if parent and parent['start'] > record['start'] and candidate(record, parent):
             return ambiguous('parent-order', (record, parent))
         if (record['namespace'] == initial and record['image'] != image and
                 record['image'] is not None and record['image'][0] == target_device and
