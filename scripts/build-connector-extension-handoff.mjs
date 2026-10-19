@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -68,6 +68,8 @@ export async function buildConnectorExtensionHandoff({
   const temp = mkdtempSync(join(tmpdir(), "connector-handoff-"));
   const first = join(temp, "first");
   const second = join(temp, "second");
+  const retained = resolve(root, "artifacts/connector-extension", target);
+  let publishing = false;
   try {
     const env = { VITE_CONNECTOR_CLIENT_ID: clientId };
     await buildExtension({ root, mode: `connector-${target}`, outDir: first, env });
@@ -82,6 +84,8 @@ export async function buildConnectorExtensionHandoff({
     if (extensionId !== TCGPLAYER_CONNECTOR_EXTENSION_ID) throw new Error("connector-handoff-extension-id-refused");
     if (!firstManifest.host_permissions?.includes(`${connectorTargets[target]}/*`))
       throw new Error("connector-handoff-origin-mismatch");
+    if (typeof firstManifest.version !== "string" || !firstManifest.version)
+      throw new Error("connector-handoff-version-refused");
     const handoff = {
       schemaVersion: 1,
       sourceCommit,
@@ -93,13 +97,20 @@ export async function buildConnectorExtensionHandoff({
       twoBuildsIdentical: true,
       files: firstFiles,
     };
-    const retained = resolve(root, "artifacts/connector-extension", target);
+    const payload = `${JSON.stringify(handoff, null, 2)}\n`;
     rmSync(retained, { recursive: true, force: true });
+    publishing = true;
     mkdirSync(retained, { recursive: true });
     cpSync(first, retained, { recursive: true });
+    if (!same(operatorFileInventory(retained), handoff.files))
+      throw new Error("connector-handoff-retained-files-differ");
     mkdirSync(resolve(output, ".."), { recursive: true });
-    writeFileSync(output, `${JSON.stringify(handoff, null, 2)}\n`);
+    writeFileSync(output, payload);
     return handoff;
+  } catch (error) {
+    if (publishing) rmSync(retained, { recursive: true, force: true });
+    if (publishing && existsSync(output) && lstatSync(output).isFile()) rmSync(output);
+    throw error;
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

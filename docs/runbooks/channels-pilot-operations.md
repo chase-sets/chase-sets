@@ -79,9 +79,9 @@ $state = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
 $registered = '<client-id>'
 $unregistered = 'cc_client_00000000-0000-4000-8000-000000000000'
 $authorize = "$origin/channel-connector/oauth/authorize?response_type=code&client_id={0}&redirect_uri={1}&code_challenge=$challenge&code_challenge_method=S256&state=$state"
-(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $registered)).StatusCode
+(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $registered, $redirect)).StatusCode
 # Expected: 302, with Location containing error_description=authorization_refused.
-(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $unregistered)).StatusCode
+(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $unregistered, $redirect)).StatusCode
 # Expected: 400.
 ```
 
