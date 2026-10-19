@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION,
   IDLE_DRAFT_MAX_SELECTIONS,
@@ -15,6 +16,7 @@ import {
   cleanupLeakedPreviewDatabaseClusters,
   cleanupMatrixForTargets,
   classifyDatabaseCluster,
+  commandOutput,
   combinePreviewCleanupCandidates,
   destroyPreviewDnsRecords,
   discoverIdleDraftPreviews,
@@ -34,6 +36,18 @@ import {
 } from "./digitalocean-preview-cleanup-sweep.mjs";
 
 describe("digitalocean-preview-cleanup-sweep", () => {
+  const discoveryOptions = (overrides = {}) => ({
+    bucket: "chase-sets-terraform-state",
+    endpointUrl: "https://nyc3.digitaloceanspaces.com",
+    prefix: "platform/previews",
+    repository: "chase-sets/chase-sets",
+    githubToken: "token",
+    checkoutRef: "main",
+    imageSha: "abc123",
+    checkedAt: "2026-07-10T12:00:00.000Z",
+    ...overrides,
+  });
+
   it("extracts preview PR numbers only from platform preview state keys", () => {
     expect(previewPrNumberFromStateKey("platform/previews/pr-123.tfstate")).toBe(123);
     expect(previewPrNumberFromStateKey("platform/previews/pr-123.backup")).toBeNull();
@@ -647,6 +661,501 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       { fqdn: "*.pr-70.preview.chasesets.com", id: "wild-70" },
       { fqdn: "pr-70.preview.chasesets.com", id: "apex-70" },
     ]);
+  });
+
+  it("bounds a hung provider command", async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const detachedPidFile = join(tmpdir(), `preview-cleanup-detached-grandchild-${process.pid}.txt`);
+    const detachedGrandchildScript = [
+      "const { spawn } = await import('node:child_process');",
+      "const { writeFileSync } = await import('node:fs');",
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit', detached: true }); writeFileSync(process.argv[1], String(child.pid));",
+      "setInterval(() => {}, 1000);",
+    ].join(" ");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let detachedGrandchildPid;
+    let detachedCommandState = { status: "pending" };
+    try {
+      const detachedCommand = commandOutput(
+        process.execPath,
+        ["--input-type=module", "--eval", detachedGrandchildScript, detachedPidFile],
+        { timeout: 200 },
+      ).then(
+        () => {
+          detachedCommandState = { status: "resolved" };
+        },
+        (error) => {
+          detachedCommandState = { status: "rejected", error };
+        },
+      );
+      for (let attempt = 0; attempt < 100 && !detachedGrandchildPid; attempt += 1) {
+        try {
+          detachedGrandchildPid = Number(await readFile(detachedPidFile, "utf8"));
+        } catch {
+          await new Promise((resolve) => realSetTimeout(resolve, 50));
+        }
+      }
+      expect(detachedGrandchildPid).toBeGreaterThan(0);
+      await vi.advanceTimersByTimeAsync(199);
+      expect(detachedCommandState.status).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(detachedCommandState.status).toBe("rejected");
+      expect(detachedCommandState.error).toHaveProperty("message", expect.stringContaining("timed out after 200ms"));
+      if (process.platform !== "win32") {
+        expect(() => process.kill(detachedGrandchildPid, 0)).not.toThrow();
+      }
+      await detachedCommand;
+    } finally {
+      vi.useRealTimers();
+      if (detachedGrandchildPid) {
+        try {
+          process.kill(detachedGrandchildPid, "SIGKILL");
+        } catch (error) {
+          if (error?.code !== "ESRCH") {
+            throw error;
+          }
+        }
+      }
+      await rm(detachedPidFile, { force: true });
+    }
+
+    const pidFile = join(tmpdir(), `preview-cleanup-grandchild-${process.pid}.txt`);
+    const grandchildScript = [
+      "const { spawn } = await import('node:child_process');",
+      "const { writeFileSync } = await import('node:fs');",
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit' }); writeFileSync(process.argv[1], String(child.pid));",
+      "setInterval(() => {}, 1000);",
+    ].join(" ");
+    await expect(
+      commandOutput(process.execPath, ["--input-type=module", "--eval", grandchildScript, pidFile], {
+        timeout: 200,
+      }),
+    ).rejects.toThrow("timed out after 200ms");
+    if (process.platform !== "win32") {
+      let grandchildPid;
+      for (let attempt = 0; attempt < 20 && !grandchildPid; attempt += 1) {
+        try {
+          grandchildPid = Number(await readFile(pidFile, "utf8"));
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+      expect(grandchildPid).toBeGreaterThan(0);
+      const grandchildIsDead = () => {
+        try {
+          process.kill(grandchildPid, 0);
+        } catch (error) {
+          if (error?.code === "ESRCH") {
+            return true;
+          }
+          throw error;
+        }
+        if (process.platform === "linux") {
+          try {
+            const stat = readFileSync(`/proc/${grandchildPid}/stat`, "utf8");
+            const stateStart = stat.lastIndexOf(")") + 2;
+            return stat[stateStart] === "Z";
+          } catch (error) {
+            if (error?.code === "ENOENT") {
+              return true;
+            }
+            throw error;
+          }
+        }
+        return false;
+      };
+      let grandchildSettled = false;
+      for (let attempt = 0; attempt < 40 && !grandchildSettled; attempt += 1) {
+        grandchildSettled = grandchildIsDead();
+        if (!grandchildSettled) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
+      expect(grandchildSettled).toBe(true);
+    }
+    await rm(pidFile, { force: true });
+
+    const result = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryCommandTimeoutMs: 25 }), {
+      awsJson: () => new Promise(() => {}),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+    });
+    expect(result.record.phases[0]).toMatchObject({ name: "state-list", count: null });
+    expect(result.record.phases[0].error).toMatch(/timed out/);
+    expect(result.record.phases.slice(1).every((phase) => phase.error === "skipped-after-state-list-failure")).toBe(
+      true,
+    );
+
+    const commandCalls = [];
+    await discoverPreviewCleanupTargets(discoveryOptions({ discoveryCommandTimeoutMs: 25 }), {
+      commandOutput: async (command, args, commandOptions) => {
+        commandCalls.push({ command, args, options: commandOptions });
+        return command === "aws" ? JSON.stringify({ Contents: [] }) : "[]";
+      },
+    });
+    expect(commandCalls[0].options).toMatchObject({ timeout: 25 });
+  });
+
+  it("aborts a stalled PR lookup", async () => {
+    const fetchMock = vi.fn((url, init) => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Promise((resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new DOMException("timed out", "AbortError")), {
+            once: true,
+          });
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ state: "closed", merged: false }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryPullRequestTimeoutMs: 25 }), {
+        awsJson: async () => ({
+          Contents: [{ Key: "platform/previews/pr-1.tfstate" }, { Key: "platform/previews/pr-2.tfstate" }],
+        }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => [],
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[0][1].signal).toBeDefined();
+      expect(result.record.errors).toContain("PR #1 lookup failed: timed out after 25ms.");
+      expect(result.record.targets).toEqual([expect.objectContaining({ prNumber: 2, selected: true })]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("fails closed at the discovery budget", async () => {
+    const calls = { namespaces: 0, lookups: 0 };
+    let nowMs = 0;
+    const result = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryCommandTimeoutMs: 1_000 }), {
+      awsJson: async () => ({ Contents: [{ Key: "platform/previews/pr-3.tfstate" }] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => {
+        nowMs = 8 * 60 * 1_000 - 30;
+        return [];
+      },
+      listNamespaces: async () => {
+        calls.namespaces += 1;
+        return new Promise(() => {});
+      },
+      fetchPullRequest: async () => {
+        calls.lookups += 1;
+        return { state: "closed", merged: true };
+      },
+      clock: () => nowMs,
+    });
+    expect(calls).toEqual({ namespaces: 1, lookups: 0 });
+    expect(result.record.result).toBe("failure");
+    expect(result.record.errors).toContain("budget-exhausted");
+    expect(result.record.targets).toEqual([]);
+    expect(result.matrix.include).toEqual([]);
+    expect(result.record.phases).toHaveLength(5);
+    expect(result.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(result.record.phases[3]).toMatchObject({ name: "namespace-list", error: "budget-exhausted", count: null });
+    expect(result.record.phases[4]).toMatchObject({
+      name: "pr-lookups",
+      startedAt: null,
+      durationMs: null,
+      count: null,
+      error: "budget-exhausted",
+    });
+    expect(result.record.result === "failure" ? 1 : 0).toBe(1);
+  });
+
+  it("keeps cleanup selection unchanged", async () => {
+    const cases = [
+      { name: "state-only", state: [{ Key: "platform/previews/pr-1.tfstate" }], expected: [1] },
+      {
+        name: "cluster-only",
+        clusters: [{ id: "db-2", name: "chase-sets-pr-2-postgres", tags: ["preview"] }],
+        expected: [2],
+      },
+      {
+        name: "DNS-only",
+        dns: [{ id: "dns-3", type: "A", name: "pr-3.preview", data: "159.203.145.65" }],
+        expected: [3],
+      },
+      { name: "namespace-only", namespaces: [{ metadata: { name: "chase-sets-pr-4" } }], expected: [4] },
+      {
+        name: "namespace-only (kubectl List shape)",
+        namespaces: {
+          apiVersion: "v1",
+          kind: "List",
+          items: [{ metadata: { name: "chase-sets-pr-10" } }, { metadata: { name: "kube-system" } }],
+        },
+        expected: [],
+        listCount: 2,
+      },
+      {
+        name: "mixed open/closed/merged",
+        state: [{ Key: "platform/previews/pr-5.tfstate" }, { Key: "platform/previews/pr-6.tfstate" }],
+        expected: [5],
+        states: { 5: { state: "closed", merged: true }, 6: { state: "open", merged: false } },
+      },
+      {
+        name: "lookup-error",
+        state: [{ Key: "platform/previews/pr-7.tfstate" }],
+        expected: [],
+        lookupError: true,
+      },
+    ];
+    for (const testCase of cases) {
+      const lookedUp = [];
+      const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+        awsJson: async () => ({ Contents: testCase.state ?? [] }),
+        listDatabaseClusters: async () => testCase.clusters ?? [],
+        listDomains: async () => [{ name: "chasesets.com" }],
+        listDomainRecords: async () => testCase.dns ?? [],
+        listNamespaces: async () => testCase.namespaces ?? [],
+        fetchPullRequest: async (prNumber) => {
+          lookedUp.push(prNumber);
+          if (testCase.lookupError) {
+            throw new Error("transport failed");
+          }
+          return testCase.states?.[prNumber] ?? { state: "closed", merged: false };
+        },
+      });
+      expect(
+        result.record.targets.map((target) => target.prNumber),
+        testCase.name,
+      ).toEqual(testCase.expected);
+      expect(
+        result.matrix.include.map((target) => target.pr_number),
+        testCase.name,
+      ).toEqual(testCase.expected);
+      if (testCase.listCount !== undefined) {
+        expect(result.record.namespaceCandidates).toEqual([]);
+        expect(result.record.phases[3].count).toBe(testCase.listCount);
+        expect(lookedUp).toEqual([]);
+      }
+    }
+
+    const nonDiscoverCalls = vi.fn(async () => "[]");
+    await buildPreviewDatabaseClusterInventory(
+      { repository: "chase-sets/chase-sets", checkedAt: "2026-07-10T12:00:00.000Z" },
+      { commandOutput: nonDiscoverCalls },
+    );
+    expect(nonDiscoverCalls).toHaveBeenCalledWith("doctl", ["databases", "list", "--output", "json"], {});
+  });
+
+  it("records bounded discover transport without bounding inventory or dry-run cleanup", async () => {
+    const transportCalls = [];
+    const fetchMock = vi.fn((url, init = {}) => {
+      transportCalls.push({ url, init });
+      if (init.signal) {
+        return new Promise((resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new DOMException("timed out", "AbortError")), {
+            once: true,
+          });
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ state: "closed", merged: true }) });
+    });
+    const databaseClusters = [{ id: "db-30", name: "chase-sets-pr-30-postgres", tags: ["preview"] }];
+    const inventoryOptions = {
+      repository: "chase-sets/chase-sets",
+      githubToken: "token",
+      checkedAt: "2026-07-10T12:00:00.000Z",
+    };
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const inventory = await buildPreviewDatabaseClusterInventory(inventoryOptions, {
+        listDatabaseClusters: async () => databaseClusters,
+      });
+      const cleanup = await cleanupLeakedPreviewDatabaseClusters(inventoryOptions, {
+        listDatabaseClusters: async () => databaseClusters,
+      });
+
+      const expectedCluster = {
+        clusterId: "db-30",
+        clusterName: "chase-sets-pr-30-postgres",
+        classification: "preview-*",
+        prNumber: 30,
+        pullRequestState: "merged",
+        leaked: true,
+        previewManagedClusterViolation: true,
+        conclusion: "leaked-preview-managed-cluster-violation",
+      };
+      expect(inventory.clusters).toEqual([expectedCluster]);
+      expect(cleanup.clusters).toEqual([expectedCluster]);
+      expect(cleanup.selectedDeletionClusters).toEqual([expectedCluster]);
+      expect(transportCalls.slice(0, 2).every(({ init }) => init.signal === undefined)).toBe(true);
+
+      const discover = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryPullRequestTimeoutMs: 25 }), {
+        awsJson: async () => ({ Contents: [{ Key: "platform/previews/pr-30.tfstate" }] }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => [],
+      });
+      expect(transportCalls[2].init.signal).toBeDefined();
+      expect(discover.record.errors).toContain("PR #30 lookup failed: timed out after 25ms.");
+      expect(discover.record.targets).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("records discovery phases and volume", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({
+        Contents: [
+          { Key: "platform/previews/pr-4.tfstate", Size: 180 },
+          { Key: "platform/previews/pr-5.tfstate", Size: 2_048 },
+          { Key: "platform/previews/pr-6.tfstate", Size: 70_000 },
+          { Key: "platform/previews/pr-7.tfstate", Size: 2_000_000 },
+        ],
+      }),
+      listDatabaseClusters: async () => [{ id: "db-8", name: "chase-sets-pr-8-postgres", tags: ["preview"] }],
+      listDomains: async () => [{ name: "chasesets.com" }],
+      listDomainRecords: async () => [
+        { id: "preview-record", type: "A", name: "pr-9.preview", data: "159.203.145.65" },
+        { id: "unrelated", type: "CNAME", name: "assets", data: "cdn" },
+      ],
+      listNamespaces: async () => [{ metadata: { name: "chase-sets-pr-10" } }],
+      fetchPullRequest: async () => ({ state: "closed", merged: false }),
+    });
+    expect(result.record.result).toBe("success");
+    expect(result.record.stateObjectCount).toBe(4);
+    expect(result.record.stateObjectBytes).toEqual({
+      under1KiB: 1,
+      "1KiBTo64KiB": 1,
+      "64KiBTo1MiB": 1,
+      atLeast1MiB: 1,
+    });
+    expect(result.record.candidateCount).toBe(7);
+    expect(result.record.closedTargetCount).toBe(7);
+    expect(result.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(result.record.phases.map((phase) => phase.count)).toEqual([4, 1, 1, 1, 7]);
+
+    const dedicatedDns = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [{ name: "preview.chasesets.com" }],
+      listDomainRecords: async () => [
+        { id: "ns", type: "NS", name: "@", data: "ns1" },
+        { id: "soa", type: "SOA", name: "@", data: "soa" },
+        { id: "wild", type: "A", name: "*", data: "159.203.145.65" },
+        { id: "pr", type: "A", name: "pr-9", data: "159.203.145.65" },
+        { id: "wild-pr", type: "A", name: "*.pr-9", data: "159.203.145.65" },
+      ],
+      listNamespaces: async () => [],
+    });
+    expect(dedicatedDns.record.phases[2].count).toBe(5);
+
+    const warning = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => {
+        throw new Error("database unavailable");
+      },
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+    });
+    expect(warning.record.warnings[0]).toMatch(/database cluster listing failed/);
+    expect(warning.record.phases[1].count).toBeNull();
+    expect(warning.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(warning.record.phases.map((phase) => phase.count)).toEqual([0, null, 0, 0, 0]);
+
+    const stateListFailure = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => {
+        throw new Error("state unavailable");
+      },
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+    });
+    expect(stateListFailure.record.result).toBe("failure");
+    expect(stateListFailure.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(stateListFailure.record.phases.map((phase) => phase.count)).toEqual([null, null, null, null, null]);
+    expect(stateListFailure.record.phases[0].error).toBe("state unavailable");
+    expect(
+      stateListFailure.record.phases.slice(1).every((phase) => phase.error === "skipped-after-state-list-failure"),
+    ).toBe(true);
+
+    const invalid = await discoverPreviewCleanupTargets({});
+    expect(invalid.record.phases.every((phase) => phase.error === "invalid-options")).toBe(true);
+    expect(invalid.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(invalid.record.phases.map((phase) => phase.count)).toEqual([null, null, null, null, null]);
+
+    let lookupCount = 0;
+    const perCallWarning = await discoverPreviewCleanupTargets(
+      discoveryOptions({ discoveryCommandTimeoutMs: 30, discoveryBudgetMs: 1_000 }),
+      {
+        awsJson: async () => ({ Contents: [{ Key: "platform/previews/pr-31.tfstate" }] }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => new Promise(() => {}),
+        fetchPullRequest: async () => {
+          lookupCount += 1;
+          return { state: "closed", merged: false };
+        },
+      },
+    );
+    expect(perCallWarning.record.result).toBe("warning");
+    expect(perCallWarning.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(perCallWarning.record.phases.map((phase) => phase.count)).toEqual([1, 0, 0, null, 1]);
+    expect(perCallWarning.record.phases[3].error).toMatch(/timed out/);
+    expect(lookupCount).toBe(1);
+
+    const budget = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryBudgetMs: 1 }), {
+      awsJson: async () => new Promise(() => {}),
+    });
+    expect(budget.record.result).toBe("failure");
+    expect(budget.matrix.include).toEqual([]);
+    expect(budget.record.targets).toEqual([]);
+    expect(budget.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(budget.record.phases.map((phase) => phase.count)).toEqual([null, null, null, null, null]);
   });
 });
 
