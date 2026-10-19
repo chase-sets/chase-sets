@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const skillRoots = [".agents/skills", ".claude/skills"];
@@ -46,35 +46,80 @@ export function scanSkillFiles() {
   return { findings, scannedFiles: files.length, totalCandidateFiles: files.length };
 }
 
+// Complete historical lines from cd1bdae3571a21c9df1db84b123f87f34cd49ce3.
+const historicalBrowserLine =
+  "For a new or changed user-facing flow, use `pnpm run ops browser:usability select --base origin/main` to identify advisory goals, then follow `docs/contributing/browser-usability.md`. Dispatch a fresh goal-only `gpt-6-luna/medium` participant without implementation context; use screenshot-grounded navigation, the code-owned timer/action recorder, an isolated preflighted fixture, and a separate moderator outcome check. Do not use the participant's completion label as a pass. Report the adjudicated result and timing in Verification, or explicitly record not-run coverage and why. Unmapped flows need a relevant goal or an explicit coverage note. Hosted gates and independent code review remain authoritative; an unavailable local browser/sandbox is not a publication or readiness gate. Reproduced defects follow existing severity rules and get deterministic regression coverage.";
+const historicalDateLine = "    ledger defect classes remain covered; review this rule by 2026-09-01.";
+const historicalControls = [
+  {
+    name: "ruling-comment-citation",
+    file: ".agents/skills/delivery/SKILL.md",
+    text: "  [production credential custody](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6114225296),",
+    diagnostics: [{ class: "ruling-comment-citation", match: "issuecomment-6114225296" }],
+  },
+  {
+    name: "issue-state-condition",
+    file: ".agents/skills/delivery/SKILL.md",
+    text: "- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838576100)). While [#8159](https://github.com/chase-sets/chase-sets/issues/8159) is open, a full local `verify:test-db` is never a prerequisite for push, draft, ready or landing. When a brief still names one, take the hosted substitution and disclose it in the PR body. Focused local `test:db` runs for the touched files remain useful diagnostics. Hosted gates, timeouts, skips and reviews are unchanged.",
+    diagnostics: [
+      { class: "issue-state-condition", match: "While [#8159]" },
+      { class: "ruling-comment-citation", match: "issuecomment-5838576100" },
+    ],
+  },
+  {
+    name: "iso-date",
+    file: ".agents/skills/planning/references/pressure-test.md",
+    text: historicalDateLine,
+    diagnostics: [{ class: "iso-date", match: "2026-09-01" }],
+  },
+  // The real selector also contains a version-qualified family; exercise both rules independently.
+  ...["exact-model-selector", "version-qualified-model-family"].map((name) => ({
+    name,
+    file: ".agents/skills/delivery/SKILL.md",
+    text: historicalBrowserLine,
+    diagnostics: [
+      { class: "exact-model-selector", match: "gpt-6-luna" },
+      { class: "version-qualified-model-family", match: "gpt-6-luna" },
+    ],
+  })),
+];
+
 describe("skill durability guard", () => {
   it("scans every skill file and reports no ruling, state, date, or model drift", () => {
-    const result = scanSkillFiles();
-    expect(result.scannedFiles).toBeGreaterThan(0);
-    expect(result.scannedFiles).toBe(result.totalCandidateFiles);
-    expect(
-      result.findings,
-      `scanned/total candidate files: ${result.scannedFiles}/${result.totalCandidateFiles}`,
-    ).toEqual([]);
+    const report = vi.spyOn(process.stdout, "write");
+    try {
+      const result = scanSkillFiles();
+      expect(result.scannedFiles).toBeGreaterThan(0);
+      expect(result.scannedFiles).toBe(result.totalCandidateFiles);
+      const surface = `scanned/total candidate files: ${result.scannedFiles}/${result.totalCandidateFiles}`;
+      expect(result.findings, surface).toEqual([]);
+      process.stdout.write(`${surface}\n`);
+      expect(report).toHaveBeenCalledWith(`${surface}\n`);
+    } finally {
+      report.mockRestore();
+    }
   });
 
-  it.each([
-    ["ruling-comment-citation", "See https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838576100."],
-    ["issue-state-condition", "While [#8159](https://github.com/chase-sets/chase-sets/issues/8159) is open."],
-    ["iso-date", "Review this rule by 2026-09-01."],
-    ["exact-model-selector", "Dispatch a gpt-6-luna/medium participant."],
-    ["version-qualified-model-family", "Use the Sol 6 model."],
-  ])("rejects the historical %s shape at its real path", (expectedClass, text) => {
-    const source = readFileSync(join(repoRoot, ".agents/skills/delivery/SKILL.md"), "utf8");
-    const findings = scanSkillTexts([{ file: ".agents/skills/delivery/SKILL.md", text: `${source}\n${text}` }]);
-    expect(findings.map((finding) => finding.class)).toContain(expectedClass);
+  it.each(historicalControls)("rejects the historical $name line at its real path", ({ file, text, diagnostics }) => {
+    const source = readFileSync(join(repoRoot, file), "utf8").trimEnd();
+    const line = source.split(/\r?\n/).length + 1;
+    const findings = scanSkillTexts([{ file, text: `${source}\n${text}\n` }]);
+    expect(findings).toEqual(diagnostics.map((diagnostic) => ({ file, line, ...diagnostic })));
   });
 
   it("rejects a violation planted at a new Claude skill path", () => {
+    const file = ".claude/skills/new-skill/example.txt";
+    const findings = scanSkillTexts([{ file, text: historicalDateLine }]);
+    expect(findings).toEqual([{ file, line: 1, class: "iso-date", match: "2026-09-01" }]);
+  });
+
+  it("allows plain historical issue references and row identifiers", () => {
     const findings = scanSkillTexts([
-      { file: ".claude/skills/new-skill/example.txt", text: "After #1234, use GPT 6." },
+      {
+        file: ".agents/skills/planning/references/pressure-test.md",
+        text: "Historical incidents: #5811, #5883, #6058, #6105, #6106, #5684. Quality Packet: #7716, #7737; row-8.",
+      },
     ]);
-    expect(findings.map((finding) => finding.class)).toEqual(
-      expect.arrayContaining(["issue-state-condition", "version-qualified-model-family"]),
-    );
+    expect(findings).toEqual([]);
   });
 });

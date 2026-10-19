@@ -71,17 +71,17 @@ function assertDeliveryDecisionRouting(text) {
   );
   expect(text).not.toMatch(/batch all such questions into one message to Todd/);
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing:?\*\*:? [^\r\n]*the host decides same-attempt, in-scope repairs itself [^\r\n]* and records each as `decision-resolved` with its reasoning\./m,
+    /^ {2}- \*\*Decision routing\*\*: the host decides same-attempt, in-scope repairs itself [^\r\n]* and records each as `decision-resolved` with its reasoning\./m,
   );
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing:?\*\*[^\r\n]* An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds\./m,
+    /^ {2}- \*\*Decision routing\*\*: [^\r\n]* An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds\./m,
   );
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing:?\*\*[^\r\n]* A decision lane may not return `TODD_RULING_NEEDED`: if it believes Todd must decide, that is a finding the host resolves with a second independent lane\. Independent code\/planning review and review-contract\/v2 are unchanged\.$/m,
+    /^ {2}- \*\*Decision routing\*\*: [^\r\n]* A decision lane may not return `TODD_RULING_NEEDED`: if it believes Todd must decide, that is a finding the host resolves with a second independent lane\. Independent code\/planning review and review-contract\/v2 are unchanged\.$/m,
   );
   expect(text).not.toMatch(/attempt\s+ceiling/i);
   expect(text).toMatch(
-    /^ {2}- \*\*Todd receives only two kinds of question:?\*\* product priority or scope changes, and operator actions no lane can perform\. Package an operator action as one concrete, runnable step\. Never escalate another review pass, revision, replan, step-back verdict or proof route to Todd; the host routes those decisions\.$/m,
+    /^ {2}- \*\*Todd receives only two kinds of question\*\*: product priority or scope changes, and operator actions no lane can perform\. Package an operator action as one concrete, runnable step\. Never escalate another review pass, revision, replan, step-back verdict or proof route to Todd; the host routes those decisions\.$/m,
   );
 }
 
@@ -114,6 +114,24 @@ function assertProductCapacityFloor(text) {
 }
 
 describe("delivery decision routing contract", () => {
+  it("keeps citation-free labels in their original bold-label form", () => {
+    expect(instruction).toContain("  - **Decision routing**: the host decides");
+    expect(instruction).toContain(
+      "  - **Todd receives only two kinds of question**: product priority or scope changes",
+    );
+  });
+
+  it("deletes ruling history and the entire registered-prediction sentence, keeping standing rules", () => {
+    const pressureTest = readProse(".agents/skills/planning/references/pressure-test.md");
+    expect(instruction).not.toContain("prospective amendment");
+    expect(instruction).not.toContain("narrows the performer boundary of the earlier rulings, not their history");
+    expect(pressureTest).not.toContain("The registered prediction");
+    expect(pressureTest).not.toContain("median mandated-evidence lines per slice");
+    expect(pressureTest).toContain(
+      "12. **Evidence proportionality.** An AC that mandates a test architecture or artifact rather than an observable property, or an evidence artifact with no named ledger defect class justifying it, is a finding. 13. **Supersession completeness.**",
+    );
+  });
+
   it("routes solo and lane decisions to the host with a final independent verdict above the threshold", () => {
     assertDeliveryDecisionRouting(instruction);
     assertPlanningDecisionRouting(planningSkill);
