@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, w
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { expect, test, type BrowserContext, type TestInfo, type Worker } from "@playwright/test";
+import { expect, test, type BrowserContext, type Request, type TestInfo, type Worker } from "@playwright/test";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID } from "@chase-sets/channels/client";
 import { platformOrigin } from "../__tests__/harness/origins";
 import { observeUntil } from "../__tests__/support/browser-observation";
@@ -190,6 +190,64 @@ const workerFetch = (worker: Worker, url: string) =>
       return { threw: String(error).split("\n")[0]!.slice(0, 240) };
     }
   }, url);
+
+type Observation = ReturnType<typeof freshObservation>;
+type RoutedRequest = Pick<
+  Request,
+  "url" | "method" | "resourceType" | "isNavigationRequest" | "serviceWorker" | "response"
+>;
+
+const freshObservation = () => ({
+  clickedAt: 0,
+  routed: [] as Row[],
+  routedMs: null as number | null,
+  response: null as Promise<Outcome<number | null> | "pending"> | null,
+  responseMs: null as number | null,
+  contextResponses: [] as Row[],
+  failed: [] as Row[],
+});
+
+function observeRoute(leg: Observation, request: RoutedRequest) {
+  const row: Row = {
+    path: locate(request.url()),
+    method: request.method(),
+    resourceType: request.resourceType(),
+    navigation: request.isNavigationRequest(),
+    serviceWorker: request.serviceWorker() !== null,
+  };
+  leg.routed.push(row);
+  if (request.url() === target && !leg.response) {
+    leg.routedMs = Math.round(performance.now() - leg.clickedAt);
+    leg.response = within(
+      settle(async () => (await request.response())?.status() ?? null).then((outcome) => {
+        leg.responseMs = Math.round(performance.now() - leg.clickedAt);
+        return outcome;
+      }),
+      settleMs,
+    );
+  }
+  return row;
+}
+
+// Hosted run 39249159122 routed the target after the loopback had already signalled, so the
+// response is selected only once the quiet interval is over, and the row reads that same leg.
+async function completeObservation(leg: Observation, loopbackServed: () => boolean) {
+  await observeUntil(
+    () => leg.response !== null || leg.contextResponses.length > 0 || leg.failed.length > 0 || loopbackServed(),
+    settleMs,
+  );
+  await quiet(1000);
+  const requestResponse = leg.response ? await leg.response : "not-routed";
+  return {
+    routedCount: leg.routed.length,
+    routed: leg.routed,
+    targetRoutedMs: leg.routedMs,
+    requestResponse,
+    requestResponseMs: leg.responseMs,
+    contextResponses: leg.contextResponses,
+    requestFailed: leg.failed,
+  };
+}
 
 test.beforeAll(async () => {
   platform = await loopbackPlatform({ port: 46174, requirePairingCode: true, handle: platformHandle });
