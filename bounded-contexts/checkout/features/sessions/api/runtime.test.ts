@@ -24,11 +24,7 @@ import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
-import {
-  createCheckoutSessionRuntime,
-  OrderCartCleanupError,
-  type CheckoutSessionServices,
-} from "./runtime";
+import { createCheckoutSessionRuntime, OrderCartCleanupError, type CheckoutSessionServices } from "./runtime";
 import { createCheckoutSessionEntryServices } from "./session-entry";
 import { createCheckoutSessionReadServices } from "./session-read";
 import { createCheckoutSessionCleanupService } from "./session-cleanup";
@@ -2246,7 +2242,10 @@ describe("Checkout session entry and read relocation parity", () => {
 
     const originalAppend = eventStore.appendToStream.bind(eventStore);
     const fault = vi.spyOn(eventStore, "appendToStream").mockImplementation(async (input) => {
-      if (input.streamId !== `checkout.session-${first.sessionId}` && input.events[0]?.eventType === "checkout.session.started")
+      if (
+        input.streamId !== `checkout.session-${first.sessionId}` &&
+        input.events[0]?.eventType === "checkout.session.started"
+      )
         throw Object.assign(new Error("synthetic regenerated-id conflict"), { code: "concurrency_conflict" });
       return originalAppend(input);
     });

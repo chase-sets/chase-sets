@@ -8,11 +8,7 @@ import {
   type CartReadinessSnapshot,
 } from "../../cart/domain/readiness";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
-import {
-  type CheckoutSessionLine,
-  type CheckoutSessionState,
-  type CheckoutSplitGroupHandoff,
-} from "../domain/domain";
+import { type CheckoutSessionLine, type CheckoutSessionState, type CheckoutSplitGroupHandoff } from "../domain/domain";
 import { checkoutDeliveryServiceabilityIssue } from "../domain/delivery-serviceability";
 import { assertCheckoutLinesHaveAssignedFulfillment, unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
@@ -61,9 +57,9 @@ export function stateToCheckoutSessionRow(state: CheckoutSessionState): Checkout
 function hasCommittedSessionSideEffects(session: CheckoutSessionRow) {
   return Boolean(
     session.cancelled_at ||
-      session.payment_id ||
-      session.submitted_offer_id ||
-      (Array.isArray(session.order_ids) && session.order_ids.length > 0),
+    session.payment_id ||
+    session.submitted_offer_id ||
+    (Array.isArray(session.order_ids) && session.order_ids.length > 0),
   );
 }
 
