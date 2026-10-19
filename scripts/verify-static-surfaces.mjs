@@ -4,8 +4,6 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { BRAND_FOIL_PROOF_ENTRY_PATHS, BRAND_FOIL_PROOF_INPUT_PATHS } from "./check-structure/brand-foil-proof.mjs";
 
-export { BRAND_FOIL_PROOF_INPUT_PATHS };
-
 function scriptKind(file) {
   if (/\.tsx?$/.test(file)) return ts.ScriptKind.TSX;
   if (/\.jsx?$/.test(file)) return ts.ScriptKind.JSX;
@@ -46,8 +44,9 @@ function staticModuleSpecifiers(sourceFile) {
 
 function resolveSpecifier(root, fromRelative, specifier, packages) {
   if (specifier.startsWith("node:")) return [];
-  if (!specifier.startsWith("@chase-sets/")) return [];
-  if (specifier.startsWith("./") || specifier.startsWith("../")) {
+  const relativeSpecifier = specifier.startsWith("./") || specifier.startsWith("../");
+  if (!relativeSpecifier && !specifier.startsWith("@chase-sets/")) return [];
+  if (relativeSpecifier) {
     const absolute = path.resolve(root, path.dirname(fromRelative), specifier);
     const relative = path.relative(root, absolute).replaceAll("\\", "/");
     if (relative.startsWith("../") || path.isAbsolute(relative))
@@ -81,7 +80,7 @@ function resolveSpecifier(root, fromRelative, specifier, packages) {
   ];
 }
 
-export function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
+function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
   const packages = new Map(listWorkspacePackages({ repoRoot: root }).map((workspace) => [workspace.name, workspace]));
   const pending = [...BRAND_FOIL_PROOF_ENTRY_PATHS];
   const discovered = new Set();
@@ -104,8 +103,6 @@ export function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
   return Object.freeze([...discovered].sort());
 }
 
-export const BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS = collectBrandFoilProofStaticImportPaths();
-
 export const ALWAYS_RUN = "always-run";
 export const MAY_NARROW = "may-narrow";
 
@@ -113,15 +110,32 @@ const exact = (...values) => values.map((value) => ({ kind: "exact", value }));
 const prefix = (...values) => values.map((value) => ({ kind: "prefix", value }));
 const regex = (...values) => values.map((value) => ({ kind: "regex", value }));
 const brandFoilProofInputSurface = Object.freeze(
-  [...new Set([...BRAND_FOIL_PROOF_INPUT_PATHS, ...BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS])].map((value) => ({
+  BRAND_FOIL_PROOF_INPUT_PATHS.map((value) => ({
     kind: "exact",
     value,
   })),
 );
+
+const brandFoilProofSurfaceCache = new Map();
+
+export function deriveBrandFoilProofStepSurface(root = repoRoot, collect = collectBrandFoilProofStaticImportPaths) {
+  if (collect === collectBrandFoilProofStaticImportPaths && brandFoilProofSurfaceCache.has(root))
+    return brandFoilProofSurfaceCache.get(root);
+  const surface = Object.freeze([
+    { kind: "prefix", value: "scripts/check-structure" },
+    { kind: "exact", value: "pnpm-lock.yaml" },
+    ...[...new Set([...BRAND_FOIL_PROOF_INPUT_PATHS, ...collect(root)])].map((value) => ({
+      kind: "exact",
+      value,
+    })),
+  ]);
+  if (collect === collectBrandFoilProofStaticImportPaths) brandFoilProofSurfaceCache.set(root, surface);
+  return surface;
+}
 const brandFoilProofStepSurface = Object.freeze([
+  ...brandFoilProofInputSurface,
   { kind: "prefix", value: "scripts/check-structure" },
   { kind: "exact", value: "pnpm-lock.yaml" },
-  ...brandFoilProofInputSurface,
 ]);
 
 // The complete scripts battery remains part of the authoritative hosted

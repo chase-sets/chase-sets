@@ -11,6 +11,7 @@ import {
   VERIFY_STATIC_GUARD_TEST_SURFACES,
   VERIFY_STATIC_SCOPED_EXCLUSIONS,
   VERIFY_STATIC_SURFACES,
+  deriveBrandFoilProofStepSurface,
   linkSurfaceMatches,
 } from "./verify-static-surfaces.mjs";
 
@@ -158,6 +159,7 @@ export function parseVerifyStaticChain(packageJson) {
     const match = /^pnpm run ([^\s]+)(?:\s+(.*))?$/.exec(command.trim());
     if (!match) throw new Error(`Unsupported verify:static link: ${command}`);
     const link = { name: match[1], command: command.trim(), forwarded: match[2] ?? "" };
+    // Keep the authoritative link shape; script bytes are execution metadata.
     Object.defineProperty(link, "script", { value: packageJson.scripts[match[1]], enumerable: false });
     return link;
   });
@@ -266,6 +268,8 @@ function validateScopedStepMap(chain, surfaces) {
 function withScopedDetails(link, details) {
   const enriched = { ...link };
   for (const [key, value] of Object.entries(details)) {
+    // Execution metadata is intentionally non-enumerable so plans retain the
+    // authoritative package-script link shape when serialized or compared.
     Object.defineProperty(enriched, key, { value, enumerable: false, configurable: true });
   }
   return enriched;
@@ -279,13 +283,7 @@ function selectScopedSteps(link, entry, changedFiles) {
   const selectedSteps = [];
   const skippedSteps = [];
   for (const step of entry.scopedSteps) {
-    if (
-      step.classification === ALWAYS_RUN ||
-      step.classification !== MAY_NARROW ||
-      !Array.isArray(step.include) ||
-      step.include.length === 0 ||
-      linkSurfaceMatches(step, changedFiles)
-    ) {
+    if (step.classification === ALWAYS_RUN || linkSurfaceMatches(step, changedFiles)) {
       selectedSteps.push(step);
     } else {
       skippedSteps.push(step);
@@ -339,9 +337,31 @@ export function selectVerifyStaticLinks({
       : allWorkspacesAffected(changedFiles, repoRoot, dependencies)
         ? "classifyChanges affected every workspace (derived root-runtime fanout)"
         : null;
+  let planningSurfaces = surfaces;
+  if (!forceFull && scopedChain.some((link) => Array.isArray(surfaces[link.name]?.scopedSteps))) {
+    try {
+      const collect = dependencies.collectBrandFoilProofStaticImportPaths;
+      const derivedSteps = deriveBrandFoilProofStepSurface(repoRoot, collect);
+      planningSurfaces = {
+        ...surfaces,
+        "check:structure": {
+          ...surfaces["check:structure"],
+          scopedSteps: surfaces["check:structure"]?.scopedSteps?.map((step) =>
+            step.name === "brand-foil-proof" ? { ...step, include: derivedSteps } : step,
+          ),
+        },
+      };
+    } catch (error) {
+      if (error instanceof StaticScopeDerivationError) throw error;
+      throw new StaticScopeDerivationError(
+        "STATIC_SCOPE_BRAND_FOIL_DERIVATION_FAILED",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
   if (fullReason) {
     const selected = scopedChain.map((link) => {
-      const entry = surfaces[link.name];
+      const entry = planningSurfaces[link.name];
       if (forceFull || !Array.isArray(entry?.scopedSteps)) return link;
       return selectScopedSteps(link, entry, changedFiles).link;
     });
@@ -355,7 +375,7 @@ export function selectVerifyStaticLinks({
   const skipped = [];
   const stepSkips = [];
   for (const link of scopedChain) {
-    const entry = surfaces[link.name];
+    const entry = planningSurfaces[link.name];
     if (!entry) {
       selected.push(link);
       continue;
