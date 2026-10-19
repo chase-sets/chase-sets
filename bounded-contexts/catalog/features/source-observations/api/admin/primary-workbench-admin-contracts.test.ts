@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { CATALOG_CONTROL_PLANE_ACTIONS } from "../../ui/admin-control-plane/information-architecture-v2";
 import {
@@ -28,25 +28,33 @@ describe("Catalog primary workbench admin contracts", () => {
       "utf8",
     );
     const descriptorImplementation = readFileSync(
-      fileURLToPath(new URL("./primary-workbench-contract-descriptors-implementation.ts", import.meta.url)),
+      fileURLToPath(new URL("./primary-workbench-contract-descriptors.ts", import.meta.url)),
       "utf8",
     );
     const validatorImplementation = readFileSync(
-      fileURLToPath(new URL("./primary-workbench-contract-validators-implementation.ts", import.meta.url)),
+      fileURLToPath(new URL("./primary-workbench-contract-validators.ts", import.meta.url)),
       "utf8",
     );
 
     expect(adminFacade).not.toMatch(
       /\b(?:function|const)\s+(?:section|action|blocker|validateCatalogPrimaryWorkbench)/,
     );
-    expect(adminFacade).toContain('export * from "./primary-workbench-selection-contracts"');
-    expect(adminFacade).toContain('export * from "./primary-workbench-contract-validators"');
+    expect(adminFacade).toContain("export type {");
+    expect(adminFacade).not.toContain("export * from");
+    expect(adminFacade).toContain("validateCatalogPrimaryWorkbenchReadModelContract");
     expect(descriptorImplementation).toContain("export const catalogPrimaryWorkbenchSections");
     expect(descriptorImplementation).toContain("export const catalogPrimaryWorkbenchBlockers");
     expect(descriptorImplementation).not.toContain("validateCatalogPrimaryWorkbenchReadModelContract");
     expect(validatorImplementation).toContain("export function validateCatalogPrimaryWorkbenchReadModelContract");
-    expect(validatorImplementation).toContain("function assertPrimaryWorkbenchPromotionPreview");
+    expect(validatorImplementation).toContain("assertPrimaryWorkbenchPromotionPreview");
     expect(validatorImplementation).not.toContain("export const catalogPrimaryWorkbenchSections");
+    for (const retired of [
+      "primary-workbench-contract-implementation.ts",
+      "primary-workbench-contract-descriptors-implementation.ts",
+      "primary-workbench-contract-validators-implementation.ts",
+    ]) {
+      expect(existsSync(fileURLToPath(new URL(`./${retired}`, import.meta.url)))).toBe(false);
+    }
 
     expect(selectionOwner.catalogPrimaryWorkbenchContractVersion).toBe("catalog-primary-workbench-v2");
     expect(
@@ -77,9 +85,26 @@ describe("Catalog primary workbench admin contracts", () => {
     expect(catalogPrimaryWorkbenchActions.length).toBeGreaterThan(10);
     expect(catalogPrimaryWorkbenchBlockers.length).toBeGreaterThan(40);
 
-    const omittedFamily = { ...catalogPrimaryWorkbenchSections[0], queryKeys: [] };
-    expect(omittedFamily.queryKeys).toEqual([]);
-    expect(catalogPrimaryWorkbenchSections[0].queryKeys.length).toBeGreaterThan(0);
+    const validatorSource = readFileSync(
+      fileURLToPath(new URL("./primary-workbench-contract-validators.ts", import.meta.url)),
+      "utf8",
+    );
+    for (const familyCall of [
+      "assertPrimaryWorkbenchHealthTriage",
+      "assertPrimaryWorkbenchImportJobs",
+      "assertPrimaryWorkbenchSourceScopeWorkset",
+      "assertPrimaryWorkbenchConflictResolution",
+      "assertPrimaryWorkbenchMergeCandidateReview",
+      "assertPrimaryWorkbenchGovernanceControls",
+      "assertPrimaryWorkbenchAuditEvidence",
+      "assertPrimaryWorkbenchPromotionPreview",
+      "assertPrimaryWorkbenchPromotionResult",
+      "assertPrimaryWorkbenchProfileAuthoring",
+      "assertPrimaryWorkbenchValidationReadiness",
+      "assertPrimaryWorkbenchLifecycleRecovery",
+    ]) {
+      expect(validatorSource).toContain(familyCall);
+    }
     expect(() => assertCatalogPrimaryWorkbenchBlockerCategory("omitted-family")).toThrow(
       "Unknown primary workbench blocker category",
     );
