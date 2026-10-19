@@ -9,7 +9,6 @@ import {
 } from "../bounded-contexts/channels/features/connector-client/domain/identity.ts";
 import { operatorFileInventory } from "./prepare-operator-extension-evidence.mjs";
 import { buildConnectorExtensionHandoff, buildOnce } from "./build-connector-extension-handoff.mjs";
-import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 
 const roots = [];
 const clientId = "cc_client_00000000-0000-4000-8000-000000000000";
@@ -122,7 +121,6 @@ describe("build-connector-extension-handoff", () => {
   });
 
   it("buildOnce emits the real staging artifact with the supplied public client", async () => {
-    acquireHeavySlot("build");
     const outDir = mkdtempSync(join(tmpdir(), "connector-real-staging-"));
     roots.push(outDir);
     await buildOnce({
