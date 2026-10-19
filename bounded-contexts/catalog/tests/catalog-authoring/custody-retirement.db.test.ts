@@ -60,13 +60,13 @@ describeDb("TCGplayer custody retirement migration", () => {
       `INSERT INTO catalog_operator_session_grants
          (id, token_hash, creator_user_id, creator_membership_id, created_at, last_used_at, idle_expires_at)
        VALUES
-         ('grant_active', decode(repeat('00', 32), 'hex'), 'usr_synthetic', 'mbr_synthetic', now(), now(), now() + interval '1 day'),
-         ('grant_revoked', decode(repeat('11', 32), 'hex'), 'usr_synthetic', 'mbr_synthetic', now(), now(), now() + interval '1 day')`,
+         ('00000000-0000-0000-0000-000000000001', decode(repeat('00', 32), 'hex'), 'usr_synthetic', 'mbr_synthetic', now(), now(), now() + interval '1 day'),
+         ('00000000-0000-0000-0000-000000000002', decode(repeat('11', 32), 'hex'), 'usr_synthetic', 'mbr_synthetic', now(), now(), now() + interval '1 day')`,
     );
     await pool.query(
       `UPDATE catalog_operator_session_grants
        SET revoked_at = now(), revoke_reason = 'disconnect'
-       WHERE id = 'grant_revoked';
+       WHERE id = '00000000-0000-0000-0000-000000000002';
        INSERT INTO catalog_tcgplayer_operator_sessions
          (provider_key, version, state, revision, key_id, ciphertext, iv, tag, stored_at, observed_at, browser_expires_at)
        VALUES

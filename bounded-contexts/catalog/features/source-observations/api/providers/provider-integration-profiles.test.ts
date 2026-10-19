@@ -110,11 +110,7 @@ describe("catalog provider integration profiles", () => {
       providerKey: "tcgplayer",
       displayName: "TCGplayer Magic Sealed Products",
       status: "active",
-      capabilities: [
-        "source-observation-import",
-        "catalog-item-promotion",
-        "external-reference-extraction",
-      ],
+      capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
       normalizedObservationMapping: { kind: "magic-sealed-product" },
       catalogFieldMapping: {
         blueprintKey: "magic-sealed-product",
@@ -145,11 +141,11 @@ describe("catalog provider integration profiles", () => {
         dimensions: [
           expect.objectContaining({
             dimensionKey: "product-form",
-              valueMappings: [{ from: true, value: "unopened" }],
+            valueMappings: [{ from: true, value: "unopened" }],
           }),
           expect.objectContaining({
             dimensionKey: "language",
-              valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+            valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
           }),
         ],
       },

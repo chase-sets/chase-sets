@@ -19,8 +19,7 @@ export default class OperatorArtifactReporter implements Reporter {
     const id =
       test.title === "operator-extension-deterministic-build @tcgplayer-operator-extension"
         ? "build"
-        : test.title ===
-        operatorExtensionChromiumTestTitle
+        : test.title === operatorExtensionChromiumTestTitle
           ? "chromium"
           : null;
     if (!id) {

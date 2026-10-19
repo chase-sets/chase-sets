@@ -139,11 +139,7 @@ describeDb("source observation promotion outcome db", () => {
       ["retired-reapply-queued", "reapply", "queued", null],
       ["retired-reapply-claimed", "reapply", "running", "2020-01-01T00:00:00Z"],
     ] as const;
-    const isTerminalRetirement = (row: {
-      status: string;
-      attempt_count: number;
-      error_message: string | null;
-    }) =>
+    const isTerminalRetirement = (row: { status: string; attempt_count: number; error_message: string | null }) =>
       row.status === "failed" &&
       row.attempt_count === 1 &&
       row.error_message === "TCGplayer server transport is retired; use the browser handoff.";

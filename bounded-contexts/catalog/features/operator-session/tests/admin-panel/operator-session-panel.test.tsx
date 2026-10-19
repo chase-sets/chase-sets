@@ -200,7 +200,9 @@ describe("AC1 operator session metadata states", () => {
     expect(within(panel).getByText("Active")).toBeTruthy();
     expect(within(panel).getByRole("button", { name: "Pair extension" })).toBeTruthy();
     expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
-    expect(panel.textContent).not.toMatch(/No stored session|Stored session cleared|Stored at|Browser expiry|Custody available/);
+    expect(panel.textContent).not.toMatch(
+      /No stored session|Stored session cleared|Stored at|Browser expiry|Custody available/,
+    );
   });
 
   it("does not expose Disconnect when metadata has no active grant", async () => {
@@ -421,7 +423,12 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     ["Disconnect", "DELETE", metadataPath],
   ] as const)("%s refusal envelopes", (action, method, path) => {
     async function attempt(status: number, body: unknown) {
-      http.reply("GET", metadataPath, 200, action === "Pair" ? absentMetadata() : absentMetadata({ grant: activeGrant }));
+      http.reply(
+        "GET",
+        metadataPath,
+        200,
+        action === "Pair" ? absentMetadata() : absentMetadata({ grant: activeGrant }),
+      );
       await renderProviderRoute();
       const panel = await findPanel();
       if (action === "Disconnect") await within(panel).findByRole("button", { name: "Disconnect" });
