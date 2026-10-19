@@ -8,6 +8,7 @@ import type {
   ParsedLinkIntent,
 } from "@chase-sets/bounded-context-module";
 import { linkIntentOrigins } from "./link-intent-origins.generated";
+export { linkIntentOrigins } from "./link-intent-origins.generated";
 import { matchRoutes } from "react-router";
 import { resolveWebHostRouteRecords, type WebContextManifest, type WebContextRegistry, type WebHostName } from "./web";
 
