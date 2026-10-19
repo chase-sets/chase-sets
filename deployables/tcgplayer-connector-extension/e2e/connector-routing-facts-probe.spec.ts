@@ -229,8 +229,9 @@ function observeRoute(leg: Observation, request: RoutedRequest) {
   return row;
 }
 
-// Hosted run 39249159122 routed the target after the loopback had already signalled, so the
-// response is selected only once the quiet interval is over, and the row reads that same leg.
+// Hosted run 39249159122 routed the target after the loopback had already signalled, so the target's
+// response is selected only once the quiet interval is over, and the row reads that same completed leg.
+// "not-routed" therefore means the route never saw the target within the interval.
 async function completeObservation(leg: Observation, loopbackServed: () => boolean) {
   await observeUntil(
     () => leg.response !== null || leg.contextResponses.length > 0 || leg.failed.length > 0 || loopbackServed(),
@@ -274,6 +275,37 @@ test.afterAll(async () => {
 test.describe("connector routing facts with tracing off", () => {
   test.describe.configure({ timeout: 120_000 });
 
+  // SYNTHETIC control, no browser and no receipt: the loopback signals first and the target is routed
+  // 300 ms later, the order hosted run 39249159122 showed. The row must carry that request's own outcome.
+  test("connector-routing-facts-probe AC1 synthetic late-route-after-loopback control", async () => {
+    const lateRoute = (response: RoutedRequest["response"]) => {
+      const leg = freshObservation();
+      leg.clickedAt = performance.now();
+      const request: RoutedRequest = {
+        url: () => target,
+        method: () => "GET",
+        resourceType: () => "document",
+        isNavigationRequest: () => true,
+        serviceWorker: () => null,
+        response,
+      };
+      setTimeout(() => observeRoute(leg, request), 300);
+      return completeObservation(leg, () => true);
+    };
+    const [resolvedNull, rejected, unrouted] = await Promise.all([
+      lateRoute(async () => null),
+      lateRoute(() => Promise.reject(new Error("synthetic-dropped-socket"))),
+      completeObservation(freshObservation(), () => true),
+    ]);
+    expect(resolvedNull).toMatchObject({
+      routedCount: 1,
+      requestResponse: { resolved: null },
+      requestResponseMs: expect.any(Number),
+    });
+    expect(rejected).toMatchObject({ routedCount: 1, requestResponse: { rejected: "synthetic-dropped-socket" } });
+    expect(unrouted).toMatchObject({ routedCount: 0, targetRoutedMs: null, requestResponse: "not-routed" });
+  });
+
   test("connector-routing-facts-probe AC1 extension-opened tab response", async ({ trace }, testInfo) => {
     const rows: Row[] = [];
     try {
@@ -282,37 +314,10 @@ test.describe("connector routing facts with tracing off", () => {
       rows.push(environment(f.context, testInfo, trace, "AC1"));
       await pair(f.context, f.worker);
       const actionPage = f.context.pages().find((page) => page.url().startsWith("data:"))!;
-      const fresh = () => ({
-        clickedAt: 0,
-        routed: [] as Row[],
-        routedMs: null as number | null,
-        response: null as Promise<Outcome<number | null> | "pending"> | null,
-        responseMs: null as number | null,
-        contextResponses: [] as Row[],
-        failed: [] as Row[],
-      });
-      let observation = fresh();
+      let observation = freshObservation();
       // Installed after paired-idle and before the second action, as #10109-AC1 names.
       await f.context.route(`${platformOrigin}/**`, async (route, request) => {
-        const leg = observation;
-        const row: Row = {
-          path: locate(request.url()),
-          method: request.method(),
-          resourceType: request.resourceType(),
-          navigation: request.isNavigationRequest(),
-          serviceWorker: request.serviceWorker() !== null,
-        };
-        leg.routed.push(row);
-        if (request.url() === target && !leg.response) {
-          leg.routedMs = Math.round(performance.now() - leg.clickedAt);
-          leg.response = within(
-            settle(async () => (await request.response())?.status() ?? null).then((outcome) => {
-              leg.responseMs = Math.round(performance.now() - leg.clickedAt);
-              return outcome;
-            }),
-            settleMs,
-          );
-        }
+        const row = observeRoute(observation, request);
         const continued = await settle(() => route.continue());
         if ("rejected" in continued) row.continueRejected = continued.rejected;
       });
@@ -326,36 +331,20 @@ test.describe("connector routing facts with tracing off", () => {
       });
       for (const leg of ["serve", "drop"] as const) {
         accountMode = leg;
-        observation = fresh();
+        observation = freshObservation();
         const before = platformServed.length;
         const state = await title(f.worker);
         await actionPage.bringToFront();
         observation.clickedAt = performance.now();
         const click = await settle(() => triggerAction(f.context, actionPage.url()));
         const clickMs = Math.round(performance.now() - observation.clickedAt);
-        await observeUntil(
-          () =>
-            observation.response !== null ||
-            observation.contextResponses.length > 0 ||
-            observation.failed.length > 0 ||
-            platformServed.length > before,
-          settleMs,
-        );
-        const response = observation.response ? await observation.response : "not-routed";
-        await quiet(1000);
         rows.push({
           ac: "AC1",
           leg: leg === "serve" ? "second-action-served" : "second-action-dropped-socket-control",
           titleBeforeAction: state,
           click,
           clickMs,
-          routedCount: observation.routed.length,
-          routed: observation.routed,
-          targetRoutedMs: observation.routedMs,
-          requestResponse: response,
-          requestResponseMs: observation.responseMs,
-          contextResponses: observation.contextResponses,
-          requestFailed: observation.failed,
+          ...(await completeObservation(observation, () => platformServed.length > before)),
           loopbackServed: platformServed.slice(before),
           tabs: f.context.pages().map((page) => locate(page.url())),
           claims,
