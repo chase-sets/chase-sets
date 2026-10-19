@@ -27,19 +27,19 @@ import {
 import type { ShippingAddress } from "./contracts";
 
 const FIELD_LABELS = {
-  label: "identity.features.shippingAddresses.ui.shippingAddressPage.label",
-  name: "identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name",
-  company: "identity.features.shippingAddresses.ui.shippingAddressPage.company",
-  country: "identity.features.shippingAddresses.ui.shippingAddressPage.country",
-  line1: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line1",
-  line2: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line2",
-  city: "identity.features.shippingAddresses.ui.shippingAddressPage.city",
-  state: "identity.features.shippingAddresses.ui.shippingAddressPage.state",
-  postalCode: "identity.features.shippingAddresses.ui.shippingAddressPage.postal.code",
-  phone: "identity.features.shippingAddresses.ui.shippingAddressPage.phone",
-  email: "identity.features.shippingAddresses.ui.shippingAddressPage.email",
-  makeDefault: "identity.features.shippingAddresses.ui.shippingAddressPage.default",
-} satisfies Partial<Record<(typeof actionFields.create)[number], Parameters<typeof t>[0]>>;
+  label: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.label"),
+  name: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name"),
+  company: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.company"),
+  country: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.country"),
+  line1: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line1"),
+  line2: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line2"),
+  city: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.city"),
+  state: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.state"),
+  postalCode: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.postal.code"),
+  phone: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.phone"),
+  email: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.email"),
+  makeDefault: () => t("identity.features.shippingAddresses.ui.shippingAddressPage.default"),
+} satisfies Partial<Record<(typeof actionFields.create)[number], () => string>>;
 type ShippingAddressField = keyof typeof FIELD_LABELS;
 const SHIPPING_ADDRESS_FIELD_SET = new Set<string>(
   actionFields.create.filter((field) => Object.hasOwn(FIELD_LABELS, field)),
@@ -202,7 +202,7 @@ function ShippingAddressMutationForm({ address, intent }: { address?: ShippingAd
     visibleFieldErrors.length > 0
       ? visibleFieldErrors.map(({ field, message }) => ({
           fieldId: fieldId(field),
-          fieldName: t(FIELD_LABELS[field]),
+          fieldName: FIELD_LABELS[field](),
           message,
         }))
       : presentation
