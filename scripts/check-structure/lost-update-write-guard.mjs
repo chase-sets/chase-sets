@@ -9,6 +9,8 @@ const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"])
 const guardedPredicate =
   /\b(?:generation|revision|version|token_generation|envelope_revision|(?:last_)?global_position|updated_at|state|status|lease(?:_id|_until)?|expires_at|fresh_until|display_identity_hash)\b/i;
 const sidecarSuffix = ".lost-update-exceptions.json";
+const templateLiteralPattern = /`([\s\S]*?)`/g;
+const writeStatementPattern = /(?:^|;)\s*(UPDATE|DELETE\s+FROM)\s+([a-zA-Z_][a-zA-Z0-9_]*)\b[\s\S]*/gm;
 
 export async function validateLostUpdateWriteGuard({ repoRoot }) {
   const rows = [];
@@ -96,22 +98,32 @@ export async function validateLostUpdateWriteGuard({ repoRoot }) {
       for (const entry of sidecarEntries.filter((entry) => entry.sidecar === relativeSidecar)) entry.valid = false;
   }
 
+  const rowBindingCounts = new Map();
+  for (const row of rows) {
+    const key = JSON.stringify(row.binding);
+    rowBindingCounts.set(key, (rowBindingCounts.get(key) ?? 0) + 1);
+  }
+  const sidecarEntriesByBinding = new Map();
+  for (const entry of sidecarEntries) {
+    const key = `${entry.source}\u0000${JSON.stringify(entry.binding)}`;
+    const entries = sidecarEntriesByBinding.get(key) ?? [];
+    entries.push(entry);
+    sidecarEntriesByBinding.set(key, entries);
+  }
   for (const row of rows) {
     if (!row.binding) {
       violations.push(`${row.id}: cannot enrich discovered write with a template binding.`);
       row.classification = row.guarded ? "guarded" : "key-only lost-update risk";
       continue;
     }
-    const matches = sidecarEntries.filter(
-      (entry) => entry.source === row.file && JSON.stringify(entry.binding) === JSON.stringify(row.binding),
-    );
-    const resolvedRows = rows.filter((other) => JSON.stringify(other.binding) === JSON.stringify(row.binding));
-    if (matches.length && resolvedRows.length !== 1) violations.push(`${row.id}: ambiguous sidecar binding.`);
+    const matches = sidecarEntriesByBinding.get(`${row.file}\u0000${JSON.stringify(row.binding)}`) ?? [];
+    const resolvedRowCount = rowBindingCounts.get(JSON.stringify(row.binding)) ?? 0;
+    if (matches.length && resolvedRowCount !== 1) violations.push(`${row.id}: ambiguous sidecar binding.`);
     if (matches.length > 1) violations.push(`${row.id}: duplicate sidecar binding.`);
     const credential = row.table === "channels_connection_credentials";
     if (credential && matches.length)
       violations.push(`${row.id}: credential predicates cannot be waived by a sidecar.`);
-    const allowlisted = !credential && matches.length === 1 && matches[0].valid && resolvedRows.length === 1;
+    const allowlisted = !credential && matches.length === 1 && matches[0].valid && resolvedRowCount === 1;
     row.classification = row.guarded ? "guarded" : allowlisted ? "key-only but safe" : "key-only lost-update risk";
     if (allowlisted && row.guarded)
       violations.push(`${row.id}: sidecar entry binds a guarded write and is not an exception.`);
@@ -131,6 +143,8 @@ export async function validateLostUpdateWriteGuard({ repoRoot }) {
 }
 
 export function discoverWrites({ source, relativeFile }) {
+  const literals = [...source.matchAll(templateLiteralPattern)];
+  if (!literals.some((literal) => [...literal[1].matchAll(writeStatementPattern)].length)) return [];
   const sourceFile = ts.createSourceFile(relativeFile, source, ts.ScriptTarget.Latest, true, scriptKind(relativeFile));
   const templates = new Map();
   const stack = [];
@@ -144,10 +158,10 @@ export function discoverWrites({ source, relativeFile }) {
   };
   visit(sourceFile);
   const rows = [];
-  for (const literal of source.matchAll(/`([\s\S]*?)`/g)) {
+  for (const literal of literals) {
     const sqlText = literal[1];
     const literalStart = literal.index ?? 0;
-    for (const match of sqlText.matchAll(/(?:^|;)\s*(UPDATE|DELETE\s+FROM)\s+([a-zA-Z_][a-zA-Z0-9_]*)\b[\s\S]*/gm)) {
+    for (const match of sqlText.matchAll(writeStatementPattern)) {
       const keywordOffset = literalStart + 1 + (match.index ?? 0) + match[0].search(/\b(?:UPDATE|DELETE\s+FROM)\b/i);
       const template = [...templates.entries()].findLast(
         ([start, { node }]) => start <= keywordOffset && keywordOffset < node.end,

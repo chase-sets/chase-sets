@@ -68,29 +68,29 @@ describe("owner-local lost-update exceptions", () => {
       .split(/\r?\n/)
       .filter(Boolean);
     expect(inventory.every((file) => legacyPredicate(file) === candidatePredicate(file))).toBe(true);
-    const scannerFiles = inventory.filter((file) => isScannerSourcePath(file, candidatePredicate));
-    const scannerFileSet = new Set(scannerFiles);
-    const sidecarPaths = removal
-      ? git("ls-tree", "-r", "--name-only", removal, "--", "bounded-contexts")
-          .trim()
-          .split(/\r?\n/)
-          .filter((file) => file.endsWith(".lost-update-exceptions.json"))
-          .filter((file) => scannerFileSet.has(file.slice(0, -".lost-update-exceptions.json".length)))
-      : [];
+    const expectedScannerFiles = inventory.filter(candidatePredicate);
     execFileSync("git", ["archive", "--format=tar", `--output=${archive}`, base, "--", ...scannerPathspecs], {
       cwd: repoRoot,
       timeout: 30000,
     });
     execFileSync("tar", ["-xf", archive, "-C", root], { timeout: 30000 });
-    if (removal && sidecarPaths.length) {
+    if (removal) {
       const sidecarArchive = path.join(root, "sidecars.tar");
-      execFileSync("git", ["archive", "--format=tar", `--output=${sidecarArchive}`, removal, "--", ...sidecarPaths], {
-        cwd: repoRoot,
-        timeout: 30000,
-      });
+      execFileSync(
+        "git",
+        [
+          "archive",
+          "--format=tar",
+          `--output=${sidecarArchive}`,
+          removal,
+          "--",
+          ":(glob)bounded-contexts/**/*.lost-update-exceptions.json",
+        ],
+        { cwd: repoRoot, timeout: 30000 },
+      );
       execFileSync("tar", ["-xf", sidecarArchive, "-C", root], { timeout: 30000 });
     }
-    for (const file of scannerFiles) await access(path.join(root, file));
+    for (const file of expectedScannerFiles) await access(path.join(root, file));
     const original = git("show", `${base}:${allowlistPath}`);
     await put(root, allowlistPath, original);
     const before = await legacy({ repoRoot: root });
@@ -102,7 +102,7 @@ describe("owner-local lost-update exceptions", () => {
     ];
     for (const file of files) {
       const sidecarPath = `${file}.lost-update-exceptions.json`;
-      const text = await readFile(path.join(root, sidecarPath), "utf8");
+      const text = await readFile(path.join(removal ? root : repoRoot, sidecarPath), "utf8");
       await put(root, `${file}.lost-update-exceptions.json`, text);
       for (const entry of JSON.parse(text)) sidecars.push({ file, entry });
     }
@@ -130,10 +130,33 @@ describe("owner-local lost-update exceptions", () => {
     const target = `${first.file}.lost-update-exceptions.json`;
     const controlRoot = await fixture(first.file, await readFile(path.join(root, first.file), "utf8"));
     const records = JSON.parse(await readFile(path.join(root, target), "utf8"));
+    await put(controlRoot, target, JSON.stringify(records));
+    const intact = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
+    const strip = ({ id, file, line, kind, table, classification, binding }) => ({
+      id,
+      file,
+      line,
+      kind,
+      table,
+      classification,
+      binding,
+    });
+    expect(intact.rows.filter((row) => row.file === first.file).map(strip)).toEqual(
+      after.rows.filter((row) => row.file === first.file).map(strip),
+    );
     await put(controlRoot, target, JSON.stringify(records.slice(1)));
     const lost = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
-    expect(lost.rows.some((row) => row.classification === "key-only lost-update risk")).toBe(true);
-    expect(() => assertMigration(original, before, sidecars.slice(1), lost)).toThrow();
+    const intactRows = intact.rows.filter((row) => row.file === first.file);
+    const lostRows = lost.rows.filter((row) => row.file === first.file);
+    const differences = lostRows.filter(
+      (row, index) => JSON.stringify(strip(row)) !== JSON.stringify(strip(intactRows[index])),
+    );
+    expect(differences).toHaveLength(1);
+    expect(differences[0].binding).toEqual(sidecars[0].entry.binding);
+    expect(differences[0].classification).toBe("key-only lost-update risk");
+    const replacements = new Map(lostRows.map((row) => [row.id, row]));
+    const spliced = { ...after, rows: after.rows.map((row) => replacements.get(row.id) ?? row) };
+    expect(() => assertMigration(original, before, sidecars.slice(1), spliced)).toThrow("row parity");
   });
 
   it("unrelated lines preserve write binding but statement changes refuse", async () => {
@@ -351,12 +374,13 @@ describe("owner-local lost-update exceptions", () => {
     const assertRefusal = (result) => expect(result.rows[0].classification).toBe("key-only lost-update risk");
     assertRefusal(await validateLostUpdateWriteGuard({ repoRoot: root }));
     const guardSource = await readFile("scripts/check-structure/lost-update-write-guard.mjs", "utf8");
-    const governingMatch = "entry.source === row.file && JSON.stringify(entry.binding) === JSON.stringify(row.binding)";
+    const governingMatch =
+      "const matches = sidecarEntriesByBinding.get(`${row.file}\\u0000${JSON.stringify(row.binding)}`) ?? [];";
     expect(guardSource.split(governingMatch)).toHaveLength(2);
     const mutantSource = guardSource
       .replace(
         governingMatch,
-        "entry.source === row.file && entry.binding.kind === row.kind && entry.binding.table === row.table",
+        "const matches = sidecarEntries.filter((entry) => entry.source === row.file && entry.binding.kind === row.kind && entry.binding.table === row.table);",
       )
       .replace(
         '"@chase-sets/typescript-compiler-api"',
@@ -459,13 +483,4 @@ function assertMigration(original, before, sidecars, after) {
       after.violations.some((line) => line.startsWith(`${row.id}: key-only `)),
       `missing risk diagnostic ${row.id}`,
     );
-}
-
-function isScannerSourcePath(file, predicate) {
-  return (
-    /\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(file) &&
-    !/\.(?:test|spec)\.[^.]+$/.test(file) &&
-    !/(?:^|\/)(?:node_modules|dist|tests|__tests__)(?:\/|$)/.test(file) &&
-    predicate(file)
-  );
 }
