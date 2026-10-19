@@ -27,6 +27,8 @@ const seats = [];
 // Every pwsh launch resolves `pwsh` from PATH. A missing pwsh fails these
 // tests rather than skipping them.
 const pwsh = "pwsh";
+// A -Command launch compiles the Add-Type scrubber, about 6 s cold on a hosted runner, past vitest's 5 s default.
+const helperLaunchTimeoutMs = 30_000;
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -189,8 +191,8 @@ afterEach(() => {
   for (const root of seats.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("with-secrets.ps1 -Command", () => {
-  // One helper launch per case keeps each test inside the default 5 s timeout.
+describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => {
+  // One helper launch per case keeps each test to a single launch's cost.
   it.each([
     ["inherited", [], []],
     ["-NoInheritEnv", ["-NoInheritEnv"], ["--no-inherit-env"]],
@@ -321,7 +323,7 @@ describe("with-secrets.ps1 -Command", () => {
   );
 });
 
-describe("with-secrets.ps1 -Command output scrubbing", () => {
+describe("with-secrets.ps1 -Command output scrubbing", { timeout: helperLaunchTimeoutMs }, () => {
   const R = "[redacted]";
   const MiB = 1024 * 1024;
   const KiB64 = 65536;
@@ -506,7 +508,7 @@ describe("with-secrets.ps1 -Command output scrubbing", () => {
   });
 });
 
-describe("with-secrets.ps1 -ListKeys and -Check", () => {
+describe("with-secrets.ps1 -ListKeys and -Check", { timeout: helperLaunchTimeoutMs }, () => {
   const valueSentinel = `sentinel-value-${randomUUID()}`;
   const secret = (key, n) => ({
     id: randomUUID(),
@@ -582,7 +584,7 @@ describe("with-secrets.ps1 -ListKeys and -Check", () => {
   });
 });
 
-describe("with-secrets.ps1 refusals", () => {
+describe("with-secrets.ps1 refusals", { timeout: helperLaunchTimeoutMs }, () => {
   it("names the token setup script when no credential is stored", () => {
     const seat = createSeat({ credential: false });
     const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"]);
@@ -669,7 +671,7 @@ describe("with-secrets.ps1 refusals", () => {
   });
 });
 
-describe("set-bitwarden-agent-token.ps1", () => {
+describe("set-bitwarden-agent-token.ps1", { timeout: helperLaunchTimeoutMs }, () => {
   it("refuses redirected stdin without writing a credential", () => {
     const seat = createSeat();
     const result = runPwsh(["-File", path.join(seat.root, "set-bitwarden-agent-token.ps1"), "-ProjectId", projectId], {
@@ -704,7 +706,7 @@ describe("set-bitwarden-agent-token.ps1", () => {
   });
 });
 
-describe.skipIf(!isWindows)("bitwarden-agent-credential.psm1 on Windows", () => {
+describe.skipIf(!isWindows)("bitwarden-agent-credential.psm1 on Windows", { timeout: helperLaunchTimeoutMs }, () => {
   it("writes, reads and deletes a random test account in Credential Manager", () => {
     const module = path.join(here, "bitwarden-agent-credential.psm1");
     const script = [
