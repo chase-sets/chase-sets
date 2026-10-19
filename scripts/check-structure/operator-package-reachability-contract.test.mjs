@@ -123,7 +123,6 @@ describe.each(skillPaths)("operator package reachability: %s", (path) => {
       "Even unchanged release/posture and formerly passing targets do not make reused observations fresh.",
     ]);
   });
-
 });
 
 describe("operator runbook reachability references", () => {
