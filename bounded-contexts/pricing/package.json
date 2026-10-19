@@ -35,7 +35,7 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/seller-attention-queue": "workspace:*",
-    "hono": "^4.12.12"
+    "hono": "^4.13.13"
   },
   "devDependencies": {
     "@chase-sets/auth": "workspace:*",

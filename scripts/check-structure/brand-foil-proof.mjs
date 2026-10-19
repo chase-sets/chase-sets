@@ -31,6 +31,15 @@ const candidatePaths = [
   "package.json",
   "scripts/check-heavy-slot-coverage.test.mjs",
 ];
+
+export const BRAND_FOIL_PROOF_INPUT_PATHS = Object.freeze([...candidatePaths]);
+export const BRAND_FOIL_PROOF_ENTRY_PATHS = Object.freeze([
+  validatorPath,
+  aggregatePath,
+  runPath,
+  "scripts/check-structure/brand-foil-proof.mjs",
+]);
+
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const git = (root, args) =>
   execFileSync("git", args, {
