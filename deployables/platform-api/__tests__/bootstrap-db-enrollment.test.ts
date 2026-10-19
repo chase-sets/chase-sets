@@ -5039,14 +5039,14 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(expectNotApplied(fixture, syntheticFloor, reason).violations).toContain(violation);
     });
 
-    it("T6: keeps main's default path with no declared floor and an effective minimum of 3", () => {
+    it("T6: keeps main's default path with no declared floor and an effective minimum of 2", () => {
       expect(bootstrapDbMeasuredOneFewerUnitFloor).toBeNull();
       const result = checkBootstrapDbEnrollment();
       expect(result.violations).toEqual([]);
       expect(result.schedule).toMatchObject({
-        observedUnitCount: 3,
-        minimumUnitCount: 3,
-        effectiveMinimumUnitCount: 3,
+        observedUnitCount: 2,
+        minimumUnitCount: 2,
+        effectiveMinimumUnitCount: 2,
         measuredOneFewerUnitFloor: { applied: false, reason: noFloor },
       });
       expect(formatBootstrapDbEnrollmentResult(result)).not.toContain("measured one-fewer-unit floor");
