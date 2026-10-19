@@ -573,6 +573,15 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       });
       expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
     }
+    async function captureCreate360() {
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-create-360" });
+    }
+    async function captureUpdate390() {
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-update-390" });
+    }
+    async function captureRemovedRow1024() {
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-removed-row-1024" });
+    }
     async function visibleBox(locator: Locator) {
       await expect(locator).toBeVisible();
       expect(
@@ -625,7 +634,6 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
         expect(inner!.y + inner!.height).toBeLessThanOrEqual(outer!.y + outer!.height);
       }
       transcript.push({ viewport, phase, posts: posts - before, focusins: events.length });
-      await captureResponsiveEvidence({ page, testInfo, claimId: `shipping-${viewport}-${phase}` });
       for (const link of await summaries.getByRole("link").all()) {
         const id = (await link.getAttribute("href"))!.slice(1);
         const input = page.locator(`[id="${id}"]`);
@@ -653,6 +661,9 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       const size = `${viewport.width}x${viewport.height}`;
       await fillCreate(`Synthetic ${size} first`, " ");
       await checkSummary(await submitOnce(create), size, "create");
+      if (size === "360x800") {
+        await captureCreate360();
+      }
       for (const suffix of ["first", "second"]) {
         const label = `Synthetic ${size} ${suffix}`;
         await fillCreate(label);
@@ -668,6 +679,9 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       const target = await update.locator('input[name="shippingAddressId"]').inputValue();
       await update.locator('input[name="city"]').fill(" ");
       await checkSummary(await submitOnce(update), size, "update", dialog);
+      if (size === "390x844") {
+        await captureUpdate390();
+      }
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
       await expect(summaries).toHaveCount(0);
 
@@ -712,7 +726,9 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
         await revalidate();
         expect(posts - before).toBe(1);
         transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
-        await captureResponsiveEvidence({ page, testInfo, claimId: `shipping-${size}-removed-row` });
+        if (size === "1024x768") {
+          await captureRemovedRow1024();
+        }
         const firstLabel = `Synthetic ${size} first`;
         const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
         await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
