@@ -5,7 +5,7 @@ import {
   ensureMultiContextTestDatabases,
   createMultiContextTestPools,
   closeMultiContextTestPools,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as inventoryModule } from "@chase-sets/inventory";
@@ -68,9 +68,10 @@ describeDb("TCGplayer connector sale interpretation", () => {
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
-    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    });
     await seed();
   });
   afterAll(async () => closeMultiContextTestPools(pools));

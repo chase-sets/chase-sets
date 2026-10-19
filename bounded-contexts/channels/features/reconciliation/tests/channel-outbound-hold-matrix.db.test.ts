@@ -5,7 +5,7 @@ import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
@@ -34,8 +34,9 @@ describeDb("channel-outbound-hold-matrix at real outbound admission", () => {
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    });
   });
   afterAll(async () => closeMultiContextTestPools(pools));
 

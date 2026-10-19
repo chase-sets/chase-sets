@@ -6,7 +6,7 @@ import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../../../index";
@@ -33,9 +33,11 @@ export function liveExportDatabase(name: string, options: Readonly<{ boot: boole
     state.pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(state.pools!);
+    await resetMultiContextTestData(state.pools!, async () => {
+      if (!options.boot) return;
+      await bootstrapContextDatabase(channelsModule, state.pools!.channels);
+    });
     if (!options.boot) return;
-    await bootstrapContextDatabase(channelsModule, state.pools!.channels);
     await seedConnection(state.pools!.channels, connectionId);
   });
   afterAll(async () => {

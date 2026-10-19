@@ -5,7 +5,7 @@ import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../../../index";
@@ -26,8 +26,9 @@ describeDb("channel-listing-reconciliation-drain", () => {
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    });
     await seedListings(pools.channels, ["listing-1", "listing-2", "listing-3", "listing-4", "listing-5"]);
     services = createChannelListingCompositionRuntime({
       db: pools.channels,

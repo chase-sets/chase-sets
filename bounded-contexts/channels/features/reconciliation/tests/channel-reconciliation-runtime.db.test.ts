@@ -11,6 +11,7 @@ import {
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
   createPgPool,
@@ -95,9 +96,10 @@ describeDb("Channel Reconciliation guarded production path", () => {
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
-    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    });
   });
   afterAll(async () => closeMultiContextTestPools(pools));
 

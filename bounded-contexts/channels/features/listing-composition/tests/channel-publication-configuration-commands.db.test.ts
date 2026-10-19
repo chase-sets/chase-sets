@@ -5,7 +5,7 @@ import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -39,8 +39,9 @@ describeDb("channel-publication-configuration-commands real DB", () => {
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    });
     await pools.channels.query(
       `INSERT INTO channels_connection_facts
        (connection_id,account_id,provider_key,environment,status,updated_at,connection_stream_version)

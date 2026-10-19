@@ -6,7 +6,7 @@ import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as authModule } from "@chase-sets/auth";
 import { createConnectorOAuthService } from "@chase-sets/auth/server";
@@ -108,9 +108,10 @@ describeDb("extension-connector-scope-separation", () => {
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(authModule, pools.auth);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(authModule, pools.auth);
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    });
     const auth = authModule.createServices(pools.auth, {});
     oauth = createConnectorOAuthService(
       () => auth,

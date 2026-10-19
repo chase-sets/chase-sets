@@ -5,7 +5,7 @@ import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -41,8 +41,9 @@ describeDb("channel-listing-desired-state-production-path", () => {
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    });
   });
   afterAll(async () => closeMultiContextTestPools(pools));
 

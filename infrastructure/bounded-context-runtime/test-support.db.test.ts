@@ -1,10 +1,16 @@
 import { createConnection, createServer, type Socket } from "node:net";
+import { randomUUID } from "node:crypto";
 import { createPgPool, type PgQueryResult, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   closeMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
+  orderDataResetTables,
+  resetMultiContextTestData,
+  assertMultiContextTestDataCatalog,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
 } from "./test-support";
 import { createOwnedDatabaseUrl } from "./provisioning";
 
@@ -13,6 +19,178 @@ if (!adminDatabaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
+
+describe("data reset dependency ordering", () => {
+  it("deletes children before parents and leaves self references to row ordering", () => {
+    expect(
+      orderDataResetTables(
+        ["parent", "child", "self"],
+        [
+          { child: "child", parent: "parent" },
+          { child: "self", parent: "self" },
+        ],
+      ),
+    ).toEqual(["child", "parent", "self"]);
+  });
+
+  it("refuses cycles and references outside the captured target", () => {
+    expect(() =>
+      orderDataResetTables(
+        ["a", "b"],
+        [
+          { child: "a", parent: "b" },
+          { child: "b", parent: "a" },
+        ],
+      ),
+    ).toThrow("unsafe foreign-key cycle");
+    expect(() => orderDataResetTables(["a"], [{ child: "a", parent: "missing" }])).toThrow("uncaptured table");
+  });
+});
+
+describeDb("data reset primitive discriminator", () => {
+  async function fixture(extra = "") {
+    const urls = createMultiContextTestDatabaseUrls(adminDatabaseUrl!, ["probe"], `data_reset_${randomUUID()}`);
+    await ensureMultiContextTestDatabases(adminDatabaseUrl!, urls);
+    const pools = createMultiContextTestPools(urls);
+    const pool = pools.probe;
+    const version = await pool.query<{ version: string }>("SHOW server_version");
+    expect(Number(version.rows[0]!.version.split(".")[0])).toBe(16);
+    const bootstrap = async () => {
+      await pool.query(`CREATE TABLE IF NOT EXISTS reset_bootstrap (id integer PRIMARY KEY, note text NOT NULL);
+        INSERT INTO reset_bootstrap VALUES (1,'actual bootstrap row') ON CONFLICT DO NOTHING;
+        CREATE TABLE IF NOT EXISTS reset_heap (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, payload text);
+        CREATE TABLE IF NOT EXISTS reset_child (id integer PRIMARY KEY, heap_id bigint REFERENCES reset_heap(id));
+        CREATE TABLE IF NOT EXISTS reset_self (id integer PRIMARY KEY, parent_id integer REFERENCES reset_self(id) ON DELETE RESTRICT);
+        ${extra}`);
+    };
+    return { pools, pool, bootstrap };
+  }
+
+  async function nodes(pool: PgTransactionalPool) {
+    return (
+      await pool.query<{ name: string; kind: string; node: number }>(`WITH tables AS (
+      SELECT c.oid,c.reltoastrelid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='public' AND c.relkind='r' AND c.relowner=current_user::regrole
+    ), relations AS (
+      SELECT oid FROM tables UNION SELECT reltoastrelid FROM tables WHERE reltoastrelid<>0
+      UNION SELECT i.indexrelid FROM pg_index i WHERE i.indrelid IN (SELECT oid FROM tables UNION SELECT reltoastrelid FROM tables)
+      UNION SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S'
+    ) SELECT c.oid::regclass::text AS name,c.relkind AS kind,pg_relation_filenode(c.oid) AS node
+      FROM pg_class c JOIN relations r ON r.oid=c.oid ORDER BY name`)
+    ).rows;
+  }
+
+  it("preserves every table, index, sequence and TOAST relfilenode across the real helper", async () => {
+    const f = await fixture();
+    try {
+      await resetMultiContextTestData(f.pools, f.bootstrap);
+      await f.pool
+        .query(`INSERT INTO reset_heap(payload) SELECT string_agg(md5(n::text),'') FROM generate_series(1,1000) n;
+        INSERT INTO reset_child VALUES (1,1);
+        INSERT INTO reset_self VALUES (1,NULL),(2,1),(3,2)`);
+      const before = await nodes(f.pool);
+      expect(new Set(before.map((row) => row.kind))).toEqual(new Set(["r", "i", "S", "t"]));
+      expect(before.every((row) => row.node > 0)).toBe(true);
+      await resetMultiContextTestData(f.pools, f.bootstrap);
+      expect(await nodes(f.pool), "relfilenode stability discriminator").toEqual(before);
+      expect((await f.pool.query("SELECT * FROM reset_heap")).rows).toEqual([]);
+      expect((await f.pool.query("SELECT * FROM reset_child")).rows).toEqual([]);
+      expect((await f.pool.query("SELECT * FROM reset_self")).rows).toEqual([]);
+    } finally {
+      await closeMultiContextTestPools(f.pools);
+    }
+  });
+
+  it("matches fresh bootstrap rows and sequence next values after partial, poisoned and repeated histories", async () => {
+    const f = await fixture();
+    const fresh = await fixture();
+    try {
+      await resetMultiContextTestData(fresh.pools, fresh.bootstrap);
+      const expectedRows = (await fresh.pool.query("SELECT * FROM reset_bootstrap ORDER BY id")).rows;
+      const expectedNext = (await fresh.pool.query("SELECT nextval('reset_heap_id_seq')::text AS next")).rows;
+      await resetMultiContextTestData(f.pools, f.bootstrap);
+      for (let history = 0; history < 3; history += 1) {
+        await f.pool.query(`DELETE FROM reset_bootstrap; INSERT INTO reset_bootstrap VALUES (9,'poison');
+          INSERT INTO reset_heap(payload) VALUES ('partial'); SELECT nextval('reset_heap_id_seq')`);
+        await resetMultiContextTestData(f.pools, f.bootstrap);
+        expect((await f.pool.query("SELECT * FROM reset_bootstrap ORDER BY id")).rows).toEqual(expectedRows);
+        expect((await f.pool.query("SELECT nextval('reset_heap_id_seq')::text AS next")).rows).toEqual(expectedNext);
+        await f.bootstrap();
+        expect((await f.pool.query("SELECT * FROM reset_bootstrap ORDER BY id")).rows).toEqual(expectedRows);
+      }
+      await assertMultiContextTestDataCatalog(f.pools);
+    } finally {
+      await closeMultiContextTestPools(f.pools);
+      await closeMultiContextTestPools(fresh.pools);
+    }
+  });
+
+  it.each([
+    [
+      "FK cycle",
+      "CREATE TABLE reset_a(id integer PRIMARY KEY,b integer); CREATE TABLE reset_b(id integer PRIMARY KEY,a integer REFERENCES reset_a(id)); ALTER TABLE reset_a ADD FOREIGN KEY(b) REFERENCES reset_b(id)",
+    ],
+    ["materialized view", "CREATE MATERIALIZED VIEW reset_view AS SELECT 1 AS id"],
+    [
+      "rule",
+      "CREATE RULE reset_rule AS ON DELETE TO reset_heap DO ALSO INSERT INTO reset_bootstrap VALUES (99,'side effect')",
+    ],
+    [
+      "side-effect trigger",
+      "CREATE FUNCTION reset_trigger() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN INSERT INTO reset_bootstrap VALUES (98,''trigger''); RETURN OLD; END'; CREATE TRIGGER reset_side_effect BEFORE DELETE ON reset_heap FOR EACH ROW EXECUTE FUNCTION reset_trigger()",
+    ],
+  ])("refuses unsupported %s instead of guessing", async (_name, sql) => {
+    const f = await fixture(sql);
+    try {
+      await expect(resetMultiContextTestData(f.pools, f.bootstrap)).rejects.toThrow(
+        /unsafe foreign-key cycle|unsupported data reset shape/,
+      );
+    } finally {
+      await closeMultiContextTestPools(f.pools);
+    }
+  });
+
+  it("detects an injected unlisted file-end schema change", async () => {
+    const f = await fixture();
+    try {
+      await resetMultiContextTestData(f.pools, f.bootstrap);
+      await f.pool.query("CREATE TABLE reset_unlisted(id integer)");
+      await expect(assertMultiContextTestDataCatalog(f.pools)).rejects.toThrow("unlisted file-end catalog drift");
+      await f.pool.query("DROP TABLE reset_unlisted");
+      await assertMultiContextTestDataCatalog(f.pools);
+    } finally {
+      await closeMultiContextTestPools(f.pools);
+    }
+  });
+
+  it("captures an empty target without assuming a ledger and deduplicates aliased pools", async () => {
+    const urls = createMultiContextTestDatabaseUrls(
+      adminDatabaseUrl!,
+      ["auth", "empty"],
+      `reset_alias_${randomUUID()}`,
+    );
+    await ensureMultiContextTestDatabases(adminDatabaseUrl!, urls);
+    const pools = createMultiContextTestPools({ ...urls, authAlias: urls.auth });
+    let boots = 0;
+    const bootstrap = async () => {
+      boots += 1;
+      await pools.auth.query(
+        "CREATE TABLE IF NOT EXISTS actual_bootstrap(id integer PRIMARY KEY); INSERT INTO actual_bootstrap VALUES (7) ON CONFLICT DO NOTHING",
+      );
+    };
+    try {
+      await resetMultiContextTestData(pools, bootstrap);
+      await pools.auth.query("INSERT INTO actual_bootstrap VALUES (8)");
+      await resetMultiContextTestData({ authAlias: pools.authAlias, auth: pools.auth, empty: pools.empty }, bootstrap);
+      expect(boots).toBe(2);
+      expect((await pools.authAlias.query("SELECT * FROM actual_bootstrap ORDER BY id")).rows).toEqual([{ id: 7 }]);
+      expect((await pools.empty.query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows).toEqual([]);
+      await assertMultiContextTestDataCatalog(pools);
+    } finally {
+      await closeMultiContextTestPools(pools);
+    }
+  });
+});
 
 const platformApiContextNames = [
   "auth",

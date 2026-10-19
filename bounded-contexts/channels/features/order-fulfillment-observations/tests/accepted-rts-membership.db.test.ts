@@ -6,6 +6,7 @@ import {
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
   createPostgresEventStore,
@@ -44,8 +45,9 @@ describeDb("accepted RTS owner", () => {
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    });
     await seedTargets();
   });
   afterAll(async () => {

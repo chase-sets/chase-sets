@@ -4,7 +4,7 @@ import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
   composeModuleSchemaSql,
@@ -28,8 +28,9 @@ describeDb("manual-sync command ownership survives the actual TCGplayer CSV proj
     pool = createMultiContextTestPools(urls).channels;
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas({ channels: pool });
-    await pool.query(composeModuleSchemaSql(channelsModule));
+    await resetMultiContextTestData({ channels: pool }, async () => {
+      await pool.query(composeModuleSchemaSql(channelsModule));
+    });
   });
   afterAll(async () => closeMultiContextTestPools({ channels: pool }));
 

@@ -5,7 +5,7 @@ import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createTcgplayerOrderRuntime } from "../../tcgplayer-orders/api/runtime";
@@ -55,9 +55,10 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
   });
 
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(inventoryModule, pools.inventory);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await resetMultiContextTestData(pools, async () => {
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    });
     await seedCompositionFacts(pools.channels);
   });
 

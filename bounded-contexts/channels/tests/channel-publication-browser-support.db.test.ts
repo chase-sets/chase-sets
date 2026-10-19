@@ -6,6 +6,7 @@ import {
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
+  resetMultiContextTestData,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -41,8 +42,9 @@ describeDb("channel publication browser support", () => {
 
   beforeEach(async () => {
     delete process.env.PLAYWRIGHT_SKIP_WEB_SERVER;
-    await resetMultiContextTestSchemas({ channels: pool });
-    await bootstrapContextDatabase(channelsModule, pool);
+    await resetMultiContextTestData({ channels: pool }, async () => {
+      await bootstrapContextDatabase(channelsModule, pool);
+    });
   });
 
   afterEach(() => {
