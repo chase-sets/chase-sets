@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { assertConnectorRunSettlement } from "../../connector-feed/domain/run-settlement";
 import { withPgTransaction, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type {
   ChannelProviderRegistry,
@@ -507,6 +508,7 @@ async function recoverExpiredReservationsWithBoundRuns(
         uploadAttemptedAt: null,
         uploadFileName: null,
         importSummary: null,
+        stagedReadback: null,
         context: null,
       };
       await dependencies.claimedReservationRunSettlement!.settleBoundRun(db, {
@@ -1470,8 +1472,14 @@ function membershipMismatch(): never {
 
 function settlementReceiptRunIdentity(settlement: ClaimedReservationRunSettlement | undefined): unknown {
   if (!settlement) return null;
-  const { context: _context, ...identity } = settlement;
-  return identity;
+  const { context: _context, stagedReadback, ...identity } = settlement;
+  // Existing null-verdict receipts keep their original identity. A verdict is
+  // transient; only its one-way report identity occupies the existing slot.
+  return stagedReadback === null
+    ? identity
+    : createHash("sha256")
+        .update(canonicalJson({ ...identity, stagedReadback }))
+        .digest("hex");
 }
 
 function assertSettlementReceiptMatches(
@@ -1518,6 +1526,7 @@ function assertRunSettlement(value: ClaimedReservationRunSettlement | undefined)
     "fromState",
     "context",
     "importSummary",
+    "stagedReadback",
     "runId",
     "toState",
     "uploadAttemptedAt",
@@ -1551,6 +1560,12 @@ function assertRunSettlement(value: ClaimedReservationRunSettlement | undefined)
         value.importSummary.numberOfProducts < 0 ||
         !instant(value.importSummary.recordedAt)))
   ) {
+    throw new OutboundSyncError("invalid-input", "runSettlement is invalid.");
+  }
+  try {
+    const { context: _context, ...connectorSettlement } = value;
+    assertConnectorRunSettlement(connectorSettlement);
+  } catch {
     throw new OutboundSyncError("invalid-input", "runSettlement is invalid.");
   }
 }
