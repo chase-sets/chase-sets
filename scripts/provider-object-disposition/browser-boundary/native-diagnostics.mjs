@@ -4,7 +4,11 @@ import { mkdtemp, rm, readFile, writeFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
 import { TRANSITION, mediationDiagnostic, mediationFailure, nativeRefusal } from "./protocol.mjs";
+import { launchDiagnostic } from "./protocol.mjs";
+import { chromium } from "@playwright/test";
+import { confinedBrowserLaunchOptions } from "../test-window-browser.mjs";
 
 const execute = promisify(execFile);
 const marker = "SYNTHETIC_PRIVATE_NATIVE_BOUNDARY_MARKER";
@@ -86,6 +90,24 @@ export async function nativeDiagnosticControls(stage) {
   const executable = join(directory, "native-diagnostics");
   let primary;
   try {
+    stage("launch-refusal-class");
+    acquireHeavySlot("playwright");
+    let launchError;
+    try {
+      await chromium.launch(confinedBrowserLaunchOptions("0".repeat(64)));
+    } catch (error) {
+      launchError = error;
+    }
+    const launch = launchDiagnostic(launchError);
+    assert.deepEqual(launch, {
+      version: 1,
+      class: "exited",
+      window: "from-launch",
+      exitCode: 78,
+      exitSignal: null,
+      refusal: "source-identity",
+    });
+    console.log("installed-boundary control B3-launch-refusal-class: PASS");
     stage("compile");
     await execute(
       "/usr/bin/gcc",

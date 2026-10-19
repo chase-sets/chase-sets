@@ -2,18 +2,117 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, it, vi } from "vitest";
+import { errors } from "@playwright/test";
 import {
   ADMISSION,
   TRANSITION,
   admissionProof,
   mediationFailure,
   mediationDiagnostic,
+  launchDiagnostic,
   nativeRefusal,
   observerDiagnostic,
   browserCapabilityProof,
   removalRefusal,
   removalWitness,
 } from "./protocol.mjs";
+
+const launchRefusalMessage = [
+  "browserType.launch: failed details are ignored",
+  "  - <launched> pid=42",
+  "  - [pid=42][err] provider-boundary-refused:source-identity",
+  "  - [pid=42] <process did exit: exitCode=78, signal=null>",
+].join("\n");
+
+it("AC1 classifies one PID launch refusal and binds native refusal payloads", () => {
+  expect(launchDiagnostic({ message: launchRefusalMessage })).toEqual({
+    version: 1,
+    class: "exited",
+    window: "from-launch",
+    exitCode: 78,
+    exitSignal: null,
+    refusal: "source-identity",
+  });
+});
+
+it("AC1 accepts nested-sandbox output and maps unknown signals to other", () => {
+  const message = [
+    "<launched> pid=7",
+    `[pid=7][out] ${TRANSITION.trimEnd()}`,
+    "[pid=7][err] provider-boundary-refused:seed-reap",
+    "[pid=7][err] provider-boundary-refused:nested-sandbox",
+    "[pid=7] <process did exit: exitCode=78, signal=SIGCHLD>",
+  ].join("\n");
+  expect(launchDiagnostic({ message })).toMatchObject({
+    class: "exited",
+    window: "from-launch",
+    exitCode: 78,
+    exitSignal: "other",
+    refusal: "seed-reap",
+  });
+});
+
+it.each([
+  [{ message: "Failed to launch: marker" }, "spawn-failed", "partial"],
+  [{ message: "browserType.launch: Failed to launch: marker\n<launched> pid=1" }, "spawn-failed", "from-launch"],
+  [{ message: "<launched> pid=1\n[pid=1] <process did exit: exitCode=256, signal=SIGKILL>" }, "exited", "from-launch"],
+  [
+    {
+      message:
+        "[pid=1] <process did exit: exitCode=78, signal=null>\n[pid=2] <process did exit: exitCode=78, signal=null>",
+    },
+    "unknown",
+    "partial",
+  ],
+  [{ message: "[pid=1][err] provider-boundary-refused:source-identity" }, "unknown", "partial"],
+])("AC1 fail-closed class/window mapping %#", (error, classification, window) => {
+  expect(launchDiagnostic(error)).toMatchObject({ class: classification, window });
+});
+
+it("AC1 timeout uses the Playwright TimeoutError class", () => {
+  const error = new errors.TimeoutError("PRIVATE marker");
+  expect(launchDiagnostic(error, error instanceof errors.TimeoutError)).toEqual({
+    version: 1,
+    class: "timeout",
+    window: "partial",
+    exitCode: null,
+    exitSignal: null,
+    refusal: null,
+  });
+});
+
+it("AC2 M-unbound-refusal and M-raw fail the named negatives", async () => {
+  const source = readFileSync(new URL("protocol.mjs", import.meta.url), "utf8");
+  const actual = { message: launchRefusalMessage };
+  expect(launchDiagnostic({ ...actual, message: actual.message.replace("pid=42][err", "pid=99][err") })).toMatchObject({
+    class: "unknown",
+    refusal: null,
+  });
+  const raw = await import(
+    `data:text/javascript;base64,${Buffer.from(
+      source.replace(
+        'const stdout = parsed.filter((entry) => entry.kind === "out" && entry.pid === pid)',
+        'const stdout = parsed.filter((entry) => entry.kind === "out")',
+      ),
+    ).toString("base64")}`
+  );
+  expect(raw.launchDiagnostic(actual).refusal).toBe("source-identity");
+});
+
+it("AC3 drops markers and keeps the structured record bounded", () => {
+  const marker = "SYNTHETIC_PRIVATE_MARKER";
+  const failure = mediationFailure("sandboxed-chromium", {
+    message: `${marker}\n${launchRefusalMessage}\n${marker}`,
+    stack: marker,
+    code: 78,
+    stdout: marker,
+    stderr: marker,
+  });
+  expect(failure.message).not.toContain(marker);
+  expect(Buffer.byteLength(failure.message, "utf8")).toBeLessThanOrEqual(512);
+  expect(JSON.stringify(mediationDiagnostic(failure))).not.toContain(marker);
+  expect(mediationDiagnostic(mediationFailure("installed-boundary", { message: marker })).launch).toBeUndefined();
+});
 
 const dropped = {
   image: "chrome",

@@ -11,7 +11,10 @@ vi.mock("../lib/heavy-slot.mjs", () => ({ acquireHeavySlot: acquire }));
 vi.mock("node:child_process", () => ({
   execFile: Object.assign(vi.fn(), { [Symbol.for("nodejs.util.promisify.custom")]: execute }),
 }));
-vi.mock("@playwright/test", () => ({ chromium: { launch } }));
+vi.mock("@playwright/test", () => ({
+  chromium: { launch },
+  errors: { TimeoutError: class TimeoutError extends Error {} },
+}));
 vi.mock("node:fs/promises", async (original) => {
   const actual = await original();
   return {
@@ -27,7 +30,13 @@ vi.mock("node:fs/promises", async (original) => {
       path === "/proc/sys/kernel/apparmor_restrict_unprivileged_userns" ? "1\n" : actual.readFile(path, ...args),
   };
 });
-import { assertBrowserAdmission, BROWSER_LAUNCHER, openConfinedBrowser } from "./test-window-browser.mjs";
+import {
+  assertBrowserAdmission,
+  BROWSER_LAUNCHER,
+  confinedBrowserLaunchOptions,
+  openConfinedBrowser,
+} from "./test-window-browser.mjs";
+import { mediationDiagnostic } from "./browser-boundary/protocol.mjs";
 
 beforeEach(() => {
   const original = process;
@@ -106,6 +115,56 @@ it("browser has no fallback, inherited environment, persistent context or option
     executablePath: BROWSER_LAUNCHER,
     ignoreDefaultArgs: true,
     args: ["browser", expect.stringMatching(/^[a-f0-9]{64}$/)],
+    env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
+    chromiumSandbox: true,
+    timeout: 5000,
+  });
+});
+
+it.each([
+  [
+    "spawn",
+    new Error("browserType.launch: Failed to launch: SYNTHETIC_PRIVATE_MARKER"),
+    { class: "spawn-failed", window: "partial", exitCode: null, exitSignal: null, refusal: null },
+  ],
+  [
+    "exit-before-ready",
+    Object.assign(
+      new Error(
+        [
+          "<launched> pid=42",
+          "[pid=42][err] provider-boundary-refused:source-identity",
+          "[pid=42] <process did exit: exitCode=78, signal=null>",
+        ].join("\n"),
+      ),
+      { code: 78 },
+    ),
+    { class: "exited", window: "from-launch", exitCode: 78, exitSignal: null, refusal: "source-identity" },
+  ],
+])("AC4 openConfinedBrowser classifies the real mocked %s rejection", async (_name, error, expected) => {
+  launch.mockRejectedValue(error);
+  let failure;
+  try {
+    await openConfinedBrowser();
+  } catch (caught) {
+    failure = caught;
+  }
+  expect(failure).toBeInstanceOf(Error);
+  {
+    expect(mediationDiagnostic(failure).launch).toMatchObject(expected);
+    expect(failure.message).not.toContain("SYNTHETIC_PRIVATE_MARKER");
+  }
+  expect(launch).toHaveBeenCalledWith({
+    ...confinedBrowserLaunchOptions("0".repeat(64)),
+    args: ["browser", expect.any(String)],
+  });
+});
+
+it("AC4 shares exactly one launch-options function with the producer", () => {
+  expect(confinedBrowserLaunchOptions("a".repeat(64))).toEqual({
+    executablePath: BROWSER_LAUNCHER,
+    ignoreDefaultArgs: true,
+    args: ["browser", "a".repeat(64)],
     env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
     chromiumSandbox: true,
     timeout: 5000,
