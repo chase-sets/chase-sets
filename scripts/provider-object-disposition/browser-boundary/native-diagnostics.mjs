@@ -4,7 +4,6 @@ import { mkdtemp, rm, readFile, writeFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
 import { TRANSITION, mediationDiagnostic, mediationFailure, nativeRefusal } from "./protocol.mjs";
 import { launchDiagnostic } from "./protocol.mjs";
 import { chromium } from "@playwright/test";
@@ -91,7 +90,6 @@ export async function nativeDiagnosticControls(stage) {
   let primary;
   try {
     stage("launch-refusal-class");
-    acquireHeavySlot("playwright");
     let launchError;
     try {
       await chromium.launch(confinedBrowserLaunchOptions("0".repeat(64)));
