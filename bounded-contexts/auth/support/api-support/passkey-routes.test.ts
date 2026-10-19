@@ -36,22 +36,14 @@ const {
   mockVerifyRegistrationResponse: vi.fn(),
 }));
 
-vi.mock("@chase-sets/identity/server", () => ({
-  isRegistrationConsentRejectionCode: (value: unknown) =>
-    value === "registration_consent_not_server_minted" ||
-    value === "registration_consent_expired" ||
-    value === "registration_consent_affirmation_required",
-  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
-    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
-  IdentityApiError: class IdentityApiError extends Error {
-    public constructor(
-      public readonly status: number,
-      public readonly body: unknown,
-    ) {
-      super(`API error ${status}`);
-    }
-  },
-}));
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server");
+  return {
+    ...actual,
+    createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+      withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
+  };
+});
 
 vi.mock("@simplewebauthn/server", () => ({
   verifyAuthenticationResponse: mockVerifyAuthenticationResponse,

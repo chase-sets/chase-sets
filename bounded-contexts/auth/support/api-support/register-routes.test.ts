@@ -31,14 +31,14 @@ vi.mock("../runtime-support/services", () => ({
   startInteractiveAuth: mockStartInteractiveAuth,
 }));
 
-vi.mock("@chase-sets/identity/server", () => ({
-  isRegistrationConsentRejectionCode: (value: unknown) =>
-    value === "registration_consent_not_server_minted" ||
-    value === "registration_consent_expired" ||
-    value === "registration_consent_affirmation_required",
-  createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
-    withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
-}));
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server");
+  return {
+    ...actual,
+    createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
+      withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
+  };
+});
 
 function buildApp(services: unknown) {
   return createTestApp<AuthApiEnv>({
