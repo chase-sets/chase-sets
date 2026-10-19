@@ -87,7 +87,80 @@ class ProcRace:
         stack.enter_context(mock.patch.object(ownership.time, 'sleep'))
 
 
+class ProcPasses:
+    """PID 91 takes one scheduled /proc shape per complete census pass."""
+    LAUNCHER = dict(uid=1001, exe=(1, 2), path='/usr/local/lib/chase-sets-provider-window/launcher')
+    FOREIGN = dict(uid=0, exe=(9, 5), path='/usr/bin/SYNTHETIC_PRIVATE')
+    RUNNER = dict(uid=1001, exe=(9, 7), path='/usr/bin/SYNTHETIC_PRIVATE')
+
+    def __init__(self, *passes):
+        self.schedule, self.passes = passes, 0
+
+    def current(self):
+        return self.schedule[self.passes - 1]
+
+    def entries(self, _path):
+        self.passes += 1
+        entries = mock.MagicMock()
+        entries.__enter__.return_value = [SimpleNamespace(name='91')]
+        return entries
+
+    def read(self, path):
+        if path.name == 'installation.h':
+            return '#define ADMITTED_UID 1001\n'
+        shape = self.current()
+        if path.name == 'stat':
+            return process_stat(91, shape['state'], start=shape.get('start', 100))
+        return f"Uid:\t{shape['uid']}\t{shape['uid']}\t{shape['uid']}\t{shape['uid']}\n"
+
+    def link(self, path):
+        if str(path) == '/proc/self/ns/pid':
+            return 'pid:[1]'
+        if path.name == 'pid':
+            return 'pid:[1]'
+        if self.current()['state'] == 'Z':
+            raise FileNotFoundError(errno.ENOENT, 'SYNTHETIC_PRIVATE')
+        return self.current()['path']
+
+    def image(self, path):
+        if path.name == 'launcher':
+            return SimpleNamespace(st_dev=1, st_ino=2, st_mode=stat.S_IFREG)
+        if self.current()['state'] == 'Z':
+            raise FileNotFoundError(errno.ENOENT, 'SYNTHETIC_PRIVATE')
+        return SimpleNamespace(st_dev=self.current()['exe'][0], st_ino=self.current()['exe'][1])
+
+    def census(self):
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(ownership.os, 'scandir', side_effect=self.entries))
+            stack.enter_context(mock.patch.object(ownership, 'bounded_read', side_effect=self.read))
+            stack.enter_context(mock.patch.object(ownership.os, 'readlink', side_effect=self.link))
+            stack.enter_context(mock.patch.object(ownership.Path, 'stat', autospec=True, side_effect=self.image))
+            stack.enter_context(mock.patch.object(ownership.Path, 'is_symlink', return_value=False))
+            stack.enter_context(mock.patch.object(ownership.time, 'monotonic', return_value=0))
+            stack.enter_context(mock.patch.object(ownership.time, 'sleep'))
+            detail = []
+            return ownership._census(detail), detail, self.passes
+
+
 class OwnershipRaceFixtures(unittest.TestCase):
+    def test_exact_zombie_exit_between_passes_is_not_drift_and_keeps_two_empty_passes(self):
+        # #10023 S1/S8 admit after two passes; the S5 root's own pass is not empty, so a third pass decides.
+        for row, process, passes in (('S1', ProcPasses.FOREIGN, 2), ('S8', ProcPasses.RUNNER, 2),
+                                     ('S5', ProcPasses.LAUNCHER, 3)):
+            with self.subTest(row=row):
+                schedule = [dict(process, state='S'), dict(process, state='Z'), dict(process, state='Z')]
+                self.assertEqual(ProcPasses(*schedule[:passes]).census(), ('none', [], passes))
+
+    def test_candidate_drift_between_passes_still_refuses_with_one_witness(self):
+        launcher = ProcPasses.LAUNCHER
+        for row, schedule in (('S10 start drift', (dict(launcher, state='S'), dict(launcher, state='S', start=101))),
+                              ('zombie->live', (dict(launcher, state='Z'), dict(launcher, state='S')))):
+            with self.subTest(row=row):
+                outcome, detail, passes = ProcPasses(*schedule).census()
+                self.assertEqual((outcome, len(detail), passes), (ownership.AMBIGUOUS, 1, 2))
+                self.assertIn(b';predicate=identity-drift;', ownership.removal_witness(detail[0]))
+                self.assertNotIn(b'SYNTHETIC', detail[0])
+
     def test_same_identity_exit_at_each_metadata_read_is_gone(self):
         for field in ('status', 'namespace', 'exe-stat', 'exe-link'):
             for terminal in ('Z', 'X', 'absent'):
