@@ -1,4 +1,12 @@
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+  type JsonWebKey as NodeJsonWebKey,
+  type KeyObject,
+} from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import {
@@ -171,6 +179,64 @@ function errorFacts(error: Error) {
   return { name: error.name, message: error.message, code: Reflect.get(error, "code") };
 }
 
+const ACCESSOR_PLACEMENTS = ["own enumerable", "inherited", "non-enumerable"] as const;
+type AccessorPlacement = (typeof ACCESSOR_PLACEMENTS)[number];
+
+// Synthetic key material whose `member` is an accessor that throws `error` on every read, so a test
+// observes whether anything reads that member and whether the accessor's own error escapes.
+function jwkWithThrowingAccessor(
+  jwk: NodeJsonWebKey,
+  member: keyof JsonWebKey,
+  placement: AccessorPlacement,
+  error: Error,
+): NodeJsonWebKey {
+  const rest: NodeJsonWebKey = { ...jwk };
+  delete rest[member];
+  const accessor = {
+    get: () => {
+      throw error;
+    },
+    enumerable: placement !== "non-enumerable",
+  };
+  if (placement === "inherited") {
+    return Object.create(Object.defineProperty({}, member, accessor), Object.getOwnPropertyDescriptors(rest));
+  }
+  return Object.defineProperty(rest, member, accessor);
+}
+
+// Records every operation performed on the key, in order, so an adapter can be compared against
+// the operations node:crypto performs on the original object.
+function recordedJwk(jwk: NodeJsonWebKey) {
+  const operations: string[] = [];
+  const recorded = new Proxy(jwk, {
+    get: (target, member, receiver) => {
+      operations.push(`get ${String(member)}`);
+      return Reflect.get(target, member, receiver);
+    },
+    has: (target, member) => {
+      operations.push(`has ${String(member)}`);
+      return Reflect.has(target, member);
+    },
+    ownKeys: (target) => {
+      operations.push("ownKeys");
+      return Reflect.ownKeys(target);
+    },
+    getOwnPropertyDescriptor: (target, member) => {
+      operations.push(`getOwnPropertyDescriptor ${String(member)}`);
+      return Reflect.getOwnPropertyDescriptor(target, member);
+    },
+  });
+  return { recorded, operations };
+}
+
+function outcomeOf<T>(action: () => T): { accepted: T } | { rejected: unknown } {
+  try {
+    return { accepted: action() };
+  } catch (error) {
+    return { rejected: error instanceof Error ? errorFacts(error) : error };
+  }
+}
+
 describe("UCP profile routes", () => {
   it("buyer scopes use UCP capability tokens", () => {
     for (const tool of UCP_MCP_TOOLS.filter((tool) => tool.capability === "dev.ucp.shopping.checkout")) {
@@ -339,6 +405,76 @@ describe("UCP profile routes", () => {
 
       expect(errorFacts(actual)).toEqual(errorFacts(expected));
       expect(jwkShape(privateJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  it.each(ACCESSOR_PLACEMENTS)(
+    "publishes an EC business key whose unread RSA member is a throwing %s accessor (synthetic)",
+    async (placement) => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const privateJwk = jwkWithThrowingAccessor(
+        privateKey.export({ format: "jwk" }),
+        "n",
+        placement,
+        new Error("synthetic unread RSA member"),
+      );
+      const native = createPublicKey(createPrivateKey({ key: privateJwk, format: "jwk" })).export({ format: "jwk" });
+      const app = new Hono().route(
+        "/.well-known",
+        createUcpProfileRoutes({
+          businessSigningKeys: { current: { kid: "merchant-2026", alg: "ES256", privateJwk } },
+        }),
+      );
+
+      const response = await app.request("https://marketplace.example/.well-known/ucp");
+
+      expect(response.status).toBe(200);
+      const publishedKey = { ...native, kid: "merchant-2026", alg: "ES256", use: "sig" };
+      await expect(response.json()).resolves.toMatchObject({
+        signing_keys: [publishedKey],
+        ucp: { signing_keys: [publishedKey] },
+      });
+    },
+  );
+
+  it.each(ACCESSOR_PLACEMENTS)(
+    "rethrows the accessor error Node raises while reading a %s business key member (synthetic)",
+    (placement) => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const accessorError = new Error("synthetic private member read");
+      const privateJwk = jwkWithThrowingAccessor(privateKey.export({ format: "jwk" }), "d", placement, accessorError);
+
+      expect(thrownBy(() => createPrivateKey({ key: privateJwk, format: "jwk" }))).toBe(accessorError);
+      expect(
+        thrownBy(() => publicUcpBusinessSigningKeys({ current: { kid: "merchant-2026", alg: "ES256", privateJwk } })),
+      ).toBe(accessorError);
+    },
+  );
+
+  it.each(["private", "public-only"] as const)(
+    "reads a %s business JWK with exactly the operations node:crypto performs on it",
+    (material) => {
+      const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const jwk = (material === "private" ? privateKey : publicKey).export({ format: "jwk" });
+      const native = recordedJwk(jwk);
+      const candidate = recordedJwk(jwk);
+
+      const nativeOutcome = outcomeOf(() =>
+        createPublicKey(createPrivateKey({ key: native.recorded, format: "jwk" })).export({ format: "jwk" }),
+      );
+      const candidateOutcome = outcomeOf(() =>
+        publicUcpBusinessSigningKeys({
+          current: { kid: "merchant-2026", alg: "ES256", privateJwk: candidate.recorded },
+        }),
+      );
+
+      expect(native.operations.length).toBeGreaterThan(0);
+      expect(candidate.operations).toEqual(native.operations);
+      expect(candidateOutcome).toEqual(
+        "accepted" in nativeOutcome
+          ? { accepted: [{ ...nativeOutcome.accepted, kid: "merchant-2026", alg: "ES256", use: "sig" }] }
+          : nativeOutcome,
+      );
     },
   );
 });
@@ -725,6 +861,45 @@ describe("UCP REST routes", () => {
         messages: [{ message: expected.message }],
       });
       expect(jwkShape(resolvedJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  it.each(
+    signatureKeyFamilies.flatMap((keyFamily) => ACCESSOR_PLACEMENTS.map((placement) => ({ ...keyFamily, placement }))),
+  )(
+    "verifies $family signatures when the resolver JWK's unread private member is a throwing $placement accessor (synthetic)",
+    async ({ generate, placement }) => {
+      const { privateKey, publicKey } = generate();
+      const resolvedJwk = jwkWithThrowingAccessor(
+        publicKey.export({ format: "jwk" }),
+        "d",
+        placement,
+        new Error("synthetic unread private member"),
+      );
+      expect(() => createPublicKey({ key: resolvedJwk, format: "jwk" })).not.toThrow();
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(200);
+      expect(handler).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(ACCESSOR_PLACEMENTS)(
+    "reports the accessor error Node raises while reading a %s resolver JWK member (synthetic)",
+    async (placement) => {
+      const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const accessorError = new Error("synthetic public member read");
+      const resolvedJwk = jwkWithThrowingAccessor(publicKey.export({ format: "jwk" }), "x", placement, accessorError);
+      expect(thrownBy(() => createPublicKey({ key: resolvedJwk, format: "jwk" }))).toBe(accessorError);
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(400);
+      expect(handler).not.toHaveBeenCalled();
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ message: accessorError.message }],
+      });
     },
   );
 
