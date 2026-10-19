@@ -60,8 +60,8 @@ export type UcpBusinessProfile = Readonly<{
 }>;
 
 export type UcpMessage = Readonly<{
-  type?: "error";
-  severity: UcpMessageSeverity;
+  type?: "error" | "warning";
+  severity?: UcpMessageSeverity;
   code: string;
   content?: string;
   message?: string;
@@ -531,8 +531,8 @@ export function createUcpEnvelope<TPayload extends Readonly<Record<string, unkno
 ): UcpEnvelope<TPayload> {
   const normalizedStatus = status;
   const normalizedMessages = messages.map((message) => ({
-    type: "error" as const,
-    severity: message.severity,
+    type: message.type ?? "error",
+    ...(message.severity ? { severity: message.severity } : {}),
     code: message.code,
     content:
       message.content ??

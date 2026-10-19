@@ -49,6 +49,7 @@ export type DiscoverySearchCursorState = "fresh" | "cursor" | "restarted";
 export type DiscoverySearchParams = {
   search?: string;
   category?: string;
+  categories?: readonly string[];
   tag?: string;
   blueprintId?: string;
   language?: string;
@@ -56,6 +57,8 @@ export type DiscoverySearchParams = {
   marketActivity?: DiscoveryMarketActivityFilter;
   priceMin?: string;
   priceMax?: string;
+  /** Currency used for native price-bound comparison; null rows bypass the bounds. */
+  priceCurrency?: string;
   inStock?: boolean;
   fieldFilters?: readonly DiscoveryFieldFilter[];
   referenceFilters?: readonly DiscoveryReferenceFilter[];
@@ -293,11 +296,19 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex++;
   }
 
-  if (params.category && options.excludeFacet?.kind !== "category") {
-    conditions.push(
-      `(${itemColumn("category_names")} @> $${paramIndex}::jsonb OR ${itemColumn("category_slugs")} @> $${paramIndex}::jsonb)`,
-    );
-    values.push(JSON.stringify([params.category]));
+  const categories = normalizeCategories(params.categories);
+  if ((categories.length > 0 || params.category) && options.excludeFacet?.kind !== "category") {
+    if (categories.length > 0) {
+      conditions.push(
+        `(${itemColumn("category_names")} ?| $${paramIndex}::text[] OR ${itemColumn("category_slugs")} ?| $${paramIndex}::text[])`,
+      );
+      values.push(categories);
+    } else {
+      conditions.push(
+        `(${itemColumn("category_names")} @> $${paramIndex}::jsonb OR ${itemColumn("category_slugs")} @> $${paramIndex}::jsonb)`,
+      );
+      values.push(JSON.stringify([params.category]));
+    }
     paramIndex++;
   }
 
@@ -320,15 +331,33 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
   }
 
   if (params.priceMin !== undefined) {
-    conditions.push(`${marketColumn("lowest_price_amount")} >= $${paramIndex}::numeric`);
+    const currencyParam = params.priceCurrency ? `$${paramIndex + 1}` : null;
+    conditions.push(
+      params.priceCurrency
+        ? `(${marketColumn("lowest_price_amount")} IS NULL OR (${marketColumn("lowest_price_currency_code")} = ${currencyParam} AND ${marketColumn("lowest_price_amount")} >= $${paramIndex}::numeric))`
+        : `${marketColumn("lowest_price_amount")} >= $${paramIndex}::numeric`,
+    );
     values.push(params.priceMin);
     paramIndex++;
+    if (params.priceCurrency) {
+      values.push(params.priceCurrency);
+      paramIndex++;
+    }
   }
 
   if (params.priceMax !== undefined) {
-    conditions.push(`${marketColumn("lowest_price_amount")} <= $${paramIndex}::numeric`);
+    const currencyParam = params.priceCurrency ? `$${paramIndex + 1}` : null;
+    conditions.push(
+      params.priceCurrency
+        ? `(${marketColumn("lowest_price_amount")} IS NULL OR (${marketColumn("lowest_price_currency_code")} = ${currencyParam} AND ${marketColumn("lowest_price_amount")} <= $${paramIndex}::numeric))`
+        : `${marketColumn("lowest_price_amount")} <= $${paramIndex}::numeric`,
+    );
     values.push(params.priceMax);
     paramIndex++;
+    if (params.priceCurrency) {
+      values.push(params.priceCurrency);
+      paramIndex++;
+    }
   }
 
   if (params.inStock) {
@@ -611,6 +640,10 @@ function groupDimensionFilters(filters: readonly DiscoveryDimensionFilter[] | un
 
 function uniqueValues(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+function normalizeCategories(categories: readonly string[] | undefined): string[] {
+  return uniqueValues((categories ?? []).map((category) => category.trim()).filter((category) => category.length > 0));
 }
 
 function normalizeFilterParamValue(value: string): string {

@@ -153,7 +153,7 @@
   "devDependencies": {
     "@chase-sets/typescript-compiler-api": "workspace:*",
     "@playwright/test": "^1.60.0",
-    "@react-router/dev": "^7.14.0",
+    "@react-router/dev": "^7.18.4",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -176,11 +176,10 @@
     "yaml": "^2.8.4"
   },
   "dependencies": {
-    "@react-router/node": "^7.14.0",
-    "@react-router/serve": "^7.14.0",
+    "@react-router/node": "^7.18.4",
     "isbot": "^5.1.37",
     "pg": "^8.20.0",
-    "react-router": "^7.14.0",
+    "react-router": "^7.18.4",
     "ulid": "^3.0.2"
   }
 }

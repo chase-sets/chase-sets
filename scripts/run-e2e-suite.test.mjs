@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -13,11 +14,197 @@ import {
   isRouteFile,
 } from "./e2e-suites.mjs";
 import { buildSuiteGrep, commandSuiteInvocation, parseSuiteArgs } from "./run-e2e-suite.mjs";
+import * as renderedCopyRunner from "./run-e2e-suite.mjs";
+import * as suiteRegistry from "./e2e-suites.mjs";
+import {
+  attributeRenderedCopy,
+  buildCapturePart,
+  classifyRenderedCopy,
+  finalRenderedCopyObservations,
+  renderedCopyClasses,
+  renderedCopyTupleKey,
+  renderedCopyTuples,
+  sweepRenderedCopy,
+  validateCapturePart,
+} from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import {
   TCGPLAYER_CONNECTOR_EXTENSION_ID,
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
   TCGPLAYER_CONNECTOR_REDIRECT_URI,
 } from "../bounded-contexts/channels/features/connector-client/domain/identity.ts";
+
+describe("dedicated rendered-copy substrate", () => {
+  it("isolates the dedicated entry without changing ordinary batching", () => {
+    const ordinary = ["marketplace_account", "admin_access", "marketplace_browse"];
+    expect(suiteRegistry.batchBrowserE2eSuiteIds([...ordinary, "rendered_copy"])).toEqual([
+      ...batchE2eSuiteIds(ordinary),
+      "rendered_copy",
+    ]);
+    expect(() => parseSuiteArgs(["rendered_copy,admin_access"])).toThrow("unpaired");
+  });
+
+  it("rejects missing, extra, duplicate, owning-tagged, filtered and reordered listings", () => {
+    const order = renderedCopyRunner.expectedRenderedCopyListing();
+    expect(order).toHaveLength(32);
+    expect(() => renderedCopyRunner.assertRenderedCopyListing(order)).not.toThrow();
+    const owning = structuredClone(order);
+    owning[0].title = owning[0].title.replace("@rendered-copy", "@marketplace-account");
+    for (const mutant of [
+      order.slice(1),
+      [...order, order[0]],
+      [...order.slice(0, -1), order[0]],
+      owning,
+      order.filter((_, index) => index % 2),
+      [...order].reverse(),
+    ]) {
+      expect(() => renderedCopyRunner.assertRenderedCopyListing(mutant)).toThrow("exact listed set");
+    }
+    const owningGrep = new RegExp(buildSuiteGrep(e2eSuites.filter((suite) => suite.id !== "rendered_copy")));
+    for (const entry of order) expect(owningGrep.test(entry.title), entry.title).toBe(false);
+    for (const spec of new Set(order.map((entry) => entry.path))) {
+      const source = readFileSync(spec, "utf8");
+      expect(source).toContain("@rendered-copy @browser-e2e-seed");
+      expect(source).not.toContain("${tuple.tag}");
+    }
+  });
+
+  const observations = () =>
+    renderedCopyTuples.map((tuple) => ({
+      schema: "rendered-copy-observation/v1",
+      tuple,
+      retry: 0,
+      durationMs: 10,
+      witness: "populated",
+      counts: Object.fromEntries(renderedCopyClasses.map((kind) => [kind, 0])),
+      fields: [],
+    }));
+  const attempts = () =>
+    renderedCopyTuples.map((tuple) => ({ key: renderedCopyTupleKey(tuple), retry: 0, status: "passed" }));
+  const input = () => ({
+    candidate: { commit: "a".repeat(40), tree: "b".repeat(40), sourceHead: "c".repeat(40) },
+    run: {
+      workflow: "platform-pr.yml",
+      event: "pull_request",
+      id: 1,
+      attempt: 2,
+      jobIndex: 3,
+      batch: "rendered_copy",
+      capturedAt: "2026-10-19T00:00:00.000Z",
+    },
+    observations: observations(),
+    attempts: attempts(),
+  });
+
+  it("records a classified unattributed occurrence without a baseline or toggle", async () => {
+    expect(classifyRenderedCopy("ord_seed_visible")).toEqual([{ class: "seed-id", text: "ord_seed_visible" }]);
+    const data = input();
+    const { fields, violations } = attributeRenderedCopy(
+      data.observations[0].tuple.page,
+      [
+        {
+          class: "seed-id",
+          text: "ord_seed_visible",
+          region: "main",
+          label: null,
+          path: "body > main",
+          within: [],
+        },
+      ],
+      [],
+    );
+    expect(violations).toEqual([]);
+    data.observations[0].fields = fields;
+    data.observations[0].counts["seed-id"] = 1;
+    const part = buildCapturePart(data);
+    expect(part.observations[0].fields[0]).toMatchObject({ token: null, count: 1, samples: ["ord_seed_visible"] });
+    expect(validateCapturePart(part)).toEqual([]);
+    expect(validateCapturePart({ ...part, run: { ...part.run, event: "merge_group" } })).toContain(
+      "run: invalid producer identity",
+    );
+    const directory = mkdtempSync(join(tmpdir(), "rendered-copy-observe-"));
+    try {
+      const observed = await sweepRenderedCopy(
+        {
+          evaluate: async () => ({
+            total: ["seed-id"],
+            occurrences: [
+              {
+                class: "seed-id",
+                text: "ord_seed_visible",
+                region: "main",
+                label: null,
+                path: "body > main",
+                within: [],
+              },
+            ],
+          }),
+        },
+        renderedCopyTuples[0],
+        { retry: 0, startedAt: Date.now(), witness: "populated" },
+        directory,
+      );
+      expect(observed.fields[0]).toMatchObject({ token: null, count: 1 });
+      data.observations[0] = observed;
+      expect(validateCapturePart(buildCapturePart(data))).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("emits only final observations, lists retries, and rejects missing/conflicting terminal attempts and failed finals", () => {
+    const data = input();
+    data.attempts[0].status = "failed";
+    data.attempts.push({ ...data.attempts[0], retry: 1, status: "passed" });
+    data.observations.push({ ...data.observations[0], retry: 1, durationMs: 20 });
+    data.observations[0] = { ...data.observations[0], counts: { ...data.observations[0].counts, "seed-id": 7 } };
+    const part = buildCapturePart(data);
+    expect(part.retriedTuples).toEqual([renderedCopyTupleKey(renderedCopyTuples[0])]);
+    expect(part.observations[0].retry).toBe(1);
+    expect(part.observations[0].counts["seed-id"]).toBe(0);
+    expect(part.observations).toHaveLength(renderedCopyTuples.length);
+    expect(validateCapturePart(part)).toEqual([]);
+    const missing = data.attempts.filter((entry) => !(entry.key === data.attempts[0].key && entry.retry === 0));
+    expect(() => finalRenderedCopyObservations(data.observations, missing)).toThrow(
+      "missing or conflicting terminal attempt",
+    );
+    expect(() =>
+      finalRenderedCopyObservations(data.observations, [...data.attempts, { ...data.attempts[0], status: "passed" }]),
+    ).toThrow("conflicting terminal attempt");
+    expect(() => finalRenderedCopyObservations(data.observations, data.attempts.slice(0, -1))).toThrow("final attempt");
+    expect(() => finalRenderedCopyObservations(data.observations.slice(0, -1), data.attempts)).toThrow(
+      "missing final observation",
+    );
+    expect(() => finalRenderedCopyObservations([...data.observations, data.observations[0]], data.attempts)).toThrow(
+      "conflicting observation",
+    );
+  });
+
+  it("derives attempts from the actual terminal reporter, not observation presence", () => {
+    const order = renderedCopyRunner.expectedRenderedCopyListing();
+    const report = {
+      config: { projects: [{ name: "marketplace-chromium" }, { name: "admin-web-chromium" }] },
+      suites: [...new Set(order.map((entry) => entry.path))].map((path) => ({
+        specs: order
+          .filter((entry) => entry.path === path)
+          .map((entry, index) => ({
+            file: path,
+            title: entry.title,
+            line: index,
+            column: 1,
+            tests: [{ projectName: entry.project, results: [{ retry: 0, status: "passed" }] }],
+          })),
+      })),
+    };
+    expect(renderedCopyRunner.renderedCopyAttempts(report)).toEqual(attempts());
+    const unknown = structuredClone(report);
+    unknown.suites[0].specs[0].tests.push({ projectName: "synthetic-unknown", results: [] });
+    expect(() => renderedCopyRunner.renderedCopyAttempts(unknown)).toThrow("unknown project");
+    report.suites[0].specs[0].tests[0].results = [{ retry: 0, status: "failed" }];
+    expect(() =>
+      finalRenderedCopyObservations(observations(), renderedCopyRunner.renderedCopyAttempts(report)),
+    ).toThrow("final attempt 0 failed");
+  });
+});
 
 function walkFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -335,7 +522,10 @@ describe("run e2e suite", () => {
 
     expect(e2eSuiteIdsForChangedFile("scripts/e2e-suites.mjs")).toEqual(
       e2eSuites
-        .filter((suite) => suite.deployable === "marketplace" || suite.deployable === "admin-web")
+        .filter(
+          (suite) =>
+            suite.id !== "rendered_copy" && (suite.deployable === "marketplace" || suite.deployable === "admin-web"),
+        )
         .map((suite) => suite.id),
     );
   });

@@ -52,8 +52,7 @@ Set the outcome metadata and issue Dispatch rank, record material placement
 reasons on the roadmap, and preserve current steering until achieved or
 superseded. Never ask Todd which milestone to use, make him supply routine
 ranks, or turn missing priority evidence into a Decision. Send Todd only a
-product priority or scope change, or an operator action no lane can perform
-([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838628573)).
+product priority or scope change, or an operator action no lane can perform.
 Other unresolved product, legal and provider-authority choices inside accepted
 scope go to the orchestrator as host. The host decides same-attempt, in-scope
 repairs itself and records its reasoning. An independent decision lane is
@@ -218,8 +217,6 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    - parent attachment is reported, not gating: attach a slice to the Epic that
      owns its acceptance when one exists. A future parent-or-standalone gate
      and any `status:standalone` label require a new fixed-scope change;
-     [#6174](https://github.com/chase-sets/chase-sets/issues/6174) records that
-     this is not current behavior;
    - the delivery board's **Status** is derived, never hand-written: a native
      **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
      projects to `Tracking`. Create the authoritative type or label and let

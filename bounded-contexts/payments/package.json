@@ -44,7 +44,7 @@
     "@chase-sets/provider-webhook-inbox": "workspace:*",
     "@chase-sets/stripe-appearance": "workspace:*",
     "@stripe/stripe-js": "9.9.0",
-    "hono": "^4.12.12"
+    "hono": "^4.13.13"
   },
   "devDependencies": {
     "@chase-sets/stripe-payments": "workspace:*",

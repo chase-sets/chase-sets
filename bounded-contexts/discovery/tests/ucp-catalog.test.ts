@@ -61,7 +61,74 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
       projectors: [],
     },
     detail: {
-      getItemDetail: vi.fn(async () => null),
+      getItemDetail: vi.fn(async (id: string) => ({
+        catalog_item_id: id,
+        slug: "charizard-cat_1",
+        language_code: "en",
+        title_i18n: {},
+        title: "Charizard",
+        subtitle_i18n: {},
+        subtitle: "Base Set",
+        display_badges: [],
+        description_i18n: {},
+        description: "A fiery card.",
+        blueprint_id: "blueprint_card",
+        blueprint: null,
+        status: "active",
+        field_values: [],
+        categories: [{ name: "Pokemon", slug: "pokemon" }],
+        tags: ["fire"],
+        image_urls: ["https://images.example/charizard.jpg"],
+        product_asset_sets: [],
+        image_fallback: null,
+        product_schema: null,
+        market_summary: {
+          lowest_price_amount: "12.34",
+          lowest_price_currency_code: "EUR",
+          active_listing_count: 1,
+          total_visible_quantity: 3,
+        },
+        market_listings: [
+          {
+            listing_id: "listing_1",
+            listing_slug: "charizard-listing",
+            product_slug: "charizard",
+            account_id: "acct_1",
+            inventory_item_id: "inv_1",
+            catalog_catalog_item_id: id,
+            product_id: "product_1",
+            item_title: "Charizard",
+            item_subtitle: "Base Set",
+            selected_options: [],
+            product_summary: "Charizard",
+            graded_card: null,
+            storage_location_name: null,
+            ship_from_code: null,
+            price_amount: "12.34",
+            price_currency_code: "EUR",
+            listing_stream_version: 1,
+            shipping_allowance_percentage_bps: 0,
+            quantity_cap: 3,
+            max_units_per_order: null,
+            max_units_per_day: null,
+            max_units_per_customer_account: null,
+            status: "active",
+            seller_slug: "seller",
+            seller_display_name: "Seller",
+            seller_average_rating: null,
+            seller_review_count: 0,
+            seller_badges: [],
+            seller_at_capacity: false,
+            visible_quantity: 3,
+            created_at: "2026-05-16T00:00:00.000Z",
+            updated_at: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        offer_demand_matches: [],
+        contents: [],
+        included_in: [],
+        updated_at: "2026-05-16T00:00:00.000Z",
+      })),
       getSellerOverlay: vi.fn(async () => ({
         accountOfferMatches: [],
         sellerInventoryItems: [],
@@ -158,7 +225,7 @@ describe("Discovery UCP catalog handlers", () => {
             min: { currency: "EUR", amount: 1234 },
             max: { currency: "EUR", amount: 1234 },
           },
-          variants: [{ id: "cat_1", price: { currency: "EUR", amount: 1234 } }],
+          variants: [{ id: "listing_1", price: { currency: "EUR", amount: 1234 } }],
           availability: {
             status: "available",
             quantity: 3,
@@ -223,7 +290,9 @@ describe("Discovery UCP catalog handlers", () => {
   });
 
   it("returns a UCP not-found message when get_product cannot resolve an item", async () => {
-    const handlers = createDiscoveryUcpHandlers(buildItems());
+    const items = buildItems();
+    vi.mocked(items.detail.getItemDetail).mockResolvedValueOnce(null);
+    const handlers = createDiscoveryUcpHandlers(items);
 
     const result = await handlers.restHandlers.get_product({
       request: new Request("https://marketplace.example/ucp/v1/catalog/product", {
@@ -237,5 +306,89 @@ describe("Discovery UCP catalog handlers", () => {
       ucp: { status: "error" },
       messages: [{ code: "product_not_found" }],
     });
+  });
+
+  it("proves mixed-currency C3 presentment, C2 bypass, featured lookup, and the eight case-4 mutants", async () => {
+    const items = buildItems();
+    const original = await items.detail.getItemDetail("cat_1");
+    if (!original) throw new Error("Expected the mixed-currency fixture.");
+    const listing = (id: string, amount: string, currency: string) => ({
+      ...original.market_listings[0],
+      listing_id: id,
+      price_amount: amount,
+      price_currency_code: currency,
+    });
+    const mixed = {
+      ...original,
+      market_summary: null,
+      market_listings: [
+        listing("usd_10", "10.00", "USD"),
+        listing("usd_12", "12.00", "USD"),
+        listing("eur_9", "9.00", "EUR"),
+      ],
+    };
+    const ineligible = {
+      ...original,
+      catalog_item_id: "bad",
+      market_summary: null,
+      market_listings: [listing("jpy_fraction", "1000.50", "JPY"), listing("unknown", "10.00", "ZZZ")],
+    };
+    vi.mocked(items.detail.getItemDetail).mockImplementation(async (id: string) =>
+      id === "cat_1" ? mixed : id === "bad" ? ineligible : null,
+    );
+    const handlers = createDiscoveryUcpHandlers(items);
+    const input = (operation: "search_catalog" | "lookup_catalog" | "get_product", body: Record<string, unknown>) =>
+      handlers.restHandlers[operation]({
+        request: new Request("https://marketplace.example/ucp/v1/catalog", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+        params: {},
+      } as never);
+
+    const search = await input("search_catalog", { context: { currency: "USD" } });
+    expect(search).toMatchObject({
+      products: [
+        {
+          id: "cat_1",
+          price_range: { min: { amount: 1000, currency: "USD" }, max: { amount: 1200, currency: "USD" } },
+          variants: [{ id: "usd_10" }, { id: "usd_12" }],
+        },
+      ],
+      messages: [{ code: "listings_omitted_currency", path: "$.products[0]" }],
+    });
+    expect(JSON.stringify(search)).not.toContain("eur_9");
+
+    const lookup = await input("lookup_catalog", { ids: ["cat_1"], context: { currency: "USD" } });
+    expect(lookup).toMatchObject({
+      products: [{ variants: [{ id: "usd_10", inputs: [{ id: "cat_1", match: "featured" }] }] }],
+    });
+    expect((lookup as { products: Array<{ variants: unknown[] }> }).products[0].variants).toHaveLength(1);
+
+    const euro = await input("get_product", { id: "cat_1", context: { currency: "EUR" } });
+    expect(euro).toMatchObject({
+      product: {
+        price_range: { min: { amount: 900, currency: "EUR" }, max: { amount: 900, currency: "EUR" } },
+        variants: [{ id: "eur_9" }],
+      },
+      messages: [{ code: "listings_omitted_currency", path: "$.product" }],
+    });
+
+    const absent = await input("get_product", { id: "cat_1" });
+    expect(absent).toMatchObject({ product: { price_range: { min: { amount: 1000 }, max: { amount: 1200 } } } });
+    const unsupported = await input("get_product", { id: "cat_1", context: { currency: "ZZZ" } });
+    expect(unsupported).toMatchObject({ product: { variants: [{ id: "usd_10" }] } });
+
+    const noEligible = await input("get_product", { id: "bad", context: { currency: "USD" } });
+    expect(noEligible).toMatchObject({ ucp: { status: "error" }, messages: [{ code: "product_not_found" }] });
+
+    // Named case-4 controls: raw cross-currency range, relabeling, drop/split,
+    // ignored request currency, alphabetical fallback, omitted warning, ineligible
+    // emission, and exact/uncorrelated lookup variants all fail above.
+    expect((search as { products: unknown[] }).products).toHaveLength(1); // drop/split
+    expect(JSON.stringify(search)).not.toContain('"currency":"EUR","amount":1000'); // relabel/raw range
+    expect(
+      (lookup as { products: Array<{ variants: Array<{ inputs?: unknown }> }> }).products[0].variants[0].inputs,
+    ).toBeDefined();
   });
 });

@@ -1,6 +1,6 @@
 # Credential Rotation
 
-Platform credentials live as GitHub Actions secrets in the repository and its environments. This runbook defines the credential inventory, the daily credential health check that reads it, the command that rotates an `assisted` credential, and the GitHub App that rotation tooling uses. Automatic rotation arrives with #9915 and #9916.
+Platform credentials live as GitHub Actions secrets in the repository and its environments. This runbook defines the credential inventory, the agent tier it records, the daily credential health check that reads it, the command that rotates an `assisted` credential, and the GitHub App that rotation tooling uses. Automatic rotation arrives with #9915 and #9916.
 
 ## Definitions
 
@@ -12,6 +12,8 @@ Platform credentials live as GitHub Actions secrets in the repository and its en
   - `external-owner`: another workstream owns the value's lifecycle; the entry names its `owner` issue (the TCGplayer cookie belongs to #8447).
 - **Value group**: the environments that share one value. By default each environment is its own group. A group ages from its oldest member's GitHub `updated_at`, so a stale copy is never hidden by a fresh one.
 - **Provider expiry**: `updated_at` plus `providerExpiryDays` (90 for the three DigitalOcean API tokens). A `github-token` check's measured expiry replaces it.
+- **Agent tier**: the credential inventory names whose test values a lane may receive through `scripts/agent-secrets/with-secrets.ps1` from Bitwarden Secrets Manager project `chase-sets-agent-dev`, listed in the inventory's `agentTier` (see [Agent tier](#agent-tier)). The agent value of a name is always a separately created test credential; its GitHub copies are never read.
+- **CI/deploy-only**: every credential inventory entry the agent tier does not list. Its values reach only CI and deploy workflows, never a lane.
 
 ## Credential Inventory Entries
 
@@ -26,6 +28,22 @@ Rules enforced by `scripts/credential-inventory.test.mjs` in `test:scripts`:
 - Each `proofWorkflows` file references the secret, and each `optional` name is referenced somewhere.
 
 Add, rename or remove the entry in the same pull request that adds, renames or removes a secret reference. When a secret is set or deleted outside a pull request, the next daily run warns until the credential inventory matches.
+
+## Agent Tier
+
+The top-level `agentTier` holds `project`, the Bitwarden project name, and `keys`, sorted by name. Each key has `name`, an existing inventory entry, and `testPrefixes`, the prefixes its agent value must start with; the list is empty when the provider has no test-key shape. `node ./scripts/credential-inventory.mjs tiers` prints the names in each tier, never a value.
+
+Membership rules, enforced by `scripts/credential-inventory.test.mjs` in `test:scripts` and settled by the [#10031 decision](https://github.com/chase-sets/chase-sets/issues/10031):
+
+- A key must name an inventory entry.
+- `DIGITALOCEAN_`, `SES_` and `TCGPLAYER_` names, names containing `ADMIN_PASSWORD`, `external-owner` entries, and entries whose liveness is `digitalocean-account` or `spaces-list-buckets` are CI/deploy-only.
+- Every `pairedWith` partner of a key is in the agent tier too, so a pair never joins by halves.
+- A Spaces pair joins only when its liveness is `spaces-bucket`, neither member's scope includes `production` or `repository` (production jobs can read repository secrets), and no other entry with such a scope uses its bucket.
+- `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` list exactly the test-mode prefixes that `STRIPE_KEY_CASES` in `scripts/stripe-key-mode.mjs` gives their role.
+
+Voyage and Scrydex keys stay CI/deploy-only: they bill real usage, so lanes that need them dispatch the CI workflows that hold them. Admitting a name is a pull request that adds it to `agentTier` and passes these rules; the value then goes into the Bitwarden project.
+
+`scripts/agent-secrets/with-secrets.ps1` enforces the tier at run time. For `-Command` and `-Check` it first reads `agentTier` from `.github/credential-inventory.json` in the checkout it sits in, before it reads the token. If that file is missing, unparseable or has no valid `agentTier`, it refuses with `inventory-unavailable`. It then lists the project, keeping values in memory, and refuses with `tier-violation` while the project holds a key that `agentTier.keys` does not list, or a value that starts with none of its key's `testPrefixes`. The refusal names each offending key and never prints its value, and `-Command` never reaches `bws run`, with or without `-NoInheritEnv`. `-ListKeys` skips the guard, so the names stay inspectable. To clear a violation, delete the key from the project or replace its value with a test credential. A value added between the list and the run is not checked.
 
 ## Daily Credential Health Check
 

@@ -103,6 +103,21 @@ contract. Malformed or duplicate metadata is an explicit error, never a
 fallback to title interpretation. A milestone without outcome metadata is not
 an outcome, regardless of its title.
 
+Todd's active priority override is recorded separately beside the outcome
+marker:
+
+```html
+<!-- steering: {"version":1,"source":"https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123","until":"until the priority question is answered"} -->
+```
+
+The steering marker has exactly `version`, `source` and `until` keys. Version is
+`1`; `source` is the GitHub issue-comment URL holding Todd's ruling; and `until`
+is non-empty prose of at most 500 characters. A marked open committed outcome
+is ranked ahead of every unmarked outcome in its lane class. The `steering`
+section of `next-work/v1` lists those marked executable outcomes; a marker on a
+candidate, unmarked or otherwise non-executable open milestone is the
+`STEERING_ON_NON_EXECUTABLE` defect. Malformed metadata fails closed.
+
 Terminal gate references remain in the description's `Exit gates:` clause,
 ending at `Canonical sequencing:`. List current terminal evidence issues there;
 put history, predecessor links, and decision references outside that clause.
@@ -170,9 +185,23 @@ Favor finishing the current usable outcome over starting adjacent improvements.
 Do not starve product work with general delivery-tooling improvements.
 
 Record explicit Todd steering in the roadmap with its scope and stated end
-condition. If no end condition is stated, preserve it until the requested
-outcome is achieved or Todd supersedes it. Agents translate that steering into
-outcome order and issue Dispatch rank; they do not ask Todd to edit either.
+condition, and put the ruling's comment URL in the outcome's steering marker.
+If no end condition is stated, preserve it until the requested outcome is
+achieved or Todd supersedes it. A clause that puts an outcome first, or requires
+it immediately after or ahead of a marked outcome, or says to prioritize it, is
+dispositioned `mark`;
+one that only orders unmarked outcomes is `order` and uses a unique outcome
+`order` without a marker. Never mark an `order` clause: a marker lifts the
+outcome above every unmarked outcome. Every marker's `source` is the comment
+holding Todd's ruling; a clause recorded only in a milestone description cites
+the #4129 placement comment that records it. Once its condition is met, it is
+`ended` only after the host files the priority question as a comment on
+#4388 under the milestone-orchestrator section 11 rule and Todd answers it.
+Remove the marker only after that answer and record the removal on #4129. Agents
+translate active steering into outcome order and issue Dispatch rank; they do
+not ask Todd to edit either.
+The milestone description must be a string; other shapes fail closed with
+`STEERING_DESCRIPTION_INVALID`, and an `until` value must not contain the HTML comment closing delimiter.
 A later calculated score or routine review cannot silently reverse steering.
 Only genuinely new product, legal, provider-authority, or similarly consequential
 choices outside accepted scope use the existing decision route.
@@ -451,8 +480,9 @@ incomplete facts exit 2 and write no file.
 
 1. Exclude Epics, tracking-only records, candidates, Deferred / Incubation and
    Operations. Preserve existing ownership for active lanes.
-2. Apply current Todd steering, then take the computed Selection: each lane
-   class is ranked by outcome order then milestone number, Dispatch rank
+2. Apply current Todd steering from each milestone's steering marker, then take
+   the computed Selection: each lane class is ranked by marked outcomes first,
+   then outcome order and milestone number, Dispatch rank
    (missing last), priority p0 to p3 (missing last), dependency unlock count
    (descending) and issue number. An evidenced p0 emergency may run ahead of
    its rank only with a recorded `p0-emergency` reason (#9946). The per-track
