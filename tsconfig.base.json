@@ -870,6 +870,9 @@
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
       ],
+      "@chase-sets/platform-runtime/web-server": [
+        "./infrastructure/platform-runtime/web-server.ts"
+      ],
       "@chase-sets/platform-runtime/work-signal-store": [
         "./infrastructure/platform-runtime/work-signal-store.ts"
       ],
