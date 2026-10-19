@@ -174,6 +174,75 @@ function sectionContentLines(markdown, section) {
     .filter(Boolean);
 }
 
+/**
+ * Parse the optional `### Supersedes` declaration used by planning briefs.
+ * Invalid items are reported without preventing valid sibling items from
+ * being returned, so callers can show the complete correction set at once.
+ */
+export function parseSupersedesSection(body) {
+  const markdown = scanMarkdown(String(body ?? ""));
+  const sections = matchingSections(markdown, "supersedes");
+  if (sections.length === 0) return { entries: [], findings: [] };
+
+  const entries = [];
+  const findings = [];
+  const seen = new Set();
+  const section = sections[0];
+  const end =
+    markdown.headings
+      .slice(section.headingIndex + 1)
+      .find(
+        (heading) =>
+          heading.level <= section.heading.level && !/^\s*(?:[-+*]|\d+[.)])\s+/.test(markdown.lines[heading.index]),
+      )?.index ?? markdown.lines.length;
+  const headingLines = new Set(markdown.headings.map((heading) => heading.index));
+
+  for (let index = section.heading.index + 1; index < end; index += 1) {
+    const raw = markdown.lines[index];
+    const isListItem = /^\s*(?:[-+*]|\d+[.)])\s+/.test(raw);
+    if ((headingLines.has(index) && !isListItem) || isInertDeclarationContentLine(raw, markdown.ignoredLines, index))
+      continue;
+    const line = raw.trim();
+    if (!line) continue;
+
+    const match = /^-\s+#(\d+)\s+(full|partial)(?::\s*(.*))?$/.exec(line);
+    const number = match ? Number(match[1]) : null;
+    const coverage = match?.[2] ?? null;
+    const dropped = match?.[3]?.trim() ?? null;
+    const valid =
+      match &&
+      Number.isSafeInteger(number) &&
+      number > 0 &&
+      (coverage === "full" ? dropped === null : Boolean(dropped));
+
+    if (!valid || seen.has(number)) {
+      findings.push({
+        code: "BRIEF_SUPERSEDES_FORMAT",
+        line: index + 1,
+        message: !valid
+          ? "Supersedes items must be `- #<n> full` or `- #<n> partial: <dropped criteria>`."
+          : `Supersedes predecessor #${number} is listed more than once.`,
+      });
+      continue;
+    }
+
+    seen.add(number);
+    entries.push({ number, coverage, dropped });
+  }
+
+  if (sections.length > 1) {
+    for (const duplicate of sections.slice(1)) {
+      findings.push({
+        code: "BRIEF_SUPERSEDES_FORMAT",
+        line: duplicate.heading.index + 1,
+        message: "Supersedes declaration must appear at most once.",
+      });
+    }
+  }
+
+  return { entries, findings };
+}
+
 function tableCells(line) {
   const trimmed = line.trim();
   if (!trimmed.includes("|")) return null;
@@ -472,7 +541,7 @@ export function lintBrief(body) {
       });
     }
   }
-  findings.push(...pointerFindings(markdown), ...salvageFindings(markdown));
+  findings.push(...pointerFindings(markdown), ...salvageFindings(markdown), ...parseSupersedesSection(text).findings);
   findings.push(
     ...[
       declarationFinding(markdown, QUALITY_DECLARATIONS.profile),

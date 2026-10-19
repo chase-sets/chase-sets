@@ -15,6 +15,17 @@ This skill is tracked identically at `.agents/skills/` (read by Codex) and `.cla
 
 **Solo mode.** Todd asked you directly with no orchestrator dispatch. Deliver end-to-end — but before landing, check the orchestration lease at `../.orchestrator/lease.json` (container root, sibling of your checkout). If its `renewedAt` is within the last 60 minutes, an orchestrator is live and landing belongs to it: leave the PR ready, report it, and stop. The merge queue has exactly one writer at all times.
 
+### Premise check (before the first edit)
+
+Before implementation guidance, run the premise check before the first edit using reads and the brief's own inspection steps only. In lane mode:
+
+- The issue must be open and carry neither `status:needs-replan` nor `status:tracking-only`; no comment after the brief's last edit may supersede it; the outcome must not already be present at the baseline; and a defect must still be present at the baseline when it can be shown.
+- Product work uses fresh `origin/main`; controller work under the container `.orchestrator/` uses the installed reviewed controller head from `~/.claude/skills/native-db/identity.json`, validated as `controller-release-battery.ps1:646-648` does: the identity has exactly two properties, a lowercase 40-hex `head` and a lowercase 64-hex `digest`. A missing or invalid identity makes the baseline unavailable (handled as unavailable, never a negative premise); and a path the brief plans to create does not exist yet, so its absence is never a premise failure.
+- Any result except `CONFIRMED` ends the lane before an edit, push or PR, with the evidence in the report; the lane never closes or relabels the issue.
+- Unavailable is not negative: `NOT_REPRODUCED` requires a reproduction that actually ran and did not show the defect, `ALREADY_DELIVERED` requires a named commit or PR at an available baseline, and a local harness, environment or lock failure or unavailable baseline yields `CONFIRMED (unverified: <reason>)` and proceeds under the existing hosted-substitution rule. Inspection of code or retained hosted evidence may confirm the premise instead.
+
+In solo mode, run the same check and disposition its result: `ALREADY_DELIVERED` closes the issue citing the commit or PR; `SUPERSEDED_BY` applies the planning supersession rule including its product-question exception; and `NOT_REPRODUCED` or `PREMISE_CHANGED` comments with evidence and then amends the brief, closes it only when no accepted product scope is dropped, or asks Todd one product question.
+
 ## Change Tiers
 
 **Fast path (default).** Docs, copy, UI tweaks, config, tooling, tests, and single-context changes with no money movement, no cross-context contract/event changes, no external provider contract changes, and no schema migration:
@@ -232,6 +243,7 @@ Unverifiable assumptions: none.
 
 End your lane with a report the orchestrator can act on:
 
+0. `PREMISE:` — exactly one of `PREMISE: CONFIRMED <one line>`, `PREMISE: ALREADY_DELIVERED <commit or PR>`, `PREMISE: SUPERSEDED_BY #<n>`, `PREMISE: NOT_REPRODUCED <command and observed output>`, or `PREMISE: PREMISE_CHANGED <what changed>`.
 1. PR number and state — ready, or draft plus why.
 2. Verification run and observed results.
 3. File footprint touched (for parallel-lane collision checks).
@@ -249,7 +261,7 @@ Per-PR staging/production verification is not required; the deploy pipeline gate
 
 ## Operator-Package Target Reachability
 
-This shared gate applies to every production operator package and its package host checklist, including #7728 and #9374-production. A closed capability issue is never evidence that a named host/path is currently served; describe only what the observed deployed posture executes. Homepage smoke and release identity alone are not target reachability.
+This shared gate applies to every production operator package and its package host checklist. A closed capability issue is never evidence that a named host/path is currently served; describe only what the observed deployed posture executes. Homepage smoke and release identity alone are not target reachability.
 
 ### Readiness Moments And Evidence
 
@@ -286,26 +298,7 @@ Never send a mutating request for reachability. An API endpoint whose non-mutati
 
 Authenticated checks use existing custody/Phase A authority, never secret collection or new login. External targets use permitted read-only routes only; no provider traffic is authorized by this contract. Reachability is necessary, not an execution GO, account admission, public launch or certification of private data. Staging is independently gated and cannot establish production reachability. Production authorization, performer/custody, no-redelivery and read-only Phase A gates remain unchanged.
 
-### Consumer Target Inventory
-
-These are inventory seeds, not observed-live claims or an exhaustive replacement for the window's steps/tool calls. Bind the actual origins and parameters at every readiness moment; include all sign-in/identity hops and any additional window targets.
-
-| Consumer | Origin and paths to inventory |
-| --- | --- |
-| #7728 Account Channels, connection and publication | Declared marketplace origin: `/account/channels`, `/account/channels/<connectionId>`, `/account/channels/publication`, `/account/channels/publication/<connectionId>`. Include called `/api/channels/connections/<id>`, `/api/channels/connections/<connectionId>/manual-sync` and `/api/channels/publication/<connectionId>`, plus any action endpoints the window uses. Route/mount owners: `bounded-contexts/channels/context.json`. |
-| #7728 manual-sync download | Same declared marketplace origin: `/account/channels/<connectionId>/manual-sync/download`. Inventory the mutating action but prove its mount/profile without claiming a reservation. Owner: `bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx`. |
-| #7728 Catalog Phase A | Declared Admin origin: `/catalog/catalog-items/<id>` for each window item, plus any tooling calls. Owner: `bounded-contexts/catalog/context.json`. |
-| #7728 Seller Portal entry | External provider: `https://store.tcgplayer.com/admin/pricing` and the window's declared Seller Portal import/export entry points and permitted sign-in hops. No upload, export action or new login as a reachability probe. |
-| #9374-production Admin and extension | `https://admin.chasesets.com/catalog/providers/tcgplayer`; `/api/public/catalog/operator-session/grant` and `/api/public/catalog/operator-session/tcgplayer` on that same Admin origin. These extension calls mutate; use the API exception, not DELETE/PUT probes. Owners: `bounded-contexts/catalog/context.json` and `bounded-contexts/catalog/features/operator-session/domain/extension/transport.ts`. |
-| #9374-production provider session entry | External provider: `https://store.tcgplayer.com/admin/pricing`, declared permitted sign-in hops and any other entry point the window opens. Owner: `bounded-contexts/catalog/features/operator-session/domain/extension/protocol.ts`. |
-
-Whether to set `PRODUCTION_MARKETPLACE_SERVED=true` remains Todd's separate `PRODUCT_QUESTION` ([#4388 stop/question](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6148588435)); this contract neither answers it nor blocks on the answer. If served posture is chosen, the #9292 identity-term receipt remains required before admission, as described in `docs/runbooks/marketplace-production-promotion.md`.
-
 ### Worked Controls
-
-**Historical negative (#7728 r4, 2026-10-13; not a current-production observation).** `PRODUCTION_MARKETPLACE_SERVED` absent; ingress serving chasesets.com/www/admin only; marketplace.chasesets.com without an A record; `/account/channels` returning 404 on chasesets.com and admin. Despite closed #8070 and green deploy, package READY and host signal both FAIL. The release-only 14:39Z host signal check and 14:55Z window-open check prove no target reachability and both FAIL this gate. The window stopped before Phase A with no lease or mutation.
-
-The host-rebound runbook names release `f5cbef2cb094a1935841c1a10db0310ac0284442`, image `sha256:d84315b643922527a44633ce43a26c349fb06d49de662bc4d1570c59294bacea`, deploy run/job 38406890844/115345684026. Do not combine the report's `459dc3fd` binding with that release. Retained private sources: `.orchestrator/logs/operator-7728-20261013-r4/`, `.orchestrator/logs/7728-package-r4.report.md`; signal/re-verification/stop rows `.orchestrator/dispatch-log.jsonl:31939/31943/31946` and the linked host stop. Reuse target/citation inventory and safety procedures only, never r4's READY verdict, stale observations, closed-dependency inference or signal as reachability/GO authority.
 
 **Synthetic positive (not live evidence).** Every inventoried target resolves DNS, verifies TLS and routes as declared, differs from its control, and has complete fresh observations at packaging, signal and window-open. Synthetic release/image and owning executed deploy job match every Chase Sets target and current Environment values: `PRODUCTION_MARKETPLACE_SERVED=true`, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, effective profile `proof`, invitation admission and indexing disabled. External fields are explicitly not-applicable; sign-in-only and API-mount residuals stay explicit. Both readiness gates pass only in this synthetic control; no execution GO or public-launch authority follows.
 

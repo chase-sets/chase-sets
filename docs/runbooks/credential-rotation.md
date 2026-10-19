@@ -1,6 +1,6 @@
 # Credential Rotation
 
-Platform credentials live as GitHub Actions secrets in the repository and its environments. This runbook defines the credential inventory, the daily credential health check that reads it, and the GitHub App that rotation tooling uses. It does not rotate anything; rotation commands arrive with #9914, #9915 and #9916.
+Platform credentials live as GitHub Actions secrets in the repository and its environments. This runbook defines the credential inventory, the agent tier it records, the daily credential health check that reads it, the command that rotates an `assisted` credential, and the GitHub App that rotation tooling uses. Automatic rotation arrives with #9915 and #9916.
 
 ## Definitions
 
@@ -12,6 +12,8 @@ Platform credentials live as GitHub Actions secrets in the repository and its en
   - `external-owner`: another workstream owns the value's lifecycle; the entry names its `owner` issue (the TCGplayer cookie belongs to #8447).
 - **Value group**: the environments that share one value. By default each environment is its own group. A group ages from its oldest member's GitHub `updated_at`, so a stale copy is never hidden by a fresh one.
 - **Provider expiry**: `updated_at` plus `providerExpiryDays` (90 for the three DigitalOcean API tokens). A `github-token` check's measured expiry replaces it.
+- **Agent tier**: the credential inventory names whose test values a lane may receive through `scripts/agent-secrets/with-secrets.ps1` from Bitwarden Secrets Manager project `chase-sets-agent-dev`, listed in the inventory's `agentTier` (see [Agent tier](#agent-tier)). The agent value of a name is always a separately created test credential; its GitHub copies are never read.
+- **CI/deploy-only**: every credential inventory entry the agent tier does not list. Its values reach only CI and deploy workflows, never a lane.
 
 ## Credential Inventory Entries
 
@@ -26,6 +28,22 @@ Rules enforced by `scripts/credential-inventory.test.mjs` in `test:scripts`:
 - Each `proofWorkflows` file references the secret, and each `optional` name is referenced somewhere.
 
 Add, rename or remove the entry in the same pull request that adds, renames or removes a secret reference. When a secret is set or deleted outside a pull request, the next daily run warns until the credential inventory matches.
+
+## Agent Tier
+
+The top-level `agentTier` holds `project`, the Bitwarden project name, and `keys`, sorted by name. Each key has `name`, an existing inventory entry, and `testPrefixes`, the prefixes its agent value must start with; the list is empty when the provider has no test-key shape. `node ./scripts/credential-inventory.mjs tiers` prints the names in each tier, never a value.
+
+Membership rules, enforced by `scripts/credential-inventory.test.mjs` in `test:scripts` and settled by the [#10031 decision](https://github.com/chase-sets/chase-sets/issues/10031):
+
+- A key must name an inventory entry.
+- `DIGITALOCEAN_`, `SES_` and `TCGPLAYER_` names, names containing `ADMIN_PASSWORD`, `external-owner` entries, and entries whose liveness is `digitalocean-account` or `spaces-list-buckets` are CI/deploy-only.
+- Every `pairedWith` partner of a key is in the agent tier too, so a pair never joins by halves.
+- A Spaces pair joins only when its liveness is `spaces-bucket`, neither member's scope includes `production` or `repository` (production jobs can read repository secrets), and no other entry with such a scope uses its bucket.
+- `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` list exactly the test-mode prefixes that `STRIPE_KEY_CASES` in `scripts/stripe-key-mode.mjs` gives their role.
+
+Voyage and Scrydex keys stay CI/deploy-only: they bill real usage, so lanes that need them dispatch the CI workflows that hold them. Admitting a name is a pull request that adds it to `agentTier` and passes these rules; the value then goes into the Bitwarden project.
+
+`scripts/agent-secrets/with-secrets.ps1` enforces the tier at run time. For `-Command` and `-Check` it first reads `agentTier` from `.github/credential-inventory.json` in the checkout it sits in, before it reads the token. If that file is missing, unparseable or has no valid `agentTier`, it refuses with `inventory-unavailable`. It then lists the project, keeping values in memory, and refuses with `tier-violation` while the project holds a key that `agentTier.keys` does not list, or a value that starts with none of its key's `testPrefixes`. The refusal names each offending key and never prints its value, and `-Command` never reaches `bws run`, with or without `-NoInheritEnv`. `-ListKeys` skips the guard, so the names stay inspectable. To clear a violation, delete the key from the project or replace its value with a test credential. A value added between the list and the run is not checked.
 
 ## Daily Credential Health Check
 
@@ -62,13 +80,35 @@ Network errors and 5xx are unknown for every kind. A secret absent from an envir
 
 ## Responding To The Alert
 
-- **liveness-dead** or **provider-expiry-within-7-days**: rotate now. Create the replacement with the provider, store it only in the GitHub secrets the entry's scope names, dispatch each workflow in `proofWorkflows`, then revoke the old value. Never paste a value into an issue, PR, log or screenshot.
+- **liveness-dead** or **provider-expiry-within-7-days**: rotate now. Create the replacement with the provider and rotate an `assisted` entry with [`credential:rotate`](#rotating-an-assisted-credential), which stores it only in the GitHub secrets the entry's value group names and dispatches each workflow in `proofWorkflows`; then revoke the old value. Never paste a value into an issue, PR, log or screenshot.
 - **provider-expiry-within-21-days** or **max-age-within-30-days**: schedule the rotation before the failure threshold.
 - **liveness-unknown** on a DigitalOcean token: a 403 usually means the token lacks the `account:read` scope; add it at the next rotation. On Spaces, `SignatureDoesNotMatch` or `AccessDenied` means the pair or bucket grant does not match the credential inventory.
 - **not-inventoried** or **missing-from-scope**: update the credential inventory, or set or delete the secret so the two agree.
 - **metadata-not-collected**, **liveness-not-collected** or a `*-job-*` finding: open the run and fix the collection; the run is not evidence of health until it completes.
 
 The run summary table lists every live name per scope with its update date, age, provider expiry, liveness verdict and level.
+
+## Rotating An Assisted Credential
+
+`pnpm run ops -- credential:rotate --secret <NAME> [--env <name>[,<name>...]] [--dry-run]` (`scripts/credential-rotate.mjs`) rotates one `assisted` entry together with its `pairedWith` partners. It runs on the operator's machine under the operator's own `gh` login, which is production credential custody: never in CI and never as the rotation App. It refuses `automatic` and `external-owner` entries, and any pair that includes one, naming the owner.
+
+1. Create the replacement with the provider. Keep the old value until the last step.
+2. Preview with `--dry-run`. It prints the values in prompt order with each one's validation, every `gh secret set` target in write order, and the proof workflows. It prompts, reads, validates, writes and dispatches nothing. The dry run is the per-credential reference; this runbook does not copy the credential inventory.
+3. Choose the value group. `--env` must equal exactly one of the entry's value groups, in any order. It is required when the entry has more than one group, so a test-mode Stripe key takes `--env staging` and the live key `--env production`. A repository-scoped entry takes no `--env`; for a name set at both levels, `--env repository` selects the repository group.
+4. Enter each value at the hidden prompt: the named secret first, then each partner in `pairedWith` order. Alternatively pipe them on stdin, one value per line, in the same order. Every value is a single line, so compact JSON before pasting it. The prompt hides input only where Node sees a terminal (Windows Terminal, PowerShell, macOS and Linux terminals); Git Bash's mintty is not one, so the command prints `stdin is not a terminal` instead of a prompt; stop there and rerun under `winpty` or another terminal rather than typing a value that echoes.
+5. Validation finishes for the whole pair before the first write. A member with a `liveness` kind must check `live` against its provider (see [Liveness checks](#liveness-checks)); `dead`, `unknown` and `absent` are refused, so replace the value rather than retry. Every other member must be non-empty with no whitespace or line breaks; a value that needs whitespace cannot use this command.
+6. Writes go to each target in the group's inventory order, every member of the pair per target, and stop at the first failure. The command then names the targets that already hold the new values, and any target holding only part of the pair; rerun with the same values to complete the set.
+7. After every write succeeds, each `proofWorkflows` entry is dispatched with `gh workflow run <file> --ref main` and its run URL printed. A dispatch that fails or returns no run URL is reported as failed and the command exits non-zero; dispatch that workflow from the Actions tab.
+8. Once every proof run passes, delete the old credential with the provider. When the entry lists no proof workflow, confirm its consumers first.
+
+Examples:
+
+- `pnpm run ops -- credential:rotate --secret DIGITALOCEAN_READONLY_TOKEN`: checks `/v2/account`, writes `production`, dispatches `platform-credential-health.yml` and `platform-digitalocean-drift-digest.yml`.
+- `pnpm run ops -- credential:rotate --secret SPACES_ACCESS_ID`: prompts for the access key, then `SPACES_SECRET_KEY`, checks the pair together, and writes both to `merge-gate`, `preview`, `production` and `staging` in turn.
+- `pnpm run ops -- credential:rotate --secret STRIPE_SECRET_KEY --env staging`: prompts for the secret key, then `STRIPE_PUBLISHABLE_KEY`, and writes only `staging`.
+- `pnpm run ops -- credential:rotate --secret PROJECTS_TOKEN`: checks the token against GitHub `/user` and writes the repository secret.
+
+Values never enter argv, a child process environment, stdout, stderr or a file; they reach only `gh secret set` on stdin and the in-process liveness check.
 
 ## Rotation App
 

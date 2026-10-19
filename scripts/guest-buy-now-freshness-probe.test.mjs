@@ -20,6 +20,7 @@ import {
   evaluateProjectionConvergence,
   evaluateWakeRuntimeReadiness,
   fetchProjectionStatusSnapshot,
+  fetchWakeStatusSnapshot,
   isCheckoutSessionDocumentResponseUrl,
   isBuyReadinessUrl,
   isBuySessionUrl,
@@ -63,6 +64,44 @@ const unreadyWakeStatusSnapshot = {
   schedulers: { available: true, activeWakeCapableWorkerCount: 0 },
   relay: { available: true, lease: { state: "standby", ownerId: null } },
 };
+
+const wakeStatusAdminOptions = {
+  adminBaseUrl: "https://admin.staging.chasesets.com",
+  adminEmail: "ops@example.test",
+  adminPassword: "test-password",
+};
+
+const wakeStatusFetchFailedEvaluation = (fetchFailure) => ({
+  ready: false,
+  activeWakeCapableWorkerCount: 0,
+  relayLeaseState: null,
+  relayOwnerId: null,
+  reasons: ["wake-status-preflight-fetch-failed"],
+  fetchFailure,
+});
+
+function wakeStatusFetchImpl({ signIn, wakeStatus }) {
+  return async (url) => {
+    if (String(url).endsWith("/api/auth/password-sign-in")) {
+      return signIn();
+    }
+    return wakeStatus();
+  };
+}
+
+function connectTimeoutError(message = "fetch failed", causeMessage = "Connect Timeout Error") {
+  return new TypeError(message, {
+    cause: Object.assign(new Error(causeMessage), { code: "UND_ERR_CONNECT_TIMEOUT" }),
+  });
+}
+
+const leakMarkers = [
+  "Bearer adv-secret-token-10012",
+  "leaked.operator@example.com",
+  "https://admin.staging.chasesets.com/api/platform/projections/wake-status?token=adv",
+  "SENTINEL-10012-LEAK",
+];
+const leakyMessage = `connect failed: ${leakMarkers.join(" ")}`;
 
 const convergedProjectionStatusSnapshot = {
   projectionGroups: [
@@ -982,10 +1021,138 @@ describe("guest Buy Now freshness probe", () => {
       ready: true,
       readyAfterMs: 1_000,
       sampleCount: 2,
-      initial: evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot),
-      final: evaluateWakeRuntimeReadiness(readyWakeStatusSnapshot),
+      fetchFailureCount: 0,
+      lastFetchFailure: null,
+      initial: { ...evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot), fetchFailure: null },
+      final: { ...evaluateWakeRuntimeReadiness(readyWakeStatusSnapshot), fetchFailure: null },
     });
     expect(sleeps).toEqual([1_000]);
+  });
+
+  it("polls through a thrown wake-status fetch and becomes ready on the next sample", async () => {
+    let now = 1_000;
+    const sleeps = [];
+    const responses = [() => Promise.reject(new Error("transient")), () => readyWakeStatusSnapshot];
+    const result = await waitForWakeRuntimePreflight({
+      fetchWakeStatus: async () => responses.shift()(),
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      wakeRuntimeReadyBudgetMs: 5_000,
+      wakeRuntimeReadyPollIntervalMs: 1_000,
+    });
+
+    const unknownFailure = { stage: "unknown", status: null, code: null };
+    expect(result).toEqual({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 1_000,
+      sampleCount: 2,
+      fetchFailureCount: 1,
+      lastFetchFailure: unknownFailure,
+      initial: wakeStatusFetchFailedEvaluation(unknownFailure),
+      final: { ...evaluateWakeRuntimeReadiness(readyWakeStatusSnapshot), fetchFailure: null },
+    });
+    expect(sleeps).toEqual([1_000]);
+  });
+
+  it("fails the wake preflight only at budget expiry when every wake-status fetch throws", async () => {
+    let now = 1_000;
+    const sleeps = [];
+    let calls = 0;
+    const result = await waitForWakeRuntimePreflight({
+      fetchWakeStatus: async () => {
+        calls += 1;
+        throw new Error("still unreachable");
+      },
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      wakeRuntimeReadyBudgetMs: 4_500,
+      wakeRuntimeReadyPollIntervalMs: 1_000,
+    });
+
+    const unknownFailure = { stage: "unknown", status: null, code: null };
+    expect(result).toEqual({
+      attempted: true,
+      ready: false,
+      readyAfterMs: null,
+      sampleCount: 6,
+      fetchFailureCount: 6,
+      lastFetchFailure: unknownFailure,
+      initial: wakeStatusFetchFailedEvaluation(unknownFailure),
+      final: wakeStatusFetchFailedEvaluation(unknownFailure),
+    });
+    expect(calls).toBe(6);
+    expect(sleeps).toEqual([1_000, 1_000, 1_000, 1_000, 500]);
+    expect(sleeps.reduce((total, ms) => total + ms, 0)).toBe(4_500);
+  });
+
+  it.each([
+    {
+      name: "a sign-in HTTP 502",
+      signIn: () => new Response("{}", { status: 502 }),
+      expected: { stage: "sign-in", status: 502, code: null },
+    },
+    {
+      name: "a sign-in without a session token",
+      signIn: () => Response.json({}),
+      expected: { stage: "sign-in", status: null, code: null },
+    },
+    {
+      name: "a wake-status HTTP 503",
+      signIn: () => Response.json({ sessionToken: "session-token" }),
+      wakeStatus: () => new Response("{}", { status: 503 }),
+      expected: { stage: "wake-status", status: 503, code: null },
+    },
+    {
+      name: "a sign-in connect timeout",
+      signIn: () => Promise.reject(connectTimeoutError()),
+      expected: { stage: "sign-in", status: null, code: "UND_ERR_CONNECT_TIMEOUT" },
+    },
+  ])("records the closed fetch-failure class for $name", async ({ signIn, wakeStatus, expected }) => {
+    let now = 1_000;
+    const result = await waitForWakeRuntimePreflight({
+      ...wakeStatusAdminOptions,
+      fetchImpl: wakeStatusFetchImpl({
+        signIn,
+        wakeStatus: wakeStatus ?? (() => Response.json(readyWakeStatusSnapshot)),
+      }),
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      wakeRuntimeReadyBudgetMs: 0,
+    });
+
+    expect(result).toEqual({
+      attempted: true,
+      ready: false,
+      readyAfterMs: null,
+      sampleCount: 1,
+      fetchFailureCount: 1,
+      lastFetchFailure: expected,
+      initial: wakeStatusFetchFailedEvaluation(expected),
+      final: wakeStatusFetchFailedEvaluation(expected),
+    });
+  });
+
+  it("records an unknown fetch-failure class when an injected wake-status fetcher throws a plain error", async () => {
+    const result = await waitForWakeRuntimePreflight({
+      fetchWakeStatus: async () => {
+        throw new Error("Wake-status request failed with HTTP 503.");
+      },
+      now: () => 1_000,
+      sleep: async () => {},
+      wakeRuntimeReadyBudgetMs: 0,
+    });
+
+    expect(result.lastFetchFailure).toEqual({ stage: "unknown", status: null, code: null });
+    expect(result.final.fetchFailure).toEqual({ stage: "unknown", status: null, code: null });
   });
 
   it("resolves an explicit item path before searching", async () => {
@@ -1527,8 +1694,10 @@ describe("guest Buy Now freshness probe", () => {
       ready: true,
       readyAfterMs: 1_000,
       sampleCount: 2,
-      initial: evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot),
-      final: evaluateWakeRuntimeReadiness(readyWakeStatusSnapshot),
+      fetchFailureCount: 0,
+      lastFetchFailure: null,
+      initial: { ...evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot), fetchFailure: null },
+      final: { ...evaluateWakeRuntimeReadiness(readyWakeStatusSnapshot), fetchFailure: null },
     });
   });
 
@@ -1580,6 +1749,101 @@ describe("guest Buy Now freshness probe", () => {
       },
     });
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("persists the wake-status fetch-failure class when every preflight fetch throws", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    const outFile = join(directory, "guest-buy-now-wake-preflight-fetch-failed.json");
+    const failingFetchImpl = wakeStatusFetchImpl({
+      signIn: () => Response.json({ sessionToken: "session-token" }),
+      wakeStatus: () => new Response("{}", { status: 503 }),
+    });
+    const fetchWakeStatus = () => fetchWakeStatusSnapshot(wakeStatusAdminOptions, failingFetchImpl);
+    const clock = () => {
+      let now = 1_000;
+      return {
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      };
+    };
+    const preflightOptions = { wakeRuntimeReadyBudgetMs: 500, wakeRuntimeReadyPollIntervalMs: 250, fetchWakeStatus };
+    const inMemory = await waitForWakeRuntimePreflight({ ...preflightOptions, ...clock() });
+    let observed = false;
+    await runGuestBuyNowFreshnessProbe({
+      outPath: outFile,
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      ...preflightOptions,
+      ...clock(),
+      observe: async () => {
+        observed = true;
+        return {};
+      },
+    });
+
+    const persisted = JSON.parse(await readFile(outFile, "utf8"));
+    const wakeStatusFailure = { stage: "wake-status", status: 503, code: null };
+    expect(observed).toBe(false);
+    expect(persisted).toMatchObject({
+      failureReason: "wake-runtime-not-ready-before-probe",
+      attemptCount: 0,
+      wakeRuntimePreflight: {
+        ready: false,
+        sampleCount: 3,
+        fetchFailureCount: 3,
+        lastFetchFailure: wakeStatusFailure,
+        final: { reasons: ["wake-status-preflight-fetch-failed"], fetchFailure: wakeStatusFailure },
+      },
+    });
+    expect(persisted.wakeRuntimePreflight.fetchFailureCount).toBe(inMemory.fetchFailureCount);
+    expect(persisted.wakeRuntimePreflight.lastFetchFailure).toEqual(inMemory.lastFetchFailure);
+    expect(persisted.wakeRuntimePreflight.final.fetchFailure).toEqual(inMemory.final.fetchFailure);
+  });
+
+  it("keeps raw wake-status fetch error text out of persisted probe evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    const outFile = join(directory, "guest-buy-now-wake-preflight-redaction.json");
+    let now = 1_000;
+    const evidence = await runGuestBuyNowFreshnessProbe({
+      outPath: outFile,
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      ...wakeStatusAdminOptions,
+      fetchImpl: wakeStatusFetchImpl({
+        signIn: () => Promise.reject(connectTimeoutError(leakyMessage, leakyMessage)),
+      }),
+      wakeRuntimeReadyBudgetMs: 500,
+      wakeRuntimeReadyPollIntervalMs: 250,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      observe: async () => ({}),
+    });
+
+    const serialized = await readFile(outFile, "utf8");
+    expect(evidence.wakeRuntimePreflight.lastFetchFailure).toEqual({
+      stage: "sign-in",
+      status: null,
+      code: "UND_ERR_CONNECT_TIMEOUT",
+    });
+    for (const marker of leakMarkers) {
+      expect(serialized).not.toContain(marker);
+      expect(JSON.stringify(evidence)).not.toContain(marker);
+    }
+    expect(assertRedactedEvidence(evidence)).toEqual([]);
   });
 
   it("retries readiness-SLO failures up to the attempt budget and promotes on a later pass", async () => {
