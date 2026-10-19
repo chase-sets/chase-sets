@@ -110,6 +110,36 @@ Native dependencies carry each gate's prerequisites and native sub-issues carry
 capability structure. Neither milestone order nor a prose chain is a correctness
 edge.
 
+### Repository routing
+
+An issue lives in the repository its change merges into.
+
+- `chase-sets/chase-sets` holds every change to tracked Chase Sets files:
+  product code, `scripts/`, `docs/`, `.github/`, the repository's own
+  `AGENTS.md`, and the delivery and planning skills. This holds even when the
+  reason for the change is orchestration.
+- `chase-sets/chase-sets-controller` holds every change to tracked controller
+  files: the `.orchestrator/` runtime, contracts, fixtures and released
+  controller skills, the container scripts and instructions, and the
+  controller-orchestrator skill.
+- Route by the tracked files an issue changes. Callers, evidence and logs in the
+  other repository never move an issue.
+- An issue that changes no tracked file lives with the loop whose work it
+  serves. Machine-local output, such as `.orchestrator/logs/`, belongs to
+  neither tree.
+- A change that needs both repositories is one issue per repository. Link them
+  with a native dependency in landing order. An edit the brief marks as
+  conditional stays a note in the primary issue's scope fence, not its
+  footprint, until it is needed.
+- An outcome whose acceptance needs both repositories gets a milestone in each
+  repository, with the same title. Each milestone holds only its own
+  repository's issues.
+- An unplanned candidate that spans both repositories stays where most of its
+  change lands, and is split when it is promoted.
+- An issue filed in the wrong repository is moved, not copied. Use a transfer,
+  or reopen the original and close the copy, so exactly one open issue remains,
+  and keep its dependency and parent links.
+
 ### Agents own placement and priority
 
 Todd's steering is an override, not a required approval queue. Planning and the
@@ -121,12 +151,14 @@ issue belongs in or require him to maintain ranks.
 
 Apply this placement test at intake:
 
-1. Identify the issue's observable acceptance and the capability that owns it.
-2. If a committed outcome requires that acceptance, place the issue there and
+1. Identify the repository the change merges into (Repository routing). File
+   the issue there.
+2. Identify the issue's observable acceptance and the capability that owns it.
+3. If a committed outcome requires that acceptance, place the issue there and
    wire its genuine gate/prerequisite relationship.
-3. If it independently delivers another approved outcome, create or select a
+4. If it independently delivers another approved outcome, create or select a
    bounded outcome with its own acceptance, gate, and agent-chosen order.
-4. Otherwise keep the triaged capability in a candidate milestone. Promote only
+5. Otherwise keep the triaged capability in a candidate milestone. Promote only
    a bounded, usable subset when the delivery frontier can consume it.
 
 Choose routine outcome order from existing steering, correctness and external
@@ -320,6 +352,27 @@ controller-alignment work.
 Refinement is pulled forward wave by wave, not applied to the whole corpus
 (anti-ratchet). Do not mass-refine; refine the next wave's worth.
 
+### Closure and supersession
+
+Judge a replacement over the whole successor set. When it is `full`, the
+planner closes the predecessor in the same registration pass as `duplicate`
+when scope is identical or `not planned` otherwise, with one comment naming the
+successor set; each successor names the predecessor in its `### Supersedes`
+section, and the planner never waits for a successor to land. When it is
+`partial`, the planner removes only the dropped criteria in place and records
+the successor set; partial supersession never adds `status:needs-replan`. A
+closed `not planned` or `duplicate` predecessor is orphaned when at least one
+issue names it `full` and every such issue is itself closed `not planned`; the
+planner who closes the last such successor reopens the predecessor or files a
+new issue naming it `full`.
+
+Every new non-Epic, including host and review follow-ups, gets a home after a
+duplicate search: a committed milestone, Candidate capabilities, or Operations
+for machine-generated incidents. `Deferred / Incubation` is used only on
+Todd's explicit deferral; Epics stay unmilestoned and write-once, and
+superseding an Epic takes a superseding comment, plus closure when it is
+`full`.
+
 ### Controller consumer
 
 The reviewed installed milestone-orchestrator is an out-of-band consumer of the
@@ -364,8 +417,10 @@ Completion forecasting is owned by #7465.
   is independent of title, creation order and dates. The board's `Outcome order`
   Number field is a sync-owned display projection of the same comparison
   (`compareOutcomeOrder`); configure its field ID in
-  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. Agents edit the milestone authority, never
-  this projection. Sort the execution view by Outcome order, then Dispatch rank.
+  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. The projection ranks committed outcomes in
+  `chase-sets/chase-sets` only and clears Outcome order on other-repository rows.
+  Agents edit the milestone authority, never this projection. Sort the execution
+  view by Outcome order, then Dispatch rank.
 - **Blocker** is a native correctness edge, never a scheduling opinion.
 - **Dispatch rank** is agent-maintained issue order inside the selected outcome.
   Agents refresh it when steering, blockers, or gate progress materially changes.

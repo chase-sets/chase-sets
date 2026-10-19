@@ -22,6 +22,26 @@ const parentageRule = Object.freeze({
   retainWithoutSuccessor: "If no successor is attached to the\n" + "     parent, keep the predecessor's parent link;",
 });
 
+const supersessionRule = Object.freeze({
+  discoveryOpenIssues:
+    "including open issues found by searching the planned outcome terms and predicted footprint paths.",
+  wholeSuccessorSet:
+    "judge coverage over the whole successor set: `full` carries every accepted acceptance criterion, `partial` replaces named criteria only, and `adjacent` shares a theme but triggers no action;",
+  fullDisposition:
+    "for `full`, in the same registration pass close the predecessor as `duplicate` when scope is identical or `not planned` otherwise, with one comment naming the successor set;",
+  partialDisposition:
+    "for `partial`, in the same registration pass remove only the dropped criteria in place, then post one comment naming those criteria and the successor set, and never add `status:needs-replan`; the edited body takes the ordinary readiness check on its new revision before any further dispatch.",
+  productQuestion:
+    "if either class would drop accepted product scope, leave the predecessor unchanged and route one product question to Todd;",
+  repairBoundary:
+    "the `planning-repair/v1` boundary is unchanged: its input is a closed PR, and it is not the supersession route. When the predecessor is already in a planning-repair round, the supersession comment is input to that round, and a `REPLACED` original remains open as `status:tracking-only` until its replacements land. The `full`, `partial` and product-question rules above never apply to an issue's own repair replacements;",
+  orphanedAcceptance:
+    "a closed `not planned` or `duplicate` predecessor is orphaned when at least one issue names it `full` and every such successor is itself closed `not planned`;",
+  filingHome:
+    "every new non-Epic, including host and review follow-ups, gets a home after a duplicate search: a committed milestone, Candidate capabilities, or Operations for machine-generated incidents;",
+  deferredTodd: "use `Deferred / Incubation` only on Todd's explicit deferral;",
+});
+
 function registrationSection(skill) {
   const anchors = [...skill.matchAll(/^7\. \*\*Registration\.\*\*/gm)];
   if (anchors.length !== 1) {
@@ -76,6 +96,26 @@ function registrationContractViolations(skill) {
   return section.indexOf(parentageRule.attachSuccessors) < section.indexOf(parentageRule.detachInSamePass)
     ? []
     : ["attachSuccessorsBeforeDetachment"];
+}
+
+function supersessionContractViolations(skill) {
+  const active = activeMarkdown(skill);
+  const discovery = active.slice(active.indexOf("2. **Discovery.**"), active.indexOf("3. **Decomposition.**"));
+  const registration = registrationSection(active);
+  const normalize = (value) => value.replace(/\s+/g, " ").trim();
+  const searchable = `${normalize(discovery)} ${normalize(registration)}`;
+  return Object.entries(supersessionRule)
+    .filter(([, clause]) => !searchable.includes(normalize(clause)))
+    .map(([requirement]) => requirement);
+}
+
+function removeWhitespaceInsensitive(source, value) {
+  const escaped = value
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("\\s+");
+  return source.replace(new RegExp(escaped), "");
 }
 
 describe("planning decomposition contract", () => {
@@ -139,5 +179,58 @@ describe("planning decomposition contract", () => {
     );
 
     expect(registrationContractViolations(reordered)).toEqual(["attachSuccessorsBeforeDetachment"]);
+  });
+
+  it("requires open-issue discovery and the complete registration disposition contract", () => {
+    const skill = readFileSync(planningSkillPath, "utf8");
+    expect(supersessionContractViolations(skill)).toEqual([]);
+
+    for (const [requirement, clause] of Object.entries(supersessionRule)) {
+      expect(supersessionContractViolations(removeWhitespaceInsensitive(skill, clause))).toContain(requirement);
+    }
+  });
+});
+
+describe("repository routing", () => {
+  const backlogModel = readFileSync(`${repoRoot}/docs/contributing/backlog-model.md`, "utf8");
+  const skills = [".agents", ".claude"].map((root) =>
+    readFileSync(`${repoRoot}/${root}/skills/planning/SKILL.md`, "utf8"),
+  );
+
+  it("states the rule once in the backlog model, before placement", () => {
+    const rule = "### Repository routing\n\nAn issue lives in the repository its change merges into.";
+    expect(occurrenceCount(backlogModel, rule)).toBe(1);
+    expect(backlogModel.indexOf(rule)).toBeLessThan(backlogModel.indexOf("### Agents own placement and priority"));
+    expect(backlogModel).toContain(
+      "- An issue that changes no tracked file lives with the loop whose work it\n  serves.",
+    );
+  });
+
+  it("starts the placement test with the repository", () => {
+    expect(backlogModel).toContain(
+      "Apply this placement test at intake:\n\n1. Identify the repository the change merges into (Repository routing). File\n   the issue there.\n2. Identify the issue's observable acceptance",
+    );
+  });
+
+  it("routes planning intake and registration through the rule in both mirrors", () => {
+    for (const skill of skills) {
+      expect(skill).toContain(
+        "1. **Intake.** Outcome statement, why-now, constraints, the repository each\n   issue's change merges into (`docs/contributing/backlog-model.md`,\n   Repository routing),",
+      );
+      expect(registrationSection(skill)).toContain(
+        "7. **Registration.** Register each issue in the repository its change merges\n   into. A `chase-sets/chase-sets-controller` issue uses the same brief\n   standard and pressure test. Its milestone and release follow that\n   repository's controller-orchestrator skill. Create on GitHub",
+      );
+    }
+  });
+
+  it("states the closure and supersession contract in the backlog model", () => {
+    const normalized = backlogModel.replace(/\s+/g, " ");
+    for (const clause of [
+      "with one comment naming the successor set; each successor names the predecessor in its `### Supersedes` section, and the planner never waits for a successor to land.",
+      "at least one issue names it `full` and every such issue is itself closed `not planned`",
+      "superseding an Epic takes a superseding comment, plus closure when it is `full`.",
+    ]) {
+      expect(normalized).toContain(clause);
+    }
   });
 });

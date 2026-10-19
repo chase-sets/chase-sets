@@ -14,12 +14,16 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type RunnerT
 import {
   bootstrapDbEnrollmentManifest,
   bootstrapDbExecutionUnitBootBearingCaseCeilings,
+  bootstrapDbMeasuredOneFewerUnitFloor,
   bootstrapDbScheduleModel,
   checkBootstrapDbEnrollment as evaluateBootstrapDbEnrollment,
   deriveBootstrapDbCaseIdentities,
+  deriveBootstrapDbMeasuredOneFewerUnitFloor,
   derivePlatformApiDbTestCensus,
+  formatBootstrapDbEnrollmentResult,
   platformApiNonBootstrapDbCensus,
   type BootstrapDbEnrollmentPartition,
+  type BootstrapDbMeasuredOneFewerUnitFloor,
   type BootstrapDbScheduleModel,
   type PlatformApiNonBootstrapDbCensus,
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
@@ -41,6 +45,22 @@ const repositoryRoot = join(testDirectory, "../../..");
 // Historical timing captures remain immutable. The current 68-case capture binds
 // all measured DB sources separately from this retained seed-command regression.
 const seedCommandSourceSha256 = "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356";
+// The measured one-fewer-unit floor's paired captures: 39189188404 measured the
+// shipped three-unit assignment, 39187412107 the same workload on two units.
+// Each artifactDigest is the live `gh api .../actions/artifacts/<id> --jq .digest`
+// probe taken 2026-10-19T05:24:50Z.
+const measuredOneFewerUnitFloorCaptures = Object.freeze({
+  shipped: Object.freeze({
+    fileName: "bootstrap-db-capture-39189188404.json",
+    fixtureSha256: "f3ed1246c7754d1fcbb78ca12ca1e2422eff547ece48b8af5ead63ac9f6e551f",
+    artifactDigest: "sha256:289052208ebb786318edf9430325e680e7e7146683f127a3312d2d74ed328e8c",
+  }),
+  paired: Object.freeze({
+    fileName: "bootstrap-db-capture-39187412107.json",
+    fixtureSha256: "3a3afe4966627e94f7cb08f30fcaf6a55237e0446c5899d1f9804ef3286e047c",
+    artifactDigest: "sha256:1e7f2e2600f819dba1e24a6c4c35c8d59d6e1d672df4980e835786eecf364037",
+  }),
+});
 // Generate fixture code, not an environment read by this non-DB test module.
 const syntheticDatabaseUrlKey = ["TEST", "DATABASE", "URL"].join("_");
 const syntheticDatabaseUrlRead = `process.env.${syntheticDatabaseUrlKey}`;
@@ -521,6 +541,22 @@ function sha256Of(bytes: string | Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+/**
+ * The pinned historical guard predates the measured one-fewer-unit floor. With
+ * no floor declared, the additive schedule fields follow from its result, so
+ * each comparison against it stays complete.
+ */
+function withAbsentMeasuredFloor<T extends { schedule: { minimumUnitCount: number | null } }>(result: T) {
+  return {
+    ...result,
+    schedule: {
+      ...result.schedule,
+      effectiveMinimumUnitCount: result.schedule.minimumUnitCount,
+      measuredOneFewerUnitFloor: { applied: false, reason: "no measured one-fewer-unit floor is declared" },
+    },
+  };
+}
+
 function withBindings(
   baseline: BootstrapDbWorkloadBaseline,
   edit: (bindings: BootstrapDbWorkloadBinding[]) => BootstrapDbWorkloadBinding[],
@@ -671,12 +707,14 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(JSON.parse(JSON.stringify(result))).toEqual(
         JSON.parse(
           JSON.stringify(
-            old.checkBootstrapDbEnrollment({
-              platformApiRoot: fixture.root,
-              manifest: fixture.manifest,
-              executionUnitBootBearingCaseCeilings: fixture.ceilings,
-              scheduleModel: fixture.model,
-            }),
+            withAbsentMeasuredFloor(
+              old.checkBootstrapDbEnrollment({
+                platformApiRoot: fixture.root,
+                manifest: fixture.manifest,
+                executionUnitBootBearingCaseCeilings: fixture.ceilings,
+                scheduleModel: fixture.model,
+              }),
+            ),
           ),
         ),
       );
@@ -701,12 +739,14 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(JSON.parse(JSON.stringify(result))).toEqual(
         JSON.parse(
           JSON.stringify(
-            old.checkBootstrapDbEnrollment({
-              platformApiRoot: fixture.root,
-              manifest: fixture.manifest,
-              executionUnitBootBearingCaseCeilings: fixture.ceilings,
-              scheduleModel: fixture.model,
-            }),
+            withAbsentMeasuredFloor(
+              old.checkBootstrapDbEnrollment({
+                platformApiRoot: fixture.root,
+                manifest: fixture.manifest,
+                executionUnitBootBearingCaseCeilings: fixture.ceilings,
+                scheduleModel: fixture.model,
+              }),
+            ),
           ),
         ),
       );
@@ -875,7 +915,9 @@ describe("Platform API bootstrap DB enrollment", () => {
       "test:db:2 references unmanifested bootstrap DB file 'seed-command-catalog.db.test.ts'",
     ]);
     expect(candidateRepository.violations).toEqual([]);
-    expect(normalize(candidateRepository)).toEqual(normalize({ ...oldRepository, violations: [] }));
+    expect(normalize(candidateRepository)).toEqual(
+      normalize(withAbsentMeasuredFloor({ ...oldRepository, violations: [] })),
+    );
     for (const count of [10, 11, 12, 13]) {
       const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
       const fixture = await createFixture(files, { model: { maximumScheduledFileCount: count === 13 ? 12 : 11 } });
@@ -887,7 +929,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         nonBootstrapCensus: fixture.nonBootstrapCensus,
       };
       expect(normalize(checkBootstrapDbEnrollment(options))).toEqual(
-        normalize(old.checkBootstrapDbEnrollment(options)),
+        normalize(withAbsentMeasuredFloor(old.checkBootstrapDbEnrollment(options))),
       );
       expect(normalize(old.checkBootstrapDbEnrollment(options))).toEqual(
         normalize(uncached.checkBootstrapDbEnrollment(options)),
@@ -2444,6 +2486,12 @@ describe("Platform API bootstrap DB enrollment", () => {
         "bootstrap-db-capture-37888294087.json": "98f7bda29e144e0c42d78ab421a56191846e903c04d9d95668651c3288b0d9d5",
         "bootstrap-db-capture-37916297464.json": "ceeaa00f994bcef118b49f2c773facc807e8622f001d6c9e02cfd4476580a71a",
         ...Object.fromEntries(measuredCaptures.map(({ fileName, fixtureSha256 }) => [fileName, fixtureSha256])),
+        ...Object.fromEntries(
+          Object.values(measuredOneFewerUnitFloorCaptures).map(({ fileName, fixtureSha256 }) => [
+            fileName,
+            fixtureSha256,
+          ]),
+        ),
       });
       expect(currentCaptures).toHaveLength(1);
 
@@ -4669,6 +4717,362 @@ describe("Platform API bootstrap DB enrollment", () => {
       "the schedule model refuses to enumerate 13 files, above its declared bound of 12; " +
         "re-derive the bound deliberately rather than sampling assignments",
     );
+  });
+
+  describe("measured one-fewer-unit floor", () => {
+    type MeasuredCapture = {
+      provenance: Record<string, unknown>;
+      model: BootstrapDbScheduleModel;
+      files: {
+        fileName: string;
+        testPath: string;
+        executionUnit: string;
+        sourceSha256: string;
+        cases: { name: string; identity: string; durationMs: number; referenceDurationMs: number }[];
+      }[];
+      nonBootstrapFiles: { testPath: string; sourceSha256: string }[];
+      sourceBindings: Record<string, string>;
+    };
+    type MeasuredCaptures = { shipped: MeasuredCapture; paired: MeasuredCapture };
+
+    const noFloor = "no measured one-fewer-unit floor is declared";
+    const minimalityViolation =
+      "the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same " +
+      "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate budget";
+    const bootstrapFilesDiffer = "the paired capture's bootstrap files differ from the shipped capture's:";
+
+    function readMeasuredCaptures(): MeasuredCaptures {
+      const read = ({ fileName }: { fileName: string }) =>
+        JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as MeasuredCapture;
+      return {
+        shipped: read(measuredOneFewerUnitFloorCaptures.shipped),
+        paired: read(measuredOneFewerUnitFloorCaptures.paired),
+      };
+    }
+
+    function deriveFrom({ shipped, paired }: MeasuredCaptures) {
+      return deriveBootstrapDbMeasuredOneFewerUnitFloor({ shippedCapture: shipped, pairedCapture: paired });
+    }
+
+    function derivedFloor(): BootstrapDbMeasuredOneFewerUnitFloor {
+      const { floor, refusal } = deriveFrom(readMeasuredCaptures());
+      expect(refusal).toBeNull();
+      return floor!;
+    }
+
+    function refusalAfter(edit: (captures: MeasuredCaptures) => void) {
+      const captures = readMeasuredCaptures();
+      edit(captures);
+      const { floor, refusal } = deriveFrom(captures);
+      expect(floor).toBeNull();
+      return refusal;
+    }
+
+    function fileOf(capture: MeasuredCapture, fileName: string) {
+      const file = capture.files.find((entry) => entry.fileName === fileName);
+      expect(file, fileName).toBeDefined();
+      return file!;
+    }
+
+    /** Capture 39189188404's measured workload, optionally reassigned, with synthetic bodies. */
+    function shippedCaptureFiles(reassigned: Readonly<Record<string, string>> = {}): FixtureFile[] {
+      return readMeasuredCaptures().shipped.files.map((file) => ({
+        ...bootstrapDbEnrollmentManifest[file.fileName]!,
+        fileName: file.fileName,
+        executionUnit: reassigned[file.fileName] ?? file.executionUnit,
+        cases: file.cases.map((testCase, index) => ({ ...testCase, body: `  expect(${index}).toBe(${index});` })),
+      }));
+    }
+
+    /** That workload under the capture's own model and run. */
+    async function shippedCaptureFixture(reassigned: Readonly<Record<string, string>> = {}): Promise<Fixture> {
+      const { shipped } = readMeasuredCaptures();
+      const fixture = await createShippedFixture(shippedCaptureFiles(reassigned), { model: shipped.model });
+      const { referenceRunId, referenceJobId } = shipped.model;
+      return { ...fixture, model: shipped.model, nonBootstrapCensus: { referenceRunId, referenceJobId, entries: {} } };
+    }
+
+    function runWithFloor(fixture: Fixture, measuredOneFewerUnitFloor: BootstrapDbMeasuredOneFewerUnitFloor | null) {
+      return checkBootstrapDbEnrollment({
+        platformApiRoot: fixture.root,
+        manifest: fixture.manifest,
+        executionUnitBootBearingCaseCeilings: fixture.ceilings,
+        scheduleModel: fixture.model,
+        nonBootstrapCensus: fixture.nonBootstrapCensus,
+        measuredOneFewerUnitFloor,
+      });
+    }
+
+    /** A floor that does not apply leaves every violation byte-identical to a floor-absent run. */
+    function expectNotApplied(fixture: Fixture, floor: BootstrapDbMeasuredOneFewerUnitFloor, reason: string) {
+      const result = runWithFloor(fixture, floor);
+      const absent = runWithFloor(fixture, null);
+      expect(result.schedule.measuredOneFewerUnitFloor).toEqual({ applied: false, reason });
+      expect(result.schedule.effectiveMinimumUnitCount).toBe(result.schedule.minimumUnitCount);
+      expect(result.violations).toEqual(absent.violations);
+      return result;
+    }
+
+    it("T1: lets the paired over-ceiling two-unit capture set the measured three-unit topology's effective minimum", async () => {
+      const floor = derivedFloor();
+      expect(floor).toEqual({
+        shippedReferenceRunId: 39189188404,
+        pairedReferenceRunId: 39187412107,
+        pairedReferenceJobId: 117852640066,
+        pairedArtifactSha256: "1e7f2e2600f819dba1e24a6c4c35c8d59d6e1d672df4980e835786eecf364037",
+        unitCount: 2,
+        assignment: Object.fromEntries(
+          readMeasuredCaptures().paired.files.map((file) => [file.fileName, file.executionUnit]),
+        ),
+        unitMakespansMs: { "test:db:1": 411071, "test:db:2": 460544 },
+      });
+      expect([floor, floor.assignment, floor.unitMakespansMs].every((value) => Object.isFrozen(value))).toBe(true);
+
+      const fixture = await shippedCaptureFixture();
+      for (const absent of [runFixture(fixture), runWithFloor(fixture, null)]) {
+        expect(absent.violations).toEqual([minimalityViolation]);
+        expect(absent.schedule).toMatchObject({
+          minimumUnitCount: 2,
+          effectiveMinimumUnitCount: 2,
+          measuredOneFewerUnitFloor: { applied: false, reason: noFloor },
+        });
+      }
+
+      const applied =
+        "measured capture run 39187412107 projects test:db:2 at 460544ms, above the 420000ms per-unit ceiling, at 2 units";
+      const result = runWithFloor(fixture, floor);
+      expect(result.violations).toEqual([]);
+      expect(result.schedule.units.map((unit) => unit.makespanMs)).toEqual([281848, 222020, 205908]);
+      expect(result.schedule).toMatchObject({
+        observedUnitCount: 3,
+        minimumUnitCount: 2,
+        effectiveMinimumUnitCount: 3,
+        measuredOneFewerUnitFloor: { applied: true, reason: applied },
+      });
+      expect(formatBootstrapDbEnrollmentResult(result).split("\n")).toContain(
+        `  measured one-fewer-unit floor applied: ${applied}; effectiveMinimumUnitCount 3`,
+      );
+    });
+
+    it.each<[string, (captures: MeasuredCaptures) => void, string]>([
+      [
+        "a bootstrap file's sourceSha256",
+        ({ paired }) => (fileOf(paired, "bootstrap-scenario.db.test.ts").sourceSha256 = "0".repeat(64)),
+        `${bootstrapFilesDiffer} bootstrap-scenario.db.test.ts has a different sourceSha256`,
+      ],
+      [
+        "a bootstrap file's testPath",
+        ({ paired }) => (fileOf(paired, "bootstrap-scenario.db.test.ts").testPath = "__tests__/moved.db.test.ts"),
+        `${bootstrapFilesDiffer} bootstrap-scenario.db.test.ts has a different testPath`,
+      ],
+      [
+        "one case identity",
+        ({ paired }) => (fileOf(paired, "bootstrap-scenario.db.test.ts").cases[1]!.identity = "0".repeat(16)),
+        `${bootstrapFilesDiffer} bootstrap-scenario.db.test.ts has different ordered case names or identities`,
+      ],
+      [
+        "the case order",
+        ({ paired }) => fileOf(paired, "bootstrap-scenario.db.test.ts").cases.reverse(),
+        `${bootstrapFilesDiffer} bootstrap-scenario.db.test.ts has different ordered case names or identities`,
+      ],
+      [
+        "a missing bootstrap file",
+        ({ paired }) =>
+          (paired.files = paired.files.filter((file) => file.fileName !== "bootstrap-scenario.db.test.ts")),
+        `${bootstrapFilesDiffer} bootstrap-scenario.db.test.ts is missing from the paired capture`,
+      ],
+      [
+        "an extra bootstrap file",
+        ({ shipped }) =>
+          (shipped.files = shipped.files.filter((file) => file.fileName !== "bootstrap-scenario.db.test.ts")),
+        `${bootstrapFilesDiffer} bootstrap-scenario.db.test.ts is not in the shipped capture`,
+      ],
+      [
+        "more bootstrap files than its model may schedule",
+        ({ paired }) => paired.files.push({ ...paired.files[0]!, fileName: "synthetic-extra.db.test.ts" }),
+        "the paired capture is malformed: it measures 13 bootstrap files, outside 1 to 12",
+      ],
+      [
+        "a non-bootstrap file's sourceSha256",
+        ({ paired }) => (paired.nonBootstrapFiles[5]!.sourceSha256 = "0".repeat(64)),
+        "the paired capture's nonBootstrapFiles differ from the shipped capture's at __tests__/seed-command-catalog.db.test.ts",
+      ],
+      [
+        "a sourceBindings digest",
+        ({ paired }) =>
+          (paired.sourceBindings["bounded-contexts/catalog/features/product-measures/api/runtime.ts"] = "0".repeat(64)),
+        "the paired capture's sourceBindings differ from the shipped capture's at " +
+          "bounded-contexts/catalog/features/product-measures/api/runtime.ts",
+      ],
+      ...[
+        "node",
+        "pnpm",
+        "vitest",
+        "imageOS",
+        "imageVersion",
+        "postgresImageDigests",
+        "maxWorkers",
+        "workspaceConcurrency",
+        "laneMode",
+        "modeledUnitCeilingMs",
+        "modeledAggregateCeilingMs",
+      ].map((field): [string, (captures: MeasuredCaptures) => void, string] => [
+        `provenance ${field}`,
+        ({ paired }) => (paired.provenance[field] = { changed: paired.provenance[field] }),
+        `the paired capture's provenance ${field} differs from the shipped capture's`,
+      ]),
+      ...(
+        [
+          ["executionUnitCeilingMs", 419_999],
+          ["aggregateCeilingMs", 1_079_999],
+          ["maxWorkersPerExecutionUnit", 2],
+        ] as const
+      ).map(([field, value]): [string, (captures: MeasuredCaptures) => void, string] => [
+        `model ${field}`,
+        ({ paired }) => (paired.model = { ...paired.model, [field]: value }),
+        `the paired capture's model ${field} differs from the shipped capture's`,
+      ]),
+    ])("T2: refuses a paired capture that changes %s", (_name, edit, refusal) => {
+      expect(refusalAfter(edit)).toBe(refusal);
+    });
+
+    it("T2: does not apply a floor bound to another reference run or another file set", async () => {
+      const floor = derivedFloor();
+      const fixture = await shippedCaptureFixture();
+      // createShippedFixture's model carries unmistakably synthetic provenance.
+      const synthetic = await createShippedFixture(shippedShapedFiles(), { model: acceptedTimingInputs() });
+      expectNotApplied(
+        synthetic,
+        floor,
+        `the measured one-fewer-unit floor binds shipped reference run 39189188404, not the schedule model's ${synthetic.model.referenceRunId}`,
+      );
+      const [dropped, ...kept] = Object.entries(floor.assignment);
+      const coverage = "the measured one-fewer-unit floor assignment does not cover exactly the manifested files";
+      expectNotApplied(fixture, { ...floor, assignment: Object.fromEntries(kept) }, coverage);
+      expectNotApplied(
+        fixture,
+        { ...floor, assignment: { ...floor.assignment, "synthetic-extra.db.test.ts": dropped![1] } },
+        coverage,
+      );
+      expect(expectNotApplied(fixture, { ...floor, assignment: {} }, coverage).violations).toEqual([
+        minimalityViolation,
+      ]);
+    });
+
+    it("T3: refuses a paired capture whose projection stays within the ceiling and ignores such a floor", async () => {
+      expect(
+        refusalAfter(({ paired }) => {
+          for (const testCase of paired.files.flatMap((file) => file.cases)) testCase.durationMs /= 2;
+        }),
+      ).toBe("the paired capture's 2-unit projection peaks at 238311ms, within the 420000ms per-unit ceiling");
+      const floor = derivedFloor();
+      expectNotApplied(
+        await shippedCaptureFixture(),
+        { ...floor, unitMakespansMs: { "test:db:1": 420_000, "test:db:2": 420_000 } },
+        "no unit of the measured one-fewer-unit floor exceeds the 420000ms per-unit ceiling",
+      );
+    });
+
+    it("T4: refuses a paired capture that measures the shipped unit count or two fewer, and ignores such a floor", async () => {
+      expect(
+        refusalAfter(({ paired }) => {
+          for (const file of paired.files) file.executionUnit = "test:db:1";
+        }),
+      ).toBe("the paired capture measures 1 execution unit(s), not one fewer than the shipped capture's 3");
+      expect(
+        refusalAfter(({ paired }) => (fileOf(paired, "bootstrap-scenario.db.test.ts").executionUnit = "test:db:3")),
+      ).toBe("the paired capture measures 3 execution unit(s), not one fewer than the shipped capture's 3");
+
+      const floor = derivedFloor();
+      const fixture = await shippedCaptureFixture();
+      const threeUnits = { ...floor.assignment, "bootstrap-scenario.db.test.ts": "test:db:3" as const };
+      expectNotApplied(
+        fixture,
+        { ...floor, assignment: threeUnits },
+        "the measured one-fewer-unit floor assignment spans 3 unit(s), not its declared 2",
+      );
+      expectNotApplied(
+        fixture,
+        { ...floor, assignment: threeUnits, unitCount: 3 },
+        "the measured one-fewer-unit floor measures 3 unit(s), not one fewer than the 3 observed",
+      );
+    });
+
+    it("T5: keeps both violations when the shipped schedule itself exceeds the per-unit ceiling", async () => {
+      const reassigned = { "catalog-seed-aggregate-state.db.test.ts": "test:db:1" };
+      expect(
+        refusalAfter(
+          ({ shipped }) => (fileOf(shipped, "catalog-seed-aggregate-state.db.test.ts").executionUnit = "test:db:1"),
+        ),
+      ).toBe(
+        "the shipped capture's own 3-unit projection exceeds the 420000ms per-unit ceiling or the 1080000ms aggregate",
+      );
+      const result = expectNotApplied(
+        await shippedCaptureFixture(reassigned),
+        derivedFloor(),
+        "the shipped schedule exceeds the per-unit ceiling or the aggregate, so the measured one-fewer-unit floor is not applied",
+      );
+      expect(result.violations).toEqual([
+        "test:db:1 has a projected makespan of 433566ms, exceeding the 420000ms per-unit ceiling",
+        minimalityViolation,
+      ]);
+    });
+
+    it.each<[string, Partial<BootstrapDbScheduleModel>, string, string]>([
+      [
+        "an aggregate violation",
+        { aggregateCeilingMs: 762_156 },
+        "the shipped schedule exceeds the per-unit ceiling or the aggregate, so the measured one-fewer-unit floor is not applied",
+        "the projected aggregate of 709776ms across 3 execution units plus the 52381ms job overhead is 762157ms, " +
+          "exceeding the 762156ms aggregate ceiling",
+      ],
+      [
+        "a schedule-model refusal",
+        { maximumScheduledFileCount: 11 },
+        "the schedule model refused, so the measured one-fewer-unit floor is not applied",
+        "the schedule model refuses to enumerate 12 files, above its declared bound of 11; " +
+          "re-derive the bound deliberately rather than sampling assignments",
+      ],
+    ])("T5: does not apply an unmistakably synthetic floor over %s", async (_name, model, reason, violation) => {
+      const { shipped, paired } = readMeasuredCaptures();
+      const base = await createShippedFixture(shippedCaptureFiles(), { model: shipped.model });
+      const fixture = { ...base, model: { ...base.model, ...model } };
+      const syntheticFloor: BootstrapDbMeasuredOneFewerUnitFloor = {
+        shippedReferenceRunId: fixture.model.referenceRunId,
+        pairedReferenceRunId: 65_440_005,
+        pairedReferenceJobId: 65_440_006,
+        pairedArtifactSha256: "6544".padEnd(64, "0"),
+        unitCount: 2,
+        assignment: Object.fromEntries(
+          paired.files.map((file) => [file.fileName, file.executionUnit as `test:db:${number}`]),
+        ),
+        unitMakespansMs: { "test:db:1": 420_001, "test:db:2": 1 },
+      };
+      expect(fixture.model).toMatchObject(syntheticScheduleModelProvenance);
+      expect(expectNotApplied(fixture, syntheticFloor, reason).violations).toContain(violation);
+    });
+
+    it("T6: keeps main's default path with no declared floor and an effective minimum of 3", () => {
+      expect(bootstrapDbMeasuredOneFewerUnitFloor).toBeNull();
+      const result = checkBootstrapDbEnrollment();
+      expect(result.violations).toEqual([]);
+      expect(result.schedule).toMatchObject({
+        observedUnitCount: 3,
+        minimumUnitCount: 3,
+        effectiveMinimumUnitCount: 3,
+        measuredOneFewerUnitFloor: { applied: false, reason: noFloor },
+      });
+      expect(formatBootstrapDbEnrollmentResult(result)).not.toContain("measured one-fewer-unit floor");
+    });
+
+    it("T7: pins both paired capture fixtures to their bytes and their live artifact digests", () => {
+      for (const { fileName, fixtureSha256, artifactDigest } of Object.values(measuredOneFewerUnitFloorCaptures)) {
+        const bytes = readFileSync(join(testDirectory, "fixtures", fileName));
+        expect(sha256Of(bytes), fileName).toBe(fixtureSha256);
+        const { provenance } = JSON.parse(bytes.toString("utf8")) as { provenance: { artifactSha256: string } };
+        expect(`sha256:${provenance.artifactSha256}`, fileName).toBe(artifactDigest);
+      }
+    });
   });
 });
 

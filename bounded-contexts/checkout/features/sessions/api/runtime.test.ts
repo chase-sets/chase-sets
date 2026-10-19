@@ -5,6 +5,7 @@ import {
   type CheckoutSessionEvent,
   type CheckoutSessionState,
 } from "../domain/domain";
+import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -3215,5 +3216,200 @@ describe("checkout session post-claim source authority", () => {
     // authority read is never reached and the existing path is unchanged.
     expect(resolveCartSourceAuthority).not.toHaveBeenCalled();
     resolveCartSourceAuthority.mockRestore();
+  });
+});
+
+describe("checkout session last recorded quote", () => {
+  const quote = (revision: string, totalAmount: string): CheckoutFulfillmentPreview => ({
+    revision,
+    optimizationGoal: "lowest-total",
+    readyLineKeys: ["lst_1"],
+    unavailableLineKeys: [],
+    sellerGroups: [],
+    totals: {
+      itemSubtotalAmount: "25.00",
+      shippingAmount: "4.00",
+      salesTaxAmount: "0.00",
+      totalAmount,
+      packageCount: 1,
+    },
+    unavailableLines: [],
+    materialChangeReasons: [],
+  });
+  const q1 = quote("rev_q1", "29.00");
+  const recordedSessionId = "chk_recorded_quote";
+  // A stream as current code writes it: start with Q1, address set, cancel. No
+  // payload carries a retained-quote field; the value is derived on load.
+  const recordedStream = [
+    {
+      type: "checkout.session.started",
+      data: {
+        sessionId: recordedSessionId as never,
+        buyerAccountId: "acc_buyer" as never,
+        sourceType: "buy-now",
+        optimizationGoal: "lowest-total",
+        fulfillmentPreviewRevision: "rev_q1",
+        fulfillmentPreviewSnapshot: q1,
+        cartReadinessSnapshot: null,
+        presentedAnonymousCartId: null,
+        splitGroupHandoff: null,
+        shippingOption: "standard",
+        lines: [
+          {
+            listingId: "lst_1",
+            cartLineId: null,
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+            fulfillmentMode: "locked-listing",
+            lockedListingId: "lst_1",
+            sellerPreferenceId: null,
+            availabilityState: "available",
+          },
+        ],
+        handoffExpiresAt: "2026-10-16T06:00:00.000Z",
+        createdAt: "2026-10-16T00:00:00.000Z",
+      },
+    },
+    {
+      type: "checkout.session.shipping-address-set",
+      data: {
+        sessionId: recordedSessionId as never,
+        shippingAddress: serviceableShippingAddress,
+        selectedAt: "2026-10-16T00:01:00.000Z",
+      },
+    },
+    {
+      type: "checkout.session.cancelled",
+      data: {
+        sessionId: recordedSessionId as never,
+        cancelledAt: "2026-10-16T00:02:00.000Z",
+        releasedReservationIds: [],
+      },
+    },
+  ] satisfies CheckoutSessionEvent[];
+
+  async function runtimeWithRecordedStream() {
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: `checkout.session-${recordedSessionId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: recordedStream.map((event) => ({ eventType: event.type, payload: event.data as never })),
+    });
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart: createCartServices() as never,
+    });
+    return { db, services };
+  }
+
+  it("reads the retained quote from existing streams", async () => {
+    const { db, services } = await runtimeWithRecordedStream();
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-16T00:03:00.000Z"));
+      await expect(services.getLastRecordedQuote(recordedSessionId, "acc_buyer")).resolves.toEqual(q1);
+      vi.setSystemTime(new Date("2026-10-16T06:00:01.000Z"));
+      await expect(services.getLastRecordedQuote(recordedSessionId, "acc_buyer")).resolves.toEqual(q1);
+      vi.setSystemTime(new Date("2026-10-17T06:00:01.000Z"));
+      await expect(services.getLastRecordedQuote(recordedSessionId, "acc_buyer")).resolves.toEqual(q1);
+    } finally {
+      vi.useRealTimers();
+    }
+    // Aggregate-derived: no read-model row or column is consulted.
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("returns null for another buyer's or an unknown session, matching getSession", async () => {
+    const { services } = await runtimeWithRecordedStream();
+    for (const [sessionId, accountId] of [
+      [recordedSessionId, "acc_other"],
+      ["chk_unknown", "acc_buyer"],
+    ] as const) {
+      await expect(services.getLastRecordedQuote(sessionId, accountId)).resolves.toBeNull();
+      await expect(services.getSession(sessionId, accountId)).resolves.toBeNull();
+    }
+  });
+
+  it("retains the quote recorded by each session writer and returns null when never quoted", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn(async (sql: string) => ({
+          rows: sql.includes("checkout_catalog_items")
+            ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null }]
+            : [],
+        })),
+      },
+      cart: createCartServices() as never,
+    });
+    const accountId = "acc_buyer" as never;
+    const item = {
+      accountId,
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+    };
+    const buyNow = {
+      ...item,
+      listingId: "lst_1",
+      fulfillmentPreviewRevision: "rev_q1",
+      fulfillmentPreviewSnapshot: q1,
+    };
+
+    const cancelled = await services.createBuyNow(buyNow, context);
+    await services.setShippingAddress(
+      { sessionId: cancelled.sessionId, accountId, shippingAddress: serviceableShippingAddress },
+      context,
+    );
+    await services.cancelSession({ sessionId: cancelled.sessionId, accountId }, context);
+    await expect(services.getLastRecordedQuote(cancelled.sessionId, accountId)).resolves.toEqual(q1);
+
+    // prepareBuyNowCheckout records a replacement preview on the session it was handed.
+    const q2 = quote("rev_q2", "31.00");
+    const replaced = await services.createBuyNow(buyNow, context);
+    await services.recordFulfillmentPreview(
+      {
+        sessionId: replaced.sessionId,
+        accountId,
+        fulfillmentPreviewRevision: "rev_q2",
+        fulfillmentPreviewSnapshot: q2,
+      },
+      context,
+    );
+    await expect(services.getLastRecordedQuote(replaced.sessionId, accountId)).resolves.toEqual(q2);
+
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const cart = await services.createFromCart(
+      { accountId, readinessSnapshotId: readiness.snapshotId, readinessSourceRevision: readiness.sourceRevision },
+      context,
+    );
+    await expect(services.getLastRecordedQuote(cart.sessionId, accountId)).resolves.toBeNull();
+    const q3 = quote("rev_q3", "33.00");
+    await services.recordFulfillmentPreview(
+      { sessionId: cart.sessionId, accountId, fulfillmentPreviewRevision: "rev_q3", fulfillmentPreviewSnapshot: q3 },
+      context,
+    );
+    await expect(services.getLastRecordedQuote(cart.sessionId, accountId)).resolves.toEqual(q3);
+
+    const offer = await services.createOfferIntent(
+      { ...item, offerPriceAmount: "20.00", offerPriceCurrencyCode: "USD" },
+      context,
+    );
+    await expect(services.getLastRecordedQuote(offer.sessionId, accountId)).resolves.toBeNull();
   });
 });
