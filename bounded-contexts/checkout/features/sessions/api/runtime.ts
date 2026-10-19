@@ -262,6 +262,8 @@ export type CheckoutSessionServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
+  /** The buyer's session's last recorded quote, read from its stream; null when unknown or never quoted. */
+  getLastRecordedQuote: (sessionId: string, accountId: string) => Promise<CheckoutFulfillmentPreview | null>;
   getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
   getPaymentConfirmation: (sessionId: string, accountId: string) => Promise<CheckoutPaymentConfirmation | null>;
   listSavedPaymentInstruments: (accountId: AccountId) => Promise<CheckoutSavedPaymentInstrumentRow[]>;
@@ -1260,6 +1262,8 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
 
       return session;
     },
+    getLastRecordedQuote: async (sessionId, accountId) =>
+      (await loadSessionStateForBuyerOrNull(sessionId, accountId))?.lastRecordedQuote ?? null,
     getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
     getPaymentConfirmation: async (sessionId, accountId) => {
       const payment = await getCheckoutPaymentConfirmationProjection(deps.db, sessionId, accountId);
