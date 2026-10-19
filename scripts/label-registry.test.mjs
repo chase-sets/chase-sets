@@ -127,12 +127,12 @@ function discoverLabelCharter() {
 }
 
 describe("canonical label registry schema and partition", () => {
-  it("records the implementation-head 82-label total as one valid total partition", () => {
-    expect(LABEL_REGISTRY).toHaveLength(82);
-    expect(new Set(LABEL_REGISTRY.map((entry) => entry.name)).size).toBe(82);
+  it("records the implementation-head 81-label total as one valid total partition", () => {
+    expect(LABEL_REGISTRY).toHaveLength(81);
+    expect(new Set(LABEL_REGISTRY.map((entry) => entry.name)).size).toBe(81);
     expect(validateLabelRegistry()).toEqual([]);
     expect(LABEL_REGISTRY.every((entry) => ["canonical", "grandfathered-frozen"].includes(entry.status))).toBe(true);
-    expect(LABEL_REGISTRY.filter((entry) => entry.status === "canonical")).toHaveLength(47);
+    expect(LABEL_REGISTRY.filter((entry) => entry.status === "canonical")).toHaveLength(46);
     expect(LABEL_REGISTRY.filter((entry) => entry.status === "grandfathered-frozen")).toHaveLength(35);
   });
 
@@ -141,6 +141,13 @@ describe("canonical label registry schema and partition", () => {
 
     expect(result.ok).toBe(false);
     expect(result.failures).toContain("LABEL_UNREGISTERED: invented:drift is live but absent from the registry.");
+  });
+
+  it("rejects the retired Epic label when it appears in the live inventory", () => {
+    const result = auditLabelInventory([...LABEL_REGISTRY.map((entry) => entry.name), "kind:epic"]);
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain("LABEL_UNREGISTERED: kind:epic is live but absent from the registry.");
   });
 
   it("accepts an exact frozen banned-family label", () => {
@@ -352,7 +359,8 @@ describe("registry-bound repository vocabulary surfaces", () => {
       expect(ENABLED_NATIVE_ISSUE_TYPES).toContain(byName[name].type);
     }
     expect(byName.Epic.labels ?? []).not.toContain("kind:epic");
-    expect(canonicalLabelNames("kind")).toContain("kind:epic");
+    expect(canonicalLabelNames("kind")).not.toContain("kind:epic");
+    expect(sliceFormValues("kind")).toEqual(["product", "tech-debt", "security", "test", "ops"]);
     expect(byName.Decision.labels).toEqual(["decision"]);
   });
 
@@ -438,7 +446,7 @@ describe("scheduled enforcing audit boundary", () => {
     expect(logger.errors).toEqual([]);
     expect(logger.warnings).toEqual([]);
     expect(logger.logs).toContain(
-      "Label inventory scanned: 82/82 across 1 REST page(s); independent GraphQL total reconciled.",
+      "Label inventory scanned: 81/81 across 1 REST page(s); independent GraphQL total reconciled.",
     );
     expect(logger.logs).toContain("Label registry enforcement passed: every live label is partitioned.");
     expect(logger.logs).toContain(
