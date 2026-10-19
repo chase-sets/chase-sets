@@ -390,6 +390,18 @@ const credentialHealthDelta = [
     purpose: "credential-rotation",
   })),
 ];
+// #9800 reviewed delta: the protected Collections anonymous-owner redaction runner's database boundary grants.
+const collectionsAnonymousOwnerRedactionDelta = [
+  "DIGITALOCEAN_ACCESS_TOKEN",
+  "SPACES_ACCESS_ID",
+  "SPACES_SECRET_KEY",
+].map((secretName) => ({
+  file: ".github/workflows/collections-anonymous-owner-redaction.yml",
+  jobId: "cutover",
+  stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+  secretName,
+  purpose: "managed-postgres-boundary",
+}));
 // #9721 reviewed removal: the retired mandate verifier's URL, auth-token and timeout grants at its five forwarding
 // sinks, plus #9876's six retired TCGplayer cookie grants, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
 // the issue's literal sweep stays exact; parity below binds each index to the generated manifest and source fragments.
@@ -610,9 +622,10 @@ describe("managed Postgres authority source generator", () => {
         ...catalogCountLifecycleDelta,
         ...previewPoolCensusDelta,
         ...credentialHealthDelta,
+        ...collectionsAnonymousOwnerRedactionDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1649);
+    expect(expected.grants).toHaveLength(1652);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
