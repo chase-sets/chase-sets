@@ -4,6 +4,10 @@ const OUTCOME_MARKER_START = /<!--\s*outcome\s*:/gi;
 const OUTCOME_MARKER = /<!--\s*outcome\s*:\s*([\s\S]*?)\s*-->/gi;
 const OUTCOME_KEYS = ["order", "status", "track", "version"];
 const TRACK = /^[a-z][a-z0-9-]*$/;
+const STEERING_MARKER_START = /<!--\s*steering\s*:/gi;
+const STEERING_MARKER = /<!--\s*steering\s*:\s*([\s\S]*?)\s*-->/gi;
+const STEERING_KEYS = ["source", "until", "version"];
+const STEERING_SOURCE = /^https:\/\/github\.com\/chase-sets\/chase-sets\/issues\/\d+#issuecomment-\d+$/;
 
 export class MilestonePolicyError extends Error {
   constructor(code, details = {}) {
@@ -69,6 +73,44 @@ export function readOutcomePolicy(milestone) {
     status: metadata.status,
     source: "description",
   });
+}
+
+/**
+ * Reads Todd's current steering override from a milestone description.
+ */
+export function readSteeringPolicy(milestone) {
+  const description = milestone?.description;
+  if (description !== null && description !== undefined && typeof description !== "string") {
+    fail("STEERING_DESCRIPTION_INVALID", milestone);
+  }
+  const text = description ?? "";
+  const starts = [...text.matchAll(STEERING_MARKER_START)];
+  if (starts.length === 0) return null;
+  if (starts.length > 1) fail("STEERING_METADATA_DUPLICATE", milestone);
+
+  const matches = [...text.matchAll(STEERING_MARKER)];
+  if (matches.length !== 1) fail("STEERING_METADATA_MALFORMED", milestone);
+  let metadata;
+  try {
+    metadata = JSON.parse(matches[0][1]);
+  } catch {
+    fail("STEERING_METADATA_MALFORMED", milestone);
+  }
+  if (
+    metadata === null ||
+    typeof metadata !== "object" ||
+    Array.isArray(metadata) ||
+    Object.keys(metadata).sort().join("\0") !== STEERING_KEYS.join("\0") ||
+    metadata.version !== 1 ||
+    typeof metadata.source !== "string" ||
+    !STEERING_SOURCE.test(metadata.source) ||
+    typeof metadata.until !== "string" ||
+    metadata.until.length === 0 ||
+    metadata.until.length > 500
+  ) {
+    fail("STEERING_METADATA_INVALID", milestone);
+  }
+  return Object.freeze({ version: metadata.version, source: metadata.source, until: metadata.until });
 }
 
 export function compareOutcomeMilestones(left, right) {
