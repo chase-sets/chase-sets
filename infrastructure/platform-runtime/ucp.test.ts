@@ -438,7 +438,7 @@ describe("UCP profile routes", () => {
   );
 
   it.each(ACCESSOR_PLACEMENTS)(
-    "rethrows the accessor error Node raises while reading a %s business key member (synthetic)",
+    "rethrows the accessor error Node raises while reading the business key's %s member (synthetic)",
     (placement) => {
       const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
       const accessorError = new Error("synthetic private member read");
@@ -864,17 +864,24 @@ describe("UCP REST routes", () => {
     },
   );
 
+  // Node reads only the members of a key's own family, so a public-only import never reads these;
+  // Node 24.21 reads `d` even for a public import, so a private member would not stay unread.
+  const foreignFamilyMember = { RSA: "x", "EC P-256": "n", Ed25519: "n" } as const satisfies Record<
+    (typeof signatureKeyFamilies)[number]["family"],
+    keyof JsonWebKey
+  >;
+
   it.each(
     signatureKeyFamilies.flatMap((keyFamily) => ACCESSOR_PLACEMENTS.map((placement) => ({ ...keyFamily, placement }))),
   )(
-    "verifies $family signatures when the resolver JWK's unread private member is a throwing $placement accessor (synthetic)",
-    async ({ generate, placement }) => {
+    "verifies $family signatures when the resolver JWK's member of another key family is a throwing $placement accessor (synthetic)",
+    async ({ family, generate, placement }) => {
       const { privateKey, publicKey } = generate();
       const resolvedJwk = jwkWithThrowingAccessor(
         publicKey.export({ format: "jwk" }),
-        "d",
+        foreignFamilyMember[family],
         placement,
-        new Error("synthetic unread private member"),
+        new Error("synthetic member of another key family"),
       );
       expect(() => createPublicKey({ key: resolvedJwk, format: "jwk" })).not.toThrow();
 
@@ -886,7 +893,7 @@ describe("UCP REST routes", () => {
   );
 
   it.each(ACCESSOR_PLACEMENTS)(
-    "reports the accessor error Node raises while reading a %s resolver JWK member (synthetic)",
+    "reports the accessor error Node raises while reading the resolver JWK's %s member (synthetic)",
     async (placement) => {
       const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
       const accessorError = new Error("synthetic public member read");
