@@ -1518,7 +1518,31 @@ function bootBearingCaseCount(partition) {
  * deriveBootstrapDbMeasuredOneFewerUnitFloor over two committed captures, which
  * the Unit test binds to those captures.
  */
-export const bootstrapDbMeasuredOneFewerUnitFloor = null;
+export const bootstrapDbMeasuredOneFewerUnitFloor = Object.freeze({
+  shippedReferenceRunId: 39189188404,
+  pairedReferenceRunId: 39187412107,
+  pairedReferenceJobId: 117852640066,
+  pairedArtifactSha256: "1e7f2e2600f819dba1e24a6c4c35c8d59d6e1d672df4980e835786eecf364037",
+  unitCount: 2,
+  assignment: Object.freeze({
+    "authoritative-seed-resume-core.db.test.ts": "test:db:1",
+    "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
+    "bootstrap-lock-contention.db.test.ts": "test:db:1",
+    "seed-command-full-pools.db.test.ts": "test:db:1",
+    "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
+    "connector-mount-gate-isolation.db.test.ts": "test:db:2",
+    "bootstrap-scenario.db.test.ts": "test:db:2",
+    "inventory-seed-resume.db.test.ts": "test:db:2",
+    "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
+    "bootstrap-shared-seed-command.db.test.ts": "test:db:2",
+    "authoritative-seed-resume-recovery.db.test.ts": "test:db:2",
+    "catalog-seed-interruption-resume.db.test.ts": "test:db:2",
+  }),
+  unitMakespansMs: Object.freeze({
+    "test:db:1": 411071,
+    "test:db:2": 460544,
+  }),
+});
 
 const measuredFloorProvenanceFields = Object.freeze([
   "node",
