@@ -4,14 +4,6 @@
     "reason": "Event replay removes the exact aggregate-projected dismissal without a row-state decision."
   },
   {
-    "id": "bounded-contexts/auth/support/auth-support/identity-projection.ts:367:DELETE:auth_identity_user_emails",
-    "reason": "DELETE at bounded-contexts/auth/support/auth-support/identity-projection.ts:367 directly synchronizes auth_identity_user_emails from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/auth/support/auth-support/identity-projection.ts:398:DELETE:auth_identity_user_phones",
-    "reason": "DELETE at bounded-contexts/auth/support/auth-support/identity-projection.ts:398 directly synchronizes auth_identity_user_phones from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/authenticity/features/cases/read-model/projection.ts:60:UPDATE:authenticity_cases",
     "reason": "UPDATE at bounded-contexts/authenticity/features/cases/read-model/projection.ts:60 directly synchronizes authenticity_cases from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -34,10 +26,6 @@
   {
     "id": "bounded-contexts/authenticity/features/cases/read-model/projection.ts:157:UPDATE:authenticity_cases",
     "reason": "UPDATE at bounded-contexts/authenticity/features/cases/read-model/projection.ts:157 directly synchronizes authenticity_cases from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/catalog/features/blueprints/read-model/admin-projection.ts:41:DELETE:catalog_admin_blueprint_detail_pages",
-    "reason": "DELETE at bounded-contexts/catalog/features/blueprints/read-model/admin-projection.ts:41 directly synchronizes catalog_admin_blueprint_detail_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts:47:UPDATE:catalog_blueprints",
@@ -162,10 +150,6 @@
   {
     "id": "bounded-contexts/catalog/features/categories/read-model/projection.ts:92:UPDATE:catalog_categories",
     "reason": "UPDATE at bounded-contexts/catalog/features/categories/read-model/projection.ts:92 directly synchronizes catalog_categories from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/catalog/features/components/read-model/admin-projection.ts:37:DELETE:catalog_admin_component_detail_pages",
-    "reason": "DELETE at bounded-contexts/catalog/features/components/read-model/admin-projection.ts:37 directly synchronizes catalog_admin_component_detail_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/catalog/features/components/read-model/projection.ts:41:UPDATE:catalog_components",
@@ -344,30 +328,6 @@
     "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/projection.ts:316 directly synchronizes catalog_source_observation_payload_assemblies from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/catalog/features/source-observations/read-model/schema.ts:103:UPDATE:catalog_provider_option_query_cache",
-    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/schema.ts:103 directly synchronizes catalog_provider_option_query_cache from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/catalog/features/source-observations/read-model/schema.ts:144:DELETE:catalog_merge_candidate_observations",
-    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/read-model/schema.ts:144 directly synchronizes catalog_merge_candidate_observations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts:155:UPDATE:checkout_ship_from_addresses",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts:155 directly synchronizes checkout_ship_from_addresses from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts:174:UPDATE:checkout_ship_from_addresses",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts:174 directly synchronizes checkout_ship_from_addresses from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts:192:UPDATE:checkout_ship_from_addresses",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts:192 directly synchronizes checkout_ship_from_addresses from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts:214:UPDATE:checkout_ship_from_addresses",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts:214 directly synchronizes checkout_ship_from_addresses from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:48:UPDATE:checkout_supply_holds",
     "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:48 directly synchronizes checkout_supply_holds from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -392,42 +352,6 @@
     "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:267 directly synchronizes checkout_supply_holds from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:28:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:28 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:139:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:139 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:213:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:213 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:255:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:255 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:266:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:266 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:308:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:308 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:317:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:317 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:394:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:394 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:406:UPDATE:checkout_marketplace_seller_options",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts:406 directly synchronizes checkout_marketplace_seller_options from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts:154:UPDATE:checkout_seller_account_reviews",
     "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts:154 directly synchronizes checkout_seller_account_reviews from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -448,108 +372,8 @@
     "reason": "Hold direction is derived from the incoming review-hold payload; strict-per-stream subscription ordering preserves the review-hold aggregate sequence, covered by subscription-runner.test.ts."
   },
   {
-    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:141:UPDATE:checkout_cart_line_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/read-model/projection.ts:141 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:170:UPDATE:checkout_cart_line_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/read-model/projection.ts:170 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:209:DELETE:checkout_cart_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/cart/read-model/projection.ts:209 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:220:DELETE:checkout_cart_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/cart/read-model/projection.ts:220 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:62:DELETE:checkout_sell_list_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:62 directly synchronizes checkout_sell_list_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:119:UPDATE:checkout_sell_list_line_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:119 directly synchronizes checkout_sell_list_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:130:UPDATE:checkout_sell_list_line_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:130 directly synchronizes checkout_sell_list_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:143:DELETE:checkout_sell_list_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:143 directly synchronizes checkout_sell_list_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:152:DELETE:checkout_sell_list_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:152 directly synchronizes checkout_sell_list_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:198:DELETE:checkout_sell_list_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:198 directly synchronizes checkout_sell_list_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:207:UPDATE:checkout_sell_list_line_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:207 directly synchronizes checkout_sell_list_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:287:UPDATE:checkout_sell_offer_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:287 directly synchronizes checkout_sell_offer_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:300:DELETE:checkout_sell_list_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/sell-list/read-model/projection.ts:300 directly synchronizes checkout_sell_list_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/checkout/features/sessions/integrations/payments/payment-affordance-projection.ts:46:DELETE:checkout_payment_affordance_pages",
     "reason": "DELETE at bounded-contexts/checkout/features/sessions/integrations/payments/payment-affordance-projection.ts:46 directly synchronizes checkout_payment_affordance_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/integrations/payments/payment-summary-projection.ts:40:UPDATE:checkout_payment_summary_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/integrations/payments/payment-summary-projection.ts:40 directly synchronizes checkout_payment_summary_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/integrations/payments/payment-summary-projection.ts:58:UPDATE:checkout_payment_summary_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/integrations/payments/payment-summary-projection.ts:58 directly synchronizes checkout_payment_summary_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:82:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:82 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:105:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:105 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:127:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:127 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:145:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:145 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:170:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:170 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:197:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:197 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:223:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:223 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:239:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:239 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:255:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:255 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/checkout/features/sessions/read-model/projection.ts:274:UPDATE:checkout_session_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/sessions/read-model/projection.ts:274 directly synchronizes checkout_session_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/collections/features/saved-list-valuation/read-model/projection.ts:51:UPDATE:collections_saved_list_valuation_lines",
@@ -724,10 +548,6 @@
     "reason": "DELETE at bounded-contexts/discovery/features/categories/read-model/projection.ts:84 directly synchronizes discovery_categories from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/discovery/features/google-shopping-operations/api/feed-row-projection.ts:210:DELETE:discovery_google_shopping_incremental_sync_requests",
-    "reason": "DELETE at bounded-contexts/discovery/features/google-shopping-operations/api/feed-row-projection.ts:210 directly synchronizes discovery_google_shopping_incremental_sync_requests from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/discovery/features/item-detail/read-model/projection.ts:492:DELETE:discovery_item_detail_pages",
     "reason": "DELETE at bounded-contexts/discovery/features/item-detail/read-model/projection.ts:492 directly synchronizes discovery_item_detail_pages from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -776,132 +596,8 @@
     "reason": "The active-table single-item market signal is a total recomputation from the current visible-listing read state and does not derive its value from the prior search row."
   },
   {
-    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:24:UPDATE:discovery_search_items_rebuild",
-    "reason": "The shadow-table single-item market signal is a total recomputation from the current visible-listing read state and does not derive its value from the prior search row."
-  },
-  {
-    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:41:UPDATE:discovery_search_items",
-    "reason": "The active-table all-item market refresh is a total recomputation from current visible-listing read state, including clearing aggregates that no longer exist."
-  },
-  {
-    "id": "bounded-contexts/discovery/features/search/read-model/market-signals.ts:52:UPDATE:discovery_search_items_rebuild",
-    "reason": "The shadow-table all-item market refresh is a total recomputation from current visible-listing read state, including clearing aggregates that no longer exist."
-  },
-  {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:52:DELETE:discovery_search_items",
-    "reason": "The active-table delete is conditional on the canonical source row remaining absent; no prior search-row state decides the write."
-  },
-  {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:59:DELETE:discovery_search_items_rebuild",
-    "reason": "The shadow-table delete is conditional on the canonical source row remaining absent; no prior search-row state decides the write."
-  },
-  {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1271:UPDATE:discovery_search_items_rebuild",
-    "reason": "The cutover freshness copy preserves a vector only when active and shadow embedded-text hashes are identical and the active vector has complete freshness metadata."
-  },
-  {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1370:UPDATE:discovery_search_catalog_items",
-    "reason": "The display-identity projection writes the incoming event fact directly; no prior row state decides the write."
-  },
-  {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1420:UPDATE:discovery_search_catalog_items",
-    "reason": "The alias projection writes the incoming event fact directly under strict per-stream ordering; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1428:UPDATE:discovery_search_catalog_items",
     "reason": "The alias projection writes the incoming event fact directly under strict per-stream ordering; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/features/search/read-model/projection.ts:1734:DELETE:discovery_search_catalog_blueprint_dimensions",
-    "reason": "The blueprint-dimension projection replaces the complete incoming rule set under strict per-stream ordering; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:482:UPDATE:discovery_market_supply_holds",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:482 directly synchronizes discovery_market_supply_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:814:DELETE:discovery_market_product_measures",
-    "reason": "DELETE at bounded-contexts/discovery/support/market-support/projection.ts:814 directly synchronizes discovery_market_product_measures from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:907:UPDATE:discovery_market_supply_locations",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:907 directly synchronizes discovery_market_supply_locations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:926:UPDATE:discovery_market_supply_locations",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:926 directly synchronizes discovery_market_supply_locations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:993:UPDATE:discovery_market_supply_items",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:993 directly synchronizes discovery_market_supply_items from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1042:UPDATE:discovery_market_supply_holds",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1042 directly synchronizes discovery_market_supply_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1056:UPDATE:discovery_market_supply_holds",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1056 directly synchronizes discovery_market_supply_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1103:UPDATE:discovery_market_listings",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1103 directly synchronizes discovery_market_listings from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1131:UPDATE:discovery_market_listings",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1131 directly synchronizes discovery_market_listings from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1348:DELETE:discovery_item_detail_sell_list_lines",
-    "reason": "DELETE at bounded-contexts/discovery/support/market-support/projection.ts:1348 directly synchronizes discovery_item_detail_sell_list_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1407:UPDATE:discovery_item_detail_sell_list_lines",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1407 directly synchronizes discovery_item_detail_sell_list_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1418:UPDATE:discovery_item_detail_sell_list_lines",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1418 directly synchronizes discovery_item_detail_sell_list_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1431:DELETE:discovery_item_detail_sell_list_lines",
-    "reason": "DELETE at bounded-contexts/discovery/support/market-support/projection.ts:1431 directly synchronizes discovery_item_detail_sell_list_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1440:DELETE:discovery_item_detail_sell_list_lines",
-    "reason": "DELETE at bounded-contexts/discovery/support/market-support/projection.ts:1440 directly synchronizes discovery_item_detail_sell_list_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1454:DELETE:discovery_item_detail_sell_list_lines",
-    "reason": "DELETE at bounded-contexts/discovery/support/market-support/projection.ts:1454 directly synchronizes discovery_item_detail_sell_list_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1463:UPDATE:discovery_item_detail_sell_list_lines",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1463 directly synchronizes discovery_item_detail_sell_list_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1590:UPDATE:discovery_market_account_reviews",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1590 directly synchronizes discovery_market_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1612:UPDATE:discovery_market_account_reviews",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1612 directly synchronizes discovery_market_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1629:UPDATE:discovery_market_account_reviews",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1629 directly synchronizes discovery_market_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1649:UPDATE:discovery_market_account_reviews",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1649 directly synchronizes discovery_market_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1665:UPDATE:discovery_market_account_reviews",
-    "reason": "UPDATE at bounded-contexts/discovery/support/market-support/projection.ts:1665 directly synchronizes discovery_market_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/discovery/support/market-support/projection.ts:1710:UPDATE:discovery_market_account_reviews",
-    "reason": "Hold direction is derived from the incoming review-hold payload; strict-per-stream subscription ordering preserves the review-hold aggregate sequence, covered by subscription-runner.test.ts."
   },
   {
     "id": "bounded-contexts/fulfillment/features/return-shipments/integrations/support/support-source-projection.ts:53:UPDATE:fulfillment_support_return_sources",
@@ -980,50 +676,6 @@
     "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:70 directly synchronizes fulfillment_account_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:154:DELETE:fulfillment_order_source_lines",
-    "reason": "DELETE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:154 directly synchronizes fulfillment_order_source_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:198:UPDATE:fulfillment_order_sources",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:198 directly synchronizes fulfillment_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:212:UPDATE:fulfillment_order_sources",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:212 directly synchronizes fulfillment_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:299:UPDATE:fulfillment_payment_fraud_review_holds",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:299 directly synchronizes fulfillment_payment_fraud_review_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:317:UPDATE:fulfillment_order_sources",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts:317 directly synchronizes fulfillment_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:121:DELETE:fulfillment_shipment_line_pages",
-    "reason": "DELETE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:121 directly synchronizes fulfillment_shipment_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:165:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:165 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:182:UPDATE:fulfillment_shipment_line_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:182 directly synchronizes fulfillment_shipment_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:191:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:191 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:205:UPDATE:fulfillment_shipment_line_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:205 directly synchronizes fulfillment_shipment_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:214:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:214 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:230:UPDATE:fulfillment_shipment_line_pages",
     "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:230 directly synchronizes fulfillment_shipment_line_pages from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -1032,56 +684,12 @@
     "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:239 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:253:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:253 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:293:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:293 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:382:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:382 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:411:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:411 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:433:UPDATE:fulfillment_shipment_pages",
     "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:433 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:451:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:451 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:466:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:466 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:481:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:481 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:499:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:499 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:519:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/projection.ts:519 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/fulfillment/features/shipments/read-model/schema.ts:3:UPDATE:fulfillment_shipment_line_pages",
     "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/schema.ts:3 directly synchronizes fulfillment_shipment_line_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/schema.ts:27:UPDATE:fulfillment_postage_label_operations",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/schema.ts:27 directly synchronizes fulfillment_postage_label_operations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/fulfillment/features/shipments/read-model/schema.ts:53:UPDATE:fulfillment_shipment_pages",
-    "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/schema.ts:53 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:37:UPDATE:identity_accounts",
@@ -1224,18 +832,6 @@
     "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:366 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/inventory/features/holds/read-model/projection.ts:85:UPDATE:inventory_holds",
-    "reason": "UPDATE at bounded-contexts/inventory/features/holds/read-model/projection.ts:85 directly synchronizes inventory_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/inventory/features/holds/read-model/projection.ts:103:UPDATE:inventory_holds",
-    "reason": "UPDATE at bounded-contexts/inventory/features/holds/read-model/projection.ts:103 directly synchronizes inventory_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/inventory/features/holds/read-model/projection.ts:148:UPDATE:inventory_holds",
-    "reason": "UPDATE at bounded-contexts/inventory/features/holds/read-model/projection.ts:148 directly synchronizes inventory_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts:73:DELETE:inventory_catalog_external_product_references",
     "reason": "DELETE at bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts:73 directly synchronizes inventory_catalog_external_product_references from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -1246,14 +842,6 @@
   {
     "id": "bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts:116:DELETE:inventory_catalog_gtins",
     "reason": "DELETE at bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.ts:116 directly synchronizes inventory_catalog_gtins from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/inventory/features/inventory-items/read-model/projection.ts:79:UPDATE:inventory_items",
-    "reason": "UPDATE at bounded-contexts/inventory/features/inventory-items/read-model/projection.ts:79 directly synchronizes inventory_items from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/inventory/features/inventory-items/read-model/projection.ts:91:UPDATE:inventory_items",
-    "reason": "UPDATE at bounded-contexts/inventory/features/inventory-items/read-model/projection.ts:91 directly synchronizes inventory_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:100:UPDATE:inventory_recovered_items",
@@ -1296,184 +884,8 @@
     "reason": "UPDATE at bounded-contexts/inventory/features/reservations/read-model/projection.ts:101 directly synchronizes inventory_reservation_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/inventory/features/restock-decisions/read-model/projection.ts:77:UPDATE:inventory_restock_decisions",
-    "reason": "UPDATE at bounded-contexts/inventory/features/restock-decisions/read-model/projection.ts:77 directly synchronizes inventory_restock_decisions from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/inventory/features/storage-locations/read-model/projection.ts:57:UPDATE:inventory_storage_locations",
-    "reason": "UPDATE at bounded-contexts/inventory/features/storage-locations/read-model/projection.ts:57 directly synchronizes inventory_storage_locations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/inventory/features/storage-locations/read-model/projection.ts:73:UPDATE:inventory_storage_locations",
-    "reason": "UPDATE at bounded-contexts/inventory/features/storage-locations/read-model/projection.ts:73 directly synchronizes inventory_storage_locations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:191:UPDATE:marketplace_account_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:191 directly synchronizes marketplace_account_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:200:UPDATE:marketplace_account_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:200 directly synchronizes marketplace_account_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:209:UPDATE:marketplace_account_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:209 directly synchronizes marketplace_account_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:296:UPDATE:marketplace_account_reviews",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:296 directly synchronizes marketplace_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:314:UPDATE:marketplace_account_reviews",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:314 directly synchronizes marketplace_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:332:UPDATE:marketplace_account_reviews",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:332 directly synchronizes marketplace_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:347:UPDATE:marketplace_account_reviews",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:347 directly synchronizes marketplace_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:391:UPDATE:marketplace_account_reviews",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:391 directly synchronizes marketplace_account_reviews from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:437:UPDATE:marketplace_catalog_items",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:437 directly synchronizes marketplace_catalog_items from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:452:UPDATE:marketplace_catalog_items",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:452 directly synchronizes marketplace_catalog_items from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:493:UPDATE:marketplace_catalog_categories",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:493 directly synchronizes marketplace_catalog_categories from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:501:UPDATE:marketplace_catalog_categories",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:501 directly synchronizes marketplace_catalog_categories from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:507:UPDATE:marketplace_catalog_categories",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:507 directly synchronizes marketplace_catalog_categories from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:513:UPDATE:marketplace_catalog_categories",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:513 directly synchronizes marketplace_catalog_categories from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:532:UPDATE:marketplace_supply_holds",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:532 directly synchronizes marketplace_supply_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:599:UPDATE:marketplace_supply_locations",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:599 directly synchronizes marketplace_supply_locations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:618:UPDATE:marketplace_supply_locations",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:618 directly synchronizes marketplace_supply_locations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:688:UPDATE:marketplace_supply_items",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:688 directly synchronizes marketplace_supply_items from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:765:UPDATE:marketplace_supply_holds",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:765 directly synchronizes marketplace_supply_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:790:UPDATE:marketplace_supply_holds",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/integrations/supply/supply-projection.ts:790 directly synchronizes marketplace_supply_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:113:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:113 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:306:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:306 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:372:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:372 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:406:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:406 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:467:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:467 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:514:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:514 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:535:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:535 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:548:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:548 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:561:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:561 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/listings/read-model/projection.ts:574:UPDATE:marketplace_listing_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/listings/read-model/projection.ts:574 directly synchronizes marketplace_listing_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/offers/read-model/projection.ts:174:UPDATE:marketplace_offer_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/offers/read-model/projection.ts:174 directly synchronizes marketplace_offer_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/offers/read-model/projection.ts:313:UPDATE:marketplace_offer_seller_controls",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/offers/read-model/projection.ts:313 directly synchronizes marketplace_offer_seller_controls from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:107:UPDATE:marketplace_review_account_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:107 directly synchronizes marketplace_review_account_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:116:UPDATE:marketplace_review_account_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:116 directly synchronizes marketplace_review_account_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:125:UPDATE:marketplace_review_account_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:125 directly synchronizes marketplace_review_account_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:187:UPDATE:marketplace_review_order_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:187 directly synchronizes marketplace_review_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:198:UPDATE:marketplace_review_order_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:198 directly synchronizes marketplace_review_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:215:UPDATE:marketplace_review_order_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:215 directly synchronizes marketplace_review_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:265:UPDATE:marketplace_review_shipment_sources",
     "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:265 directly synchronizes marketplace_review_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:280:UPDATE:marketplace_review_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:280 directly synchronizes marketplace_review_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:297:UPDATE:marketplace_review_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:297 directly synchronizes marketplace_review_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:312:UPDATE:marketplace_review_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts:312 directly synchronizes marketplace_review_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/marketplace/features/reviews/read-model/projection.ts:209:UPDATE:marketplace_review_pages",
@@ -1500,10 +912,6 @@
     "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/projection.ts:335 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/marketplace/features/reviews/read-model/queries.ts:736:UPDATE:marketplace_review_eligibility_pages",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/queries.ts:736 directly synchronizes marketplace_review_eligibility_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/marketplace/features/reviews/read-model/schema.ts:215:UPDATE:marketplace_review_pages",
     "reason": "Migration initializes contribution status from persisted review state before the projection stream resumes."
   },
@@ -1520,120 +928,12 @@
     "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/scoring-projection.ts:53 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/marketplace/features/seller-metrics/integrations/source/source-projection.ts:42:UPDATE:marketplace_seller_metrics_order_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/seller-metrics/integrations/source/source-projection.ts:42 directly synchronizes marketplace_seller_metrics_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/seller-metrics/integrations/source/source-projection.ts:59:UPDATE:marketplace_seller_metrics_order_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/seller-metrics/integrations/source/source-projection.ts:59 directly synchronizes marketplace_seller_metrics_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/marketplace/features/seller-metrics/integrations/source/source-projection.ts:109:UPDATE:marketplace_seller_metrics_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/marketplace/features/seller-metrics/integrations/source/source-projection.ts:109 directly synchronizes marketplace_seller_metrics_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:59:UPDATE:ordering_fulfillment_cancellation_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:59 directly synchronizes ordering_fulfillment_cancellation_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:75:UPDATE:ordering_fulfillment_cancellation_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:75 directly synchronizes ordering_fulfillment_cancellation_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:91:UPDATE:ordering_fulfillment_cancellation_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:91 directly synchronizes ordering_fulfillment_cancellation_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:106:UPDATE:ordering_fulfillment_cancellation_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:106 directly synchronizes ordering_fulfillment_cancellation_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:133:UPDATE:ordering_fulfillment_cancellation_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/fulfillment/fulfillment-projection.ts:133 directly synchronizes ordering_fulfillment_cancellation_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:66:UPDATE:ordering_order_refund_timeline_pages",
     "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:66 directly synchronizes ordering_order_refund_timeline_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:79:UPDATE:ordering_order_refund_timeline_pages",
     "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:79 directly synchronizes ordering_order_refund_timeline_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:173:UPDATE:ordering_order_support_money_pages",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:173 directly synchronizes ordering_order_support_money_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:196:UPDATE:ordering_order_support_money_pages",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:196 directly synchronizes ordering_order_support_money_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:217:UPDATE:ordering_order_support_money_pages",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:217 directly synchronizes ordering_order_support_money_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/reputation/reputation-projection.ts:115:DELETE:ordering_order_review_eligibility_pages",
-    "reason": "DELETE at bounded-contexts/ordering/features/orders/integrations/reputation/reputation-projection.ts:115 directly synchronizes ordering_order_review_eligibility_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/reputation/reputation-projection.ts:158:UPDATE:ordering_order_review_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/reputation/reputation-projection.ts:158 directly synchronizes ordering_order_review_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/reputation/reputation-projection.ts:297:UPDATE:ordering_order_review_pages",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/reputation/reputation-projection.ts:297 directly synchronizes ordering_order_review_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/reputation/reputation-projection.ts:307:UPDATE:ordering_order_review_pages",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/reputation/reputation-projection.ts:307 directly synchronizes ordering_order_review_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:265:UPDATE:ordering_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:265 directly synchronizes ordering_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:309:UPDATE:ordering_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:309 directly synchronizes ordering_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:351:UPDATE:ordering_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:351 directly synchronizes ordering_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:368:UPDATE:ordering_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:368 directly synchronizes ordering_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:377:UPDATE:ordering_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:377 directly synchronizes ordering_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:386:UPDATE:ordering_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:386 directly synchronizes ordering_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:408:UPDATE:ordering_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:408 directly synchronizes ordering_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:430:UPDATE:ordering_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:430 directly synchronizes ordering_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:607:UPDATE:ordering_inventory_hold_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:607 directly synchronizes ordering_inventory_hold_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:665:UPDATE:ordering_inventory_item_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:665 directly synchronizes ordering_inventory_item_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:711:UPDATE:ordering_inventory_hold_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:711 directly synchronizes ordering_inventory_hold_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:725:UPDATE:ordering_inventory_hold_inputs",
-    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/supply/supply-projection.ts:725 directly synchronizes ordering_inventory_hold_inputs from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/ordering/features/orders/read-model/projection.ts:233:DELETE:ordering_order_line_pages",
@@ -1684,22 +984,6 @@
     "reason": "UPDATE at bounded-contexts/ordering/support/account-support/projection.ts:63 directly synchronizes ordering_account_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/payments/features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection.ts:56:UPDATE:payments_fulfillment_dispute_evidence_sources",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection.ts:56 directly synchronizes payments_fulfillment_dispute_evidence_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection.ts:74:UPDATE:payments_fulfillment_dispute_evidence_sources",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection.ts:74 directly synchronizes payments_fulfillment_dispute_evidence_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection.ts:93:UPDATE:payments_fulfillment_dispute_evidence_sources",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection.ts:93 directly synchronizes payments_fulfillment_dispute_evidence_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection.ts:131:UPDATE:payments_fulfillment_dispute_evidence_sources",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection.ts:131 directly synchronizes payments_fulfillment_dispute_evidence_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts:203:UPDATE:payments_order_inputs",
     "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts:203 directly synchronizes payments_order_inputs from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -1710,54 +994,6 @@
   {
     "id": "bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts:235:UPDATE:payments_order_inputs",
     "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts:235 directly synchronizes payments_order_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/projection.ts:129:DELETE:payments_payment_orders",
-    "reason": "DELETE at bounded-contexts/payments/features/payments/read-model/projection.ts:129 directly synchronizes payments_payment_orders from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/projection.ts:181:UPDATE:payments_payment_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/projection.ts:181 directly synchronizes payments_payment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/projection.ts:198:UPDATE:payments_payment_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/projection.ts:198 directly synchronizes payments_payment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/projection.ts:221:UPDATE:payments_payment_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/projection.ts:221 directly synchronizes payments_payment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/projection.ts:248:UPDATE:payments_payment_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/projection.ts:248 directly synchronizes payments_payment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/projection.ts:268:UPDATE:payments_payment_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/projection.ts:268 directly synchronizes payments_payment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/projection.ts:300:UPDATE:payments_payment_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/projection.ts:300 directly synchronizes payments_payment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/projection.ts:330:UPDATE:payments_payment_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/projection.ts:330 directly synchronizes payments_payment_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/queries.ts:932:UPDATE:payments_saved_checkout_instruments",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/queries.ts:932 directly synchronizes payments_saved_checkout_instruments from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/queries.ts:947:UPDATE:payments_saved_checkout_instruments",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/queries.ts:947 directly synchronizes payments_saved_checkout_instruments from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/queries.ts:1088:UPDATE:payments_saved_checkout_setup_sessions",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/queries.ts:1088 directly synchronizes payments_saved_checkout_setup_sessions from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/payments/read-model/queries.ts:1227:UPDATE:payments_provider_operations",
-    "reason": "UPDATE at bounded-contexts/payments/features/payments/read-model/queries.ts:1227 directly synchronizes payments_provider_operations from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:193:UPDATE:payments_support_refund_effects",
@@ -1792,14 +1028,6 @@
     "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:708 directly synchronizes payments_support_refund_effects from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/payments/features/refunds/read-model/projection.ts:133:UPDATE:payments_refund_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/refunds/read-model/projection.ts:133 directly synchronizes payments_refund_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/payments/features/refunds/read-model/projection.ts:157:UPDATE:payments_refund_pages",
-    "reason": "UPDATE at bounded-contexts/payments/features/refunds/read-model/projection.ts:157 directly synchronizes payments_refund_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/platform-operations/features/platform-feedback/read-model/projection.ts:111:UPDATE:experience_platform_feedback_pages",
     "reason": "UPDATE at bounded-contexts/platform-operations/features/platform-feedback/read-model/projection.ts:111 directly synchronizes experience_platform_feedback_pages from an incoming projection or command fact; no prior row state decides this write."
   },
@@ -1814,22 +1042,6 @@
   {
     "id": "bounded-contexts/platform-operations/features/public-doc-reviews/read-model/projection.ts:67:UPDATE:platform_operations_public_doc_review_queue_pages",
     "reason": "UPDATE at bounded-contexts/platform-operations/features/public-doc-reviews/read-model/projection.ts:67 directly synchronizes platform_operations_public_doc_review_queue_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/reported-content/read-model/projection.ts:125:UPDATE:platform_operations_reported_content_queue_pages",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/reported-content/read-model/projection.ts:125 directly synchronizes platform_operations_reported_content_queue_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/reported-content/read-model/projection.ts:165:UPDATE:platform_operations_reported_content_queue_pages",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/reported-content/read-model/projection.ts:165 directly synchronizes platform_operations_reported_content_queue_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts:357:UPDATE:platform_operations_risk_alert_velocity_sources",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts:357 directly synchronizes platform_operations_risk_alert_velocity_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts:504:UPDATE:platform_operations_risk_alert_queue_pages",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts:504 directly synchronizes platform_operations_risk_alert_queue_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/platform-operations/features/support-requests/integrations/source/affected-line-amount-projection.ts:19:DELETE:support_order_affected_line_amounts",
@@ -1854,30 +1066,6 @@
   {
     "id": "bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts:84:UPDATE:support_return_label_sources",
     "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts:84 directly synchronizes support_return_label_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:81:UPDATE:support_order_sources",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:81 directly synchronizes support_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:96:UPDATE:support_order_sources",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:96 directly synchronizes support_order_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:152:UPDATE:support_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:152 directly synchronizes support_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:168:UPDATE:support_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:168 directly synchronizes support_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:185:UPDATE:support_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:185 directly synchronizes support_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:203:UPDATE:support_shipment_sources",
-    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts:203 directly synchronizes support_shipment_sources from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts:109:UPDATE:support_request_pages",
@@ -1964,116 +1152,8 @@
     "reason": "SET uses only the incoming authenticity fact and timestamp; no stored column is read by its assignment."
   },
   {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:59:DELETE:pricing_market_trades",
-    "reason": "DELETE at bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:59 directly synchronizes pricing_market_trades from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:126:UPDATE:pricing_market_trades",
-    "reason": "SET uses ready-for-fulfillment payload values only; sold_at is a WHERE eligibility predicate."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:157:UPDATE:pricing_market_trades",
-    "reason": "SET uses cancellation payload values only; excluded state is a WHERE eligibility predicate."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:192:UPDATE:pricing_market_trades",
-    "reason": "SET uses shipment payload values only; no stored column is read by its assignment."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:208:UPDATE:pricing_market_trades",
-    "reason": "SET uses delivery payload values only; settled_at is a WHERE eligibility predicate."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts:223:UPDATE:pricing_market_trades",
-    "reason": "SET uses return payload values only; excluded state is a WHERE eligibility predicate."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/price-signals/integrations/catalog/projection.ts:96:DELETE:pricing_external_product_reference_inputs",
-    "reason": "DELETE at bounded-contexts/pricing/features/price-signals/integrations/catalog/projection.ts:96 directly synchronizes pricing_external_product_reference_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:55:UPDATE:pricing_catalog_item_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:55 directly synchronizes pricing_catalog_item_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:67:UPDATE:pricing_catalog_item_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:67 directly synchronizes pricing_catalog_item_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:76:UPDATE:pricing_catalog_item_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:76 directly synchronizes pricing_catalog_item_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:85:UPDATE:pricing_catalog_item_inputs",
     "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:85 directly synchronizes pricing_catalog_item_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:99:UPDATE:pricing_catalog_item_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:99 directly synchronizes pricing_catalog_item_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:109:UPDATE:pricing_catalog_item_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:109 directly synchronizes pricing_catalog_item_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:130:UPDATE:pricing_inventory_hold_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:130 directly synchronizes pricing_inventory_hold_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:192:UPDATE:pricing_inventory_item_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:192 directly synchronizes pricing_inventory_item_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:238:UPDATE:pricing_inventory_hold_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:238 directly synchronizes pricing_inventory_hold_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:252:UPDATE:pricing_inventory_hold_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:252 directly synchronizes pricing_inventory_hold_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:352:UPDATE:pricing_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:344 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:370:UPDATE:pricing_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:362 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:386:UPDATE:pricing_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:378 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:399:UPDATE:pricing_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:389 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:416:UPDATE:pricing_market_listing_inputs",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:400 directly synchronizes pricing_market_listing_inputs from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:542:DELETE:pricing_order_signal_lines",
-    "reason": "DELETE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:526 directly synchronizes pricing_order_signal_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:594:UPDATE:pricing_order_signal_lines",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:578 directly synchronizes pricing_order_signal_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:609:UPDATE:pricing_order_signal_lines",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:593 directly synchronizes pricing_order_signal_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:635:DELETE:pricing_fulfillment_signal_lines",
-    "reason": "DELETE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:619 directly synchronizes pricing_fulfillment_signal_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:681:UPDATE:pricing_fulfillment_signal_lines",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:665 directly synchronizes pricing_fulfillment_signal_lines from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:696:UPDATE:pricing_fulfillment_signal_lines",
-    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:680 directly synchronizes pricing_fulfillment_signal_lines from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/pricing/features/recommendations/read-model/projection.ts:56:UPDATE:pricing_recommendation_pages",
@@ -2128,112 +1208,12 @@
     "reason": "UPDATE at bounded-contexts/public-presence/features/waitlist/read-model/projection.ts:136 is not key-only: it carries the read-state predicate public_referral_code IS NULL OR public_referral_code = $2 for an immutable single-writer column, which this guard's token vocabulary does not model, and GREATEST keeps updated_at monotonic."
   },
   {
-    "id": "bounded-contexts/settlement/features/payouts/read-model/projection.ts:86:UPDATE:settlement_payout_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/payouts/read-model/projection.ts:86 directly synchronizes settlement_payout_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/payouts/read-model/projection.ts:119:UPDATE:settlement_payout_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/payouts/read-model/projection.ts:119 directly synchronizes settlement_payout_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/payouts/read-model/projection.ts:152:UPDATE:settlement_payout_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/payouts/read-model/projection.ts:152 directly synchronizes settlement_payout_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/payouts/read-model/projection.ts:182:UPDATE:settlement_payout_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/payouts/read-model/projection.ts:182 directly synchronizes settlement_payout_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/payouts/read-model/queries.ts:272:UPDATE:settlement_work_claims",
-    "reason": "UPDATE at bounded-contexts/settlement/features/payouts/read-model/queries.ts:272 directly synchronizes settlement_work_claims from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/payouts/read-model/queries.ts:500:UPDATE:settlement_provider_operations",
-    "reason": "UPDATE at bounded-contexts/settlement/features/payouts/read-model/queries.ts:500 directly synchronizes settlement_provider_operations from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
     "id": "bounded-contexts/settlement/features/protection-coverage/read-model/protection-coverage-projection.ts:54:UPDATE:settlement_protection_coverage",
     "reason": "UPDATE at bounded-contexts/settlement/features/protection-coverage/read-model/protection-coverage-projection.ts:54 directly synchronizes settlement_protection_coverage from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/settlement/features/protection-coverage/read-model/protection-coverage-projection.ts:119:UPDATE:settlement_protection_coverage",
     "reason": "UPDATE at bounded-contexts/settlement/features/protection-coverage/read-model/protection-coverage-projection.ts:119 directly synchronizes settlement_protection_coverage from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:504:UPDATE:settlement_account_velocity_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:504 directly synchronizes settlement_account_velocity_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:613:UPDATE:settlement_account_address_risk_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:613 directly synchronizes settlement_account_address_risk_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:715:UPDATE:settlement_account_review_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:715 directly synchronizes settlement_account_review_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:730:UPDATE:settlement_account_review_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:730 directly synchronizes settlement_account_review_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:745:UPDATE:settlement_account_review_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:745 directly synchronizes settlement_account_review_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:760:UPDATE:settlement_account_review_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:760 directly synchronizes settlement_account_review_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:800:UPDATE:settlement_account_review_sources",
-    "reason": "Hold direction is derived from the incoming review-hold payload; strict-per-stream subscription ordering preserves the review-hold aggregate sequence, covered by subscription-runner.test.ts."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:55:UPDATE:settlement_order_fulfillment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:55 directly synchronizes settlement_order_fulfillment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:68:UPDATE:settlement_order_fulfillment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:68 directly synchronizes settlement_order_fulfillment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:82:UPDATE:settlement_order_fulfillment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:82 directly synchronizes settlement_order_fulfillment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:95:UPDATE:settlement_order_fulfillment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts:95 directly synchronizes settlement_order_fulfillment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1131:UPDATE:settlement_payment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1131 directly synchronizes settlement_payment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1144:UPDATE:settlement_payment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1144 directly synchronizes settlement_payment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1214:UPDATE:settlement_payment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1214 directly synchronizes settlement_payment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1260:UPDATE:settlement_payment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1260 directly synchronizes settlement_payment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1315:UPDATE:settlement_payment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1315 directly synchronizes settlement_payment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1386:UPDATE:settlement_payment_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1386 directly synchronizes settlement_payment_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1507:UPDATE:settlement_refund_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1507 directly synchronizes settlement_refund_sources from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1531:UPDATE:settlement_refund_sources",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts:1531 directly synchronizes settlement_refund_sources from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:88:UPDATE:settlement_support_holds",
@@ -2262,29 +1242,5 @@
   {
     "id": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:283:UPDATE:settlement_support_holds",
     "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:283 directly synchronizes settlement_support_holds from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/read-model/projection.ts:101:UPDATE:settlement_wallet_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/read-model/projection.ts:101 directly synchronizes settlement_wallet_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/read-model/projection.ts:121:UPDATE:settlement_ledger_entry_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/read-model/projection.ts:121 directly synchronizes settlement_ledger_entry_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/read-model/projection.ts:135:UPDATE:settlement_wallet_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/read-model/projection.ts:135 directly synchronizes settlement_wallet_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/read-model/projection.ts:151:UPDATE:settlement_wallet_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/read-model/projection.ts:151 directly synchronizes settlement_wallet_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/read-model/projection.ts:169:UPDATE:settlement_wallet_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/read-model/projection.ts:169 directly synchronizes settlement_wallet_pages from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/settlement/features/wallets/read-model/projection.ts:186:UPDATE:settlement_wallet_pages",
-    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/read-model/projection.ts:186 directly synchronizes settlement_wallet_pages from an incoming projection or command fact; no prior row state decides this write."
   }
 ]
