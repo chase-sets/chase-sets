@@ -422,6 +422,7 @@
     "bounded-contexts/pricing/features/price-signals/integrations/catalog/projection.ts",
     "bounded-contexts/pricing/features/price-signals/read-model/provider-observation-queries.ts",
     "bounded-contexts/pricing/features/price-signals/read-model/provider-observation-writes.ts",
+    "bounded-contexts/pricing/features/pricing-health/read-model/queries.ts",
     "bounded-contexts/pricing/features/public-market-pages/read-model/queries.ts",
     "bounded-contexts/pricing/features/recommendations/api/runtime.ts",
     "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts",
@@ -440,6 +441,7 @@
     "bounded-contexts/pricing/features/repricing-policies/read-model/halt-projection.ts",
     "bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts",
     "bounded-contexts/pricing/features/repricing-policies/read-model/queries.ts",
+    "bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts",
     "bounded-contexts/pricing/support/runtime-support/seed.ts",
     "bounded-contexts/public-presence/features/promo-bar/api/seed.ts",
     "bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts",
@@ -519,7 +521,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 301,
+    "count": 302,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -596,6 +598,7 @@
       "bounded-contexts/platform-operations/features/risk-alerts/api/http.ts": 4,
       "bounded-contexts/platform-operations/features/support-requests/api/route.ts": 13,
       "bounded-contexts/pricing/features/market-rollups/api/route.ts": 4,
+      "bounded-contexts/pricing/features/pricing-health/api/route.ts": 1,
       "bounded-contexts/pricing/features/public-market-pages/api/route.ts": 1,
       "bounded-contexts/pricing/features/recommendations/api/route.ts": 2,
       "bounded-contexts/pricing/features/repricing-engine/api/activity-route.ts": 2,
