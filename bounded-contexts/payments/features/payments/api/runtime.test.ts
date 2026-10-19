@@ -2482,7 +2482,14 @@ describe("payment runtime", () => {
       db: db as never,
       processorGateway,
     });
-    const setupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const setupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c61",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
 
     const instrument = await services.reconcileSavedCheckoutSetupSession(
       {
@@ -2544,7 +2551,14 @@ describe("payment runtime", () => {
       db: db as never,
       processorGateway,
     });
-    const firstSetupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const firstSetupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c62",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
     await services.reconcileSavedCheckoutSetupSession(
       {
         accountId: "acc_buyer" as never,
@@ -2552,7 +2566,14 @@ describe("payment runtime", () => {
       },
       context,
     );
-    const secondSetupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const secondSetupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c63",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
 
     const secondInstrument = await services.reconcileSavedCheckoutSetupSession(
       {
@@ -2795,10 +2816,15 @@ describe("payment runtime", () => {
       processorGateway,
     });
 
-    const setup = await services.createSavedCheckoutSetupSession({
-      accountId: "acc_buyer" as never,
-      agentGrantId: "lpa_1",
-    });
+    const setup = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c64",
+        returnUrlBase: "https://app.test",
+        agentGrantId: "lpa_1",
+      },
+      context,
+    );
     await services.revokeSavedCheckoutInstrumentsForAgentGrant(
       {
         accountId: "acc_buyer" as never,
@@ -2861,6 +2887,7 @@ describe("payment runtime", () => {
       {
         accountId: "acc_buyer" as never,
         instrumentId: "sci_card_1",
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c65",
       },
       context,
     );
