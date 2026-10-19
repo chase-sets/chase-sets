@@ -1,0 +1,68 @@
+[
+  {
+    "id": "exception-337e131e1ba32dcd",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_picker",
+      "digest": "0b23f0fb0a8ad90c4627ab658fffeaca410b0f1ee12f7ca94b2e1079f1471e71"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts:48 directly synchronizes collections_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9bbdabaa35e1ca0e",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_picker",
+      "digest": "354b34e4a329b3b329c8adbf6442da824a419df26774dcac62bd7dcd2750d693"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts:57 directly synchronizes collections_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-d4ae978909fab69b",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_picker",
+      "digest": "ee6d4dc04b31b683a854183a157b59fb4c181eff2dd5d06de2294ee3923fbdf6"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts:69 directly synchronizes collections_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-85fcf22f50adb9e5",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_picker",
+      "digest": "e558707a6d42c187418d10c1375875c9b9198df2d4de4b3d3936170c3fcc9395"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts:82 directly synchronizes collections_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-fe9fc5e811d1eb64",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_picker",
+      "digest": "671ffb13653b9f11a2e81aa4e8c28741f6572f1adb80764e4d612dfd54b05930"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts:97 directly synchronizes collections_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-dda852cdcd6679eb",
+    "binding": {
+      "module": "bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts",
+      "kind": "UPDATE",
+      "table": "collections_saved_list_picker",
+      "digest": "6cc7bd5c4ac145aced1bfa746dc13137ec9fd2eb3fbec448c7462dda58f0bf99"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts:117 directly synchronizes collections_saved_list_picker from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

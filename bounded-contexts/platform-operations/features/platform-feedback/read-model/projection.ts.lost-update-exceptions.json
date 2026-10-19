@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-3b0a8d843886dee6",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/platform-feedback/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "experience_platform_feedback_pages",
+      "digest": "deedd48d824babce9eda0a7e081e75a3f137166c44e69a64ff8f2eb2f3e96aa3"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/platform-feedback/read-model/projection.ts:111 directly synchronizes experience_platform_feedback_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-638a40b7ea8341fe",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/platform-feedback/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "experience_platform_feedback_pages",
+      "digest": "b1ab4c791af2bf50e81b8584571ef0af6a9bea46fac852dc75af7d4a110480c5"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/platform-feedback/read-model/projection.ts:128 directly synchronizes experience_platform_feedback_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-887a4600e973be86",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/platform-feedback/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "experience_platform_feedback_pages",
+      "digest": "4a031ea38e781387b8140d19e96b7bc9a3aea72f42e10f1dca09499f46b3c93c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/platform-feedback/read-model/projection.ts:147 directly synchronizes experience_platform_feedback_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]
