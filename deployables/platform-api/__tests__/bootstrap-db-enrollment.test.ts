@@ -2971,7 +2971,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     // installs, so W4 refuses it as a paired reference. The lockfile control, the
     // only W5 input here, pairs with the checked-out lockfile under this
     // whole-file pin; the other controls keep the historical frozen source.
-    const checkedOutLockfileSha256 = "8791a4d3a898dc3ef4c81734c3615aa6ef3f51242f77f9da0cb6ff4eea9e8322";
+    const checkedOutLockfileSha256 = "766b341441a02c9873d6d49d70678a85b63d32751ddf6847cba302ef0b56952c";
     const controls = [
       {
         label: "an unrelated lockfile entry",
