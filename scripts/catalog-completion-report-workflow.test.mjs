@@ -21,8 +21,13 @@ function step(name) {
 }
 
 // Run a workflow step's own script with no inherited database credential or CA.
+// On Windows the launcher's own directory supplies the step's `grep`.
 function runStep(name, env) {
   const scrubbed = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/DATABASE_URL|^PG/.test(key)));
+  if (process.platform === "win32") {
+    const pathKey = Object.keys(scrubbed).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+    scrubbed[pathKey] = [path.dirname(bashLauncher), scrubbed[pathKey]].filter(Boolean).join(path.delimiter);
+  }
   return spawnSync(bashLauncher, ["-c", step(name).run], { encoding: "utf8", env: { ...scrubbed, ...env } });
 }
 
@@ -94,6 +99,36 @@ describe("catalog completion report workflow contract", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("batch-id-invalid");
     expect(job.steps.findIndex((candidate) => candidate.name === "Validate report inputs")).toBe(0);
+  });
+
+  it("rejects a malformed sample seed before any authority is exported", () => {
+    expect(workflow.on.workflow_dispatch.inputs.sample_seed).toMatchObject({ required: false, default: "" });
+    const rejected = runStep("Validate report inputs", {
+      BATCH_ID: "batch_1",
+      MANIFEST_ARTIFACT: "",
+      SAMPLE_SEED: "https://example.invalid/seed",
+    });
+    expect(rejected.status).toBe(1);
+    expect(rejected.stderr).toContain("sample-seed-invalid");
+    for (const seed of ["", "audit-2026.10_1"]) {
+      const accepted = runStep("Validate report inputs", {
+        BATCH_ID: "batch_1",
+        MANIFEST_ARTIFACT: "",
+        SAMPLE_SEED: seed,
+      });
+      expect(accepted.status).toBe(0);
+    }
+  });
+
+  it("passes the fixed audit allocation only with a sample seed", () => {
+    expect(job.env.SAMPLE_SEED).toBe("${{ inputs.sample_seed }}");
+    expect(job.env.AUDIT_SAMPLE_ALLOCATION).toBe(
+      "magic=40/10,pokemon:en=40/10,pokemon:ja=20/5,yugioh=40/10,one-piece=40/10,lorcana=40/10",
+    );
+    const report = step("Generate catalog completion report").run;
+    expect(report).toContain('if [ -n "$SAMPLE_SEED" ]; then');
+    expect(report).toContain('sample_args=(--sample "$AUDIT_SAMPLE_ALLOCATION" --sample-seed "$SAMPLE_SEED")');
+    expect(report).toContain('"${sample_args[@]}"');
   });
 
   it("runs the database-mode report from env, never interpolating inputs into scripts", () => {

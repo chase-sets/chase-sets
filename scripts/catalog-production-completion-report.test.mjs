@@ -191,6 +191,90 @@ describe("catalog completion verifier database mode", () => {
     expect(catalogCompletionExitCode({ report, repeatRun, unknownFacts })).toBe(0);
   });
 
+  it("parses a seeded audit sample only together with its seed and database facts", () => {
+    const options = parseCatalogCompletionArgs(
+      [
+        "--facts",
+        "database",
+        "--batch-id",
+        "batch-1",
+        "--sample",
+        "magic=40/10,pokemon:ja=20/5",
+        "--sample-seed",
+        "s1",
+      ],
+      {},
+    );
+    expect(options.sample).toEqual({
+      seed: "s1",
+      strata: [
+        { productDomain: "magic", languageCode: null, singles: 40, sealed: 10 },
+        { productDomain: "pokemon", languageCode: "ja", singles: 20, sealed: 5 },
+      ],
+    });
+    expect(parseCatalogCompletionArgs(["--facts", "database"], {}).sample).toBeNull();
+    expect(() => parseCatalogCompletionArgs(["--facts", "database", "--sample", "magic=1/1"], {})).toThrow(
+      "[sample-invalid]",
+    );
+    expect(() => parseCatalogCompletionArgs(["--facts", "database", "--sample-seed", "s1"], {})).toThrow(
+      "[sample-invalid]",
+    );
+    expect(() => parseCatalogCompletionArgs(["--sample", "magic=1/1", "--sample-seed", "s1"], {})).toThrow(
+      "[sample-invalid]",
+    );
+    expect(() =>
+      parseCatalogCompletionArgs(["--facts", "database", "--sample", "magic=1", "--sample-seed", "s1"], {}),
+    ).toThrow("[sample-invalid]");
+  });
+
+  it("adds the sample to the database record only when requested and keeps it support-safe", () => {
+    const sample = {
+      seed: "s1",
+      strata: [
+        {
+          productDomain: "magic",
+          languageCode: null,
+          productForm: "singles",
+          allocated: 1,
+          available: 1,
+          sampled: 1,
+          shortfall: 0,
+        },
+      ],
+      unclassifiedItemCount: 0,
+      items: [
+        {
+          catalogItemId: "cat_1",
+          productDomain: "magic",
+          languageCode: "en",
+          productForm: "singles",
+          publicPath: "/items/cat_1",
+        },
+      ],
+    };
+    const sampled = buildCatalogCompletionDatabaseRecord({
+      facts: databaseFacts({ sample }),
+      environment: "staging",
+      checkedAt: "2026-08-03T00:00:00.000Z",
+    });
+    expect(sampled.record.sample).toEqual(sample);
+    const unsampled = buildCatalogCompletionDatabaseRecord({
+      facts: databaseFacts({ sample: null }),
+      environment: "staging",
+      checkedAt: "2026-08-03T00:00:00.000Z",
+    });
+    expect("sample" in unsampled.record).toBe(false);
+    // The support-safety scanner covers the sample like every other field.
+    const leaking = { ...sample, items: [{ ...sample.items[0], publicPath: "https://example.invalid/items/cat_1" }] };
+    expect(() =>
+      buildCatalogCompletionDatabaseRecord({
+        facts: databaseFacts({ sample: leaking }),
+        environment: "staging",
+        checkedAt: "2026-08-03T00:00:00.000Z",
+      }),
+    ).toThrow("sample.items[0].publicPath [full-url]");
+  });
+
   it("leaves the file-mode record shape unchanged", () => {
     const { record } = buildCatalogCompletionRecord({
       manifest: completeManifest(),

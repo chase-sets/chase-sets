@@ -3,7 +3,13 @@ import {
   candidateJobRowToCatalogMergeCandidateBulkJob,
   catalogMergeCandidatePromotionApplicationJobKind,
   reconcileCatalogMergeCandidateApplications,
+  type CatalogMergeCandidateApplicationReconciliation,
 } from "../../source-observations/api/source-observation-merge-candidate-bulk-job-runtime";
+import {
+  selectCatalogAuditSample,
+  type CatalogAuditSample,
+  type CatalogAuditSampleRequest,
+} from "../domain/audit-sample";
 import {
   productionCatalogCompletionManifestVersion,
   type ManifestAssetProcessing,
@@ -54,6 +60,8 @@ export type ProductionCatalogDatabaseFacts = Readonly<{
   // True only when the sync universe came from a frozen manifest; a universe
   // derived from the batch plan describes state but never proves completion.
   completionProof: boolean;
+  // The seeded audit sample, present only when one was requested.
+  sample: CatalogAuditSample | null;
 }>;
 
 export class ProductionCatalogCompletionFactsError extends Error {
@@ -108,6 +116,7 @@ export async function queryProductionCatalogCompletionFacts(
     // batch's plan and the result carries `completionProof: false`.
     frozenManifest?: ProductionCatalogCompletionManifest | null;
     launchCutoff?: string | null;
+    sample?: CatalogAuditSampleRequest | null;
   }>,
 ): Promise<ProductionCatalogDatabaseFacts> {
   return withCatalogCompletionReadSnapshot(pool, (tx) => readProductionCatalogCompletionFacts(tx, input));
@@ -199,7 +208,8 @@ async function readProductionCatalogCompletionFacts(
   const unknownFacts: string[] = [];
   const observedUnits = await queryObservedUnits(tx, { scopeRecordIds, unknownFacts });
   const mergeCandidates = await queryMergeCandidates(tx, scopeRecordIds);
-  const promotions = await queryPromotionOutcomes(tx, scopeRecordIds, mergeCandidates, unknownFacts);
+  const applications = await queryCandidateApplications(tx, scopeRecordIds);
+  const promotions = await queryPromotionOutcomes(tx, scopeRecordIds, mergeCandidates, applications, unknownFacts);
   const catalogItemsByStatus = await queryCountsByStatus(tx, "catalog_items");
   const sourceObservations = await querySourceObservationCounts(tx, syncRunIds);
   const assetProcessing = await queryAssetProcessing(tx, {
@@ -237,6 +247,7 @@ async function readProductionCatalogCompletionFacts(
     unknownFacts: [...new Set(unknownFacts)].sort(),
     reportedFacts,
     completionProof: frozen !== null,
+    sample: input.sample ? await queryAuditSample(tx, { scopeRecordIds, applications, request: input.sample }) : null,
   };
 }
 
@@ -502,14 +513,12 @@ async function queryProviderAgreement(tx: PgQueryable, scopeRecordIds: readonly 
   );
 }
 
-async function queryPromotionOutcomes(
+// Read the complete scope history, not a recent-job window or work-unit
+// count. The producer's reader owns version validation and retry identity.
+async function queryCandidateApplications(
   tx: PgQueryable,
   scopeRecordIds: readonly string[],
-  mergeCandidates: readonly ManifestMergeCandidate[],
-  unknownFacts: string[],
-): Promise<ManifestPromotionOutcomes> {
-  // Read the complete scope history, not a recent-job window or work-unit
-  // count. The producer's reader owns version validation and retry identity.
+): Promise<CatalogMergeCandidateApplicationReconciliation> {
   const jobs = await tx.query<Parameters<typeof candidateJobRowToCatalogMergeCandidateBulkJob>[0]>(
     `SELECT job_id, job_kind, status, payload, progress, result, error_message,
             created_at, started_at, completed_at, updated_at
@@ -520,9 +529,16 @@ async function queryPromotionOutcomes(
       ORDER BY completed_at ASC, job_id ASC`,
     [scopeRecordIds, ["merge-candidate-promote", catalogMergeCandidatePromotionApplicationJobKind]],
   );
-  const applications = reconcileCatalogMergeCandidateApplications(
-    jobs.rows.map(candidateJobRowToCatalogMergeCandidateBulkJob),
-  );
+  return reconcileCatalogMergeCandidateApplications(jobs.rows.map(candidateJobRowToCatalogMergeCandidateBulkJob));
+}
+
+async function queryPromotionOutcomes(
+  tx: PgQueryable,
+  scopeRecordIds: readonly string[],
+  mergeCandidates: readonly ManifestMergeCandidate[],
+  applications: CatalogMergeCandidateApplicationReconciliation,
+  unknownFacts: string[],
+): Promise<ManifestPromotionOutcomes> {
   const result = await tx.query<{ status: string; total: number | string }>(
     `SELECT status, count(*) AS total
        FROM catalog_merge_candidates
@@ -549,6 +565,52 @@ async function queryPromotionOutcomes(
     }
   }
   return outcomes;
+}
+
+// The batch's published items are the active Catalog Items its scopes'
+// candidates applied. Each item takes its domain from the candidate's Scope
+// Record, its language from the item, and its form from the candidate's merge
+// identity; an item several candidates applied counts once.
+async function queryAuditSample(
+  tx: PgQueryable,
+  input: Readonly<{
+    scopeRecordIds: readonly string[];
+    applications: CatalogMergeCandidateApplicationReconciliation;
+    request: CatalogAuditSampleRequest;
+  }>,
+): Promise<CatalogAuditSample> {
+  const applied = [...input.applications.applied.entries()];
+  const result = await tx.query<{
+    catalog_item_id: string;
+    product_domain: string;
+    language_code: string;
+    product_form: string | null;
+  }>(
+    `SELECT DISTINCT ON (item.catalog_item_id)
+            item.catalog_item_id, scope.product_domain, item.language_code,
+            candidate.identity_json->>'productForm' AS product_form
+       FROM unnest($1::text[], $2::text[]) AS application(candidate_id, catalog_item_id)
+       JOIN catalog_items item ON item.catalog_item_id = application.catalog_item_id
+       JOIN catalog_merge_candidates candidate ON candidate.candidate_id = application.candidate_id
+       JOIN catalog_scope_records scope ON scope.scope_record_id = candidate.scope_record_id
+      WHERE item.status = 'active'
+        AND candidate.scope_record_id = ANY($3::text[])
+      ORDER BY item.catalog_item_id ASC, application.candidate_id ASC`,
+    [
+      applied.map(([candidateId]) => candidateId),
+      applied.map(([, application]) => application.catalogItemId),
+      input.scopeRecordIds,
+    ],
+  );
+  return selectCatalogAuditSample(
+    input.request,
+    result.rows.map((row) => ({
+      catalogItemId: row.catalog_item_id,
+      productDomain: row.product_domain,
+      languageCode: row.language_code,
+      productForm: row.product_form,
+    })),
+  );
 }
 
 async function queryCountsByStatus(tx: PgQueryable, table: "catalog_items"): Promise<Readonly<Record<string, number>>> {
