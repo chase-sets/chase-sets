@@ -84,6 +84,7 @@ describe("staging count capture lifecycle", () => {
       "capture-complete": ["/count-capture/complete", { runnerRunId: "300", runnerRunAttempt: 1 }],
     };
     const intents: string[] = [];
+    const answered: string[] = [];
     let sealed: { runId: string; frozenAt: string } | null = null;
     const action = async (intent: string, fields: Readonly<Record<string, string>>) => {
       intents.push(intent);
@@ -108,6 +109,7 @@ describe("staging count capture lifecycle", () => {
         },
         body: JSON.stringify(body),
       });
+      answered.push(`${intent}:${response.status}`);
       if (!response.ok) throw new Error(`action-${intent}-${response.status}`);
       const value = await response.json();
       if (intent === "capture-freeze") sealed = value;
@@ -123,6 +125,11 @@ describe("staging count capture lifecycle", () => {
         return countCaptureCollectionSchema.parse({ ...authority.collection, collectedAt });
       },
     );
+    // Every action answered and the journey returned the server receipt, not a
+    // runner-local stop, so a failure names the refused step and its stop reason.
+    expect(answered).toEqual(Object.keys(paths).map((intent) => `${intent}:200`));
+    const stop = result as { phase?: unknown; reason?: unknown };
+    expect({ phase: stop.phase, reason: stop.reason }).toEqual({ phase: undefined, reason: undefined });
     const validation = validateCountLifecycleReceipt(result);
     expect(validation.classification).toMatchObject({ verdict: "CONFORMING", reasons: [] });
     expect(validation.valid).toBe(true);
