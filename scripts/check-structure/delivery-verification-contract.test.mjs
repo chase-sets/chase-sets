@@ -33,17 +33,19 @@ describe("Codex delivery default prompt contract", () => {
   it.each([
     {
       name: "restores the ready non-draft boundary",
-      mutate: (prompt) => prompt.replace(
-        "In lane mode (orchestrator dispatch) stop at a pushed draft PR plus a completion report — do not launch reviewers or mark your own PR ready; it may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green; never enqueue or merge;",
-        "In lane mode (orchestrator dispatch) stop at a green, ready, non-draft PR plus a completion report — never enqueue or merge;",
-      ),
+      mutate: (prompt) =>
+        prompt.replace(
+          "In lane mode (orchestrator dispatch) stop at a pushed draft PR plus a completion report — do not launch reviewers or mark your own PR ready; it may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green; never enqueue or merge;",
+          "In lane mode (orchestrator dispatch) stop at a green, ready, non-draft PR plus a completion report — never enqueue or merge;",
+        ),
     },
     {
       name: "names an actor for the draft-to-ready mutation",
-      mutate: (prompt) => prompt.replace(
-        "it may become ready only after a host-dispatched exact-head independent PASS",
-        "the host marks it ready only after a host-dispatched exact-head independent PASS",
-      ),
+      mutate: (prompt) =>
+        prompt.replace(
+          "it may become ready only after a host-dispatched exact-head independent PASS",
+          "the host marks it ready only after a host-dispatched exact-head independent PASS",
+        ),
     },
   ])("rejects a lane-boundary mutant that $name", ({ mutate }) => {
     const mutant = { ...codexDeliveryPrompt, default_prompt: mutate(codexDeliveryPrompt.default_prompt) };
