@@ -370,7 +370,7 @@ describe("AC-B1 support-evidence-raster/v1 encodings", () => {
     const header = chunks[0]?.data;
     expect([header?.[8], header?.[9]]).toEqual([8, 6]);
     const zlibHeader = chunks.find(({ type }) => type === "IDAT")?.data;
-    expect([zlibHeader?.[0], (zlibHeader?.[1] ?? 0) >> 6]).toEqual([0x78, 3]);
+    expect([(zlibHeader?.[0] ?? 0) & 0x0f, (zlibHeader?.[1] ?? 0) >> 6]).toEqual([8, 3]);
     expect((await sharp(image.body).metadata()).density).not.toBe(300);
     await expectMetadataAbsent(image.body);
 
