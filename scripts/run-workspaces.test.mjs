@@ -927,7 +927,10 @@ describe("DB duration scheduling", () => {
         } finally {
           await unit.close();
         }
-        for (const missing of ["__tests__/seed-command-catalog.db.test.ts"]) {
+        for (const missing of [
+          "__tests__/seed-command-catalog.db.test.ts",
+          "__tests__/operator-session/operator-session-push.db.test.ts",
+        ]) {
           const leaking = await createVitest("test", {
             root: api.dir,
             config: "./vitest.config.ts",

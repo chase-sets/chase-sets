@@ -174,12 +174,5 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
         return status(value.environment);
       }
     },
-    async resume() {
-      await ready;
-      await badge();
-    },
-    async alarm(_environment: OperatorEnvironment) {
-      await ready;
-    },
   };
 }

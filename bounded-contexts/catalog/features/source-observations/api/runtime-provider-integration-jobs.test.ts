@@ -8,7 +8,10 @@ import {
   createCatalogIntegrationRolloutControlPolicy,
   type CatalogIntegrationRolloutControlPolicy,
 } from "./governance/catalog-integration-rollout-controls";
-import { catalogProviderProfileVersionIngestionUnitKey } from "./provider-integration-profiles";
+import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "./provider-integration-profiles";
 import { createSourceObservationRuntime } from "./runtime";
 import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
 import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
@@ -2075,6 +2078,45 @@ function scrydexOnePieceFetch(): typeof globalThis.fetch {
       });
     }
 
+    if (url.includes("/lorcana/v1/expansions/1/cards")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "tfc-041",
+            name: "Elsa - Snow Queen",
+            number: "41",
+            printed_number: "41/204",
+            rarity: "Super Rare",
+            rarity_code: "SR",
+            type: "Character",
+            ink: "Amethyst",
+            language_code: "en",
+            expansion: { id: "1", name: "The First Chapter", code: "TFC", total: 204, release_date: "2023-08-18" },
+            printings: ["TFC"],
+            variants: [{ name: "standard", printings: ["TFC"] }],
+            tcgplayer_id: "1005010",
+          },
+        ],
+        total_pages: 1,
+      });
+    }
+
+    if (url.includes("/lorcana/v1/expansions")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "1",
+            name: "The First Chapter",
+            code: "TFC",
+            total: 204,
+            release_date: "2023-08-18",
+            language_code: "en",
+          },
+        ],
+        total_pages: 1,
+      });
+    }
+
     return new Response(null, { status: 404 });
   }) as typeof globalThis.fetch;
 }
@@ -2100,6 +2142,229 @@ function expectUnitRolloutDenial(error: unknown, controlId: string, unitKey: str
     expect.objectContaining({ controlId, status: "blocked", unitKeys: expect.arrayContaining([unitKey]) }),
   ]);
 }
+
+const SCRYDEX_ONE_PIECE_PROFILE_KEY = "one-piece-card-print-source-observation";
+const SCRYDEX_ONE_PIECE_SET_PROFILE_KEY = "one-piece-set-reference-data";
+const SCRYDEX_LORCANA_PROFILE_KEY = "lorcana-card-print-source-observation";
+const SCRYDEX_ONE_PIECE_SCOPE = {
+  provider: "scrydex",
+  profileKey: SCRYDEX_ONE_PIECE_PROFILE_KEY,
+  ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+  language: "en",
+  setId: "op-01",
+};
+const SCRYDEX_ONE_PIECE_SET_SCOPE = {
+  provider: "scrydex",
+  profileKey: SCRYDEX_ONE_PIECE_SET_PROFILE_KEY,
+  ingestionUnitKey: "scrydex:one-piece:set:reference-data",
+  language: "en",
+  setId: "op-01",
+};
+const SCRYDEX_LORCANA_SCOPE = {
+  provider: "scrydex",
+  profileKey: SCRYDEX_LORCANA_PROFILE_KEY,
+  ingestionUnitKey: "scrydex:lorcana:single-card:source-observation-import",
+  language: "en",
+  setId: "1",
+};
+
+function sharedScrydexProfileVersions() {
+  return createMutableProfileVersionReader(
+    catalogProviderIntegrationProfileVersions.filter(
+      (version) =>
+        version.providerKey === "scrydex" &&
+        [SCRYDEX_ONE_PIECE_PROFILE_KEY, SCRYDEX_ONE_PIECE_SET_PROFILE_KEY, SCRYDEX_LORCANA_PROFILE_KEY].includes(
+          version.profileKey,
+        ),
+    ),
+  );
+}
+
+async function resolvedScrydexUnitKey(profileKey: string): Promise<string> {
+  const version = await sharedScrydexProfileVersions().getActiveProfileVersion("scrydex", { profileKey });
+  if (!version) throw new Error(`Expected an active Scrydex profile for ${profileKey}.`);
+  return catalogProviderProfileVersionIngestionUnitKey(version);
+}
+
+async function runQueuedScrydexImport(input: {
+  policy: CatalogIntegrationRolloutControlPolicy;
+  scope: Record<string, unknown>;
+  profileVersions?: ReturnType<typeof sharedScrydexProfileVersions>;
+}) {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.SCRYDEX_API_KEY;
+  const originalTeamId = process.env.SCRYDEX_TEAM_ID;
+  process.env.SCRYDEX_API_KEY = "test-key";
+  process.env.SCRYDEX_TEAM_ID = "main";
+  const fetch = vi.fn(scrydexOnePieceFetch());
+  globalThis.fetch = fetch as typeof globalThis.fetch;
+  const harness = createIntegrationJobClaimHandoffHarness({ scope: input.scope, renewSucceeds: true });
+  try {
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      input.profileVersions ?? sharedScrydexProfileVersions(),
+      input.policy,
+    );
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+  } finally {
+    restoreEnvValue("SCRYDEX_API_KEY", originalApiKey);
+    restoreEnvValue("SCRYDEX_TEAM_ID", originalTeamId);
+    globalThis.fetch = originalFetch;
+  }
+  return { harness, transportCalls: fetch.mock.calls };
+}
+
+describe("source observation runtime: resolved-unit import rollout enforcement", () => {
+  it("denies import preview and start for a stopped resolved unit while a sibling Scrydex unit proceeds", async () => {
+    const stoppedUnitKey = await resolvedScrydexUnitKey(SCRYDEX_ONE_PIECE_PROFILE_KEY);
+    const policy = createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] });
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.SCRYDEX_API_KEY;
+    const originalTeamId = process.env.SCRYDEX_TEAM_ID;
+    process.env.SCRYDEX_API_KEY = "test-key";
+    process.env.SCRYDEX_TEAM_ID = "main";
+    const fetch = vi.fn(scrydexOnePieceFetch());
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+    try {
+      const previewServices = createSourceObservationRuntime(
+        { db: {} } as CatalogRuntimeDeps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        sharedScrydexProfileVersions(),
+        policy,
+      );
+      const previewError = await previewServices
+        .previewIntegrationImport({ scope: SCRYDEX_ONE_PIECE_SCOPE, context })
+        .catch((error: unknown) => error);
+      expectUnitRolloutDenial(previewError, "imports-disabled", stoppedUnitKey);
+      expect(fetch).not.toHaveBeenCalled();
+
+      await expect(
+        previewServices.previewIntegrationImport({ scope: SCRYDEX_LORCANA_SCOPE, context }),
+      ).resolves.toMatchObject({
+        profileSnapshot: {
+          providerKey: "scrydex",
+          ingestionUnitKey: await resolvedScrydexUnitKey(SCRYDEX_LORCANA_PROFILE_KEY),
+        },
+      });
+
+      const startHarness = createIntegrationJobDedupeHarness();
+      const startServices = createSourceObservationRuntime(
+        startHarness.deps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        sharedScrydexProfileVersions(),
+        policy,
+      );
+      const startError = await startServices
+        .enqueueIntegrationJob({ action: "import", scope: SCRYDEX_ONE_PIECE_SCOPE, context })
+        .catch((error: unknown) => error);
+      expectUnitRolloutDenial(startError, "imports-disabled", stoppedUnitKey);
+      expect(startHarness.insertedJobs).toEqual([]);
+      await expect(
+        startServices.enqueueIntegrationJob({ action: "import", scope: SCRYDEX_LORCANA_SCOPE, context }),
+      ).resolves.toMatchObject({ status: "queued" });
+      expect(startHarness.insertedJobs).toHaveLength(1);
+    } finally {
+      restoreEnvValue("SCRYDEX_API_KEY", originalApiKey);
+      restoreEnvValue("SCRYDEX_TEAM_ID", originalTeamId);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("denies queued import execution when a unit stop is introduced after enqueue", async () => {
+    const stoppedUnitKey = await resolvedScrydexUnitKey(SCRYDEX_ONE_PIECE_PROFILE_KEY);
+    const enqueueHarness = createIntegrationJobDedupeHarness();
+    await createSourceObservationRuntime(
+      enqueueHarness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      sharedScrydexProfileVersions(),
+      createCatalogIntegrationRolloutControlPolicy(),
+    ).enqueueIntegrationJob({ action: "import", scope: SCRYDEX_ONE_PIECE_SCOPE, context });
+    const enqueuedPayload = enqueueHarness.insertedJobs[0]?.payload as {
+      scope: Record<string, unknown>;
+      profileSnapshot: Record<string, unknown>;
+    };
+    const denied = await runQueuedScrydexImport({
+      policy: createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] }),
+      scope: enqueuedPayload.scope,
+      profileVersions: sharedScrydexProfileVersions(),
+    });
+    expect(denied.harness.job.status).toBe("failed");
+    expect(denied.harness.job.error_message).toBe(
+      "Catalog integration imports are disabled for the configured ingestion-unit scope.",
+    );
+    expect(denied.transportCalls).toEqual([]);
+    expect(denied.harness.appendedSourceEvents).toEqual([]);
+    const sibling = await runQueuedScrydexImport({
+      policy: createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] }),
+      scope: SCRYDEX_ONE_PIECE_SET_SCOPE,
+    });
+    expect(sibling.harness.job.status).toBe("completed");
+    expect(sibling.harness.appendedSourceEvents.length).toBeGreaterThan(0);
+  });
+
+  it("enforces the existing One Piece signoff per resolved unit without gating another game on the shared Scrydex provider", async () => {
+    const onePieceUnitKey = await resolvedScrydexUnitKey(SCRYDEX_ONE_PIECE_PROFILE_KEY);
+    const unsignedPolicy = createCatalogIntegrationRolloutControlPolicy({ onePieceProductionSignoffReference: null });
+    const unsigned = await runQueuedScrydexImport({ policy: unsignedPolicy, scope: SCRYDEX_ONE_PIECE_SCOPE });
+    expect(unsigned.harness.job.status).toBe("failed");
+    expect(unsigned.harness.job.error_message).toContain(
+      "One Piece production sync requires recorded provider-data signoff",
+    );
+    expect(unsigned.transportCalls).toEqual([]);
+    expect(unsigned.harness.appendedSourceEvents).toEqual([]);
+    const unsignedStartError = await createSourceObservationRuntime(
+      createIntegrationJobDedupeHarness().deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      sharedScrydexProfileVersions(),
+      unsignedPolicy,
+    )
+      .enqueueIntegrationJob({ action: "import", scope: SCRYDEX_ONE_PIECE_SCOPE, context })
+      .catch((error: unknown) => error);
+    expectUnitRolloutDenial(unsignedStartError, "one-piece-production-signoff-required", onePieceUnitKey);
+    const otherGame = await runQueuedScrydexImport({ policy: unsignedPolicy, scope: SCRYDEX_LORCANA_SCOPE });
+    expect(otherGame.harness.job.status).toBe("completed");
+    const signed = await runQueuedScrydexImport({
+      policy: createCatalogIntegrationRolloutControlPolicy({
+        onePieceProductionSignoffReference: "#2285 UI-only staging UAT evidence",
+      }),
+      scope: SCRYDEX_ONE_PIECE_SCOPE,
+    });
+    expect(signed.harness.job.status).toBe("completed");
+    expect(signed.harness.appendedSourceEvents.length).toBeGreaterThan(0);
+  });
+
+  it("keeps global, provider and unit emergency denials effective at queued import execution", async () => {
+    const unitKey = await resolvedScrydexUnitKey(SCRYDEX_ONE_PIECE_PROFILE_KEY);
+    const denials = [
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ controlPlaneMode: "dry-run-only" }),
+        message: "Catalog Integration Control Plane dry-run-only mode is active.",
+      },
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ providerApiEmergencyStop: ["scrydex"] }),
+        message: "Provider API emergency stop is active for the configured provider scope.",
+      },
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ providerApiEmergencyStopUnits: [unitKey] }),
+        message: "Provider API emergency stop is active for the configured ingestion-unit scope.",
+      },
+    ];
+    for (const denial of denials) {
+      const result = await runQueuedScrydexImport({ policy: denial.policy, scope: SCRYDEX_ONE_PIECE_SCOPE });
+      expect(result.harness.job.status).toBe("failed");
+      expect(result.harness.job.error_message).toBe(denial.message);
+      expect(result.transportCalls).toEqual([]);
+    }
+  });
+});
 
 describe("source observation runtime: resolved-unit import rollout enforcement", () => {
   it("denies starting a current-active reapply for the resolved stopped unit and defers original-source reapply to per-unit execution", async () => {

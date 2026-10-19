@@ -14,6 +14,7 @@ import {
   lorcastLorcanaCardReferenceProviderProfile,
   mtgjsonMtgCardReferenceProviderProfile,
   scrydexOnePieceConnectorProfile,
+  scrydexOnePieceCardPrintProviderProfile,
   catalogProviderIntegrationProfileVersions,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
@@ -580,6 +581,34 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         transports: {},
       }),
     ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
+  });
+
+  it("generates unsupported query and parent validation errors from retained Scrydex profile data", async () => {
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [scrydexOnePieceCardPrintProviderProfile],
+        providerKey: "scrydex",
+        queryKind: "unknown",
+        defaultProviderKey: "tcgdex",
+        transports: {},
+      }),
+    ).rejects.toThrow(
+      "Unsupported Catalog integration query 'unknown' for provider 'scrydex'. Supported queries: sets, cards.",
+    );
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [scrydexOnePieceCardPrintProviderProfile],
+        providerKey: "scrydex",
+        queryKind: "cards",
+        defaultProviderKey: "tcgdex",
+        transports: {},
+      }),
+    ).rejects.toMatchObject({
+      name: "CatalogProviderOptionQueryInvalidRequestError",
+      code: "catalog_provider_option_query_parent_required",
+      message: "Scrydex One Piece card option queries require a selected set.",
+    });
   });
 
   it("can add a Scrydex-style option query without runtime provider branching", async () => {

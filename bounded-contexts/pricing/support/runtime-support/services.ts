@@ -25,7 +25,6 @@ import type { ChannelConnectionIdentityReader } from "../../features/economics/d
 import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
 
 export type PricingHostPorts = Readonly<{
-  [key: string]: unknown;
   commercialTermsResolver: CommercialTermsResolver;
   channelConnectionIdentityReader: ChannelConnectionIdentityReader;
 }>;
