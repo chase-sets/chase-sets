@@ -45,7 +45,7 @@ import { validateChannelConnectionContractProvenance } from "./channel-connectio
 import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
-import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
+import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
 
@@ -823,6 +823,7 @@ export function isAllowedPublicExportName(value) {
     value === "./context" ||
     value === "./client" ||
     value === "./host-config" ||
+    value === "./localization" ||
     value === "./seed-support/*" ||
     value === "./test-support" ||
     value === "./integration/link-intents" ||
@@ -987,7 +988,21 @@ async function loadContextManifests() {
       continue;
     }
 
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const sourcePath = path.join(contextRootAbs, "context.source.mjs");
+    let manifest;
+    if (existsSync(sourcePath)) {
+      try {
+        manifest = loadContextSourceManifest(sourcePath);
+      } catch (error) {
+        addPathViolation(
+          `bounded-contexts/${entry.name}/context.source.mjs`,
+          error instanceof Error ? error.message : String(error),
+        );
+        manifest = {};
+      }
+    } else {
+      manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    }
     const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
     const relativeRoot = `bounded-contexts/${entry.name}`;
 
@@ -1195,6 +1210,7 @@ async function loadContextManifests() {
       manifest,
       packageJson,
       packageName: manifest.packageName,
+      sourceBacked: existsSync(sourcePath),
     });
   }
 
@@ -1456,6 +1472,26 @@ export function findRouteSupportPlacementViolation({ relativeFile, content, cont
   }
 
   return `route loader/action modules must live under support/route-support/<route-name>/, not support/${supportDirectory}/`;
+}
+
+export function findBrowserUnsafeLocalizationExport(content) {
+  const unsafePatterns = [
+    /(?:^|["'])node:[^"'\n]+/,
+    /(?:^|["'])(?:fs|path|crypto|pg|react-router\/node|\.\/server)(?:["'\/]|$)/,
+    /(?:^|["'])[^"'\n]*\/server(?:["'\/]|$)/,
+    /process\.env|globalThis\.process|window\.location\.assign/,
+  ];
+  return unsafePatterns.some((pattern) => pattern.test(content));
+}
+
+export function isThinRouteAdapter(content) {
+  const withoutComments = content.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const withoutImports = withoutComments.replace(/^\s*import[\s\S]*?;\s*$/gm, "");
+  const withoutExports = withoutImports
+    .replace(/^\s*export\s+(?:type\s+)?\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, "")
+    .replace(/^\s*export\s+\{[^}]*\};?\s*$/gm, "")
+    .replace(/^\s*export\s+default\s+[^;]+;?\s*$/gm, "");
+  return withoutExports.trim().length === 0;
 }
 
 const catalogAdminMarker = ["catalog", "admin"].join("-");
@@ -2125,6 +2161,14 @@ export async function runStructureCheck(options = {}) {
             `${root}/package.json`,
             `package export ${publicExport} targets a missing file (${exportTarget})`,
           );
+        } else if (publicExport === "./localization") {
+          const localizationSource = await readFile(resolvedTarget, "utf8");
+          if (findBrowserUnsafeLocalizationExport(localizationSource)) {
+            addPathViolation(
+              `${root}/package.json`,
+              "./localization must be browser-safe and must not import server/runtime modules",
+            );
+          }
         }
       }
     }
@@ -3444,6 +3488,18 @@ export async function runStructureCheck(options = {}) {
       const routeOrShellSupportClassification = classifyRouteOrShellSupportFile(normalizedFile);
       const contextRoot = getContextRoot(normalizedFile);
       const contextName = contextRoot ? (contextManifests.get(contextRoot)?.manifest.contextName ?? null) : null;
+      const context = contextRoot ? contextManifests.get(contextRoot) : null;
+      if (
+        context?.sourceBacked &&
+        normalizedFile.startsWith(`${contextRoot}/routes/`) &&
+        !isTestFile(normalizedFile) &&
+        !isThinRouteAdapter(content)
+      ) {
+        addViolation(
+          file,
+          "migrated contexts must keep routes/ modules as thin public adapters; route behavior belongs under features/<slice>",
+        );
+      }
       const routeSupportPlacementViolation = findRouteSupportPlacementViolation({
         relativeFile: normalizedFile,
         content,

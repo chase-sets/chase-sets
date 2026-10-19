@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findRouteSupportPlacementViolation } from "./run.mjs";
+import { findBrowserUnsafeLocalizationExport, findRouteSupportPlacementViolation, isThinRouteAdapter } from "./run.mjs";
 
 const baseManifest = {
   directoryIntent: {
@@ -26,6 +26,17 @@ function violationFor(relativeFile, content, manifest = baseManifest) {
 }
 
 describe("route support placement guard", () => {
+  it("recognizes thin route adapters and rejects behavior in migrated adapters", () => {
+    expect(isThinRouteAdapter('export { loader, action } from "../features/catalog/ui/route";')).toBe(true);
+    expect(isThinRouteAdapter('export async function loader() { return new Response("owned here"); }')).toBe(false);
+  });
+
+  it("keeps the exact localization surface browser-safe", () => {
+    expect(findBrowserUnsafeLocalizationExport('export { catalog } from "./features/catalog/locales";')).toBe(false);
+    expect(findBrowserUnsafeLocalizationExport('import fs from "node:fs"; export const catalog = {};')).toBe(true);
+    expect(findBrowserUnsafeLocalizationExport('export { loader } from "./server";')).toBe(true);
+  });
+
   it("rejects route loader and action modules outside route-support", () => {
     expect(
       violationFor(

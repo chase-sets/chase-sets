@@ -110,6 +110,55 @@ afterEach(() => {
 });
 
 describe("sync-workspace-metadata --check", () => {
+  it("composes a source-backed manifest, writes its canonical bytes, and checks stale canonical data without downstream fallback", async () => {
+    const fixture = await createMetadataFixture();
+    await mkdir(path.join(fixture.rootDir, "bounded-contexts", "catalog", "features"), { recursive: true });
+    writeFileSync(
+      path.join(fixture.rootDir, "bounded-contexts", "catalog", "features", "catalog.metadata.mjs"),
+      'export const metadata = { localeCatalogs: ["contracts/localization/locales/en/example.ts"], apiDeployables: ["platform-api"] };\n',
+      "utf8",
+    );
+    writeFileSync(
+      path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.source.mjs"),
+      'import { metadata } from "./features/catalog.metadata.mjs";\nexport const contextManifest = { contextName: "catalog", ...metadata, runtimeDeployables: ["platform-worker"], deployableContributions: [{ deployable: "marketplace-web" }] };\n',
+      "utf8",
+    );
+
+    syncWorkspaceMetadata(fixture);
+    const canonicalPath = path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.json");
+    const canonical = readFileSync(canonicalPath, "utf8");
+    expect(JSON.parse(canonical)).toMatchObject({ contextName: "catalog", localeCatalogs: fixture.trackedLocaleFiles });
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).not.toThrow();
+
+    writeFileSync(canonicalPath, `${canonical}\n`, "utf8");
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(
+      /bounded-contexts\/catalog\/context\.json is stale/,
+    );
+    expect(readFileSync(canonicalPath, "utf8")).toBe(`${canonical}\n`);
+  });
+
+  it("fails closed when a source cannot compose instead of reading canonical context.json", async () => {
+    const fixture = await createMetadataFixture();
+    writeFileSync(
+      path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.source.mjs"),
+      'throw new Error("malformed source");\n',
+      "utf8",
+    );
+
+    expect(() => syncWorkspaceMetadata(fixture)).toThrow(/malformed source/);
+  });
+
+  it("rejects duplicate identities inside a source-owned contribution family", async () => {
+    const fixture = await createMetadataFixture();
+    writeFileSync(
+      path.join(fixture.rootDir, "bounded-contexts", "catalog", "context.source.mjs"),
+      'export default { contextName: "catalog", apiDeployables: ["platform-api"], apiMounts: [{ id: "catalog" }, { id: "catalog" }] };\n',
+      "utf8",
+    );
+
+    expect(() => syncWorkspaceMetadata(fixture)).toThrow(/Duplicate context contribution identity "id:catalog"/);
+  });
+
   it("passes when generated metadata is current", async () => {
     const fixture = await createMetadataFixture();
 
