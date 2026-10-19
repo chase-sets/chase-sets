@@ -23,7 +23,10 @@ import * as selectionOwner from "./primary-workbench-selection-contracts";
 
 describe("Catalog primary workbench admin contracts", () => {
   it("workbench exported symbol and validator ownership is complete", () => {
-    const adminFacade = readFileSync(fileURLToPath(new URL("./primary-workbench-admin-contracts.ts", import.meta.url)), "utf8");
+    const adminFacade = readFileSync(
+      fileURLToPath(new URL("./primary-workbench-admin-contracts.ts", import.meta.url)),
+      "utf8",
+    );
     const descriptorImplementation = readFileSync(
       fileURLToPath(new URL("./primary-workbench-contract-descriptors-implementation.ts", import.meta.url)),
       "utf8",
@@ -33,7 +36,9 @@ describe("Catalog primary workbench admin contracts", () => {
       "utf8",
     );
 
-    expect(adminFacade).not.toMatch(/\b(?:function|const)\s+(?:section|action|blocker|validateCatalogPrimaryWorkbench)/);
+    expect(adminFacade).not.toMatch(
+      /\b(?:function|const)\s+(?:section|action|blocker|validateCatalogPrimaryWorkbench)/,
+    );
     expect(adminFacade).toContain('export * from "./primary-workbench-selection-contracts"');
     expect(adminFacade).toContain('export * from "./primary-workbench-contract-validators"');
     expect(descriptorImplementation).toContain("export const catalogPrimaryWorkbenchSections");
@@ -44,18 +49,27 @@ describe("Catalog primary workbench admin contracts", () => {
     expect(validatorImplementation).not.toContain("export const catalogPrimaryWorkbenchSections");
 
     expect(selectionOwner.catalogPrimaryWorkbenchContractVersion).toBe("catalog-primary-workbench-v2");
-    expect(readFileSync(fileURLToPath(new URL("./primary-workbench-import-sync-contracts.ts", import.meta.url)), "utf8")).toContain(
-      "CatalogPrimaryWorkbenchCatalogSyncReadModel",
-    );
-    expect(readFileSync(fileURLToPath(new URL("./primary-workbench-profile-readiness-contracts.ts", import.meta.url)), "utf8")).toContain(
-      "CatalogPrimaryWorkbenchProfileAuthoringReadModel",
-    );
-    expect(readFileSync(fileURLToPath(new URL("./primary-workbench-lifecycle-governance-contracts.ts", import.meta.url)), "utf8")).toContain(
-      "CatalogPrimaryWorkbenchGovernanceControlsReadModel",
-    );
-    expect(readFileSync(fileURLToPath(new URL("./primary-workbench-promotion-review-contracts.ts", import.meta.url)), "utf8")).toContain(
-      "CatalogPrimaryWorkbenchPromotionPreviewReadModel",
-    );
+    expect(
+      readFileSync(fileURLToPath(new URL("./primary-workbench-import-sync-contracts.ts", import.meta.url)), "utf8"),
+    ).toContain("CatalogPrimaryWorkbenchCatalogSyncReadModel");
+    expect(
+      readFileSync(
+        fileURLToPath(new URL("./primary-workbench-profile-readiness-contracts.ts", import.meta.url)),
+        "utf8",
+      ),
+    ).toContain("CatalogPrimaryWorkbenchProfileAuthoringReadModel");
+    expect(
+      readFileSync(
+        fileURLToPath(new URL("./primary-workbench-lifecycle-governance-contracts.ts", import.meta.url)),
+        "utf8",
+      ),
+    ).toContain("CatalogPrimaryWorkbenchGovernanceControlsReadModel");
+    expect(
+      readFileSync(
+        fileURLToPath(new URL("./primary-workbench-promotion-review-contracts.ts", import.meta.url)),
+        "utf8",
+      ),
+    ).toContain("CatalogPrimaryWorkbenchPromotionPreviewReadModel");
   });
 
   it("workbench validator family parity and omission controls", () => {

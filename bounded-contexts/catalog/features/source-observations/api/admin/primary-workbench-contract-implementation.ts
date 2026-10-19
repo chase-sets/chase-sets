@@ -144,12 +144,7 @@ type CatalogPrimaryWorkbenchPromotionDisposition =
 
 type CatalogPrimaryWorkbenchPromotionScopeKind = "explicit-rows" | "matching-filter";
 
-type CatalogPrimaryWorkbenchPromotionOutcomeCountKey =
-  | "eligible"
-  | "blocked"
-  | "skipped"
-  | "conflicting"
-  | "failed";
+type CatalogPrimaryWorkbenchPromotionOutcomeCountKey = "eligible" | "blocked" | "skipped" | "conflicting" | "failed";
 
 type CatalogPrimaryWorkbenchPromotionStaleProtectionKey =
   | "observations"
@@ -158,9 +153,7 @@ type CatalogPrimaryWorkbenchPromotionStaleProtectionKey =
   | "permissions"
   | "command-inputs";
 
-type CatalogPrimaryWorkbenchPromotionProfileSemantics =
-  | "current-active-profile"
-  | "original-source-profile-version";
+type CatalogPrimaryWorkbenchPromotionProfileSemantics = "current-active-profile" | "original-source-profile-version";
 
 type CatalogPrimaryWorkbenchRouteContextKey =
   | "section"
@@ -889,8 +882,7 @@ type CatalogPrimaryWorkbenchValidationEvidenceRow = Readonly<{
   }>[];
 }>;
 
-type CatalogPrimaryWorkbenchLifecycleOperation =
-  CatalogAdminRollbackRetirementImpactSummaryReadModel["operation"];
+type CatalogPrimaryWorkbenchLifecycleOperation = CatalogAdminRollbackRetirementImpactSummaryReadModel["operation"];
 
 type CatalogPrimaryWorkbenchLifecycleRecoveryStatus = "ready" | "blocked" | "unavailable";
 
@@ -1298,12 +1290,7 @@ type CatalogPrimaryWorkbenchProfileSectionGroupKey =
   | "catalog-promotion"
   | "evidence-lifecycle";
 
-type CatalogPrimaryWorkbenchProfileSectionSaveOutcome =
-  | "not-submitted"
-  | "saved"
-  | "conflict"
-  | "invalid"
-  | "failed";
+type CatalogPrimaryWorkbenchProfileSectionSaveOutcome = "not-submitted" | "saved" | "conflict" | "invalid" | "failed";
 
 type CatalogPrimaryWorkbenchProfileSectionFieldControl = "text" | "textarea" | "select" | "checkbox" | "tags";
 
@@ -2007,8 +1994,6 @@ type CatalogPrimaryWorkbenchInstrumentationReadModel = Readonly<{
   dimensions: readonly CatalogPrimaryWorkbenchInstrumentationDimension[];
   redactionSafe: boolean;
 }>;
-
-
 
 export {
   catalogPrimaryWorkbenchContractVersion,
