@@ -168,6 +168,7 @@
     "bounded-contexts/checkout/support/runtime-support/seed.ts",
     "bounded-contexts/collections/features/saved-list-valuation/read-model/projection.ts",
     "bounded-contexts/collections/features/saved-list-valuation/read-model/queries.ts",
+    "bounded-contexts/collections/features/saved-lists/api/anonymous-owner-redaction.ts",
     "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.ts",
     "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.ts",
     "bounded-contexts/collections/features/saved-lists/read-model/picker-projection.ts",

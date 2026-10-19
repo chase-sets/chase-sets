@@ -1,0 +1,99 @@
+name: Collections Anonymous Owner Redaction
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Protected target environment.
+        type: choice
+        required: true
+        options: [staging, production]
+      mode:
+        description: Dry run, activate the fence, redact, or verify offline receipt artifacts.
+        type: choice
+        default: dry-run
+        required: true
+        options: [dry-run, activate, redact, verify]
+      approval_reference:
+        description: Durable authorization reference, required for activate and redact.
+        type: string
+        required: false
+      gate_packet:
+        description: Exact closed collections-cutover-gate/v1 JSON, at most 16 KB.
+        type: string
+        required: false
+      gate_packet_sha256:
+        description: SHA-256 of the exact gate_packet UTF-8 bytes.
+        type: string
+        required: false
+      receipt_artifacts:
+        description: For verify only, JSON array containing the staging and production receipt artifacts.
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-${{ inputs.target }}-mutating-operations
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.target }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: inputs.mode != 'verify'
+        with:
+          terraform_wrapper: false
+
+      - name: Export Collections database authority
+        if: inputs.mode != 'verify'
+        uses: ./.github/actions/export-managed-postgres-authority
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          environment: ${{ inputs.target }}
+          contexts: collections
+          connection-mode: direct
+
+      - name: Run protected Collections cutover
+        env:
+          REDACTION_MODE: ${{ inputs.mode }}
+          REDACTION_TARGET: ${{ inputs.target }}
+          REDACTION_JOB_ENVIRONMENT: ${{ inputs.target }}
+          REDACTION_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REDACTION_APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
+          REDACTION_GATE_PACKET: ${{ inputs.gate_packet }}
+          REDACTION_GATE_PACKET_SHA256: ${{ inputs.gate_packet_sha256 }}
+          REDACTION_RECEIPTS: ${{ inputs.receipt_artifacts }}
+          REDACTION_OUT: artifacts/collections-anonymous-owner-redaction/receipt.json
+        run: node scripts/collections-anonymous-owner-redaction.mjs
+
+      - name: Remove managed Postgres CA
+        if: always() && inputs.mode != 'verify'
+        run: |
+          if [ -n "${PGSSLROOTCERT:-}" ]; then rm -f -- "$PGSSLROOTCERT"; fi
+
+      - name: Retain cutover receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: collections-anonymous-owner-redaction-${{ inputs.target }}-${{ inputs.mode }}
+          path: artifacts/collections-anonymous-owner-redaction/receipt.json
+          if-no-files-found: error
