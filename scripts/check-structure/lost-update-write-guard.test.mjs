@@ -101,9 +101,7 @@ describe("owner-local lost-update exceptions", () => {
       "bounded-contexts/example/features/estimates/read-model/queries.ts",
       "const sql = `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1 AND fresh_until = $3`;",
     );
-    await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(
-      expect.objectContaining({ violations: [] }),
-    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(expect.objectContaining({ violations: [] }));
   });
 
   it("accepts a monotonic global-position predicate", async () => {
@@ -111,9 +109,7 @@ describe("owner-local lost-update exceptions", () => {
       "bounded-contexts/example/features/categories/read-model/projection.ts",
       "const sql = `UPDATE category_rows SET status = $2 WHERE category_id = $1 AND last_global_position <= $3`;",
     );
-    await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(
-      expect.objectContaining({ violations: [] }),
-    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(expect.objectContaining({ violations: [] }));
   });
 
   it("exception migration preserves complete classifications", async () => {
