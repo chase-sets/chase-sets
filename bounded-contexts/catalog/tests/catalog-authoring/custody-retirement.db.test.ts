@@ -60,8 +60,8 @@ describeDb("TCGplayer custody retirement migration", () => {
       `INSERT INTO catalog_operator_session_grants
          (id, token_hash, creator_user_id, creator_membership_id, created_at, last_used_at, idle_expires_at)
        VALUES
-         ('00000000-0000-0000-0000-000000000001', decode(repeat('00', 32), 'hex'), 'usr_synthetic', 'mbr_synthetic', now(), now(), now() + interval '1 day'),
-         ('00000000-0000-0000-0000-000000000002', decode(repeat('11', 32), 'hex'), 'usr_synthetic', 'mbr_synthetic', now(), now(), now() + interval '1 day')`,
+         ('00000000-0000-0000-0000-000000000001', decode(repeat('00', 32), 'hex'), '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000201', now(), now(), now() + interval '1 day'),
+         ('00000000-0000-0000-0000-000000000002', decode(repeat('11', 32), 'hex'), '00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000202', now(), now(), now() + interval '1 day')`,
     );
     await pool.query(
       `UPDATE catalog_operator_session_grants

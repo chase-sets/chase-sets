@@ -16,7 +16,9 @@
     "captureParent": "008a50bb554b485dc29e187d381521a3463e24b6",
     "sourceBase": "008a50bb554b485dc29e187d381521a3463e24b6",
     "jobName": "Diagnostic API Bootstrap Measurement Only",
-    "parents": ["008a50bb554b485dc29e187d381521a3463e24b6"],
+    "parents": [
+      "008a50bb554b485dc29e187d381521a3463e24b6"
+    ],
     "node": "v24.21.0",
     "pnpm": "11.0.9",
     "vitest": "vitest/4.1.5 linux-x64 node-v24.21.0",
@@ -890,113 +892,6 @@
           "durationMs": 993.557370999999,
           "referenceDurationMs": 994,
           "identity": "64c4d729efc6edc3"
-        }
-      ]
-    },
-    {
-      "fileName": "operator-session-grant-lifecycle.db.test.ts",
-      "testPath": "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
-      "executionUnit": "test:db:2",
-      "sourceSha256": "82757533ab191b7094e093463e22777eabb494974cd5fd83280ee87858c67837",
-      "observedDurationMs": 14864.478028999998,
-      "observedCaseSumMs": 14771.963995000002,
-      "residualMs": 92.51403399999617,
-      "bootstrap": false,
-      "cases": [
-        {
-          "name": "Disconnect returns a stale clear without retry and keeps its acknowledged revoke",
-          "durationMs": 996.820209,
-          "referenceDurationMs": 997,
-          "identity": "a9489449a64511f8"
-        },
-        {
-          "name": "stored renews exactly from DB time only after COMMIT acknowledgement",
-          "durationMs": 945.5450920000003,
-          "referenceDurationMs": 946
-        },
-        {
-          "name": "unchanged renews exactly from DB time only after COMMIT acknowledgement",
-          "durationMs": 952.1070799999998,
-          "referenceDurationMs": 953
-        },
-        {
-          "name": "stale-revision renews exactly from DB time only after COMMIT acknowledgement",
-          "durationMs": 916.261614,
-          "referenceDurationMs": 917
-        },
-        {
-          "name": "two apps serialize unpair through a paused custody write",
-          "durationMs": 1061.6550529999995,
-          "referenceDurationMs": 1062
-        },
-        {
-          "name": "two apps serialize disconnect through a paused custody write",
-          "durationMs": 996.0128679999998,
-          "referenceDurationMs": 997
-        },
-        {
-          "name": "two apps serialize replace through a paused custody write",
-          "durationMs": 1025.9996190000002,
-          "referenceDurationMs": 1026
-        },
-        {
-          "name": "kills the SAME paused accept backend before another app revokes; no late write or leaked slot",
-          "durationMs": 1012.30753,
-          "referenceDurationMs": 1013,
-          "identity": "0fcaf678a1e3984e"
-        },
-        {
-          "name": "lost COMMIT acknowledgement discriminates both durable outcomes for stored",
-          "durationMs": 1098.3658250000008,
-          "referenceDurationMs": 1099
-        },
-        {
-          "name": "lost COMMIT acknowledgement discriminates both durable outcomes for unchanged",
-          "durationMs": 1038.3793450000012,
-          "referenceDurationMs": 1039
-        },
-        {
-          "name": "lost COMMIT acknowledgement discriminates both durable outcomes for stale-revision",
-          "durationMs": 1007.110197,
-          "referenceDurationMs": 1008
-        },
-        {
-          "name": "Disconnect metadata failure preserves its asymmetric commit contract",
-          "durationMs": 914.7277560000002,
-          "referenceDurationMs": 915
-        },
-        {
-          "name": "Disconnect clear failure preserves its asymmetric commit contract",
-          "durationMs": 909.8477839999996,
-          "referenceDurationMs": 910
-        },
-        {
-          "name": "Disconnect revoke-ack failure preserves its asymmetric commit contract",
-          "durationMs": 955.0852379999997,
-          "referenceDurationMs": 956
-        },
-        {
-          "name": "Disconnect clear-ack failure preserves its asymmetric commit contract",
-          "durationMs": 941.7387850000014,
-          "referenceDurationMs": 942
-        }
-      ]
-    },
-    {
-      "fileName": "operator-extension-route-contract.db.test.ts",
-      "testPath": "__tests__/operator-session/operator-extension-route-contract.db.test.ts",
-      "executionUnit": "test:db:2",
-      "sourceSha256": "48334a8bcca7ee10afd1d5db3c8bb326063dbbc459e0bea20e1560fb3caf4bf7",
-      "observedDurationMs": 1373.8380379999999,
-      "observedCaseSumMs": 1256.0443880000003,
-      "residualMs": 117.79364999999962,
-      "bootstrap": false,
-      "cases": [
-        {
-          "name": "stored 1 -> Disconnect cleared 2 -> NEW grant stale 2 -> fresh cookie stored 3; unpair preserves custody",
-          "durationMs": 1256.0443880000003,
-          "referenceDurationMs": 1257,
-          "identity": "67cb0c1de031423a"
         }
       ]
     },

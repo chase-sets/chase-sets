@@ -719,7 +719,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "95e6570a091bda498bba2e07e3f391e3722bb9327d611ca34f5655016d0122ef",
+      "1eb3e3a7e1c3c8d1323923df7919183258e1120604ebe6bfba78dc24bd6faa74",
     );
     expect(
       normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
