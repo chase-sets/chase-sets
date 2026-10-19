@@ -396,8 +396,10 @@ Completion forecasting is owned by #7465.
   is independent of title, creation order and dates. The board's `Outcome order`
   Number field is a sync-owned display projection of the same comparison
   (`compareOutcomeOrder`); configure its field ID in
-  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. Agents edit the milestone authority, never
-  this projection. Sort the execution view by Outcome order, then Dispatch rank.
+  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. The projection ranks committed outcomes in
+  `chase-sets/chase-sets` only and clears Outcome order on other-repository rows.
+  Agents edit the milestone authority, never this projection. Sort the execution
+  view by Outcome order, then Dispatch rank.
 - **Blocker** is a native correctness edge, never a scheduling opinion.
 - **Dispatch rank** is agent-maintained issue order inside the selected outcome.
   Agents refresh it when steering, blockers, or gate progress materially changes.
