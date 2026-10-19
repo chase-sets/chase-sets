@@ -1,4 +1,5 @@
 import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
+import { readFileSync } from "node:fs";
 import {
   evolveCheckoutSession,
   initialCheckoutSessionState,
@@ -23,7 +24,14 @@ import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
-import { createCheckoutSessionRuntime, OrderCartCleanupError, type CheckoutSessionServices } from "./runtime";
+import {
+  createCheckoutSessionRuntime,
+  OrderCartCleanupError,
+  type CheckoutSessionServices,
+} from "./runtime";
+import { createCheckoutSessionEntryServices } from "./session-entry";
+import { createCheckoutSessionReadServices } from "./session-read";
+import { createCheckoutSessionCleanupService } from "./session-cleanup";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -2112,6 +2120,73 @@ describe("checkout session runtime", () => {
 });
 
 describe("Checkout session entry and read relocation parity", () => {
+  it("complete Checkout session behavior ownership", () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const cart = createCartServices() as never;
+    const eventStore = {} as never;
+    const commandHandler = vi.fn() as never;
+    const repository = { load: vi.fn() } as never;
+    const entry = createCheckoutSessionEntryServices({ eventStore, db, cart, commandHandler, repository });
+    const read = createCheckoutSessionReadServices({
+      db,
+      cart,
+      loadSessionStateForBuyer: vi.fn(),
+      loadSessionStateForBuyerOrNull: vi.fn(),
+    });
+    const cleanup = createCheckoutSessionCleanupService({
+      eventStore,
+      cart,
+      repository,
+      loadSessionStateForBuyer: vi.fn(),
+      applySessionCommandForBuyer: vi.fn(),
+      stateToCheckoutSessionRow: vi.fn(),
+    });
+    const { eventStore: realEventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore: realEventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart,
+    });
+    const owners = [entry, read, cleanup].map((owner) => Object.keys(owner));
+    const ownedKeys = owners.flat();
+    expect(owners).toEqual([
+      ["createFromCart", "createBuyNow", "createOfferIntent"],
+      ["assertReadyForOrderCreation", "getSession", "getLastRecordedQuote"],
+      ["resumeOrderCartCleanup", "recordOrdersCreated"],
+    ]);
+    expect(new Set(ownedKeys).size).toBe(ownedKeys.length);
+    const directKeys = Object.keys(services).filter((key) => !ownedKeys.includes(key));
+    expect(directKeys.sort()).toEqual(
+      [
+        "cancelSession",
+        "commandHandler",
+        "getPaymentConfirmation",
+        "getPaymentSummary",
+        "listSavedPaymentInstruments",
+        "projectors",
+        "recordCheckoutReservations",
+        "recordFulfillmentPreview",
+        "recordOfferSubmitted",
+        "recordPaymentStarted",
+        "selectAuthenticityCheckOptIn",
+        "selectOptimizationGoal",
+        "selectShippingOption",
+        "setShippingAddress",
+        "verifyShippingAddress",
+      ].sort(),
+    );
+    expect(new Set([...ownedKeys, ...directKeys])).toEqual(new Set(Object.keys(services)));
+    expect(Object.keys(services).length).toBe(ownedKeys.length + directKeys.length);
+
+    const source = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+    const runtimeSource = source("runtime.ts");
+    const readSource = source("session-read.ts");
+    expect(runtimeSource.match(/repository\.load\(`checkout\.session-/g)).toHaveLength(2);
+    expect(readSource).not.toMatch(/repository\.load\(`checkout\.session-/);
+    expect(readSource).toContain("unresolvedFulfillmentError");
+  });
+
   it("preserves public entry and aggregate-read behavior", async () => {
     const { eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({
@@ -2133,6 +2208,51 @@ describe("Checkout session entry and read relocation parity", () => {
       session_id: created.sessionId,
       source_type: "cart",
     });
+  });
+
+  it("rethrows a regenerated-id synthetic concurrency conflict instead of replaying the override", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createBuyNowReadinessDb(),
+      cart: createCartServices() as never,
+    });
+    const buyNowInput = {
+      accountId: "acc_buyer" as never,
+      listingId: "lst_1",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+      fulfillmentMode: "locked-listing" as const,
+      lockedListingId: "lst_1",
+      shippingOption: "standard",
+      fulfillmentPreviewRevision: "buy_now_supply_ready",
+      sessionIdOverride: "chk_synthetic_override_conflict" as never,
+    };
+    const first = await services.createBuyNow(buyNowInput, context);
+    await services.setShippingAddress(
+      { sessionId: first.sessionId, accountId: "acc_buyer" as never, shippingAddress: serviceableShippingAddress },
+      context,
+    );
+    await services.recordOrdersCreated(
+      { sessionId: first.sessionId, accountId: "acc_buyer" as never, orderIds: ["ord_synthetic"] },
+      context,
+    );
+
+    const originalAppend = eventStore.appendToStream.bind(eventStore);
+    const fault = vi.spyOn(eventStore, "appendToStream").mockImplementation(async (input) => {
+      if (input.streamId !== `checkout.session-${first.sessionId}` && input.events[0]?.eventType === "checkout.session.started")
+        throw Object.assign(new Error("synthetic regenerated-id conflict"), { code: "concurrency_conflict" });
+      return originalAppend(input);
+    });
+    await expect(services.createBuyNow(buyNowInput, context)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    fault.mockRestore();
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
   });
 
   it("real CheckoutSessionServices consumers compile", () => {

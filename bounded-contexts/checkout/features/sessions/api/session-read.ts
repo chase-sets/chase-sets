@@ -1,4 +1,3 @@
-import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutCartServices } from "../../cart/api/runtime";
@@ -10,24 +9,24 @@ import {
 } from "../../cart/domain/readiness";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import {
-  retainedOrderCartCleanup,
   type CheckoutSessionLine,
   type CheckoutSessionState,
   type CheckoutSplitGroupHandoff,
 } from "../domain/domain";
 import { checkoutDeliveryServiceabilityIssue } from "../domain/delivery-serviceability";
-import { assertCheckoutLinesHaveAssignedFulfillment } from "./checkout-fulfillment-runtime";
+import { assertCheckoutLinesHaveAssignedFulfillment, unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
 import type { CheckoutSessionMutationResult, CheckoutSessionServices } from "./runtime";
 import { acceptedPresentedAnonymousCartId } from "./session-entry";
 
-type SessionRepository = Readonly<{ load: (streamId: string) => Promise<{ state: CheckoutSessionState }> }>;
-
 export type CheckoutSessionReadDeps = Readonly<{
-  eventStore: EventStore;
   db: PgQueryable;
   cart: CheckoutCartServices;
-  repository: SessionRepository;
+  loadSessionStateForBuyer: (sessionId: string, accountId: AccountId) => Promise<CheckoutSessionState>;
+  loadSessionStateForBuyerOrNull: (
+    sessionId: string,
+    accountId: AccountId | string,
+  ) => Promise<CheckoutSessionState | null>;
 }>;
 
 export function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSessionRow {
@@ -61,7 +60,10 @@ export function stateToCheckoutSessionRow(state: CheckoutSessionState): Checkout
 
 function hasCommittedSessionSideEffects(session: CheckoutSessionRow) {
   return Boolean(
-    session.cancelled_at || session.payment_id || session.submitted_offer_id || session.order_ids.length > 0,
+    session.cancelled_at ||
+      session.payment_id ||
+      session.submitted_offer_id ||
+      (Array.isArray(session.order_ids) && session.order_ids.length > 0),
   );
 }
 
@@ -164,12 +166,22 @@ export async function assertCurrentCartReadinessForUncommittedSession(
     return;
   const storedReadiness = state.cartReadinessSnapshot;
   if (!storedReadiness) throw readinessStaleError();
+  // Stored provenance is re-evaluated on every pass, never trusted because an
+  // earlier request accepted it. A key claimed by someone else after the
+  // session started, or one whose authority cannot be read right now, refuses
+  // here -- before any cart line is read and before any command is applied, so
+  // the session appends no reservation, order, or cart side effect and the
+  // refusal names no owner.
   const presentedAnonymousCartId = await acceptedPresentedAnonymousCartId(
     cart,
     String(accountId),
     state.presentedAnonymousCartId,
   );
   if (state.presentedAnonymousCartId && !presentedAnonymousCartId) throw readinessStaleError();
+
+  // The authorized read, not the raw union: it re-decides every alias-derived
+  // candidate against its own Cart aggregate on this pass too, so a source the
+  // session never presented cannot be revalidated by the claim alias alone.
   const cartLines = await cart.listAuthorizedCartLines(
     presentedAnonymousCartId
       ? { accountId: String(accountId), presentedAnonymousCartId }
@@ -186,7 +198,7 @@ export async function assertCurrentCartReadinessForUncommittedSession(
   );
   if (!readiness.valid) throw readinessStaleError();
   if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0)
-    throw new CheckoutDomainError("Resolve item availability before checkout starts.", "unresolved_fulfillment");
+    throw unresolvedFulfillmentError();
   if (!splitGroupHandoffMatches(state.splitGroupHandoff, readiness.current.fulfillmentGroups))
     throw readinessStaleError("split_group_handoff_stale");
 }
@@ -194,22 +206,9 @@ export async function assertCurrentCartReadinessForUncommittedSession(
 export function createCheckoutSessionReadServices(
   deps: CheckoutSessionReadDeps,
 ): Pick<CheckoutSessionServices, "assertReadyForOrderCreation" | "getSession" | "getLastRecordedQuote"> {
-  async function loadSessionStateForBuyer(sessionId: string, accountId: AccountId): Promise<CheckoutSessionState> {
-    const loaded = await deps.repository.load(`checkout.session-${sessionId}`);
-    if (loaded.state.sessionId !== sessionId || loaded.state.buyerAccountId !== accountId)
-      throw new CheckoutDomainError("Checkout session not found.");
-    retainedOrderCartCleanup(loaded.state);
-    return loaded.state;
-  }
-  async function loadSessionStateForBuyerOrNull(sessionId: string, accountId: AccountId | string) {
-    const loaded = await deps.repository.load(`checkout.session-${sessionId}`);
-    if (loaded.state.sessionId !== sessionId || loaded.state.buyerAccountId !== accountId) return null;
-    retainedOrderCartCleanup(loaded.state);
-    return loaded.state;
-  }
   return {
     assertReadyForOrderCreation: async (params) => {
-      const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      const state = await deps.loadSessionStateForBuyer(params.sessionId, params.accountId);
       assertSessionNotCancelled(state);
       assertCheckoutHandoffNotExpired(state);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
@@ -227,7 +226,7 @@ export function createCheckoutSessionReadServices(
           !projectedSession.payment_id &&
           !projectedSession.submitted_offer_id &&
           projectedSession.order_ids.length === 0)
-          ? await loadSessionStateForBuyerOrNull(sessionId, accountId)
+          ? await deps.loadSessionStateForBuyerOrNull(sessionId, accountId)
           : null;
       const aggregateSession = aggregateState ? stateToCheckoutSessionRow(aggregateState) : null;
       const session =
@@ -252,6 +251,6 @@ export function createCheckoutSessionReadServices(
       return session;
     },
     getLastRecordedQuote: async (sessionId, accountId) =>
-      (await loadSessionStateForBuyerOrNull(sessionId, accountId))?.lastRecordedQuote ?? null,
+      (await deps.loadSessionStateForBuyerOrNull(sessionId, accountId))?.lastRecordedQuote ?? null,
   };
 }

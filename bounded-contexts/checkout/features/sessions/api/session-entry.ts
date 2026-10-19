@@ -69,7 +69,7 @@ export function commitMetadataFromStoredEvents(
   }, undefined);
   const positions = new Map<string, { eventIds: string[]; maxGlobalPosition: string }>();
   for (const event of events) {
-    const sourceContextName = event.streamId.split(".", 1)[0] ?? event.streamId;
+    const sourceContextName = sourceContextNameFromStreamId(event.streamId);
     const globalPosition = String(event.globalPosition);
     const current = positions.get(sourceContextName);
     if (!current) {
@@ -90,6 +90,19 @@ export function commitMetadataFromStoredEvents(
   };
 }
 
+function sourceContextNameFromStreamId(streamId: string) {
+  const separatorIndex = streamId.indexOf(".");
+  return separatorIndex > 0 ? streamId.slice(0, separatorIndex) : streamId;
+}
+
+/**
+ * The one place Checkout Session asks Cart whether a presented anonymous source
+ * may still be sourced, and the only shape in which the answer is used.
+ *
+ * Cart owns the decision; Checkout Session only obeys it. An unaccepted key is
+ * dropped rather than argued with, so a foreign claimant and a store failure
+ * both leave the acting Account's own Cart as the sole source.
+ */
 export async function acceptedPresentedAnonymousCartId(
   cart: Pick<CheckoutCartServices, "resolveCartSourceAuthority">,
   actingOwnerKey: string,
@@ -231,6 +244,7 @@ export function createCheckoutSessionEntryServices(
         )
       )
         throw error;
+      if (sessionId !== params.sessionIdOverride) throw error;
       const replayed = await existingStartedSession(
         params.sessionIdOverride,
         `checkout.session-${params.sessionIdOverride}`,
@@ -243,11 +257,18 @@ export function createCheckoutSessionEntryServices(
 
   return {
     createFromCart: async (params, context) => {
+      // Exclusion happens before line resolution, so a refused key contributes
+      // no line, no readiness snapshot binding, and no `presentedAnonymousCartId`
+      // on the started event. The request continues against the acting
+      // Account's own Cart.
       const presentedAnonymousCartId = await acceptedPresentedAnonymousCartId(
         deps.cart,
         params.accountId,
         params.presentedAnonymousCartId,
       );
+      // Line resolution runs through the authorized read, so the accepted
+      // presented key above and every alias-derived candidate are both decided
+      // from aggregate state before a single line reaches the session.
       const cartLines = await deps.cart.listAuthorizedCartLines(
         presentedAnonymousCartId
           ? { accountId: params.accountId, presentedAnonymousCartId }

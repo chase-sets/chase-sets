@@ -20,6 +20,7 @@ import {
   assertSessionNotCancelled,
 } from "./session-read";
 
+/** Safe at HTTP/UCP boundaries: never retain a key-bearing lower-layer cause. */
 export class OrderCartCleanupError extends CheckoutDomainError {
   constructor(readonly commitMetadata: Omit<CheckoutSessionMutationResult, "sessionId" | "session"> = {}) {
     super("Cart cleanup could not finish. Retry checkout.");
@@ -69,6 +70,14 @@ export function createCheckoutSessionCleanupService(
       metadata = await cleanupCommitMetadata(params.sessionId, state);
       if (!cleanup || cleanup.status === "complete")
         return { sessionId: params.sessionId, session: deps.stateToCheckoutSessionRow(state), ...metadata };
+      // The retained plan is unchanged: the same durable Account and anonymous
+      // sources, the same line ids, one lifecycle. What the sweep adds is reach.
+      // Removing as the buyer Account is already line-id-total across every key
+      // that Account has claimed, so a retained source it now owns is covered by
+      // that pass -- and must be dropped from this loop, because acting as a
+      // claimed anonymous key is exactly what the claimed stream refuses.
+      // A source claimed by some other Account stays in the loop and its
+      // refusal propagates, rather than being skipped as if it were clean.
       const claimedOwnerKeys = new Set(await deps.cart.listClaimedOwnerKeys(cleanup.plan.buyerAccountId));
       for (const ownerKey of cleanup.plan.sourceOwnerKeys) {
         if (claimedOwnerKeys.has(ownerKey)) continue;
@@ -87,6 +96,7 @@ export function createCheckoutSessionCleanupService(
       const current = await deps.loadSessionStateForBuyer(params.sessionId, params.accountId);
       return { ...completed, ...(await cleanupCommitMetadata(params.sessionId, current)) };
     } catch {
+      // Completion may have committed before its acknowledgement was lost.
       try {
         const current = await deps.loadSessionStateForBuyer(params.sessionId, params.accountId);
         metadata = await cleanupCommitMetadata(params.sessionId, current);
@@ -121,6 +131,7 @@ export function createCheckoutSessionCleanupService(
         context,
       );
     } catch {
+      // An append can commit and lose its acknowledgement. Recover only actual stored metadata.
       let metadata: OrderCartCleanupError["commitMetadata"] = {};
       try {
         const current = await deps.loadSessionStateForBuyer(params.sessionId, params.accountId);

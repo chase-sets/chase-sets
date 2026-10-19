@@ -201,6 +201,7 @@ export type CheckoutSessionServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
+  /** The buyer's session's last recorded quote, read from its stream; null when unknown or never quoted. */
   getLastRecordedQuote: (sessionId: string, accountId: string) => Promise<CheckoutFulfillmentPreview | null>;
   getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
   getPaymentConfirmation: (sessionId: string, accountId: string) => Promise<CheckoutPaymentConfirmation | null>;
@@ -229,6 +230,12 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     retainedOrderCartCleanup(loaded.state);
     return loaded.state;
   };
+  const loadSessionStateForBuyerOrNull = async (sessionId: string, accountId: AccountId | string) => {
+    const loaded = await repository.load(`checkout.session-${sessionId}`);
+    if (loaded.state.sessionId !== sessionId || loaded.state.buyerAccountId !== accountId) return null;
+    retainedOrderCartCleanup(loaded.state);
+    return loaded.state;
+  };
   const applySessionCommandForBuyer = async (
     params: Readonly<{ sessionId: string; accountId: AccountId; command: CheckoutSessionCommand }>,
     context: EventStoreContext,
@@ -253,10 +260,10 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     repository,
   });
   const reads = createCheckoutSessionReadServices({
-    eventStore: deps.eventStore,
     db: deps.db,
     cart: deps.cart,
-    repository,
+    loadSessionStateForBuyer,
+    loadSessionStateForBuyerOrNull,
   });
   const cleanup = createCheckoutSessionCleanupService({
     eventStore: deps.eventStore,
