@@ -258,11 +258,7 @@ const ygojsonBaseProviderProfile = {
   providerKey: "ygojson",
   displayName: "YGOJSON",
   status: "active",
-  capabilities: [
-    "provider-option-query",
-    "source-observation-import",
-    "external-reference-extraction",
-  ],
+  capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
   supportedScopes: ["set-name", "product"],
   languageOptions: ["en"],
   optionQueries: ygojsonOptionQueries,

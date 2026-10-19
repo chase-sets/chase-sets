@@ -792,7 +792,8 @@ describe("source observation runtime: promotion and reapply", () => {
     ]) {
       for (const event of await harness.deps.eventStore.readStream({ streamId })) {
         const handler = handlers[event.eventType];
-        if (handler) await handler({ streamId, data: event.payload, timing: { recordedAt: "2026-10-18T19:00:00.000Z" } } as never);
+        if (handler)
+          await handler({ streamId, data: event.payload, timing: { recordedAt: "2026-10-18T19:00:00.000Z" } } as never);
       }
     }
     expect(projectedRows.get("ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a")).toMatchObject({

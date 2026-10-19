@@ -1994,15 +1994,20 @@ export function createChangedObservationRefreshHarness(
           const streamId = `catalog.reference-record-${input.command.referenceRecordId}`;
           referenceHistories.set(streamId, [
             ...(referenceHistories.get(streamId) ?? []),
-            storedEvent((referenceHistories.get(streamId)?.length ?? 0) + 1, streamId, "catalog.reference-record.created", {
-              referenceRecordId: input.command.referenceRecordId,
-              typeKey: input.command.typeKey,
-              key: input.command.key,
-              name: input.command.name,
-              description: input.command.description,
-              attributes: input.command.attributes ?? {},
-              relationships: input.command.relationships ?? [],
-            }),
+            storedEvent(
+              (referenceHistories.get(streamId)?.length ?? 0) + 1,
+              streamId,
+              "catalog.reference-record.created",
+              {
+                referenceRecordId: input.command.referenceRecordId,
+                typeKey: input.command.typeKey,
+                key: input.command.key,
+                name: input.command.name,
+                description: input.command.description,
+                attributes: input.command.attributes ?? {},
+                relationships: input.command.relationships ?? [],
+              },
+            ),
           ]);
         }
       } else if (input.command.type === "PublishReferenceRecord" && persistReferenceDataEvents) {
