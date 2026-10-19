@@ -65,6 +65,8 @@ const CHECKOUT_SESSION_ID_PATTERN = /\bchk_[0-9A-Za-z_:-]+\b/g;
 const GUEST_COOKIE_PATTERN = /chase_sets_guest_checkout=[^;\s]+/gi;
 const SESSION_COOKIE_PATTERN = /chase_sets_session=[^;\s]+/gi;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const WAKE_STATUS_FETCH_FAILURE_STAGES = Object.freeze(["sign-in", "wake-status"]);
+const TRANSPORT_CAUSE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,39}$/;
 const PLATFORM_ERROR_PATTERN = /Error code:\s*(?:502|503|504)|Well,\s*This is unexpected/i;
 const PERMANENT_NOT_FOUND_PATTERN = /Checkout session not found|We could not find this checkout session/i;
 const PERMANENT_RECOVERY_PATTERN =
@@ -423,6 +425,8 @@ function normalizeWakeRuntimePreflight(value) {
     ready: value.ready === true ? true : value.ready === false ? false : null,
     readyAfterMs: normalizeOptionalNonNegativeInteger(value.readyAfterMs),
     sampleCount: normalizeNonNegativeInteger(value.sampleCount),
+    fetchFailureCount: normalizeNonNegativeInteger(value.fetchFailureCount),
+    lastFetchFailure: value.lastFetchFailure ? classifyWakeStatusFetchFailure(value.lastFetchFailure) : null,
     initial: normalizeWakeRuntimeReadiness(value.initial),
     final: normalizeWakeRuntimeReadiness(value.final),
   };
@@ -442,6 +446,7 @@ function normalizeWakeRuntimeReadiness(value) {
     relayOwnerWorkerState: normalizeString(value.relayOwnerWorkerState),
     relayOwnerHeartbeatAgeMs: normalizeOptionalNonNegativeInteger(value.relayOwnerHeartbeatAgeMs),
     reasons: Array.isArray(value.reasons) ? value.reasons.map((reason) => normalizeString(reason)).filter(Boolean) : [],
+    fetchFailure: value.fetchFailure ? classifyWakeStatusFetchFailure(value.fetchFailure) : null,
   };
 }
 
@@ -713,27 +718,70 @@ export async function fetchWakeStatusSnapshot(options, fetchImpl = fetch) {
     return null;
   }
 
-  const signInResponse = await fetchImpl(`${adminBaseUrl}/api/auth/password-sign-in`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: options.adminEmail, password: options.adminPassword }),
+  const sessionToken = await withWakeStatusFetchStage("sign-in", async () => {
+    const signInResponse = await fetchImpl(`${adminBaseUrl}/api/auth/password-sign-in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: options.adminEmail, password: options.adminPassword }),
+    });
+    if (!signInResponse.ok) {
+      throw Object.assign(new Error(`Wake-status admin sign-in failed with HTTP ${signInResponse.status}.`), {
+        status: signInResponse.status,
+      });
+    }
+    const token = (await signInResponse.json())?.sessionToken;
+    if (!token) {
+      throw new Error("Wake-status admin sign-in did not return a session token.");
+    }
+    return token;
   });
-  if (!signInResponse.ok) {
-    throw new Error(`Wake-status admin sign-in failed with HTTP ${signInResponse.status}.`);
-  }
-  const sessionToken = (await signInResponse.json())?.sessionToken;
-  if (!sessionToken) {
-    throw new Error("Wake-status admin sign-in did not return a session token.");
-  }
 
-  const statusResponse = await fetchImpl(`${adminBaseUrl}/api/platform/projections/wake-status`, {
-    headers: { Authorization: `Bearer ${sessionToken}` },
+  return withWakeStatusFetchStage("wake-status", async () => {
+    const statusResponse = await fetchImpl(`${adminBaseUrl}/api/platform/projections/wake-status`, {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    if (!statusResponse.ok) {
+      throw Object.assign(new Error(`Wake-status request failed with HTTP ${statusResponse.status}.`), {
+        status: statusResponse.status,
+      });
+    }
+    return statusResponse.json();
   });
-  if (!statusResponse.ok) {
-    throw new Error(`Wake-status request failed with HTTP ${statusResponse.status}.`);
-  }
+}
 
-  return statusResponse.json();
+// Rethrows any failure inside one wake-status request stage tagged with that
+// stage, its HTTP status, and its transport cause code.
+async function withWakeStatusFetchStage(stage, run) {
+  try {
+    return await run();
+  } catch (error) {
+    throw Object.assign(new Error(`Wake-status ${stage} request failed.`, { cause: error }), {
+      stage,
+      status: error?.status ?? null,
+      code: error?.cause?.code ?? error?.code ?? null,
+    });
+  }
+}
+
+// Closed, secret-free fetch-failure fields in the safeFailureFields shape
+// (scripts/lib/postgres-connection.mjs): never a message, URL, or body.
+function classifyWakeStatusFetchFailure(value) {
+  return {
+    stage: WAKE_STATUS_FETCH_FAILURE_STAGES.includes(value?.stage) ? value.stage : "unknown",
+    status: Number.isInteger(value?.status) && value.status >= 100 && value.status <= 599 ? value.status : null,
+    code: typeof value?.code === "string" && TRANSPORT_CAUSE_CODE_PATTERN.test(value.code) ? value.code : null,
+  };
+}
+
+function wakeStatusFetchFailedEvaluation(fetchFailure) {
+  return {
+    ready: false,
+    activeWakeCapableWorkerCount: 0,
+    relayLeaseState: null,
+    relayOwnerId: null,
+    reasons: ["wake-status-preflight-fetch-failed"],
+    fetchFailure,
+  };
 }
 
 function readNow(options) {
@@ -766,33 +814,23 @@ export async function waitForWakeRuntimePreflight(options) {
       ? options.fetchWakeStatus
       : () => fetchWakeStatusSnapshot(options, options.fetchImpl ?? fetch);
   let sampleCount = 0;
+  let fetchFailureCount = 0;
+  let lastFetchFailure = null;
   let initial = null;
   let final = null;
 
   for (;;) {
-    let snapshot;
-    try {
-      snapshot = await fetchWakeStatus();
-    } catch {
-      const failed = {
-        ready: false,
-        activeWakeCapableWorkerCount: 0,
-        relayLeaseState: null,
-        relayOwnerId: null,
-        reasons: ["wake-status-preflight-fetch-failed"],
-      };
-      return {
-        attempted: true,
-        ready: false,
-        readyAfterMs: null,
-        sampleCount,
-        initial: initial ?? failed,
-        final: failed,
-      };
-    }
-
     sampleCount += 1;
-    const evaluation = evaluateWakeRuntimeReadiness(snapshot);
+    let evaluation;
+    try {
+      evaluation = { ...evaluateWakeRuntimeReadiness(await fetchWakeStatus()), fetchFailure: null };
+    } catch (error) {
+      // A wake-status fetch error is one not-ready sample, as in
+      // waitForProjectionConvergence; only budget expiry fails the preflight.
+      fetchFailureCount += 1;
+      lastFetchFailure = classifyWakeStatusFetchFailure(error);
+      evaluation = wakeStatusFetchFailedEvaluation(lastFetchFailure);
+    }
     initial ??= evaluation;
     final = evaluation;
     if (evaluation.ready) {
@@ -801,6 +839,8 @@ export async function waitForWakeRuntimePreflight(options) {
         ready: true,
         readyAfterMs: Math.max(0, readNow(options) - startedAt),
         sampleCount,
+        fetchFailureCount,
+        lastFetchFailure,
         initial,
         final,
       };
@@ -818,6 +858,8 @@ export async function waitForWakeRuntimePreflight(options) {
     ready: false,
     readyAfterMs: null,
     sampleCount,
+    fetchFailureCount,
+    lastFetchFailure,
     initial,
     final,
   };

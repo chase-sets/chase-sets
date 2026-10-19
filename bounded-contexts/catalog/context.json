@@ -813,7 +813,7 @@
     "test-support": {
       "classification": "support",
       "purpose": "Provide reusable test fixture builders shared by Catalog source-observation tests.",
-      "expectedConsumers": ["source-observations"]
+      "expectedConsumers": ["completion-report", "source-observations"]
     },
     "routes": {
       "classification": "routes",

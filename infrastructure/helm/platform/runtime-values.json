@@ -124,7 +124,12 @@
     "storage": {
       "emptyDir": {}
     },
-    "resources": {}
+    "resources": {},
+    "settings": {
+      "max_connections": 350,
+      "reserved_connections": 0,
+      "superuser_reserved_connections": 3
+    }
   },
   "components": {
     "public-web": {
