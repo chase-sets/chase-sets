@@ -385,14 +385,19 @@ test("focused script tests stay concurrent while the scripts battery stays exclu
   assert.equal(existsSync(marker), false);
 });
 
+test("the scripts battery global setup acquires script-battery for a run with no filters", () => {
+  const { checkout, marker, root } = createScriptProjectFixture();
+  setupScriptBatteryHeavySlot(scriptProject(root, undefined), { startDirectory: checkout });
+  assert.equal(readFileSync(marker, "utf8"), "script-battery\n");
+});
+
 test.each([
-  ["no filters", [], {}],
   ["directory filter", ["scripts"], {}],
   ["glob filter", ["scripts/**/*.test.mjs"], {}],
   ["missing file", ["scripts/missing.test.mjs"], {}],
   ["non-test file", ["scripts/ordinary.mjs"], {}],
   ["watch mode", ["scripts/ordinary.test.mjs"], { watch: true }],
-  ["database lifecycle", ["scripts/ordinary.test.mjs"], { env: { npm_lifecycle_event: "test:db:1" } }],
+  ["database lifecycle", ["scripts/ordinary.test.mjs"], { env: { npm_lifecycle_event: "test:db" } }],
   ["database URL", ["scripts/ordinary.test.mjs"], { env: { TEST_DATABASE_URL: "postgres://fixture" } }],
 ])("scripts battery global setup acquires script-battery for a %s", (_name, filters, options) => {
   const { checkout, marker, root } = createScriptProjectFixture();
@@ -408,13 +413,20 @@ test.each([
 test.each([
   ["repo-relative", (relative) => relative],
   ["absolute", (relative, root) => path.join(root, relative)],
+  ["forward-slash absolute", (relative, root) => path.join(root, relative).replaceAll("\\", "/")],
+  [
+    "vitest-normalized",
+    (relative, root) => path.join(root, relative).replaceAll("\\", "/"),
+    (root) => root.replaceAll("\\", "/"),
+  ],
   ["dot-relative", (relative) => `./${relative}`],
   ["line suffix", (relative) => `${relative}:42`],
   ["backslash", (relative) => relative.replaceAll("/", "\\")],
-])("a listed inherited-owner test keeps the setup admission with %s spelling", (_name, format) => {
+])("a listed inherited-owner test keeps the setup admission with %s spelling", (_name, format, formatRoot) => {
   for (const relative of inheritedOwnerScriptTests) {
     const { checkout, marker, root } = createScriptProjectFixture();
-    setupScriptBatteryHeavySlot(scriptProject(root, [format(relative, root)]), { startDirectory: checkout });
+    const projectRoot = formatRoot ? formatRoot(root) : root;
+    setupScriptBatteryHeavySlot(scriptProject(projectRoot, [format(relative, root)]), { startDirectory: checkout });
     assert.equal(readFileSync(marker, "utf8"), "script-battery\n");
   }
 });
@@ -441,7 +453,6 @@ const inheritedOwnerWaivers = Object.freeze({
     "provider shape fixture does not spawn the guard",
   "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs":
     "regenerator fixture does not spawn the guard",
-  "scripts/dev-system-launch.test.mjs": "process helper does not spawn a guarded child",
   "scripts/digitalocean-platform-config.test.mjs": "workspace fixture does not spawn the guard",
   "scripts/identity-creation-position-guard.test.mjs": "position fixture does not spawn the guard",
   "scripts/ordering-test-profile.test.mjs": "workspace fixture does not spawn the guard",
@@ -462,6 +473,7 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/run-e2e-suite.test.mjs": "suite test does not spawn a guarded child",
   "scripts/run-workspaces.test.mjs": "workspace test owns its child admission",
   "scripts/verify-static-scoped.test.mjs": "scoped gate owns its aggregate admission",
+  "scripts/check-heavy-slot-coverage.test.mjs": "inventory owner; inert fixture controllers only",
 });
 
 function deriveInheritedOwnerCandidates(root = repositoryRoot) {
@@ -474,47 +486,48 @@ function deriveInheritedOwnerCandidates(root = repositoryRoot) {
     if (file.endsWith(".test.mjs") || file.endsWith(".md")) return false;
     if (!/\.[cm]?[jt]sx?$/.test(file)) return false;
     const source = readFileSync(path.join(root, file), "utf8");
-    return /acquireHeavySlot\(|CHASE_SETS_HEAVY_SLOT_ID|CHASE_SETS_HEAVY_SLOT_TRANSPORT|findHeavySlotClient\(/.test(
-      source,
-    );
+    return source.includes("acquireHeavySlot(");
   });
+  const inheritedOwnerTokenPattern =
+    /CHASE_SETS_HEAVY_SLOT_ID|CHASE_SETS_HEAVY_SLOT_TRANSPORT|findHeavySlotClient\(|acquireHeavySlot\(/;
   return tracked
     .filter(
       (file) =>
         file.startsWith("scripts/") &&
-        file.endsWith(".test.mjs") &&
-        // This inventory owner names every guard in its fixture matrix; those names are not child reachability.
-        file !== "scripts/check-heavy-slot-coverage.test.mjs",
+        file.endsWith(".test.mjs"),
     )
     .filter((file) => {
       const source = readFileSync(path.join(root, file), "utf8");
-      return guardedEntrypoints.some((entrypoint) => source.includes(path.posix.basename(entrypoint)));
+      return (
+        guardedEntrypoints.some((entrypoint) => source.includes(path.posix.basename(entrypoint))) ||
+        inheritedOwnerTokenPattern.test(source)
+      );
     })
     .sort();
 }
 
+function classifyInheritedOwnerCandidates(candidates, listed = inheritedOwnerScriptTests, waivers = inheritedOwnerWaivers) {
+  const listedSet = new Set(listed);
+  const waivedSet = new Set(Object.keys(waivers));
+  return {
+    unclassified: candidates.filter((candidate) => !listedSet.has(candidate) && !waivedSet.has(candidate)),
+    overlapping: candidates.filter((candidate) => listedSet.has(candidate) && waivedSet.has(candidate)),
+    staleListed: listed.filter((candidate) => !candidates.includes(candidate)),
+    staleWaived: [...waivedSet].filter((candidate) => !candidates.includes(candidate)),
+  };
+}
+
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
-  const listed = new Set(inheritedOwnerScriptTests);
-  const waived = new Set(Object.keys(inheritedOwnerWaivers));
+  const classification = classifyInheritedOwnerCandidates(candidates);
   assert.equal(candidates.length, 29);
   assert.equal(inheritedOwnerScriptTests.length, 4);
-  assert.deepEqual(
-    [...listed].filter((candidate) => !candidates.includes(candidate)),
-    [],
-  );
-  assert.deepEqual(
-    candidates.filter((candidate) => !listed.has(candidate) && !waived.has(candidate)),
-    [],
-  );
-  assert.deepEqual(
-    candidates.filter((candidate) => listed.has(candidate) && waived.has(candidate)),
-    [],
-  );
-  assert.deepEqual(
-    [...waived].filter((candidate) => !candidates.includes(candidate)),
-    [],
-  );
+  assert.deepEqual(classification, {
+    unclassified: [],
+    overlapping: [],
+    staleListed: [],
+    staleWaived: [],
+  });
   assert.equal(
     Object.values(inheritedOwnerWaivers).every(
       (reason) => typeof reason === "string" && reason.length > 0 && !reason.includes("\n"),
@@ -531,13 +544,11 @@ test("candidate derivation fails closed for an unclassified guarded dependent", 
       'import { acquireHeavySlot } from "./lib/heavy-slot.mjs";\nacquireHeavySlot("script-battery");\n',
     "scripts/lib/heavy-slot.mjs": "export function acquireHeavySlot() {}\n",
     "scripts/unclassified.test.mjs": 'import "./guarded-entrypoint.mjs";\n',
+    "scripts/token-only.test.mjs": 'const ownerToken = "CHASE_SETS_HEAVY_SLOT_ID";\nvoid ownerToken;\n',
   });
   const candidates = deriveInheritedOwnerCandidates(root);
-  assert.deepEqual(candidates, ["scripts/unclassified.test.mjs"]);
-  assert.equal(
-    candidates.every((candidate) => inheritedOwnerScriptTests.includes(candidate) || inheritedOwnerWaivers[candidate]),
-    false,
-  );
+  const classification = classifyInheritedOwnerCandidates(candidates);
+  assert.deepEqual(classification.unclassified, ["scripts/token-only.test.mjs", "scripts/unclassified.test.mjs"]);
 });
 
 test("the canonical Vitest guard runs before consumer global setup", () => {

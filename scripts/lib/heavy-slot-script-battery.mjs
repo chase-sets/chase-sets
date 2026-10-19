@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { acquireHeavySlot, acquireVitestHeavySlot } from "./heavy-slot.mjs";
@@ -11,13 +10,8 @@ export const inheritedOwnerScriptTests = Object.freeze([
   "scripts/typescript-resolver-caller-parity.test.mjs",
 ]);
 
-const explicitTestFilePattern = /\.(?:test|spec)\.[cm]?[jt]sx?$/i;
-
 function isInheritedOwnerScriptTest(filter, root) {
-  const withoutLine = filter.replace(/:\d+$/, "");
-  if (!explicitTestFilePattern.test(withoutLine)) return false;
-  const candidate = path.isAbsolute(withoutLine) ? withoutLine : path.resolve(root, withoutLine);
-  if (!existsSync(candidate)) return false;
+  const candidate = path.resolve(root, filter.replace(/:\d+$/, ""));
   return inheritedOwnerScriptTests.some((relativePath) => path.resolve(root, relativePath) === candidate);
 }
 
