@@ -95,7 +95,6 @@ export function connectorViteConfig(mode: ConnectorBuildMode = "connector-local"
     define: {
       "import.meta.env.VITE_PLATFORM_API_URL": JSON.stringify(input.platformOrigin),
       "import.meta.env.VITE_CONNECTOR_CLIENT_ID": JSON.stringify(configuredClientId()),
-      "import.meta.env.VITE_CONNECTOR_DRILL": JSON.stringify(process.env.VITE_CONNECTOR_DRILL ?? "false"),
       ...(harness
         ? {
             "import.meta.env.VITE_HARNESS_EXECUTOR_UNIT": JSON.stringify(

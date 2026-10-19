@@ -27,7 +27,11 @@ export type PairingDrillInput = {
   artifactDigest: string;
   signIn: (page: Page, platformOrigin: string) => Promise<void>;
   preparePairing: (platformOrigin: string) => Promise<void>;
-  revoke: (worker: Worker) => Promise<void>;
+  revoke: () => Promise<void>;
+  routing?: {
+    continueLoopbackOrigin?: string;
+    classifyWorkerRequests?: boolean;
+  };
   tracePath?: string;
   launch?: typeof launchInstallation;
 };
@@ -70,6 +74,12 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
   const platformRequests: PairingDrillReceipt["platformRequests"] = [];
   const aborted = new Map<string, { origin: string; source: "worker" | "page"; count: number }>();
   const states: PairingDrillReceipt["states"] = [];
+  let letThrough = false;
+  if (input.routing?.continueLoopbackOrigin) {
+    const target = new URL(input.routing.continueLoopbackOrigin);
+    if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.origin === platform.origin)
+      throw new Error("connector-drill-loopback-routing-refused");
+  }
   const recordState = async (worker: Worker) => {
     const value = await worker.evaluate(async () => ({
       state: await chrome.action.getTitle({}),
@@ -81,21 +91,28 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
   };
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
-    const source = route.request().serviceWorker() ? "worker" : "page";
+    const source =
+      route.request().serviceWorker() && input.routing?.classifyWorkerRequests !== false ? "worker" : "page";
     if (url.origin === platform.origin) {
       const response = await route.fetch();
+      const body = url.pathname.endsWith("/claim") && response.ok() ? await response.json() : null;
       platformRequests.push({
         method: route.request().method(),
         path: safePath(url),
         status: response.status(),
         at: new Date().toISOString(),
-        reservation: url.pathname.endsWith("/claim") && response.ok() ? "present" : "none",
+        reservation: body?.reservation == null ? "none" : "present",
       });
-      await route.fulfill({ response });
+      await route.fulfill(body === null ? { response } : { response, json: body });
       return;
     }
     if (url.origin === callback.origin && url.pathname === callback.pathname) {
       await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+    if (!letThrough && url.origin === input.routing?.continueLoopbackOrigin) {
+      letThrough = true;
+      await route.continue();
       return;
     }
     const key = `${url.origin}|${source}`;
@@ -114,6 +131,10 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     await new Promise((resolve) => setTimeout(resolve, 0));
     if (aborted.get("https://connector-drill-canary.invalid|worker")?.count !== 1)
       throw new Error("connector-drill-canary-unobserved");
+    if (input.routing?.continueLoopbackOrigin) {
+      await page.evaluate((origin) => fetch(origin).catch(() => null), input.routing.continueLoopbackOrigin);
+      if (letThrough) throw new Error("connector-drill-non-platform-request-continued");
+    }
     const preparedAt = new Date().toISOString();
     await input.preparePairing(input.platformOrigin);
     const clickedAt = new Date().toISOString();
@@ -127,14 +148,34 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     await clickAction(context, page);
     await new Promise((resolve) => setTimeout(resolve, 200));
     await recordState(worker);
-    await input.revoke(worker);
+    await page.evaluate(() => fetch("https://connector-drill-planted.invalid/").catch(() => null));
+    await worker.evaluate(() => {
+      const observation = globalThis as typeof globalThis & { pairingDrillPersistedStates: string[] };
+      observation.pairingDrillPersistedStates = [];
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "local") return;
+        const next = changes["channel-connector-profile"]?.newValue;
+        const state = next && typeof next === "object" && "state" in next ? next.state : undefined;
+        if (typeof state === "string") observation.pairingDrillPersistedStates.push(state);
+      });
+    });
+    await input.revoke();
+    await worker.evaluate(() => chrome.alarms.create("connector-work", { when: Date.now() + 50 }));
     const revokedAt = Date.now() + 30_000;
     while (Date.now() < revokedAt) {
       const state = await recordState(worker);
       if (state === "revoked") break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    if (!states.some((row) => row.state === "cleanup-pending") || !states.some((row) => row.state === "revoked"))
+    const persistedStates = await worker.evaluate(
+      () => (globalThis as typeof globalThis & { pairingDrillPersistedStates: string[] }).pairingDrillPersistedStates,
+    );
+    const cleanupAt = persistedStates.indexOf("cleanup-pending");
+    if (
+      cleanupAt < 0 ||
+      persistedStates.indexOf("revoked") <= cleanupAt ||
+      !states.some((row) => row.state === "revoked")
+    )
       throw new Error("connector-drill-revocation-transition-missing");
     const opened = context
       .pages()

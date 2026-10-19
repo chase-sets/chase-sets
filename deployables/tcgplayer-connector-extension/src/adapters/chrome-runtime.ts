@@ -9,12 +9,7 @@ export function chromeRuntime(): ConnectorBackgroundPorts["runtime"] {
     onStartup: (listener) => {
       chrome.runtime.onStartup.addListener(listener);
     },
-    onMessage: (listener) => {
-      if (import.meta.env.VITE_CONNECTOR_DRILL !== "true") return;
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        void listener(message, { id: sender.id, origin: sender.origin }).then(sendResponse);
-        return true;
-      });
-    },
+    // No product page or command sender: the reserved commands stay test-only.
+    onMessage: () => {},
   };
 }

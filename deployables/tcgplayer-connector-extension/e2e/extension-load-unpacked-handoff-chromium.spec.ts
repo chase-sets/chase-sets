@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { chromium, expect, test, type BrowserContext } from "@playwright/test";
 import { build } from "vite";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID } from "@chase-sets/channels/client";
+import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { fixtureWorker } from "../__tests__/support/browser-observation";
-import { connectorTargets } from "../vite.config";
 
 test.setTimeout(90_000);
 test.use({ trace: "off", screenshot: "off" });
@@ -18,7 +18,7 @@ let context: BrowserContext | undefined;
 
 test.beforeAll(async () => {
   dist = mkdtempSync(join(tmpdir(), "connector-handoff-staging-"));
-  platformOrigin = connectorTargets.staging;
+  platformOrigin = linkIntentOrigins["marketplace-web"].staging;
   process.env.VITE_PLATFORM_API_URL = platformOrigin;
   process.env.VITE_CONNECTOR_CLIENT_ID = clientId;
   await build({
