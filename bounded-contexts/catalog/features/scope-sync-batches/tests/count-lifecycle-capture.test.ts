@@ -92,7 +92,10 @@ describe("staging count capture lifecycle", () => {
       const body = { ...baseBody };
       // The superseded protocol sent its collection with the seal; it is forwarded as sent.
       if (fields.collection) body.collection = JSON.parse(fields.collection);
-      if (fields.dispatchId) body.dispatchId = fields.dispatchId;
+      // As the staging script sends it, the dispatch rides only the seal and completion;
+      // the baseline's fields are the runner identity, and its strict body refuses them.
+      if (fields.dispatchId && (intent === "capture-freeze" || intent === "capture-complete"))
+        body.dispatchId = fields.dispatchId;
       if (fields.runId) body.runId = fields.runId;
       if (intent === "count-acquire") {
         const quote = fields.quoteId ? { quoteId: fields.quoteId, fingerprint: fields.countFingerprint } : {};
