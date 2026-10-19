@@ -6,6 +6,7 @@ import {
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import {
   SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
   withRegistrationConsentResolution,
@@ -32,7 +33,9 @@ vi.mock("../runtime-support/services", () => ({
 
 vi.mock("@chase-sets/identity/server", () => ({
   isRegistrationConsentRejectionCode: (value: unknown) =>
-    typeof value === "string" && value.startsWith("registration_consent_"),
+    value === "registration_consent_not_server_minted" ||
+    value === "registration_consent_expired" ||
+    value === "registration_consent_affirmation_required",
   createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
     withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
 }));
@@ -52,6 +55,7 @@ function buildApp(services: unknown) {
     ),
     routes: (app) => {
       registerRegistrationRoutes(app, services as AuthServices);
+      app.onError(errorHandler);
     },
   });
 }
@@ -102,6 +106,114 @@ function registrationRequestHeaders(clientAddress: string) {
 useMockReset();
 
 describe("registration auth routes", () => {
+  const consentRejections = [
+    {
+      code: "registration_consent_not_server_minted",
+      reason: "absent",
+      message: "A server-minted registration consent resolution is required.",
+    },
+    {
+      code: "registration_consent_expired",
+      reason: "superseded",
+      message: "The registration consent resolution no longer matches the current required bundle.",
+    },
+    {
+      code: "registration_consent_affirmation_required",
+      reason: "affirmation-required",
+      message: "Registration consent must be affirmed before identity creation.",
+    },
+  ] as const;
+  const conflicts = [
+    { code: "registration_operation_consent_disagreement", message: "Consent disagreement." },
+    { code: "registration_operation_participant_disagreement", message: "Participant disagreement." },
+    { code: "conflict", message: "Conflict." },
+    { code: "display_name_already_taken", message: "Display name is already taken." },
+  ] as const;
+
+  function identityError(status: number, body: unknown) {
+    return Object.assign(new Error("synthetic Identity failure"), { status, body });
+  }
+
+  it.each(consentRejections)("relays the recognized $code rejection body unchanged", async (rejection) => {
+    const services = createServices();
+    const createPersonalIdentity = vi.fn(async () => {
+      throw identityError(400, { error: rejection });
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue({ createPersonalIdentity, enablePasswordCredential: vi.fn() });
+
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders(`203.0.113.${220 + consentRejections.indexOf(rejection)}`),
+      body: JSON.stringify({ email: `${rejection.code}@chasesets.test`, displayName: "Consent Contract" }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: rejection });
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+  });
+
+  it.each(conflicts)("relays the listed $code conflict body unchanged", async (conflict) => {
+    const services = createServices();
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => {
+        throw identityError(409, { error: conflict });
+      }),
+      enablePasswordCredential: vi.fn(),
+    });
+
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders(`203.0.114.${220 + conflicts.indexOf(conflict)}`),
+      body: JSON.stringify({ email: `${conflict.code}@chasesets.test`, displayName: "Conflict Contract" }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: conflict });
+  });
+
+  it("relays an otherwise unknown 409 body without exposing a source exception", async () => {
+    const services = createServices();
+    const body = { error: { code: "unknown_conflict", message: "Conflict." } };
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => {
+        throw identityError(409, body);
+      }),
+      enablePasswordCredential: vi.fn(),
+    });
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders("203.0.114.250"),
+      body: JSON.stringify({ email: "unknown-conflict@chasesets.test", displayName: "Conflict Contract" }),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual(body);
+  });
+
+  it.each([
+    [400, "registration_consent_unrecognized"],
+    [400, "unknown"],
+    [500, "unknown"],
+  ] as const)("redacts non-contract Identity failures (%s, %s)", async (status, code) => {
+    const services = createServices();
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => {
+        throw identityError(status, { error: { code, message: "secret source message" } });
+      }),
+      enablePasswordCredential: vi.fn(),
+    });
+
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders(`203.0.115.${220 + status}`),
+      body: JSON.stringify({ email: `unknown-${status}-${code}@chasesets.test`, displayName: "Unknown Contract" }),
+    });
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+    expect(body).not.toContain("secret source message");
+  });
+
   it("returns the waitlist path when registration has no pending invitation", async () => {
     const services = createServices();
     services.registrationAdmission = {

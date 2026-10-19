@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import {
   SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
   withRegistrationConsentResolution,
@@ -15,6 +16,7 @@ import {
 import { createAuthServicesFake } from "../auth-support/test-support";
 import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
+import { socialLoginErrorMessage } from "../route-support/social-login-errors";
 import type { AuthApiEnv } from "./support";
 
 const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoisted(() => ({
@@ -28,7 +30,9 @@ const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoiste
 
 vi.mock("@chase-sets/identity/server", () => ({
   isRegistrationConsentRejectionCode: (value: unknown) =>
-    typeof value === "string" && value.startsWith("registration_consent_"),
+    value === "registration_consent_not_server_minted" ||
+    value === "registration_consent_expired" ||
+    value === "registration_consent_affirmation_required",
   createIdentityAuthRequestClient: (...args: readonly unknown[]) =>
     withRegistrationConsentResolution(mockCreateIdentityAuthRequestClient(...args) ?? {}),
 }));
@@ -45,6 +49,7 @@ function buildApp(
     }),
     routes: (app) => {
       registerSocialLoginRoutes(app, services);
+      app.onError(errorHandler);
     },
   });
 }
@@ -198,6 +203,79 @@ afterEach(() => {
 });
 
 describe("social login routes", () => {
+  const consentRejections = [
+    {
+      code: "registration_consent_not_server_minted",
+      reason: "absent",
+      message: "A server-minted registration consent resolution is required.",
+    },
+    {
+      code: "registration_consent_expired",
+      reason: "superseded",
+      message: "The registration consent resolution no longer matches the current required bundle.",
+    },
+    {
+      code: "registration_consent_affirmation_required",
+      reason: "affirmation-required",
+      message: "Registration consent must be affirmed before identity creation.",
+    },
+  ] as const;
+  const conflicts = [
+    { code: "registration_operation_consent_disagreement", message: "Consent disagreement." },
+    { code: "registration_operation_participant_disagreement", message: "Participant disagreement." },
+    { code: "conflict", message: "Conflict." },
+    { code: "display_name_already_taken", message: "Display name is already taken." },
+  ] as const;
+
+  function identityError(status: number, body: unknown) {
+    return Object.assign(new Error("synthetic Identity failure"), { status, body });
+  }
+
+  async function callbackWithIdentityError(journey: "registration" | "sign-in", status: number, body: unknown) {
+    const services = createServices({ existingUser: null });
+    mockIdentityMutations.createPersonalIdentity.mockRejectedValue(identityError(status, body));
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+    await app.request(`/social/google/start?journey=${journey}&returnTo=/account`);
+    return app.request("/social/google/callback?state=social_token&code=provider-code");
+  }
+
+  it.each(["registration", "sign-in"] as const)(
+    "uses the %s consent fallback for every recognized rejection",
+    async (journey) => {
+      for (const rejection of consentRejections) {
+        const response = await callbackWithIdentityError(journey, 400, { error: rejection });
+        expect(response.status).toBe(302);
+        expect(await response.text()).toBe("");
+        expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
+        const location = new URL(response.headers.get("Location")!, "https://marketplace.test");
+        expect(location.pathname).toBe(journey === "registration" ? "/register" : "/sign-in");
+        expect(location.searchParams.get("socialLoginError")).toBe("registration_consent_unavailable");
+        expect(socialLoginErrorMessage(location.searchParams.get("socialLoginError"))).toBe(
+          "Account creation is unavailable right now. Try again in a moment.",
+        );
+      }
+    },
+  );
+
+  it.each(["registration", "sign-in"] as const)(
+    "uses the %s display-name fallback for every listed conflict",
+    async (journey) => {
+      for (const conflict of conflicts) {
+        const response = await callbackWithIdentityError(journey, 409, { error: conflict });
+        expect(response.status).toBe(302);
+        expect(await response.text()).toBe("");
+        expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
+        const location = new URL(response.headers.get("Location")!, "https://marketplace.test");
+        expect(location.pathname).toBe(journey === "registration" ? "/register" : "/sign-in");
+        expect(location.searchParams.get("socialLoginError")).toBe("identity_conflict");
+        expect(socialLoginErrorMessage(location.searchParams.get("socialLoginError"))).toBe(
+          "Display name is already taken.",
+        );
+      }
+    },
+  );
+
   it("starts a provider redirect with a single-use state token", async () => {
     const services = createServices({ existingUser: null });
     const app = buildApp(services);
