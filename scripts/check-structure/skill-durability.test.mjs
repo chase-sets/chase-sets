@@ -1,7 +1,8 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const skillRoots = [".agents/skills", ".claude/skills"];
@@ -17,11 +18,17 @@ const DURABILITY_RULES = Object.freeze([
   },
 ]);
 
-function candidateFiles(root) {
-  return readdirSync(join(repoRoot, root), { withFileTypes: true, recursive: true })
+function candidateFiles(baseDir, root) {
+  const rootDir = join(baseDir, root);
+  return readdirSync(rootDir, { withFileTypes: true, recursive: true })
     .filter((entry) => entry.isFile())
-    .map((entry) => join(root, relative(join(repoRoot, root), join(entry.parentPath, entry.name))))
+    .map((entry) => join(root, relative(rootDir, join(entry.parentPath, entry.name))))
     .sort();
+}
+
+function countCandidateFiles(baseDir, root) {
+  return readdirSync(join(baseDir, root), { withFileTypes: true, recursive: true }).filter((entry) => entry.isFile())
+    .length;
 }
 
 function scanText(text, filePath) {
@@ -36,14 +43,15 @@ function scanText(text, filePath) {
   return findings.sort((left, right) => left.line - right.line || left.class.localeCompare(right.class));
 }
 
-export function scanSkillTexts(files) {
+function scanSkillTexts(files) {
   return files.flatMap(({ file, text }) => scanText(text, file));
 }
 
-export function scanSkillFiles() {
-  const files = skillRoots.flatMap(candidateFiles);
-  const findings = scanSkillTexts(files.map((file) => ({ file, text: readFileSync(join(repoRoot, file), "utf8") })));
-  return { findings, scannedFiles: files.length, totalCandidateFiles: files.length };
+function scanSkillFiles(baseDir = repoRoot) {
+  const files = skillRoots.flatMap((root) => candidateFiles(baseDir, root));
+  const findings = scanSkillTexts(files.map((file) => ({ file, text: readFileSync(join(baseDir, file), "utf8") })));
+  const totalCandidateFiles = skillRoots.reduce((total, root) => total + countCandidateFiles(baseDir, root), 0);
+  return { findings, scannedFiles: files.length, totalCandidateFiles };
 }
 
 // Complete historical lines from cd1bdae3571a21c9df1db84b123f87f34cd49ce3.
@@ -72,32 +80,24 @@ const historicalControls = [
     text: historicalDateLine,
     diagnostics: [{ class: "iso-date", match: "2026-09-01" }],
   },
-  // The real selector also contains a version-qualified family; exercise both rules independently.
-  ...["exact-model-selector", "version-qualified-model-family"].map((name) => ({
-    name,
+  {
+    name: "model-selector-and-family",
     file: ".agents/skills/delivery/SKILL.md",
     text: historicalBrowserLine,
     diagnostics: [
       { class: "exact-model-selector", match: "gpt-6-luna" },
       { class: "version-qualified-model-family", match: "gpt-6-luna" },
     ],
-  })),
+  },
 ];
 
 describe("skill durability guard", () => {
   it("scans every skill file and reports no ruling, state, date, or model drift", () => {
-    const report = vi.spyOn(process.stdout, "write");
-    try {
-      const result = scanSkillFiles();
-      expect(result.scannedFiles).toBeGreaterThan(0);
-      expect(result.scannedFiles).toBe(result.totalCandidateFiles);
-      const surface = `scanned/total candidate files: ${result.scannedFiles}/${result.totalCandidateFiles}`;
-      expect(result.findings, surface).toEqual([]);
-      process.stdout.write(`${surface}\n`);
-      expect(report).toHaveBeenCalledWith(`${surface}\n`);
-    } finally {
-      report.mockRestore();
-    }
+    const result = scanSkillFiles();
+    expect(result.scannedFiles).toBeGreaterThan(0);
+    const surface = `scanned/total candidate files: ${result.scannedFiles}/${result.totalCandidateFiles}`;
+    expect(result.findings, surface).toEqual([]);
+    process.stdout.write(`${surface}\n`);
   });
 
   it.each(historicalControls)("rejects the historical $name line at its real path", ({ file, text, diagnostics }) => {
@@ -108,9 +108,18 @@ describe("skill durability guard", () => {
   });
 
   it("rejects a violation planted at a new Claude skill path", () => {
-    const file = ".claude/skills/new-skill/example.txt";
-    const findings = scanSkillTexts([{ file, text: historicalDateLine }]);
-    expect(findings).toEqual([{ file, line: 1, class: "iso-date", match: "2026-09-01" }]);
+    const tempDir = mkdtempSync(join(tmpdir(), "skill-durability-"));
+    const file = join(".claude/skills", "new-skill", "example.txt");
+    try {
+      mkdirSync(join(tempDir, ".agents", "skills"), { recursive: true });
+      mkdirSync(join(tempDir, ".claude", "skills", "new-skill"), { recursive: true });
+      writeFileSync(join(tempDir, file), historicalDateLine);
+      const result = scanSkillFiles(tempDir);
+      expect(result.findings).toEqual([{ file, line: 1, class: "iso-date", match: "2026-09-01" }]);
+      expect(result.scannedFiles).toBe(1);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("allows plain historical issue references and row identifiers", () => {
