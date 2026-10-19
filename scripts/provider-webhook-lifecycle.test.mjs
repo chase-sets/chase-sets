@@ -271,7 +271,12 @@ describe("provider webhook lifecycle", () => {
     expect(failure).toBeInstanceOf(Error);
     expect(failure.message).toMatch(/^Provider webhook create failed for the connect endpoint: /u);
     expect(failure.message).toContain("returned 400");
-    for (const secret of ["sk_test_fixture", "EZTKfixture", "whsec_payment", Buffer.from("easy-secret").toString("hex")]) {
+    for (const secret of [
+      "sk_test_fixture",
+      "EZTKfixture",
+      "whsec_payment",
+      Buffer.from("easy-secret").toString("hex"),
+    ]) {
       expect(failure.message).not.toContain(secret);
     }
     expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "DELETE"]);
@@ -294,7 +299,9 @@ describe("provider webhook lifecycle", () => {
         return response({ error: "nope" }, 422);
       },
     }).catch((error) => error);
-    expect(easyPostFailure.message).toMatch(/^Provider webhook create failed for the easypost endpoint: .*returned 422/u);
+    expect(easyPostFailure.message).toMatch(
+      /^Provider webhook create failed for the easypost endpoint: .*returned 422/u,
+    );
   });
 
   it("redacts known secret values that a provider error body echoes", async () => {
