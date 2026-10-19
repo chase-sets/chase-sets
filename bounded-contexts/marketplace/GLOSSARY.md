@@ -1,8 +1,10 @@
 # Marketplace Domain Glossary
 
-## Inventory Draft Listing Message and Receipt
+## Inventory Draft Listing Message
 
 An **Inventory Draft Listing Message** is the recursively closed, versioned committed-row snapshot defined by `contracts/inventory-draft-listing`. Its message identity is the Inventory import-row identity; the target draft identity is derived from that row, never supplied by delivery. Trusted delivery authority must match its tenant, account and acting User.
+
+## Inventory Draft Listing Receipt
 
 An **Inventory Draft Listing Receipt** is Marketplace's immutable acceptance result. Draft creation, inventory-listing registration facts and this durable receipt commit in one Marketplace transaction. Exact replay reads the original receipt without updating supply projections, repricing, creating another draft or publishing. A changed snapshot, authority or version cannot replace it. An untouched matching direct-port draft may acquire its first receipt without another creation fact.
 

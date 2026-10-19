@@ -1,4 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { parseInventoryDraftReceiptRow, type InventoryDraftReceiptRow } from "./inventory-draft-receipt";
 
 export const INVENTORY_DRAFT_RECEIPT_MIGRATION_ID = "20261019_marketplace_inventory_draft_receipts_v1";
@@ -20,7 +21,7 @@ export const inventoryDraftReceiptMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: INVENTORY_DRAFT_RECEIPT_MIGRATION_ID,
     description: "Install durable immutable Inventory draft receipts before enabling Inventory message delivery.",
-    dataStep: async (db) => {
+    dataStep: async (db: PgQueryable) => {
       await db.query(inventoryDraftReceiptSchemaSql);
       const shape = await db.query<{ valid: boolean }>(`SELECT
         c.relpersistence = 'p'
