@@ -200,7 +200,7 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      least one issue names it `full` and every such successor is itself closed
      `not planned`; reopen it or file a new issue naming it `full` when the last
      successor closes that way;
-     Reopen an orphaned predecessor or file a new issue naming it `full` when the last `not planned` successor closes;
+     reopen an orphaned predecessor or file a new issue naming it `full` when the last `not planned` successor closes;
    - every new non-Epic, including host and review follow-ups, gets a home
      after a duplicate search: a committed milestone, Candidate capabilities,
      or Operations for machine-generated incidents;
