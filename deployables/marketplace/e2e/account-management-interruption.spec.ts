@@ -519,6 +519,94 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     expect(writes).toEqual(["create", "create", "update", "default", "archive"]);
   });
 
+  test("shipping field errors focus the submitted form @marketplace-account", async ({ page }) => {
+    await page.goto("/account/shipping-addresses");
+    await page.evaluate(() => {
+      const events: string[] = [];
+      document.addEventListener("focusin", (event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement) events.push(target.id || target.tagName.toLowerCase());
+      });
+      (window as unknown as { __shippingFocusins: string[] }).__shippingFocusins = events;
+      return events;
+    });
+    const posts: string[] = [];
+    page.on("request", async (request) => {
+      if (request.method() !== "POST" || !new URL(request.url()).pathname.endsWith("/account/shipping-addresses.data"))
+        return;
+      const form = await new Response(request.postData(), {
+        headers: { "Content-Type": request.headers()["content-type"] },
+      }).formData();
+      posts.push(String(form.get("intent")));
+    });
+    for (const viewport of [
+      { width: 360, height: 800 },
+      { width: 390, height: 844 },
+      { width: 1024, height: 768 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.reload();
+      const create = page.locator('form:has(input[name="intent"][value="create"])');
+      for (const [name, value] of Object.entries({
+        name: "Synthetic recipient",
+        line1: "1 Test St",
+        city: " ",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      }))
+        await create.locator(`input[name="${name}"]`).fill(value);
+      await create.getByRole("button", { name: "Save address", exact: true }).click();
+      const summary = page.locator('[role="alert"]');
+      await expect(summary).toBeVisible();
+      await expect(summary).toBeFocused();
+      expect(posts.at(-1)).toBe("create");
+      expect(
+        await page.evaluate(() => (window as unknown as { __shippingFocusins: string[] }).__shippingFocusins.length),
+      ).toBeGreaterThan(0);
+      const city = create.locator('input[name="city"]');
+      await summary.getByRole("link").click();
+      await expect(city).toBeFocused();
+      await summary.getByRole("link").press("Enter");
+      await expect(city).toBeFocused();
+      expect(
+        await city.evaluate((element) => {
+          const box = element.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && box.top < innerHeight && box.bottom > 0;
+        }),
+      ).toBe(true);
+    }
+
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.reload();
+    const create = page.locator('form:has(input[name="intent"][value="create"])');
+    async function createAddress(label: string) {
+      for (const [name, value] of Object.entries({
+        name: "Synthetic recipient",
+        line1: "1 Test St",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      }))
+        await create.locator(`input[name="${name}"]`).fill(value);
+      await create.locator('input[name="label"]').fill(label);
+      await create.getByRole("button", { name: "Save address", exact: true }).click();
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+    }
+    await createAddress("Synthetic first");
+    await createAddress("Synthetic second");
+    await page.getByRole("button", { name: "Update address", exact: true }).first().click();
+    const update = page.locator('form:has(input[name="intent"][value="update"])');
+    await update.locator('input[name="city"]').fill(" ");
+    await update.getByRole("button", { name: "Update address", exact: true }).click();
+    const updateSummary = page.getByRole("dialog").locator('[role="alert"]');
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    await expect(updateSummary).toBeVisible();
+    await expect(updateSummary).toBeFocused();
+    expect(posts.at(-1)).toBe("update");
+  });
+
   test("injected actor props in the real profile form are refused before mutation work", async ({ page }) => {
     const form = await profileForm(page);
     const original = await form.getByLabel("Marketplace name", { exact: true }).inputValue();
