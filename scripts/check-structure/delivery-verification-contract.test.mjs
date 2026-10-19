@@ -9,6 +9,10 @@ const backlogModel = readProse("docs/contributing/backlog-model.md");
 
 function assertVerificationContract(text) {
   expect(text).toMatch(
+    /^\*\*Lane mode \(default when dispatched\)\.\*\*[^\r\n]* Your scope ends at a \*\*pushed draft PR plus a completion report\*\*, with scoped checks green and the Quality Packet complete \(see \*\*Draft semantics\*\*\)\. The host dispatches independent exact-head review; do not launch reviewers, mark ready, enqueue, merge, verify deploys, or create\/remove worktrees — the orchestrator owns review dispatch, landing and the pipeline\.$/m,
+  );
+  expect(text).not.toContain("ready, non-draft");
+  expect(text).toMatch(
     /^- For every nonempty diff, the ordinary pre-PR gate is a dry-run plan: `pnpm run verify:ci-local -- --mode=pull-request --provenance=same-repository --dry-run`\.[^\r\n]* Retain the exact-head plan as PLAN_ONLY before push\.$/m,
   );
   expect(text).toMatch(
@@ -35,11 +39,56 @@ function assertVerificationContract(text) {
   expect(text).toMatch(
     /^\*\*Draft semantics\.\*\*[^\r\n]* Missing, red, or skipped REQUIRED hosted gates block readiness; PLAN_ONLY never substitutes for them\.[^\r\n]*$/m,
   );
+  expect(text).toMatch(
+    /^\*\*Draft semantics\.\*\*[^\r\n]* If anything is unresolved, stay draft and say why in your report — draft vs\. ready is a deliberate signal; in lane mode, leave the PR draft and do not mark it ready yourself\. The draft may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green, never over a blocker the lane reported\.$/m,
+  );
+  expect(text).not.toContain("never readies drafts on your behalf");
+  expect(text).toMatch(
+    /^## Completion Report \(lane mode\)\r?\n\r?\nEnd your lane with a report the orchestrator can act on:\r?\n\r?\n1\. PR number and state — draft plus what remains before ready \(hosted gates, the host-dispatched review, or a named blocker\)\.$/m,
+  );
 }
 
 describe("delivery verification contract", () => {
   it("separates exact-head dry-run planning and scoped-green drafts from hosted readiness", () => {
     assertVerificationContract(instruction);
+  });
+
+  it.each([
+    {
+      name: "restores the ready, non-draft lane boundary",
+      from: /^\*\*Lane mode \(default when dispatched\)\.\*\*[^\r\n]*$/m,
+      to: "**Lane mode (default when dispatched).** Your prompt came from the milestone orchestrator with an issue and an assigned worktree. Your scope ends at a **green, ready, non-draft PR plus a completion report**. Do not enqueue, merge, verify deploys, or create/remove worktrees — the orchestrator owns landing and the pipeline.",
+    },
+    {
+      name: "restores the nobody-readies-drafts clause",
+      from: /If anything is unresolved, stay draft[^\r\n]*$/m,
+      to: "If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.",
+    },
+    {
+      name: "restores the ready lane completion state",
+      from: /^1\. PR number and state[^\r\n]*$/m,
+      to: "1. PR number and state — ready, or draft plus why.",
+    },
+    {
+      name: "lets a lane mark ready after PASS",
+      from: "leave the PR draft and do not mark it ready yourself",
+      to: "mark the PR ready yourself after PASS",
+    },
+    {
+      name: "names an actor for the draft-to-ready mutation",
+      from: "The draft may become ready only after",
+      to: "The orchestrator marks the draft ready only after",
+    },
+    {
+      name: "allows readiness over a reported blocker",
+      from: ", never over a blocker the lane reported",
+      to: "",
+    },
+  ])("rejects a boundary mutant that $name", ({ from, to }) => {
+    const mutant = instruction.replace(from, to);
+
+    expect(mutant).not.toBe(instruction);
+    expect(() => assertVerificationContract(mutant)).toThrow();
   });
 
   it("rejects making a full local verify:test-db a delivery prerequisite again", () => {

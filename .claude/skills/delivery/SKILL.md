@@ -11,7 +11,7 @@ This skill is tracked identically at `.agents/skills/` (read by Codex) and `.cla
 
 ## Modes
 
-**Lane mode (default when dispatched).** Your prompt came from the milestone orchestrator with an issue and an assigned worktree. Your scope ends at a **green, ready, non-draft PR plus a completion report**. Do not enqueue, merge, verify deploys, or create/remove worktrees — the orchestrator owns landing and the pipeline.
+**Lane mode (default when dispatched).** Your prompt came from the milestone orchestrator with an issue and an assigned worktree. Your scope ends at a **pushed draft PR plus a completion report**, with scoped checks green and the Quality Packet complete (see **Draft semantics**). The host dispatches independent exact-head review; do not launch reviewers, mark ready, enqueue, merge, verify deploys, or create/remove worktrees — the orchestrator owns review dispatch, landing and the pipeline.
 
 **Solo mode.** Todd asked you directly with no orchestrator dispatch. Deliver end-to-end — but before landing, check the orchestration lease at `../.orchestrator/lease.json` (container root, sibling of your checkout). If its `renewedAt` is within the last 60 minutes, an orchestrator is live and landing belongs to it: leave the PR ready, report it, and stop. The merge queue has exactly one writer at all times.
 
@@ -226,13 +226,13 @@ Enforcement pairs checked: packet shape → quality-packet-section-contract.test
 Unverifiable assumptions: none.
 ```
 
-**Draft semantics.** Open the PR as a draft once scoped checks and affected focused checks are green and the Quality Packet is complete; disclose the exact-head PLAN_ONLY evidence. A harness or lock refusal of a scoped check is disclosed, not a draft blocker. Before ready or enqueue, all selected REQUIRED hosted gates must pass and independent exact-head implementation review must pass, with no unresolved full-path assumption. Missing, red, or skipped REQUIRED hosted gates block readiness; PLAN_ONLY never substitutes for them. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.
+**Draft semantics.** Open the PR as a draft once scoped checks and affected focused checks are green and the Quality Packet is complete; disclose the exact-head PLAN_ONLY evidence. A harness or lock refusal of a scoped check is disclosed, not a draft blocker. Before ready or enqueue, all selected REQUIRED hosted gates must pass and independent exact-head implementation review must pass, with no unresolved full-path assumption. Missing, red, or skipped REQUIRED hosted gates block readiness; PLAN_ONLY never substitutes for them. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal; in lane mode, leave the PR draft and do not mark it ready yourself. The draft may become ready only after a host-dispatched exact-head independent PASS with every selected REQUIRED hosted gate green, never over a blocker the lane reported.
 
 ## Completion Report (lane mode)
 
 End your lane with a report the orchestrator can act on:
 
-1. PR number and state — ready, or draft plus why.
+1. PR number and state — draft plus what remains before ready (hosted gates, the host-dispatched review, or a named blocker).
 2. Verification run and observed results.
 3. File footprint touched (for parallel-lane collision checks).
 4. Assumptions flagged in the PR.
