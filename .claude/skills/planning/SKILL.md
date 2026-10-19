@@ -118,7 +118,8 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    art, and an explicit **don't-rebuild check** — shipped surfaces get pointers,
    never reimplementation. Run a **supersession check**: inventory every existing
    path the planned change replaces or makes redundant, including code, docs,
-   flags, and workflows. Stage 2-light for Issues still requires this check.
+   flags, workflows, and open issues found by searching the planned outcome
+   terms and predicted footprint paths. Stage 2-light for Issues still requires this check.
    Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
@@ -175,6 +176,34 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      attached successor carries that parentage, detach the predecessor from the
      parent in the same registration pass. If no successor is attached to the
      parent, keep the predecessor's parent link;
+   - judge coverage over the whole successor set: `full` carries every
+     accepted acceptance criterion, `partial` replaces named criteria only,
+     and `adjacent` shares a theme but triggers no action;
+   - for `full`, in the same registration pass close the predecessor as
+     `duplicate` when scope is identical or `not planned` otherwise, with one
+     comment naming the successor set; every successor names the predecessor in
+     its `### Supersedes` section, and the planner never waits for a successor
+     to land;
+   - for `partial`, remove only the dropped criteria in place, post one comment
+     naming those criteria and the successor set, and never add
+     `status:needs-replan`. If the remainder is not a coherent slice, close the
+     predecessor as `not planned` and file one fixed-scope issue with the
+     remainder, naming the old issue `full` in its `### Supersedes` section;
+   - if either class would drop accepted product scope, leave the predecessor
+     unchanged and route one product question to Todd;
+   - the `planning-repair/v1` boundary is unchanged: its input is a closed PR,
+     and a `REPLACED` original remains open as `status:tracking-only` until its
+     replacements land;
+   - a closed `not planned` or `duplicate` predecessor is orphaned when at
+     least one issue names it `full` and every such successor is itself closed
+     `not planned`; reopen it or file a new issue naming it `full` when the last
+     successor closes that way;
+   - every new non-Epic, including host and review follow-ups, gets a home
+     after a duplicate search: a committed milestone, Candidate capabilities,
+     or Operations for machine-generated incidents;
+   - use `Deferred / Incubation` only on Todd's explicit deferral;
+     Epics stay unmilestoned and write-once; superseding an Epic takes a
+     superseding comment, plus closure when it is `full`;
    - every open slice classified (`refined ≡ classified`) with a wave milestone
      + `priority:*` + `area:*` + `kind:*`, excluding Epics,
      `status:tracking-only`, candidate outcomes, `Deferred / Incubation`, and `Operations` (the

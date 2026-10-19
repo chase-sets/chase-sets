@@ -22,6 +22,26 @@ const parentageRule = Object.freeze({
   retainWithoutSuccessor: "If no successor is attached to the\n" + "     parent, keep the predecessor's parent link;",
 });
 
+const supersessionRule = Object.freeze({
+  discoveryOpenIssues:
+    "including open issues found by searching the planned outcome terms and predicted footprint paths;",
+  wholeSuccessorSet:
+    "judge coverage over the whole successor set: `full` carries every accepted acceptance criterion, `partial` replaces named criteria only, and `adjacent` shares a theme but triggers no action;",
+  fullDisposition:
+    "for `full`, in the same registration pass close the predecessor as `duplicate` when scope is identical or `not planned` otherwise, with one comment naming the successor set;",
+  partialDisposition:
+    "for `partial`, remove only the dropped criteria in place, post one comment naming those criteria and the successor set, and never add `status:needs-replan`;",
+  productQuestion:
+    "if either class would drop accepted product scope, leave the predecessor unchanged and route one product question to Todd;",
+  repairBoundary:
+    "the `planning-repair/v1` boundary is unchanged: its input is a closed PR, and a `REPLACED` original remains open as `status:tracking-only` until its replacements land;",
+  orphanedAcceptance:
+    "reopen an orphaned predecessor or file a new issue naming it `full` when the last `not planned` successor closes;",
+  filingHome:
+    "every new non-Epic, including host and review follow-ups, gets a home after a duplicate search: a committed milestone, Candidate capabilities, or Operations for machine-generated incidents;",
+  deferredTodd: "use `Deferred / Incubation` only on Todd's explicit deferral;",
+});
+
 function registrationSection(skill) {
   const anchors = [...skill.matchAll(/^7\. \*\*Registration\.\*\*/gm)];
   if (anchors.length !== 1) {
@@ -76,6 +96,26 @@ function registrationContractViolations(skill) {
   return section.indexOf(parentageRule.attachSuccessors) < section.indexOf(parentageRule.detachInSamePass)
     ? []
     : ["attachSuccessorsBeforeDetachment"];
+}
+
+function supersessionContractViolations(skill) {
+  const active = activeMarkdown(skill);
+  const discovery = active.slice(active.indexOf("2. **Discovery.**"), active.indexOf("3. **Decomposition.**"));
+  const registration = registrationSection(active);
+  const normalize = (value) => value.replace(/\s+/g, " ").trim();
+  const searchable = `${normalize(discovery)} ${normalize(registration)}`;
+  return Object.entries(supersessionRule)
+    .filter(([, clause]) => !searchable.includes(normalize(clause)))
+    .map(([requirement]) => requirement);
+}
+
+function removeWhitespaceInsensitive(source, value) {
+  const escaped = value
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("\\s+");
+  return source.replace(new RegExp(escaped), "");
 }
 
 describe("planning decomposition contract", () => {
@@ -139,6 +179,15 @@ describe("planning decomposition contract", () => {
     );
 
     expect(registrationContractViolations(reordered)).toEqual(["attachSuccessorsBeforeDetachment"]);
+  });
+
+  it("requires open-issue discovery and the complete registration disposition contract", () => {
+    const skill = readFileSync(planningSkillPath, "utf8");
+    expect(supersessionContractViolations(skill)).toEqual([]);
+
+    for (const [requirement, clause] of Object.entries(supersessionRule)) {
+      expect(supersessionContractViolations(removeWhitespaceInsensitive(skill, clause))).toContain(requirement);
+    }
   });
 });
 
