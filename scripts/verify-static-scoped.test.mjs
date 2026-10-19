@@ -20,6 +20,8 @@ import {
 } from "./verify-static-scoped.mjs";
 import {
   ALWAYS_RUN,
+  BRAND_FOIL_PROOF_INPUT_PATHS,
+  BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS,
   MAY_NARROW,
   VERIFY_STATIC_GUARD_TEST_SURFACES,
   VERIFY_STATIC_SCOPED_EXCLUSIONS,
@@ -985,6 +987,123 @@ describe("focused-local command-plan boundary", () => {
     });
 
     expect(() => assertOnlyTestScriptsWasRemoved(basePlan, narrowedGuardMutant)).toThrow();
+  });
+});
+
+describe("scoped check:structure steps", () => {
+  const structureSurface = VERIFY_STATIC_SURFACES["check:structure"];
+
+  it("skips the brand-foil proof step outside its inputs", async () => {
+    const steps = [];
+    const output = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["docs/readme.md"]' },
+      readPackageJson: () => ({
+        scripts: {
+          "verify:static": "pnpm run check:structure",
+          "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+        },
+      }),
+      surfaces: { "check:structure": structureSurface },
+      guardSurfaces: {},
+      dependencies: noFanoutDependencies(),
+      runStep: (step) => {
+        steps.push(step.command);
+        return 0;
+      },
+      runGuardTests: () => 0,
+      stdout: (line) => output.push(line),
+    });
+
+    expect(status).toBe(0);
+    expect(steps).toEqual(["node ./scripts/check-structure.mjs"]);
+    expect(output).toContain(
+      `[SKIPPED-BY-SCOPE] check:structure > brand-foil-proof: ${structureSurface.scopedSteps[1].rule}`,
+    );
+  });
+
+  it.each([...BRAND_FOIL_PROOF_INPUT_PATHS, ...BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS, "pnpm-lock.yaml"])(
+    "runs the brand-foil proof after the aggregate for proof input %s",
+    (changedPath) => {
+      const plan = selectVerifyStaticLinks({
+        chain: [
+          {
+            name: "check:structure",
+            command: "pnpm run check:structure",
+            forwarded: "",
+            script: "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+          },
+        ],
+        changedFiles: [changedPath],
+        surfaces: { "check:structure": structureSurface },
+        guardSurfaces: {},
+        repoRoot,
+        dependencies: noFanoutDependencies(),
+      });
+      const structure = plan.selected.find(({ name }) => name === "check:structure");
+      expect(structure.selectedSteps.map(({ name }) => name)).toEqual(["aggregate", "brand-foil-proof"]);
+      expect(structure.skippedSteps).toEqual([]);
+    },
+  );
+
+  it("runs check:structure whole on forced-full derivation", async () => {
+    const links = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: "{" },
+      readPackageJson: () => ({
+        scripts: {
+          "verify:static": "pnpm run check:structure",
+          "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+        },
+      }),
+      surfaces: { "check:structure": structureSurface },
+      guardSurfaces: {},
+      dependencies: noFanoutDependencies(),
+      runLink: (link) => {
+        links.push(link);
+        return 0;
+      },
+      runGuardTests: () => 0,
+      stdout: () => {},
+      stderr: () => {},
+    });
+
+    expect(status).toBe(0);
+    expect(links).toHaveLength(1);
+    expect(links[0].selectedSteps).toBeUndefined();
+  });
+
+  it("runs check:structure whole when its steps drift from package.json", async () => {
+    const steps = [];
+    const output = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["docs/readme.md"]' },
+      readPackageJson: () => ({
+        scripts: {
+          "verify:static": "pnpm run check:structure",
+          "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
+        },
+      }),
+      surfaces: {
+        "check:structure": {
+          ...structureSurface,
+          scopedSteps: structureSurface.scopedSteps.slice(0, 1),
+        },
+      },
+      guardSurfaces: {},
+      dependencies: noFanoutDependencies(),
+      runStep: (step) => {
+        steps.push(step.command);
+        return 0;
+      },
+      runLink: () => 0,
+      runGuardTests: () => 0,
+      stdout: (line) => output.push(line),
+    });
+
+    expect(status).toBe(0);
+    expect(steps).toEqual([]);
+    expect(output.join("\n")).toContain("[STATIC_SCOPE_STEPS_STALE]");
   });
 });
 

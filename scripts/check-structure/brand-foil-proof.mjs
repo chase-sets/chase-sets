@@ -31,6 +31,51 @@ const candidatePaths = [
   "package.json",
   "scripts/check-heavy-slot-coverage.test.mjs",
 ];
+
+export const BRAND_FOIL_PROOF_INPUT_PATHS = Object.freeze([...candidatePaths]);
+export const BRAND_FOIL_PROOF_ENTRY_PATHS = Object.freeze([
+  validatorPath,
+  aggregatePath,
+  runPath,
+  "scripts/check-structure/brand-foil-proof.mjs",
+]);
+
+const relativeImportPattern = /(?:\bfrom\s*|\bimport\s*)["'](\.{1,2}\/[^"']+)["']/g;
+
+function staticRelativeImports(source) {
+  const imports = [];
+  for (const match of source.matchAll(relativeImportPattern)) imports.push(match[1]);
+  return imports;
+}
+
+export function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
+  const pending = [...BRAND_FOIL_PROOF_ENTRY_PATHS];
+  const visited = new Set();
+  const discovered = new Set();
+  while (pending.length > 0) {
+    const relativePath = pending.pop();
+    if (visited.has(relativePath)) continue;
+    visited.add(relativePath);
+    const absolutePath = path.resolve(root, relativePath);
+    if (!existsSync(absolutePath)) continue;
+    discovered.add(relativePath.replaceAll("\\", "/"));
+    for (const specifier of staticRelativeImports(readFileSync(absolutePath, "utf8"))) {
+      const importedPath = path.resolve(path.dirname(absolutePath), specifier);
+      const importedRelative = path.relative(root, importedPath).replaceAll("\\", "/");
+      if (
+        importedRelative &&
+        !importedRelative.startsWith("../") &&
+        !path.isAbsolute(importedRelative) &&
+        importedRelative.endsWith(".mjs")
+      ) {
+        pending.push(importedRelative);
+      }
+    }
+  }
+  return Object.freeze([...discovered].sort());
+}
+
+export const BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS = collectBrandFoilProofStaticImportPaths();
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const git = (root, args) =>
   execFileSync("git", args, {

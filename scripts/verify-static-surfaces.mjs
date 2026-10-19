@@ -1,9 +1,24 @@
+import {
+  BRAND_FOIL_PROOF_INPUT_PATHS,
+  BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS,
+} from "./check-structure/brand-foil-proof.mjs";
+
+export { BRAND_FOIL_PROOF_INPUT_PATHS, BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS };
+
 export const ALWAYS_RUN = "always-run";
 export const MAY_NARROW = "may-narrow";
 
 const exact = (...values) => values.map((value) => ({ kind: "exact", value }));
 const prefix = (...values) => values.map((value) => ({ kind: "prefix", value }));
 const regex = (...values) => values.map((value) => ({ kind: "regex", value }));
+const brandFoilProofInputSurface = Object.freeze([
+  ...new Set([...BRAND_FOIL_PROOF_INPUT_PATHS, ...BRAND_FOIL_PROOF_STATIC_IMPORT_PATHS]),
+].map((value) => ({ kind: "exact", value })));
+const brandFoilProofStepSurface = Object.freeze([
+  { kind: "prefix", value: "scripts/check-structure" },
+  { kind: "exact", value: "pnpm-lock.yaml" },
+  ...brandFoilProofInputSurface,
+]);
 
 // The complete scripts battery remains part of the authoritative hosted
 // verify:static chain, but it is intentionally outside the focused local
@@ -273,6 +288,21 @@ export const VERIFY_STATIC_SURFACES = {
     classification: ALWAYS_RUN,
     rule: "repo-wide structure scan plus diff-consuming SQL and boot-schema guards",
     evidence: ["scripts/check-structure/run.mjs:40-55,1261-1270,3238-3246"],
+    scopedSteps: [
+      {
+        name: "aggregate",
+        command: "node ./scripts/check-structure.mjs",
+        classification: ALWAYS_RUN,
+        rule: "aggregate structure scan always runs before the causal proof",
+      },
+      {
+        name: "brand-foil-proof",
+        command: "node ./scripts/check-structure/brand-foil-proof.mjs",
+        classification: MAY_NARROW,
+        rule: "brand-foil proof inputs, static import closure, check-structure modules, or pnpm-lock.yaml",
+        include: brandFoilProofStepSurface,
+      },
+    ],
   },
   "check:localization": {
     classification: MAY_NARROW,
