@@ -25,7 +25,10 @@ const boundCollection = (collectedAt: string) => ({
   collectedAt,
 });
 // The causal close: seal, then one completion of the acknowledged run.
-async function close(f: Fixture, collection = boundCollection(f.clock.now)) {
+async function close(
+  f: Fixture,
+  collection: Parameters<Fixture["lifecycle"]["complete"]>[1]["collection"] = boundCollection(f.clock.now),
+) {
   const sealed = await f.lifecycle.freeze(captureSession(), sealInput);
   return f.lifecycle.complete(captureSession(), { runId: sealed.runId, ...sealInput, collection });
 }
