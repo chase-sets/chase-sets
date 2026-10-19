@@ -831,7 +831,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "54fbc3ccce1f42f9f92914e6be7c8e978ef1640dd9a7c6ec7168c280a6cfa1e0",
+      "6dfea3e86c6eb31556bbb526f7c4c8912cddd157a33709fb2e35d6cf8fa3e766",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -2076,7 +2076,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     },
     {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
-      current: true,
+      current: false,
       fileName: "bootstrap-db-capture-38993631473.json",
       fixtureSha256: "32dca1e0b66c28f4578c2959a7b15323a127e86555155c1e23787714482b82e2",
       minimumUnitCount: 3,
@@ -2095,6 +2095,31 @@ describe("Platform API bootstrap DB enrollment", () => {
         caseManifestSha256: "acf95739611a9a0d43149339abfb008e9164dc26c5d49b7d02661678d5036013",
         commandsSha256: "db230c159f8f294a676fab11d92f3ea6a0a7aff52490c9f6d46f322b988fdb63",
         censusSha256: "670efd599e0ccd8844f14695ff97af5d5ec644d04057be4561eca61f611f6369",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: true,
+      fileName: "bootstrap-db-capture-39208562697.json",
+      fixtureSha256: "30da03aaf60d08835a72c3ea79fad9b9a642708ecef157365deb19ab6e0e157d",
+      minimumUnitCount: 2,
+      unitProjections: [259083, 265065],
+      provenance: {
+        runId: "39208562697",
+        runAttempt: "1",
+        referenceJobId: 117916642543,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "3fdb7a4fdc6236ddd14fc287bfeb677c790dcdc3",
+        sourceBase: "b6fd1b599d82dfb7fc020503d26fe4a9bca3abb9",
+        captureParent: "b6fd1b599d82dfb7fc020503d26fe4a9bca3abb9",
+        artifactId: 12167106542,
+        artifactSha256: "dd6441b13f1c64630c4a16376eb2967f6c4f49dce4323749ff3d3a748694b7c0",
+        sourceManifestSha256: "d4325fac68138cbded95f0c056102cde38e83138ac223d5685631cbd83013070",
+        caseManifestSha256: "8b039f370ad4269c75ffefbfee955bf17afd5f0db3904c98b01573389e3758e9",
+        commandsSha256: "04ae5d313e5c02ecb8ad50f818cefa3315808463c1dbba576b1dfea950f9c65b",
+        censusSha256: "b4efba85da0dd7b5618f98a7febde80b1a1f6c9744b3c8a353d9eda5fb1d1735",
         maxWorkers: 3,
         laneMode: null,
       },
@@ -2361,7 +2386,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     return { binding: newer, baseline };
   }
 
-  const runId = "38993631473";
+  const runId = "39208562697";
   const changed = (key: string) => `${key} changed since capture ${runId}; re-enrollment required`;
   const added = (key: string) => `${key} is workload the capture ${runId} did not measure; re-enrollment required`;
   const removed = (key: string) =>
@@ -2432,8 +2457,8 @@ describe("Platform API bootstrap DB enrollment", () => {
         captureParent: capture.provenance.captureParent,
       });
       expect(baseline.source).toEqual({
-        commit: "008a50bb554b485dc29e187d381521a3463e24b6",
-        ref: "refs/pull/9710/head",
+        commit: "b6fd1b599d82dfb7fc020503d26fe4a9bca3abb9",
+        ref: "refs/pull/10075/head",
       });
       expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
       expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
@@ -3070,8 +3095,8 @@ describe("Platform API bootstrap DB enrollment", () => {
         edits: {
           "deployables/platform-api/package.json": (source: string) =>
             replaceOnce(
-              "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
-              "__tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
+              "__tests__/seed-command-full-pools.db.test.ts --maxWorkers=3",
+              "__tests__/seed-command-full-pools.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
             )(
               replaceOnce(
                 "__tests__/operator-session/operator-extension-route-contract.db.test.ts __tests__/seed-command-catalog.db.test.ts ",
@@ -3085,8 +3110,8 @@ describe("Platform API bootstrap DB enrollment", () => {
         label: "a hosted CLI override",
         edits: {
           "deployables/platform-api/package.json": replaceOnce(
-            "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
-            "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --testTimeout=1 --maxWorkers=3",
+            "__tests__/seed-command-full-pools.db.test.ts --maxWorkers=3",
+            "__tests__/seed-command-full-pools.db.test.ts --testTimeout=1 --maxWorkers=3",
           ),
         },
         expected: [changed("W1 partition test:db:1"), changed("W4 unit test:db:1")],
@@ -3346,7 +3371,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
       ).toEqual([
         `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
-        `baseline was derived from 008a50bb554b485dc29e187d381521a3463e24b6, not the capture's frozen source 0000000000000000000000000000000000006545`,
+        `baseline was derived from b6fd1b599d82dfb7fc020503d26fe4a9bca3abb9, not the capture's frozen source 0000000000000000000000000000000000006545`,
       ]);
       expect(() =>
         createBootstrapDbWorkloadBaseline({
@@ -3391,13 +3416,13 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(52224);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(48818);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1893735,
+      1196452,
     );
   });
 
@@ -3407,19 +3432,17 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 317381],
-      ["test:db:2", 257917],
-      ["test:db:3", 233562],
+      ["test:db:1", 259083],
+      ["test:db:2", 265065],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [18, 18],
-      [29, 29],
-      [19, 19],
+      [33, 33],
+      [33, 33],
     ]);
-    expect(schedule.aggregateMs).toBe(808860);
-    expect(schedule.aggregateWithOverheadMs).toBe(861084);
-    expect(schedule.minimumUnitCount).toBe(3);
-    expect(schedule.observedUnitCount).toBe(3);
+    expect(schedule.aggregateMs).toBe(524148);
+    expect(schedule.aggregateWithOverheadMs).toBe(572966);
+    expect(schedule.minimumUnitCount).toBe(2);
+    expect(schedule.observedUnitCount).toBe(2);
   });
 
   it("accepts the shipped schedule model as a null-prototype plain record", () => {
@@ -3429,9 +3452,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 317381],
-      ["test:db:2", 257917],
-      ["test:db:3", 233562],
+      ["test:db:1", 259083],
+      ["test:db:2", 265065],
     ]);
   });
 
@@ -3905,11 +3927,11 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
   });
 
-  it("computes a minimumUnitCount of 3 for the shipped manifest and ships exactly that", () => {
+  it("computes a minimumUnitCount of 2 for the shipped manifest and ships exactly that", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
-    expect(schedule.minimumUnitCount).toBe(3);
-    expect(schedule.observedUnitCount).toBe(3);
+    expect(schedule.minimumUnitCount).toBe(2);
+    expect(schedule.observedUnitCount).toBe(2);
     for (const unit of schedule.units) {
       expect(unit.makespanMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.executionUnitCeilingMs);
     }
@@ -3919,9 +3941,9 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("shows a one-fewer-unit alternative whose binding unit is above the 420-second ceiling", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
-    expect(schedule.oneFewerUnit?.unitCount).toBe(2);
+    expect(schedule.oneFewerUnit?.unitCount).toBe(1);
     const worst = Math.max(...(schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
-    expect(worst).toBe(448422);
+    expect(worst).toBe(551598);
     expect(worst).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
@@ -3956,7 +3978,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.aggregateCeilingMs);
     expect(result.violations).toEqual([
       "the shipped topology spends 4 execution units where the schedule model's minimumUnitCount for the same " +
-        "file set is 3; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
+        "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
         "budget",
     ]);
   });
@@ -3983,8 +4005,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       "test:db:5 selects non-DB test entry '__tests__/plain-unit.test.ts'",
       "test:db:5 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
         "unit must own manifested executable DB entries",
-      "the shipped topology spends 4 execution units where the schedule model's minimumUnitCount for the same " +
-        "file set is 3; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
+      "the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same " +
+        "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
         "budget",
     ]);
     await editScripts(fixture, (scripts) => {
