@@ -53,7 +53,7 @@ describeDb("data reset primitive discriminator", () => {
     await ensureMultiContextTestDatabases(adminDatabaseUrl!, urls);
     const pools = createMultiContextTestPools(urls);
     const pool = pools.probe;
-    const version = await pool.query<{ version: string }>("SHOW server_version");
+    const version = await pool.query<{ version: string }>("SELECT current_setting('server_version') AS version");
     expect(Number(version.rows[0]!.version.split(".")[0])).toBe(16);
     const bootstrap = async () => {
       await pool.query(`CREATE TABLE IF NOT EXISTS reset_bootstrap (id integer PRIMARY KEY, note text NOT NULL);
