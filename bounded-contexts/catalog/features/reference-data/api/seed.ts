@@ -296,7 +296,7 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
     },
   ),
   // English TCGdex ids are the exact `/v2/en/sets` ids; earlier seeds wrote
-  // `sv8.5`, `sv8` and `sv6`, which that list does not contain (#10062).
+  // `sv8.5`, `sv8` and `sv6`, which that list does not contain.
   expansion(
     "prismatic-evolutions",
     "Prismatic Evolutions",
@@ -363,7 +363,7 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
 export const pokemonExpansionReferenceRecordSeeds = referenceRecords.filter((def) => def.typeKey === "expansion");
 
 /**
- * Provider-provisioned records that duplicate a seeded record (#10062). While
+ * Provider-provisioned records that duplicate a seeded record. While
  * the seed held `sv8`, TCGdex promotion of English `sv08` could not find the
  * seeded Surging Sparks by its provider attribute and provisioned
  * `ref_tcgdex_expansion_sv08` beside it. The seeded record is canonical; the
