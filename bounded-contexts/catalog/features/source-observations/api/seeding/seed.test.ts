@@ -369,7 +369,7 @@ function inMemoryScenarioStore(initialStreams: Readonly<Record<string, readonly 
       ...rows,
       ...events.map((event, index) => ({
         event_type: event.type,
-        payload: event.data as Record<string, unknown>,
+        payload: storedPayload(event),
         stream_version: rows.length + index + 1,
       })),
     ]);
@@ -388,7 +388,7 @@ function exactHistory(...commands: SourceObservationCommand[]) {
     const event = events[0]!;
     rows.push({
       event_type: event.type,
-      payload: event.data as Record<string, unknown>,
+      payload: storedPayload(event),
       stream_version: rows.length + 1,
     });
     state = evolveSourceObservation(state, event);
@@ -413,4 +413,10 @@ function fakeServices(
       },
     },
   };
+}
+
+// Stored payloads round-trip through JSON as event_store_events JSONB does, so an exact-event
+// comparison on repeat boots sees what PostgreSQL returns, not the in-process object.
+function storedPayload(event: SourceObservationEvent): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(event.data)) as Record<string, unknown>;
 }
