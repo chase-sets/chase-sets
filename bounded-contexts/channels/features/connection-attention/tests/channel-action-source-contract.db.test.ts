@@ -338,6 +338,6 @@ describeDb("channel-action-source-contract", () => {
       await resetMultiContextTestSchemas({ channels: drain.db });
       await bootstrapContextDatabase(channelsModule, drain.db);
     }
-    expect(connectionId).toMatch(/^connection_health_attention_reader_lifetime-/);
+    expect(connectionId).toMatch(/^connection_health_attention_reader_lifetime_/);
   });
 });
