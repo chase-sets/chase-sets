@@ -60,9 +60,13 @@ function buildAppWithoutActor(services: AccountServices, missingActor: null | un
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
     if (missingActor === null) c.set("actor", null);
+    // Anonymous requests still carry a well-formed bootstrap context; authority must come from the actor.
     c.set("context", {
       tenantId: "tnt_identity" as never,
-      audit: {},
+      audit: {
+        performedByUserId: "usr_bootstrap" as never,
+        forAccountId: "acc_bootstrap" as never,
+      },
       trace: {},
     } as EventStoreContext);
     await next();
