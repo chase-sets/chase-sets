@@ -182,8 +182,8 @@ async function renderPanelWith(body: unknown, status = 200) {
 async function waitForSettledDisconnect(panel: HTMLElement) {
   await waitFor(() => {
     const disconnect = within(panel).getByRole("button", { name: "Disconnect" });
-    expect(disconnect).toHaveAttribute("aria-haspopup", "dialog");
-    expect(disconnect).toHaveAttribute("aria-expanded", "false");
+    expect(disconnect.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(disconnect.getAttribute("aria-expanded")).toBe("false");
   });
 }
 
