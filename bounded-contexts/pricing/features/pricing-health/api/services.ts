@@ -14,6 +14,7 @@ import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
 import {
   buildCandidateBody,
   candidateMetrics,
+  currentAttentionValues,
   isOneRuleUnconditional,
   recommendGoalChange,
   selectableGoalChoices,
@@ -62,7 +63,11 @@ export function createPricingHealthServices({
     return selectableGoalChoices(pricingGoalDefinitions(), adoptions);
   };
   return {
-    getHealth: async (accountId: string, policyId: string | undefined, now: string) => {
+    getHealth: async (
+      accountId: string,
+      policyId: string | undefined,
+      now: string,
+    ): Promise<PricingHealthData | null> => {
       const active = (await listAccountRepricingPolicies(db, { accountId })).filter(
         ({ status }) => status === "active",
       );
@@ -81,7 +86,6 @@ export function createPricingHealthServices({
           computing: false,
           goals: [],
           comparison: [],
-          recommendation: { kind: "compare-goals" as const, text: "Compare goals" },
           branch: "create-editor" as const,
         };
       const target = await currentTarget(accountId, selected.policyId);
@@ -91,6 +95,16 @@ export function createPricingHealthServices({
         policyId: target.policyId,
         bodyHash: hashRepricingDryRunBody(target),
       });
+      if (!isOneRuleUnconditional(target.rules))
+        return {
+          policies: activeChoices,
+          target: { policyId: target.policyId, name: target.name },
+          ...stored,
+          grades: [],
+          goals: [],
+          comparison: [],
+          branch: target.rules.length === 0 ? "create-editor" : "advanced-editor",
+        };
       const policy = (await policies.resolvePolicy(forecastLedgerPolicy, { at: now })).value;
       const goals = new Map<string, { goalId: string; goalVersion: number }>();
       for (const rule of target.rules)
@@ -114,12 +128,6 @@ export function createPricingHealthServices({
         );
       }
       const goalChoices = await choices();
-      const ruleBranch =
-        target.rules.length === 0
-          ? "create-editor"
-          : isOneRuleUnconditional(target.rules)
-            ? "comparison"
-            : "advanced-editor";
       const comparison = await readComparisons(accountId, target, goalChoices, repricingEngine);
       const currentTraces =
         stored.run && repricingEngine.listDryRunTraces
@@ -130,13 +138,15 @@ export function createPricingHealthServices({
             )
           : [];
       const currentEconomicsListingIds = currentTraces
-        .filter((trace) => (trace as typeof trace & { health?: { economics?: unknown } }).health?.economics)
+        .filter((trace) => trace.health?.economics)
         .map((trace) => trace.listingId)
         .sort();
       const recommendation = recommendGoalChange({
         currentHealth: stored.health,
         currentEconomicsListingIds,
         candidates: comparison,
+        expectedCandidateCount: goalChoices.length,
+        attentionValues: currentAttentionValues(currentTraces),
         haltEngaged: repricingPolicies.getHalt ? (await repricingPolicies.getHalt(accountId)).engaged : false,
       });
       return {
@@ -145,8 +155,9 @@ export function createPricingHealthServices({
         goals: goalChoices,
         comparison,
         recommendation,
-        branch: ruleBranch,
+        branch: "comparison",
         ...stored,
+        computing: stored.computing || comparison.some(({ status }) => status === "queued" || status === "running"),
         grades,
       };
     },
@@ -195,12 +206,23 @@ async function readComparisons(
   const runs = await repricingEngine.listDryRuns(accountId, 100);
   const byGoal = new Map(choices.map((choice) => [`${choice.goalId}@${choice.goalVersion}`, choice]));
   const results: CandidateMetrics[] = [];
-  for (const run of runs) {
+  const seen = new Set<string>();
+  for (const run of [...runs].sort(
+    (a, b) => b.requestedAt.localeCompare(a.requestedAt) || b.dryRunId.localeCompare(a.dryRunId),
+  )) {
     if (run.replacingPolicyId !== target.policyId) continue;
     const anchor = run.body.rules[0]?.directive.anchorChain[0];
     if (!anchor || anchor.source !== "curve-objective") continue;
     const choice = byGoal.get(`${anchor.goalId}@${anchor.goalVersion}`);
     if (!choice) continue;
+    const key = `${choice.goalId}@${choice.goalVersion}`;
+    if (
+      seen.has(key) ||
+      run.bodyHash !== hashRepricingDryRunBody(run.body) ||
+      run.bodyHash !== hashRepricingDryRunBody(buildCandidateBody(target.body, choice))
+    )
+      continue;
+    seen.add(key);
     const traces = await readAllTraces(
       repricingEngine as Pick<RepricingEngineServices, "listDryRunTraces">,
       accountId,

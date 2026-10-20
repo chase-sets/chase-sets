@@ -24,6 +24,7 @@ import {
 } from "./health-summary";
 
 export type RepricingDryRunBody = RepricingCandidate["body"];
+export type RepricingDryRunTrace = RepricingPolicyListingTrace & Readonly<{ health?: RepricingHealthContribution }>;
 export type RepricingDryRunSummary = Readonly<{
   listingsEvaluated: number;
   outcomes: Readonly<Record<string, number>>;
@@ -184,9 +185,9 @@ export function createRepricingDryRunServices(
     sellerAccountId: string,
     dryRunId: string,
     input: { outcome?: RepricingPolicyListingTrace["outcome"]; after?: string; limit?: number } = {},
-  ): Promise<readonly RepricingPolicyListingTrace[]> =>
+  ): Promise<readonly RepricingDryRunTrace[]> =>
     (
-      await db.query<{ trace: RepricingPolicyListingTrace; health: unknown }>(
+      await db.query<{ trace: RepricingPolicyListingTrace; health: RepricingHealthContribution | null }>(
         `SELECT item.trace, item.health FROM pricing_repricing_dry_run_traces AS item
        WHERE item.seller_account_id = $1 AND item.dry_run_id = $2
          AND ($3::text IS NULL OR item.outcome = $3) AND ($4::text IS NULL OR item.listing_id > $4)
@@ -194,9 +195,7 @@ export function createRepricingDryRunServices(
         [sellerAccountId, dryRunId, input.outcome ?? null, input.after ?? null, boundedLimit(input.limit ?? 100)],
       )
     ).rows.map((row) =>
-      row.health === null || row.health === undefined
-        ? row.trace
-        : ({ ...row.trace, health: row.health } as RepricingPolicyListingTrace),
+      row.health === null || row.health === undefined ? row.trace : { ...row.trace, health: row.health },
     );
 
   const listDryRunEvents = async (sellerAccountId: string, dryRunId: string, afterSequence = 0) =>

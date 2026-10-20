@@ -1,7 +1,6 @@
 import { moneyToCents } from "@chase-sets/primitives/money";
 import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
-import type { RepricingDryRun, RepricingDryRunBody } from "../../repricing-engine/api/dry-run";
-import type { RepricingPolicyListingTrace } from "../../repricing-engine/domain/fact";
+import type { RepricingDryRun, RepricingDryRunBody, RepricingDryRunTrace } from "../../repricing-engine/api/dry-run";
 import type { RepricingRule, RepricingRuleDirective } from "../../repricing-policies/domain/domain";
 import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 
@@ -127,7 +126,7 @@ export function buildCandidateBody(
 export function candidateMetrics(
   choice: Pick<GoalChoice, "goalId" | "goalVersion">,
   run: RepricingDryRun,
-  traces: readonly RepricingPolicyListingTrace[],
+  traces: readonly RepricingDryRunTrace[],
 ): CandidateMetrics {
   const raised = traces.filter((trace) => {
     const target = cents(trace.targetPriceAmount);
@@ -158,7 +157,7 @@ export function candidateMetrics(
     }
   }
   for (const trace of traces) {
-    const healthTrace = (trace as RepricingPolicyListingTrace & { health?: { economics?: unknown } }).health;
+    const healthTrace = trace.health;
     if (healthTrace?.economics) economicsListingIds.add(trace.listingId);
   }
   const affectedListedValue = traces.reduce((total, trace) => {
@@ -203,10 +202,30 @@ type RecommendationHealth = Readonly<{
           slow: Readonly<{ valueAmount: string }>;
         }>;
         curveAge: Readonly<{ staleCount: number }>;
+        expectedWait?: Readonly<{ medianDays: number | null }>;
       }>
     >
   >;
 }>;
+
+const attentionOrder = ["economics", "value-at-risk", "floor-binding", "stale-curve"] as const;
+type AttentionReason = (typeof attentionOrder)[number];
+
+export function currentAttentionValues(
+  traces: readonly RepricingDryRunTrace[],
+): Readonly<Record<AttentionReason, number>> {
+  const values = { economics: 0, "value-at-risk": 0, "floor-binding": 0, "stale-curve": 0 };
+  for (const trace of traces) {
+    const health = trace.health;
+    if (!health) continue;
+    const value = (cents(health.currentPriceAmount) ?? 0) * health.quantity;
+    if (health.modeled && !health.economics) values.economics += value;
+    if (health.risk === "hopeless" || health.risk === "slow") values["value-at-risk"] += value;
+    if (trace.clamps.floor) values["floor-binding"] += value;
+    if (health.modeledReason === "stale-curve") values["stale-curve"] += value;
+  }
+  return values;
+}
 
 export function recommendGoalChange(
   input: Readonly<{
@@ -214,16 +233,19 @@ export function recommendGoalChange(
     currentEconomicsListingIds: readonly string[];
     candidates: readonly CandidateMetrics[];
     haltEngaged: boolean;
+    expectedCandidateCount?: number;
+    attentionValues?: Readonly<Partial<Record<AttentionReason, number>>>;
   }>,
 ): Recommendation {
   if (!input.currentHealth) return { kind: "compute-verdict", text: "Compute verdict" };
   if (input.haltEngaged) return { kind: "halted", text: "Repricing is halted" };
   const currentCurrencies = Object.keys(input.currentHealth.currencies);
   const complete = input.candidates.filter((candidate) => candidate.status === "completed" && candidate.value !== null);
-  if (!complete.length) return { kind: "compare-goals", text: "Compare goals" };
+  if (complete.some((candidate) => !sameSet(candidate.economicsListingIds, input.currentEconomicsListingIds)))
+    return { kind: "refresh", text: "Refresh comparison" };
   const eligible = complete.filter(
     (candidate) =>
-      sameSet(candidate.economicsListingIds, input.currentEconomicsListingIds) &&
+      currentCurrencies.length === 1 &&
       Object.keys(candidate.value ?? {}).length === 1 &&
       Object.keys(candidate.value ?? {})[0] === currentCurrencies[0],
   );
@@ -233,30 +255,36 @@ export function recommendGoalChange(
     .filter(
       (candidate) =>
         currency &&
+        currentProfit !== null &&
+        currentProfit !== undefined &&
+        Number.isFinite(currentProfit) &&
         Math.round((candidate.profitPerDay?.[currency] ?? Number.NEGATIVE_INFINITY) * 100) >
-          Math.round((currentProfit ?? Number.NEGATIVE_INFINITY) * 100),
+          Math.round(currentProfit * 100),
     )
     .sort((a, b) => (b.profitPerDay?.[currency!] ?? -Infinity) - (a.profitPerDay?.[currency!] ?? -Infinity))[0];
   if (better && currency) {
     const next = better.profitPerDay?.[currency] ?? 0;
+    const currentWait = input.currentHealth.currencies[currency]?.expectedWait?.medianDays;
+    const nextWait = better.medianWaitDays?.[currency];
     return {
       kind: "switch",
       text: "Switch to the leading goal",
       goalId: better.goalId,
       goalVersion: better.goalVersion,
-      delta: Math.round((next - (currentProfit ?? 0)) * 100) / 100,
-      waitDelta: null,
+      delta: (Math.round(next * 100) - Math.round((currentProfit ?? 0) * 100)) / 100,
+      waitDelta: currentWait != null && nextWait != null ? nextWait - currentWait : null,
       raised: better.raised ?? 0,
       lowered: better.lowered ?? 0,
       held: better.held ?? 0,
     };
   }
-  const attention = complete
-    .map((candidate) => ({ candidate, score: candidate.affectedListedValue ?? 0 }))
+  const attention = attentionOrder
+    .map((reason) => ({ reason, score: input.attentionValues?.[reason] ?? 0 }))
     .sort((a, b) => b.score - a.score)[0];
   if (attention && attention.score > 0)
-    return { kind: "attention", text: "Review affected listings before choosing a goal", reason: "affected-scope" };
-  if (complete.length < input.candidates.length) return { kind: "compare-goals", text: "Compare goals" };
+    return { kind: "attention", text: "Review affected listings before choosing a goal", reason: attention.reason };
+  if (!complete.length || complete.length < (input.expectedCandidateCount ?? input.candidates.length))
+    return { kind: "compare-goals", text: "Compare goals" };
   return { kind: "no-change", text: "No change recommended: current goal leads" };
 }
 
