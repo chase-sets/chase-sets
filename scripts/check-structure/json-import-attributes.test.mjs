@@ -882,11 +882,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(133);
+    expect(result.inventory.declarations).toHaveLength(134);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 57,
       "vite-excluded": 53,
-      "vitest-excluded": 23,
+      "vitest-excluded": 24,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -901,8 +901,23 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "5a92d4f0834c7185968f9516ecc6ecc0c2f7f5d6fd84e0ecadc1250fa0b5e20d",
+      "272f9a49e7f6004cdf3d1143a57fd95f097184ec0205d986d0cb072e4b1df262",
     );
+    expect(
+      normalized.filter(
+        (entry) =>
+          entry.relativeFile === "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+      ),
+    ).toEqual([
+      {
+        relativeFile: "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+        form: "import",
+        specifier: "../../../context.json",
+        attributeText: null,
+        resolved: "bounded-contexts/pricing/context.json",
+        disposition: "vitest-excluded",
+      },
+    ]);
     expect(
       normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
     ).toEqual([
