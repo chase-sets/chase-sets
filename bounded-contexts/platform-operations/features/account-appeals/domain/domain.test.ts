@@ -77,6 +77,16 @@ describe("account appeal aggregate", () => {
       }),
     ).toThrow();
     expect(ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT.then).toContain("differing statement");
+    expect(terminal.operatorUserId).toBe(operator);
+  });
+
+  it("covers the duplicate contract table and normalized terminal idempotency", () => {
+    expect(ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT).toHaveLength(3);
+    const reviewing = stateAfter(file, { type: "StartAccountAppealReview" });
+    const first = decideAccountAppeal(reviewing, { type: "RecordAccountAppealOutcome", outcome: "upheld", rationale: "  Confirmed ", note: "  Keep ", operatorUserId: operator });
+    const terminal = evolveAccountAppeal(reviewing, first[0]!);
+    expect(decideAccountAppeal(terminal, { type: "RecordAccountAppealOutcome", outcome: "upheld", rationale: "Confirmed", note: "Keep", operatorUserId: operator })).toEqual([]);
+    expect(() => decideAccountAppeal(terminal, { type: "RecordAccountAppealOutcome", outcome: "upheld", rationale: "Changed", note: "Keep", operatorUserId: operator })).toThrow();
   });
 
   it("covers withdrawal and rejects invalid state transitions", () => {

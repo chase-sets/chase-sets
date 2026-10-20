@@ -79,6 +79,20 @@
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
     {
+      "sourceContextName": "platform-operations",
+      "projectionName": "account-appeal-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.account-appeal-projection",
+      "eventTypes": [
+        "platform-operations.account-appeal.filed",
+        "platform-operations.account-appeal.review-started",
+        "platform-operations.account-appeal.outcome-recorded",
+        "platform-operations.account-appeal.withdrawn"
+      ],
+      "order": 54,
+      "projectionHandlerSetNames": ["account-appeal-projection"]
+    },
+    {
       "sourceContextName": "commercial-terms",
       "projectionName": "commercial-terms-effective-date-attention-projection",
       "subscriptionVersion": 1,
@@ -299,6 +313,14 @@
       "sourceContextNames": ["identity", "marketplace"],
       "optionalSourceContextNames": ["marketplace"],
       "ownedTables": ["platform_operations_account_appealable_actions", "platform_operations_account_appeals"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "account-appeal-projection",
+      "handlerKind": "projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["platform_operations_account_appeals", "platform_operations_account_appeal_seller_history", "platform_operations_account_appeal_operator_history"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

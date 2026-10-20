@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   APPEALABLE_ACTION_INDETERMINATE,
+  configureAccountAppealRegistryLookup,
   resolveAppealableEnforcementAction,
   withAccountAppealSellerAccess,
 } from "./access";
@@ -20,16 +21,15 @@ describe("account appeal access", () => {
   it("mints an account-owner capability only for an exact permission", async () => {
     await withAccountAppealSellerAccess(actor, "account-appeals.file", async (owner) => {
       const action = createId("enf");
-      await expect(
-        resolveAppealableEnforcementAction(owner, action, {
-          resolve: async () => ({
+      configureAccountAppealRegistryLookup({ resolve: async () => ({
             appealableActionId: action,
             ownerAccountId: owner.accountId,
             source: "enf",
             sourceStreamId: "identity.account-x",
             sourceStreamVersion: 2,
-          }),
-        }),
+          }) });
+      await expect(
+        resolveAppealableEnforcementAction(owner, action),
       ).resolves.toMatchObject({ status: "resolved" });
     });
     expect(
@@ -40,16 +40,16 @@ describe("account appeal access", () => {
   it("returns one byte-identical indeterminate value for absent, foreign and conflicted rows", async () => {
     await withAccountAppealSellerAccess(actor, "account-appeals.file", async (owner) => {
       const action = createId("enf");
-      const absent = await resolveAppealableEnforcementAction(owner, action, { resolve: async () => null });
-      const foreign = await resolveAppealableEnforcementAction(owner, action, {
-        resolve: async () => ({
+      configureAccountAppealRegistryLookup({ resolve: async () => null });
+      const absent = await resolveAppealableEnforcementAction(owner, action);
+      configureAccountAppealRegistryLookup({ resolve: async () => ({
           appealableActionId: action,
           ownerAccountId: createId("acc"),
           source: "enf",
           sourceStreamId: "s",
           sourceStreamVersion: 1,
-        }),
-      });
+      }) });
+      const foreign = await resolveAppealableEnforcementAction(owner, action);
       expect(absent).toBe(APPEALABLE_ACTION_INDETERMINATE);
       expect(foreign).toBe(APPEALABLE_ACTION_INDETERMINATE);
     });

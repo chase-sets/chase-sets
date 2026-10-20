@@ -30,6 +30,7 @@ export type AccountAppealState = Readonly<{
   outcome: "upheld" | "reversed" | "modified" | null;
   rationale: string | null;
   note: string | null;
+  operatorUserId: UserId | null;
   filedByUserId: UserId | null;
 }>;
 
@@ -43,15 +44,38 @@ export const initialAccountAppealState: AccountAppealState = {
   outcome: null,
   rationale: null,
   note: null,
+  operatorUserId: null,
   filedByUserId: null,
 };
 
-export const ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT = Object.freeze({
-  caseId: "account-appeal-duplicate-filing",
-  given: "an account appeal stream has a filed statement",
-  whenStatement: "the same statement is filed again",
-  then: "the first appeal id is returned; a differing statement conflicts and terminal or withdrawn appeals reject",
-} as const);
+const duplicateFilingRows = [
+  Object.freeze({
+    caseId: "identical-filed-statement",
+    given: "a filed or in-review appeal with the same account, filer, and statement",
+    whenStatement: "the normalized filing is repeated",
+    then: "return no event and retain the first appeal id",
+  }),
+  Object.freeze({
+    caseId: "differing-filed-statement",
+    given: "a filed or in-review appeal",
+    whenStatement: "account, filer, or statement differs",
+    then: "reject as a duplicate filing conflict",
+  }),
+  Object.freeze({
+    caseId: "terminal-or-withdrawn",
+    given: "a terminal or withdrawn appeal",
+    whenStatement: "a filing is attempted",
+    then: "reject the command",
+  }),
+] as const;
+export const ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT = Object.freeze(
+  Object.assign(duplicateFilingRows, {
+    then: "the first appeal id is returned; a differing statement conflicts and terminal or withdrawn appeals reject",
+  }),
+);
+
+export const ACCOUNT_APPEAL_DUPLICATE_FILING_ERROR =
+  "The appeal filing conflicts with the existing account, filer, or statement.";
 
 export type AccountAppealCommand =
   | Readonly<{
@@ -106,8 +130,13 @@ export const decideAccountAppeal: AggregateDecider<AccountAppealState, AccountAp
     case "FileAccountAppeal": {
       const statement = clean(command.statement, "Appeal statement");
       if (state.status === "filed" || state.status === "in-review") {
-        if (state.statement === statement) return [];
-        throw new Error(ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT.then);
+        if (
+          state.accountId === command.accountId &&
+          state.filedByUserId === command.filedByUserId &&
+          state.statement === statement
+        )
+          return [];
+        throw new Error(ACCOUNT_APPEAL_DUPLICATE_FILING_ERROR);
       }
       if (
         state.status === "upheld" ||
@@ -149,7 +178,12 @@ export const decideAccountAppeal: AggregateDecider<AccountAppealState, AccountAp
             },
           },
         ];
-      if (state.status === command.outcome && state.rationale === command.rationale && state.note === command.note)
+      if (
+        state.status === command.outcome &&
+        state.rationale === clean(command.rationale, "Outcome rationale") &&
+        state.note === clean(command.note, "Outcome note") &&
+        state.operatorUserId === command.operatorUserId
+      )
         return [];
       throw new Error("Only an in-review appeal can record an outcome.");
     case "WithdrawAccountAppeal":
@@ -181,6 +215,7 @@ export const evolveAccountAppeal: AggregateEvolver<AccountAppealState, AccountAp
         outcome: event.data.outcome,
         rationale: event.data.rationale,
         note: event.data.note,
+        operatorUserId: event.data.operatorUserId,
       };
     case "platform-operations.account-appeal.withdrawn":
       return { ...state, status: "withdrawn" };
