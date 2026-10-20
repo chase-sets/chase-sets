@@ -7,6 +7,11 @@ export type User = Readonly<{
   status: string;
   contact_methods: readonly UserContactMethod[];
   auth_methods: readonly string[];
+  social_login_links?: readonly Readonly<{
+    providerName?: string;
+    providerSubject?: string;
+    state?: string;
+  }>[];
   updated_at: string;
 }>;
 

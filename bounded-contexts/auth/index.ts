@@ -17,6 +17,7 @@ import {
   buildAuthIdentityInvitationProjectionHandlers,
   buildAuthIdentityMembershipProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
+  authIdentityProjectionSchemaMigrations,
 } from "./support/auth-support/identity-projection";
 import { authSchemaSql } from "./support/runtime-support/schema";
 import { connectorOAuthSchemaMigrations } from "./support/ucp-support/connector-oauth-schema";
@@ -37,6 +38,7 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
   retentionSweeps: authRetentionSweeps,
   retentionExemptions: authRetentionExemptions,
   schemaMigrations: [
+    ...authIdentityProjectionSchemaMigrations,
     ...invitationAttemptSchemaMigrations,
     ...authUnloggedProjectionSchemaMigrations,
     ...authRetentionSchemaMigrations,

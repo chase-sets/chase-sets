@@ -1344,6 +1344,31 @@ async function linkSocialLoginForAuth(
   if (existingLink && existingLink.user_id !== params.userId) {
     throw new SocialLoginLinkConflictError();
   }
+  if (existingLink?.social_login_state && existingLink.social_login_state !== "active") {
+    throw new SocialLoginLinkConflictError();
+  }
+
+  // The subject-keyed row is the concurrency authority. Reserve it before
+  // appending the user event so a racing second user never appends a link
+  // event that can later transfer the projection row.
+  const reservation = await services.db.query<{ user_id: string }>(
+    `INSERT INTO identity_user_social_login_links
+       (provider_name, provider_subject, user_id, email, linked_at, state, updated_at)
+     VALUES ($1, $2, $3, $4, now(), 'active', now())
+     ON CONFLICT (provider_name, provider_subject) DO NOTHING
+     RETURNING user_id`,
+    [params.providerName, params.providerSubject, params.userId, normalizeEmail(params.email)],
+  );
+  if (reservation?.rows && reservation.rows.length === 0) {
+    const owner = await services.db.query<{ user_id: string; state: string }>(
+      `SELECT user_id, state FROM identity_user_social_login_links
+       WHERE provider_name = $1 AND provider_subject = $2`,
+      [params.providerName, params.providerSubject],
+    );
+    if (owner?.rows?.[0]?.user_id !== params.userId || owner.rows[0]?.state !== "active") {
+      throw new SocialLoginLinkConflictError();
+    }
+  }
 
   await services.users.commandHandler({
     streamId: `identity.user-${params.userId}`,
@@ -1359,6 +1384,32 @@ async function linkSocialLoginForAuth(
       providerSubject: params.providerSubject,
       email: params.email,
       linkedAt: new Date().toISOString(),
+    },
+    context: params.context,
+  });
+  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
+}
+
+async function unlinkSocialLoginForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    userId: string;
+    providerName: "google" | "facebook";
+    providerSubject: string;
+    authenticationMethod: "password" | "passkey" | "sms-code" | "magic-link" | "social-login";
+    authenticatedAt: string | null | undefined;
+    context: EventStoreContext;
+  }>,
+) {
+  const result = await services.users.commandHandler({
+    streamId: `identity.user-${params.userId}`,
+    command: {
+      type: "UnlinkSocialLogin",
+      providerName: params.providerName,
+      providerSubject: params.providerSubject,
+      authenticationMethod: params.authenticationMethod,
+      authenticatedAt: params.authenticatedAt,
+      now: new Date().toISOString(),
     },
     context: params.context,
   });
@@ -1798,6 +1849,35 @@ export function buildIdentityApi(
         );
       }
 
+      throw error;
+    }
+  });
+
+  app.post("/internal/auth/users/:id/social-login-unlink", async (c) => {
+    const body = await c.req.json();
+    const providerName = String(body.providerName ?? "");
+    if (providerName !== "google" && providerName !== "facebook") {
+      return c.json({ error: { code: "validation_failed", message: "Social login provider is unsupported." } }, 400);
+    }
+    try {
+      const result = await unlinkSocialLoginForAuth(services, {
+        userId: c.req.param("id"),
+        providerName,
+        providerSubject: String(body.providerSubject ?? ""),
+        authenticationMethod: String(body.authenticationMethod ?? "social-login") as
+          | "password"
+          | "passkey"
+          | "sms-code"
+          | "magic-link"
+          | "social-login",
+        authenticatedAt: typeof body.authenticatedAt === "string" ? body.authenticatedAt : null,
+        context: getBootstrapContext(c),
+      });
+      return c.json({ ok: true, ...result });
+    } catch (error) {
+      if (error instanceof IdentityDomainError) {
+        return c.json({ error: { code: "social_login_unlink_refused", message: error.message } }, 409);
+      }
       throw error;
     }
   });

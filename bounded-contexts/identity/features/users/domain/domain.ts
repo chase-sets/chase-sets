@@ -23,6 +23,8 @@ export type SocialLoginLink = Readonly<{
   linkedAt: string;
 }>;
 
+export type SocialLoginLinkLifecycle = "active" | "revocation-requested" | "revoked";
+
 export type UserState = Readonly<{
   id: UserId | null;
   displayName: string;
@@ -35,6 +37,8 @@ export type UserState = Readonly<{
   passwordCredentialId: string | null;
   passkeyCredentialIds: readonly string[];
   socialLoginLinks: readonly SocialLoginLink[];
+  /** Lifecycle is kept separate so historical link payloads remain wire-compatible. */
+  socialLoginLinkStates: Readonly<Record<string, SocialLoginLinkLifecycle>>;
 }>;
 
 export const initialUserState: UserState = {
@@ -49,6 +53,7 @@ export const initialUserState: UserState = {
   passwordCredentialId: null,
   passkeyCredentialIds: [],
   socialLoginLinks: [],
+  socialLoginLinkStates: {},
 };
 
 export type CreateUserCommand = Readonly<{
@@ -114,6 +119,15 @@ export type LinkSocialLoginCommand = Readonly<{
   linkedAt: string;
 }>;
 
+export type UnlinkSocialLoginCommand = Readonly<{
+  type: "UnlinkSocialLogin";
+  providerName: SocialLoginProviderKey;
+  providerSubject: string;
+  authenticationMethod: AuthMethodKey;
+  authenticatedAt: string | null | undefined;
+  now: string;
+}>;
+
 export type SuspendUserCommand = Readonly<{ type: "SuspendUser" }>;
 export type ReactivateUserCommand = Readonly<{ type: "ReactivateUser" }>;
 
@@ -127,6 +141,7 @@ export type UserCommand =
   | AttachPasswordCredentialCommand
   | RegisterPasskeyCredentialCommand
   | LinkSocialLoginCommand
+  | UnlinkSocialLoginCommand
   | SuspendUserCommand
   | ReactivateUserCommand;
 
@@ -195,6 +210,14 @@ export type PasskeyCredentialRegisteredEvent = DomainEvent<
 >;
 
 export type SocialLoginLinkedEvent = DomainEvent<"identity.user.social-login-linked", SocialLoginLink>;
+export type SocialLoginRevocationRequestedEvent = DomainEvent<
+  "identity.user.social-login-revocation-requested",
+  Readonly<{ providerName: SocialLoginProviderKey; providerSubject: string; requestedAt: string }>
+>;
+export type SocialLoginRevokedEvent = DomainEvent<
+  "identity.user.social-login-revoked",
+  Readonly<{ providerName: SocialLoginProviderKey; providerSubject: string; revokedAt: string }>
+>;
 
 export type UserSuspendedEvent = DomainEvent<"identity.user.suspended", EmptyEventData>;
 export type UserReactivatedEvent = DomainEvent<"identity.user.reactivated", EmptyEventData>;
@@ -209,6 +232,8 @@ export type UserEvent =
   | PasswordCredentialAttachedEvent
   | PasskeyCredentialRegisteredEvent
   | SocialLoginLinkedEvent
+  | SocialLoginRevocationRequestedEvent
+  | SocialLoginRevokedEvent
   | UserSuspendedEvent
   | UserReactivatedEvent;
 
@@ -339,6 +364,43 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
         },
       ];
     }
+    case "UnlinkSocialLogin": {
+      requireCreatedUser(state);
+      const providerSubject = normalizeLabel(command.providerSubject);
+      const link = state.socialLoginLinks.find(
+        (candidate) => candidate.providerName === command.providerName && candidate.providerSubject === providerSubject,
+      );
+      if (!link) return [];
+      const key = socialLoginLinkKey(command.providerName, providerSubject);
+      const lifecycle = state.socialLoginLinkStates[key] ?? "active";
+      if (lifecycle === "revoked" || lifecycle === "revocation-requested") return [];
+      assert(command.authenticationMethod !== "social-login", "A different authentication method is required.");
+      assert(
+        state.authMethods.some((method) => method !== "social-login"),
+        "At least one other method is required.",
+      );
+      assert(
+        command.authenticatedAt !== null && command.authenticatedAt !== undefined,
+        "Recent authentication is required.",
+      );
+      const authenticatedAt = Date.parse(command.authenticatedAt);
+      const now = Date.parse(command.now);
+      assert(
+        Number.isFinite(authenticatedAt) && Number.isFinite(now) && authenticatedAt <= now,
+        "Recent authentication is required.",
+      );
+      assert(now - authenticatedAt <= 15 * 60_000, "Recent authentication is required.");
+      return [
+        {
+          type: "identity.user.social-login-revocation-requested",
+          data: { providerName: command.providerName, providerSubject, requestedAt: command.now },
+        },
+        {
+          type: "identity.user.social-login-revoked",
+          data: { providerName: command.providerName, providerSubject, revokedAt: command.now },
+        },
+      ];
+    }
     case "SuspendUser":
       requireCreatedUser(state);
       assert(state.status === "active", "Only active users can be suspended.");
@@ -373,6 +435,7 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (state, event)
         passwordCredentialId: null,
         passkeyCredentialIds: [],
         socialLoginLinks: [],
+        socialLoginLinkStates: {},
       };
     case "identity.user.profile-updated":
       return {
@@ -439,6 +502,26 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (state, event)
             `${right.providerName}:${right.providerSubject}`,
           ),
         ),
+        socialLoginLinkStates: {
+          ...state.socialLoginLinkStates,
+          [socialLoginLinkKey(event.data.providerName, event.data.providerSubject)]: "active",
+        },
+      };
+    case "identity.user.social-login-revocation-requested":
+      return {
+        ...state,
+        socialLoginLinkStates: {
+          ...state.socialLoginLinkStates,
+          [socialLoginLinkKey(event.data.providerName, event.data.providerSubject)]: "revocation-requested",
+        },
+      };
+    case "identity.user.social-login-revoked":
+      return {
+        ...state,
+        socialLoginLinkStates: {
+          ...state.socialLoginLinkStates,
+          [socialLoginLinkKey(event.data.providerName, event.data.providerSubject)]: "revoked",
+        },
       };
     case "identity.user.suspended":
       return { ...state, status: "suspended" };
@@ -479,4 +562,8 @@ function normalizePrimaryContactMethod(command: CreateUserCommand): ContactMetho
 
 function requireCreatedUser(state: UserState) {
   assert(state.id !== null, "User must be created first.");
+}
+
+export function socialLoginLinkKey(providerName: SocialLoginProviderKey, providerSubject: string): string {
+  return `${providerName}:${providerSubject}`;
 }

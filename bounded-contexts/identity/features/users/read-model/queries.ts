@@ -19,6 +19,7 @@ export type UserRow = Readonly<{
   passkey_credential_ids: readonly string[];
   social_login_links: readonly unknown[];
   updated_at: string;
+  social_login_state?: "active" | "revocation-requested" | "revoked";
 }>;
 
 export async function listUsers(db: PgQueryable, params: ListParams = {}) {
@@ -38,7 +39,7 @@ export async function getUser(db: PgQueryable, userId: string) {
 
 export async function getUserByEmail(db: PgQueryable, email: string) {
   const result = await db.query<UserRow>(
-    `SELECT users.*
+    `SELECT users.*, links.state AS social_login_state
      FROM identity_user_emails AS emails
      INNER JOIN identity_users AS users ON users.user_id = emails.user_id
      WHERE emails.email = $1`,
@@ -67,7 +68,8 @@ export async function getUserBySocialLogin(
      FROM identity_user_social_login_links AS links
      INNER JOIN identity_users AS users ON users.user_id = links.user_id
      WHERE links.provider_name = $1
-       AND links.provider_subject = $2`,
+       AND links.provider_subject = $2
+       AND links.state = 'active'`,
     [params.providerName, params.providerSubject],
   );
   return result.rows[0] ?? null;

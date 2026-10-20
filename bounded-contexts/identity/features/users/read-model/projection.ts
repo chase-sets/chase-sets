@@ -332,14 +332,15 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
            user_id,
            email,
            linked_at,
+           state,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6)
+         VALUES ($1, $2, $3, $4, $5, 'active', $6)
          ON CONFLICT (provider_name, provider_subject) DO UPDATE
-         SET user_id = $3,
-             email = $4,
+         SET email = $4,
              linked_at = $5,
-             updated_at = $6`,
+             updated_at = $6
+         WHERE identity_user_social_login_links.user_id = EXCLUDED.user_id`,
         [
           link.providerName,
           link.providerSubject,
@@ -348,6 +349,33 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
           link.linkedAt,
           event.timing.recordedAt,
         ],
+      );
+      const owner = await db.query<{ user_id: string }>(
+        `SELECT user_id FROM identity_user_social_login_links
+         WHERE provider_name = $1 AND provider_subject = $2`,
+        [link.providerName, link.providerSubject],
+      );
+      if (owner.rows[0]?.user_id !== userId) throw new Error("Social login ownership conflict.");
+    },
+    "identity.user.social-login-revocation-requested": async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const link = event.data as { providerName: string; providerSubject: string };
+      await db.query(
+        `UPDATE identity_user_social_login_links
+         SET state = 'revocation-requested', updated_at = $4
+         WHERE provider_name = $1 AND provider_subject = $2 AND user_id = $3 AND state = 'active'`,
+        [link.providerName, link.providerSubject, userId, event.timing.recordedAt],
+      );
+    },
+    "identity.user.social-login-revoked": async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const link = event.data as { providerName: string; providerSubject: string };
+      await db.query(
+        `UPDATE identity_user_social_login_links
+         SET state = 'revoked', revoked_at = $4, updated_at = $4
+         WHERE provider_name = $1 AND provider_subject = $2 AND user_id = $3
+           AND state IN ('active', 'revocation-requested')`,
+        [link.providerName, link.providerSubject, userId, event.timing.recordedAt],
       );
     },
     "identity.user.suspended": async (event) => {
