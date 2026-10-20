@@ -455,6 +455,52 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(searchCalls[0]?.values.slice(0, 3)).toEqual(["active", "10.00", "25.50"]);
   });
 
+  it("matches a normalized category set through one OR predicate", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, { categories: ["B", "A", "A", " "] });
+
+    const list = calls.find((call) => call.sql.includes("FROM discovery_search_items"));
+    expect(list?.sql).toContain("category_names ?| $2::text[] OR category_slugs ?| $2::text[]");
+    expect(list?.sql.match(/\?\|/g)).toHaveLength(2);
+    expect(list?.sql).not.toContain("?&");
+    expect(list?.values.slice(0, 2)).toEqual(["active", ["A", "B"]]);
+  });
+
+  it("guards price bounds by native currency in result and dimension facets", async () => {
+    const { db: capturingDb, calls } = createCapturingDb();
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("AS summaries")) {
+          calls.push({ sql, values });
+          return {
+            rows: [{ kind: "dimension", id: "condition", label: "Condition", coverage: 1, distinct_count: 2 }] as Row[],
+            rowCount: 1,
+          };
+        }
+        return capturingDb.query<Row>(sql, values);
+      },
+    };
+
+    await searchDiscoveryItems(db, {
+      priceMin: "10.00",
+      priceMax: "20.00",
+      priceCurrency: "EUR",
+      dimensionFilters: [{ dimensionId: "condition", optionId: "mint" }],
+    });
+
+    const searchCalls = calls.filter((call) => call.sql.includes("discovery_search_items"));
+    expect(searchCalls[0]?.sql).toContain("(selected_market.lowest_price_currency_code IS DISTINCT FROM $2");
+    expect(searchCalls[0]?.sql).toContain("OR selected_market.lowest_price_amount IS NULL OR selected_market.lowest_price_amount >= $3::numeric)");
+    expect(searchCalls[0]?.sql).toContain("(selected_market.lowest_price_currency_code IS DISTINCT FROM $2");
+    const facet = calls.find((call) => call.sql.includes("option_market AS"));
+    expect(facet?.sql).toContain("lowest_price_currency_code");
+    expect(facet?.sql).toContain("market.lowest_price_currency_code IS DISTINCT FROM");
+    expect(facet?.values).toContain("EUR");
+    expect(facet?.values).toContain("10.00");
+    expect(facet?.values).toContain("20.00");
+  });
+
   it("uses a ledgered halfvec reshape and concurrent HNSW index", () => {
     const migration = discoverySearchSchemaMigrations.find(
       (candidate) => candidate.migrationId === "20260710_discovery_search_voyage_embeddings",

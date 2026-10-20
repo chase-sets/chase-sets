@@ -165,9 +165,11 @@ function sha256(value: string): string {
 }
 
 function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string) {
+  const categories = [...new Set((params.categories ?? []).map((category) => category.trim()).filter(Boolean))].sort();
   return {
     search: normalizedSearch,
-    category: params.category ?? null,
+    category: categories.length > 0 ? null : (params.category ?? null),
+    ...(categories.length > 0 ? { categories } : {}),
     tag: params.tag ?? null,
     blueprintId: params.blueprintId ?? null,
     language: params.language ?? null,
@@ -175,6 +177,7 @@ function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string)
     marketActivity: params.marketActivity ?? null,
     priceMin: params.priceMin ?? null,
     priceMax: params.priceMax ?? null,
+    ...(params.priceCurrency !== undefined ? { priceCurrency: params.priceCurrency } : {}),
     inStock: params.inStock ?? false,
     fieldFilters: params.fieldFilters ?? [],
     referenceFilters: params.referenceFilters ?? [],
@@ -186,8 +189,9 @@ function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string)
 }
 
 function filterState(params: DiscoverySearchParams): string {
+  const hasCategories = (params.categories ?? []).some((category) => category.trim().length > 0);
   const filters = [
-    params.category && "category",
+    hasCategories ? "category" : params.category && "category",
     params.tag && "tag",
     params.blueprintId && "blueprint",
     params.language && "language",
@@ -195,6 +199,7 @@ function filterState(params: DiscoverySearchParams): string {
     params.marketActivity && "market-activity",
     params.priceMin && "price-min",
     params.priceMax && "price-max",
+    params.priceCurrency !== undefined && "price-currency",
     params.inStock && "in-stock",
     params.fieldFilters?.length && "field",
     params.referenceFilters?.length && "reference",

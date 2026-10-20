@@ -367,6 +367,24 @@ describe("Discovery search runtime telemetry", () => {
     expect(marked.queryHash).toBe(unmarked.queryHash);
   });
 
+  it("keys effective category sets and native price currency", async () => {
+    const recordSearchQuery = vi.fn();
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery });
+    const a = await runtime.searchItems({ categories: ["B", "A", "A", " "] });
+    const b = await runtime.searchItems({ categories: ["A", "B"] });
+    const emptyCategories = await runtime.searchItems({ search: "zard", categories: [] });
+    const omittedCategories = await runtime.searchItems({ search: "zard" });
+    const eur = await runtime.searchItems({ priceCurrency: "EUR" });
+    const usd = await runtime.searchItems({ priceCurrency: "USD" });
+    const scalar = await runtime.searchItems({ category: "cards" });
+    expect(a.resultSetKey).toBe(b.resultSetKey);
+    expect(emptyCategories.resultSetKey).toBe(omittedCategories.resultSetKey);
+    expect(eur.resultSetKey).not.toBe(usd.resultSetKey);
+    expect(recordSearchQuery).toHaveBeenNthCalledWith(1, expect.objectContaining({ filterState: "category" }));
+    expect(recordSearchQuery).toHaveBeenNthCalledWith(5, expect.objectContaining({ filterState: "price-currency" }));
+    expect(scalar.resultSetKey).toMatch(/^[a-f0-9]{64}$/);
+  });
+
   it("outcome/timing matrix separates owner, joined, and warm reuse", async () => {
     vi.useFakeTimers();
     const recordSearchQuery = vi.fn();
