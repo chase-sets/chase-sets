@@ -140,13 +140,17 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
     const message = {
       ...draftMessage(),
       messageId: "imr_c4_2" as const,
-      snapshot: { ...draftMessage().snapshot, importRowId: "imr_c4_2" as const },
+      snapshot: { ...draftMessage().snapshot, importRowId: "imr_c4_2" as const, totalQuantity: 4 },
     };
     const direct = await owner.listings.createBatchDraftListingFromInventorySnapshot(
-      { ...directPortInput(), importRowId: "imr_c4_2", listingIdOverride: "lst_c4_2" as never },
+      { ...directPortInput(), totalQuantity: 4 },
       draftContext,
     );
     const receipt = await owner.inventoryDraftListingConsumer.accept(message, draftContext);
+    expect(receipt.source).toBe("message");
+    expect(receipt.listingId).toBe("lst_c4_2");
+    expect(direct.listingId).toBe("lst_c4_1");
+    expect(receipt.listingId).not.toBe(direct.listingId);
     const directState = await owner.listings.loadListingState(direct.listingId);
     const messageState = await owner.listings.loadListingState(receipt.listingId);
     const comparable = (state: typeof directState) => ({
@@ -167,6 +171,15 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
       purchaseLimits: state.purchaseLimits,
     });
     expect(comparable(messageState)).toEqual(comparable(directState));
+    expect(await counts()).toEqual({
+      facts: 4,
+      drafts: 2,
+      publications: 0,
+      receipts: 1,
+      items: 1,
+      locations: 1,
+      pages: 0,
+    });
   });
 
   it("serializes a real legacy direct writer against a consumer without a second creation or capacity fact", async () => {

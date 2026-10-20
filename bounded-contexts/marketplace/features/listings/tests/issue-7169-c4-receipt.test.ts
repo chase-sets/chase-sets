@@ -16,6 +16,7 @@ import { inventoryDraftReceiptMigrations } from "../read-model/inventory-draft-r
 import type { BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import { decideMarketplaceListing, initialMarketplaceListingState, type CreateListingCommand } from "../domain/domain";
+import { MarketplaceListingDomainError } from "../domain/listing-error";
 
 describe("issue-7169-c4-draft-receipt", () => {
   it("binds the committed row to a deterministic message and listing identity", () => {
@@ -131,7 +132,7 @@ function harness() {
     appendToStreamInTransaction: vi.fn(),
     appendToStreamsInTransaction: vi.fn(),
   };
-  function seedLegacy(message = draftMessage()) {
+  function seedLegacy(message = draftMessage(), commandOverrides: Partial<CreateListingCommand> = {}) {
     const input = { ...directPortInput(), priceCurrencyCode: message.snapshot.priceCurrencyCode };
     const command: CreateListingCommand = {
       type: "CreateListing",
@@ -183,7 +184,7 @@ function harness() {
         },
       },
     };
-    const [created] = decideMarketplaceListing(initialMarketplaceListingState, command);
+    const [created] = decideMarketplaceListing(initialMarketplaceListingState, { ...command, ...commandOverrides });
     events.push({
       eventId: "evt_c4",
       streamId: "marketplace.listing-lst_c4_1",
@@ -368,10 +369,20 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
 
   it("classifies a deterministic listing-domain rejection as unavailable without a receipt", async () => {
     const h = harness();
-    h.createDraft.mockRejectedValueOnce(new Error("listing command rejected"));
-    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
-      code: "inventory-draft-unavailable",
+    const rejectDraft = () => h.seedLegacy(draftMessage(), { quantityCap: 0 });
+    expect(rejectDraft).toThrow(MarketplaceListingDomainError);
+    expect(rejectDraft).toThrow("Listing quantity cap must be a positive whole number.");
+    h.createDraft.mockImplementation(async () => {
+      rejectDraft();
+      throw new Error("Expected the listing decider to reject the command");
     });
+    for (let delivery = 0; delivery < 2; delivery += 1) {
+      await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+        code: "inventory-draft-unavailable",
+      });
+    }
+    expect(h.createDraft).toHaveBeenCalledTimes(2);
+    expect(h.queries.filter((sql) => sql === "ROLLBACK")).toHaveLength(2);
     expect(h.events()).toHaveLength(0);
     expect(h.receipts()).toHaveLength(0);
   });
