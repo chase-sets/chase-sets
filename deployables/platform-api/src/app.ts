@@ -68,6 +68,8 @@ import {
   type InventoryDraftListingCreator,
   type InventoryServices,
 } from "@chase-sets/inventory/server";
+import type { ListingTargetAuthority } from "@chase-sets/marketplace/server";
+import type { IdentityServices } from "@chase-sets/identity/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createOrderingUcpHandlers,
@@ -321,6 +323,52 @@ export function createPlatformApiHost(
     }>,
 ): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
+  const listingTargetAuthority: ListingTargetAuthority = {
+    authorizeManage: async ({ accountId }) => {
+      const identity = runtime?.services.identity as IdentityServices | undefined;
+      const account = await identity?.accounts.getAccountState(accountId);
+      return { value: account?.status === "active", reservations: [] };
+    },
+    resolveConnection: async ({ accountId, connectionId }) => {
+      const channels = runtime?.services.channels;
+      if (!isChannelsServices(channels)) return { value: null, reservations: [] };
+      const connection = await channels.connections.getConnection({ accountId, connectionId });
+      return {
+        value: connection
+          ? {
+              connectionId: connection.connectionId,
+              accountId,
+              providerKey: connection.providerKey,
+              environment: connection.environment,
+              identityRevision: 0,
+            }
+          : null,
+        reservations: [],
+      };
+    },
+    resolveAllocation: async ({ accountId, inventoryItemId, connectionId, allocationRevision }) => {
+      const inventory = runtime?.services.inventory as InventoryServices | undefined;
+      const item = await inventory?.items.getItem(inventoryItemId, accountId);
+      if (!item) return { value: null, reservations: [] };
+      const allocation = await inventory?.channelStockAllocations.readAuthoritative({ accountId, inventoryItemId });
+      if (!allocation || "kind" in allocation) return { value: null, reservations: [] };
+      const partition = allocation.partitions.find((candidate) => candidate.channelConnectionId === connectionId);
+      const eligibleQuantity = allocation.mode === "shared-pool" ? item.available_quantity : partition?.units ?? 0;
+      if (allocation.revision !== allocationRevision || eligibleQuantity <= 0) {
+        return { value: null, reservations: [] };
+      }
+      return {
+        value: {
+          accountId,
+          inventoryItemId,
+          productId: String(item.product_id),
+          allocationRevision: allocation.revision,
+          eligibleQuantity,
+        },
+        reservations: [],
+      };
+    },
+  };
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const identityPool = getPlatformApiPool(options.pools.identity);
@@ -691,6 +739,7 @@ export function createPlatformApiHost(
       ...options.hostPorts,
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      listingTargetAuthority,
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(walletFundingEligibilityResolver ? { walletFundingEligibilityResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),

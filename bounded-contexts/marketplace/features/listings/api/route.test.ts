@@ -302,6 +302,118 @@ const sellerActor: MarketplaceApiEnv["Variables"]["actor"] = {
   permissions: ["listings.view", "listings.manage"],
 };
 
+describe("listing target command snapshots", () => {
+  const target = { kind: "channel-connection", connectionId: "chn_1" } as const;
+  const priceInput = {
+    target,
+    priceAmount: "12.00",
+    priceCurrencyCode: "USD",
+    expectedListingVersion: 3,
+    expectedTargetPriceRevision: 1,
+    idempotencyKey: "target-price-request",
+    decision: { kind: "seller-reference" },
+  };
+  const activationInput = {
+    connectionId: "chn_1",
+    expectedListingVersion: 4,
+    expectedTargetPriceRevision: 2,
+    allocationRevision: 5,
+    idempotencyKey: "target-activation-request",
+  };
+
+  function targetServices() {
+    const services = createServices();
+    services.acceptListingTargetPrice = vi.fn<MarketplaceListingServices["acceptListingTargetPrice"]>().mockResolvedValue({
+      listingId: "lst_1",
+      version: 4,
+      acceptedTargetPrice: {
+        schemaVersion: 1,
+        accountId: "acc_seller",
+        listingId: "lst_1",
+        target,
+        priceAmount: "12.00",
+        priceCurrencyCode: "USD",
+        targetPriceRevision: 2,
+        listingRevision: 4,
+        acceptedByUserId: "usr_seller",
+        acceptedAt: "2026-10-19T00:00:00.000Z",
+        sourceEventId: "evt_target_price",
+        decision: { kind: "seller-reference" },
+        connectionAuthority: {
+          connectionId: "chn_1",
+          providerKey: "tcgplayer",
+          environment: "sandbox",
+          identityRevision: 2,
+        },
+      },
+    });
+    services.activateListingForChannel = vi.fn<MarketplaceListingServices["activateListingForChannel"]>().mockResolvedValue({
+      listingId: "lst_1",
+      version: 5,
+    });
+    return services;
+  }
+
+  it.each([
+    ["target-prices", "acceptListingTargetPrice", priceInput, { id: "lst_1", version: 4, target }],
+    ["target-activations", "activateListingForChannel", activationInput, { id: "lst_1", version: 5, status: "channel-active" }],
+  ] as const)("returns the %s committed command snapshot without a projection read", async (path, method, input, expected) => {
+    const services = targetServices();
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request(`/account/listings/lst_1/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(expected);
+    expect(services[method]).toHaveBeenCalledWith(
+      { ...input, listingId: "lst_1", accountId: "acc_seller" },
+      expect.objectContaining({ audit: { performedByUserId: "usr_seller", forAccountId: "acc_seller" } }),
+    );
+    expect(services.getSellerListing).not.toHaveBeenCalled();
+    expect(services.listSellerListings).not.toHaveBeenCalled();
+    expect(services.publishListing).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["target-prices", "acceptListingTargetPrice", priceInput],
+    ["target-activations", "activateListingForChannel", activationInput],
+  ] as const)("does not return a %s success snapshot when the command rejects", async (path, method, input) => {
+    const services = targetServices();
+    vi.mocked(services[method]).mockRejectedValue(
+      new MarketplaceListingDomainError("command-rejected", "Authority unavailable."),
+    );
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request(`/account/listings/lst_1/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+
+    expect(response.status).not.toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await response.json()).not.toHaveProperty("version");
+  });
+
+  it.each([
+    ["target-prices", "acceptListingTargetPrice", priceInput],
+    ["target-activations", "activateListingForChannel", activationInput],
+  ] as const)("requires listings.manage before invoking %s", async (path, method, input) => {
+    const services = targetServices();
+    const app = buildApp({ actor: { ...sellerActor!, permissions: ["listings.view"] }, services });
+    const response = await app.request(`/account/listings/lst_1/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+
+    expect(response.status).toBe(403);
+    expect(services[method]).not.toHaveBeenCalled();
+  });
+});
+
 const validShipFromAddress = {
   name: "Seller shelf",
   company: null,

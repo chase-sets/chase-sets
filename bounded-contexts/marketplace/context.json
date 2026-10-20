@@ -588,6 +588,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable notification outbox consumed by post-delivery review-opportunity, reminder, and reveal-notice nudges (m108) and dispatched through channel adapters."
+    },
+    {
+      "portName": "listingTargetAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Resolve the current Identity manage capability, Channels connection identity and Inventory allocation for channel-only Listing commands without Marketplace-owned mirrors."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -1246,6 +1251,23 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "marketplace.listing-target-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/target-prices",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/target-activations"
+      ],
+      "visibleDestination": {
+        "description": "Target price acceptance and channel activation return only the committed command's listing id, version and target or activation status. No browser destination or projection freshness is claimed."
+      },
+      "proof": {
+        "authoritativeResponse": "Both routes await their Listing service command and return its id/version without reading a projection. Target acceptance returns the accepted target; activation returns the channel-active command status only after the service resolves.",
+        "tests": ["bounded-contexts/marketplace/features/listings/api/route.test.ts"]
+      }
+    },
     {
       "id": "marketplace.offer-policy-command-snapshots",
       "owner": "marketplace",

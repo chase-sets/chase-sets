@@ -32,6 +32,7 @@ import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 export type MarketplaceServiceOptions = Readonly<{
+  listingTargetAuthority?: import("../../features/listings/api/target-contracts").ListingTargetAuthority;
   managedOfferPricing?: ManagedOfferPricing;
   offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
   commercialTermsResolver?: CommercialTermsResolver;
@@ -85,6 +86,7 @@ export function createMarketplaceServices(
     commercialTermsResolver,
     policies,
     listingEvidencePolicyEvaluator: listingEvidencePolicies,
+    ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),
     ...(options.managedOfferPricing ? { managedOfferPricing: options.managedOfferPricing } : {}),
     ...(options.offerLifecycleAdmission ? { offerLifecycleAdmission: options.offerLifecycleAdmission } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),

@@ -27,8 +27,8 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
-const currentQuoteEvidence = `${listingRuntime}:1006-1026; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:418-443; ${listingDomain}:551-583; ${listingDomain}:996-1025; ${listingRuntime}:1466-1511; ${currentQuoteEvidence}`;
+const currentQuoteEvidence = `${listingRuntime}:1040-1046; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
+const creationEvidence = `${listingDomain}:452-478; ${listingDomain}:598-649; ${listingDomain}:1139-1173; ${listingRuntime}:1498-1568; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -92,7 +92,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:869-881",
-          `${listingRuntime}:1830-1970`,
+          `${listingRuntime}:1872-2013`,
           `${feeLock}:106-180`,
         ],
         openQuestions: [
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1830-1846; ${listingRuntime}:1847-1955; ${feeQuotes}:154-176; ${listingDomain}:758-766; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:1872-1888; ${listingRuntime}:1889-1990; ${feeQuotes}:154-176; ${listingDomain}:898-928; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -122,21 +122,21 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:811-821; ${listingDomain}:1046-1053`,
+            evidenceRef: `${listingDomain}:951-971; ${listingDomain}:1220-1228`,
           },
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:790-809; ${feeLock}:143-180; ${listingRuntime}:1958-1970; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:930-951; ${feeLock}:143-180; ${listingRuntime}:1998-2013; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:982-988; ${listingTests}:406-428; ${creationEvidence}; ${runtimeTests}:971-1097`,
+            evidenceRef: `${listingDomain}:1125-1133; ${listingTests}:406-428; ${creationEvidence}; ${runtimeTests}:971-1097`,
           },
           {
             assertion:
               "Item or condition substitution requires recreation; the closed command union is structural evidence, and new listings use current quoted terms.",
-            evidenceRef: `${listingDomain}:535-551; ${creationEvidence}; ${runtimeTests}:971-1097`,
+            evidenceRef: `${listingDomain}:578-594; ${creationEvidence}; ${runtimeTests}:971-1097`,
           },
           {
             assertion:

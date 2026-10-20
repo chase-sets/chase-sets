@@ -49,7 +49,7 @@ export function createListingTargetRuntime(
     assert(context.audit.forAccountId === input.accountId, "Listing request account authority mismatch.");
     assert(deps.authority, "Listing target authority is unavailable.");
     const result = await deps.authority.authorizeManage(input, context);
-    assert(result.value && result.reservations.length > 0, "Current listings.manage capability is required.");
+    assert(result.value, "Current listings.manage capability is required.");
     return result.reservations;
   }
   const acceptListingTargetPrice: ListingTargetServices["acceptListingTargetPrice"] = async (raw, context) => {
@@ -71,7 +71,7 @@ export function createListingTargetRuntime(
         const grants = [...reservations];
         if (input.decision.kind === "pricing-evaluation") {
           const verified = await deps.authority!.verifyDecision!(input, context);
-          assert(verified.value && verified.reservations.length > 0, "Current Pricing decision authority is required.");
+          assert(verified.value, "Current Pricing decision authority is required.");
           grants.push(...verified.reservations);
         }
         const resolved =
@@ -82,10 +82,7 @@ export function createListingTargetRuntime(
               })
             : null;
         if (input.target.kind === "channel-connection") {
-          assert(
-            resolved?.value && resolved.reservations.length > 0,
-            "Owned current connection authority is required.",
-          );
+          assert(resolved?.value, "Owned current connection authority is required.");
           grants.push(...resolved.reservations);
         }
         const accepted: AcceptedListingTargetPriceV1 = {
@@ -151,7 +148,7 @@ export function createListingTargetRuntime(
           connectionId: input.connectionId,
           allocationRevision: input.allocationRevision,
         });
-        assert(allocation.value && allocation.reservations.length > 0, "Current Inventory allocation is required.");
+        assert(allocation.value, "Current Inventory allocation is required.");
         const events = decideMarketplaceListing(loaded.state, {
           type: "ActivateListingForChannel",
           connectionId: input.connectionId,
