@@ -25,6 +25,9 @@ export type GoalCurvePoint = Readonly<{
   storeWinShare: number | null;
   medianSellDays: number | null;
   supplyStatus: CurvePoint["supplyStatus"] | null;
+  /** Read by portfolio plans' sparse and capped counts only; no goal decides on them. */
+  qualifyingSaleCount: number | null;
+  historyCapped: boolean;
 }>;
 type SellTimePoint = GoalCurvePoint & Readonly<{ medianSellDays: number }>;
 
@@ -124,6 +127,8 @@ function interpolate(lower: GoalCurvePoint, upper: GoalCurvePoint, ratio: number
       mixOptional(lower.medianSellDays, upper.medianSellDays, ratio),
     ),
     supplyStatus: lower.supplyStatus === upper.supplyStatus ? lower.supplyStatus : null,
+    qualifyingSaleCount: mixOptional(lower.qualifyingSaleCount, upper.qualifyingSaleCount, ratio),
+    historyCapped: lower.historyCapped || upper.historyCapped,
   };
 }
 
@@ -143,6 +148,8 @@ export function toGoalCurveViews(points: readonly CurvePoint[]): GoalCurveViews 
         storeWinShare,
         medianSellDays: medianSellDays(buyerArrivalIntervalDays, storeWinShare, point.medianSellDays),
         supplyStatus: point.supplyStatus,
+        qualifyingSaleCount: point.qualifyingSaleCount,
+        historyCapped: point.historyCapped,
       };
     })
     .sort((left, right) => left.percentile - right.percentile);
