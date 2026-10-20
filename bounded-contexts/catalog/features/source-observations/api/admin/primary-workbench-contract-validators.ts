@@ -1,63 +1,34 @@
-import type {
-  CatalogPrimaryWorkbenchReadModel,
-  CatalogPrimaryWorkbenchRouteContext,
-  CatalogPrimaryWorkbenchScopeContext,
-  CatalogPrimaryWorkbenchSourceOptionsReadModel,
-} from "./primary-workbench-selection-contracts";
-import type {
-  CatalogPrimaryWorkbenchImportJobsReadModel,
-  CatalogPrimaryWorkbenchValidationReadinessReadModel,
-  CatalogPrimaryWorkbenchProfileAuthoringReadModel,
-} from "./primary-workbench-profile-readiness-contracts";
-import type { CatalogPrimaryWorkbenchSourceScopeWorksetReadModel } from "./primary-workbench-import-sync-contracts";
-import type {
-  CatalogPrimaryWorkbenchConflictResolutionReadModel,
-  CatalogPrimaryWorkbenchPromotionPreviewReadModel,
-  CatalogPrimaryWorkbenchMergeCandidateReviewReadModel,
-  CatalogPrimaryWorkbenchPromotionResultReadModel,
-} from "./primary-workbench-promotion-review-contracts";
-import type {
-  CatalogPrimaryWorkbenchGovernanceControlsReadModel,
-  CatalogPrimaryWorkbenchAuditEvidenceReadModel,
-  CatalogPrimaryWorkbenchLifecycleRecoveryReadModel,
-  CatalogPrimaryWorkbenchHealthTriageReadModel,
-  CatalogPrimaryWorkbenchAuditEvidenceLink,
-} from "./primary-workbench-lifecycle-governance-contracts";
+import type { CatalogPrimaryWorkbenchReadModel } from "./primary-workbench-shared-contracts";
 import {
+  assertCatalogPrimaryWorkbenchActionState,
   assertPrimaryWorkbenchBlockers,
-  isSafePrimaryWorkbenchReturnPath,
-  isSafePrimaryWorkbenchObservabilityLink,
 } from "./primary-workbench-shared-contracts";
-
 import {
   catalogPrimaryWorkbenchContractVersion,
-  catalogPrimaryWorkbenchRouteSections,
+  validatePrimaryWorkbenchRouteContext,
+  assertPrimaryWorkbenchSourceOptions,
 } from "./primary-workbench-selection-contracts";
-import { assertCatalogPrimaryWorkbenchActionState } from "./primary-workbench-shared-contracts";
-import { assertPrimaryWorkbenchHealthTriage } from "./primary-workbench-lifecycle-governance-contracts";
 import {
   assertPrimaryWorkbenchImportJobs,
   assertPrimaryWorkbenchSourceScopeWorkset,
 } from "./primary-workbench-import-sync-contracts";
 import {
-  validatePrimaryWorkbenchRouteContext,
-  assertPrimaryWorkbenchSourceOptions,
-} from "./primary-workbench-selection-contracts";
-import {
+  assertPrimaryWorkbenchPromotionResult,
   assertPrimaryWorkbenchConflictResolution,
   assertPrimaryWorkbenchPromotionPreview,
-  assertPrimaryWorkbenchPromotionResult,
   assertPrimaryWorkbenchMergeCandidateReview,
 } from "./primary-workbench-promotion-review-contracts";
-import {
-  assertPrimaryWorkbenchGovernanceControls,
-  assertPrimaryWorkbenchAuditEvidence,
-  assertPrimaryWorkbenchLifecycleRecovery,
-} from "./primary-workbench-lifecycle-governance-contracts";
 import {
   assertPrimaryWorkbenchProfileAuthoring,
   assertPrimaryWorkbenchValidationReadiness,
 } from "./primary-workbench-profile-readiness-contracts";
+import {
+  assertPrimaryWorkbenchGovernanceControls,
+  assertPrimaryWorkbenchAuditEvidence,
+  assertPrimaryWorkbenchHealthTriage,
+  assertPrimaryWorkbenchLifecycleRecovery,
+} from "./primary-workbench-lifecycle-governance-contracts";
+
 export function validateCatalogPrimaryWorkbenchReadModelContract(
   value: Partial<CatalogPrimaryWorkbenchReadModel>,
 ): void {

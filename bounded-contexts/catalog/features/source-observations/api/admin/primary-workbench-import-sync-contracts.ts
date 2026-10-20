@@ -1,137 +1,28 @@
-import type { JsonValue } from "@chase-sets/primitives/json";
-import type { CatalogMergeCandidateReviewCommandPreview } from "../promotion/catalog-merge-candidate-review-command-payloads";
+import type { CatalogAdminControlPlaneFreshnessState } from "./admin-control-plane-read-model-slos";
 import type {
-  CatalogAdminControlPlaneQueryKey,
-  CatalogAdminControlPlaneDiagnostic,
-  CatalogAdminRollbackRetirementImpactSummaryReadModel,
   CatalogAdminJobConsistency,
   CatalogAdminProfileVersionPointer,
 } from "./admin-control-plane-read-model-contracts";
-import type {
-  CatalogAdminControlPlaneFreshnessState,
-  CatalogAdminControlPlanePaginationMode,
-} from "./admin-control-plane-read-model-slos";
-import type {
-  CatalogIntegrationAuditEvidenceCategory,
-  CatalogIntegrationAuditEvidenceEventName,
-  CatalogIntegrationAuditEvidenceRedactionState,
-} from "../governance/catalog-integration-audit-evidence";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
-import type { CatalogIntegrationProviderUsageBudget } from "./admin-control-plane-overview";
-import type { CatalogProviderProfileEditableSectionKey } from "../providers/provider-profile-section-registry";
-import type { CatalogControlPlaneActionId } from "../../ui/admin-control-plane/information-architecture-v2";
 import type {
-  CatalogPrimaryWorkbenchContractVersion,
-  CatalogPrimaryWorkbenchSectionKey,
   CatalogPrimaryWorkbenchCommandKey,
-  CatalogPrimaryWorkbenchSourceObservationRowActionKey,
-  CatalogPrimaryWorkbenchActionState,
   CatalogPrimaryWorkbenchBlockerCategory,
-  CatalogPrimaryWorkbenchProviderTransportCategory,
-  CatalogPrimaryWorkbenchPromotionDisposition,
-  CatalogPrimaryWorkbenchPromotionScopeKind,
-  CatalogPrimaryWorkbenchPromotionOutcomeCountKey,
-  CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
-  CatalogPrimaryWorkbenchPromotionProfileSemantics,
-  CatalogPrimaryWorkbenchRouteContextKey,
-  CatalogPrimaryWorkbenchCopyKey,
-  CatalogPrimaryWorkbenchInstrumentationDimension,
-  CatalogPrimaryWorkbenchDeploySkewMode,
-  CatalogPrimaryWorkbenchDeploySkewPolicy,
-  CatalogPrimaryWorkbenchRetirementPolicy,
-  CatalogPrimaryWorkbenchBlockerContract,
-  CatalogPrimaryWorkbenchSectionContract,
-  CatalogPrimaryWorkbenchActionContract,
-  CatalogPrimaryWorkbenchDownstreamIssueKey,
-  CatalogPrimaryWorkbenchDownstreamContract,
   CatalogPrimaryWorkbenchReadModel,
-  CatalogPrimaryWorkbenchRouteContext,
-  CatalogPrimaryWorkbenchScopeContext,
-  CatalogPrimaryWorkbenchProviderScopeReadModel,
-  CatalogPrimaryWorkbenchSourceOptionsStatus,
-  CatalogPrimaryWorkbenchSourceOptionPageState,
-  CatalogPrimaryWorkbenchSourceOptionKindReadModel,
-  CatalogPrimaryWorkbenchSourceOptionPageReadModel,
-  CatalogPrimaryWorkbenchSourceOptionsReadModel,
-} from "./primary-workbench-selection-contracts";
-import type {
-  CatalogPrimaryWorkbenchReadinessReadModel,
-  CatalogPrimaryWorkbenchHealthTriageStatus,
-  CatalogPrimaryWorkbenchValidationFixtureFlowStatus,
-  CatalogPrimaryWorkbenchValidationReadinessReadModel,
-  CatalogPrimaryWorkbenchValidationEvidenceRow,
-  CatalogPrimaryWorkbenchProfileAuthoringStatus,
-  CatalogPrimaryWorkbenchProfileLifecycleRestrictionCode,
-  CatalogPrimaryWorkbenchProfileImmutableFactKey,
-  CatalogPrimaryWorkbenchProfileImmutableFact,
-  CatalogPrimaryWorkbenchProfileLifecycleRestriction,
-  CatalogPrimaryWorkbenchProfileOption,
-  CatalogPrimaryWorkbenchProfileOverview,
-  CatalogPrimaryWorkbenchProfileSectionGroupKey,
-  CatalogPrimaryWorkbenchProfileSectionSaveOutcome,
-  CatalogPrimaryWorkbenchProfileSectionFieldControl,
-  CatalogPrimaryWorkbenchProfileSectionField,
-  CatalogPrimaryWorkbenchProfileOptionQueryDetail,
-  CatalogPrimaryWorkbenchProfileImportScopeControl,
-  CatalogPrimaryWorkbenchProfileMappingRow,
-  CatalogPrimaryWorkbenchProfileSectionWorkspace,
-  CatalogPrimaryWorkbenchProfileCloneDraftReadModel,
-  CatalogPrimaryWorkbenchProfileAuthoringReadModel,
-  CatalogPrimaryWorkbenchImportJobsReadModel,
-} from "./primary-workbench-profile-readiness-contracts";
-import type {
-  CatalogPrimaryWorkbenchHealthTriageReadModel,
-  CatalogPrimaryWorkbenchHealthTriageReadModelState,
-  CatalogPrimaryWorkbenchHealthTriageUnit,
-  CatalogPrimaryWorkbenchHealthTriageProvider,
-  CatalogPrimaryWorkbenchValidationReadinessStatus,
-  CatalogPrimaryWorkbenchLifecycleOperation,
-  CatalogPrimaryWorkbenchLifecycleRecoveryStatus,
-  CatalogPrimaryWorkbenchLifecycleRecoveryReadModel,
-  CatalogPrimaryWorkbenchLifecycleOperationReadModel,
-  CatalogPrimaryWorkbenchGovernanceControlsStatus,
-  CatalogPrimaryWorkbenchGovernanceControlKind,
-  CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey,
-  CatalogPrimaryWorkbenchGovernanceControlsReadModel,
-  CatalogPrimaryWorkbenchAuditEvidenceStatus,
-  CatalogPrimaryWorkbenchAuditEvidenceFilterKey,
-  CatalogPrimaryWorkbenchAuditEvidenceTargetType,
-  CatalogPrimaryWorkbenchAuditEvidenceReadModel,
-  CatalogPrimaryWorkbenchAuditEvidenceLink,
-  CatalogPrimaryWorkbenchHealthTriageRolloutControl,
-  CatalogPrimaryWorkbenchHealthTriageJob,
-  CatalogPrimaryWorkbenchHealthTriageAuditPreview,
-} from "./primary-workbench-lifecycle-governance-contracts";
-import type {
-  CatalogPrimaryWorkbenchSourceObservationReviewReadModel,
-  CatalogPrimaryWorkbenchSourceObservationReviewRow,
-  CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
-  CatalogPrimaryWorkbenchProductContentsEvidenceState,
-  CatalogPrimaryWorkbenchProductContentsEvidenceReview,
-  CatalogPrimaryWorkbenchProductContentsEvidenceLine,
-  CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData,
-  CatalogPrimaryWorkbenchMergeCandidateActionKey,
-  CatalogPrimaryWorkbenchMergeCandidateReviewReadModel,
-  CatalogPrimaryWorkbenchMergeCandidateReviewRow,
-  CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride,
-  CatalogPrimaryWorkbenchMergeCandidateEditReference,
-  CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel,
-  CatalogPrimaryWorkbenchConflictResolutionStatus,
-  CatalogPrimaryWorkbenchConflictResolutionState,
-  CatalogPrimaryWorkbenchConflictResolutionReadModel,
-  CatalogPrimaryWorkbenchConflictResolutionRow,
-  CatalogPrimaryWorkbenchPromotionValidationReadModel,
-  CatalogPrimaryWorkbenchPromotionIdentityDiagnostic,
-  CatalogPrimaryWorkbenchPromotionPreviewReadModel,
-  CatalogPrimaryWorkbenchPromotionResultReadModel,
   CatalogPrimaryWorkbenchActionReadModel,
-  CatalogPrimaryWorkbenchSecurityPrivacyReadModel,
-  CatalogPrimaryWorkbenchInstrumentationReadModel,
-} from "./primary-workbench-promotion-review-contracts";
+} from "./primary-workbench-shared-contracts";
+import type {
+  CatalogPrimaryWorkbenchProviderTransportCategory,
+  CatalogPrimaryWorkbenchScopeContext,
+  CatalogPrimaryWorkbenchSourceOptionsStatus,
+} from "./primary-workbench-selection-contracts";
+import {
+  assertCatalogPrimaryWorkbenchActionState,
+  assertPrimaryWorkbenchBlockers,
+} from "./primary-workbench-shared-contracts";
 
-type CatalogPrimaryWorkbenchCatalogSyncStatus = "scope-required" | "ready" | "blocked" | "degraded";
+export type CatalogPrimaryWorkbenchCatalogSyncStatus = "scope-required" | "ready" | "blocked" | "degraded";
 
-type CatalogPrimaryWorkbenchCatalogSyncReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchCatalogSyncReadModel = Readonly<{
   status: CatalogPrimaryWorkbenchCatalogSyncStatus;
   generatedAt: string;
   scope: Readonly<{
@@ -173,7 +64,7 @@ type CatalogPrimaryWorkbenchCatalogSyncReadModel = Readonly<{
   action: CatalogPrimaryWorkbenchActionReadModel;
 }>;
 
-type CatalogPrimaryWorkbenchCatalogSyncUnitReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchCatalogSyncUnitReadModel = Readonly<{
   providerKey: string;
   unitKey: string | null;
   displayName: string;
@@ -197,21 +88,21 @@ type CatalogPrimaryWorkbenchCatalogSyncUnitReadModel = Readonly<{
   }>[];
 }>;
 
-type CatalogPrimaryWorkbenchSourceScopeWorksetStatus =
+export type CatalogPrimaryWorkbenchSourceScopeWorksetStatus =
   | "not-configured"
   | "scope-required"
   | "ready"
   | "blocked"
   | "degraded";
 
-type CatalogPrimaryWorkbenchSourceScopeWorksetUnitState =
+export type CatalogPrimaryWorkbenchSourceScopeWorksetUnitState =
   | "not-imported"
   | "imported"
   | "changed"
   | "promoted"
   | "blocked";
 
-type CatalogPrimaryWorkbenchSourceScopeWorksetReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchSourceScopeWorksetReadModel = Readonly<{
   status: CatalogPrimaryWorkbenchSourceScopeWorksetStatus;
   generatedAt: string;
   selectedScope: Readonly<{
@@ -231,7 +122,7 @@ type CatalogPrimaryWorkbenchSourceScopeWorksetReadModel = Readonly<{
   units: readonly CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel[];
 }>;
 
-type CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel = Readonly<{
   providerKey: string;
   displayName: string;
   unitKey: CatalogIntegrationUnitKey | null;
@@ -273,24 +164,165 @@ type CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel = Readonly<{
   }>;
 }>;
 
-export type {
-  CatalogPrimaryWorkbenchCatalogSyncStatus,
-  CatalogPrimaryWorkbenchCatalogSyncReadModel,
-  CatalogPrimaryWorkbenchCatalogSyncUnitReadModel,
-  CatalogPrimaryWorkbenchSourceScopeWorksetStatus,
-  CatalogPrimaryWorkbenchSourceScopeWorksetUnitState,
-  CatalogPrimaryWorkbenchSourceScopeWorksetReadModel,
-  CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel,
-};
+export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  activeJobCount: number;
+  failedJobCount: number;
+  selectedScope: Readonly<{
+    providerKey: string;
+    unitKey: CatalogIntegrationUnitKey | null;
+    scope: CatalogPrimaryWorkbenchScopeContext;
+    importScope: string;
+    profileVersion: string | null;
+    profileSnapshot: CatalogAdminProfileVersionPointer | null;
+    expectedObservationVolume: number;
+    observedCount: number;
+    changedCount: number;
+    promotedCount: number;
+    rejectedCount: number;
+    readiness: Readonly<{
+      adapterReadiness: "ready" | "blocked" | "degraded" | "unknown";
+      credentialReadiness: "ready" | "blocked" | "not-required" | "unknown";
+      rolloutEnabled: boolean;
+      providerTransport: readonly CatalogPrimaryWorkbenchProviderTransportCategory[];
+      blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    }>;
+  }> | null;
+  jobs: readonly Readonly<{
+    jobId: string;
+    action: Extract<CatalogPrimaryWorkbenchCommandKey, "scope.import" | "observation.reapply" | "observation.replay">;
+    state: "queued" | "running" | "completed" | "failed" | "cancelled";
+    operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "cancelled" | "completed";
+    summary: string;
+    completed: number;
+    total: number;
+    progressPercent: number;
+    unitKey: CatalogIntegrationUnitKey | null;
+    providerKey: string;
+    importScope: string | null;
+    profileVersion: string | null;
+    profileSnapshot: CatalogAdminProfileVersionPointer | null;
+    scopeMatchesRoute: boolean;
+    createdAt: string;
+    startedAt: string | null;
+    consistency: CatalogAdminJobConsistency;
+    failureGroups: readonly Readonly<{
+      key: string;
+      label: string;
+      count: number;
+      severity: "warning" | "error";
+    }>[];
+    retryAvailable: boolean;
+    resumeAvailable: boolean;
+    cancelAvailable: boolean;
+    sourceObservationReviewHref: string;
+    auditEvidenceUrl: string;
+    observationLinks: readonly string[];
+    result: Readonly<{
+      requestedScope: CatalogPrimaryWorkbenchScopeContext;
+      requestedCount: number;
+      importedSetCount: number;
+      observedCount: number;
+      reappliedCount: number;
+      skippedCount: number;
+      failedCount: number;
+      redactedFailureReasons: readonly string[];
+      usage: Readonly<{
+        actualRequestCount: number | null;
+        pageCount: number | null;
+        cacheHitCount: number | null;
+        cacheMissCount: number | null;
+      }> | null;
+      replayOrReapplyState:
+        | "not-applicable"
+        | "reapply-current-active-profile"
+        | "replay-original-source-profile"
+        | "unknown";
+    }> | null;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  }>[];
+}>;
 
-export function assertPrimaryWorkbenchImportJobs(value: CatalogPrimaryWorkbenchImportJobsReadModel | undefined): void {
-  if (!value) throw new Error("Primary workbench import jobs contract is required.");
-  if (!Array.isArray(value.jobs)) throw new Error("Primary workbench import jobs must expose a list.");
+export function assertPrimaryWorkbenchImportJobs(
+  value: CatalogPrimaryWorkbenchReadModel["importJobs"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench import jobs contract is required.");
+  }
+  for (const job of value.jobs) {
+    if (!job.result) {
+      continue;
+    }
+    if (!Array.isArray(job.result.redactedFailureReasons)) {
+      throw new Error("Primary workbench import job results must expose redacted failure reasons.");
+    }
+    if (job.result.usage) {
+      const counts = Object.values(job.result.usage);
+      if (counts.some((count) => count !== null && (!Number.isSafeInteger(count) || count < 0))) {
+        throw new Error("Primary workbench import job usage counts must be non-negative integers.");
+      }
+    }
+    for (const reason of job.result.redactedFailureReasons) {
+      if (
+        typeof reason !== "string" ||
+        !reason.trim() ||
+        reason.includes("\n") ||
+        /\b(api[-_ ]?key|x-api-key|x-team-id|authorization|bearer|token|secret|password)\s*[=:]\s*(?!\[redacted\])/i.test(
+          reason,
+        )
+      ) {
+        throw new Error("Primary workbench import job failure reasons must stay redaction-safe.");
+      }
+    }
+  }
 }
 
 export function assertPrimaryWorkbenchSourceScopeWorkset(
-  value: CatalogPrimaryWorkbenchSourceScopeWorksetReadModel | undefined,
+  value: CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"] | undefined,
 ): void {
-  if (!value) throw new Error("Primary workbench source scope workset contract is required.");
-  if (!Array.isArray(value.units)) throw new Error("Primary workbench source scope workset must expose units.");
+  if (!value) {
+    throw new Error("Primary workbench source-scope workset contract is required.");
+  }
+  if (!["not-configured", "scope-required", "ready", "blocked", "degraded"].includes(value.status)) {
+    throw new Error("Primary workbench source-scope workset status must be explicit.");
+  }
+  if (!value.selectedScope.label) {
+    throw new Error("Primary workbench source-scope workset must label the selected scope state.");
+  }
+  if (value.summary.unitCount !== value.units.length) {
+    throw new Error("Primary workbench source-scope workset unit summary must match unit rows.");
+  }
+  const unitKeys = new Set<string>();
+  for (const unit of value.units) {
+    const unitIdentity = `${unit.providerKey}:${unit.unitKey ?? "none"}`;
+    if (unitKeys.has(unitIdentity)) {
+      throw new Error("Primary workbench source-scope workset unit rows must be unique by provider and unit.");
+    }
+    unitKeys.add(unitIdentity);
+    if (
+      !unit.providerKey ||
+      !unit.displayName ||
+      !unit.currentWorkbenchHref ||
+      /api\/|raw-json|legacy|compat/i.test(unit.currentWorkbenchHref)
+    ) {
+      throw new Error("Primary workbench source-scope workset rows must link back to the typed workbench.");
+    }
+    if (!["not-imported", "imported", "changed", "promoted", "blocked"].includes(unit.state)) {
+      throw new Error("Primary workbench source-scope workset row state must be explicit.");
+    }
+    if (!unit.commandContext.providerKey || unit.commandContext.providerKey !== unit.providerKey) {
+      throw new Error("Primary workbench source-scope workset command context must preserve provider identity.");
+    }
+    if (!value.selectedScope.hasConcreteScope || !unit.importScope) {
+      for (const action of [unit.actions.import, unit.actions.previewPromotion, unit.actions.reapply] as const) {
+        if (action.state !== "disabled" || !action.blockers.includes("import-scope-required")) {
+          throw new Error("Primary workbench source-scope workset must fail closed until a source scope is selected.");
+        }
+      }
+    }
+    for (const action of [unit.actions.import, unit.actions.previewPromotion, unit.actions.reapply] as const) {
+      assertCatalogPrimaryWorkbenchActionState(action.state);
+      assertPrimaryWorkbenchBlockers(action.blockers);
+    }
+  }
 }

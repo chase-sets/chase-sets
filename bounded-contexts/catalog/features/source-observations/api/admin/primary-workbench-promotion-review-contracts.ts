@@ -1,118 +1,59 @@
-import type { JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogMergeCandidateReviewCommandPreview } from "../promotion/catalog-merge-candidate-review-command-payloads";
-import type {
-  CatalogAdminControlPlaneQueryKey,
-  CatalogAdminControlPlaneDiagnostic,
-  CatalogAdminRollbackRetirementImpactSummaryReadModel,
-  CatalogAdminJobConsistency,
-  CatalogAdminProfileVersionPointer,
-} from "./admin-control-plane-read-model-contracts";
 import type {
   CatalogAdminControlPlaneFreshnessState,
   CatalogAdminControlPlanePaginationMode,
 } from "./admin-control-plane-read-model-slos";
-import type {
-  CatalogIntegrationAuditEvidenceCategory,
-  CatalogIntegrationAuditEvidenceEventName,
-  CatalogIntegrationAuditEvidenceRedactionState,
-} from "../governance/catalog-integration-audit-evidence";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
-import type { CatalogIntegrationProviderUsageBudget } from "./admin-control-plane-overview";
-import type { CatalogProviderProfileEditableSectionKey } from "../providers/provider-profile-section-registry";
-import type { CatalogControlPlaneActionId } from "../../ui/admin-control-plane/information-architecture-v2";
 import type {
-  CatalogPrimaryWorkbenchContractVersion,
-  CatalogPrimaryWorkbenchSectionKey,
   CatalogPrimaryWorkbenchCommandKey,
-  CatalogPrimaryWorkbenchSourceObservationRowActionKey,
   CatalogPrimaryWorkbenchActionState,
   CatalogPrimaryWorkbenchBlockerCategory,
-  CatalogPrimaryWorkbenchProviderTransportCategory,
-  CatalogPrimaryWorkbenchPromotionDisposition,
-  CatalogPrimaryWorkbenchPromotionScopeKind,
-  CatalogPrimaryWorkbenchPromotionOutcomeCountKey,
-  CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
-  CatalogPrimaryWorkbenchPromotionProfileSemantics,
-  CatalogPrimaryWorkbenchRouteContextKey,
-  CatalogPrimaryWorkbenchCopyKey,
-  CatalogPrimaryWorkbenchInstrumentationDimension,
-  CatalogPrimaryWorkbenchDeploySkewMode,
-  CatalogPrimaryWorkbenchDeploySkewPolicy,
-  CatalogPrimaryWorkbenchRetirementPolicy,
-  CatalogPrimaryWorkbenchBlockerContract,
-  CatalogPrimaryWorkbenchSectionContract,
-  CatalogPrimaryWorkbenchActionContract,
-  CatalogPrimaryWorkbenchDownstreamIssueKey,
-  CatalogPrimaryWorkbenchDownstreamContract,
   CatalogPrimaryWorkbenchReadModel,
-  CatalogPrimaryWorkbenchRouteContext,
-  CatalogPrimaryWorkbenchScopeContext,
-  CatalogPrimaryWorkbenchProviderScopeReadModel,
-  CatalogPrimaryWorkbenchSourceOptionsStatus,
-  CatalogPrimaryWorkbenchSourceOptionPageState,
-  CatalogPrimaryWorkbenchSourceOptionKindReadModel,
-  CatalogPrimaryWorkbenchSourceOptionPageReadModel,
-  CatalogPrimaryWorkbenchSourceOptionsReadModel,
-} from "./primary-workbench-selection-contracts";
-import type {
-  CatalogPrimaryWorkbenchCatalogSyncStatus,
-  CatalogPrimaryWorkbenchCatalogSyncReadModel,
-  CatalogPrimaryWorkbenchCatalogSyncUnitReadModel,
-  CatalogPrimaryWorkbenchSourceScopeWorksetStatus,
-  CatalogPrimaryWorkbenchSourceScopeWorksetUnitState,
-  CatalogPrimaryWorkbenchSourceScopeWorksetReadModel,
-  CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel,
-} from "./primary-workbench-import-sync-contracts";
-import type {
-  CatalogPrimaryWorkbenchReadinessReadModel,
-  CatalogPrimaryWorkbenchHealthTriageStatus,
-  CatalogPrimaryWorkbenchValidationFixtureFlowStatus,
-  CatalogPrimaryWorkbenchValidationReadinessReadModel,
-  CatalogPrimaryWorkbenchValidationEvidenceRow,
-  CatalogPrimaryWorkbenchProfileAuthoringStatus,
-  CatalogPrimaryWorkbenchProfileLifecycleRestrictionCode,
-  CatalogPrimaryWorkbenchProfileImmutableFactKey,
-  CatalogPrimaryWorkbenchProfileImmutableFact,
-  CatalogPrimaryWorkbenchProfileLifecycleRestriction,
-  CatalogPrimaryWorkbenchProfileOption,
-  CatalogPrimaryWorkbenchProfileOverview,
-  CatalogPrimaryWorkbenchProfileSectionGroupKey,
-  CatalogPrimaryWorkbenchProfileSectionSaveOutcome,
-  CatalogPrimaryWorkbenchProfileSectionFieldControl,
-  CatalogPrimaryWorkbenchProfileSectionField,
-  CatalogPrimaryWorkbenchProfileOptionQueryDetail,
-  CatalogPrimaryWorkbenchProfileImportScopeControl,
-  CatalogPrimaryWorkbenchProfileMappingRow,
-  CatalogPrimaryWorkbenchProfileSectionWorkspace,
-  CatalogPrimaryWorkbenchProfileCloneDraftReadModel,
-  CatalogPrimaryWorkbenchProfileAuthoringReadModel,
-  CatalogPrimaryWorkbenchImportJobsReadModel,
-} from "./primary-workbench-profile-readiness-contracts";
-import type {
-  CatalogPrimaryWorkbenchHealthTriageReadModel,
-  CatalogPrimaryWorkbenchHealthTriageReadModelState,
-  CatalogPrimaryWorkbenchHealthTriageUnit,
-  CatalogPrimaryWorkbenchHealthTriageProvider,
-  CatalogPrimaryWorkbenchValidationReadinessStatus,
-  CatalogPrimaryWorkbenchLifecycleOperation,
-  CatalogPrimaryWorkbenchLifecycleRecoveryStatus,
-  CatalogPrimaryWorkbenchLifecycleRecoveryReadModel,
-  CatalogPrimaryWorkbenchLifecycleOperationReadModel,
-  CatalogPrimaryWorkbenchGovernanceControlsStatus,
-  CatalogPrimaryWorkbenchGovernanceControlKind,
-  CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey,
-  CatalogPrimaryWorkbenchGovernanceControlsReadModel,
-  CatalogPrimaryWorkbenchAuditEvidenceStatus,
-  CatalogPrimaryWorkbenchAuditEvidenceFilterKey,
-  CatalogPrimaryWorkbenchAuditEvidenceTargetType,
-  CatalogPrimaryWorkbenchAuditEvidenceReadModel,
-  CatalogPrimaryWorkbenchAuditEvidenceLink,
-  CatalogPrimaryWorkbenchHealthTriageRolloutControl,
-  CatalogPrimaryWorkbenchHealthTriageJob,
-  CatalogPrimaryWorkbenchHealthTriageAuditPreview,
-} from "./primary-workbench-lifecycle-governance-contracts";
+} from "./primary-workbench-shared-contracts";
+import {
+  assertCatalogPrimaryWorkbenchActionState,
+  isSafePrimaryWorkbenchReturnPath,
+  assertPrimaryWorkbenchBlockers,
+} from "./primary-workbench-shared-contracts";
 
-type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchSourceObservationRowActionKey =
+  | "view-source-observation"
+  | "observation.promote"
+  | "observation.reject"
+  | "observation.defer"
+  | "observation.reapply"
+  | "observation.replay";
+
+export type CatalogPrimaryWorkbenchPromotionDisposition =
+  | "eligible"
+  | "skipped"
+  | "blocked"
+  | "conflicting"
+  | "destructive"
+  | "stale-preview"
+  | "confirmation-required";
+
+export type CatalogPrimaryWorkbenchPromotionScopeKind = "explicit-rows" | "matching-filter";
+
+export type CatalogPrimaryWorkbenchPromotionOutcomeCountKey =
+  | "eligible"
+  | "blocked"
+  | "skipped"
+  | "conflicting"
+  | "failed";
+
+export type CatalogPrimaryWorkbenchPromotionStaleProtectionKey =
+  | "observations"
+  | "profile-version"
+  | "rollout-state"
+  | "permissions"
+  | "command-inputs";
+
+export type CatalogPrimaryWorkbenchPromotionProfileSemantics =
+  | "current-active-profile"
+  | "original-source-profile-version";
+
+export type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
   freshness: CatalogAdminControlPlaneFreshnessState;
   counts: Readonly<Record<"observed" | "changed" | "promoted" | "rejected" | "blocked" | "eligible", number>>;
   cursor: string | null;
@@ -166,7 +107,7 @@ type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
 // and are lazy-loaded when the evidence sheet opens. This keeps a 25-row review
 // page small at first paint instead of serializing every row's deep evidence the
 // table never shows.
-type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
+export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
   observationId: string;
   providerKey: string;
   externalKey: string;
@@ -208,7 +149,7 @@ type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
 // Observation the slim row is, so the sheet shows exactly what it showed before —
 // only WHEN the data is fetched changes. Fetched via a small evidence endpoint
 // keyed by `observationId`.
-type CatalogPrimaryWorkbenchSourceObservationEvidenceDetail = Readonly<{
+export type CatalogPrimaryWorkbenchSourceObservationEvidenceDetail = Readonly<{
   observationId: string;
   providerKey: string;
   externalKey: string;
@@ -239,21 +180,21 @@ type CatalogPrimaryWorkbenchSourceObservationEvidenceDetail = Readonly<{
   }>;
 }>;
 
-type CatalogPrimaryWorkbenchProductContentsEvidenceState =
+export type CatalogPrimaryWorkbenchProductContentsEvidenceState =
   | "none"
   | "reviewable"
   | "unresolved"
   | "promoted"
   | "rejected";
 
-type CatalogPrimaryWorkbenchProductContentsEvidenceReview = Readonly<{
+export type CatalogPrimaryWorkbenchProductContentsEvidenceReview = Readonly<{
   state: CatalogPrimaryWorkbenchProductContentsEvidenceState;
   summary: string;
   lineCount: number;
   rows: readonly CatalogPrimaryWorkbenchProductContentsEvidenceLine[];
 }>;
 
-type CatalogPrimaryWorkbenchProductContentsEvidenceLine = Readonly<{
+export type CatalogPrimaryWorkbenchProductContentsEvidenceLine = Readonly<{
   lineNumber: number;
   state: "reviewable" | "unresolved" | "promoted" | "rejected";
   contentTypeLabel: string;
@@ -273,17 +214,17 @@ type CatalogPrimaryWorkbenchProductContentsEvidenceLine = Readonly<{
 // the route boundary throwing. Lives on the feature contract so both the route
 // loader (server) and the evidence sheet (client) depend on the feature, not on a
 // deployable route module.
-type CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData = Readonly<{
+export type CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData = Readonly<{
   observationId: string;
   detail: CatalogPrimaryWorkbenchSourceObservationEvidenceDetail | null;
 }>;
 
-type CatalogPrimaryWorkbenchMergeCandidateActionKey = Extract<
+export type CatalogPrimaryWorkbenchMergeCandidateActionKey = Extract<
   CatalogPrimaryWorkbenchCommandKey,
   "candidate.promote" | "candidate.split" | "candidate.edit" | "candidate.ignore" | "candidate.defer"
 >;
 
-type CatalogPrimaryWorkbenchMergeCandidateReviewReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchMergeCandidateReviewReadModel = Readonly<{
   freshness: CatalogAdminControlPlaneFreshnessState;
   counts: Readonly<{
     total: number;
@@ -309,7 +250,7 @@ type CatalogPrimaryWorkbenchMergeCandidateReviewReadModel = Readonly<{
   rows: readonly CatalogPrimaryWorkbenchMergeCandidateReviewRow[];
 }>;
 
-type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
+export type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
   candidateId: string;
   identityFingerprint: string;
   identityLabel: string;
@@ -383,19 +324,19 @@ type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
   editForm: CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel;
 }>;
 
-type CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride = Readonly<{
+export type CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride = Readonly<{
   key: string;
   fieldPath: string;
   label: string;
   value: string;
 }>;
 
-type CatalogPrimaryWorkbenchMergeCandidateEditReference = Readonly<{
+export type CatalogPrimaryWorkbenchMergeCandidateEditReference = Readonly<{
   index: number;
   label: string;
 }>;
 
-type CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel = Readonly<{
   state: CatalogPrimaryWorkbenchActionState;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   baseSnapshotJson: string | null;
@@ -407,11 +348,11 @@ type CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel = Readonly<{
   externalProductReferences: readonly CatalogPrimaryWorkbenchMergeCandidateEditReference[];
 }>;
 
-type CatalogPrimaryWorkbenchConflictResolutionStatus = "ready" | "empty" | "blocked" | "unavailable";
+export type CatalogPrimaryWorkbenchConflictResolutionStatus = "ready" | "empty" | "blocked" | "unavailable";
 
-type CatalogPrimaryWorkbenchConflictResolutionState = "blocks-promotion" | "requires-review" | "auto-resolved";
+export type CatalogPrimaryWorkbenchConflictResolutionState = "blocks-promotion" | "requires-review" | "auto-resolved";
 
-type CatalogPrimaryWorkbenchConflictResolutionReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchConflictResolutionReadModel = Readonly<{
   status: CatalogPrimaryWorkbenchConflictResolutionStatus;
   freshness: CatalogAdminControlPlaneFreshnessState;
   generatedAt: string;
@@ -454,7 +395,7 @@ type CatalogPrimaryWorkbenchConflictResolutionReadModel = Readonly<{
   }>[];
 }>;
 
-type CatalogPrimaryWorkbenchConflictResolutionRow = Readonly<{
+export type CatalogPrimaryWorkbenchConflictResolutionRow = Readonly<{
   observationId: string;
   displayName: string;
   providerKey: string;
@@ -488,7 +429,7 @@ type CatalogPrimaryWorkbenchConflictResolutionRow = Readonly<{
  * means only the first `coveredCount` eligible observations (id order) were
  * validated and the rest are validated at execution, never called safe here.
  */
-type CatalogPrimaryWorkbenchPromotionValidationReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchPromotionValidationReadModel = Readonly<{
   promoteAsDraft: boolean;
   coverage: "complete" | "partial" | "not-previewed";
   coveredCount: number;
@@ -497,7 +438,7 @@ type CatalogPrimaryWorkbenchPromotionValidationReadModel = Readonly<{
   otherBlockedObservationIds: readonly string[];
 }>;
 
-type CatalogPrimaryWorkbenchPromotionIdentityDiagnostic = Readonly<{
+export type CatalogPrimaryWorkbenchPromotionIdentityDiagnostic = Readonly<{
   observationId: string;
   /** False only for the degraded identity an explicit draft choice carries visibly. */
   blocking: boolean;
@@ -507,7 +448,7 @@ type CatalogPrimaryWorkbenchPromotionIdentityDiagnostic = Readonly<{
   templateKey: string | null;
 }>;
 
-type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   previewId: string | null;
   validation: CatalogPrimaryWorkbenchPromotionValidationReadModel;
   freshness: CatalogAdminControlPlaneFreshnessState;
@@ -565,7 +506,7 @@ type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
 }>;
 
-type CatalogPrimaryWorkbenchPromotionResultReadModel = Readonly<{
+export type CatalogPrimaryWorkbenchPromotionResultReadModel = Readonly<{
   resultId: string;
   jobId: string;
   status: "completed" | "partial" | "failed";
@@ -582,71 +523,192 @@ type CatalogPrimaryWorkbenchPromotionResultReadModel = Readonly<{
   auditEvidenceIds: readonly string[];
 }>;
 
-type CatalogPrimaryWorkbenchActionReadModel = Readonly<{
-  key: CatalogPrimaryWorkbenchCommandKey;
-  state: CatalogPrimaryWorkbenchActionState;
-  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
-  copyKey: CatalogPrimaryWorkbenchCopyKey | null;
-}>;
-
-type CatalogPrimaryWorkbenchSecurityPrivacyReadModel = Readonly<{
-  redactionApplied: boolean;
-  governedDataClasses: readonly string[];
-  unsafeEvidenceBlocked: boolean;
-  missingSecurityFieldsBlocker: Extract<CatalogPrimaryWorkbenchBlockerCategory, "security-privacy-blocked">;
-}>;
-
-type CatalogPrimaryWorkbenchInstrumentationReadModel = Readonly<{
-  dimensions: readonly CatalogPrimaryWorkbenchInstrumentationDimension[];
-  redactionSafe: boolean;
-}>;
-
-export type {
-  CatalogPrimaryWorkbenchSourceObservationReviewReadModel,
-  CatalogPrimaryWorkbenchSourceObservationReviewRow,
-  CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
-  CatalogPrimaryWorkbenchProductContentsEvidenceState,
-  CatalogPrimaryWorkbenchProductContentsEvidenceReview,
-  CatalogPrimaryWorkbenchProductContentsEvidenceLine,
-  CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData,
-  CatalogPrimaryWorkbenchMergeCandidateActionKey,
-  CatalogPrimaryWorkbenchMergeCandidateReviewReadModel,
-  CatalogPrimaryWorkbenchMergeCandidateReviewRow,
-  CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride,
-  CatalogPrimaryWorkbenchMergeCandidateEditReference,
-  CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel,
-  CatalogPrimaryWorkbenchConflictResolutionStatus,
-  CatalogPrimaryWorkbenchConflictResolutionState,
-  CatalogPrimaryWorkbenchConflictResolutionReadModel,
-  CatalogPrimaryWorkbenchConflictResolutionRow,
-  CatalogPrimaryWorkbenchPromotionValidationReadModel,
-  CatalogPrimaryWorkbenchPromotionIdentityDiagnostic,
-  CatalogPrimaryWorkbenchPromotionPreviewReadModel,
-  CatalogPrimaryWorkbenchPromotionResultReadModel,
-  CatalogPrimaryWorkbenchActionReadModel,
-  CatalogPrimaryWorkbenchSecurityPrivacyReadModel,
-  CatalogPrimaryWorkbenchInstrumentationReadModel,
-};
+export function assertPrimaryWorkbenchPromotionResult(
+  value: CatalogPrimaryWorkbenchReadModel["promotionResult"] | undefined,
+): void {
+  if (value == null) {
+    return;
+  }
+  if (!value.resultId || !value.jobId || !value.completedAt) {
+    throw new Error("Primary workbench promotion results require durable outcome identity and timing.");
+  }
+  if (!["completed", "partial", "failed"].includes(value.status)) {
+    throw new Error("Primary workbench promotion results require an explicit terminal status.");
+  }
+  const counts = [value.requestedCount, value.promotedCount, value.skippedCount, value.failedCount];
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) {
+    throw new Error("Primary workbench promotion result counts must be non-negative integers.");
+  }
+  if (value.promotedCount + value.skippedCount + value.failedCount !== value.requestedCount) {
+    throw new Error("Primary workbench promotion result counts must reconcile to the requested count.");
+  }
+  if (!Array.isArray(value.redactedFailureReasons)) {
+    throw new Error("Primary workbench promotion results must expose redacted failure reasons.");
+  }
+  for (const reason of value.redactedFailureReasons) {
+    if (
+      typeof reason !== "string" ||
+      !reason.trim() ||
+      reason.includes("\n") ||
+      /\b(api[-_ ]?key|x-api-key|x-team-id|authorization|bearer|token|secret|password)\s*[=:]\s*(?!\[redacted\])/i.test(
+        reason,
+      )
+    ) {
+      throw new Error("Primary workbench promotion failure reasons must stay redaction-safe.");
+    }
+  }
+}
 
 export function assertPrimaryWorkbenchConflictResolution(
-  value: CatalogPrimaryWorkbenchConflictResolutionReadModel | undefined,
+  value: CatalogPrimaryWorkbenchReadModel["conflictResolution"] | undefined,
 ): void {
-  if (!value) throw new Error("Primary workbench conflict resolution contract is required.");
+  if (!value) {
+    throw new Error("Primary workbench conflict resolution contract is required.");
+  }
+  if (!["ready", "empty", "blocked", "unavailable"].includes(value.status)) {
+    throw new Error("Primary workbench conflict resolution status must be explicit.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref)) {
+    throw new Error("Primary workbench conflict resolution return link must target the rebuilt workbench.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.auditEvidenceUrl)) {
+    throw new Error("Primary workbench conflict resolution audit link must target the rebuilt workbench.");
+  }
+  if (value.rows.length > 0 && value.precedenceRules.length === 0) {
+    throw new Error("Primary workbench conflict resolution rows require precedence rule evidence.");
+  }
+  if (value.overridePolicy.supported && value.overridePolicy.state === "available") {
+    throw new Error("Primary workbench conflict overrides need a rebuilt backend command before becoming available.");
+  }
+  assertCatalogPrimaryWorkbenchActionState(value.overridePolicy.state);
+  for (const row of value.rows) {
+    if (!row.observationId || !row.affectedFact || !row.precedenceRuleId) {
+      throw new Error("Primary workbench conflict resolution rows must name observation, fact, and precedence rule.");
+    }
+    if (!["blocks-promotion", "requires-review", "auto-resolved"].includes(row.resolutionState)) {
+      throw new Error("Primary workbench conflict resolution row state must be explicit.");
+    }
+    if (row.candidateValues.length < 2) {
+      throw new Error("Primary workbench conflict resolution rows must show winning and losing candidate values.");
+    }
+    if (row.evidencePaths.length === 0 || row.diagnostics.length === 0) {
+      throw new Error("Primary workbench conflict resolution rows must expose evidence paths and diagnostics.");
+    }
+    assertCatalogPrimaryWorkbenchActionState(row.overrideAction.state);
+  }
 }
-export function assertPrimaryWorkbenchMergeCandidateReview(
-  value: CatalogPrimaryWorkbenchMergeCandidateReviewReadModel | undefined,
-): void {
-  if (!value) throw new Error("Primary workbench merge candidate review contract is required.");
-}
+
 export function assertPrimaryWorkbenchPromotionPreview(
-  value: CatalogPrimaryWorkbenchPromotionPreviewReadModel | undefined,
+  value: CatalogPrimaryWorkbenchReadModel["promotionPreview"] | undefined,
 ): void {
-  if (!value) throw new Error("Primary workbench promotion preview contract is required.");
+  if (!value) {
+    throw new Error("Primary workbench promotion preview contract is required.");
+  }
+  if (!value.scope) {
+    throw new Error("Primary workbench promotion preview scope is required.");
+  }
+  if (value.scope.partialFailureMode !== "per-observation") {
+    throw new Error("Primary workbench promotion preview must preserve per-observation partial failure scope.");
+  }
+  if (!value.validation || !["complete", "partial", "not-previewed"].includes(value.validation.coverage)) {
+    throw new Error("Primary workbench promotion preview validation coverage must be explicit.");
+  }
+  if (typeof value.validation.promoteAsDraft !== "boolean") {
+    throw new Error("Primary workbench promotion preview must state the explicit promote-as-draft choice.");
+  }
+  for (const key of ["eligible", "blocked", "skipped", "conflicting", "failed"] as const) {
+    if (typeof value.outcomeCounts?.[key] !== "number") {
+      throw new Error(`Primary workbench promotion outcome count '${key}' is required.`);
+    }
+  }
+  if (!value.executionSafeguards?.idempotencyRequired || !value.executionSafeguards.doubleSubmitProtection) {
+    throw new Error(
+      "Primary workbench promotion execution safeguards must include idempotency and double-submit protection.",
+    );
+  }
+  for (const staleProtection of [
+    "observations",
+    "profile-version",
+    "rollout-state",
+    "permissions",
+    "command-inputs",
+  ] as const) {
+    if (!value.executionSafeguards.rejectsWhenChanged.includes(staleProtection)) {
+      throw new Error(`Primary workbench promotion execution must reject stale ${staleProtection} previews.`);
+    }
+  }
+  assertPrimaryWorkbenchBlockers(value.executionSafeguards.overlappingActionBlockers);
+  if (!value.reviewDecisions?.reject.reasonRequired) {
+    throw new Error("Primary workbench rejection decisions must require a reason.");
+  }
+  if (value.reviewDecisions.defer.stateChange !== "keeps-observation-in-review") {
+    throw new Error("Primary workbench defer decisions must preserve review return semantics.");
+  }
+  if (value.profileWorkflows?.reapply.profileSemantics !== "current-active-profile") {
+    throw new Error("Primary workbench reapply must use current active profile semantics.");
+  }
+  if (value.profileWorkflows.replay.profileSemantics !== "original-source-profile-version") {
+    throw new Error("Primary workbench replay must use original source profile version semantics.");
+  }
 }
-export function assertPrimaryWorkbenchPromotionResult(
-  value: CatalogPrimaryWorkbenchPromotionResultReadModel | null | undefined,
+
+export function assertPrimaryWorkbenchMergeCandidateReview(
+  value: CatalogPrimaryWorkbenchReadModel["mergeCandidateReview"] | undefined,
 ): void {
-  if (value == null) return;
-  if (!value.resultId || !value.jobId)
-    throw new Error("Primary workbench promotion results require durable outcome identity and timing.");
+  if (!value) {
+    throw new Error("Primary workbench merge candidate review contract is required.");
+  }
+  if (!["fresh", "partial", "stale", "unavailable"].includes(value.freshness)) {
+    throw new Error("Primary workbench merge candidate review freshness must be explicit.");
+  }
+  for (const countKey of ["total", "ready", "conflict", "stale", "deferred", "terminal", "blocked"] as const) {
+    if (typeof value.counts[countKey] !== "number") {
+      throw new Error(`Primary workbench merge candidate count '${countKey}' is required.`);
+    }
+  }
+  for (const row of value.rows) {
+    if (!row.candidateId || !row.identityFingerprint || !row.identityLabel) {
+      throw new Error("Primary workbench merge candidate rows must expose identity.");
+    }
+    if (row.sourceCount < 1 || row.sources.length < 1) {
+      throw new Error("Primary workbench merge candidate rows must expose contributing sources.");
+    }
+    if (row.promoteReadiness.state === "ready" && row.promoteReadiness.blockers.length > 0) {
+      throw new Error("Primary workbench ready merge candidates cannot carry promotion blockers.");
+    }
+    if (!row.proposedMapping.promotionIntent) {
+      throw new Error("Primary workbench merge candidate detail must expose proposed Catalog mapping.");
+    }
+    if (row.fieldProvenance.length === 0 || row.sourceComparison.length === 0) {
+      throw new Error("Primary workbench merge candidate detail must expose source comparison and field provenance.");
+    }
+    if (row.conflicts.blockingConflicts.length !== row.conflicts.blocking) {
+      throw new Error(
+        "Primary workbench merge candidate blocking conflict count must match its resolvable conflict detail.",
+      );
+    }
+    const actions = new Set(row.actions.map((actionEntry) => actionEntry.key));
+    for (const actionKey of [
+      "candidate.promote",
+      "candidate.split",
+      "candidate.edit",
+      "candidate.ignore",
+      "candidate.defer",
+    ] as const) {
+      if (!actions.has(actionKey)) {
+        throw new Error(`Primary workbench merge candidate rows must expose '${actionKey}'.`);
+      }
+    }
+    for (const actionEntry of row.actions) {
+      assertCatalogPrimaryWorkbenchActionState(actionEntry.state);
+      assertPrimaryWorkbenchBlockers(actionEntry.blockers);
+      if (
+        (actionEntry.key === "candidate.split" || actionEntry.key === "candidate.edit") &&
+        (actionEntry.state === "available" || actionEntry.state === "degraded") &&
+        !actionEntry.commandPreview
+      ) {
+        throw new Error("Primary workbench split/update merge candidate actions require typed command previews.");
+      }
+    }
+  }
 }

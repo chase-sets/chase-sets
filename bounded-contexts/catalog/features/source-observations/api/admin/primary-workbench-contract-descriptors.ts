@@ -1,121 +1,81 @@
-// Behavior-owned declarative workbench descriptors.
 import type {
-  CatalogPrimaryWorkbenchContractVersion,
+  CatalogAdminControlPlaneFreshnessState,
+  CatalogAdminControlPlanePaginationMode,
+} from "./admin-control-plane-read-model-slos";
+import type { CatalogAdminControlPlaneQueryKey } from "./admin-control-plane-read-model-contracts";
+import type {
   CatalogPrimaryWorkbenchSectionKey,
   CatalogPrimaryWorkbenchCommandKey,
-  CatalogPrimaryWorkbenchSourceObservationRowActionKey,
   CatalogPrimaryWorkbenchActionState,
   CatalogPrimaryWorkbenchBlockerCategory,
-  CatalogPrimaryWorkbenchProviderTransportCategory,
-  CatalogPrimaryWorkbenchPromotionDisposition,
-  CatalogPrimaryWorkbenchPromotionScopeKind,
-  CatalogPrimaryWorkbenchPromotionOutcomeCountKey,
-  CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
-  CatalogPrimaryWorkbenchPromotionProfileSemantics,
-  CatalogPrimaryWorkbenchRouteContextKey,
   CatalogPrimaryWorkbenchCopyKey,
   CatalogPrimaryWorkbenchInstrumentationDimension,
-  CatalogPrimaryWorkbenchDeploySkewMode,
-  CatalogPrimaryWorkbenchDeploySkewPolicy,
-  CatalogPrimaryWorkbenchRetirementPolicy,
-  CatalogPrimaryWorkbenchBlockerContract,
-  CatalogPrimaryWorkbenchSectionContract,
   CatalogPrimaryWorkbenchActionContract,
-  CatalogPrimaryWorkbenchDownstreamIssueKey,
-  CatalogPrimaryWorkbenchDownstreamContract,
-  CatalogPrimaryWorkbenchReadModel,
-  CatalogPrimaryWorkbenchRouteContext,
-  CatalogPrimaryWorkbenchScopeContext,
-  CatalogPrimaryWorkbenchProviderScopeReadModel,
-  CatalogPrimaryWorkbenchSourceOptionsStatus,
-  CatalogPrimaryWorkbenchSourceOptionPageState,
-  CatalogPrimaryWorkbenchSourceOptionKindReadModel,
-  CatalogPrimaryWorkbenchSourceOptionPageReadModel,
-  CatalogPrimaryWorkbenchSourceOptionsReadModel,
-} from "./primary-workbench-selection-contracts";
-import type {
-  CatalogPrimaryWorkbenchCatalogSyncStatus,
-  CatalogPrimaryWorkbenchCatalogSyncReadModel,
-  CatalogPrimaryWorkbenchCatalogSyncUnitReadModel,
-  CatalogPrimaryWorkbenchSourceScopeWorksetStatus,
-  CatalogPrimaryWorkbenchSourceScopeWorksetUnitState,
-  CatalogPrimaryWorkbenchSourceScopeWorksetReadModel,
-  CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel,
-} from "./primary-workbench-import-sync-contracts";
-import type {
-  CatalogPrimaryWorkbenchReadinessReadModel,
-  CatalogPrimaryWorkbenchHealthTriageStatus,
-  CatalogPrimaryWorkbenchValidationFixtureFlowStatus,
-  CatalogPrimaryWorkbenchValidationReadinessReadModel,
-  CatalogPrimaryWorkbenchValidationEvidenceRow,
-  CatalogPrimaryWorkbenchProfileAuthoringStatus,
-  CatalogPrimaryWorkbenchProfileLifecycleRestrictionCode,
-  CatalogPrimaryWorkbenchProfileImmutableFactKey,
-  CatalogPrimaryWorkbenchProfileImmutableFact,
-  CatalogPrimaryWorkbenchProfileLifecycleRestriction,
-  CatalogPrimaryWorkbenchProfileOption,
-  CatalogPrimaryWorkbenchProfileOverview,
-  CatalogPrimaryWorkbenchProfileSectionGroupKey,
-  CatalogPrimaryWorkbenchProfileSectionSaveOutcome,
-  CatalogPrimaryWorkbenchProfileSectionFieldControl,
-  CatalogPrimaryWorkbenchProfileSectionField,
-  CatalogPrimaryWorkbenchProfileOptionQueryDetail,
-  CatalogPrimaryWorkbenchProfileImportScopeControl,
-  CatalogPrimaryWorkbenchProfileMappingRow,
-  CatalogPrimaryWorkbenchProfileSectionWorkspace,
-  CatalogPrimaryWorkbenchProfileCloneDraftReadModel,
-  CatalogPrimaryWorkbenchProfileAuthoringReadModel,
-  CatalogPrimaryWorkbenchImportJobsReadModel,
-} from "./primary-workbench-profile-readiness-contracts";
-import type {
-  CatalogPrimaryWorkbenchHealthTriageReadModel,
-  CatalogPrimaryWorkbenchHealthTriageReadModelState,
-  CatalogPrimaryWorkbenchHealthTriageUnit,
-  CatalogPrimaryWorkbenchHealthTriageProvider,
-  CatalogPrimaryWorkbenchValidationReadinessStatus,
-  CatalogPrimaryWorkbenchLifecycleOperation,
-  CatalogPrimaryWorkbenchLifecycleRecoveryStatus,
-  CatalogPrimaryWorkbenchLifecycleRecoveryReadModel,
-  CatalogPrimaryWorkbenchLifecycleOperationReadModel,
-  CatalogPrimaryWorkbenchGovernanceControlsStatus,
-  CatalogPrimaryWorkbenchGovernanceControlKind,
-  CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey,
-  CatalogPrimaryWorkbenchGovernanceControlsReadModel,
-  CatalogPrimaryWorkbenchAuditEvidenceStatus,
-  CatalogPrimaryWorkbenchAuditEvidenceFilterKey,
-  CatalogPrimaryWorkbenchAuditEvidenceTargetType,
-  CatalogPrimaryWorkbenchAuditEvidenceReadModel,
-  CatalogPrimaryWorkbenchAuditEvidenceLink,
-  CatalogPrimaryWorkbenchHealthTriageRolloutControl,
-  CatalogPrimaryWorkbenchHealthTriageJob,
-  CatalogPrimaryWorkbenchHealthTriageAuditPreview,
-} from "./primary-workbench-lifecycle-governance-contracts";
-import type {
-  CatalogPrimaryWorkbenchSourceObservationReviewReadModel,
-  CatalogPrimaryWorkbenchSourceObservationReviewRow,
-  CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
-  CatalogPrimaryWorkbenchProductContentsEvidenceState,
-  CatalogPrimaryWorkbenchProductContentsEvidenceReview,
-  CatalogPrimaryWorkbenchProductContentsEvidenceLine,
-  CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData,
-  CatalogPrimaryWorkbenchMergeCandidateActionKey,
-  CatalogPrimaryWorkbenchMergeCandidateReviewReadModel,
-  CatalogPrimaryWorkbenchMergeCandidateReviewRow,
-  CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride,
-  CatalogPrimaryWorkbenchMergeCandidateEditReference,
-  CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel,
-  CatalogPrimaryWorkbenchConflictResolutionStatus,
-  CatalogPrimaryWorkbenchConflictResolutionState,
-  CatalogPrimaryWorkbenchConflictResolutionReadModel,
-  CatalogPrimaryWorkbenchConflictResolutionRow,
-  CatalogPrimaryWorkbenchPromotionValidationReadModel,
-  CatalogPrimaryWorkbenchPromotionIdentityDiagnostic,
-  CatalogPrimaryWorkbenchPromotionPreviewReadModel,
-  CatalogPrimaryWorkbenchPromotionResultReadModel,
-  CatalogPrimaryWorkbenchActionReadModel,
-  CatalogPrimaryWorkbenchSecurityPrivacyReadModel,
-  CatalogPrimaryWorkbenchInstrumentationReadModel,
-} from "./primary-workbench-promotion-review-contracts";
+} from "./primary-workbench-shared-contracts";
+import type { CatalogPrimaryWorkbenchRouteContextKey } from "./primary-workbench-selection-contracts";
+
+export type CatalogPrimaryWorkbenchDeploySkewMode = "current" | "old-ui-new-api" | "new-ui-old-api";
+
+export type CatalogPrimaryWorkbenchDeploySkewPolicy = Readonly<{
+  mode: CatalogPrimaryWorkbenchDeploySkewMode;
+  supported: boolean;
+  failClosedBlocker: Extract<CatalogPrimaryWorkbenchBlockerCategory, "deploy-skew-unsupported-version">;
+  forbiddenFallbacks: readonly string[];
+}>;
+
+export type CatalogPrimaryWorkbenchRetirementPolicy = Readonly<{
+  term: "retire";
+  requiredDisposition: "complete-removal";
+  surfaces: readonly string[];
+  forbiddenOutcomes: readonly string[];
+}>;
+
+export type CatalogPrimaryWorkbenchBlockerContract = Readonly<{
+  category: CatalogPrimaryWorkbenchBlockerCategory;
+  actionStates: readonly CatalogPrimaryWorkbenchActionState[];
+  copyKey: CatalogPrimaryWorkbenchCopyKey;
+  instrumentationDimension: Extract<CatalogPrimaryWorkbenchInstrumentationDimension, "blocker_category">;
+  failClosed: boolean;
+}>;
+
+export type CatalogPrimaryWorkbenchSectionContract = Readonly<{
+  key: CatalogPrimaryWorkbenchSectionKey;
+  defaultVisible: boolean;
+  queryKeys: readonly CatalogAdminControlPlaneQueryKey[];
+  commands: readonly CatalogPrimaryWorkbenchCommandKey[];
+  freshnessStates: readonly CatalogAdminControlPlaneFreshnessState[];
+  pagination: CatalogAdminControlPlanePaginationMode;
+  routeContextKeys: readonly CatalogPrimaryWorkbenchRouteContextKey[];
+}>;
+
+export type CatalogPrimaryWorkbenchDownstreamIssueKey =
+  | "#1033"
+  | "#1034"
+  | "#1035"
+  | "#1036"
+  | "#1037"
+  | "#1056"
+  | "#1038"
+  | "#1039"
+  | "#1040"
+  | "#1041"
+  | "#1042"
+  | "#1043"
+  | "#1044"
+  | "#1057"
+  | "#1058"
+  | "#1059"
+  | "#1062"
+  | "#1063"
+  | "#1064"
+  | "#1065";
+
+export type CatalogPrimaryWorkbenchDownstreamContract = Readonly<{
+  issue: CatalogPrimaryWorkbenchDownstreamIssueKey;
+  consumes: readonly CatalogPrimaryWorkbenchSectionKey[];
+  requiredFields: readonly string[];
+}>;
+
 export const catalogPrimaryWorkbenchSections = [
   section({
     key: "provider-scope-selection",
