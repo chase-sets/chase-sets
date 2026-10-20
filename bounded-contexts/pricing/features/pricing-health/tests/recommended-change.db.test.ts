@@ -105,9 +105,9 @@ describeDb("S12 over stored synthetic A1 runs through the real composition", () 
   });
 
   it.each([
-    ["S9", [0.1, 0.3, 0.2], [3, 3, 3], 1],
-    ["S5", [0.1, 0.1, 0.1], [4, 3, 1], 2],
-    ["goal id", [0.1, 0.1, 0.1], [3, 3, 3], 0],
+    ["S9", [0.1, 0.3, 0.2, 0.4, 0.5], [3, 3, 3, 3, 3], 1],
+    ["S5", [0.1, 0.1, 0.1, 0.1, 0.1], [4, 3, 1, 2, 5], 2],
+    ["goal id", [0.1, 0.1, 0.1, 0.1, 0.1], [3, 3, 3, 3, 3], 0],
   ] as const)("breaks equal S8 ties by %s", async (_, capital, wait, winner) => {
     await createComparisonPolicy(pools.pricing, services);
     await basis();

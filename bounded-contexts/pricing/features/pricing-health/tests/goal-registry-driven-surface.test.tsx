@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
 import { selectableGoalChoices } from "../api/goal-comparison";
@@ -25,7 +26,11 @@ describe("Pricing Health goal registry-driven surface", () => {
       adoption("profit-per-day", false, "shadow"),
     ]);
     expect(goals.every(({ goalId }) => goalId === "fixed-percentile")).toBe(true);
-    render(<GoalPicker goals={goals} />);
+    render(
+      <MemoryRouter>
+        <GoalPicker goals={goals} />
+      </MemoryRouter>,
+    );
     expect(screen.getByText(/Price at the 65th market percentile/)).toBeTruthy();
     expect(screen.queryByText(/Sell steadily/)).toBeNull();
   });
@@ -34,30 +39,32 @@ describe("Pricing Health goal registry-driven surface", () => {
     const [goal] = selectableGoalChoices(pricingGoalDefinitions(), [adoption("profit-per-day", true)]);
     if (!goal) throw new Error("real registry did not expose the adopted goal");
     render(
-      <GoalPicker
-        goals={[
-          {
-            ...goal,
-            economics: {
-              availability: "resolved",
-              currency: "USD",
-              effectiveAt: "2026-10-20T00:00:00.000Z",
-              reason: null,
-              facts: {
-                dailyReturnHurdle: {
-                  effectiveValue: 0.01,
-                  observedAt: "2026-10-19T00:00:00.000Z",
-                  source: "policy-owned",
-                  override: null,
+      <MemoryRouter>
+        <GoalPicker
+          goals={[
+            {
+              ...goal,
+              economics: {
+                availability: "resolved",
+                currency: "USD",
+                effectiveAt: "2026-10-20T00:00:00.000Z",
+                reason: null,
+                facts: {
+                  dailyReturnHurdle: {
+                    effectiveValue: 0.01,
+                    observedAt: "2026-10-19T00:00:00.000Z",
+                    source: "policy-owned",
+                    override: null,
+                  },
                 },
               },
             },
-          },
-        ]}
-      />,
+          ]}
+        />
+      </MemoryRouter>,
     );
     expect(document.querySelector('input[type="number"]')).toBeTruthy();
-    expect(screen.getByText(/policy-owned/)).toBeTruthy();
+    expect(screen.getByText(/Policy-owned/)).toBeTruthy();
     expect(screen.getByText(/2026-10-19/)).toBeTruthy();
   });
 });

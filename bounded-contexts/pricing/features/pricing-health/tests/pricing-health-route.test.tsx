@@ -55,6 +55,21 @@ describe("Pricing Health route", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: "validation_failed" } });
   });
+  it.each([
+    ["malformed JSON", "{", 400],
+    ["non-array goals", JSON.stringify({ goals: {} }), 400],
+    ["unknown key", JSON.stringify({ goals: [], extra: true }), 400],
+    ["array body", JSON.stringify([]), 400],
+  ] as const)("rejects closed compare schema: %s", async (_, body, status) => {
+    const { app, services } = setup();
+    const response = await app.request("/health/rpp_owned/compare", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    expect(response.status).toBe(status);
+    expect(services.compare).not.toHaveBeenCalled();
+  });
   it("registers the canonical Seller Desk page and authorized route", () => {
     expect(
       readFileSync(new URL("../../../../../contracts/seller-desk/blueprint.md", import.meta.url), "utf8"),

@@ -1,6 +1,8 @@
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createPricingHealthServices } from "../api/services";
+import { createEconomicsServices } from "../../economics/api/services";
 import { createForecastLedgerRuntime } from "../../forecast-ledger/api/runtime";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
@@ -52,7 +54,21 @@ export function comparisonTestServices(db: PgTransactionalPool) {
       throw new Error("Synthetic stored-run fixture must not resolve live Economics.");
     },
   });
-  const health = createPricingHealthServices({ db, policies, forecastLedger, repricingPolicies, repricingEngine });
+  const economics = createEconomicsServices({
+    eventStore,
+    db,
+    policies,
+    commercialTermsResolver: createNoopCommercialTermsResolver(),
+    channelConnectionIdentityReader: { resolve: async () => null },
+  });
+  const health = createPricingHealthServices({
+    db,
+    policies,
+    forecastLedger,
+    repricingPolicies,
+    repricingEngine,
+    economics,
+  });
   return { health, policies: repricingPolicies, worker: repricingEngine };
 }
 

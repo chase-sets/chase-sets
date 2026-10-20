@@ -11,10 +11,21 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
-import { goalExplanation, goalLabel, healthCopy as copy, healthReasonLabel, recommendationCopy } from "./copy";
+import {
+  goalExplanation,
+  goalLabel,
+  healthCopy as copy,
+  healthReasonLabel,
+  localizedEconomicsFact,
+  localizedEconomicsSource,
+  localizedGoalStatus,
+  recommendationCopy,
+} from "./copy";
 
 export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>) {
+  const navigate = useNavigate();
   const [parameters, setParameters] = useState(() =>
     Object.fromEntries(goals.map((goal) => [`${goal.goalId}@${goal.goalVersion}`, { ...goal.parameters }])),
   );
@@ -31,10 +42,10 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
         })),
       ),
     );
-    window.history.replaceState({}, "", url);
+    navigate(`${url.pathname}${url.search}`, { replace: true });
   };
   return (
-    <Card data-testid="pricing-health-goal-picker">
+    <Card elevation="tinted" data-testid="pricing-health-goal-picker">
       <Card.Header>
         <Card.Title>{copy("goals.title")}</Card.Title>
         <Card.Description>{copy("goals.description")}</Card.Description>
@@ -58,6 +69,11 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
                     {Object.entries(goal.parameterSchema).map(([parameter, bounds]) => {
                       const key = `${goal.goalId}@${goal.goalVersion}`;
                       const value = parameters[key]?.[parameter] ?? bounds.default;
+                      const numericValue = Number(value);
+                      const invalid =
+                        !Number.isFinite(numericValue) ||
+                        numericValue < bounds.minimum ||
+                        numericValue > bounds.maximum;
                       return (
                         <TextInput
                           key={parameter}
@@ -68,6 +84,7 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
                           min={bounds.minimum}
                           max={bounds.maximum}
                           step="any"
+                          error={invalid ? copy("goals.validation") : undefined}
                           onChange={(event) => {
                             const next = {
                               ...parameters,
@@ -84,8 +101,8 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
                     items={
                       goal.economics
                         ? Object.entries(goal.economics.facts).map(([name, fact]) => ({
-                            key: name,
-                            value: `${String(fact.effectiveValue)} · ${fact.source} · ${fact.observedAt}`,
+                            key: localizedEconomicsFact(name),
+                            value: `${String(fact.effectiveValue)} · ${localizedEconomicsSource(fact.source)} · ${fact.observedAt}`,
                           }))
                         : []
                     }
@@ -188,7 +205,7 @@ export function GoalComparison({
               </Text>
             ),
           },
-          { key: "status", header: copy("goals.status"), cell: (row) => row.status },
+          { key: "status", header: copy("goals.status"), cell: (row) => localizedGoalStatus(row.status) },
           {
             key: "value",
             header: copy("goals.value"),

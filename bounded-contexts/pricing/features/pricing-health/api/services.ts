@@ -44,7 +44,7 @@ export function createPricingHealthServices({
   repricingEngine: Pick<RepricingEngineServices, "enqueueDryRun" | "getDryRun">;
   repricingPolicies: Pick<RepricingPolicyServices, "loadOwnedRepricingPolicy" | "getHalt">;
   forecastLedger: Pick<ForecastLedgerServices, "listGoalAdoptions">;
-  economics?: Pick<EconomicsServices, "resolve">;
+  economics: Pick<EconomicsServices, "resolve">;
 }>) {
   const currentTarget = async (accountId: string, policyId: string) => {
     const loaded = await repricingPolicies.loadOwnedRepricingPolicy(policyId, accountId);

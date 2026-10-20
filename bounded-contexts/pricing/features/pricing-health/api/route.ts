@@ -58,9 +58,14 @@ export function createPricingHealthRoutes(services: PricingHealthServices) {
       let requests: readonly GoalParameterRequest[] | undefined;
       const contentType = c.req.header("content-type") ?? "";
       if (contentType.includes("application/json")) {
-        const body: unknown = await c.req.json().catch(() => null);
-        if (body && typeof body === "object" && "goals" in body && Array.isArray(body.goals))
-          requests = body.goals as GoalParameterRequest[];
+        const body: unknown = await c.req.json().catch(() => undefined);
+        if (body === undefined || body === null || typeof body !== "object" || Array.isArray(body))
+          throw new GoalComparisonValidationError(["compare body must be an object with a goals array"]);
+        const candidate = body as { goals?: unknown };
+        const keys = Object.keys(body);
+        if (keys.length !== 1 || !keys.includes("goals") || !Array.isArray(candidate.goals))
+          throw new GoalComparisonValidationError(["compare body must contain only a goals array"]);
+        requests = candidate.goals as GoalParameterRequest[];
       }
       const runs = await services.compare(c.get("actor")!.accountId, c.req.param("policyId"), context, requests);
       return runs ? c.json({ runs }, 202) : c.json({ error: { code: "not_found" } }, 404);

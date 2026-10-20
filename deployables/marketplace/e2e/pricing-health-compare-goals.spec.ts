@@ -11,6 +11,28 @@ import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract"
 const policiesApi = "/api/marketplace/account/repricing-policies";
 const healthApi = "/api/marketplace/account/pricing-health";
 const listingId = "lst_seed_charizard_base_set_psa_8";
+type CandidateDiagnostic = Pick<
+  {
+    goalId: string;
+    goalVersion: number;
+    dryRunId: string;
+    status: string;
+    requestedAt: string;
+    completedAt: string | null;
+  },
+  "goalId" | "goalVersion" | "dryRunId" | "status" | "requestedAt" | "completedAt"
+>;
+type PricingHealthResponse = {
+  goals: readonly { goalId: string; goalVersion: number }[];
+  comparison: readonly (CandidateDiagnostic & {
+    targetPolicyId: string;
+    listingCount: number | null;
+    raised: number | null;
+    lowered: number | null;
+    held: number | null;
+    bodyHash: string;
+  })[];
+};
 
 test("compare eligible Pricing Goals over the entire selected policy without mutation @marketplace-seller @browser-e2e-seed", async ({
   page,
@@ -38,7 +60,7 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
   let created: { policyId: string; accountId: string } | undefined;
   let fixture: Awaited<ReturnType<typeof seedSyntheticPricingHealthInputs>> | undefined;
   let setupRun: unknown = null;
-  let candidateRuns: unknown[] = [];
+  let candidateRuns: CandidateDiagnostic[] = [];
   let comparisonSucceeded = false;
   const attachDiagnostics = async () => {
     await testInfo.attach("pricing-health-compare-setup.json", {
@@ -53,7 +75,8 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
   };
   const drainCandidates = async () => {
     if (!created) return;
-    const deadline = Date.now() + 30_000;
+    // Five-goal head-12 budget reserves 4 seconds per outstanding candidate.
+    const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) {
       const result = await pool.query<{ status: string }>(
         `SELECT status FROM pricing_repricing_dry_runs WHERE seller_account_id=$1 AND replacing_policy_id=$2
@@ -96,7 +119,7 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     setupRun = { dryRunId, requestedAt: new Date().toISOString() };
     await expect
       .poll(async () => (await (await page.request.get(`${policiesApi}/dry-runs/${dryRunId}`)).json()).status, {
-        timeout: 60_000,
+        timeout: 45_000,
         intervals: [500, 1000, 2000],
       })
       .toBe("completed");
@@ -111,22 +134,35 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     const before = await (await page.request.get(`${policiesApi}/${created.policyId}`)).json();
     await page.goto(`/account/desk/pricing-health?policyId=${created.policyId}`);
     const compare = page.getByRole("button", { name: "Compare goals", exact: true });
+    const editDisclosure = page.getByRole("button", { name: "Advanced controls and provenance", exact: true }).first();
+    await expect(editDisclosure).toBeVisible();
+    await editDisclosure.focus();
+    await page.keyboard.press("Enter");
+    await expect(editDisclosure).toHaveAttribute("aria-expanded", "true");
     const parameter = page.getByRole("spinbutton").first();
-    if (await parameter.count()) {
-      await parameter.fill("66");
-      await expect.poll(() => new URL(page.url()).searchParams.get("goals") ?? "").toContain("66");
-    }
+    await expect(parameter).toBeVisible();
+    await parameter.fill("66");
+    await expect.poll(() => new URL(page.url()).searchParams.get("goals") ?? "").toContain("66");
+    await editDisclosure.focus();
+    await page.keyboard.press("Enter");
+    await expect(editDisclosure).toHaveAttribute("aria-expanded", "false");
     await expect(compare).toBeVisible();
     await compare.focus();
     await expect(compare).toBeFocused();
     await page.keyboard.press("Enter");
-    const read = async () => await (await page.request.get(`${healthApi}?policyId=${created!.policyId}`)).json();
+    const read = async () =>
+      (await (
+        await page.request.get(
+          `${healthApi}?policyId=${created!.policyId}&goals=${encodeURIComponent(new URL(page.url()).searchParams.get("goals") ?? "")}`,
+        )
+      ).json()) as PricingHealthResponse;
     const first = await read();
-    const candidateDeadline = Date.now() + Math.min(120_000, Math.max(45_000, (first.goals.length + 1) * 14_000));
-    let completed: any;
+    // 45 s setup + <=75 s candidates (5 × 12 s) + 30 s UI/axe/responsive + 20 s drain = 170 s < 180 s.
+    const candidateDeadline = Date.now() + Math.min(75_000, Math.max(45_000, first.goals.length * 12_000));
+    let completed: PricingHealthResponse;
     while (Date.now() < candidateDeadline) {
       completed = await read();
-      candidateRuns = completed.comparison.map((row: any) => ({
+      candidateRuns = (completed.comparison ?? []).map((row) => ({
         goalId: row.goalId,
         goalVersion: row.goalVersion,
         dryRunId: row.dryRunId,
@@ -134,7 +170,9 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
         requestedAt: row.requestedAt,
         completedAt: row.completedAt,
       }));
-      const failed = completed.comparison.find((row: { status: string }) => row.status === "failed");
+      const failed = completed.comparison.find(
+        (row: PricingHealthResponse["comparison"][number]) => row.status === "failed",
+      );
       if (failed) {
         await attachDiagnostics();
         throw new Error(`Pricing Goal candidate ${failed.goalId}@${failed.goalVersion} failed.`);
@@ -158,15 +196,15 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     let movement = 0;
     for (const row of completed.comparison) {
       expect(row.targetPolicyId).toBe(created.policyId);
-      expect(row.scopeLabel).toBe("Entire selected policy candidate scope");
+      expect(row).not.toHaveProperty("scopeLabel");
       expect(row.listingCount).toBe(1);
-      expect(row.raised + row.lowered + row.held).toBe(row.listingCount);
+      expect((row.raised ?? 0) + (row.lowered ?? 0) + (row.held ?? 0)).toBe(row.listingCount);
       expect(row.bodyHash).toMatch(/^[a-f0-9]{64}$/);
-      movement += row.raised + row.lowered;
+      movement += (row.raised ?? 0) + (row.lowered ?? 0);
     }
     expect(movement).toBeGreaterThan(0);
     // The mounted route must observe worker completion without an explicit page reload.
-    await expect(page.getByTestId("pricing-health-goal-comparison")).toContainText("completed");
+    await expect(page.getByTestId("pricing-health-goal-comparison")).toContainText("Completed");
     expect(await (await page.request.get(`${policiesApi}/${created.policyId}`)).json()).toEqual(before);
     const viewports = [
       { width: 360, height: 800 },
@@ -201,10 +239,13 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
   } finally {
     try {
       if (!comparisonSucceeded) await attachDiagnostics();
-      await drainCandidates();
-      if (created) {
-        expect((await page.request.post(`${policiesApi}/${created.policyId}/delete`)).status()).toBe(200);
-        await projectSyntheticPricingHealthPolicy(pool, created);
+      try {
+        await drainCandidates();
+      } finally {
+        if (created) {
+          expect((await page.request.post(`${policiesApi}/${created.policyId}/delete`)).status()).toBe(200);
+          await projectSyntheticPricingHealthPolicy(pool, created);
+        }
       }
     } finally {
       try {
