@@ -97,6 +97,7 @@ const deployConcurrencyWorkflowFiles = [
   ".github/workflows/platform-staging-admin-qa-actor-fixtures.yml",
   ".github/workflows/platform-staging-advisory-evidence.yml",
   ".github/workflows/platform-staging-bootstrap-hook-drill.yml",
+  ".github/workflows/platform-staging-evidence-window.yml",
   ".github/workflows/platform-staging-helm-recovery.yml",
   ".github/workflows/platform-staging-representative-commerce-state.yml",
   ".github/workflows/platform-staging-reset.yml",
