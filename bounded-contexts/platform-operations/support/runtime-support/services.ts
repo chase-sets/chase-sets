@@ -42,6 +42,8 @@ import {
   getSupportRequestByDisplayReference,
   getSupportRequestById,
 } from "../../features/support-requests/read-model/queries";
+import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { buildAccountAppealInterestProjectionHandlers } from "../../features/account-appeals/read-model/projection";
 
 export type PlatformOperationsHostPorts = Readonly<{
   providerConnectionsCrossContext?: ProviderConnectionsCrossContextPort;
@@ -224,6 +226,17 @@ export function createPlatformOperationsServices(
     policyConsoleEntries,
     supportReferenceLookup,
     projectors: [
+      createProjectionHandlerSet({
+        projectionName: "platform-operations.account-appeal-interest-projection",
+        handlers: buildAccountAppealInterestProjectionHandlers(db),
+        eventTypes: [
+          "identity.account.suspended",
+          "identity.account.reactivated",
+          "identity.account.closed",
+          "marketplace.listing.operator-unlisted",
+          "marketplace.listing.auto-unlisted",
+        ],
+      }),
       ...platformFeedback.projectors,
       ...publicDocReviews.projectors,
       ...reportedContent.projectors,

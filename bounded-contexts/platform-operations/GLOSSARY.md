@@ -268,3 +268,23 @@ A **Support Reference Lookup** is the Platform Operations admin surface that res
 A **Seller Compliance Sale** is one recorded, replayable fact about a platform-processed sale: the `(payment_id, order_id)` pair a Payments capture creates against an Ordering order, together with Ordering's authoritative seller, the capture occurrence instant, the gross money decomposition in cents when every source value is present and reconciles, the recorded per-line classification inputs, cancellation, and the cumulative refund total and cap when a refund has affected that order.
 
 It is an observation, not a verdict. It asserts no statutory applicability, evaluates no threshold, and classifies no seller; a later policy evaluator reads these facts. It is distinct from **Risk Alert**, which is an operator-facing Trust & Safety queue item raised by velocity thresholds, whereas a Seller Compliance Sale raises nothing and simply records what Ordering and Payments published.
+
+## Account Appeal
+
+An **Account Appeal** is the Platform Operations private aggregate for an account owner’s challenge to one immutable, lookup-authoritative **Appealable Enforcement Action**. Its **Appeal Status** progresses from filed to in-review and one terminal outcome, or withdrawn.
+
+An **Appealable Enforcement Action** is a complete, non-conflicted registry tuple linking an enforcement action to its owning account, source discriminator, source stream id, and source stream version. Absence or conflict is indeterminate, never eligibility.
+
+An **Appeal Outcome** is the private terminal decision upheld, reversed, or modified, retaining the operator, rationale, and internal note in the owning context.
+
+### Appealable Enforcement Action
+
+An **Appealable Enforcement Action** is the complete registry tuple that proves an account-owned enforcement fact may be challenged.
+
+### Appeal Status
+
+An **Appeal Status** is the aggregate lifecycle state: filed, in-review, upheld, reversed, modified, or withdrawn.
+
+### Appeal Outcome
+
+An **Appeal Outcome** is the private terminal decision upheld, reversed, or modified, including its rationale and operator note.
