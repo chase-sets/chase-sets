@@ -34,7 +34,6 @@ export const ENABLED_NATIVE_ISSUE_TYPES = Object.freeze([
 
 const CLEANUP_POINTER = "Cleanup owner: #6174.";
 const SLICE_FORM_FAMILIES = new Set(["priority", "area", "kind"]);
-const LEGACY_EPIC_LABEL = "kind:epic";
 const API_ORIGIN = "https://api.github.com";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -75,9 +74,6 @@ const canonicalEntries = [
     "kind:security",
     "kind:test",
     "kind:ops",
-  ]),
-  ...entries("canonical", "kind", "Legacy Epic classification fallback retained for existing untyped issues.", [
-    "kind:epic",
   ]),
   ...entries("canonical", "priority", "Dispatch rank selected by the slice issue form.", [
     "priority:p0",
@@ -224,9 +220,7 @@ export function sliceFormValues(family) {
   if (!SLICE_FORM_FAMILIES.has(family)) {
     throw new Error(`Unsupported slice form label family: ${family}`);
   }
-  return canonicalLabelNames(family)
-    .filter((name) => name !== LEGACY_EPIC_LABEL)
-    .map((name) => name.slice(name.indexOf(":") + 1));
+  return canonicalLabelNames(family).map((name) => name.slice(name.indexOf(":") + 1));
 }
 
 function diagnostic(code, message) {

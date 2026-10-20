@@ -1,4 +1,3 @@
-const EPIC_LABEL = "kind:epic";
 const TRACKING_ONLY_LABEL = "status:tracking-only";
 import { isExecutableOutcome } from "./milestone-policy.mjs";
 
@@ -72,8 +71,7 @@ function validate(input) {
 
 export function isEpic(input) {
   const value = validate(input);
-  if (value.issueTypeName !== null) return value.issueTypeName === "Epic";
-  return value.labels.includes(EPIC_LABEL);
+  return value.issueTypeName === "Epic";
 }
 
 export function isTrackingOnly(input) {

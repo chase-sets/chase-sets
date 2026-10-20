@@ -662,7 +662,7 @@ describe("next-work ranking", () => {
       13: ["pr-open", []],
       14: ["implement", []],
       15: ["implement", []],
-      16: ["planning-repair", ["UNCLASSIFIED"]],
+      16: ["implement", []],
       17: ["planning-repair", ["UNCLASSIFIED"]],
     });
     const excludedTotal = Object.values(document.excluded).reduce((sum, count) => sum + count, 0);

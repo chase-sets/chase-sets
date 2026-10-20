@@ -97,7 +97,10 @@ describe("risk-policy/v1", () => {
         new URL("../../bounded-contexts/payments/features/payments/api/webhook-transaction.ts", import.meta.url),
         "utf8",
       ),
-      readFile(new URL("../../bounded-contexts/settlement/features/payouts/api/runtime.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL("../../bounded-contexts/settlement/features/payouts/api/payout-provider-events.ts", import.meta.url),
+        "utf8",
+      ),
     ]);
     expect(inbox).toContain("recordProviderWebhookEvent");
     expect(paymentConsumer).toContain('from "@chase-sets/provider-webhook-inbox"');

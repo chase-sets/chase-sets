@@ -37,8 +37,12 @@ const ENTRY_KEYS = new Set([
   "proofWorkflows",
   "optional",
 ]);
-const AGENT_TIER_KEYS = new Set(["project", "keys"]);
+const AGENT_TIER_KEYS = new Set(["project", "keys", "accounts"]);
 const AGENT_TIER_KEY_KEYS = new Set(["name", "testPrefixes"]);
+const AGENT_TIER_ACCOUNT_KEYS = new Set(["name", "machineAccount", "access", "tokenExpiresOn"]);
+// The account names with-secrets.ps1 -Account accepts.
+const ACCOUNT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 // Liveness kinds that reach a whole provider account, and name classes the
 // agent-tier decision keeps out of the tier whatever their scope.
 const AGENT_TIER_REFUSED_LIVENESS = Object.freeze(["digitalocean-account", "spaces-list-buckets"]);
@@ -49,7 +53,7 @@ const STRIPE_KEY_FAMILIES = new Map([
   ["STRIPE_PUBLISHABLE_KEY", "publishable"],
   ["STRIPE_SECRET_KEY", "server"],
 ]);
-const TEST_PREFIX = /^[\x21-\x7E]+$/;
+const PRINTABLE = /^[\x21-\x7E]+$/;
 const SECRET_NAME = /^[A-Z_][A-Z0-9_]*$/;
 const ENVIRONMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const BUCKET_NAME = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
@@ -176,8 +180,8 @@ function reachesProduction(entry) {
 
 // The agent tier: the test values a lane may receive through
 // scripts/agent-secrets/with-secrets.ps1. Every entry it does not list is
-// CI/deploy-only. Returns `{ project, keys }`, pushing one named error per
-// refused key.
+// CI/deploy-only. Returns `{ project, keys, accounts }`, pushing one named
+// error per refused key or account.
 function validateAgentTier(tier, byName, errors) {
   if (!plainObject(tier) || typeof tier.project !== "string" || tier.project === "" || !Array.isArray(tier.keys)) {
     errors.push("agentTier must be an object with project and keys");
@@ -198,7 +202,7 @@ function validateAgentTier(tier, byName, errors) {
     }
     if (
       !Array.isArray(key.testPrefixes) ||
-      key.testPrefixes.some((prefix) => typeof prefix !== "string" || !TEST_PREFIX.test(prefix)) ||
+      key.testPrefixes.some((prefix) => typeof prefix !== "string" || !PRINTABLE.test(prefix)) ||
       new Set(key.testPrefixes).size !== key.testPrefixes.length
     ) {
       errors.push(`${label}: testPrefixes must list unique printable prefixes`);
@@ -249,7 +253,55 @@ function validateAgentTier(tier, byName, errors) {
       name: key.name,
       testPrefixes: Array.isArray(key.testPrefixes) ? [...key.testPrefixes] : [],
     })),
+    accounts: validateAgentTierAccounts(tier.accounts, errors),
   };
+}
+
+// True for a real calendar day written `YYYY-MM-DD`.
+function isCalendarDate(value) {
+  const match = typeof value === "string" ? CALENDAR_DATE.exec(value) : null;
+  if (!match) return false;
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+// The Bitwarden machine accounts whose tokens lanes hold, each with the expiry
+// recorded when its token was minted (runbook "Agent Token Renewal"). An
+// absent list is empty.
+function validateAgentTierAccounts(accounts, errors) {
+  if (accounts === undefined) return [];
+  if (!Array.isArray(accounts)) {
+    errors.push("agentTier: accounts must be a list");
+    return [];
+  }
+  const seen = new Set();
+  for (const [index, account] of accounts.entries()) {
+    const label = `agentTier account ${typeof account?.name === "string" ? account.name : `accounts[${index}]`}`;
+    if (!plainObject(account)) {
+      errors.push(`${label}: account must be an object`);
+      continue;
+    }
+    for (const field of Object.keys(account)) {
+      if (!AGENT_TIER_ACCOUNT_KEYS.has(field)) errors.push(`${label}: unknown key ${field}`);
+    }
+    if (typeof account.name !== "string" || !ACCOUNT_NAME.test(account.name)) {
+      errors.push(`${label}: name must match ${ACCOUNT_NAME.source}`);
+    } else if (seen.has(account.name)) {
+      errors.push(`${label}: duplicate account`);
+    }
+    seen.add(account.name);
+    if (typeof account.machineAccount !== "string" || !PRINTABLE.test(account.machineAccount)) {
+      errors.push(`${label}: machineAccount must be a printable name`);
+    }
+    if (account.access !== "read") errors.push(`${label}: access must be read`);
+    if (account.tokenExpiresOn !== null && !isCalendarDate(account.tokenExpiresOn)) {
+      errors.push(`${label}: tokenExpiresOn must be a YYYY-MM-DD date or null`);
+    }
+  }
+  return accounts
+    .filter(plainObject)
+    .map(({ name, machineAccount, access, tokenExpiresOn }) => ({ name, machineAccount, access, tokenExpiresOn }));
 }
 
 // The Spaces pair rule: a pair joins only when neither member's scope reaches
