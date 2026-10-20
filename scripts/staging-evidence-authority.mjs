@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync, chmodSync, existsSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -38,7 +38,7 @@ const OPTION_NAMES = new Set([
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const HEAD = /^[a-f0-9]{40}$/;
 const AUTH_MARKERS =
-  /(?:pk_|sk_|rk_|acct_|pi_|seti_|cus_|cs_|rfd_|ord_|session[_-][a-z0-9._-]+|bearer\s+[a-z0-9._-]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i;
+  /(?<![A-Za-z0-9])(?:pk_|sk_|rk_|acct_|pi_|seti_|cus_|cs_|rfd_|ord_|session[_-][a-z0-9._-]+|bearer\s+[a-z0-9._-]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i;
 
 const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const exact = (value, keys) =>
@@ -65,7 +65,7 @@ function readArgv(argv) {
   const governed = [];
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
-    if (!token.startsWith("--")) throw inputError("argv", "input-invalid");
+    if (typeof token !== "string" || !token.startsWith("--")) throw inputError("argv", "input-invalid");
     const name = token.slice(2);
     if (["github-token", "marketplace-e2e-email", "marketplace-e2e-password"].includes(name)) {
       throw inputError(name, "input-forbidden-in-argv");
@@ -111,8 +111,8 @@ export function parseInputs(argv = [], env = process.env, cwd = process.cwd()) {
   if (environment !== "staging") throw inputError("environment", "environment-not-staging");
   if (!HEAD.test(head)) throw inputError("head", "input-invalid");
   if (!isAbsolute(worktree)) throw inputError("worktree", "input-invalid");
+  if (governedPaths.length < 1) throw inputError("governed-path", "input-missing");
   if (
-    governedPaths.length < 1 ||
     governedPaths.length > 32 ||
     new Set(governedPaths).size !== governedPaths.length ||
     !governedPaths.every(isRepoPath)
@@ -154,10 +154,6 @@ export function parseInputs(argv = [], env = process.env, cwd = process.cwd()) {
   );
   const runnerPath = resolveValue("runner-path", values.get("runner-path"), env, "PROBE_RUNNER_PATH");
   if (runnerPath !== SELF_PATH || !isRepoPath(runnerPath)) throw inputError("runner-path", "input-invalid");
-  for (const forbidden of ["GITHUB_TOKEN", "MARKETPLACE_E2E_EMAIL", "MARKETPLACE_E2E_PASSWORD"]) {
-    if (values.has(forbidden.toLowerCase().replaceAll("_", "-")))
-      throw inputError(forbidden, "input-forbidden-in-argv");
-  }
   const githubToken = envValue(env, "GITHUB_TOKEN");
   const email = envValue(env, "MARKETPLACE_E2E_EMAIL");
   const password = envValue(env, "MARKETPLACE_E2E_PASSWORD");
@@ -271,7 +267,14 @@ function validateAuthorityOk(value, input) {
     Date.parse(value.finishedAt) - Date.parse(value.startedAt) > 600_000
   )
     return false;
-  if (validateExecutedBytes(value.executedBytes, input).length > 0) return false;
+  if (
+    validateExecutedBytes(value.executedBytes, {
+      governedPaths: input.governedPaths,
+      runnerPath: input.runnerPath,
+      selfPath: SELF_PATH,
+    }).length > 0
+  )
+    return false;
   try {
     readStagingDeployGeneration(
       JSON.stringify({ deployment: value.deployment, deployGeneration: value.deployGeneration }),
@@ -332,14 +335,26 @@ function validateAuthorityOk(value, input) {
 
 function writeAtomic(file, text) {
   const temp = `${file}.${process.pid}.tmp`;
-  writeFileSync(temp, text, { encoding: "utf8", mode: 0o600, flag: "wx" });
-  chmodSync(temp, 0o600);
-  renameSync(temp, file);
-  chmodSync(file, 0o600);
+  try {
+    if (existsSync(file)) throw new Error("out-file-exists");
+    writeFileSync(temp, text, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    chmodSync(temp, 0o600);
+    if (existsSync(file)) throw new Error("out-file-exists");
+    renameSync(temp, file);
+    chmodSync(file, 0o600);
+  } finally {
+    try {
+      if (existsSync(temp)) {
+        unlinkSync(temp);
+      }
+    } catch {}
+  }
 }
 
-function writeLog(file, entry) {
-  appendFileSync(file, `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600, flag: "a" });
+function writeLog(file, entry, secrets) {
+  const line = `${JSON.stringify(entry)}\n`;
+  if (markerFound(line, secrets)) return;
+  appendFileSync(file, line, { encoding: "utf8", mode: 0o600, flag: "a" });
   chmodSync(file, 0o600);
 }
 
@@ -354,21 +369,36 @@ export async function runStagingEvidenceAuthority(options = {}) {
       parseInputs(options.argv ?? process.argv.slice(2), options.env ?? process.env, options.cwd ?? process.cwd());
   } catch (error) {
     const finishedAt = new Date(clock()).toISOString();
-    const value = resultFor("refused", error.stop ?? error.message, startedAt, finishedAt, { input: error.input });
-    return { value, exitCode: 2, stdout: `${JSON.stringify(value)}\n`, input: null };
+    const detail = { input: OPTION_NAMES.has(error.input) ? error.input : null };
+    let value = resultFor("refused", error.stop ?? "unexpected-internal-error", startedAt, finishedAt, detail);
+    const parseSecrets = [options.env ?? process.env].flatMap((source) =>
+      [source.GITHUB_TOKEN, source.MARKETPLACE_E2E_EMAIL, source.MARKETPLACE_E2E_PASSWORD].filter(
+        (secret) => typeof secret === "string",
+      ),
+    );
+    if (markerFound(JSON.stringify(value), parseSecrets))
+      value = resultFor("failed", "redaction-scan-finding", startedAt, finishedAt, null);
+    return { value, exitCode: value.result === "refused" ? 2 : 1, stdout: `${JSON.stringify(value)}\n`, input: null };
   }
   const log = (step, outcome, httpStatus = null) => {
     try {
-      writeLog(input.logFile, { step, outcome, httpStatus, elapsedMs: Math.max(0, clock() - startedMs) });
-    } catch {}
+      writeLog(input.logFile, { step, outcome, httpStatus, elapsedMs: Math.max(0, clock() - startedMs) }, secrets);
+    } catch {
+      // The receipt/stdout result is authoritative; an unavailable append-only audit path
+      // cannot be allowed to expose an exception or change the closed result shape.
+    }
   };
   const secrets = [input.githubToken, input.email, input.password];
   const withinBudget = () => clock() - startedMs <= input.totalBudgetMs;
+  const budgetStop = (step) => stopResult("probe-budget-exhausted", "failed", { step });
   const stopResult = async (stopCode, outcome = "failed", detail = {}) => {
     const finishedAt = new Date(clock()).toISOString();
-    const value = resultFor(outcome, stopCode, startedAt, finishedAt, detail);
     log(detail.step ?? "authority", outcome, detail.httpStatus);
-    return { value, exitCode: outcome === "refused" ? 2 : 1, stdout: `${JSON.stringify(value)}\n` };
+    let value = resultFor(outcome, stopCode, startedAt, finishedAt, detail);
+    if (markerFound(JSON.stringify(value), secrets)) {
+      value = resultFor("failed", "redaction-scan-finding", startedAt, finishedAt, null);
+    }
+    return { value, exitCode: value.result === "refused" ? 2 : 1, stdout: `${JSON.stringify(value)}\n` };
   };
   try {
     if (!withinBudget()) return await stopResult("probe-budget-exhausted", "refused", { step: "authority" });
@@ -396,7 +426,7 @@ export async function runStagingEvidenceAuthority(options = {}) {
         executed?.outcome === "refused" ? "refused" : "failed",
         { ...executed, step: "executed-bytes" },
       );
-    if (!withinBudget()) return await stopResult("probe-budget-exhausted", "refused", { step: "executed-bytes" });
+    if (!withinBudget()) return await budgetStop("executed-bytes");
     log("provider-mode", "started");
     const transport = options.transport;
     const mode = await (options.observeProviderMode ?? observeProviderMode)({
@@ -404,12 +434,12 @@ export async function runStagingEvidenceAuthority(options = {}) {
       transport,
     });
     if (mode?.stop) return await stopResult(mode.stop, "failed", { ...mode, step: "provider-mode" });
-    if (!withinBudget()) return await stopResult("probe-budget-exhausted", "refused", { step: "provider-mode" });
+    if (!withinBudget()) return await budgetStop("provider-mode");
     log("deploy-generation", "started");
     const generation = await (options.selectGeneration ?? selectStagingDeployGeneration)({ ...common, transport });
     if (generation?.stop)
       return await stopResult(generation.stop, "failed", { ...generation, step: "deploy-generation" });
-    if (!withinBudget()) return await stopResult("probe-budget-exhausted", "refused", { step: "deploy-generation" });
+    if (!withinBudget()) return await budgetStop("deploy-generation");
     log("runtime-compatibility", "started");
     const compatibility = await (options.classifyRuntime ?? classifyDeployedRuntime)(
       { worktree: input.worktree, intendedHead: input.head, deployedHead: generation.deployGeneration.deployedHead },
@@ -420,22 +450,21 @@ export async function runStagingEvidenceAuthority(options = {}) {
         ...compatibility,
         step: "runtime-compatibility",
       });
-    if (!withinBudget())
-      return await stopResult("probe-budget-exhausted", "refused", { step: "runtime-compatibility" });
+    if (!withinBudget()) return await budgetStop("runtime-compatibility");
     log("web-readiness", "started");
     const web = await (options.observeWebReadiness ?? observeWebReadiness)({
       timeoutMs: input.requestTimeoutMs,
       transport,
     });
     if (web?.stop) return await stopResult(web.stop, "failed", { ...web, step: "web-readiness" });
-    if (!withinBudget()) return await stopResult("probe-budget-exhausted", "refused", { step: "web-readiness" });
+    if (!withinBudget()) return await budgetStop("web-readiness");
     log("backend-readiness", "started");
     const backend = await (options.observeBackendReadiness ?? observeBackendReadiness)({
       timeoutMs: input.requestTimeoutMs,
       transport,
     });
     if (backend?.stop) return await stopResult(backend.stop, "failed", { ...backend, step: "backend-readiness" });
-    if (!withinBudget()) return await stopResult("probe-budget-exhausted", "refused", { step: "backend-readiness" });
+    if (!withinBudget()) return await budgetStop("backend-readiness");
     log("password-sign-in", "started");
     const auth = await (options.requestProductHost ?? requestProductHost)({
       method: "POST",
@@ -446,17 +475,16 @@ export async function runStagingEvidenceAuthority(options = {}) {
       transport,
     });
     if (auth.failure)
-      return await stopResult(auth.failure === "request-failed" ? "auth-failed" : auth.failure, "failed", {
+      return await stopResult("auth-failed", "failed", {
         ...auth,
         step: "password-sign-in",
       });
-    if (markerFound(new TextDecoder().decode(auth.body), secrets))
-      return await stopResult("redaction-scan-finding", "failed", { step: "password-sign-in" });
     const authBody = parseJson(auth.body);
     if (auth.httpStatus !== 200)
       return await stopResult("auth-failed", "failed", { httpStatus: auth.httpStatus, step: "password-sign-in" });
     if (!isRecord(authBody) || typeof authBody.sessionToken !== "string" || authBody.sessionToken.length === 0)
       return await stopResult("auth-session-token-absent", "failed", { httpStatus: 200, step: "password-sign-in" });
+    if (!withinBudget()) return await budgetStop("password-sign-in");
     const finishedAt = new Date(clock()).toISOString();
     const value = {
       version: STAGING_EVIDENCE_AUTHORITY_VERSION,
@@ -483,7 +511,11 @@ export async function runStagingEvidenceAuthority(options = {}) {
       Date.parse(finishedAt) < Date.parse(startedAt)
     )
       return await stopResult("redaction-scan-finding", "failed", { step: "result" });
-    writeAtomic(input.out, serialized);
+    try {
+      writeAtomic(input.out, serialized);
+    } catch {
+      return await stopResult("receipt-write-failed", "failed", { step: "receipt" });
+    }
     log("authority", "ok", null);
     return { value: Object.freeze(value), exitCode: 0, stdout: `${serialized}\n`, input };
   } catch {

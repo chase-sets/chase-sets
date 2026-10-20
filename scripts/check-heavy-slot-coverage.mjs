@@ -64,6 +64,7 @@ const reviewedCheapNodeEntrypoints = new Set([
   "scripts/run-catalog-observation-pack-capture.mjs",
   "scripts/run-catalog-real-provider-proof.mjs",
   "scripts/sandbox.mjs",
+  "scripts/staging-evidence-authority.mjs",
   "scripts/staging-mixed-version-wake-drill.mjs",
   "scripts/staging-wake-drills.mjs",
   "scripts/stripe-cli.mjs",

@@ -1,0 +1,20 @@
+{
+  "providerMode": {
+    "mode": "test",
+    "paymentProcessorKind": "stripe",
+    "moneyMovementKind": "stripe",
+    "deploymentEnvironment": "staging",
+    "observedAt": "2026-10-20T00:00:00Z"
+  },
+  "webReadiness": {
+    "ok": true,
+    "service": "marketplace",
+    "checkedAt": "2026-10-20T00:00:00Z",
+    "origin": "https://marketplace.staging.chasesets.com"
+  },
+  "backendReadiness": {
+    "status": "ok",
+    "checks": [{ "name": "db", "status": "ok" }]
+  },
+  "signIn": { "type": "session-started" }
+}

@@ -336,6 +336,26 @@ The spec fails loudly, not silently, on any of the three legs it proves: the emb
 
 The Stripe test-mode card fields are addressed inside Stripe's own combined Payment Element iframe (`iframe[title="Secure payment input frame"]`, `input[name="number"|"expiry"|"cvc"|"postalCode"]`); if a Stripe.js release changes that DOM contract, update the selectors here and in `deployables/marketplace/app/routes/payment-layout-hydration.test.tsx`, which mocks the same iframe shape.
 
+### Staging Evidence-Window Authority
+
+Run the read-only staging authority command with every value explicit. It performs the checks in this order: executed bytes, provider mode, deploy generation, runtime compatibility, web readiness, backend readiness, and final password sign-in. The password sign-in is the sole write: it persists a staging session and may rehash a credential; the command makes no provider call. Only an `ok` result is persisted to `PROBE_OUT_FILE`. The append-only NDJSON log uses mode `0600` and should be retained for 7 days.
+
+Required inputs and environment-only credentials:
+
+- `PROBE_BASE_URL=https://marketplace.staging.chasesets.com`
+- `PROBE_ENVIRONMENT=staging`
+- `PROBE_HEAD=<40-hex reviewed head>`
+- `PROBE_WORKTREE=<absolute clean checkout>`
+- `PROBE_GOVERNED_PATHS=<comma-separated 1-32 repository paths>`
+- `PROBE_OUT_FILE=<absolute absent receipt path>` and `PROBE_LOG_FILE=<absolute log path>` (their parents must exist)
+- `DEPLOY_MAX_AGE_SECONDS=1..604800`, `PROBE_REQUEST_TIMEOUT_MS=1000..60000`, and `PROBE_TOTAL_BUDGET_MS=5000..600000`
+- `PROBE_RUNNER_PATH=scripts/staging-evidence-authority.mjs`
+- `GITHUB_TOKEN`, `MARKETPLACE_E2E_EMAIL`, and `MARKETPLACE_E2E_PASSWORD` are read from the environment only and are never printed
+
+```powershell
+pnpm run uat:staging-evidence-authority
+```
+
 ## Custom Connect Release Hardening
 
 Before approving production Stripe money operations, run a private release-hardening pass against the release commit and record the outcome in the external Stripe money operations evidence record. The record must show `connectReleaseHardeningOpenP0P2FindingCount: 0`, `connectReleaseHardeningFindingsResolved: true`, `stagingCustomConnectSandboxSmokeProven: true`, and `connectRollbackRehearsalProven: true`.
@@ -386,14 +406,6 @@ pnpm run marketplace:provider-proof-status -- --environment production --payment
 The report summarizes Payments provider webhook rows, Settlement money-movement rows, payout readiness posture, payout rows, and provider operations. It is status evidence only; it does not approve `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED=true` and does not replace the live Stripe money operations proof command.
 
 Use `pnpm run ops marketplace:stripe-money-operations-evidence` with the redacted live proof record before setting `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED=true`. The proof record must include `proofCompletedAt`, `connectCustomAccountProofCompletedAt`, and `connectAccountsApi`; rerun the live Stripe or custom Connect proof when either timestamp is older than 30 days at launch review. The command fails unless Stripe proof is live-mode, current, uses the shared `STRIPE_API_VERSION`, identifies `connectAccountsApi` as `v1` or `v2`, includes separate production Chase Sets payment and Connect webhook destinations, proves the production embedded payout setup page at `/account/payouts/setup` with a screenshot or redacted run output, has at least one live connected account and at least one live `dashboard: "none"` connected account, proves dashboard access `none`, fees/losses/requirement collection all owned by `application`, includes at least two fresh embedded setup sessions for the same account, confirms no raw sensitive provider data is stored, includes zero open P0-P2 custom Connect release-hardening findings, proves staging custom Connect sandbox smoke, proves custom Connect rollback rehearsal, includes concrete live Stripe object IDs for the PaymentIntent, Checkout Session, refund, dispute, connected account, payout-failure payout, payout-failure balance transaction, and platform-funding balance transaction, includes at least five Payments `evt_` IDs and at least two Settlement money-movement `evt_` IDs matched to the provider webhook rows, includes concrete evidence references for checkout, refund, dispute, embedded custom Connect proof, setup sessions, payout setup page, readiness refresh, account webhook rows, sensitive-data review, custom Connect release hardening, staging custom Connect sandbox smoke, custom Connect rollback rehearsal, payout readiness, payout preview/request, transfer plus connected-account payout, payout failure reversal, reconciliation, platform balance funding, webhook replay, Payments provider event query, Settlement money-movement provider event query, and Radar/risk posture, includes the required provider webhook row counts from both bounded contexts, and proves every required money workflow.
-
-### Stripe Embed Confirmation UAT
-
-Run the read-only staging authority command with all values explicit. It performs mode, deploy, runtime, readiness, and final password sign-in checks in that order; only an `ok` result is persisted to `--out`. The log is append-only NDJSON and should be retained for 7 days. No provider or domain mutation is performed.
-
-```powershell
-pnpm run uat:staging-evidence-authority
-```
 
 When `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, broad marketplace traffic stays closed, but production root/admin domains route the narrow authenticated Checkout, Ordering, Payments, and Settlement proof APIs needed for this record to `platform-api`. The same proof posture routes only `/account/payouts/setup` to marketplace-web so the live embedded dashboard-none Connect setup page can be proven before `marketplace.chasesets.com` is promoted. Use those private proof APIs and the proof payout setup page only with operator-controlled accounts and orders tied to the external evidence record; they are not public launch surfaces. Live `SMOKE_ORDER_IDS` must come from a controlled normal checkout path, and `SMOKE_CREATE_PAYMENT=true` should be used only when the approved live payment rehearsal is ready.
 
