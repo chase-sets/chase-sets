@@ -10,6 +10,7 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as discoveryModule } from "../../../index";
 import { buildSimpleSearchQuery, foldSearchDiacritics } from "../domain/normalization";
+import { refreshAllSearchIndexMarketSignals } from "./market-signals";
 import { discoverySearchCursorState, searchDiscoveryItems, type DiscoverySearchParams } from "./queries";
 
 // Rank ties are the failure mode from issue #3397: identical weight-class matches
@@ -275,17 +276,7 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
         );
       }
     }
-    await categoryPool.query(
-      `UPDATE discovery_search_items AS item SET
-         lowest_price_amount = market.lowest_price_amount,
-         lowest_price_currency_code = market.lowest_price_currency_code
-       FROM (
-         SELECT catalog_catalog_item_id,
-           CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount) ELSE NULL END AS lowest_price_amount,
-           CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code
-         FROM discovery_market_listings GROUP BY catalog_catalog_item_id
-       ) AS market WHERE market.catalog_catalog_item_id = item.catalog_item_id`,
-    );
+    await refreshAllSearchIndexMarketSignals(categoryPool);
   }, 120_000);
 
   afterAll(async () => {
