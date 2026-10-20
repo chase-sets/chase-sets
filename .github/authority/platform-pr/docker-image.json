@@ -45,14 +45,14 @@
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "docker-image",
-      "stepAnchor": "name:Report skipped merge-group image push#13",
+      "stepAnchor": "name:Report skipped merge-group image push#15",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "docker-image",
-      "stepAnchor": "name:Report skipped merge-group image push#13",
+      "stepAnchor": "name:Report skipped merge-group image push#15",
       "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
       "purpose": "digitalocean-ops"
     },

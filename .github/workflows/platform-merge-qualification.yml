@@ -39,7 +39,7 @@ concurrency:
 jobs:
   plan:
     name: Merge Qualification Plan
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'merge_group'
+    if: (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'merge_group') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -61,8 +61,39 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Read original attempt authority
+        id: self
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          own_json="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
+          if [ "$(jq -r '.repository.full_name' <<<"$own_json")" != "${{ github.repository }}" ] || \
+             [ "$(jq -r '.path' <<<"$own_json")" != ".github/workflows/platform-merge-qualification.yml" ] || \
+             [ "$(jq -r '.run_attempt' <<<"$own_json")" != "${{ github.run_attempt }}" ] || \
+             [ "$(jq -r '.head_sha' <<<"$own_json")" != "${{ github.workflow_sha }}" ]; then
+            echo "Original advisory attempt authority is unavailable." >&2
+            exit 1
+          fi
+          {
+            echo "workflow_id=$(jq -r '.workflow_id' <<<"$own_json")"
+            echo "workflow_path=$(jq -r '.path' <<<"$own_json")"
+            echo "started_at=$(jq -r '.run_started_at' <<<"$own_json")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate original run-attempt policy decision
+        id: policy
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification.mjs policy \
+            --policy scripts/merge-qualification-policy.json \
+            --now "${{ steps.self.outputs.started_at }}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Inspect exact parent run and candidate artifact
         id: parent
+        if: steps.policy.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PARENT_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.producer_run_id || github.event.workflow_run.id }}
@@ -113,29 +144,10 @@ jobs:
               echo "built_image_digest="
             } >> "$GITHUB_OUTPUT"
           fi
-          own_json="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
-          if [ "$(printf '%s' "$own_json" | jq -r '.repository.full_name')" != "${{ github.repository }}" ] || \
-             [ "$(printf '%s' "$own_json" | jq -r '.path')" != ".github/workflows/platform-merge-qualification.yml" ]; then
-            echo "Advisory workflow repository/path binding failed." >&2
-            exit 1
-          fi
           {
             echo "parent_workflow_id=$(printf '%s' "$parent_json" | jq -r '.workflow_id')"
             echo "parent_workflow_path=$(printf '%s' "$parent_json" | jq -r '.path')"
-            echo "workflow_id=$(printf '%s' "$own_json" | jq -r '.workflow_id')"
-            echo "workflow_path=$(printf '%s' "$own_json" | jq -r '.path')"
-            echo "started_at=$(printf '%s' "$own_json" | jq -r '.run_started_at')"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Evaluate original run-attempt policy decision
-        id: policy
-        run: |
-          set -euo pipefail
-          node ./scripts/merge-qualification.mjs policy \
-            --policy scripts/merge-qualification-policy.json \
-            --now "${{ steps.parent.outputs.started_at }}" \
-            --github-output "$GITHUB_OUTPUT" \
-            --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Classify enabled candidate
         if: steps.policy.outputs.enabled == 'true'
@@ -170,6 +182,7 @@ jobs:
 
       - name: Persist original run-attempt decision
         id: decision
+        if: always() && steps.policy.outputs.enabled == 'true' && steps.parent.outcome == 'success'
         env:
           CANDIDATE_RECORD: ${{ steps.parent.outputs.candidate_record }}
         run: |
@@ -180,8 +193,8 @@ jobs:
           fi
           node ./scripts/merge-qualification.mjs decision \
             --repository "${{ github.repository }}" \
-            --workflow-id "${{ steps.parent.outputs.workflow_id }}" \
-            --workflow-path "${{ steps.parent.outputs.workflow_path }}" \
+            --workflow-id "${{ steps.self.outputs.workflow_id }}" \
+            --workflow-path "${{ steps.self.outputs.workflow_path }}" \
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
             --parent-workflow-id "${{ steps.parent.outputs.parent_workflow_id }}" \
@@ -189,8 +202,8 @@ jobs:
             --parent-run-id "${{ inputs.producer_run_id || github.event.workflow_run.id }}" \
             --parent-run-attempt "${{ inputs.producer_run_attempt || github.event.workflow_run.run_attempt }}" \
             --policy-enabled "${{ steps.policy.outputs.enabled }}" \
-            --policy-revision "${{ github.sha }}" \
-            --observed-at "${{ steps.parent.outputs.started_at }}" \
+            --policy-revision "${{ github.workflow_sha }}" \
+            --observed-at "${{ steps.self.outputs.started_at }}" \
             --policy-reason-code "${{ steps.policy.outputs.reason_code }}" \
             --classifier-class "${{ steps.route.outputs.classifier_class }}" \
             --classifier-reason-codes "${{ steps.route.outputs.classifier_reason_codes }}" \
@@ -199,6 +212,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Upload original run-attempt decision
+        if: always() && steps.policy.outputs.enabled == 'true' && steps.decision.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: merge-qualification-decision-${{ github.run_id }}-${{ github.run_attempt }}

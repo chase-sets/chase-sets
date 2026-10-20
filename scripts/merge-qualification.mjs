@@ -24,7 +24,9 @@
 // operator secrets, live drills, and the soak evidence belong to the
 // enablement issue; this module ships with the policy disabled.
 
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
@@ -36,6 +38,7 @@ import {
   validateMergeGateProvisioningObservation,
 } from "./merge-gate-verification.mjs";
 import { RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS } from "./release-qualification-scope.mjs";
+import { buildReleaseQualificationRecord } from "./release-qualification-record.mjs";
 
 export const MERGE_QUALIFICATION_POLICY_SCHEMA_VERSION = "merge-qualification-policy/v1";
 export const MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION = "merge-qualification-event/v1";
@@ -853,6 +856,49 @@ export function recoverMergeQualificationDecision({
   });
 }
 
+export function buildCancelledMergeQualificationRecord({ decision, ownership, run } = {}) {
+  if (
+    validateMergeQualificationDecision(decision).length > 0 ||
+    !decision.policyEnabled ||
+    decision.classifierClass !== "isolated" ||
+    validateMergeGateProvisioningObservation(ownership, {
+      repository: decision.repository,
+      workflowId: decision.workflowId,
+      workflowPath: decision.workflowPath,
+      runId: decision.runId,
+      runAttempt: decision.runAttempt,
+    }).length > 0 ||
+    run?.conclusion !== "cancelled" ||
+    run?.repository?.full_name !== decision.repository ||
+    String(run?.workflow_id) !== decision.workflowId ||
+    run?.path !== decision.workflowPath ||
+    String(run?.id) !== decision.runId ||
+    String(run?.run_attempt) !== decision.runAttempt ||
+    run?.head_sha !== decision.policyRevision ||
+    parseTimezoneInstantMs(run?.run_started_at) !== parseTimezoneInstantMs(decision.observedAt) ||
+    parseTimezoneInstantMs(run?.updated_at) === null ||
+    ownership.candidateSha !== decision.candidateSha ||
+    ownership.candidateTreeSha !== decision.candidateTreeSha ||
+    ownership.imageDigest !== decision.builtImageDigest
+  )
+    return { record: null, errors: ["cancelled_record_binding_invalid"] };
+  return buildReleaseQualificationRecord({
+    repository: ownership.repository,
+    candidateSha: ownership.candidateSha,
+    candidateTreeSha: ownership.candidateTreeSha,
+    imageRepository: "registry.digitalocean.com/chase-sets/chase-sets-platform",
+    imageDigest: ownership.imageDigest,
+    qualificationLane: "merge-gate",
+    classifierPolicyVersion: "release-qualification-scope/v1",
+    runId: ownership.runId,
+    runAttempt: ownership.runAttempt,
+    startedAt: new Date(decision.observedAt).toISOString(),
+    completedAt: new Date(run.updated_at).toISOString(),
+    result: "fail",
+    evidenceLinks: [`https://github.com/${decision.repository}/actions/runs/${decision.runId}`],
+  });
+}
+
 export function resolveMergeQualificationQueueDisposition({ candidate, snapshot } = {}) {
   if (validateMergeQualificationCandidate(candidate).length > 0 || snapshot?.errors?.length) return "unknown";
   const repository = snapshot?.data?.repository;
@@ -1109,6 +1155,262 @@ function bothPresentAndDiffer(left, right) {
 // Artifact names are not terminal authority. Missing original eligibility
 // stays unknown; cancellation and proven eviction override child success.
 
+export function resolveMergeQualificationTerminalReplay({ decision, records } = {}) {
+  const unknown = (code) => ({ action: "unknown", event: null, errors: [code] });
+  if (validateMergeQualificationDecision(decision).length || !Array.isArray(records) || records.length > 10_000) {
+    return unknown("terminal_inventory_invalid");
+  }
+  let event = null;
+  let original = null;
+  for (const bytes of records) {
+    if (typeof bytes !== "string" || Buffer.byteLength(bytes) > 65_536) return unknown("terminal_payload_invalid");
+    let record;
+    try {
+      record = JSON.parse(bytes);
+    } catch {
+      return unknown("terminal_payload_invalid");
+    }
+    if (
+      !decision.policyEnabled ||
+      validateMergeQualificationEvent(record).length ||
+      [
+        "repository",
+        "workflowId",
+        "workflowPath",
+        "runId",
+        "runAttempt",
+        "parentWorkflowId",
+        "parentWorkflowPath",
+        "parentRunId",
+        "parentRunAttempt",
+        "candidateSha",
+        "candidateTreeSha",
+        "classifierClass",
+      ].some((key) => record[key] !== decision[key]) ||
+      parseTimezoneInstantMs(record.startedAt) !== parseTimezoneInstantMs(decision.observedAt) ||
+      (["passed", "failed"].includes(record.terminalState) && record.builtImageDigest !== decision.builtImageDigest)
+    )
+      return unknown("terminal_payload_binding_invalid");
+    if (original !== null && original !== bytes) return unknown("terminal_payload_conflict");
+    original = bytes;
+    event = record;
+  }
+  return { action: event ? "replay" : "missing", event, errors: [] };
+}
+
+export async function inventoryMergeQualificationAttempts({ repository, requestJson, readPolicyContent } = {}) {
+  const refused = (code) => ({ attempts: [], errors: [code] });
+  if (!isRepositoryIdentity(repository)) return refused("attempt_repository_invalid");
+  const runs = [];
+  let total;
+  try {
+    for (let page = 1; page <= 100; page += 1) {
+      const payload = await requestJson(
+        `repos/${repository}/actions/workflows/platform-merge-qualification.yml/runs?per_page=100&page=${page}`,
+      );
+      if (
+        !Number.isSafeInteger(payload?.total_count) ||
+        payload.total_count < 0 ||
+        payload.total_count > 10_000 ||
+        (total !== undefined && total !== payload.total_count) ||
+        !Array.isArray(payload.workflow_runs) ||
+        payload.workflow_runs.length > 100
+      )
+        return refused("attempt_inventory_incomplete");
+      total = payload.total_count;
+      runs.push(...payload.workflow_runs);
+      if (runs.length === total) break;
+      if (runs.length > total || payload.workflow_runs.length !== 100 || page === 100) {
+        return refused("attempt_inventory_incomplete");
+      }
+    }
+    const latest = new Map();
+    const identities = new Set();
+    for (const run of runs) {
+      const id = String(run?.id ?? "");
+      const attempt = String(run?.run_attempt ?? "");
+      if (
+        run?.repository?.full_name !== repository ||
+        run?.path !== ".github/workflows/platform-merge-qualification.yml" ||
+        !isBoundedSafeIntegerString(id) ||
+        !isBoundedSafeIntegerString(attempt) ||
+        !isBoundedSafeIntegerString(String(run?.workflow_id ?? "")) ||
+        !isCommitSha(run?.head_sha) ||
+        parseTimezoneInstantMs(run?.run_started_at) === null ||
+        identities.has(`${id}/${attempt}`)
+      ) {
+        return refused("attempt_identity_invalid");
+      }
+      identities.add(`${id}/${attempt}`);
+      if (!latest.has(id) || BigInt(attempt) > BigInt(latest.get(id).run_attempt)) latest.set(id, run);
+    }
+    const attempts = [];
+    const policies = new Map();
+    for (const run of latest.values()) {
+      if (
+        run.status !== "completed" ||
+        !["workflow_run", "workflow_dispatch"].includes(run.event) ||
+        !/^Merge Qualification (?:merge_group|producer) [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(
+          run.display_title ?? "",
+        )
+      )
+        continue;
+      if (!policies.has(run.head_sha)) policies.set(run.head_sha, await readPolicyContent(run.head_sha));
+      const policy = evaluateMergeQualificationPolicy(policies.get(run.head_sha), {
+        now: () => new Date(run.run_started_at),
+      });
+      if (!policy.enabled) continue;
+      if (typeof run.conclusion !== "string" || !/^[a-z_]{1,64}$/.test(run.conclusion))
+        return refused("attempt_conclusion_invalid");
+      attempts.push({
+        run_id: String(run.id),
+        run_attempt: String(run.run_attempt),
+        workflow_id: String(run.workflow_id),
+        conclusion: run.conclusion,
+      });
+    }
+    // GitHub matrices cap at 256. Never silently drop a tail to fit the worker.
+    if (attempts.length > 256) return refused("attempt_worker_capacity_exceeded");
+    return { attempts, errors: [] };
+  } catch {
+    return refused("attempt_authority_unavailable");
+  }
+}
+
+function readOriginalQualificationPolicy(revision) {
+  if (!isCommitSha(revision)) throw new Error("original_policy_revision_invalid");
+  const git = (args) =>
+    execFileSync("git", args, {
+      encoding: "utf8",
+      timeout: 30_000,
+      maxBuffer: 65_536,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  git(["cat-file", "-e", `${revision}^{commit}`]);
+  const exists = git(["ls-tree", "--name-only", revision, "--", MERGE_QUALIFICATION_POLICY_PATH]).trim();
+  return exists ? git(["show", `${revision}:${MERGE_QUALIFICATION_POLICY_PATH}`]) : null;
+}
+
+export async function readMergeQualificationRunCollection({
+  repository,
+  runId,
+  runAttempt,
+  collection,
+  requestJson,
+} = {}) {
+  if (
+    !isRepositoryIdentity(repository) ||
+    !isBoundedSafeIntegerString(runId) ||
+    !isBoundedSafeIntegerString(runAttempt) ||
+    !["jobs", "artifacts"].includes(collection)
+  )
+    throw new Error("run_collection_identity_invalid");
+  const endpoint =
+    collection === "jobs"
+      ? `repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}/jobs`
+      : `repos/${repository}/actions/runs/${runId}/artifacts`;
+  const items = [];
+  const ids = new Set();
+  let total;
+  for (let page = 1; page <= 100; page += 1) {
+    const payload = await requestJson(`${endpoint}?per_page=100&page=${page}`);
+    if (
+      !Number.isSafeInteger(payload?.total_count) ||
+      payload.total_count < 0 ||
+      payload.total_count > 10_000 ||
+      (total !== undefined && total !== payload.total_count) ||
+      !Array.isArray(payload[collection]) ||
+      payload[collection].length > 100
+    ) {
+      throw new Error("run_collection_incomplete");
+    }
+    total = payload.total_count;
+    for (const item of payload[collection]) {
+      const id = String(item?.id ?? "");
+      if (!isBoundedSafeIntegerString(id) || ids.has(id)) throw new Error("run_collection_identity_invalid");
+      ids.add(id);
+      items.push(item);
+    }
+    if (items.length === total) return { total_count: total, [collection]: items };
+    if (items.length > total || payload[collection].length !== 100) throw new Error("run_collection_incomplete");
+  }
+  throw new Error("run_collection_incomplete");
+}
+
+// Read all matching artifacts before trusting any payload. Only this serialized
+// default-ref observer may own terminal evidence; diagnostic/name-only matches
+// and expired or incomplete inventories cannot authorize a second publication.
+export async function readMergeQualificationTerminalRecords({
+  decision,
+  defaultBranch,
+  requestJson,
+  downloadArtifact,
+} = {}) {
+  const refused = (code) => ({ records: null, errors: [code] });
+  if (validateMergeQualificationDecision(decision).length) return refused("terminal_decision_invalid");
+  if (!decision.policyEnabled) return { records: [], errors: [] };
+  if (typeof defaultBranch !== "string" || !defaultBranch || defaultBranch.length > 256) {
+    return refused("terminal_default_branch_invalid");
+  }
+  const name = `merge-qualification-terminal-${decision.runId}-${decision.runAttempt}`;
+  const base = `repos/${decision.repository}/actions`;
+  const artifacts = [];
+  const ids = new Set();
+  let total;
+  try {
+    for (let page = 1; page <= 100; page += 1) {
+      const payload = await requestJson(`${base}/artifacts?name=${name}&per_page=100&page=${page}`);
+      if (
+        !Number.isSafeInteger(payload?.total_count) ||
+        payload.total_count < 0 ||
+        payload.total_count > 10_000 ||
+        (total !== undefined && total !== payload.total_count) ||
+        !Array.isArray(payload.artifacts) ||
+        payload.artifacts.length > 100
+      )
+        return refused("terminal_inventory_incomplete");
+      total = payload.total_count;
+      for (const artifact of payload.artifacts) {
+        const id = String(artifact?.id ?? "");
+        if (
+          !isBoundedSafeIntegerString(id) ||
+          ids.has(id) ||
+          artifact?.name !== name ||
+          artifact?.expired !== false ||
+          !isBoundedSafeIntegerString(String(artifact?.workflow_run?.id ?? ""))
+        ) {
+          return refused("terminal_artifact_invalid");
+        }
+        ids.add(id);
+        artifacts.push(artifact);
+      }
+      if (artifacts.length === total) break;
+      if (artifacts.length > total || payload.artifacts.length !== 100 || page === 100) {
+        return refused("terminal_inventory_incomplete");
+      }
+    }
+    const records = [];
+    for (const artifact of artifacts) {
+      const runId = String(artifact.workflow_run.id);
+      const owner = await requestJson(`${base}/runs/${runId}`);
+      if (
+        String(owner?.id) !== runId ||
+        owner?.repository?.full_name !== decision.repository ||
+        owner?.head_repository?.full_name !== decision.repository ||
+        owner?.head_branch !== defaultBranch ||
+        owner?.path !== ".github/workflows/platform-merge-qualification-observer.yml" ||
+        !["schedule", "workflow_run"].includes(owner?.event)
+      )
+        return refused("terminal_writer_invalid");
+      records.push(await downloadArtifact({ runId, name }));
+    }
+    const replay = resolveMergeQualificationTerminalReplay({ decision, records });
+    return replay.errors.length ? refused(replay.errors[0]) : { records, errors: [] };
+  } catch {
+    return refused("terminal_authority_unavailable");
+  }
+}
+
 export function resolveRunTerminalization({
   runEvent = "",
   runConclusion = "",
@@ -1139,6 +1441,21 @@ export function resolveRunTerminalization({
   }
   if (!decision.policyEnabled) {
     return { action: "skip", reason: decision.policyReasonCode };
+  }
+  if (
+    ![
+      "success",
+      "failure",
+      "neutral",
+      "cancelled",
+      "skipped",
+      "timed_out",
+      "action_required",
+      "stale",
+      "startup_failure",
+    ].includes(runConclusion)
+  ) {
+    return { action: "unknown", reason: "run_conclusion_unknown" };
   }
   if (queueDisposition === "evicted") {
     return {
@@ -1591,10 +1908,125 @@ function appendOutputs(outputPath, entries) {
   }
 }
 
+async function writeQualificationEvidence(outPath, record) {
+  const bytes = `${JSON.stringify(record, null, 2)}\n`;
+  if (Buffer.byteLength(bytes) > 65_536) throw new Error("qualification_payload_too_large");
+  await mkdir(path.dirname(outPath), { recursive: true });
+  try {
+    await writeFile(outPath, bytes, { flag: "wx" });
+  } catch (error) {
+    if (error?.code !== "EEXIST" || statSync(outPath).size > 65_536 || readFileSync(outPath, "utf8") !== bytes) {
+      throw new Error("qualification_payload_conflict");
+    }
+  }
+}
+
 async function main(argv, env = process.env) {
   const [command] = argv;
   const nowIso = readOption(argv, "--now");
   const now = nowIso ? () => new Date(nowIso) : () => new Date();
+
+  if (command === "run-collection") {
+    try {
+      const collection = await readMergeQualificationRunCollection({
+        repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
+        runId: readOption(argv, "--run-id"),
+        runAttempt: readOption(argv, "--run-attempt"),
+        collection: readOption(argv, "--collection"),
+        requestJson: async (endpoint) =>
+          JSON.parse(
+            execFileSync("gh", ["api", endpoint], {
+              encoding: "utf8",
+              timeout: 30_000,
+              maxBuffer: 8_000_000,
+              stdio: ["ignore", "pipe", "pipe"],
+            }),
+          ),
+      });
+      await writeJsonRecord(readOption(argv, "--out"), collection);
+      return 0;
+    } catch {
+      console.error("run_collection_authority_unavailable");
+      return 1;
+    }
+  }
+
+  if (command === "inventory") {
+    const result = await inventoryMergeQualificationAttempts({
+      repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
+      requestJson: async (endpoint) =>
+        JSON.parse(
+          execFileSync("gh", ["api", endpoint], {
+            encoding: "utf8",
+            timeout: 30_000,
+            maxBuffer: 8_000_000,
+            stdio: ["ignore", "pipe", "pipe"],
+          }),
+        ),
+      readPolicyContent: async (revision) => readOriginalQualificationPolicy(revision),
+    });
+    if (result.errors.length) {
+      console.error(result.errors.join("\n"));
+      return 1;
+    }
+    appendOutputs(readOption(argv, "--github-output"), [
+      ["matrix", JSON.stringify({ include: result.attempts })],
+      ["pending", result.attempts.length ? "true" : "false"],
+    ]);
+    if (!result.attempts.length)
+      appendSummary(
+        readOption(argv, "--github-summary"),
+        "No enabled completed advisory attempts require reconciliation.",
+      );
+    return 0;
+  }
+
+  if (command === "terminal-inventory") {
+    const decision = readJsonFileOrNull(readOption(argv, "--decision"));
+    const gh = (args) =>
+      execFileSync("gh", args, {
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 2_000_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    const result = await readMergeQualificationTerminalRecords({
+      decision,
+      defaultBranch: readOption(argv, "--default-branch"),
+      requestJson: async (endpoint) => JSON.parse(gh(["api", endpoint])),
+      downloadArtifact: async ({ runId, name }) => {
+        const directory = mkdtempSync(path.join(tmpdir(), "qualification-terminal-"));
+        try {
+          gh(["run", "download", runId, "--repo", decision.repository, "--name", name, "--dir", directory]);
+          const file = path.join(directory, "event.json");
+          if (statSync(file).size > 65_536) throw new Error("terminal_payload_invalid");
+          return readFileSync(file, "utf8");
+        } finally {
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
+    });
+    if (result.errors.length) {
+      console.error(result.errors.join("\n"));
+      return 1;
+    }
+    await writeJsonRecord(readOption(argv, "--out"), { records: result.records });
+    return 0;
+  }
+
+  if (command === "cancelled-record") {
+    const built = buildCancelledMergeQualificationRecord({
+      decision: readJsonFileOrNull(readOption(argv, "--decision")),
+      ownership: readJsonFileOrNull(readOption(argv, "--ownership")),
+      run: readJsonFileOrNull(readOption(argv, "--run")),
+    });
+    if (built.errors.length) {
+      console.error(built.errors.join("\n"));
+      return 1;
+    }
+    await writeJsonRecord(readOption(argv, "--out"), built.record);
+    return 0;
+  }
 
   if (command === "queue-disposition") {
     const candidate = readJsonFileOrNull(readOption(argv, "--candidate-record"));
@@ -1634,16 +2066,7 @@ async function main(argv, env = process.env) {
     }
     let policyContent;
     try {
-      const git = (args) =>
-        execFileSync("git", args, {
-          encoding: "utf8",
-          timeout: 30_000,
-          maxBuffer: 65_536,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-      git(["cat-file", "-e", `${policyRevision}^{commit}`]);
-      const exists = git(["ls-tree", "--name-only", policyRevision, "--", MERGE_QUALIFICATION_POLICY_PATH]).trim();
-      policyContent = exists ? git(["show", `${policyRevision}:${MERGE_QUALIFICATION_POLICY_PATH}`]) : null;
+      policyContent = readOriginalQualificationPolicy(policyRevision);
     } catch {
       console.error("original policy revision is unavailable; current policy was not substituted.");
       return 1;
@@ -1724,7 +2147,7 @@ async function main(argv, env = process.env) {
       console.error(built.errors.join("\n"));
       return 1;
     }
-    await writeJsonRecord(readOption(argv, "--out"), built.record);
+    await writeQualificationEvidence(readOption(argv, "--out"), built.record);
     console.log(JSON.stringify(built.record, null, 2));
     return 0;
   }
@@ -1772,7 +2195,7 @@ async function main(argv, env = process.env) {
       console.error(built.errors.join("\n"));
       return 1;
     }
-    await writeJsonRecord(readOption(argv, "--out"), built.decision);
+    await writeQualificationEvidence(readOption(argv, "--out"), built.decision);
     appendOutputs(readOption(argv, "--github-output"), [
       ["enabled", built.decision.policyEnabled ? "true" : "false"],
       [
@@ -1901,7 +2324,7 @@ async function main(argv, env = process.env) {
       errors.push(...built.errors);
       const outPath = readOption(argv, "--out");
       if (outPath && errors.length === 0) {
-        await writeJsonRecord(outPath, { ...event, schemaVersion: "merge-qualification-observation/v1" });
+        await writeQualificationEvidence(outPath, { ...event, schemaVersion: "merge-qualification-observation/v1" });
       }
     }
     appendSummary(readOption(argv, "--github-summary"), renderMergeQualificationSummary({ decision, outcome, event }));
@@ -2021,20 +2444,47 @@ async function main(argv, env = process.env) {
       ]);
       return 0;
     }
+    const terminalRecordsPath = readOption(argv, "--terminal-records");
+    if (terminalRecordsPath) {
+      const replay = resolveMergeQualificationTerminalReplay({
+        decision: decisionBound,
+        records: readJsonFileOrNull(terminalRecordsPath)?.records,
+      });
+      if (replay.errors.length) {
+        console.error(replay.errors.join("\n"));
+        return 1;
+      }
+      if (replay.action === "replay") {
+        if (replay.event.provisioned !== (ownershipObservation !== null)) {
+          console.error("terminal_ownership_conflict");
+          return 1;
+        }
+        appendOutputs(readOption(argv, "--github-output"), [
+          ["action", "replay"],
+          ["event_written", "false"],
+        ]);
+        return 0;
+      }
+    }
     const candidate = readJsonFileOrNull(readOption(argv, "--candidate-record"));
+    const boundCandidate =
+      candidate?.candidateSha === decisionBound?.candidateSha &&
+      candidate?.candidateTreeSha === decisionBound?.candidateTreeSha &&
+      candidate?.repository === decisionBound?.repository &&
+      candidate?.workflowId === decisionBound?.parentWorkflowId &&
+      candidate?.workflowPath === decisionBound?.parentWorkflowPath &&
+      candidate?.runId === decisionBound?.parentRunId &&
+      candidate?.runAttempt === decisionBound?.parentRunAttempt
+        ? candidate
+        : null;
+    const queueSnapshotPath = readOption(argv, "--queue-snapshot");
     const queueDisposition = decisionBound?.policyEnabled
-      ? await observeMergeQualificationQueueDisposition(
-          candidate?.candidateSha === decisionBound.candidateSha &&
-            candidate?.candidateTreeSha === decisionBound.candidateTreeSha &&
-            candidate?.repository === decisionBound.repository &&
-            candidate?.workflowId === decisionBound.parentWorkflowId &&
-            candidate?.workflowPath === decisionBound.parentWorkflowPath &&
-            candidate?.runId === decisionBound.parentRunId &&
-            candidate?.runAttempt === decisionBound.parentRunAttempt
-            ? candidate
-            : null,
-          { token: env.GH_TOKEN },
-        )
+      ? queueSnapshotPath
+        ? resolveMergeQualificationQueueDisposition({
+            candidate: boundCandidate,
+            snapshot: readJsonFileOrNull(queueSnapshotPath),
+          })
+        : await observeMergeQualificationQueueDisposition(boundCandidate, { token: env.GH_TOKEN })
       : "unknown";
     const observationPayload = readJsonFileOrNull(readOption(argv, "--observation"));
     const observation =
@@ -2121,7 +2571,7 @@ async function main(argv, env = process.env) {
       errors.push(...validateMergeQualificationEvent(event));
       const outPath = readOption(argv, "--out");
       if (outPath && errors.length === 0) {
-        await writeJsonRecord(outPath, event);
+        await writeQualificationEvidence(outPath, event);
       }
     }
     appendSummary(
@@ -2157,7 +2607,7 @@ async function main(argv, env = process.env) {
   }
 
   console.error(
-    "usage: merge-qualification.mjs <policy|route|candidate-evidence|decision|recover-decision|queue-disposition|observe|prepare-cleanup|terminalize> [options]",
+    "usage: merge-qualification.mjs <policy|route|candidate-evidence|decision|recover-decision|cancelled-record|queue-disposition|observe|inventory|prepare-cleanup|terminal-inventory|terminalize> [options]",
   );
   return 1;
 }
@@ -2220,8 +2670,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     (code) => {
       process.exitCode = code;
     },
-    (error) => {
-      console.error(error instanceof Error ? error.message : String(error));
+    () => {
+      console.error("merge_qualification_command_failed");
       process.exitCode = 1;
     },
   );

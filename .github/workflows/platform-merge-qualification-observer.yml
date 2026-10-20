@@ -3,7 +3,7 @@ name: Platform Merge Qualification Observer
 # Trusted observer for the separately triggered advisory workflow. It binds
 # the exact repository/workflow/run/attempt, terminalizes missing evidence
 # deterministically, and performs event-driven cleanup after every terminal
-# advisory run. The scheduled sweep remains only the runner-loss backstop.
+# advisory run. Both event and scheduled deliveries reconcile complete inventory.
 on:
   workflow_run:
     workflows: ["Platform PR", "Platform Merge Qualification Advisory"]
@@ -22,35 +22,41 @@ concurrency:
 jobs:
   reconcile:
     name: Reconcile Pending Qualification Attempts
-    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - name: Inventory completed producer runs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts/merge-qualification-reconcile
-          gh api --paginate --slurp \
-            "repos/${{ github.repository }}/actions/runs?workflow=platform-merge-qualification.yml&event=workflow_dispatch&per_page=100" \
-            > artifacts/merge-qualification-reconcile/producer-runs.json
-          echo "Reconcile inventory captured; workflow_run delivery remains the terminalization authority."
-
-  inspect:
-    name: Inspect Merge Qualification
-    if: github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.display_title, 'Merge Qualification ')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 2
     permissions:
       contents: read
       actions: read
     outputs:
-      provisioned: ${{ steps.prepare.outputs.provisioned }}
+      matrix: ${{ steps.inventory.outputs.matrix }}
+      pending: ${{ steps.inventory.outputs.pending }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+      - name: Inventory original enabled advisory attempts
+        id: inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification.mjs inventory \
+            --repository "${{ github.repository }}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+  inspect:
+    name: Inspect Merge Qualification
+    needs: reconcile
+    if: needs.reconcile.outputs.pending == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.reconcile.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -60,15 +66,15 @@ jobs:
         id: inspect
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_ID: ${{ matrix.run_id }}
+          RUN_ATTEMPT: ${{ matrix.run_attempt }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/merge-qualification
-          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" > artifacts/merge-qualification/run.json
+          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}" > artifacts/merge-qualification/run.json
           parent_run_id="$(jq -r '.display_title | capture("^Merge Qualification (?:merge_group|producer) (?<run>[1-9][0-9]{0,15})-(?<attempt>[1-9][0-9]{0,15})$").run' artifacts/merge-qualification/run.json)"
           parent_run_attempt="$(jq -r '.display_title | capture("^Merge Qualification (?:merge_group|producer) (?<run>[1-9][0-9]{0,15})-(?<attempt>[1-9][0-9]{0,15})$").attempt' artifacts/merge-qualification/run.json)"
-          gh api "repos/${{ github.repository }}/actions/runs/${parent_run_id}" > artifacts/merge-qualification/parent-run.json
+          gh api "repos/${{ github.repository }}/actions/runs/${parent_run_id}/attempts/${parent_run_attempt}" > artifacts/merge-qualification/parent-run.json
           if [ "$(jq -r '.repository.full_name' artifacts/merge-qualification/parent-run.json)" != "${{ github.repository }}" ] || \
              [ "$(jq -r '.path' artifacts/merge-qualification/parent-run.json)" != ".github/workflows/platform-pr.yml" ] || \
              [ "$(jq -r '.event' artifacts/merge-qualification/parent-run.json)" != "merge_group" ] || \
@@ -77,10 +83,12 @@ jobs:
             echo "Parent merge-group run causal binding failed." >&2
             exit 1
           fi
-          gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?filter=all&per_page=100" \
-            | jq '{total_count: .[0].total_count, jobs: [.[].jobs[]]}' > artifacts/merge-qualification/jobs.json
-          gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
-            | jq '{total_count: .[0].total_count, artifacts: [.[].artifacts[]]}' > artifacts/merge-qualification/run-artifacts.json
+          node ./scripts/merge-qualification.mjs run-collection \
+            --repository "${{ github.repository }}" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" \
+            --collection jobs --out artifacts/merge-qualification/jobs.json
+          node ./scripts/merge-qualification.mjs run-collection \
+            --repository "${{ github.repository }}" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" \
+            --collection artifacts --out artifacts/merge-qualification/run-artifacts.json
           for file in jobs run-artifacts; do
             total="$(jq -r '.total_count' "artifacts/merge-qualification/${file}.json")"
             field="jobs"
@@ -160,7 +168,7 @@ jobs:
       - name: Upload inspected run evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: merge-qualification-inspection-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          name: merge-qualification-inspection-${{ matrix.run_id }}-${{ matrix.run_attempt }}
           path: |
             artifacts/merge-qualification/run.json
             artifacts/merge-qualification/parent-run.json
@@ -170,6 +178,7 @@ jobs:
             artifacts/merge-qualification/candidate/candidate.json
             artifacts/merge-qualification/observation/observation.json
             artifacts/merge-qualification/provisioning/provisioning-observation.json
+            artifacts/merge-qualification/cleanup-ownership.json
           if-no-files-found: error
           retention-days: 30
 
@@ -177,17 +186,20 @@ jobs:
         if: steps.prepare.outputs.provisioned == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: merge-qualification-cleanup-ownership-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          name: merge-qualification-cleanup-ownership-${{ matrix.run_id }}-${{ matrix.run_attempt }}
           path: artifacts/merge-qualification/cleanup-ownership.json
           if-no-files-found: error
           retention-days: 30
 
   cleanup:
     name: Cleanup Merge Qualification Resources
-    needs: inspect
-    if: always() && needs.inspect.result == 'success' && needs.inspect.outputs.provisioned == 'true'
+    needs: [reconcile, inspect]
+    if: always() && needs.inspect.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.reconcile.outputs.matrix) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     environment: merge-gate
     permissions:
       contents: read
@@ -195,17 +207,38 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - uses: ./.github/actions/setup-pnpm-workspace
-        with:
-          install: true
-
       - name: Download exact cleanup ownership
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: merge-qualification-cleanup-ownership-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
-          path: artifacts/merge-qualification-cleanup/ownership
+          name: merge-qualification-inspection-${{ matrix.run_id }}-${{ matrix.run_attempt }}
+          path: artifacts/merge-qualification-cleanup/inspection
+
+      - name: Recover cleanup decision for this exact matrix attempt
+        id: ownership
+        run: |
+          set -euo pipefail
+          provisioning_args=()
+          if [ -f artifacts/merge-qualification-cleanup/inspection/provisioning/provisioning-observation.json ]; then
+            provisioning_args=(--provisioning-observation artifacts/merge-qualification-cleanup/inspection/provisioning/provisioning-observation.json)
+          fi
+          node ./scripts/merge-qualification.mjs prepare-cleanup \
+            --run artifacts/merge-qualification-cleanup/inspection/run.json \
+            --parent-run artifacts/merge-qualification-cleanup/inspection/parent-run.json \
+            --jobs artifacts/merge-qualification-cleanup/inspection/jobs.json \
+            --run-artifacts artifacts/merge-qualification-cleanup/inspection/run-artifacts.json \
+            --decision artifacts/merge-qualification-cleanup/inspection/decision/decision.json \
+            "${provisioning_args[@]}" \
+            --repository "${{ github.repository }}" \
+            --cleanup-ownership-out artifacts/merge-qualification-cleanup/ownership/cleanup-ownership.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        if: steps.ownership.outputs.provisioned == 'true'
+        with:
+          install: true
 
       - name: Validate observer cleanup credentials
+        if: steps.ownership.outputs.provisioned == 'true'
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
@@ -219,6 +252,7 @@ jobs:
             --stripe-test-mode-var STRIPE_SECRET_KEY
 
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        if: steps.ownership.outputs.provisioned == 'true'
         env:
           NODE_OPTIONS: --no-deprecation
         with:
@@ -226,30 +260,18 @@ jobs:
 
       - name: Inspect complete cancelled-run identity
         id: inspect
+        if: steps.ownership.outputs.provisioned == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_ID: ${{ matrix.run_id }}
+          RUN_ATTEMPT: ${{ matrix.run_attempt }}
         run: |
           set -euo pipefail
-          mkdir -p artifacts/merge-qualification-cleanup
-          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" > artifacts/merge-qualification-cleanup/run.json
-          gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?filter=all&per_page=100" \
-            | jq '{total_count: .[0].total_count, jobs: [.[].jobs[]]}' > artifacts/merge-qualification-cleanup/jobs.json
-          gh api --paginate --slurp "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
-            | jq '{total_count: .[0].total_count, artifacts: [.[].artifacts[]]}' > artifacts/merge-qualification-cleanup/artifacts.json
-          if [ "$(jq '.jobs | length' artifacts/merge-qualification-cleanup/jobs.json)" != "$(jq '.total_count' artifacts/merge-qualification-cleanup/jobs.json)" ] || \
-             [ "$(jq '.artifacts | length' artifacts/merge-qualification-cleanup/artifacts.json)" != "$(jq '.total_count' artifacts/merge-qualification-cleanup/artifacts.json)" ]; then
-            echo "Observer cleanup refused truncated jobs/artifacts." >&2
-            exit 1
-          fi
-          decision_name="merge-qualification-decision-${RUN_ID}-${RUN_ATTEMPT}"
-          if jq -e --arg name "$decision_name" '.artifacts[] | select(.name == $name and .expired == false)' \
-            artifacts/merge-qualification-cleanup/artifacts.json >/dev/null; then
-            gh run download "$RUN_ID" --name "$decision_name" --dir artifacts/merge-qualification-cleanup/decision
-          fi
+          cp artifacts/merge-qualification-cleanup/inspection/run.json artifacts/merge-qualification-cleanup/run.json
+          test "$(jq -r '.id' artifacts/merge-qualification-cleanup/run.json)" = "$RUN_ID"
+          test "$(jq -r '.run_attempt' artifacts/merge-qualification-cleanup/run.json)" = "$RUN_ATTEMPT"
 
       - name: Configure observer Kubernetes context
+        if: steps.ownership.outputs.provisioned == 'true'
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           MERGE_GATE_DOKS_CLUSTER: ${{ vars.MERGE_GATE_DOKS_CLUSTER || 'chase-sets-staging-doks' }}
@@ -262,9 +284,10 @@ jobs:
 
       - name: Verify exact cleanup target identity
         id: target
+        if: steps.ownership.outputs.provisioned == 'true'
         run: |
           set -euo pipefail
-          namespace="chase-sets-gate-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}"
+          namespace="chase-sets-gate-${{ matrix.run_id }}-${{ matrix.run_attempt }}"
           if kubectl get namespace "$namespace" -o json > artifacts/merge-qualification-cleanup/namespace.json 2>/dev/null; then
             namespace_args=(--namespace artifacts/merge-qualification-cleanup/namespace.json)
           else
@@ -274,16 +297,16 @@ jobs:
             "${namespace_args[@]}" \
             --provisioning-observation artifacts/merge-qualification-cleanup/ownership/cleanup-ownership.json \
             --repository "${{ github.repository }}" \
-            --workflow-id "${{ github.event.workflow_run.workflow_id }}" \
+            --workflow-id "${{ matrix.workflow_id }}" \
             --workflow-path ".github/workflows/platform-merge-qualification.yml" \
-            --run-id "${{ github.event.workflow_run.id }}" \
-            --run-attempt "${{ github.event.workflow_run.run_attempt }}" \
+            --run-id "${{ matrix.run_id }}" \
+            --run-attempt "${{ matrix.run_attempt }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Delete exact gate provider webhooks
         if: always() && steps.target.outputs.provider_cleanup_allowed == 'true'
         env:
-          PLATFORM_API_BASE_URL: https://gate-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}-marketplace.preview.chasesets.com
+          PLATFORM_API_BASE_URL: https://gate-${{ matrix.run_id }}-${{ matrix.run_attempt }}-marketplace.preview.chasesets.com
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
         run: |
@@ -291,23 +314,22 @@ jobs:
           node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
 
       - name: Persist cancelled post-identity attempt
-        if: always() && github.event.workflow_run.conclusion == 'cancelled' && steps.target.outputs.provider_cleanup_allowed == 'true'
+        if: always() && matrix.conclusion == 'cancelled' && steps.target.outputs.provider_cleanup_allowed == 'true'
         env:
           RELEASE_EVIDENCE_SPACES_ACCESS_ID: ${{ secrets.RELEASE_EVIDENCE_SPACES_ACCESS_ID }}
           RELEASE_EVIDENCE_SPACES_SECRET_KEY: ${{ secrets.RELEASE_EVIDENCE_SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          decision="artifacts/merge-qualification-cleanup/decision/decision.json"
+          decision="artifacts/merge-qualification-cleanup/inspection/decision/decision.json"
           if [ ! -f "$decision" ]; then
             echo "Immutable resolution was observed but exact decision evidence is missing." >&2
             exit 1
           fi
-          jq -n \
-            --slurpfile decision "$decision" \
-            --slurpfile observation artifacts/merge-qualification-cleanup/ownership/cleanup-ownership.json \
-            --slurpfile run artifacts/merge-qualification-cleanup/run.json \
-            '{schemaVersion:"release-qualification/v1",repository:$observation[0].repository,candidateSha:$observation[0].candidateSha,candidateTreeSha:$observation[0].candidateTreeSha,imageRepository:"registry.digitalocean.com/chase-sets/chase-sets-platform",imageDigest:$observation[0].imageDigest,qualificationLane:"merge-gate",classifierPolicyVersion:"release-qualification-scope/v1",runId:$observation[0].runId,runAttempt:$observation[0].runAttempt,startedAt:$decision[0].observedAt,completedAt:$run[0].updated_at,result:"fail",evidenceLinks:[$run[0].html_url]}' \
-            > artifacts/merge-qualification-cleanup/cancelled-qualification.json
+          node ./scripts/merge-qualification.mjs cancelled-record \
+            --decision "$decision" \
+            --ownership artifacts/merge-qualification-cleanup/ownership/cleanup-ownership.json \
+            --run artifacts/merge-qualification-cleanup/run.json \
+            --out artifacts/merge-qualification-cleanup/cancelled-qualification.json
           node ./scripts/release-qualification-record.mjs write \
             --record artifacts/merge-qualification-cleanup/cancelled-qualification.json \
             --out artifacts/merge-qualification-cleanup/cancelled-qualification-write.json
@@ -316,7 +338,7 @@ jobs:
         if: always() && steps.target.outputs.namespace_cleanup_allowed == 'true'
         run: |
           set -euo pipefail
-          kubectl delete namespace "${{ steps.target.outputs.namespace }}" --wait=true --timeout=10m
+          kubectl delete namespace "${{ steps.target.outputs.namespace }}" --wait=true --timeout=5m
           if kubectl get namespace "${{ steps.target.outputs.namespace }}" >/dev/null 2>&1; then
             echo "Exact gate namespace still exists after deletion." >&2
             exit 1
@@ -328,10 +350,13 @@ jobs:
 
   terminalize:
     name: Terminalize After Cleanup
-    needs: [inspect, cleanup]
+    needs: [reconcile, inspect, cleanup]
     if: always() && needs.inspect.result == 'success' && (needs.cleanup.result == 'success' || needs.cleanup.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.reconcile.outputs.matrix) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 2
     permissions:
       contents: read
       actions: read
@@ -340,8 +365,17 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: merge-qualification-inspection-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          name: merge-qualification-inspection-${{ matrix.run_id }}-${{ matrix.run_attempt }}
           path: artifacts/merge-qualification
+      - name: Read durable observer terminals after cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification.mjs terminal-inventory \
+            --decision artifacts/merge-qualification/decision/decision.json \
+            --default-branch "${{ github.event.repository.default_branch }}" \
+            --out artifacts/merge-qualification/terminal-records.json
       - name: Emit exact missing terminal result
         id: terminalize
         env:
@@ -360,6 +394,7 @@ jobs:
             --decision artifacts/merge-qualification/decision/decision.json \
             --candidate-record artifacts/merge-qualification/candidate/candidate.json \
             --observation artifacts/merge-qualification/observation/observation.json \
+            --terminal-records artifacts/merge-qualification/terminal-records.json \
             "${provisioning_args[@]}" \
             --repository "${{ github.repository }}" \
             --out artifacts/merge-qualification/event.json \
@@ -369,7 +404,7 @@ jobs:
         if: steps.terminalize.outputs.event_written == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: merge-qualification-terminal-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          name: merge-qualification-terminal-${{ matrix.run_id }}-${{ matrix.run_attempt }}
           path: artifacts/merge-qualification/event.json
           if-no-files-found: error
           retention-days: 30

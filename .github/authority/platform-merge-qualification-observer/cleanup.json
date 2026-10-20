@@ -3,70 +3,70 @@
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Configure observer Kubernetes context#7",
+      "stepAnchor": "name:Configure observer Kubernetes context#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Delete exact gate provider webhooks#9",
+      "stepAnchor": "name:Delete exact gate provider webhooks#10",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Delete exact gate provider webhooks#9",
+      "stepAnchor": "name:Delete exact gate provider webhooks#10",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Persist cancelled post-identity attempt#10",
+      "stepAnchor": "name:Persist cancelled post-identity attempt#11",
       "secretName": "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
       "purpose": "release-evidence"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Persist cancelled post-identity attempt#10",
+      "stepAnchor": "name:Persist cancelled post-identity attempt#11",
       "secretName": "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
       "purpose": "release-evidence"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Validate observer cleanup credentials#4",
+      "stepAnchor": "name:Validate observer cleanup credentials#5",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Validate observer cleanup credentials#4",
+      "stepAnchor": "name:Validate observer cleanup credentials#5",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Validate observer cleanup credentials#4",
+      "stepAnchor": "name:Validate observer cleanup credentials#5",
       "secretName": "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
       "purpose": "release-evidence"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Validate observer cleanup credentials#4",
+      "stepAnchor": "name:Validate observer cleanup credentials#5",
       "secretName": "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
       "purpose": "release-evidence"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Validate observer cleanup credentials#4",
+      "stepAnchor": "name:Validate observer cleanup credentials#5",
       "secretName": "STRIPE_SECRET_KEY",
       "purpose": "marketplace-ops"
     },

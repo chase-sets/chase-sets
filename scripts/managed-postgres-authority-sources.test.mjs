@@ -424,6 +424,103 @@ function applyReviewedStepInsertions(record) {
     return index >= insertion.position ? { ...current, stepAnchor: `${match[1]}${index + 1}` } : current;
   }, record);
 }
+
+// Advisory qualification reuses the reviewed gate grants; only step positions move.
+function applyQualificationStepInsertions(record) {
+  const insertions = [
+    { file: ".github/workflows/platform-merge-gate-verification.yml", jobId: "verify", positions: [2, 8, 11, 12] },
+    { file: ".github/workflows/platform-merge-gate-verification.yml", jobId: "stranded-fixture-drill", positions: [2] },
+    { file: ".github/workflows/platform-pr.yml", jobId: "docker-image", positions: [9, 10, 11, 12, 13, 14] },
+  ];
+  const insertion = insertions.find(({ file, jobId }) => file === record.file && jobId === record.jobId);
+  const match = /^(name:.*#)(\d+)$/.exec(record.stepAnchor);
+  if (!insertion || !match) return record;
+  const position = insertion.positions.reduce(
+    (index, inserted) => (index >= inserted ? index + 1 : index),
+    Number(match[2]),
+  );
+  return { ...record, stepAnchor: `${match[1]}${position}` };
+}
+
+const qualificationCleanupDelta = [
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Configure observer Kubernetes context#8",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Delete exact gate provider webhooks#10",
+    secretName: "EASYPOST_API_KEY",
+    purpose: "marketplace-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Delete exact gate provider webhooks#10",
+    secretName: "STRIPE_SECRET_KEY",
+    purpose: "marketplace-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Persist cancelled post-identity attempt#11",
+    secretName: "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
+    purpose: "release-evidence",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Persist cancelled post-identity attempt#11",
+    secretName: "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+    purpose: "release-evidence",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "EASYPOST_API_KEY",
+    purpose: "marketplace-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
+    purpose: "release-evidence",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+    purpose: "release-evidence",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "STRIPE_SECRET_KEY",
+    purpose: "marketplace-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+];
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -623,12 +720,16 @@ describe("managed Postgres authority source generator", () => {
         ...previewPoolCensusDelta,
         ...credentialHealthDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
-      ],
+        ...qualificationCleanupDelta,
+      ].map(applyQualificationStepInsertions),
     };
-    expect(expected.grants).toHaveLength(1652);
+    expect(expected.grants).toHaveLength(1663);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
-      reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
+      reviewedCatalogDelta
+        .map(applyReviewedStepInsertions)
+        .map(applyQualificationStepInsertions)
+        .filter(isCatalogKeyring),
     );
     expectParity(expected, generated);
     expectParity(expected, canonical);

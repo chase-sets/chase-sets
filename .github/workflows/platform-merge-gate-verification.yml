@@ -98,6 +98,7 @@ concurrency:
 
 jobs:
   preflight:
+    if: inputs.qualification_parent_run_id == '' || (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.workflow_ref == format('{0}/.github/workflows/platform-merge-qualification.yml@refs/heads/{1}', github.repository, github.event.repository.default_branch))
     name: Merge Gate Preflight
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -286,7 +287,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-          ref: ${{ inputs.qualification_parent_run_id != '' && github.sha || inputs.candidate_ref || github.sha }}
+          ref: ${{ inputs.qualification_parent_run_id != '' && github.workflow_sha || inputs.candidate_ref || github.sha }}
 
       - name: Resolve owning workflow identity
         id: owner
@@ -511,6 +512,10 @@ jobs:
 
       - name: Apply gate Kubernetes runtime secrets
         env:
+          CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
+          EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
+          EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
+          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
@@ -523,9 +528,6 @@ jobs:
           UCP_BUSINESS_SIGNING_ALG: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
           UCP_BUSINESS_SIGNING_PRIVATE_JWK: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
           UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
-          UCP_AP2_VERIFIER_URL: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
-          UCP_AP2_VERIFIER_AUTH_TOKEN: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
-          UCP_AP2_VERIFIER_TIMEOUT_MS: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
           EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
           VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY || '' }}
           GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}

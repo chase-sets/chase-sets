@@ -107,7 +107,7 @@ describe("exact candidate image handoff", () => {
     expect(step(platformPr, "Upload candidate capture diagnostics")).toContain(
       "artifacts/merge-qualification-candidate/diagnostics/",
     );
-    expect(docker).toContain("permissions:\n      contents: read\n      actions: read\n      pull-requests: read");
+    expect(docker).toContain("permissions:\n      contents: read\n      actions: write\n      pull-requests: read");
   });
 
   it("requires the exact digest at every reusable gate entry and never reads the tree tag", () => {
@@ -120,7 +120,93 @@ describe("exact candidate image handoff", () => {
   });
 });
 
+describe("continuation acceptance boundaries", () => {
+  it("AC2 gates producer discovery, publication, diagnostics and dispatch on trusted policy", () => {
+    const producer = job(platformPr, "docker-image");
+    const policy = step(platformPr, "Evaluate trusted merge qualification policy");
+    expect(policy).toContain(".qualification-authority/scripts/merge-qualification.mjs policy");
+    expect(policy).toContain("--policy .qualification-authority/scripts/merge-qualification-policy.json");
+    expect(producer).toContain("ref: ${{ github.event.repository.default_branch }}");
+    expect(producer.indexOf("Evaluate trusted merge qualification policy")).toBeLessThan(
+      producer.indexOf("Record exact merge qualification candidate image"),
+    );
+    for (const name of [
+      "Record exact merge qualification candidate image",
+      "Upload exact merge qualification candidate image",
+      "Upload candidate capture diagnostics",
+      "Dispatch merge qualification producer",
+    ]) {
+      expect(step(platformPr, name)).toContain("steps.qualification_policy.outputs.enabled == 'true'");
+    }
+    expect(step(platformPr, "Record exact merge qualification candidate image")).toContain(
+      "node ./.qualification-authority/scripts/merge-qualification.mjs candidate-evidence",
+    );
+    expect(step(platformPr, "Upload exact merge qualification candidate image")).toContain(
+      "steps.candidate_record.outcome == 'success'",
+    );
+  });
+
+  it("AC2 evaluates child policy before candidate discovery and writes no disabled decision", () => {
+    const plan = job(advisory, "plan");
+    expect(plan.indexOf("Evaluate original run-attempt policy decision")).toBeLessThan(
+      plan.indexOf("Inspect exact parent run and candidate artifact"),
+    );
+    for (const name of [
+      "Inspect exact parent run and candidate artifact",
+      "Persist original run-attempt decision",
+      "Upload original run-attempt decision",
+    ]) {
+      expect(step(advisory, name)).toContain("steps.policy.outputs.enabled == 'true'");
+    }
+  });
+
+  it("AC3 confines the advisory caller and executable checkout to default-ref authority", () => {
+    expect(job(advisory, "plan")).toContain(
+      "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+    );
+    expect(job(gate, "preflight")).toContain(
+      "github.workflow_ref == format('{0}/.github/workflows/platform-merge-qualification.yml@refs/heads/{1}', github.repository, github.event.repository.default_branch)",
+    );
+    expect(job(gate, "verify")).toContain("inputs.qualification_parent_run_id != '' && github.workflow_sha");
+  });
+
+  it("AC4 uses recovered inspection decision even when the child decision upload was lost", () => {
+    const inspect = step(observer, "Inspect complete cancelled-run identity");
+    expect(inspect).toContain("cp artifacts/merge-qualification-cleanup/inspection/run.json");
+    expect(step(observer, "Download exact cleanup ownership")).toContain(
+      "merge-qualification-inspection-${{ matrix.run_id }}-${{ matrix.run_attempt }}",
+    );
+    expect(inspect).not.toContain('gh run download "$RUN_ID" --name "$decision_name"');
+    expect(step(observer, "Persist cancelled post-identity attempt")).toContain(
+      'decision="artifacts/merge-qualification-cleanup/inspection/decision/decision.json"',
+    );
+  });
+
+  it("AC5 contains dispatch failure without changing the required parent graph", () => {
+    const dispatch = step(platformPr, "Dispatch merge qualification producer");
+    expect(dispatch).toContain("continue-on-error: true");
+    expect(dispatch).toContain("GH_TOKEN: ${{ github.token }}");
+    expect(dispatch).toContain('--ref "${{ github.event.repository.default_branch }}"');
+    expect(dispatch).toContain("steps.candidate_record.outcome == 'success'");
+    expect(job(platformPr, "pr-required")).not.toContain("qualification");
+  });
+});
+
 describe("run-attempt decision and terminal evidence", () => {
+  it("AC1 checks durable cross-delivery terminal payloads only after cleanup", () => {
+    const terminal = job(observer, "terminalize");
+    expect(terminal).toContain("needs: [reconcile, inspect, cleanup]");
+    expect(terminal.indexOf("Read durable observer terminals after cleanup")).toBeLessThan(
+      terminal.indexOf("Emit exact missing terminal result"),
+    );
+    expect(step(observer, "Read durable observer terminals after cleanup")).toContain("terminal-inventory");
+    expect(step(observer, "Emit exact missing terminal result")).toContain(
+      "--terminal-records artifacts/merge-qualification/terminal-records.json",
+    );
+    expect(step(observer, "Upload deterministic terminal event")).toContain(
+      "steps.terminalize.outputs.event_written == 'true'",
+    );
+  });
   it("persists the original policy decision before the gate and publishes from that artifact", () => {
     const plan = job(advisory, "plan");
     const publish = job(advisory, "publish");
@@ -134,13 +220,11 @@ describe("run-attempt decision and terminal evidence", () => {
   });
 
   it("paginates jobs/artifacts, verifies totals, and binds repository/path/id/run/attempt", () => {
-    expect(job(observer, "inspect")).toContain(
-      "startsWith(github.event.workflow_run.display_title, 'Merge Qualification ')",
-    );
+    expect(job(observer, "inspect")).toContain("needs.reconcile.outputs.pending == 'true'");
     const inspect = step(observer, "Inspect complete advisory run evidence");
-    expect(inspect).toContain("gh api --paginate --slurp");
-    expect(inspect).toContain("filter=all&per_page=100");
-    expect(inspect).toContain("artifacts?per_page=100");
+    expect(inspect).toContain("merge-qualification.mjs run-collection");
+    expect(inspect).toContain('--run-attempt "$RUN_ATTEMPT"');
+    expect(inspect).toContain("--collection artifacts");
     expect(inspect).toContain("pagination returned");
     const terminalize = step(observer, "Emit exact missing terminal result");
     for (const flag of ["--run ", "--parent-run ", "--jobs ", "--run-artifacts "]) {
@@ -160,9 +244,7 @@ describe("run-attempt decision and terminal evidence", () => {
 
   it("uses exact attempt artifact names and deterministic terminal event names", () => {
     expect(observer).toContain("merge-qualification-decision-${RUN_ID}-${RUN_ATTEMPT}");
-    expect(observer).toContain(
-      "merge-qualification-terminal-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}",
-    );
+    expect(observer).toContain("merge-qualification-terminal-${{ matrix.run_id }}-${{ matrix.run_attempt }}");
   });
 });
 
@@ -171,13 +253,13 @@ describe("event-driven exact cleanup", () => {
 
   it("observes every completed advisory run and activates cleanup only from a durable provisioning observation", () => {
     expect(observer).toContain('workflows: ["Platform PR", "Platform Merge Qualification Advisory"]');
-    expect(job(observer, "inspect")).toContain("provisioned: ${{ steps.prepare.outputs.provisioned }}");
-    expect(cleanup).toContain("needs: inspect");
-    expect(cleanup).toContain("needs.inspect.outputs.provisioned == 'true'");
+    expect(job(observer, "inspect")).toContain("id: prepare");
+    expect(cleanup).toContain("needs: [reconcile, inspect]");
+    expect(cleanup).toContain("steps.ownership.outputs.provisioned == 'true'");
     expect(step(observer, "Recover exact cleanup ownership before terminalization")).toContain(
       "--cleanup-ownership-out",
     );
-    expect(job(observer, "terminalize")).toContain("needs: [inspect, cleanup]");
+    expect(job(observer, "terminalize")).toContain("needs: [reconcile, inspect, cleanup]");
     expect(job(observer, "terminalize")).toContain(
       "needs.cleanup.result == 'success' || needs.cleanup.result == 'skipped'",
     );
@@ -185,15 +267,13 @@ describe("event-driven exact cleanup", () => {
     expect(advisory).not.toContain("merge-qualification-events-");
     expect(advisory).toContain("merge-qualification-observation-");
     expect(step(observer, "Upload exact cleanup ownership")).toContain(
-      "merge-qualification-cleanup-ownership-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}",
+      "merge-qualification-cleanup-ownership-${{ matrix.run_id }}-${{ matrix.run_attempt }}",
     );
-    expect(step(observer, "Download exact cleanup ownership")).toContain("cleanup-ownership");
+    expect(step(observer, "Download exact cleanup ownership")).toContain("merge-qualification-inspection-");
     expect(cleanup).not.toContain("gate_started");
+    expect(cleanup).toContain('namespace="chase-sets-gate-${{ matrix.run_id }}-${{ matrix.run_attempt }}"');
     expect(cleanup).toContain(
-      'namespace="chase-sets-gate-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}"',
-    );
-    expect(cleanup).toContain(
-      "https://gate-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}-marketplace.preview.chasesets.com",
+      "https://gate-${{ matrix.run_id }}-${{ matrix.run_attempt }}-marketplace.preview.chasesets.com",
     );
   });
 
@@ -212,11 +292,11 @@ describe("event-driven exact cleanup", () => {
 
   it("persists a fail record for force-cancelled attempts that reached immutable resolution", () => {
     const record = step(observer, "Persist cancelled post-identity attempt");
-    expect(record).toContain("github.event.workflow_run.conclusion == 'cancelled'");
+    expect(record).toContain("matrix.conclusion == 'cancelled'");
     expect(record).toContain("steps.target.outputs.provider_cleanup_allowed == 'true'");
     expect(record).toContain("cleanup-ownership.json");
     expect(record).toContain("release-qualification-record.mjs write");
-    expect(record).toContain('result:"fail"');
+    expect(record).toContain("merge-qualification.mjs cancelled-record");
   });
 
   it("is idempotent for normal cleanup, early cancellation, and redelivery; scheduled sweep is only fallback", () => {
@@ -235,6 +315,27 @@ describe("event-driven exact cleanup", () => {
     );
     expect(job(observer, "terminalize")).not.toContain("DIGITALOCEAN_ACCESS_TOKEN");
     expect(job(observer, "terminalize")).not.toContain("STRIPE_SECRET_KEY");
+    for (const name of [
+      "Validate observer cleanup credentials",
+      "Configure observer Kubernetes context",
+      "Verify exact cleanup target identity",
+    ]) {
+      expect(step(observer, name)).toContain("steps.ownership.outputs.provisioned == 'true'");
+    }
+  });
+
+  it("AC1 schedules the same recovery graph within a 15-minute worker budget", () => {
+    expect(observer).toContain('cron: "*/15 * * * *"');
+    expect(job(observer, "reconcile")).not.toContain("if: github.event_name");
+    expect(step(observer, "Inventory original enabled advisory attempts")).toContain(
+      "merge-qualification.mjs inventory",
+    );
+    let minutes = 0;
+    for (const id of ["reconcile", "inspect", "cleanup", "terminalize"]) {
+      minutes += Number(job(observer, id).match(/timeout-minutes: (\d+)/)[1]);
+      if (id !== "reconcile") expect(job(observer, id)).toContain("fromJSON(needs.reconcile.outputs.matrix)");
+    }
+    expect(minutes).toBeLessThanOrEqual(15);
   });
 });
 
