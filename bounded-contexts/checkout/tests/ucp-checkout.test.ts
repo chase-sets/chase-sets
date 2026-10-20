@@ -442,9 +442,10 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
   });
 });
 
-// Decision D1 (#10088) sources for a two-line session: lst_1 x2 and lst_2 x1. Each source prices the
-// lines differently and no subtotal divided by the three units equals a line price, so a wrong
-// source, a line from another source or an averaged price fails the table.
+// Quote sources from decision D1 of #10088 ("an honest quote source for every Checkout state") for a
+// two-line session: lst_1 x2 and lst_2 x1. Each source prices the lines differently and no subtotal
+// divided by the three units equals a line price, so a wrong source, a line from another source or
+// an averaged price fails the table.
 const quoteLines = [
   { ...line, quantity: 2 },
   { ...line, listingId: "lst_2", lockedListingId: "lst_2", catalogItemId: "cat_2", productId: "cat_2::form:raw" },

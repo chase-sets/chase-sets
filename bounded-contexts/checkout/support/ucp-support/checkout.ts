@@ -385,8 +385,9 @@ export function checkoutUcpState(
 }
 
 /**
- * Decision D1 (#10088): one honest quote source per Checkout state. With orders, Ordering's purchase
- * facts are summed once every order has one (C8); the retained quote answers until then (C9). An
+ * Decision D1 of #10088 ("an honest quote source for every Checkout state"), cells C1-C10. With
+ * orders, Ordering's purchase facts are summed once every order has one (C8); the retained quote
+ * answers until then (C9). An
  * orderless session uses its snapshot, else `preview`, else the retained quote (C1-C7). No source
  * returns null (C10). The retained quote is loaded only in C3, C5, C7 and C9; C10 is that load
  * finding none.
