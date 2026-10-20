@@ -34,6 +34,7 @@ import {
   resolvePlatformInternalAuthSecret,
   resolvePostWriteTokenRequest,
   resolveRequestApiBaseUrl,
+  sharesRegistrableDomain,
   trustForwardedHeaders,
   UnresolvedPostWriteTokenError,
 } from "./http";
@@ -195,6 +196,29 @@ describe("resolvePublicRequestOrigin", () => {
   it("reads the forwarded trust flag from the environment", () => {
     expect(trustForwardedHeaders({})).toBe(false);
     expect(trustForwardedHeaders({ [CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV]: "true" })).toBe(true);
+  });
+});
+
+describe("sharesRegistrableDomain", () => {
+  it("compares the last two DNS labels and ignores scheme and port", () => {
+    expect(sharesRegistrableDomain("http://admin.chasesets.com:8443", "https://marketplace.chasesets.com")).toBe(true);
+    expect(sharesRegistrableDomain("https://chasesets.com", "https://marketplace.chasesets.com")).toBe(true);
+    expect(sharesRegistrableDomain("https://chasesets.com.evil.com", "https://marketplace.chasesets.com")).toBe(false);
+  });
+
+  it("matches a single-label hostname or an IP literal only to the identical hostname", () => {
+    expect(sharesRegistrableDomain("http://localhost:5173", "http://localhost:3000")).toBe(true);
+    expect(sharesRegistrableDomain("http://app.localhost", "http://localhost:3000")).toBe(false);
+    expect(sharesRegistrableDomain("http://10.0.0.12:3000", "http://10.0.0.12:8787")).toBe(true);
+    expect(sharesRegistrableDomain("http://10.1.0.12", "http://10.0.0.12:8787")).toBe(false);
+    expect(sharesRegistrableDomain("http://[::1]:5173", "http://[::1]:3000")).toBe(true);
+    expect(sharesRegistrableDomain("http://[fd00::1]", "http://[::1]:3000")).toBe(false);
+  });
+
+  it("matches nothing when either origin does not parse", () => {
+    expect(sharesRegistrableDomain("null", "https://marketplace.chasesets.com")).toBe(false);
+    expect(sharesRegistrableDomain("admin.chasesets.com", "https://marketplace.chasesets.com")).toBe(false);
+    expect(sharesRegistrableDomain("https://admin.chasesets.com", "https://bad host")).toBe(false);
   });
 });
 

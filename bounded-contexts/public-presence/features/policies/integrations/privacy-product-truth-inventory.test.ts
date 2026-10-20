@@ -220,7 +220,7 @@ describe("privacy product-truth derivation over the real repository", () => {
       "bounded-contexts/auth/support/request-support/cookies.ts:1",
       "contracts/auth-context/index.ts:3",
     ]);
-    expect(factFor("first-party-cookie", "chase_sets_guest_checkout").detail.aliasCount).toBe(2);
+    expect(factFor("first-party-cookie", "chase_sets_guest_checkout").detail.aliasCount).toBe(3);
   });
 
   it("derives Web Storage subjects through direct, helper, alias, Pick<Storage>, and dynamic-key shapes", () => {

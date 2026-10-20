@@ -76,6 +76,8 @@ const requestCounter = lazyCounter("chase_sets_http_server_requests_total");
 const requestDuration = lazyHistogram("chase_sets_http_server_request_duration_ms", {
   unit: "ms",
 });
+const HTTP_CROSS_SITE_REJECTIONS_METRIC = "chase_sets_http_cross_site_rejections_total";
+const httpCrossSiteRejectionCounter = lazyCounter(HTTP_CROSS_SITE_REJECTIONS_METRIC);
 const discoverySearchQueryCounter = lazyCounter("chase_sets_discovery_search_queries_total");
 const discoverySearchQueryDuration = lazyHistogram("chase_sets_discovery_search_query_duration_ms", {
   unit: "ms",
@@ -541,6 +543,15 @@ export type EventStoreAppendAdvisoryLockHoldSignal = Readonly<{
   subscriptionName?: string | null;
 }>;
 
+export type HttpCrossSiteRejectionSignal = Readonly<{
+  rule: "fetch-metadata" | "origin";
+}>;
+
+export type HttpCrossSiteRejectionMetric = Readonly<{
+  name: string;
+  attributes: Attributes;
+}>;
+
 let runtime: ObservabilityRuntime | null = null;
 
 type Meter = ReturnType<typeof metrics.getMeter>;
@@ -879,6 +890,17 @@ export function createHonoObservabilityMiddleware(logger = getObservabilityRunti
       ),
     );
   };
+}
+
+export function httpCrossSiteRejectionMetricRecord(event: HttpCrossSiteRejectionSignal): HttpCrossSiteRejectionMetric {
+  return {
+    name: HTTP_CROSS_SITE_REJECTIONS_METRIC,
+    attributes: { rule: event.rule },
+  };
+}
+
+export function recordHttpCrossSiteRejection(event: HttpCrossSiteRejectionSignal): void {
+  httpCrossSiteRejectionCounter.add(1, httpCrossSiteRejectionMetricRecord(event).attributes);
 }
 
 export async function observeEventStoreOperation<T>(

@@ -1,12 +1,25 @@
 import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createAuthBootstrapContext } from "@chase-sets/auth-context";
+import {
+  AUTH_GUEST_CHECKOUT_COOKIE_NAME,
+  AUTH_SESSION_COOKIE_NAME,
+  createAuthBootstrapContext,
+} from "@chase-sets/auth-context";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import { PLATFORM_INTERNAL_AUTH_HEADER, resolvePlatformInternalAuthSecret } from "@chase-sets/platform-runtime/http";
+import {
+  PLATFORM_INTERNAL_AUTH_HEADER,
+  resolvePlatformInternalAuthSecret,
+  resolvePublicRequestOrigin,
+  sharesRegistrableDomain,
+} from "@chase-sets/platform-runtime/http";
 import { verifyPlatformInternalAuthSecret } from "@chase-sets/platform-runtime/internal-auth";
 import type { PlatformIdentityServices } from "../app";
-import { authenticationRequiredResponse } from "@chase-sets/http/responses";
-import { attachActiveTraceContext } from "@chase-sets/observability";
+import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
+import {
+  attachActiveTraceContext,
+  recordHttpCrossSiteRejection,
+  type HttpCrossSiteRejectionSignal,
+} from "@chase-sets/observability";
 
 export type TenantContextEnv = {
   Variables: {
@@ -50,6 +63,45 @@ function hasInternalCapability(request: Request, secret: string) {
   return verifyPlatformInternalAuthSecret(request.headers.get(PLATFORM_INTERNAL_AUTH_HEADER), secret);
 }
 
+const NON_MUTATING_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function carriesAuthCookie(request: Request) {
+  return (request.headers.get("cookie") ?? "").split(";").some((part) => {
+    const name = part.trim().split("=", 1)[0];
+    return name === AUTH_SESSION_COOKIE_NAME || name === AUTH_GUEST_CHECKOUT_COOKIE_NAME;
+  });
+}
+
+/**
+ * The browser attaches the auth cookies to requests other sites start, so a cookie-authenticated
+ * mutation must come from the same site: `Sec-Fetch-Site` decides when the browser sends it, otherwise
+ * an `Origin` must share the public origin's registrable domain. Requests carrying neither auth cookie
+ * authenticate with a credential the browser does not attach on its own and are not checked.
+ */
+function crossSiteRejectionRule(request: Request): HttpCrossSiteRejectionSignal["rule"] | null {
+  if (NON_MUTATING_METHODS.has(request.method.toUpperCase()) || !carriesAuthCookie(request)) {
+    return null;
+  }
+
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite !== null) {
+    return fetchSite === "cross-site" ? "fetch-metadata" : null;
+  }
+
+  const origin = request.headers.get("origin");
+  return origin === null || sharesRegistrableDomain(origin, resolvePublicRequestOrigin(request)) ? null : "origin";
+}
+
+function rejectCrossSiteCookieMutation(c: Context<TenantContextEnv>) {
+  const rule = crossSiteRejectionRule(c.req.raw);
+  if (rule === null) {
+    return null;
+  }
+
+  recordHttpCrossSiteRejection({ rule });
+  return c.json(forbiddenResponse(), 403);
+}
+
 export function createIdentityAuthMiddleware(
   services: PlatformIdentityServices,
   options: Readonly<{
@@ -62,8 +114,10 @@ export function createIdentityAuthMiddleware(
   const anonymousRoutes = options.anonymousRoutes ?? [];
   return async function identityAuthMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
     const pathname = new URL(c.req.url).pathname;
+    const internalCapabilityRoute =
+      isInternalIdentityAuthRoute(pathname) || isInternalGuestCheckoutCapabilityRoute(pathname);
 
-    if (isInternalIdentityAuthRoute(pathname) || isInternalGuestCheckoutCapabilityRoute(pathname)) {
+    if (internalCapabilityRoute) {
       if (!hasInternalCapability(c.req.raw, internalAuthSecret)) {
         return c.json(authenticationRequiredResponse(), 401);
       }
@@ -74,6 +128,12 @@ export function createIdentityAuthMiddleware(
         await next();
         return;
       }
+    }
+
+    // A capability-gated route is a server-to-server call, so the browser-provenance rule does not apply.
+    const crossSiteRejection = internalCapabilityRoute ? null : rejectCrossSiteCookieMutation(c);
+    if (crossSiteRejection) {
+      return crossSiteRejection;
     }
 
     const actor = await options.resolveActor(c.req.raw);
@@ -107,13 +167,18 @@ export function createPlatformActorMiddleware(
   options: Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }> = {},
 ) {
   const anonymousRoutes = options.anonymousRoutes ?? [];
-  return async function platformActorMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<void> {
+  return async function platformActorMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
     if (isAnonymousAllowed(anonymousRoutes, c.req.method, new URL(c.req.url).pathname)) {
       c.set("actor", null);
       c.set("context", null);
 
       await next();
       return;
+    }
+
+    const crossSiteRejection = rejectCrossSiteCookieMutation(c);
+    if (crossSiteRejection) {
+      return crossSiteRejection;
     }
 
     const actor = await resolveActor(c.req.raw);

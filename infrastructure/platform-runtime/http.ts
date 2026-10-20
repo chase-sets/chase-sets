@@ -896,6 +896,41 @@ export function resolvePublicRequestOrigin(request: Request, options: PlatformRe
   return `${protocol === "http" && !isLocalHost(host) ? "https" : protocol}://${host}`;
 }
 
+/**
+ * The registrable domain is the hostname's last two DNS labels: every first-party host sits under one
+ * two-label domain, so no public-suffix list is consulted. A hostname with fewer than two labels, or an
+ * IP literal, matches only the identical hostname. Scheme and port are ignored, and an origin that does
+ * not parse (including `null`) matches nothing.
+ */
+export function sharesRegistrableDomain(origin: string, publicOrigin: string): boolean {
+  const hostname = parseOriginHostname(origin);
+  const publicHostname = parseOriginHostname(publicOrigin);
+  if (hostname === null || publicHostname === null) {
+    return false;
+  }
+
+  const domain = registrableDomain(hostname);
+  return hostname === publicHostname || (domain !== null && domain === registrableDomain(publicHostname));
+}
+
+function parseOriginHostname(origin: string) {
+  try {
+    return new URL(origin).hostname;
+  } catch {
+    return null;
+  }
+}
+
+// A parsed IPv6 hostname is bracketed hex with no dot, so it is always a single label.
+function registrableDomain(hostname: string) {
+  const labels = hostname.split(".");
+  if (labels.length < 2 || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+    return null;
+  }
+
+  return labels.slice(-2).join(".");
+}
+
 export function resolveClientAddress(
   request: Request | undefined,
   options: PlatformRequestOriginOptions = {},
