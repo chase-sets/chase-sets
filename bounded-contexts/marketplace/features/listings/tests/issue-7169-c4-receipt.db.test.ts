@@ -11,7 +11,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { CommercialTermsResolver } from "../../../api";
 import { module as marketplaceModule } from "../../../index";
 import { createMarketplaceServices } from "../../../support/runtime-support/services";
-import { draftContext, draftMessage } from "./issue-7169-c4-fixture";
+import { directPortInput, draftContext, draftMessage } from "./issue-7169-c4-fixture";
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 if (!adminUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
@@ -121,23 +121,15 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
     ).toBe("p");
   });
 
-  it("uses the existing creator's grading normalization rather than a second draft input model", async () => {
-    const message = draftMessage();
-    message.snapshot.gradedCard = {
-      gradingCompany: "psa",
-      grade: "10.0",
-      certificationNumber: "12 345678",
-      population: null,
-      conditionDescriptors: ["Centered", "Centered"],
-    };
+  it("forwards a non-USD message through the creator and stores canonical currency and null limits", async () => {
+    const message = { ...draftMessage(), snapshot: { ...draftMessage().snapshot, priceCurrencyCode: "CAD" as const } };
     const owner = services(pool);
     const receipt = await owner.inventoryDraftListingConsumer.accept(message, draftContext);
-    expect((await owner.listings.loadListingState(receipt.listingId)).gradedCard).toEqual({
-      gradingCompany: "PSA",
-      grade: "10",
-      certificationNumber: "12345678",
-      population: null,
-      conditionDescriptors: ["Centered"],
+    expect((await owner.listings.loadListingState(receipt.listingId)).priceCurrencyCode).toBe("CAD");
+    expect((await owner.listings.loadListingState(receipt.listingId)).purchaseLimits).toEqual({
+      maxUnitsPerOrder: null,
+      maxUnitsPerDay: null,
+      maxUnitsPerCustomerAccount: null,
     });
     expect(await owner.inventoryDraftListingConsumer.accept(message, draftContext)).toEqual(receipt);
     expect((await counts())?.drafts).toBe(1);
@@ -148,7 +140,7 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
     const message = draftMessage();
     const [direct, receipt] = await Promise.all([
       owner.listings.createBatchDraftListingFromInventorySnapshot(
-        { ...message.snapshot, accountId: message.authority.accountId, listingIdOverride: "lst_c4_1" as never },
+        directPortInput(),
         draftContext,
       ),
       owner.inventoryDraftListingConsumer.accept(message, draftContext),
@@ -256,9 +248,7 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
     const message = draftMessage();
     const direct = await old.createBatchDraftListingFromInventorySnapshot(
       {
-        ...message.snapshot,
-        accountId: message.authority.accountId,
-        listingIdOverride: "lst_c4_1" as never,
+        ...directPortInput(),
       },
       draftContext,
     );

@@ -4,7 +4,7 @@ import {
   canonicalInventoryDraftListingIntent,
   listingIdForInventoryDraftRow,
 } from "@chase-sets/inventory-draft-listing";
-import { draftContext, draftMessage } from "./issue-7169-c4-fixture";
+import { directPortInput, draftContext, draftMessage } from "./issue-7169-c4-fixture";
 import { createInventoryDraftListingConsumer } from "../api/inventory-draft-consumer";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -14,6 +14,12 @@ import type { PgPoolClient, PgTransactionalPool, PostgresEventStore } from "@cha
 import { module as marketplaceModule } from "../../../index";
 import { inventoryDraftReceiptMigrations } from "../read-model/inventory-draft-receipt-schema";
 import type { BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
+import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import {
+  decideMarketplaceListing,
+  initialMarketplaceListingState,
+  type CreateListingCommand,
+} from "../domain/domain";
 
 describe("issue-7169-c4-draft-receipt", () => {
   it("binds the committed row to a deterministic message and listing identity", () => {
@@ -128,8 +134,59 @@ function harness() {
     appendToStreamInTransaction: vi.fn(),
     appendToStreamsInTransaction: vi.fn(),
   };
-  function seedLegacy() {
-    const message = draftMessage();
+  function seedLegacy(message = draftMessage()) {
+    const input = { ...directPortInput(), priceCurrencyCode: message.snapshot.priceCurrencyCode };
+    const command: CreateListingCommand = {
+      type: "CreateListing",
+      listingId: input.listingIdOverride,
+      accountId: input.accountId as never,
+      inventoryItemId: input.inventoryItemId,
+      catalogItemId: input.catalogItemId as never,
+      productId: input.productId as never,
+      itemLanguageCode: null,
+      itemTitle: null,
+      itemSubtitle: null,
+      selectedOptions: input.selectedOptions,
+      productSummary: null,
+      gradedCard: null,
+      storageLocationName: input.storageLocationName,
+      shipFromCode: input.shipFromCode,
+      shipFromAddress: input.shipFromAddress,
+      priceAmount: input.priceAmount,
+      priceCurrencyCode: input.priceCurrencyCode,
+      feeLock: {
+        unitCount: input.quantityCap,
+        terms: {
+          marketplaceSalesFeePercentageBps: 0,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          marketplaceSalesFeeCapAmount: null,
+          shippingAllowancePercentageBps: 0,
+          termsScheduleId: "cts_c4",
+          termsAgreementId: null,
+          termsResolvedAt: message.snapshot.committedAt,
+        },
+        marketplaceSalesFeeUnitAmount: "0.00",
+        sellerNetUnitAmount: input.priceAmount,
+        feeQuoteFingerprint: "quote_c4",
+      },
+      quantityCap: input.quantityCap,
+      evidenceRequirements: {
+        policyId: null,
+        policyVersion: null,
+        policyHash: "policy_c4",
+        evaluatedAt: message.snapshot.committedAt,
+        requirementHash: "hash_c4",
+        matchedRuleIds: [],
+        explanationCodes: [],
+        requirements: {
+          minimumPhotoCount: 0,
+          requiredSlots: [],
+          sellerTrustRequirements: [],
+          buyerAcknowledgment: "none",
+        },
+      },
+    };
+    const [created] = decideMarketplaceListing(initialMarketplaceListingState, command);
     events.push({
       eventId: "evt_c4",
       streamId: "marketplace.listing-lst_c4_1",
@@ -143,17 +200,14 @@ function harness() {
       recordedAt: parseIsoUtcTimestamp(message.snapshot.committedAt),
       metadata: {},
       payload: {
-        ...message.snapshot,
-        listingId: "lst_c4_1",
-        accountId: "acc_c4",
+        ...created!.data,
         feeQuoteFingerprint: "quote_c4",
-        shipFromAddress: normalizeAddressSnapshot(message.snapshot.shipFromAddress, "Ship-from address"),
       },
     } satisfies StoredEvent);
   }
-  const createDraft = vi.fn(async () => {
-    seedLegacy();
+  const createDraft = vi.fn(async (_input: { priceCurrencyCode: string }) => {
     if (kill === "draft") throw new Error("synthetic death after draft facts");
+    seedLegacy({ ...draftMessage(), snapshot: { ...draftMessage().snapshot, priceCurrencyCode: _input.priceCurrencyCode } });
     return { listingId: "lst_c4_1" as never, version: 1, feeQuoteFingerprint: "quote_c4" };
   });
   const consumer = createInventoryDraftListingConsumer({
@@ -192,6 +246,41 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     expect(h.events()).toHaveLength(1);
     expect(h.receipts()).toHaveLength(1);
     expect(h.queries.slice(before).some((sql) => /INSERT|UPDATE|DELETE/.test(sql))).toBe(false);
+  });
+
+  it("forwards exactly the typed direct-port keys and preserves CAD", async () => {
+    const h = harness();
+    const message = { ...draftMessage(), snapshot: { ...draftMessage().snapshot, priceCurrencyCode: "CAD" } };
+    await h.consumer.accept(message, draftContext);
+    expect(Object.keys(h.createDraft.mock.calls[0]![0] as object).sort()).toEqual(
+      Object.keys(directPortInput()).sort(),
+    );
+    expect((h.createDraft.mock.calls[0]![0] as { priceCurrencyCode: string }).priceCurrencyCode).toBe("CAD");
+  });
+
+  it("pins creator input parity to the Inventory creator parameter type", async () => {
+    const h = harness();
+    await h.consumer.accept(draftMessage(), draftContext);
+    const keys: Record<keyof Parameters<InventoryDraftListingCreator>[0], true> = {
+      accountId: true,
+      importBatchId: true,
+      importRowId: true,
+      inventoryItemId: true,
+      listingIdOverride: true,
+      catalogItemId: true,
+      productId: true,
+      selectedOptions: true,
+      storageLocationId: true,
+      storageLocationName: true,
+      shipFromCode: true,
+      shipFromAddress: true,
+      totalQuantity: true,
+      acquisitionCostAmount: true,
+      priceAmount: true,
+      priceCurrencyCode: true,
+      quantityCap: true,
+    };
+    expect(Object.keys(h.createDraft.mock.calls[0]![0] as object).sort()).toEqual(Object.keys(keys).sort());
   });
 
   it.each(["draft", "receipt", "commit"] as const)(
@@ -269,6 +358,7 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     ).rejects.toMatchObject({ code: "inventory-draft-conflict" });
     expect(h.pool.connect).not.toHaveBeenCalled();
   });
+
 });
 
 describe("issue-7169-c4-consumer-rollout", () => {

@@ -139,7 +139,8 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "evidence-window-provider-write": "live-provider",
     http: "runtime-library",
     "identity-seed": "seed-machinery",
-    "inventory-draft-listing": "runtime-library",
+    // Versioned receipt/message facts are validated at bootstrap and must preserve replay semantics.
+    "inventory-draft-listing": "event-store-persistence",
     localization: "runtime-library",
     "market-estimate-display": "runtime-library",
     "money-movement": "money-movement-contract",

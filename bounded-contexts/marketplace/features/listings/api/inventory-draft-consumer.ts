@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import {
   canonicalDraftValue,
   canonicalInventoryDraftListingIntent,
+  compareInventoryDraftSelectedOptions,
   inventoryDraftListingMessageSchema,
   inventoryDraftListingReceiptSchema,
   listingIdForInventoryDraftRow,
+  type InventoryDraftListingErrorCode,
   type InventoryDraftListingMessage,
   type InventoryDraftListingReceipt,
 } from "@chase-sets/inventory-draft-listing";
@@ -25,7 +27,7 @@ import {
 import type { ListingId } from "@chase-sets/primitives/typed-ids";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { MarketplaceListingServices } from "./runtime";
-import { normalizeGradedCardDetails } from "../domain/domain";
+import { normalizePurchaseLimits } from "../domain/domain";
 import { inventoryListingCapacityStreamId } from "../domain/inventory-listing-capacity";
 import { INVENTORY_DRAFT_RECEIPT_MIGRATION_ID } from "../read-model/inventory-draft-receipt-schema";
 import {
@@ -34,7 +36,7 @@ import {
 } from "../read-model/inventory-draft-receipt";
 
 export class InventoryDraftListingConflict extends Error {
-  readonly code = "inventory-draft-conflict";
+  readonly code: InventoryDraftListingErrorCode = "inventory-draft-conflict";
   constructor() {
     super("Inventory draft message cannot be accepted.");
     this.name = "InventoryDraftListingConflict";
@@ -42,7 +44,7 @@ export class InventoryDraftListingConflict extends Error {
 }
 
 class InventoryDraftListingUnavailable extends Error {
-  readonly code = "inventory-draft-unavailable";
+  readonly code: InventoryDraftListingErrorCode = "inventory-draft-unavailable";
   constructor() {
     super("Inventory draft acceptance is unavailable. Read the same message receipt before retrying.");
     this.name = "InventoryDraftListingUnavailable";
@@ -93,6 +95,30 @@ function ownsReceipt(row: ReceiptRow, context: EventStoreContext): boolean {
   );
 }
 
+function normalizedLegacyOptions(value: unknown): readonly { dimensionId: string; optionId: string }[] {
+  if (!Array.isArray(value)) throw new InventoryDraftListingConflict();
+  const options: { dimensionId: string; optionId: string }[] = [];
+  const dimensions = new Set<string>();
+  for (const entry of value) {
+    if (
+      entry === null ||
+      typeof entry !== "object" ||
+      Array.isArray(entry) ||
+      Object.keys(entry).some((key) => key !== "dimensionId" && key !== "optionId")
+    )
+      throw new InventoryDraftListingConflict();
+    const record: Record<string, unknown> = Object.fromEntries(Object.entries(entry));
+    const dimensionId = record.dimensionId;
+    const optionId = record.optionId;
+    if (typeof dimensionId !== "string" || typeof optionId !== "string" || dimensionId.trim() === "" || optionId.trim() === "")
+      throw new InventoryDraftListingConflict();
+    if (dimensions.has(dimensionId)) throw new InventoryDraftListingConflict();
+    dimensions.add(dimensionId);
+    options.push({ dimensionId, optionId });
+  }
+  return options.sort(compareInventoryDraftSelectedOptions);
+}
+
 async function inspectDraft(
   db: PgQueryable,
   eventStore: EventStore,
@@ -129,19 +155,21 @@ async function inspectDraft(
     inventoryItemId: snapshot.inventoryItemId,
     catalogItemId: snapshot.catalogItemId,
     productId: snapshot.productId,
-    selectedOptions: snapshot.selectedOptions,
-    gradedCard: normalizeGradedCardDetails(snapshot.gradedCard),
+    selectedOptions: normalizedLegacyOptions(event.payload.selectedOptions),
+    gradedCard: null,
     storageLocationName: snapshot.storageLocationName,
     shipFromCode: snapshot.shipFromCode,
     shipFromAddress: normalizeAddressSnapshot(snapshot.shipFromAddress, "Ship-from address"),
     priceAmount: snapshot.priceAmount,
     priceCurrencyCode: snapshot.priceCurrencyCode,
     quantityCap: snapshot.quantityCap,
-    purchaseLimits: snapshot.purchaseLimits,
+    purchaseLimits: normalizePurchaseLimits(undefined, snapshot.quantityCap),
   };
   for (const [key, value] of Object.entries(expected)) {
-    if (canonicalDraftValue(event.payload[key]) !== canonicalDraftValue(value))
+    const actual = key === "selectedOptions" ? normalizedLegacyOptions(event.payload[key]) : event.payload[key];
+    if (canonicalDraftValue(actual) !== canonicalDraftValue(value)) {
       throw new InventoryDraftListingConflict();
+    }
   }
   const fingerprint = event.payload.feeQuoteFingerprint;
   if (typeof fingerprint !== "string" || fingerprint.length === 0) throw new InventoryDraftListingConflict();
@@ -151,7 +179,6 @@ async function inspectDraft(
 function parseMessage(input: unknown): InventoryDraftListingMessage {
   try {
     const message = inventoryDraftListingMessageSchema.parse(input);
-    normalizeGradedCardDetails(message.snapshot.gradedCard);
     normalizeAddressSnapshot(message.snapshot.shipFromAddress, "Ship-from address");
     return message;
   } catch {
@@ -235,9 +262,23 @@ export function createInventoryDraftListingConsumer(
                   }
                 : await deps.createListings(client, eventStore).createBatchDraftListingFromInventorySnapshot(
                     {
-                      ...message.snapshot,
                       accountId: message.authority.accountId,
+                      importBatchId: message.snapshot.importBatchId,
+                      importRowId: message.snapshot.importRowId,
+                      inventoryItemId: message.snapshot.inventoryItemId,
                       listingIdOverride: listingId as ListingId,
+                      catalogItemId: message.snapshot.catalogItemId,
+                      productId: message.snapshot.productId,
+                      selectedOptions: message.snapshot.selectedOptions,
+                      storageLocationId: message.snapshot.storageLocationId,
+                      storageLocationName: message.snapshot.storageLocationName,
+                      shipFromCode: message.snapshot.shipFromCode,
+                      shipFromAddress: message.snapshot.shipFromAddress,
+                      totalQuantity: message.snapshot.totalQuantity,
+                      acquisitionCostAmount: message.snapshot.acquisitionCostAmount,
+                      priceAmount: message.snapshot.priceAmount,
+                      priceCurrencyCode: message.snapshot.priceCurrencyCode,
+                      quantityCap: message.snapshot.quantityCap,
                     },
                     context,
                   );
@@ -298,11 +339,17 @@ export function bindInventoryDraftListingConsumer(
 ): InventoryDraftListingConsumer {
   function consumer() {
     const value = resolve();
-    if (!value) throw new InventoryDraftListingConflict();
+    if (!value) return undefined;
     return value;
   }
   return {
-    accept: (input, context) => consumer().accept(input, context),
-    readReceipt: (messageId, context) => consumer().readReceipt(messageId, context),
+    accept: (input, context) => {
+      const value = consumer();
+      return value ? value.accept(input, context) : Promise.reject(new InventoryDraftListingUnavailable());
+    },
+    readReceipt: (messageId, context) => {
+      const value = consumer();
+      return value ? value.readReceipt(messageId, context) : Promise.reject(new InventoryDraftListingUnavailable());
+    },
   };
 }

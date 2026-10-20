@@ -11,6 +11,7 @@ const money = z
     const [whole, fraction = ""] = value.split(".");
     return `${BigInt(whole!).toString()}.${fraction.padEnd(2, "0")}`;
   });
+const positiveMoney = money.refine((value) => Number(value) > 0, "Money must be greater than zero.");
 const addressFields = {
   name: text,
   company: text.nullable().optional(),
@@ -37,15 +38,18 @@ const address = z.strictObject({
     .nullable()
     .optional(),
 });
+export function compareInventoryDraftSelectedOptions(
+  left: Readonly<{ dimensionId: string }>,
+  right: Readonly<{ dimensionId: string }>,
+): number {
+  return left.dimensionId < right.dimensionId ? -1 : left.dimensionId > right.dimensionId ? 1 : 0;
+}
+
 const selectedOptions = z
   .array(z.strictObject({ dimensionId: text, optionId: text }))
   .max(64)
   .refine((options) => new Set(options.map((option) => option.dimensionId)).size === options.length)
-  .transform((options) =>
-    [...options].sort((left, right) =>
-      left.dimensionId < right.dimensionId ? -1 : left.dimensionId > right.dimensionId ? 1 : 0,
-    ),
-  );
+  .transform((options) => [...options].sort(compareInventoryDraftSelectedOptions));
 const gradedCard = z
   .strictObject({
     gradingCompany: text,
@@ -76,40 +80,35 @@ export const inventoryDraftListingMessageSchema = z
       catalogItemId: identity,
       productId: text,
       selectedOptions,
-      gradedCard,
       storageLocationId: identity,
       storageLocationName: text,
       shipFromCode: text,
       shipFromAddress: address,
       totalQuantity: quantity,
-      availableQuantity: z.number().int().nonnegative().max(2_147_483_647),
       acquisitionCostAmount: money.nullable(),
-      priceAmount: money,
+      priceAmount: positiveMoney,
       priceCurrencyCode: z
         .string()
         .trim()
         .toUpperCase()
         .regex(/^[A-Z]{3}$/),
       quantityCap: quantity,
-      purchaseLimits: z.strictObject({
-        maxUnitsPerOrder: quantity,
-        maxUnitsPerDay: quantity,
-        maxUnitsPerCustomerAccount: quantity,
-      }),
     }),
   })
   .superRefine((message, context) => {
     const { snapshot } = message;
     if (
       message.messageId !== snapshot.importRowId ||
-      snapshot.quantityCap > snapshot.availableQuantity ||
-      snapshot.availableQuantity > snapshot.totalQuantity
+      snapshot.quantityCap > snapshot.totalQuantity
     ) {
       context.addIssue({ code: "custom", message: "Invalid committed row binding." });
     }
   });
 
 export type InventoryDraftListingMessage = z.infer<typeof inventoryDraftListingMessageSchema>;
+
+export const inventoryDraftListingErrorCodes = ["inventory-draft-conflict", "inventory-draft-unavailable"] as const;
+export type InventoryDraftListingErrorCode = (typeof inventoryDraftListingErrorCodes)[number];
 
 export const inventoryDraftListingReceiptSchema = z
   .strictObject({

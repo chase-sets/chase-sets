@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canonicalDraftValue, inventoryDraftListingReceiptSchema, listingIdForInventoryDraftRow } from "./index";
+import {
+  canonicalDraftValue,
+  inventoryDraftListingErrorCodes,
+  inventoryDraftListingMessageSchema,
+  inventoryDraftListingReceiptSchema,
+  listingIdForInventoryDraftRow,
+} from "./index";
 
 const receipt = {
   schemaVersion: "inventory-draft-listing-receipt/v1",
@@ -19,6 +25,57 @@ const receipt = {
 };
 
 describe("Inventory draft receipt v1", () => {
+  it("keeps the producer error vocabulary closed", () => {
+    expect(inventoryDraftListingErrorCodes).toEqual(["inventory-draft-conflict", "inventory-draft-unavailable"]);
+  });
+
+  it.each(["purchaseLimits", "gradedCard", "availableQuantity"])("rejects removed snapshot key %s", (key) => {
+    const snapshot = {
+      importBatchId: "imb_batch",
+      importRowId: "imr_batch_1",
+      committedAt: "2026-10-19T12:00:00.000Z",
+      inventoryItemId: "inv_batch",
+      catalogItemId: "cat_batch",
+      productId: "cat_batch::",
+      selectedOptions: [],
+      storageLocationId: "loc_batch",
+      storageLocationName: "Warehouse",
+      shipFromCode: "US-IL",
+      shipFromAddress: { name: "Seller", line1: "1 Main St", city: "Chicago", state: "IL", postalCode: "60601", country: "US" },
+      totalQuantity: 2,
+      acquisitionCostAmount: null,
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 2,
+      [key]: key === "purchaseLimits" ? { maxUnitsPerOrder: 2, maxUnitsPerDay: 2, maxUnitsPerCustomerAccount: 2 } : null,
+    };
+    expect(
+      inventoryDraftListingMessageSchema.safeParse({
+        schemaVersion: "inventory-draft-listing/v1",
+        messageId: "imr_batch_1",
+        authority: { tenantId: "tnt_owner", accountId: "acc_owner", performedByUserId: "usr_owner" },
+        snapshot,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects zero price and a cap above total quantity", () => {
+    const base = {
+      schemaVersion: "inventory-draft-listing/v1" as const,
+      messageId: "imr_batch_1",
+      authority: { tenantId: "tnt_owner", accountId: "acc_owner", performedByUserId: "usr_owner" },
+      snapshot: {
+        importBatchId: "imb_batch", importRowId: "imr_batch_1", committedAt: "2026-10-19T12:00:00.000Z",
+        inventoryItemId: "inv_batch", catalogItemId: "cat_batch", productId: "cat_batch::", selectedOptions: [],
+        storageLocationId: "loc_batch", storageLocationName: "Warehouse", shipFromCode: "US-IL",
+        shipFromAddress: { name: "Seller", line1: "1 Main St", city: "Chicago", state: "IL", postalCode: "60601", country: "US" },
+        totalQuantity: 2, acquisitionCostAmount: null, priceAmount: "10.00", priceCurrencyCode: "USD", quantityCap: 2,
+      },
+    };
+    expect(inventoryDraftListingMessageSchema.safeParse({ ...base, snapshot: { ...base.snapshot, priceAmount: "0.00" } }).success).toBe(false);
+    expect(inventoryDraftListingMessageSchema.safeParse({ ...base, snapshot: { ...base.snapshot, quantityCap: 3 } }).success).toBe(false);
+  });
+
   it("is a closed versioned result with an exact row/message/listing binding", () => {
     expect(inventoryDraftListingReceiptSchema.parse(receipt)).toEqual(receipt);
     expect(listingIdForInventoryDraftRow(receipt.importRowId)).toBe(receipt.listingId);

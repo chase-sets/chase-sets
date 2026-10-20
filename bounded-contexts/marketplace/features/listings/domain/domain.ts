@@ -1240,7 +1240,7 @@ function normalizePurchaseLimitValue(
   return value;
 }
 
-function normalizePurchaseLimits(
+export function normalizePurchaseLimits(
   limits: Partial<MarketplaceListingPurchaseLimits> | null | undefined,
   quantityCapInput: number,
 ): MarketplaceListingPurchaseLimits {
@@ -1417,7 +1417,7 @@ function normalizeListingPhotoAssetVariant(
   };
 }
 
-export function normalizeGradedCardDetails(
+function normalizeGradedCardDetails(
   details: MarketplaceGradedCardDetails | null,
 ): MarketplaceGradedCardDetails | null {
   if (!details) {

@@ -6,7 +6,7 @@ An **Inventory Draft Listing Message** is the recursively closed, versioned comm
 
 ## Inventory Draft Listing Receipt
 
-An **Inventory Draft Listing Receipt** is Marketplace's immutable acceptance result. Draft creation, inventory-listing registration facts and this durable receipt commit in one Marketplace transaction. Exact replay reads the original receipt without updating supply projections, repricing, creating another draft or publishing. A changed snapshot, authority or version cannot replace it. An untouched matching direct-port draft may acquire its first receipt without another creation fact.
+An **Inventory Draft Listing Receipt** is Marketplace's immutable acceptance result. Draft creation, inventory-listing registration facts and this durable receipt commit in one Marketplace transaction. Exact replay reads the original receipt without updating supply projections, repricing, creating another draft or publishing. A changed snapshot, authority or version cannot replace it. An untouched matching direct-port draft may acquire its first receipt without another creation fact. Its `source` is `message` for a new draft or `legacy-draft` when an existing direct-port draft is reconciled.
 
 Rollout installs the durable receipt migration and compatible reader/consumer before Inventory produces messages. Existing direct callers remain valid until the Inventory delivery slice switches them over. Rollback must pause delivery before removing a consumer, retain the migration ledger entry, receipt table and immutability trigger, and reconcile possible-send loss by reading the same message identity. Receipts have no retry expiry and are not swept with staging data.
 

@@ -1,5 +1,6 @@
 import type { InventoryDraftListingMessage } from "@chase-sets/inventory-draft-listing";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 
 export const draftContext = {
   tenantId: "tnt_c4",
@@ -18,8 +19,10 @@ export function draftMessage(): InventoryDraftListingMessage {
       inventoryItemId: "inv_c4",
       catalogItemId: "cat_c4",
       productId: "cat_c4::",
-      selectedOptions: [],
-      gradedCard: null,
+      selectedOptions: [
+        { dimensionId: "a", optionId: "oa" },
+        { dimensionId: "z", optionId: "oz" },
+      ],
       storageLocationId: "loc_c4",
       storageLocationName: "Warehouse",
       shipFromCode: "US-IL",
@@ -32,12 +35,20 @@ export function draftMessage(): InventoryDraftListingMessage {
         country: "US",
       },
       totalQuantity: 2,
-      availableQuantity: 2,
       acquisitionCostAmount: null,
       priceAmount: "10.00",
       priceCurrencyCode: "USD",
       quantityCap: 2,
-      purchaseLimits: { maxUnitsPerOrder: 2, maxUnitsPerDay: 2, maxUnitsPerCustomerAccount: 2 },
     },
   };
+}
+
+export function directPortInput(): Parameters<InventoryDraftListingCreator>[0] {
+  const { committedAt: _committedAt, ...snapshot } = draftMessage().snapshot;
+  return {
+    ...snapshot,
+    selectedOptions: [...snapshot.selectedOptions].reverse(),
+    accountId: draftMessage().authority.accountId,
+    listingIdOverride: "lst_c4_1" as never,
+  } satisfies Parameters<InventoryDraftListingCreator>[0];
 }
