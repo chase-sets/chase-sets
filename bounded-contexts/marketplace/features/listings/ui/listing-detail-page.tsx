@@ -30,7 +30,12 @@ import type {
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingTermsPreview,
 } from "./contracts";
-import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
+import {
+  ListingEvidenceReadiness,
+  listingEvidenceAltTextFieldId,
+  type ListingEvidenceAltTextRecovery,
+} from "./listing-evidence-readiness";
+import { AuthoredTextGuidance, AuthoredTextRecoverySummary } from "../../reviews/ui/authored-text-guidance";
 
 function formatOptionalMoney(amount: string | null, currencyCode: string | null) {
   return amount && currencyCode
@@ -128,6 +133,7 @@ export function MarketplaceListingDetailPage({
   priceDraftCurrencyCode,
   pricePreview,
   errorMessage,
+  evidenceAltTextRecovery,
 }: {
   listing: MarketplaceListingDetail;
   feeHistory?: readonly MarketplaceListingFeeHistoryEntry[];
@@ -135,6 +141,8 @@ export function MarketplaceListingDetailPage({
   priceDraftCurrencyCode?: string | null;
   pricePreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
+  /** A closed image-description rejection; replaces the generic error notice. */
+  evidenceAltTextRecovery?: ListingEvidenceAltTextRecovery | null;
 }) {
   const currentFeeLock = listing.fee_locks.at(-1);
   const publishDisabled =
@@ -159,7 +167,13 @@ export function MarketplaceListingDetailPage({
         }
       />
 
-      {errorMessage ? (
+      {evidenceAltTextRecovery ? (
+        <AuthoredTextRecoverySummary
+          recovery={evidenceAltTextRecovery.recovery}
+          fieldId={listingEvidenceAltTextFieldId(evidenceAltTextRecovery.photoId)}
+          fieldName={t("marketplace.features.listings.ui.evidence.alt.text")}
+        />
+      ) : errorMessage ? (
         <MarketplaceNotice
           tone="danger"
           title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")}
@@ -356,7 +370,7 @@ export function MarketplaceListingDetailPage({
       </PageSection>
 
       <PageSection title={t("marketplace.features.listings.ui.evidence.readiness.title")}>
-        <ListingEvidenceReadiness listing={listing} />
+        <ListingEvidenceReadiness listing={listing} altTextRecovery={evidenceAltTextRecovery} />
       </PageSection>
 
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.fee.lock.history")}>
@@ -558,6 +572,7 @@ export function MarketplaceListingDetailPage({
               <Form spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="publish" />
                 <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
+                <AuthoredTextGuidance />
                 <Button type="submit" disabled={publishDisabled}>
                   {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}
                 </Button>
