@@ -1512,7 +1512,8 @@ export const commands = {
         journal: ctx.journal,
         closeProven: windowClosed === "proven",
       });
-      parts["window-closed"] = windowClosed === "pending" ? "unknown" : windowClosed;
+      // An open prior window, closable now or not, is retried with this run's key after install.
+      parts["window-closed"] = windowClosed === "proven" ? "proven" : "unknown";
       state.residue.push({
         ...entry,
         owner: "completed",
