@@ -154,6 +154,7 @@ export default function DiscoveryItemDetailRoute() {
       key={data.item?.catalog_item_id ?? "empty"}
       loaderKey={"entryAttemptKey" in data ? data.entryAttemptKey : null}
       actionKey={actionData && "entryAttemptKey" in actionData ? actionData.entryAttemptKey : null}
+      actionDraft={actionData && "buyDraft" in actionData ? actionData.buyDraft : null}
     >
       <DiscoveryItemDetailRealtimeView
         key={[

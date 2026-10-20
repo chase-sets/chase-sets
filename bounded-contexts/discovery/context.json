@@ -1053,8 +1053,8 @@
         "writes": [
           { "surface": "route-action:item-detail buy-this-listing", "kind": "checkout-entry", "target": "session" }
         ],
-        "key": "The item-detail loader mints one entryAttemptKey per page view. EntryAttemptKeyScope, keyed by catalog_item_id above the realtime-keyed view, holds it; every renderBuy form (signed-in and guest) sends it as hidden entryAttemptKey and gets a fresh key only when its listing, product, options or quantity change.",
-        "replay": "The action forwards only the form key: to createCheckoutSession when signed in, in the body a guest 307 reposts to Checkout start. A missing or malformed key, or 409 checkout_attempt_conflict, answers the changed copy with a fresh key the scope adopts; any other error keeps the key, so an explicit re-click replays it."
+        "key": "The item-detail loader mints one entryAttemptKey per page view. EntryAttemptKeyScope, keyed by catalog_item_id above the realtime-keyed view, holds it with each form's quantity and the page's market selection, so a view remount restores them; every renderBuy form (signed-in and guest) sends it as hidden entryAttemptKey and gets a fresh key only when its listing, product, options or quantity change.",
+        "replay": "The action forwards only the form key: to createCheckoutSession when signed in, in the body a guest 307 reposts to Checkout start. A missing or malformed key, or 409 checkout_attempt_conflict, answers the changed copy with a fresh key the scope adopts; any other error keeps the key and returns the submitted quantity and market selection, so an explicit re-click replays the same submission."
       },
       "visibleDestination": {
         "routeIds": [

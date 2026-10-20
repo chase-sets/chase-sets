@@ -18,6 +18,7 @@ import {
   postForm,
   serverRender,
   SYNC_REQUIRED,
+  unhydratedFormSubmission,
   type HydratedDocument,
   type ServerDocument,
 } from "./entry-attempt-key-harness";
@@ -65,6 +66,7 @@ import { alternateListing, baseListing, createItem, variantSchema } from "./item
 
 const ITEM_PATH = "/items/charizard-base-set-cat_charizard";
 const BUY_FORM = "form#buy-card-buy-now";
+const BUY_NOW = { form: BUY_FORM, submitter: 'button[name="intent"][value="buy-this-listing"]' };
 const routes: RouteObject[] = [
   { id: "item-detail", path: "/items/:id", loader, action, Component: DiscoveryItemDetailRoute },
   { id: "other", path: "/other", Component: () => <p>Another page</p> },
@@ -77,6 +79,28 @@ const pricierListing: DiscoveryMarketListing = {
   account_id: "seller_3",
   seller_display_name: "Top Shelf",
   price_amount: "450.00",
+};
+const RAW = { product_id: "cat_charizard::form:raw", selected_options: [{ dimensionId: "form", optionId: "raw" }] };
+const gradedListing: DiscoveryMarketListing = {
+  ...pricierListing,
+  product_id: "cat_charizard::form:graded",
+  selected_options: [{ dimensionId: "form", optionId: "graded" }],
+  product_summary: "Graded",
+};
+const variantListings = [{ ...baseListing, ...RAW }, { ...alternateListing, ...RAW }, gradedListing];
+const DISPLAY_ONLY_PATCH = {
+  kind: "projection.patch",
+  context: "discovery",
+  projection: "discovery-market-projection",
+  topics: ["discovery.item.cat_charizard"],
+  changes: [
+    {
+      op: "upsert",
+      entity: "discovery.marketListing",
+      id: baseListing.listing_id,
+      value: { ...baseListing, seller_display_name: "Chase Sets Vault", price_amount: "389.99" },
+    },
+  ],
 };
 
 let mounted: HydratedDocument | null = null;
@@ -137,6 +161,48 @@ async function realtimeSource() {
   return FakeEventSource.instances.at(-1)!;
 }
 
+async function typeQuantity(page: HydratedDocument, quantity: string) {
+  const user = userEvent.setup();
+  const field = within(page.container.querySelector<HTMLFormElement>(BUY_FORM)!).getByRole("spinbutton", {
+    name: "Quantity",
+  });
+  await user.tripleClick(field);
+  await user.keyboard(quantity);
+}
+
+async function chooseGraded(page: HydratedDocument) {
+  const formOptions = within(page.container).getAllByRole("radiogroup", { name: "Form" })[0]!;
+  await userEvent.setup().click(within(formOptions).getByRole("radio", { name: /^Graded/ }));
+}
+
+/** A real revalidation whose listing set changed, so the realtime-keyed view mounts a new Buy form. */
+async function remountView(page: HydratedDocument, detail: DiscoveryItemDetail) {
+  const before = page.container.querySelector<HTMLFormElement>(BUY_FORM)!;
+  mocks.getItemDetail.mockResolvedValue(detail);
+  const source = await realtimeSource();
+  await act(async () => source.emit("sync.required", SYNC_REQUIRED));
+  await waitFor(() => expect(before.isConnected).toBe(false));
+  expect(page.container.querySelector(BUY_FORM)).not.toBeNull();
+}
+
+/** The entry key and every hashed input one Buy now submission sends. */
+function submitted(body: URLSearchParams) {
+  return Object.fromEntries(
+    ["entryAttemptKey", "lockedListingId", "productId", "selectedOptions", "quantity"].map((name) => [
+      name,
+      body.get(name),
+    ]),
+  );
+}
+
+/** The same fields as the rendered Buy form holds them. */
+function rendered(page: HydratedDocument) {
+  const form = page.container.querySelector<HTMLFormElement>(BUY_FORM)!;
+  return submitted(
+    new URLSearchParams([...new FormData(form)].map(([name, value]) => [name, String(value)] as [string, string])),
+  );
+}
+
 describe("item detail Buy now entry key", () => {
   it("AC1 sends one key on double submit, POST resubmit and a re-click after a returned error, so Checkout returns the first Session", async () => {
     const served = await open();
@@ -170,38 +236,59 @@ describe("item detail Buy now entry key", () => {
     expect(checkout.sentKeys).toEqual([pageViewKey, pageViewKey, pageViewKey, freshKey, freshKey]);
   });
 
+  it("AC1 the page a lost response returns re-sends the edited quantity under the same key, so Checkout returns the first Session", async () => {
+    const page = await show(await open());
+    await typeQuantity(page, "2");
+    checkout.loseNextResponse();
+    const [lost] = await clickBuy(page);
+    expect(lost!.get("quantity")).toBe("2");
+
+    const returned = expectDocument(await postDocument(lost!));
+    expect(submitted(unhydratedFormSubmission(returned.html, BUY_NOW).body)).toEqual(submitted(lost!));
+    const errorPage = await show(returned);
+    expect(within(errorPage.container).getAllByText("Checkout did not answer. Try again.").length).toBeGreaterThan(0);
+    const [reclick] = await clickBuy(errorPage);
+    expect(submitted(reclick!)).toEqual(submitted(lost!));
+
+    expect(expectRedirect(await postDocument(reclick!)).location.pathname).toBe("/checkout/buy/session/chk_session_1");
+    expect(checkout.sessionCount()).toBe(1);
+    expect(checkout.sentKeys).toEqual([lost!.get("entryAttemptKey"), lost!.get("entryAttemptKey")]);
+  });
+
+  it("AC1 the page a lost response returns re-sends the chosen product options under the same key", async () => {
+    mocks.getItemDetail.mockResolvedValue(item({ product_schema: variantSchema, market_listings: variantListings }));
+    const page = await show(await open());
+    const pageViewKey = hiddenEntryKey(page.container, BUY_FORM);
+    await chooseGraded(page);
+    await waitFor(() => expect(hiddenEntryKey(page.container, BUY_FORM)).not.toBe(pageViewKey));
+    checkout.loseNextResponse();
+    const [lost] = await clickBuy(page);
+    expect([lost!.get("productId"), lost!.get("lockedListingId")]).toEqual([
+      gradedListing.product_id,
+      gradedListing.listing_id,
+    ]);
+
+    const returned = expectDocument(await postDocument(lost!));
+    expect(submitted(unhydratedFormSubmission(returned.html, BUY_NOW).body)).toEqual(submitted(lost!));
+    const [reclick] = await clickBuy(await show(returned));
+    expect(submitted(reclick!)).toEqual(submitted(lost!));
+
+    expect(expectRedirect(await postDocument(reclick!)).location.pathname).toBe("/checkout/buy/session/chk_session_1");
+    expect(checkout.sessionCount()).toBe(1);
+  });
+
   it("AC2 gives the form a second key when quantity changes, keeps it for that submission's retries and across a display-only patch", async () => {
     const served = await open();
     const pageViewKey = loaderEntryKey(served, "item-detail");
     const page = await show(served);
-    const user = userEvent.setup();
 
-    const quantity = within(page.container.querySelector<HTMLFormElement>(BUY_FORM)!).getByRole("spinbutton", {
-      name: "Quantity",
-    });
-    await user.tripleClick(quantity);
-    await user.keyboard("2");
+    await typeQuantity(page, "2");
     const changedKey = hiddenEntryKey(page.container, BUY_FORM);
     expect(changedKey).not.toBe(pageViewKey);
     expect(changedKey).toMatch(/^chkentry_[0-9A-Z]{26}$/);
 
     const source = await realtimeSource();
-    await act(async () => {
-      source.emit("projection.patch", {
-        kind: "projection.patch",
-        context: "discovery",
-        projection: "discovery-market-projection",
-        topics: ["discovery.item.cat_charizard"],
-        changes: [
-          {
-            op: "upsert",
-            entity: "discovery.marketListing",
-            id: baseListing.listing_id,
-            value: { ...baseListing, seller_display_name: "Chase Sets Vault", price_amount: "389.99" },
-          },
-        ],
-      });
-    });
+    await act(async () => source.emit("projection.patch", DISPLAY_ONLY_PATCH));
     await waitFor(() => expect(within(page.container).getAllByText(/389\.99/).length).toBeGreaterThan(0));
     expect(hiddenEntryKey(page.container, BUY_FORM)).toBe(changedKey);
 
@@ -215,30 +302,7 @@ describe("item detail Buy now entry key", () => {
   });
 
   it("AC2 gives the form a second key when the listing or the product options change", async () => {
-    const graded: DiscoveryMarketListing = {
-      ...pricierListing,
-      product_id: "cat_charizard::form:graded",
-      selected_options: [{ dimensionId: "form", optionId: "graded" }],
-      product_summary: "Graded",
-    };
-    mocks.getItemDetail.mockResolvedValue(
-      item({
-        product_schema: variantSchema,
-        market_listings: [
-          {
-            ...baseListing,
-            product_id: "cat_charizard::form:raw",
-            selected_options: [{ dimensionId: "form", optionId: "raw" }],
-          },
-          {
-            ...alternateListing,
-            product_id: "cat_charizard::form:raw",
-            selected_options: [{ dimensionId: "form", optionId: "raw" }],
-          },
-          graded,
-        ],
-      }),
-    );
+    mocks.getItemDetail.mockResolvedValue(item({ product_schema: variantSchema, market_listings: variantListings }));
     const served = await open();
     const pageViewKey = loaderEntryKey(served, "item-detail");
     const page = await show(served);
@@ -251,8 +315,7 @@ describe("item detail Buy now entry key", () => {
     expect(listingBody!.get("lockedListingId")).toBe(alternateListing.listing_id);
     expect(listingBody!.get("entryAttemptKey")).toBe(listingKey);
 
-    const formOptions = within(page.container).getAllByRole("radiogroup", { name: "Form" })[0]!;
-    await user.click(within(formOptions).getByRole("radio", { name: /^Graded/ }));
+    await chooseGraded(page);
     await waitFor(() => expect(hiddenEntryKey(page.container, BUY_FORM)).not.toBe(listingKey));
     const optionsKey = hiddenEntryKey(page.container, BUY_FORM);
     expect(optionsKey).not.toBe(pageViewKey);
@@ -335,6 +398,73 @@ describe("item detail Buy now entry key", () => {
     const otherItemKey = hiddenEntryKey(page.container, BUY_FORM);
     expect(otherItemKey).toBe(currentLoaderKey(page));
     expect([pageViewKey, backKey]).not.toContain(otherItemKey);
+  });
+
+  it("AC3 keeps an edited quantity and its key across a realtime remount", async () => {
+    const page = await show(await open());
+    await typeQuantity(page, "2");
+    const edited = rendered(page);
+    expect(edited.quantity).toBe("2");
+
+    await remountView(page, item({ market_listings: [baseListing, alternateListing, pricierListing] }));
+    expect(rendered(page)).toEqual(edited);
+    const [buy] = await clickBuy(page);
+    expect(submitted(buy!)).toEqual(edited);
+  });
+
+  it("AC3 keeps a chosen listing and its key across a display-only patch, a revalidation and a realtime remount", async () => {
+    const page = await show(await open());
+    const user = userEvent.setup();
+    await user.click(within(page.container).getByRole("button", { name: "Select Card Vault listing at $410.00" }));
+    const chosen = rendered(page);
+    expect(chosen.lockedListingId).toBe(alternateListing.listing_id);
+
+    const source = await realtimeSource();
+    await act(async () => source.emit("projection.patch", DISPLAY_ONLY_PATCH));
+    await waitFor(() => expect(within(page.container).getAllByText(/389\.99/).length).toBeGreaterThan(0));
+    expect(rendered(page)).toEqual(chosen);
+
+    // Same listing set, new display fields: the view stays mounted while the loader data changes.
+    mocks.getItemDetail.mockResolvedValue(item({ subtitle: "Base Set 4/102 Holo Rare (Unlimited)" }));
+    await act(async () => source.emit("sync.required", SYNC_REQUIRED));
+    await waitFor(() => expect(within(page.container).getAllByText(/\(Unlimited\)/).length).toBeGreaterThan(0));
+    expect(rendered(page)).toEqual(chosen);
+
+    await remountView(page, item({ market_listings: [baseListing, alternateListing, pricierListing] }));
+    expect(rendered(page)).toEqual(chosen);
+    const [buy] = await clickBuy(page);
+    expect(submitted(buy!)).toEqual(chosen);
+  });
+
+  it("AC3 keeps chosen product options and their key across a realtime remount", async () => {
+    mocks.getItemDetail.mockResolvedValue(item({ product_schema: variantSchema, market_listings: variantListings }));
+    const page = await show(await open());
+    const pageViewKey = hiddenEntryKey(page.container, BUY_FORM);
+    await chooseGraded(page);
+    await waitFor(() => expect(hiddenEntryKey(page.container, BUY_FORM)).not.toBe(pageViewKey));
+    const chosen = rendered(page);
+    expect(chosen.productId).toBe(gradedListing.product_id);
+
+    const rawPricier = { ...pricierListing, ...RAW, listing_id: "listing_charizard_raw_pricier" };
+    await remountView(page, item({ product_schema: variantSchema, market_listings: [...variantListings, rawPricier] }));
+    expect(rendered(page)).toEqual(chosen);
+  });
+
+  it("AC3 a navigation to another URL listing replaces the kept choice, with or without a remount", async () => {
+    const page = await show(await open());
+    await userEvent
+      .setup()
+      .click(within(page.container).getByRole("button", { name: "Select Card Vault listing at $410.00" }));
+    expect(rendered(page).lockedListingId).toBe(alternateListing.listing_id);
+
+    await act(async () => page.router.navigate(`${ITEM_PATH}?listing=${baseListing.listing_id}`));
+    await waitFor(() => expect(rendered(page).lockedListingId).toBe(baseListing.listing_id));
+
+    const before = page.container.querySelector<HTMLFormElement>(BUY_FORM)!;
+    mocks.getItemDetail.mockResolvedValue(item({ market_listings: [baseListing, alternateListing, pricierListing] }));
+    await act(async () => page.router.navigate(`${ITEM_PATH}?listing=${pricierListing.listing_id}`));
+    await waitFor(() => expect(before.isConnected).toBe(false));
+    expect(rendered(page).lockedListingId).toBe(pricierListing.listing_id);
   });
 
   it("AC5 shows the changed copy after a 409, resends nothing, and the next submit sends the fresh key to one new Session", async () => {

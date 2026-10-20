@@ -1868,16 +1868,28 @@ describe("item detail Buy now entry key", () => {
     expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the presented key with the shipped error copy after a transport error, and sends nothing more", async () => {
+  it("keeps the presented key and the submitted draft with the shipped error copy after a transport error, and sends nothing more", async () => {
     stubBuyNowAction({ accountId: "acc_buyer", permissions: [] });
     mockCreateCheckoutSession.mockRejectedValue(checkoutApiError(504, "gateway_timeout", "Checkout did not answer."));
+    const selection = {
+      listingId: "lst_charizard",
+      offerId: null,
+      options: [{ dimensionId: "form", optionId: "raw" }],
+    };
+    const form = buyNowForm(PRESENTED_ENTRY_KEY);
+    form.set("marketSelection", JSON.stringify(selection));
 
-    expect(await buyNow(buyNowForm(PRESENTED_ENTRY_KEY))).toEqual({
+    expect(await buyNow(form)).toEqual({
       error: "Checkout did not answer.",
       intent: "buy-this-listing",
       entryAttemptKey: PRESENTED_ENTRY_KEY,
+      buyDraft: { quantity: 1, selection },
     });
     expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+
+    // A selection that does not parse leaves the returned page on its URL selection.
+    form.set("marketSelection", "{not json");
+    expect(await buyNow(form)).toMatchObject({ buyDraft: { quantity: 1, selection: null } });
   });
 
   it("AC4 server HTML carries the loader key and the unhydrated signed-in form forwards it to createCheckoutSession", async () => {

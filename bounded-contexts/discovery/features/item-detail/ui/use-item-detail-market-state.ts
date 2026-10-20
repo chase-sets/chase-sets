@@ -4,6 +4,7 @@ import type {
   DiscoveryMarketListing,
   DiscoveryOffer,
 } from "../../../support/client-support/contracts";
+import { useMarketSelectionKeeper } from "../../../support/ui-support/entry-attempt-key";
 import { trackItemDetailRailEvent } from "./item-detail-rail-analytics";
 import { normalizeProductSearchOptionsForSchema } from "../domain/product-resolution";
 import {
@@ -37,25 +38,44 @@ export function useItemDetailMarketState({
   hasInitialSelectedOptionFilters,
 }: ItemDetailMarketStateArgs) {
   const initialSelectedOptionsKey = JSON.stringify(initialSelectedOptions);
+  // The URL selection the page loaded with; a realtime patch or revalidation keeps it.
+  const urlSelectionKey = JSON.stringify([
+    initialMarketIntent,
+    initialSelectedListingId,
+    initialSelectedOfferId,
+    initialSelectedOptions,
+    hasInitialSelectedOptionFilters,
+  ]);
+  const selectionKeeper = useMarketSelectionKeeper();
+  const [keptSelection] = useState(() => selectionKeeper?.selectionFor(urlSelectionKey) ?? null);
   const [selections, setSelections] = useState<Record<string, string>>(() =>
-    getInitialSelections(
-      data,
-      initialMarketIntent,
-      initialSelectedOptions,
-      hasInitialSelectedOptionFilters,
-      initialSelectedListingId,
-      initialSelectedOfferId,
-    ),
+    keptSelection
+      ? getInitialSelections(data, initialMarketIntent, keptSelection.options, true)
+      : getInitialSelections(
+          data,
+          initialMarketIntent,
+          initialSelectedOptions,
+          hasInitialSelectedOptionFilters,
+          initialSelectedListingId,
+          initialSelectedOfferId,
+        ),
   );
-  const [selectedListingId, setSelectedListingId] = useState<string | null>(initialSelectedListingId);
-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(initialSelectedOfferId);
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(
+    keptSelection ? keptSelection.listingId : initialSelectedListingId,
+  );
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(
+    keptSelection ? keptSelection.offerId : initialSelectedOfferId,
+  );
   const [marketIntent, setMarketIntent] = useState<MarketIntent>(initialMarketIntent);
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<"buy" | "sell" | "watch" | null>(null);
   const [marketBookTab, setMarketBookTab] = useState<MarketBookTab>(
     initialMarketIntent === "sell" ? "offers" : "listings",
   );
+  const [appliedUrlSelectionKey, setAppliedUrlSelectionKey] = useState(urlSelectionKey);
 
-  useEffect(() => {
+  // Only a navigation to another URL selection resets the buyer's choices.
+  if (appliedUrlSelectionKey !== urlSelectionKey) {
+    setAppliedUrlSelectionKey(urlSelectionKey);
     setSelections(
       getInitialSelections(
         data,
@@ -71,15 +91,14 @@ export function useItemDetailMarketState({
     setMarketIntent(initialMarketIntent);
     setMarketBookTab(initialMarketIntent === "sell" ? "offers" : "listings");
     setActiveMobileCommerce(null);
-  }, [
-    data,
-    data.catalog_item_id,
-    initialMarketIntent,
-    initialSelectedListingId,
-    initialSelectedOfferId,
-    initialSelectedOptionsKey,
-    hasInitialSelectedOptionFilters,
-  ]);
+  }
+
+  // Kept while rendering, so a Buy form below posts the choices this render shows.
+  selectionKeeper?.keepSelection(urlSelectionKey, {
+    listingId: selectedListingId,
+    offerId: selectedOfferId,
+    options: Object.entries(selections).map(([dimensionId, optionId]) => ({ dimensionId, optionId })),
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") {

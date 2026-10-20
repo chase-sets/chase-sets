@@ -169,10 +169,38 @@ function buyNowSelectionChanged() {
   };
 }
 
+function readMarketSelection(value: FormDataEntryValue | null) {
+  try {
+    const parsed: unknown = JSON.parse(String(value));
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const { listingId, offerId, options } = parsed as Record<string, unknown>;
+    return {
+      listingId: typeof listingId === "string" ? listingId : null,
+      offerId: typeof offerId === "string" ? offerId : null,
+      options: parseSelectedOptions(JSON.stringify(Array.isArray(options) ? options : [])),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The quantity and market selection a Buy now form submitted, so a returned error shows them again. */
+function readBuyDraft(formData: FormData) {
+  const quantity = Number(String(formData.get("quantity") ?? "").trim());
+  return {
+    quantity: Number.isSafeInteger(quantity) && quantity > 0 ? quantity : null,
+    selection: readMarketSelection(formData.get("marketSelection")),
+  };
+}
+
 /**
  * Buy now forwards only the page-view entry key its form carries. Any other
- * error keeps that key, so an explicit re-click replays it and Checkout returns
- * the first Session; nothing resends automatically.
+ * error keeps that key and the submitted draft, so an explicit re-click
+ * replays the same submission and Checkout returns the first Session; nothing
+ * resends automatically.
  */
 async function buyThisListing({
   request,
@@ -254,7 +282,12 @@ async function buyThisListing({
       return buyNowSelectionChanged();
     }
     if (error instanceof Error) {
-      return { error: actionErrorMessage(error), intent: "buy-this-listing", entryAttemptKey };
+      return {
+        error: actionErrorMessage(error),
+        intent: "buy-this-listing",
+        entryAttemptKey,
+        buyDraft: readBuyDraft(formData),
+      };
     }
 
     throw error;

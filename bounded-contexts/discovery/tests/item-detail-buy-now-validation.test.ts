@@ -267,6 +267,7 @@ describe("item detail buy now validation and watch intents", () => {
       intent: "buy-this-listing",
       error: "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
       entryAttemptKey: PRESENTED_ENTRY_KEY,
+      buyDraft: { quantity: 1, selection: null },
     });
     expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
   });
@@ -400,6 +401,7 @@ describe("item detail buy now validation and watch intents", () => {
       error: "Only 1 available from this listing. Lower the quantity or choose another listing.",
       intent: "buy-this-listing",
       entryAttemptKey: PRESENTED_ENTRY_KEY,
+      buyDraft: { quantity: 2, selection: null },
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
@@ -445,6 +447,7 @@ describe("item detail buy now validation and watch intents", () => {
       error: "This listing is no longer available. Choose another listing.",
       intent: "buy-this-listing",
       entryAttemptKey: PRESENTED_ENTRY_KEY,
+      buyDraft: { quantity: 1, selection: null },
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
