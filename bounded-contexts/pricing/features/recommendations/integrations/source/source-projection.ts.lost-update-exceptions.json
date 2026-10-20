@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-3c406e37f4bee4ee",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_catalog_item_inputs",
+      "digest": "4c0c90f0333e23e80706c85cb085ef7174bbd0ea19dd32b716f2eb62e5e1dbb7"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts:85 directly synchronizes pricing_catalog_item_inputs from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

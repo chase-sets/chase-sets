@@ -4,6 +4,8 @@ import { useFetcher } from "react-router";
 import {
   HiddenInput,
   Form,
+  Heading,
+  LiveRegion,
   AccountReputationSummary,
   Badge,
   Banner,
@@ -27,6 +29,8 @@ import {
   formatMoneyAmount,
   getActionErrorMessage,
   isAddToCartActionData,
+  isAddToCartAmbiguousActionData,
+  mintCartAttemptId,
   type ItemDetailActionData,
   type MarketSelectionSource,
   notifyCartCountChanged,
@@ -187,6 +191,10 @@ export function CheckoutPurchaseIntentSection({
   const addToCartSuccessData = isAddToCartActionData(addToCartFetcher.data) ? addToCartFetcher.data : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
+  // An unconfirmed add holds the action: only an explicit resend of the same
+  // attempt (or a fresh look at the cart) may follow it.
+  const addToCartAmbiguous = isAddToCartAmbiguousActionData(addToCartFetcher.data) && !addToCartPending;
+  const lastAddSubmissionRef = useRef<FormData | null>(null);
   const showSelectedListingContext = Boolean(selectedListing && isListingWorkflow);
   const selectedListingGradedCard = showSelectedListingContext ? (selectedListing?.graded_card ?? null) : null;
   const selectionHeading =
@@ -260,6 +268,10 @@ export function CheckoutPurchaseIntentSection({
 
   function trackPurchaseIntentSubmit(event: FormEvent<HTMLFormElement>) {
     const submittedValue = submittedButtonValue(event);
+    const attemptField = event.currentTarget.elements.namedItem("attemptId");
+    if (attemptField instanceof HTMLInputElement) {
+      attemptField.value = mintCartAttemptId();
+    }
     const isCartSubmit =
       submittedValue === "add-to-cart" || submittedValue === "buy-best-match" || actionMode === "add-to-cart";
 
@@ -287,8 +299,22 @@ export function CheckoutPurchaseIntentSection({
 
     const formData = new FormData(formRef.current);
     formData.set("intent", "add-to-cart");
+    formData.set("attemptId", mintCartAttemptId());
+    lastAddSubmissionRef.current = formData;
     addToCartFetcher.submit(formData, { method: "post" });
   }
+
+  function resendAddToCart() {
+    if (lastAddSubmissionRef.current && isAddToCartAmbiguousActionData(addToCartFetcher.data)) {
+      addToCartFetcher.submit(lastAddSubmissionRef.current, { method: "post" });
+    }
+  }
+
+  useEffect(() => {
+    if (addToCartAmbiguous) {
+      globalThis.document?.getElementById(`${formId}-add-to-cart-result`)?.focus();
+    }
+  }, [addToCartAmbiguous, formId]);
   const buyListingAction = (
     <Button
       type="submit"
@@ -321,7 +347,12 @@ export function CheckoutPurchaseIntentSection({
     <Button
       type="button"
       tone={isProductCartWorkflow && productId ? "primary" : "secondary"}
-      disabled={!productId || Boolean(addToCartPending) || (addToCartUsesSelectedListing && selectedListingAtCapacity)}
+      disabled={
+        !productId ||
+        Boolean(addToCartPending) ||
+        addToCartAmbiguous ||
+        (addToCartUsesSelectedListing && selectedListingAtCapacity)
+      }
       onClick={() => {
         void handleAddToCart();
       }}
@@ -349,6 +380,7 @@ export function CheckoutPurchaseIntentSection({
     <Form spacing="none" id={formId} method="post" ref={formRef} onSubmit={trackPurchaseIntentSubmit}>
       <Stack gap={3}>
         <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
+        <HiddenInput type="hidden" name="attemptId" defaultValue="" />
         <HiddenInput type="hidden" name="listingId" value="" />
         <HiddenInput type="hidden" name="lockedListingId" value={selectedListing?.listing_id ?? ""} />
         <HiddenInput
@@ -473,6 +505,24 @@ export function CheckoutPurchaseIntentSection({
           />
         ) : null}
         {addToCartError ? <Banner tone="danger" title={addToCartError} /> : null}
+        {addToCartAmbiguous ? (
+          <Stack gap={2}>
+            <Heading level={3} visualSize={5} id={`${formId}-add-to-cart-result`} tabIndex={-1}>
+              {t("discovery.routes.itemDetail.add.to.cart.ambiguous.title")}
+            </Heading>
+            <LiveRegion politeness="polite">
+              <Text tone="secondary">{t("discovery.routes.itemDetail.add.to.cart.ambiguous.description")}</Text>
+            </LiveRegion>
+            <Inline gap={2}>
+              <Button type="button" tone="secondary" size="sm" onClick={resendAddToCart}>
+                {t("discovery.routes.itemDetail.add.to.cart.resend")}
+              </Button>
+              <LinkButton href="/account/cart" tone="secondary" size="sm">
+                {t("discovery.routes.itemDetail.view.cart")}
+              </LinkButton>
+            </Inline>
+          </Stack>
+        ) : null}
         <NumberField
           label={t("discovery.routes.itemDetail.quantity")}
           name="quantity"

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "exception-8f42603f598558c4",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/search/read-model/embedding-enrichment.ts",
+      "kind": "UPDATE",
+      "table": "discovery_search_items",
+      "digest": "d783f1064784376018f314b18ab8bf551d410f12d4d5e7245ff860c0304cefc0"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/discovery/features/search/read-model/embedding-enrichment.ts:98 directly synchronizes discovery_search_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-bb533a4ee4510c16",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/search/read-model/embedding-enrichment.ts",
+      "kind": "UPDATE",
+      "table": "discovery_search_items",
+      "digest": "0d77db6a85bd0b00bd9dcee62cf3a8d1c4956950002aba35d7210d80da7ae22f"
+    },
+    "classification": "key-only but safe",
+    "reason": "The embedding write is conditionally applied only while embedded_text_hash still matches the exact document sent to the provider; the guard vocabulary intentionally remains bounded to shared projection-position fields."
+  }
+]

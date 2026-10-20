@@ -64,23 +64,32 @@ vi.mock("@chase-sets/marketplace/server", () => ({
   ensureAnonymousListingDraftOwnerId: mockEnsureAnonymousListingDraftOwnerId,
 }));
 
-vi.mock("@chase-sets/checkout/server", () => ({
-  ACCOUNT_CART_ADD_LINE_HANDOFF: {
-    kind: "checkout.cart.add-line",
-    expectation: "collection-non-empty",
-    surface: "account-cart",
-  },
-  ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF: {
-    kind: "checkout.sell-list.add-line",
-    expectation: "collection-non-empty",
-    surface: "account-sell-list",
-  },
-  appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
-  appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
-  createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
-  ensureAnonymousCartId: mockEnsureAnonymousCartId,
-  ensureAnonymousSellListId: mockEnsureAnonymousSellListId,
-}));
+vi.mock("@chase-sets/checkout/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/checkout/server")>("@chase-sets/checkout/server");
+  return {
+    // The real attempt resolver and id helpers: only the Checkout transport is mocked.
+    CHECKOUT_CART_ATTEMPT_CART_TARGET: actual.CHECKOUT_CART_ATTEMPT_CART_TARGET,
+    checkoutCartAttemptCommitSource: actual.checkoutCartAttemptCommitSource,
+    isCheckoutCommandAttemptId: actual.isCheckoutCommandAttemptId,
+    mintCheckoutCommandAttemptId: actual.mintCheckoutCommandAttemptId,
+    submitCheckoutCartAttempt: actual.submitCheckoutCartAttempt,
+    ACCOUNT_CART_ADD_LINE_HANDOFF: {
+      kind: "checkout.cart.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-cart",
+    },
+    ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF: {
+      kind: "checkout.sell-list.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-sell-list",
+    },
+    appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
+    appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
+    createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
+    ensureAnonymousCartId: mockEnsureAnonymousCartId,
+    ensureAnonymousSellListId: mockEnsureAnonymousSellListId,
+  };
+});
 
 vi.mock("@chase-sets/inventory/server", () => ({
   createInventoryRequestApiClient: mockCreateInventoryRequestApiClient,

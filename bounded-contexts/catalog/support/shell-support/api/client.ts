@@ -2157,6 +2157,11 @@ export function createCatalogApiClient({
     ): Promise<Awaited<ReturnType<CountCaptureLifecycle["freeze"]>>> {
       return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/freeze", input);
     },
+    async completeScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["complete"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["complete"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/complete", input);
+    },
     async getScopeSyncCountQuote<T>(quoteId: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/scope-sync-batches/counts/quote/${encodeURIComponent(quoteId)}`,
