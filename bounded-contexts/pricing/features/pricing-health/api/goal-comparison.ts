@@ -1,7 +1,7 @@
 import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
 import type { RepricingDryRun, RepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import type { RepricingRule, RepricingRuleDirective } from "../../repricing-policies/domain/domain";
-import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
+import { validateParameters, type PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 
 export type GoalChoice = Readonly<{
   goalId: string;
@@ -11,7 +11,30 @@ export type GoalChoice = Readonly<{
   parameters: Readonly<Record<string, number>>;
   requiredCurveFeatures: PricingGoalDefinition["requiredCurveFeatures"];
   requiresEconomics: boolean;
+  economics: EconomicsProvenance | null;
 }>;
+
+export type EconomicsProvenance = Readonly<{
+  availability: "resolved" | "unavailable";
+  currency: string;
+  effectiveAt: string;
+  reason: string | null;
+  facts: Readonly<
+    Record<string, Readonly<{ effectiveValue: unknown; observedAt: string; source: string; override: unknown }>>
+  >;
+}>;
+
+export type GoalParameterRequest = Readonly<{
+  goalId: string;
+  goalVersion: number;
+  parameters: Readonly<Record<string, unknown>>;
+}>;
+
+export class GoalComparisonValidationError extends Error {
+  constructor(public readonly details: readonly string[]) {
+    super("pricing_health_goal_comparison_validation_failed");
+  }
+}
 
 export type EconomicsSet = Readonly<{ digest: string; size: number }>;
 export const attentionOrder = ["economics", "value-at-risk", "floor-binding", "stale-curve"] as const;
@@ -82,7 +105,54 @@ export function selectableGoalChoices(
       ),
       requiredCurveFeatures: definition.requiredCurveFeatures,
       requiresEconomics: definition.requiresEconomics,
+      economics: null,
     }));
+}
+
+/** Validate the whole compare payload before any durable run is enqueued. */
+export function validateGoalParameterRequests(
+  choices: readonly GoalChoice[],
+  requests: readonly GoalParameterRequest[] | undefined,
+): readonly GoalChoice[] {
+  const byKey = new Map(choices.map((choice) => [`${choice.goalId}@${choice.goalVersion}`, choice]));
+  const supplied = requests ?? [];
+  const seen = new Set<string>();
+  const errors: string[] = [];
+  const validated = new Map<string, GoalChoice>();
+  for (const request of supplied) {
+    if (
+      !request ||
+      typeof request !== "object" ||
+      typeof request.goalId !== "string" ||
+      !Number.isInteger(request.goalVersion)
+    ) {
+      errors.push("goal request must include a goal id and integer version");
+      continue;
+    }
+    if (!request.parameters || typeof request.parameters !== "object" || Array.isArray(request.parameters)) {
+      errors.push(`parameters must be an object: ${request.goalId}@${request.goalVersion}`);
+      continue;
+    }
+    const key = `${request.goalId}@${request.goalVersion}`;
+    if (seen.has(key)) {
+      errors.push(`duplicate goal ${key}`);
+      continue;
+    }
+    seen.add(key);
+    const choice = byKey.get(key);
+    if (!choice) {
+      errors.push(`goal is not selectable: ${key}`);
+      continue;
+    }
+    const validation = validateParameters(choice.parameterSchema, request.parameters);
+    if (validation.kind === "rejected") {
+      errors.push(...validation.rejections.map(({ parameter, reason }) => `${reason}: ${key}.${parameter}`));
+      continue;
+    }
+    validated.set(key, { ...choice, parameters: validation.parameters });
+  }
+  if (errors.length > 0) throw new GoalComparisonValidationError(errors);
+  return choices.map((choice) => validated.get(`${choice.goalId}@${choice.goalVersion}`) ?? choice);
 }
 
 export function isOneRuleUnconditional(rules: readonly RepricingRule[]): boolean {

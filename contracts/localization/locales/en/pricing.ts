@@ -88,6 +88,11 @@ export const pricingEnglishTranslations = {
   "pricing.features.pricingHealth.goals.economics.required":
     "Economics is resolved for each candidate listing at capture time.",
   "pricing.features.pricingHealth.goals.economics.default": "This goal does not require Economics.",
+  "pricing.features.pricingHealth.goals.economics.provenance":
+    "Economics facts resolved for the first listing in this scope.",
+  "pricing.features.pricingHealth.goals.economics.unavailable": "Economics is unavailable for this scope.",
+  "pricing.features.pricingHealth.goals.parameter.fixed-percentile.percentile": "Market percentile",
+  "pricing.features.pricingHealth.goals.parameter.target-horizon.horizonDays": "Target horizon (days)",
   "pricing.features.pricingHealth.goals.comparison": "Compare pricing goals",
   "pricing.features.pricingHealth.goals.compare": "Compare goals",
   "pricing.features.pricingHealth.goals.compareEmpty": "No durable candidate runs yet",

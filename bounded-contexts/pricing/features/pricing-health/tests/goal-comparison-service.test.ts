@@ -170,4 +170,21 @@ describe("Pricing Health candidate orchestration", () => {
     );
     expect(enqueueDryRun).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    [[{ goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 1000 } }]],
+    [[{ goalId: "unknown", goalVersion: 1, parameters: {} }]],
+    [
+      [
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 65 } },
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 66 } },
+      ],
+    ],
+  ])("validates the complete request before enqueueing: %j", async (requests) => {
+    const { services, enqueueDryRun } = setup();
+    await expect(services.compare("acc_owned", "rpp_owned", dryRunContext, requests)).rejects.toThrow(
+      "pricing_health_goal_comparison_validation_failed",
+    );
+    expect(enqueueDryRun).not.toHaveBeenCalled();
+  });
 });

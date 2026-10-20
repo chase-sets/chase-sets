@@ -21,7 +21,13 @@ export function buildPricingApi(services: PricingServices) {
   const app = new Hono<PricingApiEnv>();
   app.route(
     "/account/pricing-health",
-    createPricingHealthRoutes(createPricingHealthServices({ ...services, forecastLedger: services.forecastLedger })),
+    createPricingHealthRoutes(
+      createPricingHealthServices({
+        ...services,
+        forecastLedger: services.forecastLedger,
+        economics: services.economics,
+      }),
+    ),
   );
   app.route("/account/repricing-policies/dry-runs", createRepricingDryRunRoutes(services.repricingEngine));
   app.route("/account/repricing-policies", createRepricingActivityRoutes(createRepricingActivityServices(services)));

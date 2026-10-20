@@ -8,11 +8,31 @@ import {
   ProgressiveDisclosure,
   Stack,
   Text,
+  TextInput,
 } from "@chase-sets/design-system";
+import { useState } from "react";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
 import { goalExplanation, goalLabel, healthCopy as copy, healthReasonLabel, recommendationCopy } from "./copy";
 
 export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>) {
+  const [parameters, setParameters] = useState(() =>
+    Object.fromEntries(goals.map((goal) => [`${goal.goalId}@${goal.goalVersion}`, { ...goal.parameters }])),
+  );
+  const updateUrl = (next: typeof parameters) => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set(
+      "goals",
+      JSON.stringify(
+        goals.map((goal) => ({
+          goalId: goal.goalId,
+          goalVersion: goal.goalVersion,
+          parameters: next[`${goal.goalId}@${goal.goalVersion}`] ?? goal.parameters,
+        })),
+      ),
+    );
+    window.history.replaceState({}, "", url);
+  };
   return (
     <Card data-testid="pricing-health-goal-picker">
       <Card.Header>
@@ -25,17 +45,57 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
         ) : (
           <Stack gap={3}>
             {goals.map((goal) => (
-              <Fieldset key={`${goal.goalId}@${goal.goalVersion}`} legend={goalLabel(goal)}>
+              <Fieldset
+                key={`${goal.goalId}@${goal.goalVersion}`}
+                legend={goalLabel({
+                  ...goal,
+                  parameters: parameters[`${goal.goalId}@${goal.goalVersion}`] ?? goal.parameters,
+                })}
+              >
                 <Text size="sm">{goalExplanation(goal)}</Text>
                 <ProgressiveDisclosure title={copy("goals.advanced")}>
+                  <Stack gap={2}>
+                    {Object.entries(goal.parameterSchema).map(([parameter, bounds]) => {
+                      const key = `${goal.goalId}@${goal.goalVersion}`;
+                      const value = parameters[key]?.[parameter] ?? bounds.default;
+                      return (
+                        <TextInput
+                          key={parameter}
+                          type="number"
+                          label={healthCopyParameterLabel(goal, parameter)}
+                          name={`goal.${goal.goalId}.${goal.goalVersion}.${parameter}`}
+                          value={String(value)}
+                          min={bounds.minimum}
+                          max={bounds.maximum}
+                          step="any"
+                          onChange={(event) => {
+                            const next = {
+                              ...parameters,
+                              [key]: { ...parameters[key], [parameter]: Number(event.target.value) },
+                            };
+                            setParameters(next);
+                            updateUrl(next);
+                          }}
+                        />
+                      );
+                    })}
+                  </Stack>
                   <KeyValueList
-                    items={Object.entries(goal.parameterSchema).map(([parameter, bounds]) => ({
-                      key: parameter,
-                      value: `${goal.parameters[parameter]} (${bounds.minimum}–${bounds.maximum})`,
-                    }))}
+                    items={
+                      goal.economics
+                        ? Object.entries(goal.economics.facts).map(([name, fact]) => ({
+                            key: name,
+                            value: `${String(fact.effectiveValue)} · ${fact.source} · ${fact.observedAt}`,
+                          }))
+                        : []
+                    }
                   />
                   <Text size="sm">
-                    {goal.requiresEconomics ? copy("goals.economics.required") : copy("goals.economics.default")}
+                    {goal.requiresEconomics
+                      ? goal.economics?.availability === "resolved"
+                        ? copy("goals.economics.provenance")
+                        : copy("goals.economics.unavailable")
+                      : copy("goals.economics.default")}
                   </Text>
                 </ProgressiveDisclosure>
               </Fieldset>
@@ -45,6 +105,10 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
       </Card.Body>
     </Card>
   );
+}
+
+function healthCopyParameterLabel(goal: GoalChoice, parameter: string): string {
+  return copy(`goals.parameter.${goal.goalId}.${parameter}`) || parameter;
 }
 
 export function GoalComparison({

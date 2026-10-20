@@ -14,7 +14,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "pricing.view" });
   try {
     const policyId = new URL(request.url).searchParams.get("policyId") ?? undefined;
-    return { data: await createPricingRequestApiClient(request).getPricingHealth(policyId), loadFailed: false };
+    const goalsText = new URL(request.url).searchParams.get("goals");
+    const goals = goalsText ? JSON.parse(goalsText) : undefined;
+    return { data: await createPricingRequestApiClient(request).getPricingHealth(policyId, goals), loadFailed: false };
   } catch (error) {
     if (error instanceof PricingApiError) {
       if (error.status >= 500) return { data: null, loadFailed: true };
@@ -34,8 +36,13 @@ export const action = defineFormAction({
     },
     compare: async ({ request, formData }) => {
       const policyId = String(formData.get("policyId") ?? "");
-      await createPricingRequestApiClient(request).comparePricingHealth(policyId);
-      return redirect(`${PRICING_HEALTH_HREF}?${new URLSearchParams({ policyId })}`);
+      const goalsText = formData.get("goals") ?? new URL(request.url).searchParams.get("goals");
+      const goalsValue = typeof goalsText === "string" ? goalsText : undefined;
+      const goals = goalsValue ? JSON.parse(goalsValue) : undefined;
+      await createPricingRequestApiClient(request).comparePricingHealth(policyId, goals);
+      const query = new URLSearchParams({ policyId });
+      if (goalsValue) query.set("goals", goalsValue);
+      return redirect(`${PRICING_HEALTH_HREF}?${query}`);
     },
   },
   onUnknownIntent: () => ({ error: copy("computeError") }),
