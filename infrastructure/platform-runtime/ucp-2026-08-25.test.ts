@@ -44,11 +44,36 @@ const errorResponse = {
   messages: [{ type: "error", severity: "recoverable", code: "bad_request", content: "Bad request" }],
 };
 
+const minimalOrder = {
+  ucp: { version: "2026-08-25", status: "success" },
+  id: "ord_1",
+  checkout_id: "chk_1",
+  permalink_url: "https://shop.example/orders/ord_1",
+  line_items: [
+    {
+      id: "line_1",
+      item: { id: "product_1", title: "Example card", price: 100 },
+      quantity: { original: 1, total: 1, fulfilled: 0 },
+      totals: [
+        { type: "subtotal", amount: 100 },
+        { type: "total", amount: 100 },
+      ],
+      status: "processing",
+    },
+  ],
+  fulfillment: {},
+  currency: "USD",
+  totals: [
+    { type: "subtotal", amount: 100 },
+    { type: "total", amount: 100 },
+  ],
+};
+
 describe("UCP 2026-08-25 contract", () => {
   it("pinned UCP 2026-08-25 closure resolves offline", () => {
     const rootPath = fileURLToPath(new URL("./__fixtures__/ucp-2026-08-25/schemas/", import.meta.url));
-    expect(fixtureFiles(rootPath)).toHaveLength(66);
     expect(unresolvedUcpRefs()).toEqual([]);
+    expect(fixtureFiles(rootPath)).toHaveLength(66);
     for (const ref of [
       schema("profile.json"),
       schema("profile.json#/$defs/business_schema"),
@@ -75,18 +100,25 @@ describe("UCP 2026-08-25 contract", () => {
       expect(compileUcpSchema(ucpToolOutputSchema(tool.name))).toBeTypeOf("function");
     }
     const search = compileUcpSchema(ucpToolInputSchema("search_catalog"));
-    expect(search({ search_request: { query: "cards", pagination: { limit: 10, cursor: "next" } } })).toBe(true);
-    expect(search({ search_request: { query: "cards" }, limit: 10 })).toBe(false);
-    expect(search({ search_request: { query: "cards" }, cursor: "next" })).toBe(false);
+    expect(
+      search({
+        catalog: {
+          query: "cards",
+          context: { currency: "USD" },
+          filters: { categories: ["trading-cards"] },
+          pagination: { limit: 10, cursor: "next" },
+        },
+      }),
+    ).toBe(true);
+    expect(search({ catalog: { query: "cards" }, limit: 10 })).toBe(false);
+    expect(search({ catalog: { query: "cards" }, cursor: "next" })).toBe(false);
     expect(
       compileUcpSchema(ucpToolInputSchema("lookup_catalog"))({
-        lookup_request: { ids: ["product_1"] },
+        catalog: { ids: ["product_1"], context: { currency: "USD" }, filters: { categories: ["trading-cards"] } },
         meta: { "idempotency-key": "retry_1" },
       }),
     ).toBe(true);
-    expect(compileUcpSchema(ucpToolInputSchema("get_product"))({ get_product_request: { id: "product_1" } })).toBe(
-      true,
-    );
+    expect(compileUcpSchema(ucpToolInputSchema("get_product"))({ catalog: { id: "product_1" } })).toBe(true);
     expect(
       compileUcpSchema(ucpToolInputSchema("create_checkout"))({ checkout: { line_items: minimalCheckout.line_items } }),
     ).toBe(true);
@@ -100,7 +132,7 @@ describe("UCP 2026-08-25 contract", () => {
     expect(
       compileUcpSchema(ucpToolInputSchema("complete_checkout"))({
         id: "chk_1",
-        checkout: { line_items: minimalCheckout.line_items },
+        checkout: { payment: { instruments: [] } },
       }),
     ).toBe(true);
     expect(compileUcpSchema(ucpToolInputSchema("cancel_checkout"))({ id: "chk_1" })).toBe(true);
@@ -120,7 +152,27 @@ describe("UCP 2026-08-25 contract", () => {
       expect(validate(errorResponse)).toBe(true);
       expect(validate({ ...errorResponse, messages: undefined })).toBe(false);
     }
+    for (const tool of UCP_MCP_TOOLS) {
+      const validate = compileUcpSchema(ucpToolOutputSchema(tool.name));
+      expect(validate(errorResponse), `${tool.name}: ${JSON.stringify(validate.errors)}`).toBe(true);
+    }
+    const validateOrder = compileUcpSchema(ucpToolOutputSchema("get_order"));
+    expect(validateOrder(minimalOrder), JSON.stringify(validateOrder.errors)).toBe(true);
+    for (const tool of [
+      "create_checkout",
+      "get_checkout",
+      "update_checkout",
+      "complete_checkout",
+      "cancel_checkout",
+    ] as const) {
+      expect(compileUcpSchema(ucpToolOutputSchema(tool))(minimalOrder)).toBe(false);
+    }
     expect(compileUcpSchema(ucpToolOutputSchema("get_order"))(minimalCheckout)).toBe(false);
-    expect(compileUcpSchema(ucpToolOutputSchema("get_product"))({ id: "product_1" })).toBe(false);
+    expect(
+      compileUcpSchema(ucpToolOutputSchema("get_product"))({
+        ucp: { version: "2026-08-25", status: "success" },
+        product: { id: "product_1", title: "Example card", price: 100 },
+      }),
+    ).toBe(false);
   });
 });

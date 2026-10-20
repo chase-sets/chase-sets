@@ -40,14 +40,25 @@ const checkoutRequest: AnySchema = {
   required: ["line_items"],
 };
 
+const completeCheckoutRequest: AnySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    signals: ref(`${BASE}shopping/checkout.json#/properties/signals`),
+    attribution: ref(`${BASE}shopping/checkout.json#/properties/attribution`),
+    payment: ref(`${BASE}shopping/checkout.json#/properties/payment`),
+  },
+  required: ["payment"],
+};
+
 const inputSchemas: Record<string, AnySchema> = {
-  search_catalog: object({ search_request: ref(searchRequest) }, ["search_request"]),
-  lookup_catalog: object({ lookup_request: ref(lookupRequest) }, ["lookup_request"]),
-  get_product: object({ get_product_request: ref(productRequest) }, ["get_product_request"]),
+  search_catalog: object({ catalog: ref(searchRequest) }, ["catalog"]),
+  lookup_catalog: object({ catalog: ref(lookupRequest) }, ["catalog"]),
+  get_product: object({ catalog: ref(productRequest) }, ["catalog"]),
   create_checkout: object({ checkout: checkoutRequest }, ["checkout"]),
   get_checkout: object({ id: { type: "string" } }, ["id"]),
   update_checkout: object({ id: { type: "string" }, checkout: checkoutRequest }, ["id", "checkout"]),
-  complete_checkout: object({ id: { type: "string" }, checkout: checkoutRequest }, ["id"]),
+  complete_checkout: object({ id: { type: "string" }, checkout: completeCheckoutRequest }, ["id"]),
   cancel_checkout: object({ id: { type: "string" } }, ["id"]),
   get_order: object({ id: { type: "string" } }, ["id"]),
 };
