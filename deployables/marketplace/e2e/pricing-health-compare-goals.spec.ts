@@ -130,11 +130,20 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
         await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
       ).toBe(true);
       await captureAccessibilityEvidence({ page, testInfo, surface: `Pricing Goal comparison ${viewport.width}` });
-      await captureResponsiveEvidence({ page, testInfo, claimId: `pricing-goal-comparison-${viewport.width}` });
       await disclosure.focus();
       await page.keyboard.press("Enter");
       await expect(disclosure).toHaveAttribute("aria-expanded", "false");
     }
+    const disclosure = page.getByRole("button", { name: "Advanced controls and provenance", exact: true }).first();
+    await disclosure.focus();
+    await page.keyboard.press("Enter");
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await page.setViewportSize({ width: 360, height: 800 });
+    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-comparison-360" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-comparison-390" });
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-comparison-tablet" });
   } finally {
     try {
       if (created) {

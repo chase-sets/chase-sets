@@ -2,7 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { RepricingEngineServices } from "../../repricing-engine/api/runtime";
 import type { RepricingPolicyServices } from "../../repricing-policies/api/runtime";
-import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
+import { hashRepricingDryRunBody, type RepricingDryRunTrace } from "../../repricing-engine/api/dry-run";
 import { listAccountRepricingPolicies } from "../../repricing-policies/read-model/queries";
 import { forecastLedgerPolicy } from "../../forecast-ledger/domain/policy";
 import { gradingRulesVersion } from "../../forecast-ledger/domain/grade-ledger";
@@ -86,7 +86,7 @@ export function createPricingHealthServices({
           computing: false,
           goals: [],
           comparison: [],
-          branch: "create-editor" as const,
+          branch: "create-editor",
         };
       const target = await currentTarget(accountId, selected.policyId);
       if (!target) return null;
@@ -131,11 +131,7 @@ export function createPricingHealthServices({
       const comparison = await readComparisons(accountId, target, goalChoices, repricingEngine);
       const currentTraces =
         stored.run && repricingEngine.listDryRunTraces
-          ? await readAllTraces(
-              repricingEngine as Pick<RepricingEngineServices, "listDryRunTraces">,
-              accountId,
-              stored.run.dryRunId,
-            )
+          ? await readAllTraces(repricingEngine.listDryRunTraces, accountId, stored.run.dryRunId)
           : [];
       const currentEconomicsListingIds = currentTraces
         .filter((trace) => trace.health?.economics)
@@ -223,27 +219,21 @@ async function readComparisons(
     )
       continue;
     seen.add(key);
-    const traces = await readAllTraces(
-      repricingEngine as Pick<RepricingEngineServices, "listDryRunTraces">,
-      accountId,
-      run.dryRunId,
-    );
+    const traces = await readAllTraces(repricingEngine.listDryRunTraces, accountId, run.dryRunId);
     results.push(candidateMetrics(choice, run, traces));
   }
   return results.sort((a, b) => a.goalId.localeCompare(b.goalId) || a.goalVersion - b.goalVersion);
 }
 
 async function readAllTraces(
-  repricingEngine: Pick<RepricingEngineServices, "listDryRunTraces">,
+  listDryRunTraces: RepricingEngineServices["listDryRunTraces"],
   accountId: string,
   dryRunId: string,
 ) {
-  const all = [] as Awaited<ReturnType<RepricingEngineServices["listDryRunTraces"]>> extends readonly (infer Row)[]
-    ? Row[]
-    : never[];
+  const all: RepricingDryRunTrace[] = [];
   let after: string | undefined;
   while (true) {
-    const page = await repricingEngine.listDryRunTraces(accountId, dryRunId, { after, limit: 100 });
+    const page = await listDryRunTraces(accountId, dryRunId, { after, limit: 100 });
     all.push(...page);
     if (page.length < 100) return all;
     after = page.at(-1)?.listingId;
