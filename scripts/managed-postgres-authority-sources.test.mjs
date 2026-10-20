@@ -490,18 +490,45 @@ const reviewedRetiredVerifierRemovals = new Set([
 ]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
+// An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
+const uploadArtifact = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 const reviewedStepInsertions = [
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 52 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
+  // #10235: the staging and production Agent Grant revocation activation steps and their status uploads.
+  { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 54 },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    position: 55,
+    uses: uploadArtifact,
+    occurrence: 8,
+  },
+  { file: ".github/workflows/platform-production.yml", jobId: "deploy-production", position: 56 },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-production",
+    position: 57,
+    uses: uploadArtifact,
+    occurrence: 6,
+  },
 ];
 
 function applyReviewedStepInsertions(record) {
   return reviewedStepInsertions.reduce((current, insertion) => {
-    const match = /^(name:.*#)(\d+)$/.exec(current.stepAnchor);
-    if (current.file !== insertion.file || current.jobId !== insertion.jobId || !match) return current;
-    const index = Number(match[2]);
-    return index >= insertion.position ? { ...current, stepAnchor: `${match[1]}${index + 1}` } : current;
+    if (current.file !== insertion.file || current.jobId !== insertion.jobId) return current;
+    const named = /^(name:.*#)(\d+)$/.exec(current.stepAnchor);
+    if (named) {
+      const index = Number(named[2]);
+      return index >= insertion.position ? { ...current, stepAnchor: `${named[1]}${index + 1}` } : current;
+    }
+    const used = /^uses:([^#]+)(?:#(\d+))?$/.exec(current.stepAnchor);
+    if (!used || used[1] !== insertion.uses) return current;
+    const occurrence = Number(used[2] ?? 1);
+    return occurrence >= insertion.occurrence
+      ? { ...current, stepAnchor: `uses:${used[1]}#${occurrence + 1}` }
+      : current;
   }, record);
 }
 const roots = [];
