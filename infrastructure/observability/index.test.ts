@@ -15,6 +15,7 @@ import {
   createHonoObservabilityMiddleware,
   checkoutObservabilityEventAttributes,
   createLogger,
+  httpCrossSiteRejectionMetricRecord,
   itemDetailRailAnalyticsAttributes,
   loadObservabilityConfig,
   parseOtlpHeaders,
@@ -32,6 +33,7 @@ import {
   savedListAnalyticsValues,
   recordCheckoutObservabilityEvent,
   recordEventStoreAppendAdvisoryLockHold,
+  recordHttpCrossSiteRejection,
   recordMcpAuditRecord,
   recordPostWriteConsistencyEvent,
   recordProjectionFreshnessWakeEnqueue,
@@ -711,6 +713,29 @@ describe("request metrics", () => {
         },
       }),
     ]);
+  });
+
+  it("counts each cross-site rejection once under the metric record's name and rule", () => {
+    const counterAdds: unknown[] = [];
+    const createCounter = vi.fn((name: string) => ({
+      add: (value: number, attributes?: unknown) => counterAdds.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({ createCounter } as never);
+    const rules = ["fetch-metadata", "origin"] as const;
+
+    try {
+      for (const rule of rules) {
+        recordHttpCrossSiteRejection({ rule });
+      }
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(counterAdds).toEqual([
+      { name: "chase_sets_http_cross_site_rejections_total", value: 1, attributes: { rule: "fetch-metadata" } },
+      { name: "chase_sets_http_cross_site_rejections_total", value: 1, attributes: { rule: "origin" } },
+    ]);
+    expect(counterAdds).toEqual(rules.map((rule) => ({ ...httpCrossSiteRejectionMetricRecord({ rule }), value: 1 })));
   });
 });
 
