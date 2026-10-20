@@ -281,7 +281,7 @@ data: ${JSON.stringify({ kind: "sync.required", snapshot: jobSnapshot({ status: 
       },
     ]);
   });
-  it("marks every capture spend/read/freeze call without marking ordinary preview or confirm", async () => {
+  it("marks every capture spend/read/seal/complete call without marking ordinary preview or confirm", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ retained: true }));
     const client = createCatalogApiClient({
       baseUrl: "/api/catalog",
@@ -294,7 +294,24 @@ data: ${JSON.stringify({ kind: "sync.required", snapshot: jobSnapshot({ status: 
     };
     const acquisition = { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
     const preConfirm = { ...planner, planFingerprint: "b".repeat(64) };
-    const freeze = { runnerRunId: "300", runnerRunAttempt: 1 };
+    const freeze = { dispatchId: "synthetic-dispatch", runnerRunId: "300", runnerRunAttempt: 1 };
+    const complete = {
+      ...freeze,
+      runId: "00000000-0000-4000-8000-0000000000aa",
+      collection: {
+        collectedAt: "2026-10-13T08:06:00.000Z",
+        outcome: "unknown" as const,
+        reason: "inventory-truncated" as const,
+        binding: null,
+        createdFrom: "2026-09-08T07:40:00.000Z",
+        runCount: 0,
+        attemptCount: 0,
+        jobCount: 0,
+        pageCount: 1,
+        definitionCount: 0,
+        nonMutatingJobCount: 0,
+      },
+    };
     await client.quoteScopeSyncCaptureCounts(planner);
     await client.readBackScopeSyncCaptureQuote();
     await client.recordScopeSyncCaptureFinalNotice();
@@ -302,6 +319,7 @@ data: ${JSON.stringify({ kind: "sync.required", snapshot: jobSnapshot({ status: 
     await client.previewScopeSyncCountCapture(planner);
     await client.preConfirmScopeSyncCountCapture(preConfirm);
     await client.freezeScopeSyncCountCapture(freeze);
+    await client.completeScopeSyncCountCapture(complete);
     await client.previewScopeSyncBatch(planner);
     await client.confirmScopeSyncBatch(preConfirm);
     expect(
@@ -318,6 +336,7 @@ data: ${JSON.stringify({ kind: "sync.required", snapshot: jobSnapshot({ status: 
       { path: "/preview", marker: "1", body: planner },
       { path: "/count-capture/pre-confirm", marker: "1", body: preConfirm },
       { path: "/count-capture/freeze", marker: "1", body: freeze },
+      { path: "/count-capture/complete", marker: "1", body: complete },
       { path: "/preview", marker: null, body: planner },
       { path: "/confirm", marker: null, body: preConfirm },
     ]);
