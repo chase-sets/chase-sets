@@ -136,10 +136,13 @@ jobs:
               close(parent_to_target[1]);
               close(target_to_parent[0]);
               if (unshare(CLONE_NEWUSER) != 0) die("userns");
+              int groups = open("/proc/self/setgroups", O_WRONLY | O_CLOEXEC);
+              if (groups < 0 || write(groups, "deny\n", 5) != 5) die("setgroups");
+              close(groups);
               if (write(target_to_parent[1], "r", 1) != 1) die("target-ready");
               char ack;
               if (read(parent_to_target[0], &ack, 1) != 1) die("target-ack");
-              if (dumpable < 0 && prctl(PR_SET_DUMPABLE, 0) != 0) die("dumpable-zero");
+              if (dumpable == -1 && prctl(PR_SET_DUMPABLE, 0) != 0) die("dumpable-zero");
               if (dumpable > 0 && prctl(PR_SET_DUMPABLE, 1) != 0) die("dumpable-reopen");
               if (write(target_to_parent[1], "d", 1) != 1) die("dumpable-ready");
               for (;;) pause();
@@ -148,7 +151,6 @@ jobs:
             close(target_to_parent[1]);
             char ready;
             if (read(target_to_parent[0], &ready, 1) != 1) die("parent-ready");
-            write_text(target, "setgroups", "deny\n");
             map_one(target, "uid_map", (unsigned)getuid());
             map_one(target, "gid_map", (unsigned)getgid());
             if (write(parent_to_target[1], "a", 1) != 1) die("parent-ack");
@@ -173,17 +175,52 @@ jobs:
             close(target_to_parent[0]);
           }
 
-          int main(void) {
+          static void run_apparmor_phase(void) {
+            pid_t target = fork();
+            if (target < 0) die("apparmor-target-fork");
+            if (target == 0) {
+              execl("/usr/bin/aa-exec", "aa-exec", "-p", "ac01-peer-boundary", "--",
+                    "/tmp/provider-boundary-ac01", "--apparmor-target", (char *)NULL);
+              die("apparmor-exec");
+            }
+            usleep(250000);
+            pid_t peer = fork();
+            if (peer < 0) die("apparmor-peer-fork");
+            if (peer == 0) {
+              open_attempt(target, "apparmor-profile", "environ");
+              open_attempt(target, "apparmor-profile", "ns/user");
+              _exit(0);
+            }
+            if (waitpid(peer, NULL, 0) != peer) die("apparmor-peer-wait");
+            kill(target, SIGKILL);
+            if (waitpid(target, NULL, 0) != target) die("apparmor-target-wait");
+          }
+
+          int main(int argc, char **argv) {
             setbuf(stdout, NULL);
+            if (argc == 2 && strcmp(argv[1], "--apparmor-target") == 0) {
+              if (unshare(CLONE_NEWUSER) != 0) die("apparmor-userns");
+              for (;;) pause();
+            }
             printf("probe=ac01-same-uid-peer\nuid=%u euid=%u relation=non-descendant-sibling\n",
                    (unsigned)getuid(), (unsigned)geteuid());
             run_phase("mapping-complete-dumpable-open", 0);
             run_phase("mapping-complete-dumpable-zero", -1);
             run_phase("mapping-complete-dumpable-reopened", 1);
+            run_apparmor_phase();
             return 0;
           }
           EOF
           gcc -std=c11 -O2 -Wall -Wextra -Werror /tmp/provider-boundary-ac01.c -o /tmp/provider-boundary-ac01
+          cat > /tmp/ac01.profile <<'EOF'
+          #include <tunables/global>
+          profile ac01-peer-boundary flags=(unconfined) {
+            userns,
+            deny ptrace (readby, tracedby) peer=unconfined,
+          }
+          EOF
+          sudo apparmor_parser -r /tmp/ac01.profile
+          trap 'sudo apparmor_parser -R /tmp/ac01.profile 2>/dev/null || true' EXIT
           {
             printf 'diagnostic=AC-01\n'
             printf 'runner_uid=%s\n' "$(id -u)"
@@ -196,7 +233,7 @@ jobs:
             printf 'minimum_kernel=5.8-for-pidfd-setns-diagnostic;PR_SET_DUMPABLE-and-userns-feasibility-is-older\n'
             /tmp/provider-boundary-ac01
           } | tee artifacts/browser-boundary-diagnostics/ac01-feasibility.txt
-          node -e 'const fs=require("fs"); const p="artifacts/browser-boundary-diagnostics/ac01-feasibility.txt"; const t=fs.readFileSync(p,"utf8"); if(!t.includes("phase=mapping-complete-dumpable-zero") || !t.includes("result=denied errno=13")) process.exit(1); fs.writeFileSync("artifacts/browser-boundary-diagnostics/summary.json", JSON.stringify({diagnostic:"AC-01",bytes:Buffer.byteLength(t),credentialFree:true,runnerUid:Number(process.getuid())}));'
+          node -e 'const fs=require("fs"); const p="artifacts/browser-boundary-diagnostics/ac01-feasibility.txt"; const t=fs.readFileSync(p,"utf8"); if(!t.includes("phase=mapping-complete-dumpable-zero") || !t.includes("phase=apparmor-profile") || !t.includes("result=denied errno=13")) process.exit(1); fs.writeFileSync("artifacts/browser-boundary-diagnostics/summary.json", JSON.stringify({diagnostic:"AC-01",bytes:Buffer.byteLength(t),credentialFree:true,runnerUid:Number(process.getuid())}));'
 
       - name: Remove owned provider browser boundary
         if: always()
