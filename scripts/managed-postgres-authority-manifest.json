@@ -3490,210 +3490,210 @@
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Configure preview Kubernetes context#8",
+      "stepAnchor": "name:Configure preview Kubernetes context#11",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Configure preview Kubernetes context#8",
+      "stepAnchor": "name:Configure preview Kubernetes context#11",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Configure preview Kubernetes context#8",
+      "stepAnchor": "name:Configure preview Kubernetes context#11",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Configure preview Kubernetes context#8",
+      "stepAnchor": "name:Configure preview Kubernetes context#11",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Configure preview Kubernetes context#8",
+      "stepAnchor": "name:Configure preview Kubernetes context#11",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Configure preview Kubernetes context#8",
+      "stepAnchor": "name:Configure preview Kubernetes context#11",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview DNS records#7",
+      "stepAnchor": "name:Delete preview DNS records#10",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview DNS records#7",
+      "stepAnchor": "name:Delete preview DNS records#10",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview DNS records#7",
+      "stepAnchor": "name:Delete preview DNS records#10",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview DNS records#7",
+      "stepAnchor": "name:Delete preview DNS records#10",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview DNS records#7",
+      "stepAnchor": "name:Delete preview DNS records#10",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview DNS records#7",
+      "stepAnchor": "name:Delete preview DNS records#10",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview Kubernetes namespace#9",
+      "stepAnchor": "name:Delete preview Kubernetes namespace#12",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview Kubernetes namespace#9",
+      "stepAnchor": "name:Delete preview Kubernetes namespace#12",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview Kubernetes namespace#9",
+      "stepAnchor": "name:Delete preview Kubernetes namespace#12",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview Kubernetes namespace#9",
+      "stepAnchor": "name:Delete preview Kubernetes namespace#12",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview Kubernetes namespace#9",
+      "stepAnchor": "name:Delete preview Kubernetes namespace#12",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Delete preview Kubernetes namespace#9",
+      "stepAnchor": "name:Delete preview Kubernetes namespace#12",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#11",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#11",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#11",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#11",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#11",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#11",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Import live preview database cluster into cleanup state#12",
+      "stepAnchor": "name:Import live preview database cluster into cleanup state#15",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Import live preview database cluster into cleanup state#12",
+      "stepAnchor": "name:Import live preview database cluster into cleanup state#15",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Import live preview database cluster into cleanup state#12",
+      "stepAnchor": "name:Import live preview database cluster into cleanup state#15",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Import live preview database cluster into cleanup state#12",
+      "stepAnchor": "name:Import live preview database cluster into cleanup state#15",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Import live preview database cluster into cleanup state#12",
+      "stepAnchor": "name:Import live preview database cluster into cleanup state#15",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Import live preview database cluster into cleanup state#12",
+      "stepAnchor": "name:Import live preview database cluster into cleanup state#15",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -3742,84 +3742,84 @@
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform destroy#13",
+      "stepAnchor": "name:Terraform destroy#16",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform destroy#13",
+      "stepAnchor": "name:Terraform destroy#16",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform destroy#13",
+      "stepAnchor": "name:Terraform destroy#16",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform destroy#13",
+      "stepAnchor": "name:Terraform destroy#16",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform destroy#13",
+      "stepAnchor": "name:Terraform destroy#16",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform destroy#13",
+      "stepAnchor": "name:Terraform destroy#16",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#10",
+      "stepAnchor": "name:Terraform init#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#10",
+      "stepAnchor": "name:Terraform init#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#10",
+      "stepAnchor": "name:Terraform init#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#10",
+      "stepAnchor": "name:Terraform init#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#10",
+      "stepAnchor": "name:Terraform init#14",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#10",
+      "stepAnchor": "name:Terraform init#14",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
