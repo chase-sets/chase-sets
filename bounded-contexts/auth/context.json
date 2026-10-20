@@ -48,6 +48,8 @@
         "identity.user.password-credential-attached",
         "identity.user.passkey-registered",
         "identity.user.social-login-linked",
+        "identity.user.social-login-revocation-requested",
+        "identity.user.social-login-revoked",
         "identity.user.suspended",
         "identity.user.reactivated"
       ],

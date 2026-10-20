@@ -60,6 +60,9 @@ function createServices(
         if (sql.includes("identity_account_display_name_reservations")) {
           return { rows: [{ display_name_key: params[0] }] };
         }
+        if (sql.includes("INSERT INTO identity_user_social_login_links")) {
+          return { rows: [{ user_id: params[2] }] };
+        }
         if (sql.includes("FROM identity_api_key_secrets")) {
           return {
             rows: [
