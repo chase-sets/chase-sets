@@ -300,7 +300,10 @@ test.describe.serial("catalog admin integrations", () => {
     const changedReviewRowCheckbox = sourceObservationReviewTable.getByRole("checkbox", {
       name: "Select row tcgdex_en_base2_60_1st_edition",
     });
-    const changedReviewRow = sourceObservationReviewTable.getByRole("row").filter({ has: changedReviewRowCheckbox });
+    // A `has` locator is matched inside each row, so it must not repeat the table scope.
+    const changedReviewRow = sourceObservationReviewTable.getByRole("row").filter({
+      has: page.getByRole("checkbox", { name: "Select row tcgdex_en_base2_60_1st_edition" }),
+    });
     await expect(changedReviewRow.getByText("Changed", { exact: true })).toBeVisible();
     await expect(changedReviewRowCheckbox).toBeEnabled();
     await changedReviewRowCheckbox.check();
