@@ -212,8 +212,8 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         decisionRefs: [7818, 7819],
         productTruthRefs: [
           "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee; quotePayoutFee)",
-          "bounded-contexts/settlement/features/payouts/api/runtime.ts:2225-2260 (Settlement net payout and Payout Fee Ledger Entry posting)",
-          "bounded-contexts/settlement/features/payouts/api/runtime.ts:854-906 (commitPayoutRequest monthly fee determination)",
+          "bounded-contexts/settlement/features/payouts/api/payout-request-lifecycle.ts:883-918 (Settlement net payout and Payout Fee Ledger Entry posting)",
+          "bounded-contexts/settlement/features/payouts/api/payout-request-lifecycle.ts:302-354 (commitPayoutRequest monthly fee determination)",
           "bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx (fee preview before confirmation)",
         ],
         openQuestions: [

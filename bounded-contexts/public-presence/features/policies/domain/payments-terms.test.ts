@@ -463,7 +463,9 @@ describe("payments terms artifact", () => {
         expect.stringContaining(
           "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee",
         ),
-        expect.stringMatching(/^bounded-contexts\/settlement\/features\/payouts\/api\/runtime\.ts:.*posting/),
+        expect.stringMatching(
+          /^bounded-contexts\/settlement\/features\/payouts\/api\/payout-request-lifecycle\.ts:.*posting/,
+        ),
         expect.stringContaining("bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx"),
       ]),
     );
