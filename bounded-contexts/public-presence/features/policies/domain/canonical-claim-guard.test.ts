@@ -100,7 +100,7 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2051-2071",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2429-2449",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
@@ -125,7 +125,7 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2179-2186",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2557-2564",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
@@ -153,7 +153,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2627-2668",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3005-3046",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -175,12 +175,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:269-299",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:270-300",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1231-1273",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1559-1601",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -962,7 +962,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2135-2146"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2513-2524"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
