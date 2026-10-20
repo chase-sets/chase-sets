@@ -447,6 +447,27 @@ const stagingEvidenceWindowDelta = [
       }))
     : []),
 ]);
+// #10210 reviewed delta: the read-only Collections cutover authority capture's boundary, kubeconfig and state-pull grants.
+const collectionsCutoverAuthorityCaptureDelta = [
+  ["name:Capture Collections cutover authority#8", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Capture Collections cutover authority#8", "SPACES_SECRET_KEY", "spaces-evidence"],
+  ["name:Configure Kubernetes context#7", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+  ["name:Configure Kubernetes context#7", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Configure Kubernetes context#7", "SPACES_SECRET_KEY", "spaces-evidence"],
+  [
+    "uses:./.github/actions/export-managed-postgres-authority",
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "managed-postgres-boundary",
+  ],
+  ["uses:./.github/actions/export-managed-postgres-authority", "SPACES_ACCESS_ID", "managed-postgres-boundary"],
+  ["uses:./.github/actions/export-managed-postgres-authority", "SPACES_SECRET_KEY", "managed-postgres-boundary"],
+].map(([stepAnchor, secretName, purpose]) => ({
+  file: ".github/workflows/collections-cutover-authority-capture.yml",
+  jobId: "capture",
+  stepAnchor,
+  secretName,
+  purpose,
+}));
 // #9721 reviewed removal: the retired mandate verifier's URL, auth-token and timeout grants at its five forwarding
 // sinks, plus #9876's six retired TCGplayer cookie grants, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
 // the issue's literal sweep stays exact; parity below binds each index to the generated manifest and source fragments.
@@ -669,9 +690,10 @@ describe("managed Postgres authority source generator", () => {
         ...credentialHealthDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
         ...stagingEvidenceWindowDelta,
+        ...collectionsCutoverAuthorityCaptureDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1669);
+    expect(expected.grants).toHaveLength(1677);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
