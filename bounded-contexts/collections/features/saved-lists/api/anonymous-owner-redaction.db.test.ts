@@ -167,6 +167,27 @@ describeDb("legacy-owner-redaction-bounded-resume", () => {
     expect((await redactLegacyAnonymousOwners(pool, { dryRun: true })).after).toBe(1);
   });
 
+  it("dry run observes through a default_transaction_read_only session", async () => {
+    await seed(2);
+    await activateAnonymousOwnerCutover(pool, activation);
+    const client = await pool.connect();
+    try {
+      await client.query("SET default_transaction_read_only = on");
+      const readOnlySession: PgTransactionalPool = {
+        query: client.query.bind(client),
+        connect: async () => {
+          throw new Error("dry-run-opened-transaction");
+        },
+      };
+      const dry = await redactLegacyAnonymousOwners(readOnlySession, { dryRun: true });
+      expect(dry).toMatchObject({ before: 2, processed: 0, after: 2, codes: [] });
+      expect(dry.activation.floor_commit).toBe(activation.floorCommit);
+    } finally {
+      await client.query("RESET default_transaction_read_only");
+      client.release();
+    }
+  });
+
   it("observation failures expose a closed code rather than a database exception", async () => {
     const failingPool: PgTransactionalPool = {
       query: async () => {

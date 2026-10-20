@@ -211,7 +211,7 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 72, scannedSurfaces: 40, totalSurfaces: 40 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 73, scannedSurfaces: 41, totalSurfaces: 41 });
     expect(current.findings).toHaveLength(21);
     expect(
       current.findings.filter((finding) => /platform-merge-qualification(?:-observer)?\.yml/.test(finding.message)),
