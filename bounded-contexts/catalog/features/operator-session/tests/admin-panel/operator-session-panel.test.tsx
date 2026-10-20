@@ -179,6 +179,14 @@ async function renderPanelWith(body: unknown, status = 200) {
   return panel;
 }
 
+async function waitForSettledDisconnect(panel: HTMLElement) {
+  await waitFor(() => {
+    const disconnect = within(panel).getByRole("button", { name: "Disconnect" });
+    expect(disconnect).toHaveAttribute("aria-haspopup", "dialog");
+    expect(disconnect).toHaveAttribute("aria-expanded", "false");
+  });
+}
+
 async function confirmDisconnect(panel: HTMLElement) {
   fireEvent.click(within(panel).getByRole("button", { name: "Disconnect" }));
   const dialog = await findDialog();
@@ -260,10 +268,35 @@ describe("AC1 operator session metadata states", () => {
       expect(within(panel).getByText(/cannot be read with the current key/)).toBeTruthy();
       expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
       expect(panel.textContent, scenario).not.toMatch(/fallback (is )?(active|in use)|using the environment/i);
-      markup.push(normalizedMarkup(panel));
+      await waitForSettledDisconnect(panel);
+      const capture = normalizedMarkup(panel);
+      expect(capture).toContain('aria-haspopup="dialog"');
+      expect(capture).toContain('aria-expanded="false"');
+      markup.push(capture);
       cleanup();
     }
     expect(markup[0]).toBe(markup[1]);
+  });
+
+  it("captures unreadable stored custody before the Disconnect trigger settles", async () => {
+    const unreadable = storedMetadata(3, { custodyAvailable: false, grant: activeGrant });
+    http.reply("GET", metadataPath, 200, unreadable);
+    render(<OperatorSessionPanel />);
+    const panel = await findPanel();
+    let early = "";
+
+    await waitFor(() => {
+      expect(within(panel).queryByText("Loading operator session…")).toBeNull();
+      expect(within(panel).queryByRole("button", { name: "Disconnect" })).toBeTruthy();
+      early = normalizedMarkup(panel);
+    });
+
+    expect(early).not.toContain('aria-haspopup="dialog"');
+    await waitForSettledDisconnect(panel);
+    const settled = normalizedMarkup(panel);
+    expect(settled).toContain('aria-haspopup="dialog"');
+    expect(settled).toContain('aria-expanded="false"');
+    expect(early).not.toBe(settled);
   });
 
   it.each([
