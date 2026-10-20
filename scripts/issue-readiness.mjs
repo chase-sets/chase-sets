@@ -605,7 +605,6 @@ export async function collectIssueAuthority({ repository, number, token, client 
       finalIssue.milestone?.title === issue.milestone?.title &&
       finalIssue.milestone?.description === issue.milestone?.description &&
       finalIssue.milestone?.state === issue.milestone?.state &&
-      finalIssue.commentsTotal === issue.commentsTotal &&
       finalIssue.dependenciesTotal === issue.dependenciesTotal &&
       finalIssue.openDependenciesTotal === issue.openDependenciesTotal &&
       finalGraph.nodeId === graph.nodeId &&

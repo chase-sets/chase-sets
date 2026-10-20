@@ -447,7 +447,10 @@ function createHarness(scenario, { comments = [] } = {}) {
       body: scenarioBody(scenario),
       type: issueType,
       milestone: currentMilestone(),
-      comments: scenario.commentsRestTotalOverride ?? commentState.length,
+      comments:
+        scenario.commentsRestTotalByIssueRead?.[issueReads] ??
+        scenario.commentsRestTotalOverride ??
+        commentState.length,
       issue_dependencies_summary: {
         blocked_by: dependencies.filter((item) => item.state === "open").length,
         total_blocked_by: dependencies.length,
@@ -1197,6 +1200,24 @@ describe("bounded complete GitHub authority collection", () => {
     const { result } = await runScenario({ ...fixtureScenario("ready"), commentsRestTotalOverride: 1 }, { comments });
 
     expect(result.receipt.status).toBe("ready");
+    expect(result.receipt.coverage.comments).toEqual({
+      pages: 1,
+      collected: 3,
+      total: 3,
+      complete: true,
+      reasonCode: null,
+    });
+  });
+
+  it("ignores a stale REST counter transition when authoritative revisions remain stable", async () => {
+    const comments = [botComment(111, "comment 111"), botComment(112, "comment 112"), botComment(113, "comment 113")];
+    const { result } = await runScenario(
+      { ...fixtureScenario("ready"), commentsRestTotalByIssueRead: { 1: 1, 2: 3 } },
+      { comments },
+    );
+
+    expect(result.receipt.status).toBe("ready");
+    expect(result.receipt.reasonCodes).toEqual([]);
     expect(result.receipt.coverage.comments).toEqual({
       pages: 1,
       collected: 3,
