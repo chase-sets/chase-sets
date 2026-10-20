@@ -107,6 +107,7 @@ export const pricingEnglishTranslations = {
   "pricing.features.pricingHealth.goals.entireScope": "Entire selected policy candidate scope",
   "pricing.features.pricingHealth.goals.listings": "Listings",
   "pricing.features.pricingHealth.goals.targetRevision": "Target policy / revision",
+  "pricing.features.pricingHealth.goals.targetRevision.value": "{policy} / {revision}",
   "pricing.features.pricingHealth.goals.requestedAt": "Requested at (UTC)",
   "pricing.features.pricingHealth.goals.bodyHash": "Candidate body hash",
   "pricing.features.pricingHealth.goals.p90": "P90 wait",

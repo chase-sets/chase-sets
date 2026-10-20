@@ -109,7 +109,9 @@ export function GoalComparison({
             key: "target",
             header: copy("goals.targetRevision"),
             cell: (row) => (
-              <Text as="span" size="sm" wrap="anywhere">{`${row.targetPolicyId} / ${row.targetRevision}`}</Text>
+              <Text as="span" size="sm" wrap="anywhere">
+                {copy("goals.targetRevision.value", { policy: row.targetPolicyId, revision: row.targetRevision })}
+              </Text>
             ),
           },
           { key: "requestedAt", header: copy("goals.requestedAt"), cell: (row) => row.requestedAt },
