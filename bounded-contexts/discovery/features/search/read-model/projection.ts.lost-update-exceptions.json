@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-61429c7c4589fa77",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/search/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "discovery_search_catalog_items",
+      "digest": "40e1d3f6f03ac98bbe47acfb4212b92233bedb18a40348394c6fbbe4db3180e5"
+    },
+    "classification": "key-only but safe",
+    "reason": "The alias projection writes the incoming event fact directly under strict per-stream ordering; no prior row state decides this write."
+  }
+]

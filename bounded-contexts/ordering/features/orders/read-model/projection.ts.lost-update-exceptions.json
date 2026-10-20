@@ -1,0 +1,68 @@
+[
+  {
+    "id": "exception-a81cf9f100e11e92",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/orders/read-model/projection.ts",
+      "kind": "DELETE",
+      "table": "ordering_order_line_pages",
+      "digest": "273b99885d081be1845b6cd08ef3a8e497f6a9da53946739db040d923ff62740"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/ordering/features/orders/read-model/projection.ts:233 directly synchronizes ordering_order_line_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-d76971ac926f9fa0",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/orders/read-model/projection.ts",
+      "kind": "DELETE",
+      "table": "ordering_order_hold_pages",
+      "digest": "8e50d9e7155fd5acc6f69c96e60d150fed6b168b5fe0169097b78b249a768ff3"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/ordering/features/orders/read-model/projection.ts:234 directly synchronizes ordering_order_hold_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-38cd77d5f2a5cd32",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/orders/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_order_pages",
+      "digest": "6b51b0b2a8a49840e40354fc32b2f4e9c2744604a7e2cd17f0dee2f6415fd19b"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/orders/read-model/projection.ts:355 directly synchronizes ordering_order_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-538815a553e1da52",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/orders/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_order_pages",
+      "digest": "27ea92855f44194a4aa14c0851c38f45e7805b589c52c6e6db4e4788a4fecbad"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/orders/read-model/projection.ts:373 directly synchronizes ordering_order_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-5009049ca86bf061",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/orders/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_order_hold_pages",
+      "digest": "53e350ad89e81aa5bb9f3f09a192f2809f57129b5ad1ba11f481b529ac3b349b"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/orders/read-model/projection.ts:397 directly synchronizes ordering_order_hold_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9f510b019f5c4310",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/orders/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_order_pages",
+      "digest": "6943ec640249e828a846b935b97b8c2e1458c543715570aae6646a8d8e2fc0fd"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/orders/read-model/projection.ts:411 directly synchronizes ordering_order_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

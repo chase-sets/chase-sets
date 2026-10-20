@@ -22,9 +22,14 @@ import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../suppo
 import type { DiscoverySearchInterpretation } from "../support/client-support/contracts";
 import {
   appendAnonymousCartCookie,
+  CHECKOUT_CART_ATTEMPT_CART_TARGET,
   createCheckoutRequestApiClient,
   ensureAnonymousCartId,
+  isCheckoutCommandAttemptId,
+  mintCheckoutCommandAttemptId,
+  submitCheckoutCartAttempt,
 } from "@chase-sets/checkout/server";
+import { mintCartAttemptId } from "../features/item-detail/ui/commerce/commerce-primitives";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
 import { EMPTY_CATEGORY_LIST, EMPTY_DISCOVERY_SEARCH_RESPONSE } from "../features/search/ui/route-data-defaults";
@@ -381,7 +386,10 @@ type BulkAddActionData =
       mergedLineCount: number;
       failedLineCount: number;
       requestedLineCount: number;
-    }>;
+      failedLines?: readonly Readonly<{ title: string; message: string | null }>[];
+    }>
+  | Readonly<{ status: "bulk-ambiguous"; preview: DiscoveryBulkCartPreview; attemptId: string }>
+  | Readonly<{ status: "bulk-not-applied"; preview: DiscoveryBulkCartPreview; message: string | null }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -438,6 +446,10 @@ function isBulkAddActionData(
 ): value is BulkAddActionData {
   if (!isRecord(value) || !isBulkPreview(value.preview)) return false;
   if (value.status === "bulk-preview") return true;
+  if (intent === "commit-bulk-add" && value.status === "bulk-ambiguous") return typeof value.attemptId === "string";
+  if (intent === "commit-bulk-add" && value.status === "bulk-not-applied") {
+    return value.message === null || typeof value.message === "string";
+  }
   return (
     intent === "commit-bulk-add" &&
     value.status === "bulk-added" &&
@@ -546,30 +558,46 @@ async function handleAction(intent: string, { request, params, formData }: FormA
     lockedListingId: null,
   }));
 
-  if (!actor) {
-    const anonymousCartId = ensureAnonymousCartId(request);
-    const result = await checkoutApi.addGuestCartLines(anonymousCartId, { lines });
-    const response = Response.json({
-      status: "bulk-added",
-      preview,
-      addedLineCount: result.addedLineCount,
-      mergedLineCount: result.mergedLineCount,
-      failedLineCount: result.failedLineCount,
-      requestedLineCount: result.requestedLineCount,
-    } satisfies BulkAddActionData);
-    appendAnonymousCartCookie(response.headers, anonymousCartId, request);
-    return response;
-  }
-
-  const result = await checkoutApi.addCartLines({ lines });
-  return Response.json({
-    status: "bulk-added",
-    preview,
-    addedLineCount: result.addedLineCount,
-    mergedLineCount: result.mergedLineCount,
-    failedLineCount: result.failedLineCount,
-    requestedLineCount: result.requestedLineCount,
-  } satisfies BulkAddActionData);
+  // The whole bulk add is one Checkout attempt, minted by the browser at the
+  // deliberate commit; a post without one mints it here once.
+  const presentedAttemptId = String(formData.get("attemptId") ?? "");
+  const attemptId = isCheckoutCommandAttemptId(presentedAttemptId)
+    ? presentedAttemptId
+    : mintCheckoutCommandAttemptId();
+  const anonymousCartId = actor ? null : ensureAnonymousCartId(request);
+  const body = { attemptId, lines };
+  const submission = await submitCheckoutCartAttempt({
+    attemptId,
+    kind: "cart.add-lines",
+    target: CHECKOUT_CART_ATTEMPT_CART_TARGET,
+    body,
+    send: () =>
+      anonymousCartId ? checkoutApi.addGuestCartLines(anonymousCartId, body) : checkoutApi.addCartLines(body),
+    lookup: (query) =>
+      anonymousCartId
+        ? checkoutApi.getGuestCartCommandAttempt(anonymousCartId, query)
+        : checkoutApi.getCartCommandAttempt(query),
+  });
+  const vector = submission.attempt?.vector ?? [];
+  const actionData: BulkAddActionData =
+    submission.state === "ambiguous"
+      ? { status: "bulk-ambiguous", preview, attemptId }
+      : submission.state === "failed-safe"
+        ? { status: "bulk-not-applied", preview, message: submission.message }
+        : {
+            status: "bulk-added",
+            preview,
+            addedLineCount: vector.filter((line) => line.status === "added").length,
+            mergedLineCount: vector.filter((line) => line.status === "merged").length,
+            failedLineCount: vector.filter((line) => line.outcome !== "succeeded").length,
+            requestedLineCount: vector.length,
+            failedLines: vector
+              .filter((line) => line.outcome !== "succeeded")
+              .map((line) => ({ title: preview.lines[line.index]?.title ?? "", message: line.message })),
+          };
+  const response = Response.json(actionData);
+  if (anonymousCartId) appendAnonymousCartCookie(response.headers, anonymousCartId, request);
+  return response;
 }
 
 export const action = defineFormAction({
@@ -1203,7 +1231,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   }, [data, dynamicFilters, loaderCacheKey, visibleData?.nextCursor]);
 
   const submitBulkAddIntent = useCallback(
-    async (intent: "preview-bulk-add" | "commit-bulk-add") => {
+    async (intent: "preview-bulk-add" | "commit-bulk-add", resendAttemptId?: string) => {
       if (activeBulkRequestRef.current) return;
       const request = {
         id: ++bulkAddRequestIdRef.current,
@@ -1214,6 +1242,12 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       activeBulkRequestRef.current = request;
       const formData = new FormData();
       formData.set("intent", intent);
+      if (intent === "commit-bulk-add") {
+        // A deliberate commit mints a new attempt; only the explicit resend of
+        // an ambiguous commit reuses the one it already sent.
+        const attemptId = resendAttemptId ?? mintCartAttemptId();
+        formData.set("attemptId", attemptId);
+      }
       setBulkAddState((current) => ({ ...current, status: "submitting", error: null }));
 
       try {
@@ -1263,6 +1297,11 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         error: bulkAddState.error,
         onPreview: () => void submitBulkAddIntent("preview-bulk-add"),
         onCommit: () => void submitBulkAddIntent("commit-bulk-add"),
+        onResend: () => {
+          if (bulkAddState.data?.status === "bulk-ambiguous") {
+            void submitBulkAddIntent("commit-bulk-add", bulkAddState.data.attemptId);
+          }
+        },
       }}
       savedListClaim={data.savedListClaim}
       restoreSearchFocus={restoreSearchFocusRef.current}
