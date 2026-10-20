@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-63d5be8684db25c7",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/provider-scope-mapping/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_provider_scope_mappings",
+      "digest": "b642981e8c5c88a293566b2cd2278e668ae9eef372b0593dc800202b2d2aa147"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/provider-scope-mapping/read-model/projection.ts:142 directly synchronizes catalog_provider_scope_mappings from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

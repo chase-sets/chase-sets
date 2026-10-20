@@ -157,13 +157,19 @@ export function createPaymentMcpHandlers(
         rawReturnUrl: typeof args.returnUrl === "string" ? args.returnUrl : "",
       });
     const returnUrl = readHttpsUrl(args, "returnUrl");
-    const session = await services.createSavedCheckoutSetupSession({
-      accountId: scopedActor.accountId as AccountId,
-      ...(evidenceWindowCorrelation ? { evidenceWindow: window ?? null } : {}),
-      returnUrlBase: `${returnUrl.protocol}//${returnUrl.host}`,
-      returnUrlPath: `${returnUrl.pathname}${returnUrl.search}`,
-      agentGrantId: scopedActor.agentGrant?.grantId ?? null,
-    });
+    // The platform admits only a canonical UUIDv4 owner key; it is this call's Saved Checkout
+    // Instrument Attempt id, so a post-crash replay returns the first session instead of a second.
+    const session = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: scopedActor.accountId as AccountId,
+        attemptId: readRequiredString(args, "idempotencyKey"),
+        ...(evidenceWindowCorrelation ? { evidenceWindow: window ?? null } : {}),
+        returnUrlBase: `${returnUrl.protocol}//${returnUrl.host}`,
+        returnUrlPath: `${returnUrl.pathname}${returnUrl.search}`,
+        agentGrantId: scopedActor.agentGrant?.grantId ?? null,
+      },
+      createActorEventStoreContext(scopedActor),
+    );
 
     // Return only the hosted page URL. The processor client secret stays server-side and is never
     // echoed into a tool result or audit log.
@@ -177,8 +183,8 @@ export function createPaymentMcpHandlers(
     };
   };
 
-  // Refuse at admission, not in the run body: the platform reserves idempotency and audits a
-  // failure only after admit returns, so a true dry run must leave no reservation or provider work.
+  // Refuse at admission, not in the run body: the platform audits a failure only after admit
+  // returns, so a true dry run must leave no attempt, lease or provider work.
   async function admitPaymentMethodSetup(input: McpToolHandlerInput): Promise<McpToolHandler> {
     rejectDryRun(input.arguments);
     const window = await evidenceWindowCorrelation?.currentOpenWindow();
