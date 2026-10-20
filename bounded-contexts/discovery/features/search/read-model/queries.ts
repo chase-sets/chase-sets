@@ -249,7 +249,7 @@ type BuiltSearchFilter = Readonly<{
   queryFunction: "plainto_tsquery" | "to_tsquery";
 }>;
 
-function normalizeCategorySet(categories: DiscoverySearchParams["categories"]): string[] {
+export function normalizeCategorySet(categories: DiscoverySearchParams["categories"]): string[] {
   return [...new Set((categories ?? []).map((category) => category.trim()).filter(Boolean))].sort();
 }
 
@@ -1816,6 +1816,10 @@ async function loadDimensionFacetValues(
           : params.marketActivity === "any"
             ? "market.listing_count + market.offer_count"
             : "1";
+    const lowestPriceCurrencyColumn =
+      priceCurrencyParamIndex === null
+        ? ""
+        : "CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,";
     const result = await db.query<{
       option_id: string;
       label: string;
@@ -1856,7 +1860,7 @@ async function loadDimensionFacetValues(
          COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NOT NULL)::integer AS listing_count,
          COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NULL)::integer AS offer_count,
          CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount) ELSE NULL END AS lowest_price_amount,
-         CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,
+         ${lowestPriceCurrencyColumn}
          SUM(visible_quantity) AS visible_quantity
        FROM option_activity GROUP BY catalog_catalog_item_id, option_id
      ), market_counts AS (

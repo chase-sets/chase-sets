@@ -17,6 +17,7 @@ import {
 } from "../read-model/hybrid-retrieval";
 import {
   previewBulkAddSearchResults,
+  normalizeCategorySet,
   type DiscoveryBulkCartPreview,
   type DiscoverySearchCursorState,
   type DiscoverySearchParams,
@@ -165,7 +166,7 @@ function sha256(value: string): string {
 }
 
 function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string) {
-  const categories = [...new Set((params.categories ?? []).map((category) => category.trim()).filter(Boolean))].sort();
+  const categories = normalizeCategorySet(params.categories);
   return {
     search: normalizedSearch,
     category: categories.length > 0 ? null : (params.category ?? null),

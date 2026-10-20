@@ -455,7 +455,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(searchCalls[0]?.values.slice(0, 3)).toEqual(["active", "10.00", "25.50"]);
   });
 
-  it("matches a normalized category set through one OR predicate", async () => {
+  it("matches a category set through one OR predicate and skips it for the category facet", async () => {
     const { db, calls } = createCapturingDb();
 
     await searchDiscoveryItems(db, { categories: ["B", "A", "A", " "] });
@@ -465,9 +465,11 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(list?.sql.match(/\?\|/g)).toHaveLength(2);
     expect(list?.sql).not.toContain("?&");
     expect(list?.values.slice(0, 2)).toEqual(["active", ["A", "B"]]);
+    const categoryFacet = calls.find((call) => call.sql.includes("category_slug AS slug"));
+    expect(categoryFacet?.sql).not.toContain("?|");
   });
 
-  it("guards price bounds by native currency in result and dimension facets", async () => {
+  it("currency-guarded price bounds bypass foreign rows", async () => {
     const { db: capturingDb, calls } = createCapturingDb();
     const db: PgQueryable = {
       query: async <Row>(sql: string, values: readonly unknown[] = []) => {
@@ -490,17 +492,50 @@ describe("searchDiscoveryItems cursor paging", () => {
     });
 
     const searchCalls = calls.filter((call) => call.sql.includes("discovery_search_items"));
-    expect(searchCalls[0]?.sql).toContain("(selected_market.lowest_price_currency_code IS DISTINCT FROM $2");
     expect(searchCalls[0]?.sql).toContain(
-      "OR selected_market.lowest_price_amount IS NULL OR selected_market.lowest_price_amount >= $3::numeric)",
+      "(selected_market.lowest_price_currency_code IS DISTINCT FROM $2 OR selected_market.lowest_price_amount IS NULL OR selected_market.lowest_price_amount >= $3::numeric)",
     );
-    expect(searchCalls[0]?.sql).toContain("(selected_market.lowest_price_currency_code IS DISTINCT FROM $2");
+    expect(searchCalls[0]?.sql).toContain(
+      "(selected_market.lowest_price_currency_code IS DISTINCT FROM $2 OR selected_market.lowest_price_amount IS NULL OR selected_market.lowest_price_amount <= $4::numeric)",
+    );
     const facet = calls.find((call) => call.sql.includes("option_market AS"));
     expect(facet?.sql).toContain("lowest_price_currency_code");
     expect(facet?.sql).toContain("market.lowest_price_currency_code IS DISTINCT FROM");
     expect(facet?.values).toContain("EUR");
     expect(facet?.values).toContain("10.00");
     expect(facet?.values).toContain("20.00");
+
+    const baseDb = createCapturingDb();
+    await searchDiscoveryItems(baseDb.db, { priceMin: "1.000", priceMax: "1000", priceCurrency: "EUR" });
+    const baseSearch = baseDb.calls.find((call) => call.sql.includes("FROM discovery_search_items"));
+    expect(baseSearch?.sql).toContain(
+      "(lowest_price_currency_code IS DISTINCT FROM $2 OR lowest_price_amount IS NULL OR lowest_price_amount >= $3::numeric)",
+    );
+    expect(baseSearch?.sql).toContain(
+      "(lowest_price_currency_code IS DISTINCT FROM $2 OR lowest_price_amount IS NULL OR lowest_price_amount <= $4::numeric)",
+    );
+    expect(baseSearch?.values.slice(0, 5)).toEqual(["active", "EUR", "1.000", "1000", expect.anything()]);
+
+    const noCurrency = createCapturingDb();
+    const noCurrencyDb: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("AS summaries")) {
+          noCurrency.calls.push({ sql, values });
+          return {
+            rows: [{ kind: "dimension", id: "condition", label: "Condition", coverage: 1, distinct_count: 2 }] as Row[],
+            rowCount: 1,
+          };
+        }
+        return noCurrency.db.query<Row>(sql, values);
+      },
+    };
+    await searchDiscoveryItems(noCurrencyDb, {
+      priceMin: "10.00",
+      priceMax: "20.00",
+      dimensionFilters: [{ dimensionId: "condition", optionId: "mint" }],
+    });
+    const noCurrencyFacet = noCurrency.calls.find((call) => call.sql.includes("option_market AS"));
+    expect(noCurrencyFacet?.sql).not.toContain("lowest_price_currency_code");
   });
 
   it("uses a ledgered halfvec reshape and concurrent HNSW index", () => {

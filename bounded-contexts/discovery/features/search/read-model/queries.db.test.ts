@@ -215,6 +215,116 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
   });
 });
 
+describe("searchDiscoveryItems category sets and native-currency bounds", () => {
+  let categoryPool: PgTransactionalPool;
+
+  beforeAll(async () => {
+    if (!databaseBaseUrl) throw new Error("TEST_DATABASE_URL is required for the Discovery category-set DB lane.");
+    const databaseUrls = createMultiContextTestDatabaseUrls(databaseBaseUrl, ["discovery"], "category_price_bounds");
+    await ensureMultiContextTestDatabases(databaseBaseUrl, databaseUrls);
+    const pools = createMultiContextTestPools(databaseUrls);
+    categoryPool = pools.discovery;
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(discoveryModule, categoryPool);
+
+    const rows = [
+      ["set_a", "A-only", ["A"], "12.00", "USD"],
+      ["set_b", "B-only", ["B"], "12.00", "EUR"],
+      ["set_ab", "A+B", ["A", "B"], null, null],
+      ["set_neither", "Neither", ["C"], "12.00", "USD"],
+      ["set_unknown", "Unknown", ["unknown"], "12.00", "USD"],
+    ] as const;
+    for (const [id, title, categories, price, currency] of rows) {
+      await categoryPool.query(
+        `INSERT INTO discovery_search_items
+           (catalog_item_id, slug, title, status, category_names, category_slugs, dimension_filter_values,
+            lowest_price_amount, lowest_price_currency_code, search_text, search_text_simple)
+         VALUES ($1, $1, $2, 'active', $3::jsonb, $3::jsonb,
+                 '[{"dimensionId":"finish","optionId":"foil","label":"Finish","optionLabel":"Foil"}]'::jsonb,
+                 $4::numeric, $5, to_tsvector('english', 'category'), to_tsvector('simple', 'category'))`,
+        [id, title, JSON.stringify(categories), price, currency],
+      );
+    }
+    for (let index = 0; index < 21; index += 1) {
+      const id = `page_a_${String(index).padStart(2, "0")}`;
+      await categoryPool.query(
+        `INSERT INTO discovery_search_items
+           (catalog_item_id, slug, title, status, category_names, category_slugs, search_text, search_text_simple)
+         VALUES ($1, $1, $2, 'active', '["A"]'::jsonb, '["A"]'::jsonb,
+                 to_tsvector('english', 'category'), to_tsvector('simple', 'category'))`,
+        [id, `Page A ${String(index).padStart(2, "0")}`],
+      );
+    }
+  }, 120_000);
+
+  afterAll(async () => {
+    if (categoryPool) await closeMultiContextTestPools({ discovery: categoryPool });
+  });
+
+  it("matches A/B category sets once, leaves empty sets unconstrained, and walks a B-only row beyond page one", async () => {
+    const result = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], limit: 100 },
+      { loadMarketSummaries: false },
+    );
+    const ids = result.items.map((item) => item.catalog_item_id);
+    expect(ids).toContain("set_a");
+    expect(ids).toContain("set_b");
+    expect(ids).toContain("set_ab");
+    expect(ids).not.toContain("set_neither");
+    expect(ids).not.toContain("set_unknown");
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const unconstrained = await searchDiscoveryItems(
+      categoryPool,
+      { categories: [], limit: 100 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+    expect(unconstrained.items.map((item) => item.catalog_item_id)).toEqual(
+      expect.arrayContaining(["set_neither", "set_unknown"]),
+    );
+
+    const walked = await walkAllPages({ categories: ["A", "B"] }, 20, categoryPool);
+    expect(walked).toContain("set_b");
+    expect(new Set(walked).size).toBe(walked.length);
+  });
+
+  it("applies native-currency minimums without dropping foreign or mixed rows", async () => {
+    const all = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], priceCurrency: "EUR", priceMin: "10.00", limit: 100 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+    expect(all.items.map((item) => item.catalog_item_id)).toEqual(expect.arrayContaining(["set_a", "set_b", "set_ab"]));
+
+    const bounded = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], priceCurrency: "EUR", priceMin: "13.00", limit: 100 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+    const ids = bounded.items.map((item) => item.catalog_item_id);
+    expect(ids).toContain("set_a");
+    expect(ids).toContain("set_ab");
+    expect(ids).not.toContain("set_b");
+  });
+
+  it("uses the same category predicate for dimension facet counts", async () => {
+    const result = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], limit: 100 },
+      { loadMarketSummaries: false },
+    );
+    const finish = result.facets.find((facet) => facet.kind === "dimension" && facet.id === "finish");
+    expect(finish?.values).toEqual([{ id: "foil", label: "Foil", count: 3, selected: false }]);
+    expect(result.category_counts).toEqual([
+      { slug: "A", count: 23 },
+      { slug: "B", count: 2 },
+      { slug: "C", count: 1 },
+      { slug: "unknown", count: 1 },
+    ]);
+  });
+});
+
 // Exact identity (#9102): every row carries the same lexemes and only the tsvector weight
 // varies, so ranks order strictly A > B > C > D and equal weights tie exactly. Each exact
 // row ranks BELOW a non-exact row, so only the tier can put it first.
