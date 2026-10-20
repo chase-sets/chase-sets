@@ -187,7 +187,17 @@ export async function loopbackPlatform(
     release: () => {
       release?.();
     },
-    observation: () => ({ authorizeCount, tokenCount, cookieArrived, queryClosed, tokenClosed, claimCount, claimCookieArrived, tokenCookieArrived, redirectTargetCount }),
+    observation: () => ({
+      authorizeCount,
+      tokenCount,
+      cookieArrived,
+      queryClosed,
+      tokenClosed,
+      claimCount,
+      claimCookieArrived,
+      tokenCookieArrived,
+      redirectTargetCount,
+    }),
     forbidden: () => [
       synthetic.cookieName,
       synthetic.cookieValue,
