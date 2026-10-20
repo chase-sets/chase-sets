@@ -287,6 +287,8 @@ describeDb("auth projection row identity", () => {
           user_id: "usr_1",
           email: "social@example.com",
           linked_at: "2026-06-12T12:11:00.000Z",
+          state: "active",
+          revoked_at: null,
           updated_at: "2026-06-12T12:12:00.000Z",
         },
       ],

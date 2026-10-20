@@ -39,7 +39,7 @@ export async function getUser(db: PgQueryable, userId: string) {
 
 export async function getUserByEmail(db: PgQueryable, email: string) {
   const result = await db.query<UserRow>(
-    `SELECT users.*, links.state AS social_login_state
+    `SELECT users.*
      FROM identity_user_emails AS emails
      INNER JOIN identity_users AS users ON users.user_id = emails.user_id
      WHERE emails.email = $1`,
@@ -64,7 +64,7 @@ export async function getUserBySocialLogin(
   params: Readonly<{ providerName: string; providerSubject: string }>,
 ) {
   const result = await db.query<UserRow>(
-    `SELECT users.*
+    `SELECT users.*, links.state AS social_login_state
      FROM identity_user_social_login_links AS links
      INNER JOIN identity_users AS users ON users.user_id = links.user_id
      WHERE links.provider_name = $1
