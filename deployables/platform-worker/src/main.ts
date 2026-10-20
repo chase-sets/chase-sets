@@ -30,6 +30,7 @@ import type {
 } from "@chase-sets/inventory/server";
 import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
+import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -312,6 +313,9 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
 
   return createDraft(params, context);
 };
+const inventoryDraftListingConsumer = createPlatformWorkerInventoryDraftListingConsumer(
+  () => runtime?.services.marketplace as MarketplaceServices | undefined,
+);
 
 const identityHostPorts = {
   capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
@@ -323,6 +327,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      inventoryDraftListingConsumer,
       ...identityHostPorts,
       ...supportEvidenceCleanupHostPort,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
