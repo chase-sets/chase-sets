@@ -1,0 +1,68 @@
+[
+  {
+    "id": "exception-16f1a0bb5955c209",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_pages",
+      "digest": "88045355e454d047aabd3eb18e2c047f2ea81fab2690817269fd00aa493882c3"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/projection.ts:209 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-1132db325836c9ee",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_pages",
+      "digest": "a3306875f6ae75952f78cec5ea7a82402ddf86cf29ece996a6cfa50fb3de7920"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/projection.ts:242 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-cc3b97af44e8c699",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_pages",
+      "digest": "9dfc45c59b60f45ef1bac45c25e69ca53740a10dc7204b435a2649433d119004"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/projection.ts:282 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-1c142a127e1a41eb",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_pages",
+      "digest": "8a6eaca41905ca9607d33dd5c86a58c8a0c74ff896af1ea0af54cc58c46f98b2"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/projection.ts:301 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-7453aa9d2688740b",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_pages",
+      "digest": "6d5ac863ed7c062deccc761039933491a268a2af72c4d0115c3904dc5a6cb4d2"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/projection.ts:319 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-82c1bf16f31d267c",
+    "binding": {
+      "module": "bounded-contexts/marketplace/features/reviews/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "marketplace_review_pages",
+      "digest": "df1b2730ce6ae7faa4b79bcf80eb86ecd06995d251d750fbf0df88589b996c86"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/marketplace/features/reviews/read-model/projection.ts:335 directly synchronizes marketplace_review_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

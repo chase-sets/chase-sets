@@ -6,6 +6,10 @@ export {
 } from "./features/recommendations/read-model/queries";
 export { evaluateBuyerOfferTarget } from "./features/offer-targets/domain/evaluate";
 export { seedSyntheticOfferMarketPrice } from "./support/runtime-support/seed";
+export {
+  seedSyntheticPricingHealthInputs,
+  projectSyntheticPricingHealthPolicy,
+} from "./support/runtime-support/pricing-health-browser-seed";
 export type {
   BuyerMarketPrice,
   BuyerOfferTargetEvidence,

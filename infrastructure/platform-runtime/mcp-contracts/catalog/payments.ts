@@ -161,7 +161,7 @@ export const paymentsService = {
         "sensitive",
       ),
       availability: "available",
-      guardrails: guardrails("sensitive", { dryRunSupported: false }),
+      guardrails: guardrails("sensitive", { idempotencyAuthority: "owner", dryRunSupported: false }),
       outputSchema: paymentsPaymentMethodSetupOutputSchema,
     },
     {
