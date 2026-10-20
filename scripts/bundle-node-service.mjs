@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import ts from "@chase-sets/typescript-compiler-api";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 
 const defaultRepoRoot = fileURLToPath(new URL("../", import.meta.url));
 const services = new Set(["platform-api", "platform-worker"]);
@@ -126,5 +127,6 @@ export async function bundleNodeService({ repoRoot = defaultRepoRoot, deployable
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  acquireHeavySlot("build");
   await bundleNodeService({ deployable: process.argv[2] });
 }
