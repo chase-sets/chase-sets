@@ -2,6 +2,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeEmail, normalizePhoneNumber } from "../../../support/runtime-support/common";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
+import { socialLoginLinkPublicKey } from "../domain/domain";
 
 const STREAM_PREFIX = "identity.user-";
 
@@ -10,6 +11,7 @@ type SocialLoginLinkRow = Readonly<{
   providerSubject: string;
   email: string;
   linkedAt: string;
+  linkKey?: string;
 }>;
 
 type ContactMethodProjection = {
@@ -313,7 +315,11 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
           (currentLink) =>
             currentLink.providerName !== link.providerName || currentLink.providerSubject !== link.providerSubject,
         ),
-        { ...link, state: "active" },
+        {
+          ...link,
+          linkKey: socialLoginLinkPublicKey(link.providerName as "google" | "facebook", link.providerSubject),
+          state: "active",
+        },
       ].sort((left, right) =>
         `${left.providerName}:${left.providerSubject}`.localeCompare(`${right.providerName}:${right.providerSubject}`),
       );

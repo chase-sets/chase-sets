@@ -251,6 +251,13 @@
       "occurrences": 1,
       "disposition": "test-fixture",
       "reason": "This database fixture seeds an existing user aggregate so production bootstrap reconciliation has authoritative state to inspect."
+    },
+    {
+      "path": "bounded-contexts/identity/features/users/api/social-login-ownership.db.test.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This fixture creates a synthetic User so Social Login Link ownership invariants can be exercised."
     }
   ]
 }

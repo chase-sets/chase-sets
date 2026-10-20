@@ -225,13 +225,13 @@ export function createIdentityApiClient({
       return ownerResponse<T>(await client.users[":id"].$put({ param: { id }, json: body, header: headers }));
     },
     async unlinkSocialLogin<T = { ok: true }>(
-      params: Readonly<{ userId: string; providerName: "google" | "facebook" }>,
+      params: Readonly<{ userId: string; providerName: "google" | "facebook"; linkKey: string }>,
     ): Promise<T> {
       return parseJsonResponse<T>(
         await configuredFetch(`${baseUrl}/users/${encodeURIComponent(params.userId)}/social-login-unlink`, {
           method: "POST",
           headers: { ...Object.fromEntries(new Headers(headers).entries()), "Content-Type": "application/json" },
-          body: JSON.stringify({ providerName: params.providerName, providerSubject: "" }),
+          body: JSON.stringify({ providerName: params.providerName, linkKey: params.linkKey }),
         }),
       );
     },

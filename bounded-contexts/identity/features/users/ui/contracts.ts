@@ -10,6 +10,7 @@ export type User = Readonly<{
   social_login_links?: readonly Readonly<{
     providerName?: string;
     state?: string;
+    linkKey?: string;
   }>[];
   updated_at: string;
 }>;

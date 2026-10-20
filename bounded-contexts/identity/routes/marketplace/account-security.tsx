@@ -76,6 +76,7 @@ export const action = requireInterruptionSafeClient(
         const result = await createIdentityRequestApiClient(request).unlinkSocialLogin<MutationResult>({
           userId: actor!.userId,
           providerName: String(formData.get("providerName") ?? "") as "google" | "facebook",
+          linkKey: String(formData.get("linkKey") ?? ""),
         });
         return accountMutationResponse(result, "/account/security", navigateAfterWrite(result, "/account/security"));
       },

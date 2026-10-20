@@ -138,6 +138,7 @@ export function SecurityPage({
                     <Form spacing="none" method="post">
                       <HiddenInput type="hidden" name="intent" value="unlink-social-login" readOnly />
                       <HiddenInput type="hidden" name="providerName" value={link.providerName ?? ""} readOnly />
+                      <HiddenInput type="hidden" name="linkKey" value={link.linkKey ?? ""} readOnly />
                       <Button type="submit" tone="danger">
                         {t("identity.features.apiKeys.ui.accountSecurityPage.confirm.removal")}
                       </Button>

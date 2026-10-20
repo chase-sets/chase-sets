@@ -388,11 +388,13 @@ describe("Identity API mutation snapshots", () => {
       });
       expect(credential.response.status).toBe(200);
       expect(credential.body).toEqual(
-        expect.objectContaining({
-          ok: true,
-          userId: "usr_1",
-          snapshots: [expect.objectContaining({ aggregate: "user", id: "usr_1", version: 21, status: "active" })],
-        }),
+        path.endsWith("social-login-link")
+          ? expect.objectContaining({ ok: true, outcome: "committed", userId: "usr_1", state: "active", version: 21 })
+          : expect.objectContaining({
+              ok: true,
+              userId: "usr_1",
+              snapshots: [expect.objectContaining({ aggregate: "user", id: "usr_1", version: 21, status: "active" })],
+            }),
       );
     }
 

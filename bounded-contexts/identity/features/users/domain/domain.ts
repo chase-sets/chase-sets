@@ -16,6 +16,7 @@ import {
   type UserStatus,
 } from "../../../support/runtime-support/common";
 import { isSocialLoginProviderKey } from "@chase-sets/auth-context";
+import { createHash } from "node:crypto";
 
 export type SocialLoginLink = Readonly<{
   providerName: SocialLoginProviderKey;
@@ -595,4 +596,8 @@ function requireCreatedUser(state: UserState) {
 
 export function socialLoginLinkKey(providerName: SocialLoginProviderKey, providerSubject: string): string {
   return `${providerName}:${providerSubject}`;
+}
+
+export function socialLoginLinkPublicKey(providerName: SocialLoginProviderKey, providerSubject: string): string {
+  return createHash("sha256").update(socialLoginLinkKey(providerName, providerSubject), "utf8").digest("hex");
 }
