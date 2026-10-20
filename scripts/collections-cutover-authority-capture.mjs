@@ -51,7 +51,6 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 const LIST_PATH = new RegExp(
   `^(?:${Object.values(KUBERNETES_LISTS).map(escapeRegExp).join("|")})\\?limit=${PAGE_LIMIT}(?:&continue=[A-Za-z0-9%._~-]+)?$`,
 );
-const LOCKING_CLAUSE = /\bFOR\s+(?:NO\s+KEY\s+UPDATE|KEY\s+SHARE|UPDATE|SHARE)\b/i;
 const sameArgs = (args, expected) =>
   args.length === expected.length && expected.every((value, index) => args[index] === value);
 
@@ -77,14 +76,17 @@ export function admitCommand(program, args) {
   if (!admitted) throw new CaptureRefusal("command-refused");
 }
 
-/** The read-only session admits its own probes, the exported count's plain EXPLAIN and lock-free SELECTs. */
-export function admitStatement(sql, countSql) {
-  const text = typeof sql === "string" ? sql.trim() : "";
+/**
+ * The closed read set, by exact text: the session's own probe and aggregate, the exported `observe()` statements
+ * and a plain EXPLAIN of the count among them. Any other statement, SELECT or not, is refused.
+ */
+export function admitStatement(sql, countSql, observationSql) {
+  const observed = Array.isArray(observationSql) ? observationSql : [];
   const admitted =
-    text === READ_ONLY_PROBE_SQL ||
-    text === SESSION_ACTIVITY_SQL ||
-    text === `EXPLAIN (FORMAT JSON) ${countSql}` ||
-    (/^SELECT\s/i.test(text) && !text.includes(";") && !LOCKING_CLAUSE.test(text));
+    sql === READ_ONLY_PROBE_SQL ||
+    sql === SESSION_ACTIVITY_SQL ||
+    observed.includes(sql) ||
+    (observed.includes(countSql) && sql === `EXPLAIN (FORMAT JSON) ${countSql}`);
   if (!admitted) throw new CaptureRefusal("statement-refused");
 }
 
@@ -180,11 +182,11 @@ async function readTerraformState(run) {
     : { status: "unknown", reason: "malformed" };
 }
 
-function guardedSession(database, countSql, refusals) {
+function guardedSession(database, countSql, observationSql, refusals) {
   return {
     query: async (sql, values) => {
       try {
-        admitStatement(sql, countSql);
+        admitStatement(sql, countSql, observationSql);
       } catch (error) {
         refusals.push(error.message);
         throw error;
@@ -204,13 +206,13 @@ async function attempt(read) {
 
 // One default_transaction_read_only=on session: the redaction dryRun path, a plain EXPLAIN of its exported count
 // and the pg_stat_activity aggregate. A writable session or a refused statement refuses the whole capture.
-async function readDatabase({ database, redact, countSql }) {
+async function readDatabase({ database, redact, countSql, observationSql }) {
   if (!database) {
     const unavailable = { status: "unknown", reason: "connection-failed" };
     return { count: unavailable, plan: unavailable, sessions: unavailable };
   }
   const refusals = [];
-  const session = guardedSession(database, countSql, refusals);
+  const session = guardedSession(database, countSql, observationSql, refusals);
   const readOnly = async () =>
     (await session.query(READ_ONLY_PROBE_SQL))?.rows?.[0]?.default_transaction_read_only === "on";
   const opened = await readOnly().catch(() => null);
@@ -359,21 +361,18 @@ function kubernetesWriters(reads, context) {
   return writers;
 }
 
-// Writer pods' resolved image digests; a referencing container without a resolved imageID is not a digest yet.
+// Writer pods' resolved image digests over init, regular and ephemeral containers; a container without a resolved
+// imageID is not a digest yet.
 function imageDigests(pods) {
   if (pods.status !== "complete") return pods;
   const digests = new Set();
   let unresolved = 0;
   for (const pod of pods.items) {
     if (writerReferences(pod.spec).length === 0) continue;
-    const statuses = [
-      ...(Array.isArray(pod.status?.initContainerStatuses) ? pod.status.initContainerStatuses : []),
-      ...(Array.isArray(pod.status?.containerStatuses) ? pod.status.containerStatuses : []),
-    ];
-    for (const container of containersOf({
-      initContainers: pod.spec?.initContainers,
-      containers: pod.spec?.containers,
-    })) {
+    const statuses = ["initContainerStatuses", "containerStatuses", "ephemeralContainerStatuses"].flatMap((key) =>
+      Array.isArray(pod.status?.[key]) ? pod.status[key] : [],
+    );
+    for (const container of containersOf(pod.spec)) {
       const digest = /sha256:[0-9a-f]{64}$/.exec(
         statuses.find((status) => status?.name === container?.name)?.imageID ?? "",
       );
@@ -530,7 +529,10 @@ export async function captureProviderAuthority(
     ),
     imageDigests:
       digests.status === "complete"
-        ? concrete(digests.value, "status.containerStatuses[].imageID of writer pods")
+        ? concrete(
+            digests.value,
+            "imageID in status.initContainerStatuses, containerStatuses and ephemeralContainerStatuses of writer pods",
+          )
         : unknownFrom(target, [["pods", digests.reason]]),
     "writers.serving": writerSetFor(
       target,
@@ -653,7 +655,7 @@ async function main() {
     const { default: pg } = await import("pg");
     const { normalizePgPoolConnectionString, resolvePgPoolSslConfig } =
       await import("../infrastructure/event-core-postgres/index.ts");
-    const { redactLegacyAnonymousOwners, legacyAnonymousOwnerCountSql } =
+    const { redactLegacyAnonymousOwners, legacyAnonymousOwnerCountSql, anonymousOwnerObservationSql } =
       await import("../bounded-contexts/collections/features/saved-lists/api/anonymous-owner-redaction.ts");
     let database = null;
     try {
@@ -681,6 +683,7 @@ async function main() {
         database,
         redact: redactLegacyAnonymousOwners,
         countSql: legacyAnonymousOwnerCountSql,
+        observationSql: anonymousOwnerObservationSql,
         deriveFloor: () => deriveFloor(root),
         containsFloor: (floor, revision) => containsFloor(root, floor, revision),
         floorCommittedAt: (floor) =>

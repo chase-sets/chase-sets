@@ -19,9 +19,11 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 import {
+  anonymousOwnerObservationSql,
   legacyAnonymousOwnerCountSql,
   redactLegacyAnonymousOwners,
 } from "../bounded-contexts/collections/features/saved-lists/api/anonymous-owner-redaction.ts";
+import { anonymousOwnerActivationReadSql } from "../bounded-contexts/collections/support/runtime-support/anonymous-owner-activation.ts";
 import {
   admitCommand,
   admitStatement,
@@ -268,9 +270,24 @@ function dependencies(state, record) {
       return redactLegacyAnonymousOwners(session, options);
     },
     countSql: legacyAnonymousOwnerCountSql,
+    observationSql: anonymousOwnerObservationSql,
     containsFloor: (floor, revision) => floor === FLOOR && CONTAINS_FLOOR.has(revision),
   };
 }
+
+// An ownerless pod whose only writer reference is an ephemeral container with its own image.
+const ephemeralWriterPod = (ephemeralContainerStatuses) => ({
+  metadata: meta("debug-ephemeral", { namespace: "ops" }),
+  spec: {
+    containers: [container({ env: [], image: `${REGISTRY}@${digest(4)}` })],
+    ephemeralContainers: [container({ name: "debugger", image: `${REGISTRY}@${digest(5)}` })],
+  },
+  status: {
+    phase: "Running",
+    containerStatuses: [{ name: "app", imageID: `${REGISTRY}@${digest(4)}` }],
+    ...(ephemeralContainerStatuses && { ephemeralContainerStatuses }),
+  },
+});
 
 async function capture(state = world(), overrides = {}) {
   const record = { calls: [], statements: [], redactOptions: [] };
@@ -379,6 +396,16 @@ describe("AC1 capture field set", () => {
     expect(JSON.stringify(fields)).not.toContain("synthetic-platform");
     expect(fields.legacyRawRowCount.value).toBe(35);
   });
+
+  it("records an ephemeral writer container's imageID beside its pod's other containers", async () => {
+    const state = world();
+    state.kube.pods.items.push(ephemeralWriterPod([{ name: "debugger", imageID: `${REGISTRY}@${digest(5)}` }]));
+    const { result, fields } = await capture(state);
+    expect(ids(fields["writers.serving"])).toContain("pods:ops/debug-ephemeral");
+    expect(fields.imageDigests.value).toEqual([digest(1), digest(4), digest(5)]);
+    expect(fields.imageDigests.source).toContain("ephemeralContainerStatuses");
+    expect(applyProviderCapture(jobPacket(FLOOR, MERGED_AT), result).verdict).toBe("complete");
+  });
 });
 
 describe("AC2 no ungoverned zero", () => {
@@ -484,6 +511,25 @@ describe("AC2 no ungoverned zero", () => {
     ]);
   });
 
+  it.each([
+    ["absent", undefined],
+    ["empty", [{ name: "debugger", imageID: "" }]],
+  ])(
+    "an ephemeral writer container with an %s imageID leaves imageDigests unknown, never partial",
+    async (_, statuses) => {
+      const state = world();
+      state.kube.pods.items.push(ephemeralWriterPod(statuses));
+      const { result, fields } = await capture(state);
+      expect(isGovernedUnknown(fields.imageDigests)).toBe(true);
+      expect(fields.imageDigests.missingAuthority).toBe(
+        "kubectl get --raw /api/v1/pods (all namespaces): unresolved-image",
+      );
+      const applied = applyProviderCapture(jobPacket(FLOOR, MERGED_AT), result);
+      expect(applied.errors).toEqual([]);
+      expect(applied.missing.map((entry) => entry.field)).toEqual(["imageDigests"]);
+    },
+  );
+
   it("an unserved resource type is notServed, not unknown or empty", async () => {
     const { fields } = await capture();
     expect(fields["writers.serving"].coverage.rollouts).toEqual({ status: "notServed" });
@@ -588,17 +634,62 @@ describe("AC3 read-only and secret boundary", () => {
     "SET default_transaction_read_only = off",
     "SELECT 1; DELETE FROM collections_anonymous_saved_list_intents",
     "BEGIN",
+    "EXPLAIN (FORMAT JSON) SELECT 1",
+    `${anonymousOwnerActivationReadSql} FOR SHARE`,
   ])("refuses the statement %s", (sql) => {
-    expect(() => admitStatement(sql, legacyAnonymousOwnerCountSql)).toThrow("statement-refused");
+    expect(() => admitStatement(sql, legacyAnonymousOwnerCountSql, anonymousOwnerObservationSql)).toThrow(
+      "statement-refused",
+    );
+  });
+
+  // Lock-free SELECTs that are not one of the exact observe() statements; the last differs from the count only
+  // in its predicate.
+  it.each([
+    "SELECT set_config('default_transaction_read_only', 'off', false)",
+    "SELECT pg_advisory_lock(123456789)",
+    "SELECT pg_terminate_backend(123456789)",
+    "SELECT * FROM collections_anonymous_saved_list_intents",
+    "SELECT count(*)::text AS remaining FROM collections_anonymous_saved_list_intents",
+  ])("refuses the off-allowlist SELECT %s before it reaches the database", async (sql) => {
+    expect(() => admitStatement(sql, legacyAnonymousOwnerCountSql, anonymousOwnerObservationSql)).toThrow(
+      new CaptureRefusal("statement-refused"),
+    );
+    const record = { calls: [], statements: [], redactOptions: [] };
+    const offAllowlistRedact = async (session) => {
+      await session.query(sql);
+      return { before: 0, codes: [] };
+    };
+    await expect(
+      captureProviderAuthority(
+        { target: "staging", floor: FLOOR, databaseUrl: PASSWORD_URL, head: HEAD },
+        { ...dependencies(world(), record), redact: offAllowlistRedact },
+      ),
+    ).rejects.toThrow(new CaptureRefusal("statement-refused"));
+    expect(record.statements).not.toContain(sql);
+  });
+
+  it("refuses every observe() statement and the count EXPLAIN when no observation allowlist is supplied", async () => {
+    const record = { calls: [], statements: [], redactOptions: [] };
+    await expect(
+      captureProviderAuthority(
+        { target: "staging", floor: FLOOR, databaseUrl: PASSWORD_URL, head: HEAD },
+        { ...dependencies(world(), record), observationSql: undefined },
+      ),
+    ).rejects.toThrow(new CaptureRefusal("statement-refused"));
+    expect(record.statements).toEqual([READ_ONLY_PROBE_SQL, SESSION_ACTIVITY_SQL]);
   });
 
   it("runs the redaction dryRun: true path and a plain EXPLAIN of its exported count in the read-only session", async () => {
     const { fields, record } = await capture();
     expect(record.redactOptions).toEqual([{ dryRun: true }]);
-    expect(record.statements[0]).toBe(READ_ONLY_PROBE_SQL);
-    expect(record.statements).toContain(legacyAnonymousOwnerCountSql);
-    expect(record.statements).toContain(`EXPLAIN (FORMAT JSON) ${legacyAnonymousOwnerCountSql}`);
-    expect(record.statements.at(-1)).toBe(READ_ONLY_PROBE_SQL);
+    expect(anonymousOwnerObservationSql).toContain(legacyAnonymousOwnerCountSql);
+    expect(record.statements).toEqual([
+      READ_ONLY_PROBE_SQL,
+      ...anonymousOwnerObservationSql,
+      `EXPLAIN (FORMAT JSON) ${legacyAnonymousOwnerCountSql}`,
+      SESSION_ACTIVITY_SQL,
+      READ_ONLY_PROBE_SQL,
+    ]);
     expect(record.statements.some((sql) => /\bFOR\s+(SHARE|UPDATE)\b/i.test(sql))).toBe(false);
     expect(fields.legacyCountQueryPlan.value).toEqual({
       statementSha256: createHash("sha256").update(legacyAnonymousOwnerCountSql).digest("hex"),
