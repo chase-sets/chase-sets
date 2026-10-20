@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  assertUniqueContextContributionIdentities,
   assertWorkspaceRootsCoverPackageDirectories,
   contextManifestContributesToApiHost,
   listBoundedContextManifests,
@@ -212,6 +213,52 @@ describe("listBoundedContextManifests", () => {
     ).toThrow(SyntaxError);
     expect(() => ensureWorktreeSandboxEnvironment({ rootDir, env: {} })).toThrow(SyntaxError);
     expect(existsSync(path.join(rootDir, ".env.sandbox.local"))).toBe(false);
+  });
+
+  it("does not admit a nested fragment-only directory or a source without a package manifest", () => {
+    const rootDir = createTempRepo();
+    const nestedDir = path.join(rootDir, "bounded-contexts", "fragment", "features", "nested");
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(path.join(nestedDir, "context.source.mjs"), "export default { contextName: 'nested' };\n");
+    mkdirSync(path.join(rootDir, "bounded-contexts", "source-only"), { recursive: true });
+    writeFileSync(
+      path.join(rootDir, "bounded-contexts", "source-only", "context.source.mjs"),
+      "export default { contextName: 'source-only' };\n",
+    );
+
+    expect(listBoundedContextManifests({ repoRoot: rootDir })).toEqual([]);
+  });
+
+  it("rejects duplicate real-shaped projection and subscription contributions", () => {
+    const contexts = [
+      {
+        sourcePath: path.join("bounded-contexts", "catalog", "context.source.mjs"),
+        manifestPath: path.join("bounded-contexts", "catalog", "context.json"),
+        manifest: {
+          projectionGroups: [{ projectionName: "catalog" }, { projectionName: "catalog" }],
+          eventSubscriptions: [
+            { sourceContextName: "inventory", projectionName: "catalog" },
+            { sourceContextName: "inventory", projectionName: "catalog" },
+          ],
+        },
+      },
+    ];
+
+    expect(() => assertUniqueContextContributionIdentities(contexts)).toThrow(/projectionName:catalog/);
+    expect(() =>
+      assertUniqueContextContributionIdentities([
+        {
+          sourcePath: "bounded-contexts/catalog/context.source.mjs",
+          manifestPath: "bounded-contexts/catalog/context.json",
+          manifest: {
+            eventSubscriptions: [
+              { sourceContextName: "inventory", projectionName: "catalog" },
+              { sourceContextName: "inventory", projectionName: "catalog" },
+            ],
+          },
+        },
+      ]),
+    ).toThrow(/sourceContextName:inventory\|projectionName:catalog/);
   });
 
   it.each([null, {}, { contextName: 42 }, { contextName: "" }])(
