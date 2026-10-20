@@ -4,9 +4,7 @@
   "title": "Available Payment Instrument",
   "description": "An instrument type available from a payment handler with optional constraints.",
   "type": "object",
-  "required": [
-    "type"
-  ],
+  "required": ["type"],
   "properties": {
     "type": {
       "type": "string",

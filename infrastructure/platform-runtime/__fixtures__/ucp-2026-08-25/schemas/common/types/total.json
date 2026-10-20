@@ -4,10 +4,7 @@
   "title": "Total",
   "description": "A cost breakdown entry with a category, amount, and optional display text.",
   "type": "object",
-  "required": [
-    "type",
-    "amount"
-  ],
+  "required": ["type", "amount"],
   "properties": {
     "type": {
       "type": "string",
@@ -29,15 +26,10 @@
       "if": {
         "properties": {
           "type": {
-            "enum": [
-              "discount",
-              "items_discount"
-            ]
+            "enum": ["discount", "items_discount"]
           }
         },
-        "required": [
-          "type"
-        ]
+        "required": ["type"]
       },
       "then": {
         "properties": {
@@ -51,17 +43,10 @@
       "if": {
         "properties": {
           "type": {
-            "enum": [
-              "subtotal",
-              "fulfillment",
-              "tax",
-              "fee"
-            ]
+            "enum": ["subtotal", "fulfillment", "tax", "fee"]
           }
         },
-        "required": [
-          "type"
-        ]
+        "required": ["type"]
       },
       "then": {
         "properties": {

@@ -9,9 +9,7 @@
     },
     {
       "type": "object",
-      "required": [
-        "value"
-      ],
+      "required": ["value"],
       "properties": {
         "value": {
           "type": "integer",

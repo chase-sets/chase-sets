@@ -42,9 +42,7 @@
           "description": "Buyer-preferred payment handlers in priority order (most preferred first). Each entry names a handler advertised in the Business profile's `ucp.payment_handlers`, optionally narrowed to preferred instrument types. The Business SHOULD use it to preselect or prioritize the handler (and type, when given) and MAY ignore unavailable or ineligible entries; unrecognized values MUST be ignored without error.",
           "items": {
             "type": "object",
-            "required": [
-              "handler"
-            ],
+            "required": ["handler"],
             "properties": {
               "handler": {
                 "$ref": "https://ucp.dev/2026-08-25/schemas/common/types/reverse_domain_name.json",

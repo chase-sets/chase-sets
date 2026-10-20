@@ -4,10 +4,7 @@
   "title": "Unit",
   "description": "A reusable unit descriptor for quantities and measures. Its unit-descriptor machine identity is (`unit`, effective `scale`), where effective `scale` is the provided `scale` or 0; `display_text` is excluded.",
   "type": "object",
-  "required": [
-    "unit",
-    "display_text"
-  ],
+  "required": ["unit", "display_text"],
   "properties": {
     "unit": {
       "type": "string",
@@ -33,9 +30,7 @@
             "const": "C62"
           }
         },
-        "required": [
-          "unit"
-        ]
+        "required": ["unit"]
       },
       "then": {
         "properties": {

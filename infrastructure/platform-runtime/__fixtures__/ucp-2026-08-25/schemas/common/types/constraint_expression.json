@@ -46,14 +46,10 @@
       "description": "A Value Constraint containing `enum`, `const`, or both.",
       "anyOf": [
         {
-          "required": [
-            "enum"
-          ]
+          "required": ["enum"]
         },
         {
-          "required": [
-            "const"
-          ]
+          "required": ["const"]
         }
       ],
       "properties": {

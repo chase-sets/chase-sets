@@ -11,9 +11,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "id"
-          ]
+          "required": ["id"]
         },
         {
           "type": "object",
@@ -38,10 +36,7 @@
           "$ref": "#/$defs/base"
         },
         {
-          "required": [
-            "spec",
-            "schema"
-          ]
+          "required": ["spec", "schema"]
         }
       ]
     },

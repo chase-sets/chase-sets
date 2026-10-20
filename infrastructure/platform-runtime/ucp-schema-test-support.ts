@@ -18,7 +18,8 @@ function collectRefs(value: unknown, refs: Set<string>): void {
   if (!value || typeof value !== "object") return;
   if (Array.isArray(value)) return value.forEach((item) => collectRefs(item, refs));
   for (const [key, child] of Object.entries(value)) {
-    if ((key === "$ref" || key === "$dynamicRef") && typeof child === "string" && child.startsWith(SCHEMA_PREFIX)) refs.add(child);
+    if ((key === "$ref" || key === "$dynamicRef") && typeof child === "string" && child.startsWith(SCHEMA_PREFIX))
+      refs.add(child);
     else collectRefs(child, refs);
   }
 }

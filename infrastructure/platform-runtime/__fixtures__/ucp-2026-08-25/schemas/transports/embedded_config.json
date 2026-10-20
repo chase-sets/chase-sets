@@ -16,10 +16,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": [
-          "light",
-          "dark"
-        ]
+        "enum": ["light", "dark"]
       },
       "description": "Color schemes the business supports. Hosts use ec_color_scheme query parameter to request a scheme from this list."
     }

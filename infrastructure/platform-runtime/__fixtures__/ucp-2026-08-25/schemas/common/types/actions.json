@@ -7,9 +7,7 @@
     "instance": {
       "type": "object",
       "description": "Common fields for one outstanding Action instance are id and optional config. The extension declaring the Action type defines type-specific processing data under config. Additional properties are permitted for forward compatibility.",
-      "required": [
-        "id"
-      ],
+      "required": ["id"],
       "additionalProperties": true,
       "properties": {
         "id": {

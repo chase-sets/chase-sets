@@ -4,9 +4,7 @@
   "title": "Category",
   "description": "A product category with optional taxonomy identifier.",
   "type": "object",
-  "required": [
-    "value"
-  ],
+  "required": ["value"],
   "properties": {
     "value": {
       "type": "string",

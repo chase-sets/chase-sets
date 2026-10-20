@@ -12,10 +12,7 @@
     "jwk_public_key": {
       "type": "object",
       "description": "Public JSON Web Key used for HTTP Message Signatures and signed webhook verification. UCP profiles publish public keys only; private key material MUST NOT appear in a profile. Well-known key types: EC (ECDSA P-256, P-384) and OKP (EdDSA Ed25519); OKP keys are RECOMMENDED for signers opting into Web Bot Auth (WBA) interop on HTTP transport. A single profile MAY publish keys of either or both types; consumers select keys by kid. The kty, crv, and alg vocabularies are OPEN: verifiers MUST tolerate key types, curves, and algorithms they do not recognize, selecting keys by kid at verification time. An unsupported key affects only the signature that references it (algorithm_unsupported) and MUST NOT cause whole-profile rejection. Additional public JWK members are permitted; consumers ignore unknown members.",
-      "required": [
-        "kid",
-        "kty"
-      ],
+      "required": ["kid", "kty"],
       "properties": {
         "kid": {
           "type": "string",
@@ -23,19 +20,12 @@
         },
         "kty": {
           "type": "string",
-          "examples": [
-            "EC",
-            "OKP"
-          ],
+          "examples": ["EC", "OKP"],
           "description": "JWK key type. Well-known values: EC for ECDSA (P-256, P-384); OKP for EdDSA (Ed25519). Open vocabulary; verifiers tolerate unrecognized types and select keys by kid."
         },
         "crv": {
           "type": "string",
-          "examples": [
-            "P-256",
-            "P-384",
-            "Ed25519"
-          ],
+          "examples": ["P-256", "P-384", "Ed25519"],
           "description": "Curve name. Well-known values: P-256, P-384 (EC); Ed25519 (OKP). Open vocabulary."
         },
         "x": {
@@ -48,11 +38,7 @@
         },
         "alg": {
           "type": "string",
-          "examples": [
-            "ES256",
-            "ES384",
-            "EdDSA"
-          ],
+          "examples": ["ES256", "ES384", "EdDSA"],
           "description": "JWA algorithm associated with this public key. Optional; verifiers derive the algorithm from crv when alg is omitted. When present for a well-known curve it MUST match: ES256 with P-256, ES384 with P-384, EdDSA with Ed25519."
         },
         "use": {
@@ -69,16 +55,10 @@
                 "const": "EC"
               }
             },
-            "required": [
-              "kty"
-            ]
+            "required": ["kty"]
           },
           "then": {
-            "required": [
-              "crv",
-              "x",
-              "y"
-            ]
+            "required": ["crv", "x", "y"]
           }
         },
         {
@@ -89,15 +69,10 @@
                 "const": "OKP"
               }
             },
-            "required": [
-              "kty"
-            ]
+            "required": ["kty"]
           },
           "then": {
-            "required": [
-              "crv",
-              "x"
-            ]
+            "required": ["crv", "x"]
           }
         },
         {
@@ -108,9 +83,7 @@
                 "const": "P-256"
               }
             },
-            "required": [
-              "crv"
-            ]
+            "required": ["crv"]
           },
           "then": {
             "properties": {
@@ -128,9 +101,7 @@
                 "const": "P-384"
               }
             },
-            "required": [
-              "crv"
-            ]
+            "required": ["crv"]
           },
           "then": {
             "properties": {
@@ -148,9 +119,7 @@
                 "const": "Ed25519"
               }
             },
-            "required": [
-              "crv"
-            ]
+            "required": ["crv"]
           },
           "then": {
             "properties": {
@@ -164,44 +133,28 @@
       "not": {
         "anyOf": [
           {
-            "required": [
-              "d"
-            ]
+            "required": ["d"]
           },
           {
-            "required": [
-              "p"
-            ]
+            "required": ["p"]
           },
           {
-            "required": [
-              "q"
-            ]
+            "required": ["q"]
           },
           {
-            "required": [
-              "dp"
-            ]
+            "required": ["dp"]
           },
           {
-            "required": [
-              "dq"
-            ]
+            "required": ["dq"]
           },
           {
-            "required": [
-              "qi"
-            ]
+            "required": ["qi"]
           },
           {
-            "required": [
-              "oth"
-            ]
+            "required": ["oth"]
           },
           {
-            "required": [
-              "k"
-            ]
+            "required": ["k"]
           }
         ]
       },
@@ -210,9 +163,7 @@
     "base": {
       "type": "object",
       "description": "Common wrapper for UCP profile documents.",
-      "required": [
-        "ucp"
-      ],
+      "required": ["ucp"],
       "properties": {
         "ucp": {
           "$ref": "https://ucp.dev/2026-08-25/schemas/ucp.json#/$defs/base",

@@ -19,10 +19,23 @@ function fixtureFiles(directory: string): string[] {
 const minimalCheckout = {
   ucp: { version: "2026-08-25", status: "success", payment_handlers: {} },
   id: "chk_1",
-  line_items: [{ id: "line_1", item: { id: "product_1", title: "Example card", price: 100 }, quantity: 1, totals: [{ type: "subtotal", amount: 100 }, { type: "total", amount: 100 }] }],
+  line_items: [
+    {
+      id: "line_1",
+      item: { id: "product_1", title: "Example card", price: 100 },
+      quantity: 1,
+      totals: [
+        { type: "subtotal", amount: 100 },
+        { type: "total", amount: 100 },
+      ],
+    },
+  ],
   status: "ready_for_complete",
   currency: "USD",
-  totals: [{ type: "subtotal", amount: 100 }, { type: "total", amount: 100 }],
+  totals: [
+    { type: "subtotal", amount: 100 },
+    { type: "total", amount: 100 },
+  ],
   links: [{ type: "terms_of_service", url: "https://shop.example/terms" }],
 };
 
@@ -45,7 +58,8 @@ describe("UCP 2026-08-25 contract", () => {
       schema("shopping/catalog_lookup.json#/$defs/lookup_request"),
       schema("shopping/catalog_lookup.json#/$defs/get_product_request"),
       schema("common/types/error_response.json"),
-    ]) expect(ucpSchemaValidator(ref)).toBeTypeOf("function");
+    ])
+      expect(ucpSchemaValidator(ref)).toBeTypeOf("function");
     const profile = buildUcpBusinessProfile("https://shop.example", {
       signingKeys: [{ kty: "EC", crv: "P-256", x: "x", y: "y", kid: "current" }],
     });
@@ -64,15 +78,40 @@ describe("UCP 2026-08-25 contract", () => {
     expect(search({ search_request: { query: "cards", pagination: { limit: 10, cursor: "next" } } })).toBe(true);
     expect(search({ search_request: { query: "cards" }, limit: 10 })).toBe(false);
     expect(search({ search_request: { query: "cards" }, cursor: "next" })).toBe(false);
-    expect(compileUcpSchema(ucpToolInputSchema("lookup_catalog"))({ lookup_request: { ids: ["product_1"] }, meta: { "idempotency-key": "retry_1" } })).toBe(true);
-    expect(compileUcpSchema(ucpToolInputSchema("get_product"))({ get_product_request: { id: "product_1" } })).toBe(true);
-    expect(compileUcpSchema(ucpToolInputSchema("create_checkout"))({ checkout: { line_items: minimalCheckout.line_items } })).toBe(true);
-    expect(compileUcpSchema(ucpToolInputSchema("update_checkout"))({ id: "chk_1", checkout: { line_items: minimalCheckout.line_items } })).toBe(true);
+    expect(
+      compileUcpSchema(ucpToolInputSchema("lookup_catalog"))({
+        lookup_request: { ids: ["product_1"] },
+        meta: { "idempotency-key": "retry_1" },
+      }),
+    ).toBe(true);
+    expect(compileUcpSchema(ucpToolInputSchema("get_product"))({ get_product_request: { id: "product_1" } })).toBe(
+      true,
+    );
+    expect(
+      compileUcpSchema(ucpToolInputSchema("create_checkout"))({ checkout: { line_items: minimalCheckout.line_items } }),
+    ).toBe(true);
+    expect(
+      compileUcpSchema(ucpToolInputSchema("update_checkout"))({
+        id: "chk_1",
+        checkout: { line_items: minimalCheckout.line_items },
+      }),
+    ).toBe(true);
     expect(compileUcpSchema(ucpToolInputSchema("get_checkout"))({ id: "chk_1" })).toBe(true);
-    expect(compileUcpSchema(ucpToolInputSchema("complete_checkout"))({ id: "chk_1", checkout: { line_items: minimalCheckout.line_items } })).toBe(true);
+    expect(
+      compileUcpSchema(ucpToolInputSchema("complete_checkout"))({
+        id: "chk_1",
+        checkout: { line_items: minimalCheckout.line_items },
+      }),
+    ).toBe(true);
     expect(compileUcpSchema(ucpToolInputSchema("cancel_checkout"))({ id: "chk_1" })).toBe(true);
     expect(compileUcpSchema(ucpToolInputSchema("get_order"))({ id: "ord_1" })).toBe(true);
-    for (const tool of ["create_checkout", "get_checkout", "update_checkout", "complete_checkout", "cancel_checkout"] as const) {
+    for (const tool of [
+      "create_checkout",
+      "get_checkout",
+      "update_checkout",
+      "complete_checkout",
+      "cancel_checkout",
+    ] as const) {
       const validate = compileUcpSchema(ucpToolOutputSchema(tool));
       expect(validate(minimalCheckout), `${tool}: ${JSON.stringify(validate.errors)}`).toBe(true);
       expect(validate({ checkout: minimalCheckout })).toBe(false);

@@ -12,10 +12,19 @@ const productRequest = `${BASE}shopping/catalog_lookup.json#/$defs/get_product_r
 const productResponse = `${BASE}shopping/catalog_lookup.json#/$defs/get_product_response`;
 const errorResponse = `${BASE}common/types/error_response.json`;
 
-const meta = { type: "object", additionalProperties: false, properties: { "ucp-agent": { type: "object" }, "idempotency-key": { type: "string" } } } as const;
+const meta = {
+  type: "object",
+  additionalProperties: false,
+  properties: { "ucp-agent": { type: "object" }, "idempotency-key": { type: "string" } },
+} as const;
 const ref = (value: string): AnySchema => ({ $ref: value });
 const union = (...refs: string[]): AnySchema => ({ anyOf: refs.map((value) => ref(value)) });
-const object = (properties: Record<string, AnySchema>, required: string[] = []): AnySchema => ({ type: "object", additionalProperties: false, properties: { ...properties, meta }, ...(required.length ? { required } : {}) });
+const object = (properties: Record<string, AnySchema>, required: string[] = []): AnySchema => ({
+  type: "object",
+  additionalProperties: false,
+  properties: { ...properties, meta },
+  ...(required.length ? { required } : {}),
+});
 
 const checkoutRequest: AnySchema = {
   type: "object",

@@ -4,9 +4,7 @@
   "title": "Input Correlation",
   "description": "Maps a request identifier to the variant it resolved to, with match semantics.",
   "type": "object",
-  "required": [
-    "id"
-  ],
+  "required": ["id"],
   "properties": {
     "id": {
       "type": "string",
@@ -15,10 +13,7 @@
     "match": {
       "type": "string",
       "description": "How the request identifier resolved to this variant. Well-known values: `exact` (input directly identifies this variant, e.g., variant ID, SKU), `featured` (server selected this variant as representative, e.g., product ID resolved to best match). Businesses MAY implement and provide additional resolution strategies.",
-      "examples": [
-        "exact",
-        "featured"
-      ]
+      "examples": ["exact", "featured"]
     }
   }
 }

@@ -11,18 +11,11 @@
         },
         {
           "type": "object",
-          "required": [
-            "transport"
-          ],
+          "required": ["transport"],
           "properties": {
             "transport": {
               "type": "string",
-              "enum": [
-                "rest",
-                "mcp",
-                "a2a",
-                "embedded"
-              ],
+              "enum": ["rest", "mcp", "a2a", "embedded"],
               "description": "Transport protocol for this service binding."
             },
             "endpoint": {
@@ -42,9 +35,7 @@
           "$ref": "#/$defs/base"
         },
         {
-          "required": [
-            "spec"
-          ]
+          "required": ["spec"]
         },
         {
           "anyOf": [
@@ -54,9 +45,7 @@
                   "const": "rest"
                 }
               },
-              "required": [
-                "schema"
-              ]
+              "required": ["schema"]
             },
             {
               "properties": {
@@ -64,9 +53,7 @@
                   "const": "mcp"
                 }
               },
-              "required": [
-                "schema"
-              ]
+              "required": ["schema"]
             },
             {
               "properties": {
@@ -81,9 +68,7 @@
                   "const": "embedded"
                 }
               },
-              "required": [
-                "schema"
-              ]
+              "required": ["schema"]
             }
           ]
         }
@@ -104,9 +89,7 @@
                   "const": "rest"
                 }
               },
-              "required": [
-                "endpoint"
-              ]
+              "required": ["endpoint"]
             },
             {
               "properties": {
@@ -114,9 +97,7 @@
                   "const": "mcp"
                 }
               },
-              "required": [
-                "endpoint"
-              ]
+              "required": ["endpoint"]
             },
             {
               "properties": {
@@ -124,9 +105,7 @@
                   "const": "a2a"
                 }
               },
-              "required": [
-                "endpoint"
-              ]
+              "required": ["endpoint"]
             },
             {
               "properties": {

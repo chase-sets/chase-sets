@@ -4,10 +4,7 @@
   "title": "Error Response",
   "description": "Generic error response when business logic prevents resource creation or failed to retrieve resource. Used when no valid resource can be established.",
   "type": "object",
-  "required": [
-    "ucp",
-    "messages"
-  ],
+  "required": ["ucp", "messages"],
   "additionalProperties": false,
   "properties": {
     "ucp": {
