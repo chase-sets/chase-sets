@@ -469,7 +469,6 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/provider-object-disposition/test-window-browser-admission.test.mjs":
     "browser fixture does not spawn the guard",
   "scripts/provider-object-disposition/test-window-main.test.mjs": "browser fixture does not spawn the guard",
-  "scripts/public-web-help-category-response-budget.test.mjs": "budget test owns its direct probe admission",
   "scripts/route-census/admission.test.mjs": "route census does not spawn the guard",
   "scripts/route-census/partition-scope.test.mjs": "route census does not spawn the guard",
   "scripts/route-census/publication.test.mjs": "route census does not spawn the guard",
@@ -523,7 +522,7 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 30);
+  assert.equal(candidates.length, 29);
   assert.equal(inheritedOwnerScriptTests.length, 5);
   assert.deepEqual(classification, {
     unclassified: [],
