@@ -4638,7 +4638,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const expected = [
       {
         name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
-        identity: "f78d626bdd98a1c4",
+        identity: "c749fe673131aada",
       },
       {
         name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
@@ -4782,7 +4782,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(support).not.toContain("createPlatformApiBootstrapTestHarness(");
 
     // Each independent red control changes only its named variable, never the frozen identity or helper input.
-    const assertion = sources[0]!.replace(".toBe(130)", ".toBe(131)");
+    const assertion = sources[0]!.replace(".toBe(131)", ".toBe(132)");
     const profile = sources[0]!.replace(
       'enabledDataProfiles: ["scenario-seed"]',
       'enabledDataProfiles: ["integration-seed"]',
