@@ -1,14 +1,14 @@
 export type AddressSnapshot = Readonly<{
   name: string;
-  company?: string | null;
+  company?: string | null | undefined;
   line1: string;
-  line2?: string | null;
+  line2?: string | null | undefined;
   city: string;
   state: string;
   postalCode: string;
   country: string;
-  phone?: string | null;
-  email?: string | null;
+  phone?: string | null | undefined;
+  email?: string | null | undefined;
   verification?: AddressVerificationSnapshot | null;
 }>;
 
