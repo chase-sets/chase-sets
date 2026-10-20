@@ -254,6 +254,16 @@ aggregate, as the Desk halt switch does. Items deep-link to the Desk policy list
 A **Repricing Activity Digest** is one seller's count-only summary for a captured Digest Window.
 It is requested once after the evaluation projection has reached every member, never as a partial summary.
 
+## Pricing Health
+
+**Pricing Health** is the Seller Desk page for one explicitly selected active
+Repricing Policy (or the account's sole active policy). Its **Pricing Health
+Verdict** is the newest completed Health Summary matching that policy's current
+body hash. It keeps capture time, missing evidence and currencies explicit.
+Forecast Grades beside it describe platform-wide incumbent goal-version cohorts,
+not seller performance; numeric grade values require the Forecast Ledger policy's
+disclosure minimum (30 listings at launch).
+
 ## Pricing Health Summary
 
 A **Pricing Health Summary** is the durable, capture-time seller report for a
