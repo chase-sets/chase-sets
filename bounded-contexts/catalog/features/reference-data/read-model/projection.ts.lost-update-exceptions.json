@@ -1,0 +1,46 @@
+[
+  {
+    "id": "exception-ce4584b43be88829",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/reference-data/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_reference_types",
+      "digest": "c3d255bcc06d22826a4e1be86a537e41e7c5b693729d086f0ae5f64afc7df9c5"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/reference-data/read-model/projection.ts:58 directly synchronizes catalog_reference_types from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-4175ad6dd5555de8",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/reference-data/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_reference_records",
+      "digest": "74fe165454c8377f4b2e72b4d99dc13a1ce2363f3a6ed5ef587463e3790abd19"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/reference-data/read-model/projection.ts:169 directly synchronizes catalog_reference_records from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-4d7115dd626eddc1",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/reference-data/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_reference_types",
+      "digest": "8253b057bcb202c456ed6a9b84cd4c96f08d6043eacf4ad47cb4040f65faed6e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/reference-data/read-model/projection.ts:227 directly synchronizes catalog_reference_types from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-5e1cc827127b769a",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/reference-data/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_reference_records",
+      "digest": "6b06ab9cbf991c92b7c8820f02dfebb0e46b4acc61adac3cd49b38f612a701c4"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/reference-data/read-model/projection.ts:240 directly synchronizes catalog_reference_records from an incoming projection or command fact; no prior row state decides this write."
+  }
+]
