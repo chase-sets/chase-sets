@@ -58,6 +58,35 @@ reinstalling those tools, which a cached image layer would avoid). The server re
 parallel and finished after 4 min, which set the total. The cold builds ran concurrently
 (React 569 s, Leptos 929 s), so neither number is meaningful on its own.
 
+## Bun follow-up (measured 2026-10-19, `results/ssr-bun-r1..r3`)
+
+Same React Router page and client bundle, five server setups, each alone at 1 CPU / 1 GiB with
+the same k6 phases (fixed 60 req/s, then 64 and 256 VUs). Bun is the `oven/bun:1` image,
+`bun --revision` 1.4.3+c6da4a4d3; its binary embeds `src/**/*.rs` paths and no `.zig` paths.
+
+| Setup | Runtime | Server | React render | Max req/s (64 VUs) | 256 VUs | CPU at 60 req/s | Mem at 60 req/s | Idle mem |
+|---|---|---|---|---|---|---|---|---|
+| A, today's stack | Node 24 | Express | `renderToPipeableStream` | 68 | 63, 2% failed | 100% (saturated) | 121 MiB | 34 MiB |
+| B | Node 24 | Express | `renderToReadableStream` | 87 | 110, 0.7% failed | 57% | 149 MiB | 34 MiB |
+| C, 3 rounds | Node 24 | `node:http` | `renderToReadableStream` | 91 / 110 / 124 | 118 / 89 / 118, 0.6-1.1% failed | 38-71% | 137-150 MiB | 26 MiB |
+| D | Bun 1.4.3 | Express | `renderToReadableStream` | 88 | 85 | 64% | 98 MiB | 23 MiB |
+| E, 3 rounds | Bun 1.4.3 | `Bun.serve` | `renderToReadableStream` | 122 / 193 / 172 | 114 / 157 / 205, 0 failed | 34-42% | 81-87 MiB | 14 MiB |
+
+All five pass `parity.mjs` (16/16) and the form action. Findings:
+
+1. React Router's default Node entry does not start on Bun: Bun resolves `react-dom/server` to
+   `server.bun.js`, which has no `renderToPipeableStream`. B to E use `bun/entry.server.tsx`.
+2. On Node, the Web Streams renderer alone moved 68 to 87 req/s, and dropping Express added a
+   little more. These are TypeScript-only changes.
+3. Bun on Express (D) matched Node on Express (B). Bun's gain appears only with `Bun.serve`:
+   E over C was about 1.55x on median max throughput, with about 40% less memory.
+4. E's median (172 req/s) is in the range Leptos reached in the earlier run (170), but that was a
+   different session, so treat it as roughly comparable, not equal.
+5. Round-to-round spread is large (E ranged 122 to 193). Startup timings (`*-startup.json`) were
+   dominated by `docker run` and too noisy to rank.
+6. C and E serve assets without compression; the production server compresses and logs with
+   morgan, which none of B to E reproduce.
+
 ## Caveats
 
 1. One page, synthetic data, one machine. The host was also running unrelated containers.
@@ -80,6 +109,9 @@ Needs the `rustbench` network, `rb-rust` (API), `rustbench-pg` and `rustbench-re
 docker build -t fsw-react-router benchmarks/fullstack-wasm/react-router
 docker build -t fsw-leptos benchmarks/fullstack-wasm/leptos
 node benchmarks/fullstack-wasm/run-ssr.mjs ssr-r1 150
+docker build -t fsw-react-bun -f benchmarks/fullstack-wasm/react-router/Dockerfile.bun benchmarks/fullstack-wasm/react-router
+docker build -t fsw-react-node-web -f benchmarks/fullstack-wasm/react-router/Dockerfile.node-webstreams benchmarks/fullstack-wasm/react-router
+node benchmarks/fullstack-wasm/run-ssr.mjs ssr-bun-r1 60 react,node-webstreams,node-native,bun-express,bun-native
 node benchmarks/fullstack-wasm/parity.mjs http://localhost:18401 http://localhost:18402
 node benchmarks/fullstack-wasm/browser.mjs http://localhost:18401 http://localhost:18402 10
 ```

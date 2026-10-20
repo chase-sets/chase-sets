@@ -1,0 +1,16 @@
+{
+ "fsw-node-native": {
+  "samples": 121,
+  "cpuAvgPct": 100.9,
+  "cpuMaxPct": 108.4,
+  "memAvgMiB": 194.4,
+  "memMaxMiB": 201.2
+ },
+ "rb-rust": {
+  "samples": 121,
+  "cpuAvgPct": 3.8,
+  "cpuMaxPct": 14.98,
+  "memAvgMiB": 28.3,
+  "memMaxMiB": 30.8
+ }
+}

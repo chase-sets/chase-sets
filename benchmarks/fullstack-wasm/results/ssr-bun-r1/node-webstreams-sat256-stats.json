@@ -1,0 +1,16 @@
+{
+ "fsw-node-web": {
+  "samples": 120,
+  "cpuAvgPct": 99.7,
+  "cpuMaxPct": 108.18,
+  "memAvgMiB": 179.1,
+  "memMaxMiB": 196
+ },
+ "rb-rust": {
+  "samples": 120,
+  "cpuAvgPct": 4,
+  "cpuMaxPct": 13.81,
+  "memAvgMiB": 24.9,
+  "memMaxMiB": 26.7
+ }
+}

@@ -1,0 +1,16 @@
+{
+ "fsw-bun-express": {
+  "samples": 120,
+  "cpuAvgPct": 102.7,
+  "cpuMaxPct": 109.94,
+  "memAvgMiB": 127.6,
+  "memMaxMiB": 135.8
+ },
+ "rb-rust": {
+  "samples": 120,
+  "cpuAvgPct": 6,
+  "cpuMaxPct": 38.81,
+  "memAvgMiB": 16.4,
+  "memMaxMiB": 17.2
+ }
+}

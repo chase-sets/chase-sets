@@ -1,0 +1,18 @@
+# Same Node build stage as ./Dockerfile; only the runtime differs.
+# Default command runs the unchanged Express server on Bun; override with
+# `bun server-bun.mjs` for the Bun.serve variant.
+FROM node:24-bookworm-slim AS build
+WORKDIR /app
+COPY package.json ./
+RUN npm install --no-audit --no-fund
+COPY . .
+RUN cp bun/entry.server.tsx app/entry.server.tsx && npm run build && npm prune --omit=dev
+
+FROM oven/bun:1
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/package.json /app/server.mjs /app/server-bun.mjs ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/build ./build
+EXPOSE 8080
+CMD ["bun", "server.mjs"]

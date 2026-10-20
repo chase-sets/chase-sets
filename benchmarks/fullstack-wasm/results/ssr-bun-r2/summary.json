@@ -1,0 +1,62 @@
+{
+ "bun-native": {
+  "startup": {
+   "firstOkMsFromDockerRun": 1616,
+   "idleMem": "14MiB / 1GiB"
+  },
+  "fixed": {
+   "rps": 60,
+   "p50": 5.4,
+   "p95": 10.9,
+   "failed": 0,
+   "cpu": 35.1,
+   "mem": 82.4
+  },
+  "sat64": {
+   "rps": 192.9,
+   "p50": 297.5,
+   "p95": 578.4,
+   "failed": 0,
+   "cpu": 99.2,
+   "mem": 163.2
+  },
+  "sat256": {
+   "rps": 156.9,
+   "p50": 1568.2,
+   "p95": 2337.3,
+   "failed": 0,
+   "cpu": 99.4,
+   "mem": 165.7
+  }
+ },
+ "node-native": {
+  "startup": {
+   "firstOkMsFromDockerRun": 1226,
+   "idleMem": "26.55MiB / 1GiB"
+  },
+  "fixed": {
+   "rps": 60,
+   "p50": 6.9,
+   "p95": 9.8,
+   "failed": 0,
+   "cpu": 38.3,
+   "mem": 149.7
+  },
+  "sat64": {
+   "rps": 109.7,
+   "p50": 565.7,
+   "p95": 924.9,
+   "failed": 0,
+   "cpu": 99.9,
+   "mem": 188.1
+  },
+  "sat256": {
+   "rps": 88.6,
+   "p50": 2203.4,
+   "p95": 2632.2,
+   "failed": 0.006,
+   "cpu": 100.9,
+   "mem": 194.4
+  }
+ }
+}

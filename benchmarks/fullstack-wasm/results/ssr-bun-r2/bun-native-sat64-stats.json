@@ -1,0 +1,16 @@
+{
+ "fsw-bun-native": {
+  "samples": 122,
+  "cpuAvgPct": 99.2,
+  "cpuMaxPct": 105.09,
+  "memAvgMiB": 163.2,
+  "memMaxMiB": 186.3
+ },
+ "rb-rust": {
+  "samples": 122,
+  "cpuAvgPct": 5.8,
+  "cpuMaxPct": 37.13,
+  "memAvgMiB": 24.9,
+  "memMaxMiB": 26.2
+ }
+}
