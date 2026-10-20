@@ -455,6 +455,105 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(searchCalls[0]?.values.slice(0, 3)).toEqual(["active", "10.00", "25.50"]);
   });
 
+  it("category set matches any category through one predicate", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, { categories: ["B", "A", "A", " "] });
+
+    const list = calls.find((call) => call.sql.includes("FROM discovery_search_items"));
+    expect(list?.sql).toContain("category_names ?| $2::text[] OR category_slugs ?| $2::text[]");
+    expect(list?.sql.match(/\?\|/g)).toHaveLength(2);
+    expect(list?.sql).not.toContain("?&");
+    expect(list?.values.slice(0, 2)).toEqual(["active", ["A", "B"]]);
+    const categoryFacet = calls.find((call) => call.sql.includes("category_slug AS slug"));
+    expect(categoryFacet?.sql).not.toContain("?|");
+  });
+
+  it("currency-guarded price bounds bypass foreign rows", async () => {
+    const { db: capturingDb, calls } = createCapturingDb();
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("AS summaries")) {
+          calls.push({ sql, values });
+          return {
+            rows: [{ kind: "dimension", id: "condition", label: "Condition", coverage: 1, distinct_count: 2 }] as Row[],
+            rowCount: 1,
+          };
+        }
+        return capturingDb.query<Row>(sql, values);
+      },
+    };
+
+    await searchDiscoveryItems(db, {
+      priceMin: "10.00",
+      priceMax: "20.00",
+      priceCurrency: "EUR",
+      dimensionFilters: [{ dimensionId: "condition", optionId: "mint" }],
+    });
+
+    const searchCalls = calls.filter((call) => call.sql.includes("discovery_search_items"));
+    expect(searchCalls[0]?.sql).toContain(
+      "(selected_market.lowest_price_currency_code IS DISTINCT FROM $2 OR selected_market.lowest_price_amount IS NULL OR selected_market.lowest_price_amount >= $3::numeric)",
+    );
+    expect(searchCalls[0]?.sql).toContain(
+      "(selected_market.lowest_price_currency_code IS DISTINCT FROM $2 OR selected_market.lowest_price_amount IS NULL OR selected_market.lowest_price_amount <= $4::numeric)",
+    );
+    const facet = calls.find((call) => call.sql.includes("option_market AS"));
+    expect(facet?.sql).toContain("lowest_price_currency_code");
+    expect(facet?.values).toEqual(["active", "condition", ["mint"], "EUR", "10.00", "20.00"]);
+    expect(facet?.sql).toContain(
+      "(market.lowest_price_currency_code IS DISTINCT FROM $4 OR market.lowest_price_amount IS NULL OR market.lowest_price_amount >= $5::numeric)",
+    );
+    expect(facet?.sql).toContain(
+      "(market.lowest_price_currency_code IS DISTINCT FROM $4 OR market.lowest_price_amount IS NULL OR market.lowest_price_amount <= $6::numeric)",
+    );
+    expect(searchCalls[0]?.values).toEqual([
+      "active",
+      "EUR",
+      "10.00",
+      "20.00",
+      "condition",
+      ["mint"],
+      JSON.stringify([{ dimensionId: "condition", optionId: "mint" }]),
+      51,
+    ]);
+
+    const baseDb = createCapturingDb();
+    await searchDiscoveryItems(baseDb.db, { priceMin: "1.000", priceMax: "1000", priceCurrency: "EUR" });
+    const baseSearch = baseDb.calls.find((call) => call.sql.includes("FROM discovery_search_items"));
+    expect(baseSearch?.sql).toContain(
+      "(lowest_price_currency_code IS DISTINCT FROM $2 OR lowest_price_amount IS NULL OR lowest_price_amount >= $3::numeric)",
+    );
+    expect(baseSearch?.sql).toContain(
+      "(lowest_price_currency_code IS DISTINCT FROM $2 OR lowest_price_amount IS NULL OR lowest_price_amount <= $4::numeric)",
+    );
+    expect(baseSearch?.values.slice(0, 5)).toEqual(["active", "EUR", "1.000", "1000", expect.anything()]);
+
+    const noCurrency = createCapturingDb();
+    const noCurrencyDb: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("AS summaries")) {
+          noCurrency.calls.push({ sql, values });
+          return {
+            rows: [{ kind: "dimension", id: "condition", label: "Condition", coverage: 1, distinct_count: 2 }] as Row[],
+            rowCount: 1,
+          };
+        }
+        return noCurrency.db.query<Row>(sql, values);
+      },
+    };
+    await searchDiscoveryItems(noCurrencyDb, {
+      priceMin: "10.00",
+      priceMax: "20.00",
+      dimensionFilters: [{ dimensionId: "condition", optionId: "mint" }],
+    });
+    const noCurrencyFacet = noCurrency.calls.find((call) => call.sql.includes("option_market AS"));
+    expect(noCurrencyFacet?.sql).not.toContain("lowest_price_currency_code");
+    expect(noCurrencyFacet?.sql).toContain(
+      "ELSE NULL END AS lowest_price_amount,\n         SUM(visible_quantity) AS visible_quantity",
+    );
+  });
+
   it("uses a ledgered halfvec reshape and concurrent HNSW index", () => {
     const migration = discoverySearchSchemaMigrations.find(
       (candidate) => candidate.migrationId === "20260710_discovery_search_voyage_embeddings",
