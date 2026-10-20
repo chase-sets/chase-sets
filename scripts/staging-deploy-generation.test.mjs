@@ -702,19 +702,29 @@ describe("selectStagingDeployGeneration", () => {
     expect(await stopOf(capturedWorld(), {}, { runsPage: unavailable })).toBe("github-request-failed");
     expect(await stopOf(capturedWorld(), {}, { jobsPage: unavailable })).toBe("github-request-failed");
     expect(await stopOf(capturedWorld(), {}, { signedLog: unavailable })).toBe("github-request-failed");
-    const hung = vi.fn(() => new Promise(() => {}));
-    const started = Date.now();
-    const timedOut = await selectStagingDeployGeneration({
-      token,
-      transport: hung,
-      requestTimeoutMs: 50,
-      now,
-      maxAgeSeconds: 604_800,
-    });
-    expect(timedOut).toEqual({ stop: "github-request-failed", deployment: null, deployGeneration: null });
-    // Well inside the reader's 30 s default, so the caller's timeout was applied.
-    expect(Date.now() - started).toBeLessThan(5_000);
-    expect(hung.mock.calls[0][1].signal.aborted).toBe(true);
+    // A transport that never answers settles at the caller's 50 ms timeout; the
+    // reader's 30 s default would leave the selection pending.
+    vi.useFakeTimers();
+    try {
+      const hung = vi.fn(() => new Promise(() => {}));
+      const selection = selectStagingDeployGeneration({
+        token,
+        transport: hung,
+        requestTimeoutMs: 50,
+        now,
+        maxAgeSeconds: 604_800,
+      });
+      await vi.advanceTimersByTimeAsync(60);
+      expect(await Promise.race([selection, Promise.resolve("pending")])).toEqual({
+        stop: "github-request-failed",
+        deployment: null,
+        deployGeneration: null,
+      });
+      expect(hung).toHaveBeenCalledTimes(1);
+      expect(hung.mock.calls[0][1].signal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses invalid inputs before any request", async () => {
