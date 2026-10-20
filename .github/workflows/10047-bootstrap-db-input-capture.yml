@@ -1,0 +1,190 @@
+name: 10047 Bootstrap DB Input Capture Only
+
+on:
+  push:
+    branches: [codex/10047-capture-r1]
+    paths: [.github/workflows/10047-bootstrap-db-input-capture.yml]
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_S: 56fa419c5d47cafd5455b7dbf496a4339ce61985
+  CAPTURE_REF: refs/heads/codex/10047-capture-r1
+
+jobs:
+  shipped:
+    name: Diagnostic API Bootstrap Measurement Only
+    if: github.event_name == 'push' && github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/10047-capture-r1' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      CAPTURE_MODE: shipped
+      CAPTURE_OUTPUT: artifacts/10047-reference-capture
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with: {persist-credentials: false, fetch-depth: 0, ref: ${{ github.sha }}}
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with: {install: true}
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        env: {POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_locks_per_transaction = 512;"
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_connections = 300;"
+          docker restart "$POSTGRES_CONTAINER_ID"
+          for _ in $(seq 1 30); do docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1 && break; sleep 1; done
+          docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres
+          test "$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')" = 512
+          test "$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')" = 300
+          mkdir -p "$CAPTURE_OUTPUT"; docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c 'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;' | tee "$CAPTURE_OUTPUT/postgres-settings.txt"
+          docker image inspect pgvector/pgvector:pg16 --format '{{json .RepoDigests}}' | tee "$CAPTURE_OUTPUT/postgres-image-digests.json"
+      - name: Restore immutable diagnostic-only census helper
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$FROZEN_S"
+          test "$(git rev-parse --is-shallow-repository)" = false
+          git fetch --no-tags origin e04bf62981772c43adb0eb6695261679df9f1bd1
+          git show e04bf62981772c43adb0eb6695261679df9f1bd1:deployables/platform-api/scripts/8396-capture-census.mjs > deployables/platform-api/scripts/8396-capture-census.mjs
+          echo 'c9bb1a649b15063088430e6a436acad7e69b17357906148300af82dd3a9df334  deployables/platform-api/scripts/8396-capture-census.mjs' | sha256sum -c -
+      - name: Measure frozen workload
+        run: |
+          set -euo pipefail
+          mkdir -p "$CAPTURE_OUTPUT" deployables/platform-api/artifacts/bootstrap-db-evidence
+          cat > "$CAPTURE_OUTPUT/reporter.mjs" <<'REPORTER'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { basename } from 'node:path';
+          import { deriveBootstrapDbCaseIdentities } from '../../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs';
+          export default class MeasurementReporter {
+            onTestModuleEnd(module) { const source=readFileSync(module.moduleId,'utf8'); appendFileSync(process.env.MEASUREMENT_OUTPUT, JSON.stringify({file:basename(module.moduleId),sourceSha256:createHash('sha256').update(source).digest('hex'),identities:deriveBootstrapDbCaseIdentities(basename(module.moduleId),source),state:module.state(),diagnostic:module.diagnostic(),errors:module.errors(),cases:[...module.children.allTests()].map(test=>({name:test.name,fullName:test.fullName,result:test.result(),diagnostic:test.diagnostic()}))})+'\n'); }
+            onTestRunEnd(modules, errors, reason) { appendFileSync(process.env.MEASUREMENT_OUTPUT, JSON.stringify({runEnd:true,moduleCount:modules.length,errors,reason})+'\n'); }
+          }
+          REPORTER
+          node --input-type=module <<'RUNNER'
+          import {createHash} from 'node:crypto'; import {readFileSync,writeFileSync,mkdirSync} from 'node:fs'; import {resolve,basename} from 'node:path'; import {spawn,execFileSync} from 'node:child_process';
+          const root=process.cwd(), cwd=resolve(root,'deployables/platform-api'), out=resolve(root,process.env.CAPTURE_OUTPUT); mkdirSync(out,{recursive:true});
+          const hash=b=>createHash('sha256').update(b).digest('hex'); const cmd=(f,a,o={})=>execFileSync(f,a,{cwd,encoding:'utf8',timeout:10000,...o}).trim(); const frozen=process.env.FROZEN_S;
+          if(cmd('git',['rev-parse','HEAD^'],{cwd:root})!==frozen || cmd('git',['rev-parse','--is-shallow-repository'],{cwd:root})!=='false') throw Error('parent/non-shallow mismatch');
+          const changed=cmd('git',['diff','--name-only',frozen,'HEAD'],{cwd:root}).split('\n').filter(Boolean); if(JSON.stringify(changed)!==JSON.stringify(['.github/workflows/10047-bootstrap-db-input-capture.yml'])) throw Error('unexpected diff');
+          const pkg=JSON.parse(readFileSync(resolve(cwd,'package.json'))); const scripts=pkg.scripts; const scriptGroups={}; for(const unit of ['test:db:1','test:db:2','test:db:3']) { const files=[...scripts[unit].matchAll(/__tests__\/([^ ]+\.db\.test\.ts)/g)].map(m=>m[1]); if(!files.length) throw Error('empty '+unit); scriptGroups[unit]=files; }
+          const check=await import('./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs'); const census=check.derivePlatformApiDbTestCensus({platformApiRoot:cwd}); const fixture=readFileSync(resolve(cwd,'__tests__/operator-session/fixture.ts'),'utf8'); const helper=await import('./deployables/platform-api/scripts/8396-capture-census.mjs');
+          const bootstrap=new Set(census.bootstrapEntries.map(x=>x.replace(/^__tests__\//,''))); const non=Object.keys(check.platformApiNonBootstrapDbCensus.entries).map(x=>x.replace(/^__tests__\//,''));
+          const groups=process.env.CAPTURE_MODE==='shipped'?scriptGroups:Object.fromEntries([['test:db:1',[]],['test:db:2',[]]].map(([u,a])=>[u,a]));
+          if(process.env.CAPTURE_MODE!=='shipped'){ const a=check.bootstrapDbMeasuredOneFewerUnitFloor.assignment; for(const f of bootstrap) groups[a[f]??(()=>{throw Error('missing floor assignment '+f)})()].push(f); for(const f of non) groups[check.platformApiNonBootstrapDbCensus.entries['__tests__/'+f]].push(f); if(Object.values(groups).flat().length!==18) throw Error('paired census count'); }
+          const manifest={}; for(const [u,files] of Object.entries(groups)) for(const file of files){ const source=readFileSync(resolve(cwd,'__tests__',file),'utf8'); const cases=check.deriveBootstrapDbCaseIdentities(basename(file),source); const e={executionUnit:u,sourceSha256:hash(Buffer.from(source)),cases}; if(!bootstrap.has(file)) e.censusCaseNames=helper.deriveCaptureCensusCaseNames(file,source,fixture); manifest[file]=e; }
+          if(Object.keys(manifest).length!==18 || Object.values(manifest).filter(e=>!e.censusCaseNames).reduce((n,e)=>n+e.cases.length,0)!==68 || Object.values(manifest).reduce((n,e)=>n+(e.censusCaseNames??e.cases).length,0)!==133) throw Error('counts mismatch');
+          const sourceFiles=cmd('git',['ls-files','bounded-contexts','contracts','infrastructure','deployables/platform-api','packages','scripts','pnpm-lock.yaml','pnpm-workspace.yaml','package.json','.github/actions/setup-pnpm-workspace','vitest.shared.mjs'],{cwd:root}).split('\n').filter(Boolean).filter(f=>!f.includes('/8396-capture-')); const sourceBytes=Buffer.from(JSON.stringify({sourceBase:frozen,files:Object.fromEntries(sourceFiles.map(f=>[f,hash(readFileSync(resolve(root,f)))]))},null,2)+'\n');
+          const commands=Object.fromEntries(Object.entries(groups).map(([u,files])=>[u,'vitest run --config ./vitest.config.ts '+files.map(f=>'__tests__/'+f).join(' ')+' --maxWorkers=3 --reporter=default --reporter='+resolve(out,'reporter.mjs')])); const manifestBytes=Buffer.from(JSON.stringify(manifest,null,2)+'\n'); const commandsBytes=Buffer.from(JSON.stringify(commands,null,2)+'\n'); const censusBytes=Buffer.from(JSON.stringify(census,null,2)+'\n');
+          const id={checkoutSha:cmd('git',['rev-parse','HEAD'],{cwd:root}),captureParent:frozen,sourceBase:frozen,parents:cmd('git',['show','-s','--format=%P','HEAD'],{cwd:root}).split(' '),runId:process.env.GITHUB_RUN_ID,runAttempt:process.env.GITHUB_RUN_ATTEMPT,job:process.env.GITHUB_JOB,jobName:process.env.GITHUB_JOB==='shipped'?'Diagnostic API Bootstrap Measurement Only':'Diagnostic API Bootstrap Paired Measurement Only',event:process.env.GITHUB_EVENT_NAME,repository:process.env.GITHUB_REPOSITORY,ref:process.env.GITHUB_REF,githubSha:process.env.GITHUB_SHA,pushAfter:JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH)).after,maxWorkers:3,workspaceConcurrency:2,serialUnits:Object.keys(groups).length,unitDeadlineMs:600000,aggregateDeadlineMs:1800000,modeledUnitCeilingMs:420000,modeledAggregateCeilingMs:1080000,node:process.version,pnpm:cmd('pnpm',['--version']),vitest:cmd('pnpm',['exec','vitest','--version']),laneMode:process.env.CHASE_SETS_LANE_MODE??null,postgresImageDigests:JSON.parse(readFileSync(resolve(out,'postgres-image-digests.json'),'utf8'))};
+          if(id.githubSha!==id.checkoutSha||id.pushAfter!==id.githubSha||id.runAttempt!=='1'||id.event!=='push'||id.repository!=='chase-sets/chase-sets'||id.ref!==process.env.CAPTURE_REF||JSON.stringify(id.parents)!==JSON.stringify([frozen])||id.laneMode!==null) throw Error('identity mismatch');
+          const capture={provenance:id,model:{groups,commands,serialUnits:id.serialUnits,unitDeadlineMs:600000,aggregateDeadlineMs:1800000,modeledUnitCeilingMs:420000,modeledAggregateCeilingMs:1080000},sourceBindings:{sourceManifestSha256:hash(sourceBytes),caseManifestSha256:hash(manifestBytes),commandsSha256:hash(commandsBytes),censusSha256:hash(censusBytes),censusHelperSha256:'c9bb1a649b15063088430e6a436acad7e69b17357906148300af82dd3a9df334'},manifest,census};
+          writeFileSync(resolve(out,'capture.json'),JSON.stringify(capture,null,2)+'\n'); writeFileSync(resolve(out,'identity.json'),JSON.stringify(id,null,2)); writeFileSync(resolve(out,'capture-manifest.json'),manifestBytes); writeFileSync(resolve(out,'capture-commands.json'),commandsBytes); writeFileSync(resolve(out,'source-census.json'),censusBytes); writeFileSync(resolve(out,'source-bindings.json'),sourceBytes);
+          const units=[]; for(const [unit,files] of Object.entries(groups)){ const args=['exec',...commands[unit].split(' ').filter(Boolean),`--reporter=${resolve(out,'reporter.mjs')}`,'--reporter=json',`--outputFile.json=${resolve(out,unit.replaceAll(':','-')+'.json')}`]; const startedAt=new Date().toISOString(),start=Date.now(); const rec={unit,files,command:['pnpm',...args],startedAt,deadlineMs:600000,status:'running'}; units.push(rec); writeFileSync(resolve(out,'units.json'),JSON.stringify(units,null,2)); const child=spawn('pnpm',args,{cwd,stdio:'inherit',detached:true,env:{...process.env,BOOTSTRAP_DB_EVIDENCE_UNIT:unit,MEASUREMENT_OUTPUT:resolve(out,unit.replaceAll(':','-')+'.jsonl')}}); const result=await new Promise(res=>{let done=false; const t=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch{}; if(!done){done=true;res({code:null,signal:'SIGKILL',timedOut:true})}},600000); child.on('error',e=>{if(!done){done=true;clearTimeout(t);res({code:null,error:e.message})}}); child.on('exit',(code,signal)=>{if(!done){done=true;clearTimeout(t);res({code,signal})}})}); rec.exitCode=result.code; rec.signal=result.signal??null; rec.timedOut=!!result.timedOut; rec.finishedAt=new Date().toISOString(); rec.durationMs=Date.now()-start; rec.status=result.code===0&&!rec.timedOut?'passed':'failed'; writeFileSync(resolve(out,'units.json'),JSON.stringify(units,null,2)); if(rec.status!=='passed') process.exitCode=1; }
+          if(process.exitCode) throw Error('measurement failed');
+          for(const [unit,files] of Object.entries(groups)){ const rows=readFileSync(resolve(out,unit.replaceAll(':','-')+'.jsonl'),'utf8').trim().split('\n').map(JSON.parse); const end=rows.find(r=>r.runEnd); if(!end||end.reason!=='passed'||end.errors.length) throw Error(unit+' reporter failure'); for(const row of rows.filter(r=>!r.runEnd)){ if(row.state!=='passed'||row.errors.length) throw Error(row.file+' failed'); if(!files.includes(row.file)) throw Error(row.file+' not in unit'); } }
+          capture.provenance.units=units; capture.provenance.artifactRoot=process.env.CAPTURE_OUTPUT; writeFileSync(resolve(out,'capture.json'),JSON.stringify(capture,null,2)+'\n');
+          RUNNER
+      - name: Upload shipped capture
+        if: always() && github.event_name == 'push' && github.run_attempt == 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 10047-reference-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/10047-reference-capture/
+            deployables/platform-api/artifacts/bootstrap-db-evidence/
+          if-no-files-found: error
+
+  paired:
+    name: Diagnostic API Bootstrap Paired Measurement Only
+    needs: [shipped]
+    if: github.event_name == 'push' && github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/10047-capture-r1' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: postgres}
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      CAPTURE_MODE: paired
+      CAPTURE_OUTPUT: artifacts/10047-paired-capture
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with: {persist-credentials: false, fetch-depth: 0, ref: ${{ github.sha }}}
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with: {install: true}
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        env: {POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_locks_per_transaction = 512;"
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_connections = 300;"
+          docker restart "$POSTGRES_CONTAINER_ID"
+          for _ in $(seq 1 30); do docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1 && break; sleep 1; done
+          docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres
+          test "$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')" = 512
+          test "$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')" = 300
+          mkdir -p "$CAPTURE_OUTPUT"; docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c 'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;' | tee "$CAPTURE_OUTPUT/postgres-settings.txt"
+          docker image inspect pgvector/pgvector:pg16 --format '{{json .RepoDigests}}' | tee "$CAPTURE_OUTPUT/postgres-image-digests.json"
+      - name: Restore immutable diagnostic-only census helper
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$FROZEN_S"; test "$(git rev-parse --is-shallow-repository)" = false
+          git fetch --no-tags origin e04bf62981772c43adb0eb6695261679df9f1bd1
+          git show e04bf62981772c43adb0eb6695261679df9f1bd1:deployables/platform-api/scripts/8396-capture-census.mjs > deployables/platform-api/scripts/8396-capture-census.mjs
+          echo 'c9bb1a649b15063088430e6a436acad7e69b17357906148300af82dd3a9df334  deployables/platform-api/scripts/8396-capture-census.mjs' | sha256sum -c -
+      - name: Measure paired workload
+        run: |
+          set -euo pipefail
+          mkdir -p "$CAPTURE_OUTPUT" deployables/platform-api/artifacts/bootstrap-db-evidence
+          cp .github/workflows/10047-bootstrap-db-input-capture.yml "$CAPTURE_OUTPUT/workflow-source.yml"
+          node --input-type=module <<'RUNNER'
+          import {createHash} from 'node:crypto'; import {readFileSync,writeFileSync,mkdirSync} from 'node:fs'; import {resolve,basename} from 'node:path'; import {spawn,execFileSync} from 'node:child_process';
+          const root=process.cwd(), cwd=resolve(root,'deployables/platform-api'), out=resolve(root,process.env.CAPTURE_OUTPUT); mkdirSync(out,{recursive:true});
+          const hash=b=>createHash('sha256').update(b).digest('hex'); const cmd=(f,a,o={})=>execFileSync(f,a,{cwd,encoding:'utf8',timeout:10000,...o}).trim(); const frozen=process.env.FROZEN_S;
+          if(cmd('git',['rev-parse','HEAD^'],{cwd:root})!==frozen || cmd('git',['rev-parse','--is-shallow-repository'],{cwd:root})!=='false') throw Error('parent/non-shallow mismatch');
+          const changed=cmd('git',['diff','--name-only',frozen,'HEAD'],{cwd:root}).split('\n').filter(Boolean); if(JSON.stringify(changed)!==JSON.stringify(['.github/workflows/10047-bootstrap-db-input-capture.yml'])) throw Error('unexpected diff');
+          const pkg=JSON.parse(readFileSync(resolve(cwd,'package.json'))); const scripts=pkg.scripts; const scriptGroups={}; for(const unit of ['test:db:1','test:db:2','test:db:3']) { const files=[...scripts[unit].matchAll(/__tests__\/([^ ]+\.db\.test\.ts)/g)].map(m=>m[1]); if(!files.length) throw Error('empty '+unit); scriptGroups[unit]=files; }
+          const check=await import('./deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs'); const census=check.derivePlatformApiDbTestCensus({platformApiRoot:cwd}); const fixture=readFileSync(resolve(cwd,'__tests__/operator-session/fixture.ts'),'utf8'); const helper=await import('./deployables/platform-api/scripts/8396-capture-census.mjs');
+          const bootstrap=new Set(census.bootstrapEntries.map(x=>x.replace(/^__tests__\//,''))); const non=Object.keys(check.platformApiNonBootstrapDbCensus.entries).map(x=>x.replace(/^__tests__\//,''));
+          const groups=process.env.CAPTURE_MODE==='shipped'?scriptGroups:Object.fromEntries([['test:db:1',[]],['test:db:2',[]]].map(([u,a])=>[u,a]));
+          if(process.env.CAPTURE_MODE!=='shipped'){ const a=check.bootstrapDbMeasuredOneFewerUnitFloor.assignment; for(const f of bootstrap) groups[a[f]??(()=>{throw Error('missing floor assignment '+f)})()].push(f); for(const f of non) groups[check.platformApiNonBootstrapDbCensus.entries['__tests__/'+f]].push(f); if(Object.values(groups).flat().length!==18) throw Error('paired census count'); }
+          const manifest={}; for(const [u,files] of Object.entries(groups)) for(const file of files){ const source=readFileSync(resolve(cwd,'__tests__',file),'utf8'); const cases=check.deriveBootstrapDbCaseIdentities(basename(file),source); const e={executionUnit:u,sourceSha256:hash(Buffer.from(source)),cases}; if(!bootstrap.has(file)) e.censusCaseNames=helper.deriveCaptureCensusCaseNames(file,source,fixture); manifest[file]=e; }
+          if(Object.keys(manifest).length!==18 || Object.values(manifest).filter(e=>!e.censusCaseNames).reduce((n,e)=>n+e.cases.length,0)!==68 || Object.values(manifest).reduce((n,e)=>n+(e.censusCaseNames??e.cases).length,0)!==133) throw Error('counts mismatch');
+          const sourceFiles=cmd('git',['ls-files','bounded-contexts','contracts','infrastructure','deployables/platform-api','packages','scripts','pnpm-lock.yaml','pnpm-workspace.yaml','package.json','.github/actions/setup-pnpm-workspace','vitest.shared.mjs'],{cwd:root}).split('\n').filter(Boolean).filter(f=>!f.includes('/8396-capture-')); const sourceBytes=Buffer.from(JSON.stringify({sourceBase:frozen,files:Object.fromEntries(sourceFiles.map(f=>[f,hash(readFileSync(resolve(root,f)))]))},null,2)+'\n');
+          const commands=Object.fromEntries(Object.entries(groups).map(([u,files])=>[u,'vitest run --config ./vitest.config.ts '+files.map(f=>'__tests__/'+f).join(' ')+' --maxWorkers=3 --reporter=default --reporter='+resolve(out,'reporter.mjs')])); const manifestBytes=Buffer.from(JSON.stringify(manifest,null,2)+'\n'); const commandsBytes=Buffer.from(JSON.stringify(commands,null,2)+'\n'); const censusBytes=Buffer.from(JSON.stringify(census,null,2)+'\n');
+          const id={checkoutSha:cmd('git',['rev-parse','HEAD'],{cwd:root}),captureParent:frozen,sourceBase:frozen,parents:cmd('git',['show','-s','--format=%P','HEAD'],{cwd:root}).split(' '),runId:process.env.GITHUB_RUN_ID,runAttempt:process.env.GITHUB_RUN_ATTEMPT,job:process.env.GITHUB_JOB,jobName:process.env.GITHUB_JOB==='shipped'?'Diagnostic API Bootstrap Measurement Only':'Diagnostic API Bootstrap Paired Measurement Only',event:process.env.GITHUB_EVENT_NAME,repository:process.env.GITHUB_REPOSITORY,ref:process.env.GITHUB_REF,githubSha:process.env.GITHUB_SHA,pushAfter:JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH)).after,maxWorkers:3,workspaceConcurrency:2,serialUnits:Object.keys(groups).length,unitDeadlineMs:600000,aggregateDeadlineMs:1800000,modeledUnitCeilingMs:420000,modeledAggregateCeilingMs:1080000,node:process.version,pnpm:cmd('pnpm',['--version']),vitest:cmd('pnpm',['exec','vitest','--version']),laneMode:process.env.CHASE_SETS_LANE_MODE??null,postgresImageDigests:JSON.parse(readFileSync(resolve(out,'postgres-image-digests.json'),'utf8'))};
+          if(id.githubSha!==id.checkoutSha||id.pushAfter!==id.githubSha||id.runAttempt!=='1'||id.event!=='push'||id.repository!=='chase-sets/chase-sets'||id.ref!==process.env.CAPTURE_REF||JSON.stringify(id.parents)!==JSON.stringify([frozen])||id.laneMode!==null) throw Error('identity mismatch');
+          const capture={provenance:id,model:{groups,commands,serialUnits:id.serialUnits,unitDeadlineMs:600000,aggregateDeadlineMs:1800000,modeledUnitCeilingMs:420000,modeledAggregateCeilingMs:1080000},sourceBindings:{sourceManifestSha256:hash(sourceBytes),caseManifestSha256:hash(manifestBytes),commandsSha256:hash(commandsBytes),censusSha256:hash(censusBytes),censusHelperSha256:'c9bb1a649b15063088430e6a436acad7e69b17357906148300af82dd3a9df334'},manifest,census};
+          writeFileSync(resolve(out,'capture.json'),JSON.stringify(capture,null,2)+'\n'); writeFileSync(resolve(out,'identity.json'),JSON.stringify(id,null,2)); writeFileSync(resolve(out,'capture-manifest.json'),manifestBytes); writeFileSync(resolve(out,'capture-commands.json'),commandsBytes); writeFileSync(resolve(out,'source-census.json'),censusBytes); writeFileSync(resolve(out,'source-bindings.json'),sourceBytes);
+          const units=[]; for(const [unit,files] of Object.entries(groups)){ const args=['exec',...commands[unit].split(' ').filter(Boolean),`--reporter=${resolve(out,'reporter.mjs')}`,'--reporter=json',`--outputFile.json=${resolve(out,unit.replaceAll(':','-')+'.json')}`]; const startedAt=new Date().toISOString(),start=Date.now(); const rec={unit,files,command:['pnpm',...args],startedAt,deadlineMs:600000,status:'running'}; units.push(rec); writeFileSync(resolve(out,'units.json'),JSON.stringify(units,null,2)); const child=spawn('pnpm',args,{cwd,stdio:'inherit',detached:true,env:{...process.env,BOOTSTRAP_DB_EVIDENCE_UNIT:unit,MEASUREMENT_OUTPUT:resolve(out,unit.replaceAll(':','-')+'.jsonl')}}); const result=await new Promise(res=>{let done=false; const t=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch{}; if(!done){done=true;res({code:null,signal:'SIGKILL',timedOut:true})}},600000); child.on('error',e=>{if(!done){done=true;clearTimeout(t);res({code:null,error:e.message})}}); child.on('exit',(code,signal)=>{if(!done){done=true;clearTimeout(t);res({code,signal})}})}); rec.exitCode=result.code; rec.signal=result.signal??null; rec.timedOut=!!result.timedOut; rec.finishedAt=new Date().toISOString(); rec.durationMs=Date.now()-start; rec.status=result.code===0&&!rec.timedOut?'passed':'failed'; writeFileSync(resolve(out,'units.json'),JSON.stringify(units,null,2)); if(rec.status!=='passed') process.exitCode=1; }
+          if(process.exitCode) throw Error('measurement failed');
+          for(const [unit,files] of Object.entries(groups)){ const rows=readFileSync(resolve(out,unit.replaceAll(':','-')+'.jsonl'),'utf8').trim().split('\n').map(JSON.parse); const end=rows.find(r=>r.runEnd); if(!end||end.reason!=='passed'||end.errors.length) throw Error(unit+' reporter failure'); for(const row of rows.filter(r=>!r.runEnd)){ if(row.state!=='passed'||row.errors.length) throw Error(row.file+' failed'); if(!files.includes(row.file)) throw Error(row.file+' not in unit'); } }
+          capture.provenance.units=units; capture.provenance.artifactRoot=process.env.CAPTURE_OUTPUT; writeFileSync(resolve(out,'capture.json'),JSON.stringify(capture,null,2)+'\n');
+          RUNNER          sed -n '/cat > ".*reporter.mjs"/,/RUNNER/p' .github/workflows/10047-bootstrap-db-input-capture.yml >/dev/null
+      - name: Upload paired capture
+        if: always() && github.event_name == 'push' && github.run_attempt == 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 10047-paired-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/10047-paired-capture/
+            deployables/platform-api/artifacts/bootstrap-db-evidence/
+          if-no-files-found: error
+
