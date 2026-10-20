@@ -971,6 +971,12 @@
         "route-action:bounded-contexts/discovery/routes/search.tsx",
         "fetcher-submit:bounded-contexts/discovery/routes/search.tsx:H291fe7ad6435#1"
       ],
+      "commandAttempt": {
+        "writes": [{ "surface": "route-action:search commit-bulk-add", "kind": "cart.add-lines", "target": "cart" }],
+        "stream": "Checkout checkout.command-attempt-v1-<fingerprint> beside the buyer cart stream",
+        "lookup": "Checkout GET /account|/guest/command-attempts/:attemptId, issued once on a possible-send loss",
+        "replay": "The browser mints one attempt id per deliberate bulk commit; Send the same add again resubmits that id and Checkout returns the first vector with zero appends."
+      },
       "visibleDestination": {
         "routeId": "search",
         "description": "Search bulk add stays on the browse page and renders command-owned Checkout snapshots. Client-side request keys suppress stale snapshots when the visible Result Set changes before the POST resolves."
@@ -1069,8 +1075,18 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:Hd8587c34fa67#1"
+        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:Hd8587c34fa67#1",
+        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:He499123e61ef#1"
       ],
+      "commandAttempt": {
+        "writes": [
+          { "surface": "route-action:item-detail add-to-cart", "kind": "cart.add-line", "target": "cart" },
+          { "surface": "route-action:item-detail buy-best-match", "kind": "cart.add-line", "target": "cart" }
+        ],
+        "stream": "Checkout checkout.command-attempt-v1-<fingerprint> beside the buyer cart stream",
+        "lookup": "Checkout GET /account|/guest/command-attempts/:attemptId, issued once on a possible-send loss",
+        "replay": "The browser mints one attempt id per deliberate add; Send the same add again resubmits that id and Checkout returns the first result with zero appends."
+      },
       "visibleDestination": {
         "routeId": "item-detail",
         "description": "The item-detail add-to-cart fetcher remains on the Detail Page and returns the committed Checkout cart-line id, version, status, item title, and quantity so the cart count and success notice do not depend on a stale cart projection. The success notice's View cart link carries the same Checkout command receipt as an afterWrite fresh-write token plus the Checkout-owned semantic add-line post-write handoff (viewCartHref), so /account/cart can treat signed-in or anonymous empty reads as pending only for this add-line intent while remove-to-empty or normal visits keep the ordinary empty-cart state."
