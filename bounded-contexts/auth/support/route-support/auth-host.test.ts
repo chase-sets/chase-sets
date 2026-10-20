@@ -25,6 +25,42 @@ afterEach(() => {
 });
 
 describe("auth host", () => {
+  it.each([
+    "registration_consent_not_server_minted",
+    "registration_consent_expired",
+    "registration_consent_affirmation_required",
+  ])("maps recognized %s consent rejections to the localized form contract", async (code) => {
+    const sourceMessage = "secret Identity source message";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            error: {
+              code,
+              reason: code === "registration_consent_expired" ? "superseded" : "absent",
+              message: sourceMessage,
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const result = await host.createSignInAction()(createActionArgs(createPasswordSignInRequest()));
+
+    expect(result).toMatchObject({
+      error: "Account creation is unavailable right now. Try again in a moment.",
+      classification: "FORM",
+      intent: "password",
+      errors: {
+        fieldErrors: {},
+        formErrors: ["Account creation is unavailable right now. Try again in a moment."],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(sourceMessage);
+  });
+
   it("partitions real routed failures", async () => {
     const detail = { field: "phone", code: "phone_required", message: "Bearer synthetic-secret" };
     const cases = [

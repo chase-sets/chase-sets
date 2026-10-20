@@ -478,7 +478,6 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
   const providerCredentials = [
     ["SCRYDEX_API_KEY", "TF_VAR_scrydex_api_key"],
     ["SCRYDEX_TEAM_ID", "TF_VAR_scrydex_team_id"],
-    ["TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE", "TF_VAR_tcgplayer_automation_tcg_auth_cookie"],
   ];
   const enforcedSignoffReferences = [
     "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
@@ -655,6 +654,8 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
     // Preserved, not rebuilt: the production environment's provider secrets reach the API and worker
     // runtime Secret through the same step as Stripe and EasyPost.
     const secretStep = jobStep("Apply production Kubernetes runtime secrets").run;
+    expect(jobStep("Validate production configuration").run).not.toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
+    expect(secretStep).not.toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
     for (const [name, envName] of [
       ...providerCredentials,
       ["STRIPE_SECRET_KEY", "TF_VAR_stripe_secret_key"],
@@ -664,6 +665,11 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
     }
     expect(secretStep).toContain("--deployment-environment production");
     const runtimeComponents = JSON.parse(shippedRuntimeValues).components;
+    for (const consumer of ["platform-api", "platform-worker"]) {
+      expect(runtimeComponents[consumer].env).not.toEqual(
+        expect.arrayContaining([{ name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE" }]),
+      );
+    }
     for (const [name, envName] of providerCredentials) {
       expect(deployProduction.env[envName]).toBe(`\${{ secrets.${name} || '' }}`);
       for (const consumer of ["platform-api", "platform-worker"]) {
@@ -758,10 +764,6 @@ const platformDigitalOceanDriftDigestWorkflow = readFileSync(
 );
 const platformCatalogAssetsStateRepairWorkflow = readFileSync(
   resolve(".github/workflows/platform-catalog-assets-state-repair.yml"),
-  "utf8",
-);
-const platformDigitalOceanTokenRotationReminderWorkflow = readFileSync(
-  resolve(".github/workflows/platform-digitalocean-token-rotation-reminder.yml"),
   "utf8",
 );
 const platformEmergencyRecoveryWorkflow = readFileSync(
@@ -1851,7 +1853,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(preflightStep).toContain("--skip-deployed-secret-check");
     expect(preflightStep).toContain("STAGING_REFRESH_ALLOW_CREDITED_PROVIDER_READS");
     expect(preflightStep).toContain("STAGING_REFRESH_NO_SCHEDULED_OVERLAP_CONFIRMED");
-    expect(preflightStep).toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
+    expect(preflightStep).not.toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
     expect(preflightStep).toContain("SCRYDEX_API_KEY");
     expect(preflightStep).toContain("STRIPE_SECRET_KEY");
     expect(preflightStep).toContain("EASYPOST_API_KEY");
@@ -3029,6 +3031,52 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewPostgresTemplate).toContain(".Values.global.tolerations");
   });
 
+  it("#10022: snapshots preview Postgres after the smokes and captures server diagnostics only after a successful deploy", () => {
+    const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const stepIndex = (name) => {
+      const index = deployJob.indexOf(`- name: ${name}\n`);
+      expect(index).toBeGreaterThan(-1);
+      return index;
+    };
+    const deployStep = workflowStep(deployJob, "Deploy preview Kubernetes release");
+    const snapshotStep = workflowStep(deployJob, "Snapshot preview Postgres connections");
+    const diagnosticsStep = workflowStep(deployJob, "Capture preview server diagnostics");
+
+    expect(deployStep).toContain("id: preview_deploy\n");
+    expect(stepIndex("Smoke check")).toBeLessThan(stepIndex("Stripe money smoke"));
+    expect(stepIndex("Stripe money smoke")).toBeLessThan(stepIndex("Snapshot preview Postgres connections"));
+    expect(stepIndex("Snapshot preview Postgres connections")).toBeLessThan(
+      stepIndex("Capture preview server diagnostics"),
+    );
+    expect(deployJob.slice(stepIndex("Capture preview server diagnostics") + 1)).not.toContain("\n      - name:");
+
+    // AC4: always prints only the structural snapshot, and a failed probe never fails the job.
+    expect(snapshotStep).toContain("        if: always()\n");
+    expect(snapshotStep).toContain("        continue-on-error: true\n");
+    expect(snapshotStep).toContain("pnpm run platform:kubernetes-deployment -- preview-postgres-snapshot \\");
+    expect(snapshotStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(snapshotStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
+    expect(snapshotStep).not.toContain("platform:kubernetes-deployment -- diagnostics");
+
+    // AC3: only after a successful deploy, never masking the original failure.
+    expect(diagnosticsStep).toContain("        if: failure() && steps.preview_deploy.outcome == 'success'\n");
+    expect(diagnosticsStep).toContain("        continue-on-error: true\n");
+    expect(diagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics \\");
+    expect(diagnosticsStep).toContain("--preview-postgres true || true");
+    // Deploy failures keep the earlier diagnostics step, which runs before any smoke.
+    expect(workflowStep(deployJob, "Capture preview Kubernetes deploy diagnostics")).toContain(
+      "        if: failure()\n",
+    );
+    expect(stepIndex("Capture preview Kubernetes deploy diagnostics")).toBeLessThan(stepIndex("Smoke check"));
+
+    // The smoke's own timeouts and retries are unchanged.
+    const moneySmokeStep = workflowStep(deployJob, "Stripe money smoke");
+    expect(moneySmokeStep).toContain(
+      "SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.PREVIEW_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}",
+    );
+    expect(moneySmokeStep).toContain("run: pnpm run stripe:money-smoke -- --edge-check --seller-flow");
+  });
+
   it("#4857: previews never publish per-preview DNS or issue their own certificate", () => {
     const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
 
@@ -3381,29 +3429,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(digitaloceanPlatformRunbook).not.toContain(
       "the DigitalOcean deployment helper treats the missing app as no active deployment to wait for",
     );
-  });
-
-  it("opens or updates the quarterly DigitalOcean token rotation issue without DO secrets", () => {
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
-      "name: Platform DigitalOcean Token Rotation Reminder",
-    );
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain('cron: "17 14 6 1,4,7,10 *"');
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toMatch(/\n  workflow_dispatch:\n/);
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("issues: write");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
-      'ROTATION_ISSUE_TITLE: "[ops] Rotate DigitalOcean tokens"',
-    );
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("gh issue edit");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("gh issue create");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_ACCESS_TOKEN");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_READONLY_TOKEN");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_REGISTRY_TOKEN");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("90-day expiration");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
-      "DigitalOcean Control Panel -> Account -> API -> Tokens",
-    );
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).not.toContain("${{ secrets.");
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("GH_TOKEN: ${{ github.token }}");
   });
 
   it("uploads Terraform plan text artifacts without retaining raw JSON plans", () => {

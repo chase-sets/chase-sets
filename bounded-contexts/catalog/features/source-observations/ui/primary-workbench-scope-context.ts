@@ -368,6 +368,79 @@ export function compactExpansionRouteScopeMatchesProviderScope(
   );
 }
 
+// Whether an import-scope string still names the structured selection it travels
+// with: a product coordinate must match exactly, otherwise the deepest selected
+// level (expansion, then series, then product line) must appear among its
+// segments and any selected language must agree.
+export function importScopeMatchesStructuredSelection(
+  importScope: string,
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+): boolean {
+  if (scope?.productId) return importScope === importScopeFromScopeContext(scope);
+  const segments = new Set(importScope.split(":").map(normalizedScopeSegment).filter(Boolean));
+  const optionalSegmentMatches = (value: string | null | undefined) =>
+    !value || segments.has(normalizedScopeSegment(value));
+  const requiredSegmentMatches = (value: string | null | undefined) =>
+    Boolean(value && segments.has(normalizedScopeSegment(value)));
+  const pairMatches = (left: string | null | undefined, right: string | null | undefined) =>
+    !left && !right ? true : requiredSegmentMatches(left) || requiredSegmentMatches(right);
+
+  if (!optionalSegmentMatches(scope?.languageCode)) {
+    return false;
+  }
+  if (scope?.expansionId || scope?.expansionName) {
+    return pairMatches(scope.expansionId, scope.expansionName);
+  }
+  if (scope?.seriesId || scope?.seriesName) {
+    return pairMatches(scope.seriesId, scope.seriesName);
+  }
+  if (scope?.productLineId || scope?.productLineName) {
+    return pairMatches(scope.productLineId, scope.productLineName);
+  }
+
+  return true;
+}
+
+// Whether a provider scope row sits inside a structured set selection, ignoring
+// language so the row's own language can fill an unselected one.
+export function providerScopeMatchesStructuredSet(
+  row: SourceObservationIntegrationScope,
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+): boolean {
+  if (!scope || row.provider_key !== scope.providerKey) {
+    return false;
+  }
+
+  return (
+    optionalScopeSegmentMatches(row.product_line_id, scope.productLineId) &&
+    optionalScopeSegmentMatches(row.product_line_name, scope.productLineName) &&
+    optionalScopeSegmentMatches(row.series_id, scope.seriesId) &&
+    optionalScopeSegmentMatches(row.series_name, scope.seriesName) &&
+    pairedScopeSegmentMatches(row.expansion_id, row.expansion_name, scope.expansionId, scope.expansionName)
+  );
+}
+
+function optionalScopeSegmentMatches(rowValue: string, selectedValue: string | null | undefined): boolean {
+  return !selectedValue || normalizedScopeSegment(rowValue) === normalizedScopeSegment(selectedValue);
+}
+
+function pairedScopeSegmentMatches(
+  rowId: string,
+  rowName: string,
+  selectedId: string | null | undefined,
+  selectedName: string | null | undefined,
+): boolean {
+  const rowSegments = new Set([rowId, rowName].map(normalizedScopeSegment).filter(Boolean));
+  return Boolean(
+    (selectedId && rowSegments.has(normalizedScopeSegment(selectedId))) ||
+    (selectedName && rowSegments.has(normalizedScopeSegment(selectedName))),
+  );
+}
+
+function normalizedScopeSegment(value: string | null | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
 export function comparableImportScopeKey(importScope: string | null, providerKey: string | null): string | null {
   const key = importScopeFromScopeContext(scopeContextFromImportScope(importScope, providerKey));
   return comparableScopeValue(key, providerKey);

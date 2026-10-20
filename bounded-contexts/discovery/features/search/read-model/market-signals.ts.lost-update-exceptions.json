@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-4e150542fc7601f8",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/search/read-model/market-signals.ts",
+      "kind": "UPDATE",
+      "table": "discovery_search_items",
+      "digest": "3a105314c2d4d717454bb969c54e148574fdb762d983ec6b4c18633fcce3824f"
+    },
+    "classification": "key-only but safe",
+    "reason": "The active-table single-item market signal is a total recomputation from the current visible-listing read state and does not derive its value from the prior search row."
+  }
+]

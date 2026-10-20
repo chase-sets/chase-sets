@@ -36,6 +36,7 @@
             "enum": [
               "alerting",
               "application-runtime",
+              "credential-rotation",
               "delivery-board",
               "digitalocean-ops",
               "managed-postgres-boundary",

@@ -79,10 +79,6 @@ A **Buyer Offer Policy** is one buyer account's explicit, versioned authority fo
 
 The **Maximum Unit Item Amount** is the buyer-consented ceiling on one selected Offer's per-unit item price. It is not a checkout total and excludes later shipping, fees and tax.
 
-## Item Commitment Allowance
-
-The **Item Commitment Allowance** is the lifetime cumulative item amount a Buyer Offer Policy may authorize at seller acceptance, in its immutable authorized currency. Accepted unit item amount times quantity consumes this allowance atomically. Consumption never returns automatically after payment failure, cancellation or refund, and pause, resume and revision never reset it. Only fresh buyer consent may increase the allowance. It is not spend, funding, escrow or a wallet balance.
-
 ## Offer
 
 An **Offer** is an account-submitted purchase proposal for a specific product, price, and quantity submitted as marketplace-wide demand.

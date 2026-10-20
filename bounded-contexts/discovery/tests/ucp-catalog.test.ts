@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDiscoveryUcpHandlers } from "../support/ucp-support/catalog";
+import {
+  boundPresentment,
+  createDiscoveryUcpHandlers,
+  LISTINGS_OMITTED_CONTENT,
+  lookupInputs,
+  minorBoundToDecimal,
+  PRICE_FILTER_IGNORED_CONTENT,
+  resolveUcpCurrency,
+  selectPresentment,
+  toUcpMinorUnits,
+  type UcpCatalogListing,
+} from "../support/ucp-support/catalog";
 import type { DiscoveryItemsServices } from "../support/item-support/runtime";
 
 function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryItemsServices {
@@ -233,5 +244,156 @@ describe("Discovery UCP catalog handlers", () => {
       ucp: { status: "error" },
       messages: [{ code: "product_not_found" }],
     });
+  });
+});
+
+type Listing = UcpCatalogListing;
+const listing = (id: string, amount: string, currency: string): Listing => ({
+  listing_id: id,
+  price_amount: amount,
+  price_currency_code: currency,
+});
+
+describe("UCP currency and minor units follow decision C2 and C3", () => {
+  it("resolves ISO currencies and exact minor units", () => {
+    expect(resolveUcpCurrency(" usd ")).toEqual({ code: "USD", exponent: 2 });
+    expect(resolveUcpCurrency("JPY")).toEqual({ code: "JPY", exponent: 0 });
+    expect(resolveUcpCurrency("KWD")).toEqual({ code: "KWD", exponent: 3 });
+    expect(resolveUcpCurrency("ZZZ")).toBeNull();
+    expect(resolveUcpCurrency("US")).toBeNull();
+    expect(resolveUcpCurrency("")).toBeNull();
+    const numberFormat = vi.spyOn(Intl, "NumberFormat");
+    numberFormat.mockImplementation(function () {
+      return { resolvedOptions: () => ({ maximumFractionDigits: undefined }) } as Intl.NumberFormat;
+    } as unknown as typeof Intl.NumberFormat);
+    try {
+      expect(resolveUcpCurrency("USD")).toBeNull();
+    } finally {
+      numberFormat.mockRestore();
+    }
+    expect(toUcpMinorUnits("1000.00", "JPY")).toEqual({ currency: "JPY", minor: 1000 });
+    expect(toUcpMinorUnits("1000.50", "JPY")).toBeNull();
+    expect(toUcpMinorUnits("1.00", "KWD")).toEqual({ currency: "KWD", minor: 1000 });
+    expect(toUcpMinorUnits("12.345", "USD")).toBeNull();
+    expect(toUcpMinorUnits("90071992547409.90", "USD")).toEqual({
+      currency: "USD",
+      minor: 9007199254740990,
+    });
+    expect(toUcpMinorUnits("9007199254740992", "USD")).toBeNull();
+    expect(minorBoundToDecimal(1000, "USD")).toBe("10.00");
+    expect(minorBoundToDecimal(5, "USD")).toBe("0.05");
+    expect(minorBoundToDecimal(0, "USD")).toBe("0.00");
+    expect(minorBoundToDecimal(1000, "JPY")).toBe("1000");
+    expect(minorBoundToDecimal(1000, "KWD")).toBe("1.000");
+    expect(minorBoundToDecimal(Number.MAX_SAFE_INTEGER, "KWD")).toBe("9007199254740.991");
+  });
+});
+
+describe("UCP presentment follows decision case 4", () => {
+  it("chooses request currency or deterministic fallback and omits other listings", () => {
+    const mixed = [listing("usd_10", "10.00", "USD"), listing("eur_9", "9.00", "EUR")];
+    expect(selectPresentment(mixed, undefined)).toEqual({
+      currency: "EUR",
+      listings: [mixed[1]],
+      priceRange: { min: 900, max: 900 },
+      omittedListings: true,
+    });
+    expect(selectPresentment(mixed, "JPY")).toEqual({
+      currency: "EUR",
+      listings: [mixed[1]],
+      priceRange: { min: 900, max: 900 },
+      omittedListings: true,
+    });
+    expect(selectPresentment(mixed, "ZZZ")).toEqual({
+      currency: "EUR",
+      listings: [mixed[1]],
+      priceRange: { min: 900, max: 900 },
+      omittedListings: true,
+    });
+    expect(selectPresentment(mixed, "USD")).toEqual({
+      currency: "USD",
+      listings: [mixed[0]],
+      priceRange: { min: 1000, max: 1000 },
+      omittedListings: true,
+    });
+    expect(selectPresentment(mixed, "EUR")).toEqual({
+      currency: "EUR",
+      listings: [mixed[1]],
+      priceRange: { min: 900, max: 900 },
+      omittedListings: true,
+    });
+    expect(
+      selectPresentment(
+        [listing("usd_10", "10.00", "USD"), listing("usd_bad", "12.345", "USD"), listing("eur_9", "9.00", "EUR")],
+        "USD",
+      ),
+    ).toEqual({
+      currency: "USD",
+      listings: [listing("usd_10", "10.00", "USD")],
+      priceRange: { min: 1000, max: 1000 },
+      omittedListings: true,
+    });
+    const m2 = [listing("usd_10", "10.00", "USD"), listing("usd_12", "12.00", "USD"), listing("eur_9", "9.00", "EUR")];
+    expect(selectPresentment(m2, undefined)).toEqual({
+      currency: "USD",
+      listings: [m2[0], m2[1]],
+      priceRange: { min: 1000, max: 1200 },
+      omittedListings: true,
+    });
+    expect(selectPresentment(m2, "EUR")).toEqual({
+      currency: "EUR",
+      listings: [m2[2]],
+      priceRange: { min: 900, max: 900 },
+      omittedListings: true,
+    });
+    expect(selectPresentment([listing("bad", "1000.50", "JPY")], undefined)).toBeNull();
+    expect(selectPresentment([listing("bad", "10.00", "ZZZ")], undefined)).toBeNull();
+    expect(selectPresentment([listing("one", "10.00", "USD")], "EUR")).toEqual({
+      currency: "USD",
+      listings: [listing("one", "10.00", "USD")],
+      priceRange: { min: 1000, max: 1000 },
+      omittedListings: false,
+    });
+  });
+});
+
+describe("UCP lookup bounds and inputs follow the currency-delta boundary", () => {
+  it("filters only matching-currency bounds and correlates featured inputs", () => {
+    const usd = selectPresentment(
+      [listing("usd_10", "10.00", "USD"), listing("usd_12", "12.00", "USD"), listing("eur_9", "9.00", "EUR")],
+      undefined,
+    )!;
+    expect(boundPresentment(usd, { currency: "USD", min: 1100 })).toMatchObject({
+      listings: [usd.listings[1]],
+      priceRange: { min: 1200, max: 1200 },
+      ignored: false,
+    });
+    expect(boundPresentment(usd, { currency: "USD", min: 1300 })).toBeNull();
+    const eur = selectPresentment([listing("usd_10", "10.00", "USD"), listing("eur_9", "9.00", "EUR")], "EUR")!;
+    expect(boundPresentment(eur, { currency: "EUR", min: 1100 })).toBeNull();
+    expect(boundPresentment(usd, { currency: "JPY", min: 1 })).toMatchObject({ ignored: true, listings: usd.listings });
+    expect(boundPresentment(usd, { min: 1100 })).toMatchObject({ ignored: true, listings: usd.listings });
+    expect(
+      lookupInputs([
+        { requestedId: "a", productId: "p" },
+        { requestedId: "b", productId: "p" },
+        { requestedId: "a", productId: "p" },
+        { requestedId: "x", productId: null },
+      ]),
+    ).toEqual([
+      {
+        id: "p",
+        inputs: [
+          { id: "a", match: "featured" },
+          { id: "b", match: "featured" },
+        ],
+      },
+    ]);
+    expect(PRICE_FILTER_IGNORED_CONTENT).toBe(
+      "Price filter was not applied where its currency was absent or unsupported, or where a product is not priced only in that currency.",
+    );
+    expect(LISTINGS_OMITTED_CONTENT).toBe(
+      "Some listings for this product were omitted because their price could not be presented in this product's currency.",
+    );
   });
 });

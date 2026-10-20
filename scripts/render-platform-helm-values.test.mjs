@@ -837,6 +837,7 @@ describe("render platform Helm values", () => {
       "/.well-known",
       "/ucp",
       "/mcp",
+      "/channel-connector",
       "/api/payments/provider/webhooks",
       "/api/settlement/provider/money-movement/webhooks",
       "/api/notifications/provider/email/webhooks",
@@ -846,6 +847,46 @@ describe("render platform Helm values", () => {
     ]);
     expect(doksIngress.hosts[0].paths.slice(0, -1).every((route) => route.service === "platform-api")).toBe(true);
   });
+
+  // #9985: the browser extension's connector credential mount
+  // (`/channel-connector/oauth`, bounded-contexts/channels/context.json) is
+  // served by platform-api on the same origin as `/account/channels`; without
+  // this route the web catch-all answers it with a "Page not found" page.
+  it.each([
+    [
+      "staging",
+      () => buildDoksIngressValues({ env: { DOKS_INGRESS_TARGET: "203.0.113.10" } }),
+      "marketplace.staging.chasesets.com",
+    ],
+    [
+      "production with the marketplace served",
+      () =>
+        buildDoksIngressValues({
+          environment: "production",
+          env: { PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20", PRODUCTION_MARKETPLACE_SERVED: "true" },
+        }),
+      "marketplace.chasesets.com",
+    ],
+    [
+      "preview",
+      () => buildPreviewDoksIngressValues({ previewIdentifier: "pr-123" }),
+      "pr-123-marketplace.preview.chasesets.com",
+    ],
+  ])(
+    "routes /channel-connector to platform-api ahead of / on every %s host",
+    (_environment, render, marketplaceHost) => {
+      const doksIngress = render();
+
+      expect(doksIngress.hosts.map((host) => host.host)).toContain(marketplaceHost);
+      for (const host of doksIngress.hosts) {
+        const paths = host.paths.map((route) => route.path);
+        const connectorIndex = paths.indexOf("/channel-connector");
+
+        expect(host.paths[connectorIndex], host.host).toEqual({ path: "/channel-connector", service: "platform-api" });
+        expect(connectorIndex, host.host).toBeLessThan(paths.indexOf("/"));
+      }
+    },
+  );
 
   it("renders DOKS live ingress hosts after the staging serving flag flips", () => {
     const stagingValues = buildPlatformHelmStagingValues({
@@ -1115,9 +1156,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 135,
-      "platform-bootstrap": 64,
-      "platform-worker": 137,
+      "platform-api": 134,
+      "platform-bootstrap": 63,
+      "platform-worker": 136,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

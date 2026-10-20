@@ -172,6 +172,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): current DOKS deployment workflow, durable Terraform state ownership, recovery, and destructive-plan approval boundaries; [ADR 0018](./adr/0018-doks-compute-runtime.md) records the pre-launch compute migration decision.
 - [DigitalOcean DOKS Foundation](../infrastructure/digitalocean/doks/README.md): ADR 0018-aligned DOKS cluster, node-pool, and DOCR integration Terraform scaffold; #4044 remains open until live DigitalOcean evidence is recorded.
 - [DOKS Platform Operations](./runbooks/doks-platform-operations.md): Kubernetes operator runbook for rollout status, diagnostics, rollback, runtime Secret rotation, ingress, certificates, and bootstrap-hook drills.
+- [Credential Rotation](./runbooks/credential-rotation.md): credential inventory, daily credential age and liveness levels, alert response, and the rotation GitHub App.
 - [Admin Shell Smoke Matrix](./runbooks/admin-shell-smoke-matrix.md): admin shell, actor, link, API topology, download, SSE, and durable-job release evidence matrix.
 - [Admin Workflows Staging QA](./runbooks/admin-workflows-staging-qa.md): support-safe admin actor matrix, evidence rules, and representative state checks for deployed staging QA.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.

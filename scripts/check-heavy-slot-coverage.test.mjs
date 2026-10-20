@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, test } from "vitest";
 import { checkHeavySlotCoverage } from "./check-heavy-slot-coverage.mjs";
 import {
@@ -12,9 +13,10 @@ import {
   isDatabaseVitestRun,
   isFocusedVitestFileRun,
 } from "./lib/heavy-slot.mjs";
-import setupScriptBatteryHeavySlot from "./lib/heavy-slot-script-battery.mjs";
+import setupScriptBatteryHeavySlot, { inheritedOwnerScriptTests } from "./lib/heavy-slot-script-battery.mjs";
 import { defineWorkspaceTestConfig } from "../vitest.shared.mjs";
 
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = [];
 afterAll(() => {
   for (const root of temporaryRoots) rmSync(root, { recursive: true, force: true });
@@ -38,6 +40,21 @@ function createControllerFixture() {
   return { checkout, marker };
 }
 
+function createScriptProjectFixture() {
+  const fixture = createControllerFixture();
+  const root = path.dirname(fixture.checkout);
+  for (const relativePath of inheritedOwnerScriptTests) {
+    const target = path.join(root, relativePath);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, "export {};");
+  }
+  return { ...fixture, root };
+}
+
+function scriptProject(root, filters, watch = false) {
+  return { vitest: { filenamePattern: filters }, config: { root, watch } };
+}
+
 function initializeTrackedFixture(root, files) {
   for (const [relativePath, contents] of Object.entries(files)) {
     const target = path.join(root, relativePath);
@@ -53,11 +70,14 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
   const expectedEntrypoints = [
     "contracts/market-estimate-display/vitest.config.ts",
     "contracts/order-groups/vitest.config.ts",
+    "contracts/tcgplayer-market-observations/vitest.config.ts",
     "deployables/platform-api/vitest.config.ts",
     "deployables/tcgplayer-operator-extension/vitest.config.ts",
     "infrastructure/stripe-appearance/vitest.config.ts",
     "playwright.config.ts",
     "scripts/browser-e2e-probe.mjs",
+    // The handoff command performs two connector builds and therefore uses build admission.
+    "scripts/build-connector-extension-handoff.mjs",
     "scripts/check-structure/brand-foil-proof.mjs",
     "scripts/check-structure/browser-e2e-disclosure-guard.mjs",
     "scripts/check-structure/provider-scope-picker-shape-guard.mjs",
@@ -72,7 +92,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 83);
+  assert.equal(result.entrypoints.length, 85);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -358,10 +378,179 @@ test("custom Vitest runners with directory filters acquire instead of masqueradi
   assert.equal(readFileSync(marker, "utf8"), "vitest-full\n");
 });
 
-test("focused repository guard tests remain a script battery while ordinary focused Vitest stays concurrent", () => {
-  const { checkout, marker } = createControllerFixture();
-  setupScriptBatteryHeavySlot({}, { startDirectory: checkout });
+test("focused script tests stay concurrent while the scripts battery stays exclusive", () => {
+  const { checkout, marker, root } = createScriptProjectFixture();
+  const ordinary = path.join(root, "scripts", "ordinary.test.mjs");
+  writeFileSync(ordinary, "export {};");
+
+  setupScriptBatteryHeavySlot(scriptProject(root, ["scripts/ordinary.test.mjs"]), { startDirectory: checkout });
+  assert.equal(existsSync(marker), false);
+});
+
+test("the scripts battery global setup acquires script-battery for a run with no filters", () => {
+  const { checkout, marker, root } = createScriptProjectFixture();
+  setupScriptBatteryHeavySlot(scriptProject(root, undefined), { startDirectory: checkout });
   assert.equal(readFileSync(marker, "utf8"), "script-battery\n");
+});
+
+test.each([
+  ["directory filter", ["scripts"], {}],
+  ["glob filter", ["scripts/**/*.test.mjs"], {}],
+  ["missing file", ["scripts/missing.test.mjs"], {}],
+  ["non-test file", ["scripts/ordinary.mjs"], {}],
+  ["watch mode", ["scripts/ordinary.test.mjs"], { watch: true }],
+  ["database lifecycle", ["scripts/ordinary.test.mjs"], { env: { npm_lifecycle_event: "test:db" } }],
+  ["database URL", ["scripts/ordinary.test.mjs"], { env: { TEST_DATABASE_URL: "postgres://fixture" } }],
+])("scripts battery global setup acquires script-battery for a %s", (_name, filters, options) => {
+  const { checkout, marker, root } = createScriptProjectFixture();
+  writeFileSync(path.join(root, "scripts", "ordinary.test.mjs"), "export {};");
+  writeFileSync(path.join(root, "scripts", "ordinary.mjs"), "export {};");
+  setupScriptBatteryHeavySlot(scriptProject(root, filters, options.watch ?? false), {
+    startDirectory: checkout,
+    env: options.env,
+  });
+  assert.equal(readFileSync(marker, "utf8"), "script-battery\n");
+});
+
+test.each([
+  ["repo-relative", (relative) => relative],
+  ["absolute", (relative, root) => path.join(root, relative)],
+  ["forward-slash absolute", (relative, root) => path.join(root, relative).replaceAll("\\", "/")],
+  [
+    "vitest-normalized",
+    (relative, root) => path.join(root, relative).replaceAll("\\", "/"),
+    (root) => root.replaceAll("\\", "/"),
+  ],
+  ["dot-relative", (relative) => `./${relative}`],
+  ["line suffix", (relative) => `${relative}:42`],
+  ["backslash", (relative) => relative.replaceAll("/", "\\")],
+])("a listed inherited-owner test keeps the setup admission with %s spelling", (_name, format, formatRoot) => {
+  for (const relative of inheritedOwnerScriptTests) {
+    const { checkout, marker, root } = createScriptProjectFixture();
+    const projectRoot = formatRoot ? formatRoot(root) : root;
+    setupScriptBatteryHeavySlot(scriptProject(projectRoot, [format(relative, root)]), { startDirectory: checkout });
+    assert.equal(readFileSync(marker, "utf8"), "script-battery\n");
+  }
+});
+
+test("a listed inherited-owner test keeps setup admission alongside unlisted files", () => {
+  const { checkout, marker, root } = createScriptProjectFixture();
+  const ordinary = path.join(root, "scripts", "ordinary.test.mjs");
+  writeFileSync(ordinary, "export {};");
+  setupScriptBatteryHeavySlot(scriptProject(root, ["scripts/ordinary.test.mjs", "scripts/verify-ci-local.test.mjs"]), {
+    startDirectory: checkout,
+  });
+  assert.equal(readFileSync(marker, "utf8"), "script-battery\n");
+});
+
+const inheritedOwnerWaivers = Object.freeze({
+  "scripts/browser-e2e-probe.test.mjs": "browser probe is not an inherited-owner dependent",
+  "scripts/change-scope.test.mjs": "change-scope fixtures do not spawn a guarded child",
+  "scripts/check-structure/authoritative-stream-read-classification.test.mjs":
+    "static classification does not spawn the guard",
+  "scripts/check-structure/brand-foil-sites.test.mjs": "brand-foil checks do not spawn the guard",
+  "scripts/check-structure/brand-mark-representations.test.mjs": "icon checks do not spawn the guard",
+  "scripts/check-structure/browser-e2e-disclosure-guard.test.mjs": "disclosure fixture does not spawn the guard",
+  "scripts/check-structure/provider-scope-picker-shape-guard.test.mjs":
+    "provider shape fixture does not spawn the guard",
+  "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs":
+    "regenerator fixture does not spawn the guard",
+  "scripts/digitalocean-platform-config.test.mjs": "workspace fixture does not spawn the guard",
+  "scripts/identity-creation-position-guard.test.mjs": "position fixture does not spawn the guard",
+  "scripts/ordering-test-profile.test.mjs": "workspace fixture does not spawn the guard",
+  "scripts/process.test.mjs": "process helper does not spawn a guarded child",
+  "scripts/provider-object-disposition/browser-boundary/install-ci.test.mjs":
+    "browser fixture does not spawn the guard",
+  "scripts/provider-object-disposition/browser-boundary/installation-cycle.test.mjs":
+    "browser fixture does not spawn the guard",
+  "scripts/provider-object-disposition/browser-boundary/ownership-controls.test.mjs":
+    "browser fixture does not spawn the guard",
+  "scripts/provider-object-disposition/test-window-browser-admission.test.mjs":
+    "browser fixture does not spawn the guard",
+  "scripts/provider-object-disposition/test-window-main.test.mjs": "browser fixture does not spawn the guard",
+  "scripts/public-web-help-category-response-budget.test.mjs": "budget test owns its direct probe admission",
+  "scripts/route-census/admission.test.mjs": "route census does not spawn the guard",
+  "scripts/route-census/partition-scope.test.mjs": "route census does not spawn the guard",
+  "scripts/route-census/publication.test.mjs": "route census does not spawn the guard",
+  "scripts/run-e2e-suite.test.mjs": "suite test does not spawn a guarded child",
+  "scripts/run-workspaces.test.mjs": "workspace test owns its child admission",
+  "scripts/verify-static-scoped.test.mjs": "scoped gate owns its aggregate admission",
+  "scripts/check-heavy-slot-coverage.test.mjs": "inventory owner; inert fixture controllers only",
+});
+
+function deriveInheritedOwnerCandidates(root = repositoryRoot) {
+  const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean)
+    .map((file) => file.replaceAll("\\", "/"));
+  const guardedEntrypoints = tracked.filter((file) => {
+    if (!file.startsWith("scripts/") || file.startsWith("scripts/lib/heavy-slot")) return false;
+    if (file.endsWith(".test.mjs") || file.endsWith(".md")) return false;
+    if (!/\.[cm]?[jt]sx?$/.test(file)) return false;
+    const source = readFileSync(path.join(root, file), "utf8");
+    return source.includes("acquireHeavySlot(");
+  });
+  const inheritedOwnerTokenPattern =
+    /CHASE_SETS_HEAVY_SLOT_ID|CHASE_SETS_HEAVY_SLOT_TRANSPORT|findHeavySlotClient\(|acquireHeavySlot\(/;
+  return tracked
+    .filter((file) => file.startsWith("scripts/") && file.endsWith(".test.mjs"))
+    .filter((file) => {
+      const source = readFileSync(path.join(root, file), "utf8");
+      return (
+        guardedEntrypoints.some((entrypoint) => source.includes(path.posix.basename(entrypoint))) ||
+        inheritedOwnerTokenPattern.test(source)
+      );
+    })
+    .sort();
+}
+
+function classifyInheritedOwnerCandidates(
+  candidates,
+  listed = inheritedOwnerScriptTests,
+  waivers = inheritedOwnerWaivers,
+) {
+  const listedSet = new Set(listed);
+  const waivedSet = new Set(Object.keys(waivers));
+  return {
+    unclassified: candidates.filter((candidate) => !listedSet.has(candidate) && !waivedSet.has(candidate)),
+    overlapping: candidates.filter((candidate) => listedSet.has(candidate) && waivedSet.has(candidate)),
+    staleListed: listed.filter((candidate) => !candidates.includes(candidate)),
+    staleWaived: [...waivedSet].filter((candidate) => !candidates.includes(candidate)),
+  };
+}
+
+test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
+  const candidates = deriveInheritedOwnerCandidates();
+  const classification = classifyInheritedOwnerCandidates(candidates);
+  assert.equal(candidates.length, 30);
+  assert.equal(inheritedOwnerScriptTests.length, 5);
+  assert.deepEqual(classification, {
+    unclassified: [],
+    overlapping: [],
+    staleListed: [],
+    staleWaived: [],
+  });
+  assert.equal(
+    Object.values(inheritedOwnerWaivers).every(
+      (reason) => typeof reason === "string" && reason.length > 0 && !reason.includes("\n"),
+    ),
+    true,
+  );
+});
+
+test("candidate derivation fails closed for an unclassified guarded dependent", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "heavy-slot-inherited-owner-fixture-"));
+  temporaryRoots.push(root);
+  initializeTrackedFixture(root, {
+    "scripts/guarded-entrypoint.mjs":
+      'import { acquireHeavySlot } from "./lib/heavy-slot.mjs";\nacquireHeavySlot("script-battery");\n',
+    "scripts/lib/heavy-slot.mjs": "export function acquireHeavySlot() {}\n",
+    "scripts/unclassified.test.mjs": 'import "./guarded-entrypoint.mjs";\n',
+    "scripts/token-only.test.mjs": 'const ownerToken = "CHASE_SETS_HEAVY_SLOT_ID";\nvoid ownerToken;\n',
+  });
+  const candidates = deriveInheritedOwnerCandidates(root);
+  const classification = classifyInheritedOwnerCandidates(candidates);
+  assert.deepEqual(classification.unclassified, ["scripts/token-only.test.mjs", "scripts/unclassified.test.mjs"]);
 });
 
 test("the canonical Vitest guard runs before consumer global setup", () => {

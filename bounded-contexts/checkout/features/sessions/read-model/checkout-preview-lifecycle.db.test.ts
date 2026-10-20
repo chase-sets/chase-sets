@@ -37,6 +37,7 @@ import { action, loader } from "../../../routes/checkout-session";
 import { evolveCheckoutSession, initialCheckoutSessionState, type CheckoutSessionEvent } from "../domain/domain";
 import { getCheckoutSession } from "./queries";
 import { checkoutSessionRetainedSchemaSql } from "./schema";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
@@ -377,7 +378,7 @@ async function seedSourceHistory() {
 
 async function baseline() {
   activeStep = "cart-to-priced-payment-step";
-  await services.cart.addLine(
+  await cartAttemptDriver(services.cart).addLine(
     {
       accountId: actor.accountId as never,
       catalogItemId,
@@ -486,6 +487,12 @@ describeDb("checkout preview lifecycle", () => {
       pools.checkout,
     );
     await bootstrapContextDatabase(orderingModule, pools.ordering);
+    await pools.ordering.query(
+      `INSERT INTO ordering_account_pages (account_id, display_name, status)
+       VALUES ($1, $1, 'active')
+       ON CONFLICT (account_id) DO UPDATE SET status = 'active'`,
+      [sellerAccountId],
+    );
     for (const module of sourceModules) {
       await bootstrapContextDatabase(module, pools[module.contextName as (typeof sourceNames)[number]]);
     }

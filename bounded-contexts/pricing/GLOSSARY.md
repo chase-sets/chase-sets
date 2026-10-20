@@ -168,7 +168,7 @@ An **Own-Sale Observation** is Pricing's seller-scoped record of one Inventory e
 
 ## Market-Following Offer Target
 
-A **Market-Following Offer Target** is Pricing's proposed unit item amount for a buyer Offer from the exact Product's fresh published Market Price. Pricing floors the market cents adjusted by the authorized nonpositive basis points, then clamps to the buyer's maximum unit item amount; a sub-cent result is held. Preview and attempted application use the same evaluator with their own evaluation instant and published estimate version. Quantity and the lifetime Item Commitment Allowance do not alter the unit target, and an ordinary Offer does not lapse because a target is held.
+A **Market-Following Offer Target** is Pricing's proposed unit item amount for a buyer Offer from the exact Product's fresh published Market Price. Pricing floors the market cents adjusted by the authorized nonpositive basis points, then clamps to the buyer's maximum unit item amount; a sub-cent result is held. Preview and attempted application use the same evaluator with their own evaluation instant and published estimate version. Quantity does not alter the unit target, and an ordinary Offer does not lapse because a target is held.
 
 ## Market-Value Estimate
 
@@ -236,6 +236,16 @@ aggregate, as the Desk halt switch does. Items deep-link to the Desk policy list
 
 A **Repricing Activity Digest** is one seller's count-only summary for a captured Digest Window.
 It is requested once after the evaluation projection has reached every member, never as a partial summary.
+
+## Pricing Health
+
+**Pricing Health** is the Seller Desk page for one explicitly selected active
+Repricing Policy (or the account's sole active policy). Its **Pricing Health
+Verdict** is the newest completed Health Summary matching that policy's current
+body hash. It keeps capture time, missing evidence and currencies explicit.
+Forecast Grades beside it describe platform-wide incumbent goal-version cohorts,
+not seller performance; numeric grade values require the Forecast Ledger policy's
+disclosure minimum (30 listings at launch).
 
 ## Pricing Health Summary
 

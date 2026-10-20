@@ -114,7 +114,11 @@ describe("synthetic staged-import production bootstrap binding, not provider qua
                 .digest("hex"),
               batchDigest: "b".repeat(64),
               composedRows: 1,
-              requests: [0, 1, 2].map((i) => ({ requestId: `synthetic-${i}`, maximumDurationMs: 1000 })),
+              requests: [0, 1, 2].map((i) => ({
+                requestId: `synthetic-${i}`,
+                kind: i === 0 ? "read" : "mutation",
+                maximumDurationMs: 1000,
+              })),
               platformReadMs: 1000,
               parsingMs: 1000,
               reportMs: 1000,

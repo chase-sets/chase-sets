@@ -58,9 +58,7 @@ aspirational suggestion.
     explicit authority to make this finding.
 12. **Evidence proportionality.** An AC that mandates a test architecture or
     artifact rather than an observable property, or an evidence artifact with
-    no named ledger defect class justifying it, is a finding. The registered
-    prediction is that median mandated-evidence lines per slice will fall while
-    ledger defect classes remain covered; review this rule by 2026-09-01.
+    no named ledger defect class justifying it, is a finding.
 13. **Supersession completeness.** Check only existing paths the planned change
     itself replaces or makes redundant. Flag an omitted path, a removal lacking
     an owning acceptance criterion and evidence method, or a removal deferred

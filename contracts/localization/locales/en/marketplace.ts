@@ -4,7 +4,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.marketFollowing.itemOnly":
     "Item-only limits. Checkout fees, shipping, tax and later amounts are not capped.",
   "marketplace.marketFollowing.effects":
-    "The lifetime Item Commitment Allowance tracks accepted item commitments, not payments. Payment failure, cancellation and refunds never restore it. Pause or stop prevents new managed price changes and seller acceptance after it is saved. Already accepted Orders remain commitments at their accepted amount.",
+    "Pause or stop prevents new managed price changes and seller acceptance after it is saved. Already accepted Orders remain commitments at their accepted amount.",
   "marketplace.marketFollowing.status.draft": "Draft",
   "marketplace.marketFollowing.status.active": "Active",
   "marketplace.marketFollowing.status.paused": "Paused",
@@ -19,10 +19,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.marketFollowing.select": "Select {title} ({offer})",
   "marketplace.marketFollowing.current": "Current unit amount: {amount}. Quantity: {quantity}. Currency: {currency}.",
   "marketplace.marketFollowing.maximum": "Maximum unit item amount: {title}",
-  "marketplace.marketFollowing.allowance": "Lifetime Item Commitment Allowance",
-  "marketplace.marketFollowing.allowanceValue": "Lifetime Item Commitment Allowance: {amount}",
-  "marketplace.marketFollowing.consumed": "Accepted item commitments: {amount}",
-  "marketplace.marketFollowing.remaining": "Remaining item commitment allowance: {amount}",
   "marketplace.marketFollowing.empty": "Select an eligible submitted Offer. Accepted Offers cannot be repriced.",
   "marketplace.marketFollowing.advanced": "Advanced adjustment",
   "marketplace.marketFollowing.adjustment": "Market Price adjustment (%)",
@@ -30,8 +26,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.marketFollowing.preview": "Preview selected Offers",
   "marketplace.marketFollowing.resumePreview": "Preview to resume",
   "marketplace.marketFollowing.review": "Review exact Offer authority",
-  "marketplace.marketFollowing.reviewTerms":
-    "Currency: {currency}. Adjustment: {adjustment}%. Lifetime Item Commitment Allowance: {allowance}.",
+  "marketplace.marketFollowing.reviewTerms": "Currency: {currency}. Adjustment: {adjustment}%.",
   "marketplace.marketFollowing.selection":
     "Offer {offer}. Product {product}. Quantity: {quantity}. Maximum unit item amount: {amount}.",
   "marketplace.marketFollowing.evidence": "Market Price: {amount}. Estimate version: {version}. Fresh until: {until}.",
@@ -49,7 +44,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.marketFollowing.held.target-below-minimum":
     "Held: the adjustment is below the minimum unit item amount.",
   "marketplace.marketFollowing.consent":
-    "I authorize these exact selected Offers, quantities, currency, adjustment, maximum unit item amounts and lifetime Item Commitment Allowance. Increasing the allowance or resuming requires a fresh preview and consent.",
+    "I authorize these exact selected Offers, quantities, currency, adjustment and maximum unit item amounts. Resuming requires a fresh preview and consent.",
   "marketplace.marketFollowing.authorize": "Authorize reviewed Offers",
   "marketplace.marketFollowing.pause": "Pause market following",
   "marketplace.marketFollowing.stop": "Stop market following",
@@ -99,7 +94,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.app.root.marketplace.error": "Marketplace error",
   "marketplace.app.root.page.not.found": "Page not found",
   "marketplace.app.root.page.not.found.description": "This marketplace page does not exist or is no longer available.",
-  "marketplace.app.root.unknown.error": "Unknown error",
+  "marketplace.app.root.unknown.error": "Something went wrong. Please try again.",
   "marketplace.app.routes.layout.exit.guest.checkout": "Exit guest checkout",
   "marketplace.app.routes.layout.sign.out": "Sign Out",
   "marketplace.app.routes.layout.add.passkey": "Add a passkey to secure your account",
@@ -536,7 +531,9 @@ export const marketplaceEnglishTranslations = {
     "Search or paste a catalog item ID",
   "marketplace.features.listings.ui.listingCreatePage.search.by.title.or.paste.catalog":
     "Search by title or paste a catalog item ID, then select the matching item.",
-  "marketplace.features.listings.ui.listingCreatePage.catalog.item": "Catalog item",
+  "marketplace.features.listings.ui.listingCreatePage.product.options.changed":
+    "Product options changed since this listing was started. Choose the current options to continue.",
+  "marketplace.features.listings.ui.listingCreatePage.choose.product.option": "Choose an option",
   "marketplace.features.listings.ui.listingCreatePage.searching.catalog.items": "Searching catalog items...",
   "marketplace.features.listings.ui.listingCreatePage.select.a.catalog.item": "Select a catalog item",
   "marketplace.features.listings.ui.listingCreatePage.choose.the.visible.catalog.item":

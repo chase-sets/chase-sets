@@ -100,7 +100,7 @@ const reviewedPreviewWildcardDelta = [
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Converge staging preview DNS-01 token and renewal#28",
+    stepAnchor: "name:Converge staging preview DNS-01 token and renewal#29",
     secretName: "DIGITALOCEAN_ACCESS_TOKEN",
     purpose: "digitalocean-ops",
   },
@@ -178,6 +178,115 @@ const catalogCountPreparationDelta = [
     purpose: "application-runtime",
   },
 ];
+// #9964 delta: the idle draft retirement job builds its own staging kubeconfig the way the preview sweep does.
+const idleDraftRetirementJob = "retire-idle-draft-previews";
+const idleDraftRetirementContextStep = "name:Configure staging Kubernetes context for idle draft retirement#5";
+const idleDraftRetirementDelta = [
+  {
+    file: ".github/workflows/platform-preview-cleanup.yml",
+    jobId: idleDraftRetirementJob,
+    stepAnchor: "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  {
+    file: ".github/workflows/platform-preview-cleanup.yml",
+    jobId: idleDraftRetirementJob,
+    stepAnchor: idleDraftRetirementContextStep,
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  {
+    file: ".github/workflows/platform-preview-cleanup.yml",
+    jobId: idleDraftRetirementJob,
+    stepAnchor: idleDraftRetirementContextStep,
+    secretName: "SPACES_ACCESS_ID",
+    purpose: "spaces-evidence",
+  },
+  {
+    file: ".github/workflows/platform-preview-cleanup.yml",
+    jobId: idleDraftRetirementJob,
+    stepAnchor: idleDraftRetirementContextStep,
+    secretName: "SPACES_SECRET_KEY",
+    purpose: "spaces-evidence",
+  },
+];
+// #9587 threads the canonical staging Admin keys into only the isolated count lifecycle run and receipt-validation steps.
+const catalogCountLifecycleDelta = [
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+];
+// #9962 adds the read-only preview-pool census workflow's provider authority grants.
+const previewPoolCensusDelta = [
+  ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+  ["name:Configure staging Kubernetes context (read-only)#5", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Configure staging Kubernetes context (read-only)#5", "SPACES_SECRET_KEY", "spaces-evidence"],
+  [
+    "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "digitalocean-ops",
+  ],
+  [
+    "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "digitalocean-ops",
+  ],
+  ["uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f", "SPACES_SECRET_KEY", "spaces-evidence"],
+  [
+    "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "digitalocean-ops",
+  ],
+  ["uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e", "SPACES_SECRET_KEY", "spaces-evidence"],
+].map(([stepAnchor, secretName, purpose]) => ({
+  file: ".github/workflows/platform-preview-pool-census.yml",
+  jobId: "census",
+  stepAnchor,
+  secretName,
+  purpose,
+}));
 // #9293 adds only the two deployment values at the five existing Secret-apply sinks.
 const ebayAccountDeletionDelta = [
   {
@@ -239,29 +348,93 @@ const ebayAccountDeletionDelta = [
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
     purpose: "application-runtime",
   },
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
     purpose: "application-runtime",
   },
 ];
+// #9912 delta: the daily credential health check's rotation App key and its step-local liveness secrets.
+const credentialHealthWorkflow = ".github/workflows/platform-credential-health.yml";
+const credentialHealthDelta = [
+  {
+    file: credentialHealthWorkflow,
+    jobId: "metadata",
+    stepAnchor: "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+    secretName: "CREDENTIAL_ROTATION_APP_PRIVATE_KEY",
+    purpose: "credential-rotation",
+  },
+  ...[
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "DIGITALOCEAN_READONLY_TOKEN",
+    "DIGITALOCEAN_REGISTRY_TOKEN",
+    "ENVIRONMENT_SECRETS_TOKEN",
+    "PROJECTS_TOKEN",
+    "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
+    "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+    "SEED_PACKS_SPACES_ACCESS_ID",
+    "SEED_PACKS_SPACES_SECRET_KEY",
+    "SPACES_ACCESS_ID",
+    "SPACES_SECRET_KEY",
+  ].map((secretName) => ({
+    file: credentialHealthWorkflow,
+    jobId: "liveness",
+    stepAnchor: "name:Check credential liveness#2",
+    secretName,
+    purpose: "credential-rotation",
+  })),
+];
+// #9800 reviewed delta: the protected Collections anonymous-owner redaction runner's database boundary grants.
+const collectionsAnonymousOwnerRedactionDelta = [
+  "DIGITALOCEAN_ACCESS_TOKEN",
+  "SPACES_ACCESS_ID",
+  "SPACES_SECRET_KEY",
+].map((secretName) => ({
+  file: ".github/workflows/collections-anonymous-owner-redaction.yml",
+  jobId: "cutover",
+  stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+  secretName,
+  purpose: "managed-postgres-boundary",
+}));
+// #10210 reviewed delta: the read-only Collections cutover authority capture's boundary, kubeconfig and state-pull grants.
+const collectionsCutoverAuthorityCaptureDelta = [
+  ["name:Capture Collections cutover authority#8", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Capture Collections cutover authority#8", "SPACES_SECRET_KEY", "spaces-evidence"],
+  ["name:Configure Kubernetes context#7", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+  ["name:Configure Kubernetes context#7", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Configure Kubernetes context#7", "SPACES_SECRET_KEY", "spaces-evidence"],
+  [
+    "uses:./.github/actions/export-managed-postgres-authority",
+    "DIGITALOCEAN_ACCESS_TOKEN",
+    "managed-postgres-boundary",
+  ],
+  ["uses:./.github/actions/export-managed-postgres-authority", "SPACES_ACCESS_ID", "managed-postgres-boundary"],
+  ["uses:./.github/actions/export-managed-postgres-authority", "SPACES_SECRET_KEY", "managed-postgres-boundary"],
+].map(([stepAnchor, secretName, purpose]) => ({
+  file: ".github/workflows/collections-cutover-authority-capture.yml",
+  jobId: "capture",
+  stepAnchor,
+  secretName,
+  purpose,
+}));
 // #9721 reviewed removal: the retired mandate verifier's URL, auth-token and timeout grants at its five forwarding
-// sinks, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
+// sinks, plus #9876's six retired TCGplayer cookie grants, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
 // the issue's literal sweep stays exact; parity below binds each index to the generated manifest and source fragments.
 const reviewedRetiredVerifierRemovals = new Set([
-  210, 211, 212, 263, 264, 265, 428, 429, 430, 710, 711, 712, 957, 958, 959,
+  210, 211, 212, 263, 264, 265, 398, 428, 429, 430, 709, 710, 711, 712, 956, 957, 958, 959, 1391, 1419, 1483,
 ]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
 const reviewedStepInsertions = [
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 52 },
+  { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
 ];
 
 function applyReviewedStepInsertions(record) {
@@ -456,7 +629,7 @@ describe("managed Postgres authority source generator", () => {
     expectParity(original, historicalGenerated);
 
     const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRetiredVerifierRemovals.has(index));
-    expect(retainedOriginalGrants).toHaveLength(1594);
+    expect(retainedOriginalGrants).toHaveLength(1588);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = {
@@ -466,9 +639,15 @@ describe("managed Postgres authority source generator", () => {
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
         ...catalogCountPreparationDelta,
+        ...idleDraftRetirementDelta,
+        ...catalogCountLifecycleDelta,
+        ...previewPoolCensusDelta,
+        ...credentialHealthDelta,
+        ...collectionsAnonymousOwnerRedactionDelta,
+        ...collectionsCutoverAuthorityCaptureDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1623);
+    expect(expected.grants).toHaveLength(1660);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),

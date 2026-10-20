@@ -1,0 +1,35 @@
+{
+  "advisories": {
+    "minimist": {
+      "module_name": "minimist",
+      "severity": "high",
+      "github_advisory_id": "GHSA-xvch-5gv4-984h",
+      "patched_versions": ">=1.2.6",
+      "findings": [
+        {
+          "version": "1.2.5",
+          "paths": ["root>vitest>minimist"],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ]
+    },
+    "semver": {
+      "module_name": "semver",
+      "severity": "moderate",
+      "github_advisory_id": "GHSA-c2qf-rxjj-qqgw",
+      "patched_versions": ">=7.5.2",
+      "findings": [
+        {
+          "version": "7.5.1",
+          "paths": ["root>semver"],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ]
+    }
+  },
+  "metadata": { "vulnerabilities": { "moderate": 1, "high": 1 } }
+}

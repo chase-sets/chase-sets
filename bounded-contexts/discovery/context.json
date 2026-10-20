@@ -532,6 +532,15 @@
               "readModelTable": "discovery_offer_demand_matches"
             }
           ]
+        },
+        {
+          "routePath": "/account/saved-lists/recent",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "discovery_saved_list_picker"
+            }
+          ]
         }
       ]
     }
@@ -670,6 +679,43 @@
           "kinds": ["pending-projection", "refreshable-catching-up"],
           "behavior": "Item-detail listing redirects carry Marketplace command receipts and listing publish/update semantic handoffs back to the selected sell listing surface; the loader forwards the receipt into the Discovery item read so the Discovery market projection catches up before rendering the newly published or updated listing."
         }
+      }
+    },
+    {
+      "id": "discovery.saved-list-addition-picker-self-refresh",
+      "owner": "discovery",
+      "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["search", "category", "item-detail"],
+        "actions": ["Commit Saved List addition and reopen picker"],
+        "command": "Collections Saved List create-and-add or add command",
+        "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"],
+        "files": [
+          "bounded-contexts/discovery/routes/search.tsx",
+          "bounded-contexts/discovery/support/route-support/item-detail/action.ts"
+        ]
+      },
+      "destination": {
+        "routeIds": ["search", "category", "item-detail"],
+        "apiContextName": "discovery",
+        "apiRoutePath": "/account/saved-lists/recent",
+        "readModelTables": ["discovery_saved_list_picker"],
+        "transientRecovery": {
+          "kinds": ["pending-projection", "refreshable-catching-up"],
+          "behavior": "The Saved List commit retains an opaque platform token in the picker component state; the next picker preparation resolves it and forwards only the Collections receipt to Discovery's exact picker dependency."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.test.tsx",
+          "bounded-contexts/discovery/support/request-support/saved-list-addition.test.ts",
+          "bounded-contexts/discovery/features/saved-list-addition/read-model/saved-list-picker-freshness.db.test.ts"
+        ]
       }
     },
     {
@@ -925,9 +971,15 @@
         "route-action:bounded-contexts/discovery/routes/search.tsx",
         "fetcher-submit:bounded-contexts/discovery/routes/search.tsx:H291fe7ad6435#1"
       ],
+      "commandAttempt": {
+        "writes": [{ "surface": "route-action:search commit-bulk-add", "kind": "cart.add-lines", "target": "cart" }],
+        "stream": "Checkout checkout.command-attempt-v1-<fingerprint> beside the buyer cart stream",
+        "lookup": "Checkout GET /account|/guest/command-attempts/:attemptId, issued once on a possible-send loss",
+        "replay": "The browser mints one attempt id per deliberate bulk commit; Send the same add again resubmits that id and Checkout returns the first vector with zero appends."
+      },
       "visibleDestination": {
         "routeId": "search",
-        "description": "Search bulk add and Add to List stay on the browse page and render command-owned Checkout or Collections snapshots. Client-side request keys suppress stale snapshots when the visible Result Set or Product changes before the POST resolves."
+        "description": "Search bulk add stays on the browse page and renders command-owned Checkout snapshots. Client-side request keys suppress stale snapshots when the visible Result Set changes before the POST resolves."
       },
       "proof": {
         "authoritativeResponse": "The route action returns the Discovery preview plus Checkout bulk counts or the Collections Saved List aggregate snapshot from the owning command response.",
@@ -937,6 +989,49 @@
           "bounded-contexts/discovery/routes/search-route.bulk-add.test.tsx",
           "bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.test.tsx",
           "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "discovery.saved-list-addition-picker-self-refresh",
+      "owner": "discovery",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "fetcher-submit:bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.tsx:H7f1ccc11975d#1",
+        "fetcher-submit:bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.tsx:H7f1ccc11975d#2"
+      ],
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["search", "item-detail"],
+        "actions": ["Commit Saved List addition and reopen picker"],
+        "command": "Collections Saved List create-and-add or add command",
+        "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"],
+        "files": [
+          "bounded-contexts/discovery/routes/search.tsx",
+          "bounded-contexts/discovery/support/route-support/item-detail/action.ts"
+        ]
+      },
+      "visibleDestination": {
+        "routeIds": ["search", "item-detail"],
+        "apiContextName": "discovery",
+        "apiRoutePath": "/account/saved-lists/recent",
+        "readModelTables": ["discovery_saved_list_picker"],
+        "transientRecovery": {
+          "kinds": ["pending-projection", "refreshable-catching-up"],
+          "behavior": "The Saved List commit retains an opaque platform token in picker component state; the next picker preparation resolves it and forwards only the Collections receipt to Discovery's exact picker dependency. Expired receipts fall back to an ordinary picker read, while unresolved tokens and freshness timeouts use localized retryable copy."
+        }
+      },
+      "proof": {
+        "authoritativeResponse": "The Collections command response carries its commit receipt; the Discovery route mints the compact token before returning JSON, and the picker reads only the Discovery-owned recent-list projection after the platform exact-dependency wait.",
+        "tests": [
+          "bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.test.tsx",
+          "bounded-contexts/discovery/support/request-support/saved-list-addition.test.ts",
+          "bounded-contexts/discovery/features/saved-list-addition/read-model/saved-list-picker-freshness.db.test.ts"
         ]
       }
     },
@@ -980,8 +1075,18 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:Hd8587c34fa67#1"
+        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:Hd8587c34fa67#1",
+        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:He499123e61ef#1"
       ],
+      "commandAttempt": {
+        "writes": [
+          { "surface": "route-action:item-detail add-to-cart", "kind": "cart.add-line", "target": "cart" },
+          { "surface": "route-action:item-detail buy-best-match", "kind": "cart.add-line", "target": "cart" }
+        ],
+        "stream": "Checkout checkout.command-attempt-v1-<fingerprint> beside the buyer cart stream",
+        "lookup": "Checkout GET /account|/guest/command-attempts/:attemptId, issued once on a possible-send loss",
+        "replay": "The browser mints one attempt id per deliberate add; Send the same add again resubmits that id and Checkout returns the first result with zero appends."
+      },
       "visibleDestination": {
         "routeId": "item-detail",
         "description": "The item-detail add-to-cart fetcher remains on the Detail Page and returns the committed Checkout cart-line id, version, status, item title, and quantity so the cart count and success notice do not depend on a stale cart projection. The success notice's View cart link carries the same Checkout command receipt as an afterWrite fresh-write token plus the Checkout-owned semantic add-line post-write handoff (viewCartHref), so /account/cart can treat signed-in or anonymous empty reads as pending only for this add-line intent while remove-to-empty or normal visits keep the ordinary empty-cart state."

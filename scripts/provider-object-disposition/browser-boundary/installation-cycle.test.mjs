@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 const { execute, admit } = vi.hoisted(() => ({ execute: vi.fn(), admit: vi.fn() }));
 vi.mock("node:child_process", () => ({
   execFile: Object.assign(vi.fn(), { [Symbol.for("nodejs.util.promisify.custom")]: execute }),
+  spawn: vi.fn(),
 }));
 vi.mock("../test-window-browser.mjs", () => ({ assertBrowserAdmission: admit }));
 import { installationCycle, withInstallationCycle } from "./installation-cycle.mjs";
@@ -97,6 +98,58 @@ it("a removal census refusal reproduces ready-outer cleanup failure without rein
   expect(execute).toHaveBeenCalledTimes(1);
   expect(admit).not.toHaveBeenCalled();
   expect(output).toHaveBeenCalledWith(
-    'installed-boundary per-case ready-outer cleanup: FAIL; {"status":1,"signal":null,"stdoutBytes":198,"stderrBytes":114,"redacted":true,"truncated":false}',
+    'installed-boundary per-case ready-outer cleanup: FAIL; {"status":1,"signal":null,"stdoutBytes":198,"stderrBytes":114,"removalStage":"remove-ownership-census","removalWitness":null,"redacted":true,"truncated":false}',
   );
+});
+
+it("a per-case cleanup failure forwards only the validated removal witness and keeps the original case error", async () => {
+  // Synthetic candidate start drift (#10023 S10), not recovered historical output.
+  const witness =
+    "provider-boundary-removal-witness:v1;predicate=identity-drift;records=10,1,100,1,2,initial,admitted,launcher|10,1,101,1,2,initial,admitted,launcher;start-drift=1;image-drift=0;repeated-pid=0;chain-length=0\n";
+  const stdout = Buffer.from(
+    "provider-boundary-cleanup-stage:remove-installation\n" +
+      "provider-boundary-installer-stage:source-location\n" +
+      "provider-boundary-installer-stage:remove-ownership\n" +
+      "provider-boundary-cleanup-installer-status:1\n",
+  );
+  const refused =
+    "provider-boundary-installer-refused:remove-ambiguous-owner\n" +
+    "provider-boundary-cleanup-refused:remove-installation\n";
+  for (const [detail, removalStage, forwarded] of [
+    [witness, "remove-ambiguous-owner", witness],
+    [witness.replace("start-drift=1", "start-drift=0"), "unknown", null],
+    [witness.replace(";chain-length=0\n", ";chain-length=0;SYNTHETIC_PRIVATE\n"), "unknown", null],
+    [witness + "SYNTHETIC_PRIVATE\n", "unknown", null],
+  ]) {
+    execute.mockClear();
+    admit.mockClear();
+    const primary = new Error("original-case-error");
+    execute.mockRejectedValueOnce({ code: 1, stdout, stderr: Buffer.from(detail + refused) });
+    const output = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      withInstallationCycle("SYNTHETIC", async () => {
+        throw primary;
+      }),
+    ).rejects.toBe(primary);
+    expect(primary.recovered).toBe(false);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(admit).not.toHaveBeenCalled();
+    expect(output).toHaveBeenCalledTimes(1);
+    const [line] = output.mock.calls[0];
+    const prefix = "installed-boundary per-case SYNTHETIC cleanup: FAIL; ";
+    expect(line.startsWith(prefix)).toBe(true);
+    expect(JSON.parse(line.slice(prefix.length))).toEqual({
+      status: 1,
+      signal: null,
+      stdoutBytes: stdout.length,
+      stderrBytes: Buffer.byteLength(detail + refused),
+      removalStage,
+      removalWitness: forwarded,
+      redacted: true,
+      truncated: false,
+    });
+    expect(line).not.toContain("SYNTHETIC_PRIVATE");
+    if (!forwarded) expect(line).not.toContain("records=");
+    output.mockRestore();
+  }
 });

@@ -298,6 +298,8 @@ describe("Terraform state database URL export", () => {
       "catalog-integration-staging-reset.yml",
       "catalog-provider-refresh-watch.yml",
       "checkout-order-readiness-trace.yml",
+      "collections-anonymous-owner-redaction.yml",
+      "collections-cutover-authority-capture.yml",
       "marketplace-provider-proof-status.yml",
       "platform-postgres-growth-evidence.yml",
       "platform-postgres-slow-query-digest.yml",

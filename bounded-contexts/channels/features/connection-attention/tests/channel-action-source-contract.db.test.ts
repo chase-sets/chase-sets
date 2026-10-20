@@ -39,7 +39,7 @@ describeDb("channel-action canonical bounded page", () => {
     }).load({ accountId, now: "2026-09-13T01:00:00Z" });
     expect(items).toHaveLength(100);
     expect(new Set(items.map((item) => item.id)).size).toBe(100);
-    expect(count).toBe(5);
+    expect(count).toBe(6);
     return items;
   }
   it("keeps a newer critical health item ahead of 100 older manual-ready info connections", async () => {
@@ -251,7 +251,7 @@ describeDb("channel-action-source-contract", () => {
       const items = await source.load(queueContext());
       expect(items).toHaveLength(100);
       expect(new Set(items.map((item) => item.id)).size).toBe(100);
-      expect(count).toBe(5);
+      expect(count).toBe(6);
       expect(items.some((item) => item.id === `channel-action:${healthId}`)).toBe(true);
       expect(items.filter((item) => item.summary.params?.orderCount === 1)).toHaveLength(99);
     });

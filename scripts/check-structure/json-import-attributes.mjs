@@ -28,7 +28,8 @@ function scriptKind(relativeFile) {
   return relativeFile.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 }
 
-function sourceFile(relativeFile, content) {
+function sourceFile(relativeFile, content, work) {
+  if (work) work.fullParses.push(relativeFile);
   return ts.createSourceFile(
     relativeFile,
     content,
@@ -41,7 +42,8 @@ function sourceFile(relativeFile, content) {
   );
 }
 
-function trackedPaths(rootDir) {
+function trackedPaths(rootDir, work) {
+  work.gitSubprocesses += 1;
   return new Set(
     execFileSync("git", ["-C", rootDir, "ls-files"], { encoding: "utf8" })
       .split(/\r?\n/)
@@ -50,7 +52,9 @@ function trackedPaths(rootDir) {
   );
 }
 
-function gitGrepPaths(rootDir, patterns) {
+function gitGrepPaths(rootDir, patterns, work) {
+  work.gitSubprocesses += 1;
+  work.wholeTreeScans += 1;
   try {
     return execFileSync(
       "git",
@@ -136,8 +140,7 @@ function isValueDeclaration(declaration) {
   return true;
 }
 
-function declarationRecords(relativeFile, content) {
-  const source = sourceFile(relativeFile, content);
+function declarationRecords(source) {
   return source.statements.flatMap((statement) => {
     if (
       !(ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) ||
@@ -159,33 +162,97 @@ function declarationRecords(relativeFile, content) {
   });
 }
 
-function createRecordReader(readContent) {
+function createSourceReader(readContent, work) {
+  const sources = new Map();
+  return (relativeFile) => {
+    if (!sources.has(relativeFile)) {
+      sources.set(relativeFile, sourceFile(relativeFile, readContent(relativeFile), work));
+    }
+    return sources.get(relativeFile);
+  };
+}
+
+function createImportReader(readContent) {
+  const imports = new Map();
+  return (relativeFile) => {
+    if (!imports.has(relativeFile)) {
+      imports.set(relativeFile, ts.preProcessFile(readContent(relativeFile), true, true).importedFiles);
+    }
+    return imports.get(relativeFile);
+  };
+}
+
+function createRecordReader(readSource) {
   const records = new Map();
   return (relativeFile) => {
     if (!records.has(relativeFile)) {
-      records.set(relativeFile, declarationRecords(relativeFile, readContent(relativeFile)));
+      records.set(relativeFile, declarationRecords(readSource(relativeFile)));
     }
     return records.get(relativeFile);
   };
 }
 
-function createContentReader(rootDir, paths) {
+function createContentReader(rootDir, paths, work) {
   const contents = new Map();
   return (relativeFile) => {
     if (!paths.has(relativeFile)) return null;
     if (!contents.has(relativeFile)) {
+      work.fileReads.push(relativeFile);
       contents.set(relativeFile, readFileSync(path.join(rootDir, relativeFile), "utf8"));
     }
     return contents.get(relativeFile);
   };
 }
 
-function moduleClosure({ seeds, paths, packages, readContent, readRecords, localOnly = false }) {
+function moduleClosure({
+  seeds,
+  paths,
+  packages,
+  readContent,
+  readRecords,
+  readImports,
+  localOnly = false,
+  targets,
+  work,
+}) {
+  const reverse = new Map();
+  const indexed = new Set();
+  const toIndex = [...seeds];
+  while (toIndex.length > 0) {
+    const current = toIndex.pop();
+    if (indexed.has(current) || !paths.has(current) || !sourceExtensionSet.has(path.posix.extname(current))) continue;
+    indexed.add(current);
+    for (const { fileName } of readImports(current)) {
+      const resolved = localOnly
+        ? fileName.startsWith(".")
+          ? resolveRelative(current, fileName, paths)
+          : null
+        : resolveSpecifier({ importer: current, specifier: fileName, paths, packages });
+      if (!resolved || !sourceExtensionSet.has(path.posix.extname(resolved))) continue;
+      if (!reverse.has(resolved)) reverse.set(resolved, new Set());
+      reverse.get(resolved).add(current);
+      toIndex.push(resolved);
+    }
+  }
+  const relevant = new Set();
+  const toMark = [...targets].filter((target) => indexed.has(target));
+  while (toMark.length > 0) {
+    const current = toMark.pop();
+    if (relevant.has(current)) continue;
+    relevant.add(current);
+    toMark.push(...(reverse.get(current) ?? []));
+  }
+  const receipt = { seeds, indexed: indexed.size, relevant: [...relevant].sort(), size: 0 };
+  work.closures.push(receipt);
   const closure = new Set();
   const pending = [...seeds];
   while (pending.length > 0) {
     const current = pending.pop();
     if (closure.has(current) || !paths.has(current) || !sourceExtensionSet.has(path.posix.extname(current))) continue;
+    // The compiler preprocessor over-selects (including type-only edges).
+    // Only the full AST below can prove an execution edge. A branch with no
+    // possible path to a manifest importer cannot affect any disposition.
+    if (!relevant.has(current)) continue;
     const content = readContent(current);
     if (content === null) continue;
     closure.add(current);
@@ -199,7 +266,12 @@ function moduleClosure({ seeds, paths, packages, readContent, readRecords, local
       if (resolved && sourceExtensionSet.has(path.posix.extname(resolved))) pending.push(resolved);
     }
   }
+  receipt.size = closure.size;
   return closure;
+}
+
+function workspacePackageJsonPath(workspace) {
+  return normalizePath(path.posix.join(workspace.root, workspace.dirName, "package.json"));
 }
 
 function implementedContexts(packages, rootDir) {
@@ -225,11 +297,10 @@ function implementedContexts(packages, rootDir) {
   });
 }
 
-function readContextManifests(contexts, paths, readContent) {
+function readContextManifests(contexts, readContent) {
   const manifests = new Map();
   const violations = [];
   for (const context of contexts) {
-    if (!paths.has(context.manifestPath)) continue;
     try {
       const manifest = JSON.parse(readContent(context.manifestPath));
       if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
@@ -256,34 +327,36 @@ function contextManifestSpecifiers(packages) {
   return specifiers;
 }
 
-function possibleManifestSource(content, manifestSpecifiers) {
-  return ts
-    .preProcessFile(content, true, true)
-    .importedFiles.some(({ fileName }) => fileName.endsWith(".json") || manifestSpecifiers.has(fileName));
-}
-
-function possibleManifestPaths({ rootDir, paths, readContent, manifestSpecifiers, useGitPrefilter }) {
-  if (!useGitPrefilter) {
-    return [...paths].filter(
-      (relativeFile) =>
-        sourceExtensionSet.has(path.posix.extname(relativeFile)) &&
-        possibleManifestSource(readContent(relativeFile), manifestSpecifiers),
-    );
-  }
-
-  const ordinary = new Set(gitGrepPaths(rootDir, [".json", ...manifestSpecifiers]));
+function possibleManifestPaths({
+  rootDir,
+  paths,
+  packages,
+  readContent,
+  readImports,
+  manifestSpecifiers,
+  contextByManifest,
+  useGitPrefilter,
+  work,
+}) {
   // An escaped module specifier might not contain either ordinary marker in
-  // source text. Every such spelling necessarily contains a backslash, while
-  // every static import/export declaration necessarily contains its keyword.
-  // Their intersection deliberately over-selects and is then parsed by the
-  // authoritative TypeScript AST below.
-  const escaped = new Set(gitGrepPaths(rootDir, ["\\"]));
-  const declarations = new Set(gitGrepPaths(rootDir, ["import", "export"]));
-  for (const relativeFile of escaped) {
-    if (declarations.has(relativeFile)) ordinary.add(relativeFile);
-  }
-  return [...ordinary].filter(
-    (relativeFile) => paths.has(relativeFile) && possibleManifestSource(readContent(relativeFile), manifestSpecifiers),
+  // source text. Every such spelling necessarily contains a backslash.
+  // The text filter only over-selects; the compiler preprocessor decodes the
+  // specifier and the authoritative full AST decides the declaration below.
+  const markers = [".json", "\\", ...manifestSpecifiers];
+  const possible = useGitPrefilter
+    ? gitGrepPaths(rootDir, markers, work)
+    : [...paths].filter(
+        (relativeFile) =>
+          sourceExtensionSet.has(path.posix.extname(relativeFile)) &&
+          markers.some((marker) => readContent(relativeFile).includes(marker)),
+      );
+  return possible.filter(
+    (relativeFile) =>
+      paths.has(relativeFile) &&
+      readImports(relativeFile).some(({ fileName }) => {
+        const resolved = resolveSpecifier({ importer: relativeFile, specifier: fileName, paths, packages });
+        return contextByManifest.has(resolved);
+      }),
   );
 }
 
@@ -306,7 +379,18 @@ function stringProperty(source, propertyName) {
   return value;
 }
 
-function viteExecution({ packages, paths, readContent, readRecords, contextByManifest, contextManifests }) {
+function viteExecution({
+  packages,
+  paths,
+  readContent,
+  readRecords,
+  readSource,
+  readImports,
+  contextByManifest,
+  contextManifests,
+  targets,
+  work,
+}) {
   const files = new Set();
   const apps = [];
 
@@ -317,7 +401,8 @@ function viteExecution({ packages, paths, readContent, readRecords, contextByMan
     const viteConfig = `${workspacePath}/vite.config.ts`;
     const routerConfig = `${workspacePath}/react-router.config.ts`;
     if (!paths.has(viteConfig) || !paths.has(routerConfig)) continue;
-    const routerSource = sourceFile(routerConfig, readContent(routerConfig));
+    work.configParses.push(routerConfig);
+    const routerSource = readSource(routerConfig);
     const appDirectory = stringProperty(routerSource, "appDirectory") ?? "app";
     const routeRoot = resolveRelative(routerConfig, `./${appDirectory}/routes`, paths);
     if (!routeRoot) continue;
@@ -328,7 +413,10 @@ function viteExecution({ packages, paths, readContent, readRecords, contextByMan
       packages,
       readContent,
       readRecords,
+      readImports,
       localOnly: true,
+      targets,
+      work,
     });
     const activeManifests = new Set();
     for (const relativeFile of closure) {
@@ -416,11 +504,13 @@ function directIncludePatterns(source) {
   return patterns;
 }
 
-function vitestIncludePatterns(configFile, readContent, paths) {
-  const source = sourceFile(configFile, readContent(configFile));
+function vitestIncludePatterns(configFile, readSource, paths, work) {
+  work.configParses.push(configFile);
+  const source = readSource(configFile);
   const boundedFactoryModule = importedModuleForBinding(configFile, source, "defineBoundedContextTestConfig", paths);
   if (boundedFactoryModule) {
-    const shared = sourceFile(boundedFactoryModule, readContent(boundedFactoryModule));
+    work.configParses.push(boundedFactoryModule);
+    const shared = readSource(boundedFactoryModule);
     return stringArrayVariable(shared, "boundedContextTestInclude");
   }
   return directIncludePatterns(source);
@@ -449,12 +539,12 @@ function globPattern(pattern) {
   return new RegExp(`${result}$`);
 }
 
-function vitestExecution({ packages, paths, readContent }) {
+function vitestExecution({ packages, paths, readSource, work }) {
   const files = new Set();
   for (const workspace of packages) {
     const configFile = vitestConfigPath(workspace, paths);
     if (!configFile) continue;
-    const patterns = vitestIncludePatterns(configFile, readContent, paths).map(globPattern);
+    const patterns = vitestIncludePatterns(configFile, readSource, paths, work).map(globPattern);
     if (patterns.length === 0) continue;
     const workspacePath = normalizePath(path.posix.join(workspace.root, workspace.dirName));
     const prefix = `${workspacePath}/`;
@@ -493,37 +583,63 @@ function disposition({
 
 export function inspectJsonImportAttributes(options = {}) {
   const rootDir = options.rootDir ?? repoRoot;
-  let paths = options.paths ?? trackedPaths(rootDir);
-  const useGitPrefilter = options.paths === undefined;
+  const work = { gitSubprocesses: 0, wholeTreeScans: 0, fileReads: [], fullParses: [], configParses: [], closures: [] };
+  let paths = options.paths ?? trackedPaths(rootDir, work);
   paths = new Set([...paths].map(normalizePath));
-  const packages = listWorkspacePackages({ repoRoot: rootDir });
-  const readContent = createContentReader(rootDir, paths);
-  const readRecords = createRecordReader(readContent);
-  const contexts = implementedContexts(packages, rootDir);
+  // Unfiltered filesystem discovery only witnesses an index collapse below.
+  // Resolution and context enrollment use Git-index members, so untracked
+  // workspace metadata cannot move the partition.
+  const discoveredPackages = listWorkspacePackages({ repoRoot: rootDir });
+  const packages = discoveredPackages.filter((workspace) => paths.has(workspacePackageJsonPath(workspace)));
+  work.discoveredWorkspaces = discoveredPackages.map(workspacePackageJsonPath);
+  work.enrolledWorkspaces = packages.map(workspacePackageJsonPath);
+  work.indexCandidates = [...paths].filter((file) => sourceExtensionSet.has(path.posix.extname(file))).sort();
+  const readContent = createContentReader(rootDir, paths, work);
+  const readSource = createSourceReader(readContent, work);
+  const readImports = createImportReader(readContent);
+  const readRecords = createRecordReader(readSource);
+  const contexts = implementedContexts(packages, rootDir).filter(({ manifestPath }) => paths.has(manifestPath));
   const contextByManifest = new Map(contexts.map((context) => [context.manifestPath, context]));
-  const contextManifestResult = readContextManifests(contexts, paths, readContent);
-  const nodeFiles = moduleClosure({ seeds: nodeClosureSeeds, paths, packages, readContent, readRecords });
+  const contextManifestResult = readContextManifests(contexts, readContent);
+  const manifestSpecifiers = contextManifestSpecifiers(packages);
+  const candidates = possibleManifestPaths({
+    rootDir,
+    paths,
+    packages,
+    readContent,
+    readImports,
+    manifestSpecifiers,
+    contextByManifest,
+    useGitPrefilter: options.paths === undefined,
+    work,
+  });
+  work.manifestCandidates = [...candidates].sort();
+  const nodeFiles = moduleClosure({
+    seeds: nodeClosureSeeds,
+    paths,
+    packages,
+    readContent,
+    readRecords,
+    readImports,
+    targets: candidates,
+    work,
+  });
   const vite = viteExecution({
     packages,
     paths,
     readContent,
     readRecords,
+    readSource,
+    readImports,
     contextByManifest,
     contextManifests: contextManifestResult.manifests,
+    targets: candidates,
+    work,
   });
-  const vitestFiles = vitestExecution({ packages, paths, readContent });
-  const manifestSpecifiers = contextManifestSpecifiers(packages);
+  const vitestFiles = vitestExecution({ packages, paths, readSource, work });
   const declarations = [];
 
-  const candidates = possibleManifestPaths({
-    rootDir,
-    paths,
-    readContent,
-    manifestSpecifiers,
-    useGitPrefilter,
-  });
   for (const relativeFile of candidates) {
-    const content = readContent(relativeFile);
     for (const record of readRecords(relativeFile)) {
       const resolved = resolveSpecifier({ importer: relativeFile, specifier: record.specifier, paths, packages });
       if (!resolved || !contextByManifest.has(resolved)) continue;
@@ -556,9 +672,10 @@ export function inspectJsonImportAttributes(options = {}) {
     ]),
   );
   const discoveryViolations = [...contextManifestResult.violations];
-  if (contexts.length > 0 && declarations.length === 0) {
+  const witnessContexts = implementedContexts(discoveredPackages, rootDir);
+  if (witnessContexts.length > 0 && declarations.length === 0) {
     discoveryViolations.push(
-      `JSON import-attribute discovery collapsed despite ${contexts.length} implemented context manifest(s)`,
+      `JSON import-attribute discovery collapsed despite ${witnessContexts.length} implemented context manifest(s)`,
     );
   }
   const appsWithoutRegistryEntries = vite.apps.filter((app) => app.activeManifests.size === 0);
@@ -567,7 +684,7 @@ export function inspectJsonImportAttributes(options = {}) {
       `JSON import-attribute Vite discovery collapsed for configured React Router app(s): ${appsWithoutRegistryEntries.map((app) => app.hostName).join(", ")}`,
     );
   }
-  return { parserVersion: ts.version, declarations, partition, discoveryViolations };
+  return { parserVersion: ts.version, declarations, partition, discoveryViolations, work };
 }
 
 export async function validateJsonImportAttributes(options = {}) {

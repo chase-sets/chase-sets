@@ -60,6 +60,7 @@ import { marketplaceChannelInboundClampSchemaMigrations } from "./features/chann
 import { marketplaceBuyerOfferPolicySchemaMigrations } from "./features/offer-policy/read-model/schema";
 import { marketplaceManagedOfferSchemaMigrations } from "./features/offers/read-model/managed-schema";
 import { buildManagedOfferMarketPriceReactions } from "./features/offers/integrations/managed-work";
+import { emitBuyerAccountOfferMatchPatches } from "./features/offers/read-model/projection";
 
 const marketplaceContextManifest = contextManifest as BcContextManifest;
 
@@ -116,7 +117,9 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
   },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const accountProjectionHandlers = buildMarketplaceAccountProjectionHandlers(services.db);
+    const accountProjectionHandlers = buildMarketplaceAccountProjectionHandlers(services.db, {
+      onAccountStatusChanged: (db, event, accountId) => emitBuyerAccountOfferMatchPatches(db, event, accountId),
+    });
 
     return [
       ...buildEventSubscriptionsFromManifest({

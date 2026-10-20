@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { globSync, readFileSync } from "node:fs";
+import { globSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createVitest, parseCLI } from "vitest/node";
@@ -169,6 +169,46 @@ async function captureConsole(action) {
 }
 
 describe("run-workspaces", () => {
+  it("relevance DB excluded from non-DB callers", async () => {
+    const discovery = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/discovery");
+    expect(discovery.packageJson.chaseSets.testProfile).toBe("db");
+    const scripts = discovery.packageJson.scripts;
+    const selected = {};
+    expect(process.env.TEST_DATABASE_URL).toBeUndefined();
+    for (const name of ["test:fast", "test:unit", "test:db", "test:relevance"]) {
+      const { filter, options } = parseCLI(scripts[name]);
+      const vitest = await createVitest("test", {
+        root: discovery.dir,
+        config: "./tests/vitest.config.mjs",
+        watch: false,
+        exclude: options.exclude,
+      });
+      try {
+        selected[name] = (await vitest.globTestSpecifications(filter))
+          .map((spec) => path.relative(discovery.dir, spec.moduleId).replaceAll("\\", "/"))
+          .sort();
+      } finally {
+        await vitest.close();
+      }
+      expect(selected[name].includes("tests/search-relevance.db.test.ts"), name).toBe(
+        name === "test:db" || name === "test:relevance",
+      );
+    }
+    const rootScripts = readJson("package.json").scripts;
+    expect(rootScripts["verify:test"]).toContain("test --exclude-test-profile=db");
+    expect(rootScripts["verify:test"]).toContain("test:unit --test-profile=db");
+    expect(rootScripts["coverage:fast"]).toContain("--exclude-test-profile=db");
+    expect(rootScripts["coverage:fast"]).toContain("test:unit --test-profile=db");
+    const workflow = readFileSync(".github/workflows/platform-pr.yml", "utf8");
+    expect(workflow).toContain("test --exclude-test-profile=db");
+    expect(workflow).toContain("test:unit --test-profile=db");
+    expect(workflow).toContain("DB Profile Tests");
+    if (process.env.DISCOVERY_RELEVANCE_SELECTION_OUT)
+      writeFileSync(
+        process.env.DISCOVERY_RELEVANCE_SELECTION_OUT,
+        `${JSON.stringify({ testDatabaseUrlPresent: false, selected }, null, 2)}\n`,
+      );
+  });
   it("keeps local verify:test on the same non-DB workspace runner used by CI", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
     const verifyTest = packageJson.scripts["verify:test"];
@@ -797,7 +837,7 @@ describe("DB duration scheduling", () => {
       eligible.map((entry) => entry.name).sort(),
     );
     for (const [name, scripts] of [
-      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2"]],
+      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3"]],
       ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
@@ -826,10 +866,38 @@ describe("DB duration scheduling", () => {
       const partitions = await Promise.all(output.invocations.map((args) => discover(scripts[args[3]])));
       const assertCompleteDisjoint = (groups) => expect(groups.flat().sort()).toEqual(aggregate);
       assertCompleteDisjoint(partitions);
-      expect(partitions.map((files) => files.length)).toEqual([1, 3]);
+      expect(partitions.map((files) => files.length)).toEqual([1, 3, 1]);
       const omittedFile = await discover(scripts["test:db:2"].split(/\s+/).slice(0, -1).join(" "));
       expect(() => assertCompleteDisjoint([partitions[0], omittedFile])).toThrow();
       expect(() => assertCompleteDisjoint([...partitions, partitions[0]])).toThrow();
+    } finally {
+      await vitest.close();
+    }
+  });
+
+  it("discovers the payments projection drain DB file exactly once through the commands selected by the runner", async () => {
+    const payments = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/payments");
+    const scripts = payments.packageJson.scripts;
+    const output = await captureDbRun({
+      workspaces: [payments],
+      registry: durationRegistry([durationEntry(payments.name, "test:db", 24)]),
+    });
+    const vitest = await createVitest("test", {
+      root: payments.dir,
+      config: "./tests/vitest.config.mjs",
+      watch: false,
+    });
+    try {
+      const discovered = [];
+      for (const args of output.invocations) {
+        const tokens = scripts[args[3]].split(/\s+/);
+        expect(tokens.slice(0, 4)).toEqual(["vitest", "run", "--config", "./tests/vitest.config.mjs"]);
+        discovered.push(...(await vitest.globTestSpecifications(tokens.slice(4))).map((spec) => spec.moduleId));
+      }
+      const drain = path
+        .resolve(payments.dir, "tests/money-consolidation-projection-drain.db.test.ts")
+        .replaceAll("\\", "/");
+      expect(discovered.filter((file) => file === drain)).toHaveLength(1);
     } finally {
       await vitest.close();
     }
@@ -1243,8 +1311,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(66);
-    expect(replay.observations).toHaveLength(90);
+    expect(unitEntries).toHaveLength(67);
+    expect(replay.observations).toHaveLength(91);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {

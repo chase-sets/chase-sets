@@ -62,6 +62,7 @@ export type MutationResult =
       code: string;
       current?: SafeOwner;
       suggestedAddress?: ShippingAddressSnapshot;
+      shippingAddressField?: string;
     }>;
 export type MutationInput = Readonly<{
   actor: ResolvedActor;
@@ -395,6 +396,7 @@ export function createAccountManagementRuntime(
         return {
           outcome: "not-recorded",
           code: error instanceof ShippingAddressFieldError ? "validation-failed" : "shipping-address-undeliverable",
+          ...(error instanceof ShippingAddressFieldError ? { shippingAddressField: error.field } : {}),
         };
       if (error instanceof IdentityDomainError) return conflictResult("owner-state-conflict");
       return { outcome: "indeterminate", code: "INDETERMINATE" };

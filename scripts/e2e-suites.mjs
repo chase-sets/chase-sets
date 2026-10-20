@@ -123,7 +123,13 @@ export const e2eSuites = Object.freeze([
     grep: "@tcgplayer-connector-extension-authority",
     command: ["--filter", "@chase-sets/app-tcgplayer-connector-extension", "run", "test:chromium"],
     requiresDisplay: true,
-    estimatedDurationSeconds: 180,
+    // Measured suite phase, not whole job: solo runs 39190003901 and 39197730983
+    // reported 194 passed in 16.6m and 16.7m. Their whole jobs, with checkout,
+    // install and evidence steps, took 17.38m and 17.77m, about 7m inside the
+    // 25m job limit. Paired with marketplace_account (8.0m) it exceeded that
+    // limit in runs 39233257411 and 39236645773, so it always runs alone.
+    estimatedDurationSeconds: 1002,
+    unpaired: true,
   },
   {
     id: "tcgplayer_operator_extension",
@@ -135,14 +141,26 @@ export const e2eSuites = Object.freeze([
     requiresDisplay: true,
     estimatedDurationSeconds: 60,
   },
+  {
+    id: "rendered_copy",
+    label: "Rendered Copy Sweep",
+    deployable: "marketplace",
+    journeys: ["seeded rendered-copy observations"],
+    grep: "@rendered-copy",
+    estimatedDurationSeconds: 900,
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
 const suitesById = new Map(e2eSuites.map((suite) => [suite.id, suite]));
-const allMarketplaceSuiteIds = e2eSuites.filter((suite) => suite.deployable === "marketplace").map((suite) => suite.id);
+const allMarketplaceSuiteIds = e2eSuites
+  .filter((suite) => suite.deployable === "marketplace" && suite.id !== "rendered_copy")
+  .map((suite) => suite.id);
 const allAdminWebSuiteIds = e2eSuites.filter((suite) => suite.deployable === "admin-web").map((suite) => suite.id);
 const allBrowserSuiteIds = e2eSuites
-  .filter((suite) => suite.deployable === "marketplace" || suite.deployable === "admin-web")
+  .filter(
+    (suite) => suite.id !== "rendered_copy" && (suite.deployable === "marketplace" || suite.deployable === "admin-web"),
+  )
   .map((suite) => suite.id);
 const defaultSuiteBatchSize = 2;
 const fallbackEstimatedSuiteDurationSeconds = 300;
@@ -159,7 +177,7 @@ const browserRuntimePatterns = [
   /^react-router\.config\.[cm]?[tj]s$/,
   /^playwright\.config\.ts$/,
   /^scripts\/e2e-suites\.mjs$/,
-  /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json)$/,
+  /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json|rendered-copy\.ts)$/,
   /^scripts\/validate-responsive-evidence-artifacts\.mjs$/,
   /^scripts\/run-e2e-suite\.mjs$/,
   /^docker-compose\.dev\.yml$/,
@@ -251,6 +269,25 @@ const e2eSpecSuiteOwnership = [
     suites: ["admin_platform"],
   },
   { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/marketplace-shell-header\.spec\.ts$/,
+    suites: ["marketplace_browse"],
+  },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/rendered-copy-sweep\.spec\.ts$/,
+    suites: ["marketplace_account", "marketplace_seller"],
+  },
+  {
+    pattern: /^deployables\/admin-web\/e2e\/rendered-copy-sweep\.spec\.ts$/,
+    suites: [
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_access",
+    ],
+  },
 ];
 
 export const e2eNoSuiteExclusions = Object.freeze([
@@ -560,8 +597,11 @@ export function orderE2eSuiteIds(suiteIds) {
   return [...new Set(suiteIds)].sort((left, right) => (suiteOrder.get(left) ?? 999) - (suiteOrder.get(right) ?? 999));
 }
 
+// A suite declared unpaired gets its own batch; the rest keep duration balancing.
 export function batchE2eSuiteIds(suiteIds, batchSize = defaultSuiteBatchSize) {
-  const orderedSuiteIds = orderE2eSuiteIds(suiteIds);
+  const selectedSuiteIds = orderE2eSuiteIds(suiteIds);
+  const unpairedSuiteIds = selectedSuiteIds.filter((suiteId) => e2eSuiteById(suiteId)?.unpaired === true);
+  const orderedSuiteIds = selectedSuiteIds.filter((suiteId) => !unpairedSuiteIds.includes(suiteId));
   const safeBatchSize = Math.max(1, batchSize);
   const batchCount = Math.ceil(orderedSuiteIds.length / safeBatchSize);
   const batches = Array.from({ length: batchCount }, (_entry, index) => ({
@@ -589,11 +629,32 @@ export function batchE2eSuiteIds(suiteIds, batchSize = defaultSuiteBatchSize) {
     targetBatch.estimatedDurationSeconds += estimatedE2eSuiteDurationSeconds(suiteId);
   }
 
-  return batches.map((batch) => orderE2eSuiteIds(batch.suiteIds).join(","));
+  return [...batches.map((batch) => orderE2eSuiteIds(batch.suiteIds).join(",")), ...unpairedSuiteIds];
 }
 
 export function e2eSuiteById(suiteId) {
   return suitesById.get(suiteId);
+}
+
+export const renderedCopyOwningSuiteIds = Object.freeze([
+  "marketplace_account",
+  "marketplace_seller",
+  "catalog_admin_integrations",
+  "catalog_admin_modeling",
+  "admin_growth",
+  "admin_commerce",
+  "admin_support",
+  "admin_access",
+]);
+
+// Ordinary balancing stays generic. Only browser dispatch isolates this substrate.
+export function batchBrowserE2eSuiteIds(suiteIds) {
+  const dedicated =
+    suiteIds.includes("rendered_copy") || suiteIds.some((id) => renderedCopyOwningSuiteIds.includes(id));
+  return [
+    ...batchE2eSuiteIds(suiteIds.filter((id) => id !== "rendered_copy")),
+    ...(dedicated ? ["rendered_copy"] : []),
+  ];
 }
 
 export function estimatedE2eSuiteDurationSeconds(suiteId) {
@@ -682,7 +743,7 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
   return contextSuiteOwnership.get(contextName) ?? [];
 }
 
-export function e2eSuiteIdsForChangedFile(filePath) {
+function ordinaryE2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
 
   if (
@@ -743,6 +804,18 @@ export function e2eSuiteIdsForChangedFile(filePath) {
   }
 
   return boundedContextSuiteIdsForChangedFile(normalized, boundedContextMatch[1] ?? "");
+}
+
+export function e2eSuiteIdsForChangedFile(filePath) {
+  const suites = ordinaryE2eSuiteIdsForChangedFile(filePath);
+  const seedFamily =
+    /^bounded-contexts\/(?:auth|catalog|checkout|commercial-terms|fulfillment|identity|inventory|marketplace|ordering|payments|platform-operations|pricing|settlement)\/support\/(?:runtime-support|authoring-support)\/seed\.ts$/.test(
+      normalizeFilePath(filePath),
+    );
+  return orderE2eSuiteIds([
+    ...suites,
+    ...(seedFamily && !suites.some((id) => renderedCopyOwningSuiteIds.includes(id)) ? ["rendered_copy"] : []),
+  ]);
 }
 
 export function chromiumProbeCallerViolations(workspaces, suites = e2eSuites) {

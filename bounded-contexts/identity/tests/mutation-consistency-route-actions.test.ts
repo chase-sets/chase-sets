@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "@chase-sets/localization";
+import { SHIPPING_ADDRESS_REQUIRED_MESSAGES } from "../features/shipping-addresses/domain/errors";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -151,6 +153,50 @@ function expectLocationPath(location: string, expectedPath: string | RegExp) {
 describe("Identity mutation consistency route actions", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each(["create", "update"])("keyed field envelope preserves the real %s action response", async (intent) => {
+    const shippingAddressId = "adr_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const message = t(SHIPPING_ADDRESS_REQUIRED_MESSAGES.city);
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        if (request.url.includes("/api/auth/session")) return jsonResponse({ actor });
+        requests.push(request);
+        return jsonResponse(
+          { error: { code: "validation_failed", message, details: [{ field: "city", code: "required", message }] } },
+          400,
+        );
+      }),
+    );
+    const result = await accountShippingAddressesAction({
+      request: formRequest("/account/shipping-addresses", {
+        intent,
+        ...(intent === "update" ? { shippingAddressId } : {}),
+      }),
+      params: {},
+      context: undefined,
+    });
+    expect(result).toMatchObject({
+      init: { status: 400 },
+      data: {
+        failure: {
+          kind: "validation",
+          status: 400,
+          code: "validation_failed",
+          intent,
+          classification: "FIELD",
+          message,
+          errors: { fieldErrors: { city: [message] }, formErrors: [] },
+          ...(intent === "update" ? { shippingAddressId } : {}),
+        },
+      },
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0].headers.get("Idempotency-Key")).toBe("9230f01b-7871-420b-9c32-37139f80f749");
+    expect(requests[0].method).toBe(intent === "create" ? "POST" : "PUT");
   });
 
   it("preserves all ten marketplace successes and executes each request once", async () => {

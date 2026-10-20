@@ -86,6 +86,8 @@ const expectedInventory = [
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
   // The owner-transaction adapter forwards the complete request unchanged.
   ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
+  // Synthetic policy discovery rejects streams that reach this bounded lifecycle cap.
+  ["bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts#readStream#1", "10"],
   // The existing corpus includes slice-local .test-support.ts history assertions.
   [
     "bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts#readStream#1",
@@ -112,9 +114,19 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twenty-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twenty-one-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("retains the synthetic Pricing Health lifecycle cap and truncation refusal", () => {
+    const file = "bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site.limit).toBe("10");
+    expect(readSource(file)).toContain("events.length >= 10");
+    expect(errorCodes(mutatedInventory(file, readSource(file).replace("limit: 10", "limit: 11")))).toContain(
+      "inventory-mismatch",
+    );
   });
 
   it("keeps the Identity eligibility adapter's complete read request unchanged", () => {
