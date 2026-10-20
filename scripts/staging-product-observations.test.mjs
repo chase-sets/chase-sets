@@ -202,6 +202,10 @@ describe("grants only an observed test mode", () => {
     ["a nested mode", JSON.stringify(modeBody({ mode: { value: "test" } }))],
     ["an array", JSON.stringify([modeBody()])],
     ["a duplicate key hiding live", `{"mode":"live",${JSON.stringify(modeBody()).slice(1)}`],
+    [
+      "a duplicate key spelled with an escape",
+      `{"mode":"live","mod\\u0065":"test",${JSON.stringify(omit(modeBody(), "mode")).slice(1)}`,
+    ],
     ["text that is not JSON", "<html>sign in</html>"],
   ])("refuses %s as an unexpected schema", async (_case, text) => {
     expect(await observeProviderMode({ timeoutMs, transport: answering(() => reply(text)) })).toStrictEqual(
@@ -379,6 +383,11 @@ describe("binds both readiness schemas", () => {
     [
       "a duplicate key hiding a degraded aggregate",
       () => reply('{"status":"degraded","status":"ok","checks":[{"name":"a","status":"ok"}]}'),
+      200,
+    ],
+    [
+      "a duplicate key hiding a degraded check",
+      () => reply('{"status":"ok","checks":[{"name":"a","status":"degraded","status":"ok"}]}'),
       200,
     ],
     ["text that is not JSON", () => reply("<html>ready</html>"), 200],
