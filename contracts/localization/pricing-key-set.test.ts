@@ -5,8 +5,8 @@ import { pricingEnglishTranslations } from "./locales/en/pricing";
 // Tripwire for unintended Pricing locale key changes. Rebaseline this fingerprint
 // in the same PR whenever you intentionally add/remove/rename Pricing keys.
 const englishPricingKeySet = {
-  count: 588,
-  sha256: "a7cf5b794c8fe24c0f24e8b7899cd27d116aa6653e9a75dd668c2d9878259e14",
+  count: 589,
+  sha256: "3499a7f5471e9b6f19260e3bbf09b6b452122530bc7fa4a9dd038d49c4c505be",
 } as const;
 
 describe("pricing locale key set", () => {
