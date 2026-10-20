@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
+  cpSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -14,7 +15,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");
@@ -29,6 +30,8 @@ const seats = [];
 const pwsh = "pwsh";
 // A -Command launch compiles the Add-Type scrubber, about 6 s cold on a hosted runner, past vitest's 5 s default.
 const helperLaunchTimeoutMs = 30_000;
+let sharedPwshHome;
+let privatePwshHome;
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -48,7 +51,9 @@ function helperEnvironment(overrides = {}) {
   const env = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (/^(BW_|BWS_)|^CHASE_SETS_AGENT_SECRETS$|^CHASE_SETS_BWS_EXE$/i.test(name)) continue;
-    env[name] = /^path$/i.test(name) ? withoutRealBws(value) : value;
+    env[name] = /^path$/i.test(name)
+      ? [privatePwshHome, withoutRealBws(value)].filter(Boolean).join(path.delimiter)
+      : value;
   }
   return { ...env, ...overrides };
 }
@@ -72,6 +77,7 @@ const syntheticTierInventory = JSON.stringify({
 function createSeat({
   credential = true,
   bws = {},
+  omitAdapter = false,
   token = `sentinel-token-${randomUUID()}`,
   inventory = syntheticTierInventory,
 } = {}) {
@@ -89,6 +95,7 @@ function createSeat({
     "profile-free-shell.cmd",
     "profile-free-shell.sh",
   ]) {
+    if (omitAdapter && /^profile-free-shell\./.test(name)) continue;
     copyFileSync(path.join(here, name), path.join(root, name));
   }
   copyFileSync(
@@ -102,7 +109,9 @@ function createSeat({
   const shim = path.join(root, isWindows ? "bws.cmd" : "bws");
   writeFileSync(
     shim,
-    isWindows ? `@"${process.execPath}" "${fake}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`,
+    isWindows
+      ? `@echo off\r\nset "CHASE_SETS_FAKE_BWS_CMDLINE=%cmdcmdline%"\r\n"${process.execPath}" "${fake}"\r\n`
+      : `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`,
   );
   if (!isWindows) chmodSync(shim, 0o755);
   return { root, token, shim };
@@ -129,15 +138,6 @@ function runSeat(seat, script, args, env = {}, { encoding } = {}) {
     env: helperEnvironment({ CHASE_SETS_BWS_EXE: seat.shim, ...env }),
     encoding,
   });
-}
-
-function powershellHome() {
-  const result = runPwsh(["-NoProfile", "-NonInteractive", "-Command", "$PSHOME"], {
-    cwd: os.tmpdir(),
-    env: helperEnvironment(),
-  });
-  expect(result.status).toBe(0);
-  return result.stdout.trim();
 }
 
 function writeRuntimeProfile(profile, content) {
@@ -252,9 +252,27 @@ function expectTokenOnlyInBwsEnvironment(seat, result) {
 }
 
 beforeAll(() => {
-  const probe = runPwsh(["-Command", "$PSVersionTable.PSVersion.Major"], { cwd: os.tmpdir(), env: process.env });
+  const probe = runPwsh(["-Command", "$PSHOME"], { cwd: os.tmpdir(), env: process.env });
   expect(probe.status).toBe(0);
-  expect(Number(probe.stdout.trim())).toBeGreaterThanOrEqual(7);
+  sharedPwshHome = probe.stdout.trim();
+  expect(sharedPwshHome).not.toBe("");
+  const sharedProfile = path.join(sharedPwshHome, "profile.ps1");
+  expect(existsSync(sharedProfile)).toBe(false);
+  privatePwshHome = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-private-pwsh-"));
+  cpSync(sharedPwshHome, privatePwshHome, { recursive: true });
+  expect(existsSync(path.join(privatePwshHome, "profile.ps1"))).toBe(false);
+  const version = runPwsh(["-Command", "$PSVersionTable.PSVersion.Major"], {
+    cwd: os.tmpdir(),
+    env: helperEnvironment(),
+  });
+  expect(version.status).toBe(0);
+  expect(Number(version.stdout.trim())).toBeGreaterThanOrEqual(7);
+});
+
+afterAll(() => {
+  const sharedProfile = path.join(sharedPwshHome, "profile.ps1");
+  expect(existsSync(sharedProfile)).toBe(false);
+  rmSync(privatePwshHome, { recursive: true, force: true });
 });
 
 afterEach(() => {
@@ -297,9 +315,11 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
     ["inherited", []],
     ["-NoInheritEnv", ["-NoInheritEnv"]],
   ])("suppresses the nested PowerShell profile at the bws shell boundary (%s)", (_name, flags) => {
-    const seat = createSeat({ bws: { executeShell: true } });
+    const injectedValue = `synthetic-key-${randomUUID()}`;
+    const seat = createSeat({ bws: { executeShell: true, list: secretList([injectedValue]) } });
     const marker = path.join(seat.root, `profile-marker-${randomUUID()}`);
-    const profile = path.join(powershellHome(), "profile.ps1");
+    const profile = path.join(privatePwshHome, "profile.ps1");
+    expect(path.relative(privatePwshHome, profile).startsWith("..")).toBe(false);
     expect(existsSync(profile)).toBe(false);
     writeRuntimeProfile(profile, `Set-Content -LiteralPath '${marker}' profile\n`);
     try {
@@ -313,12 +333,16 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
       expect(positive.status).toBe(0);
       expect(existsSync(marker)).toBe(true);
       rmSync(marker, { force: true });
-      if (!isWindows) expect(existsSync(marker)).toBe(false);
+      expect(existsSync(marker)).toBe(false);
 
-      const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output boundary", ...flags]);
+      const result = runSeat(seat, "with-secrets.ps1", [
+        "-Command",
+        'Write-Output "BWS_ACCESS_TOKEN=$([bool]$env:BWS_ACCESS_TOKEN) KEY_0=$([bool]$env:KEY_0)"',
+        ...flags,
+      ]);
       expect(result.status).toBe(0);
-      expect(result.stdout).toBe("boundary\r\n");
-      if (!isWindows) expect(existsSync(marker)).toBe(false);
+      expect(unixLines(result.stdout)).toBe("BWS_ACCESS_TOKEN=False KEY_0=True\n");
+      expect(existsSync(marker)).toBe(false);
       expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
       expect(bwsCalls(seat)[1].shellContent).toContain("-NoProfile");
     } finally {
@@ -344,9 +368,22 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
     ]);
 
     expect(result.status).toBe(7);
-    expect(result.stdout).toBe("boundary\r\n");
+    expect(unixLines(result.stdout)).toBe("boundary\n");
     expect(result.stderr).toBe("err");
     expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
+  });
+
+  it.each([
+    ["inherited", []],
+    ["-NoInheritEnv", ["-NoInheritEnv"]],
+  ])("forwards the literal Windows shell command without expansion (%s)", (_name, flags) => {
+    const seat = createSeat({ bws: { executeShell: true, list: secretList([`synthetic-key-${randomUUID()}`]) } });
+    const literal = 'a "b" & c | d; ^ %PATH% \\';
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", `Write-Output '${literal}'; exit 7`, ...flags]);
+
+    expect(result.status).toBe(7);
+    expect(unixLines(result.stdout)).toBe(`${literal}\n`);
+    expect(unixLines(result.stderr)).toBe("");
   });
 
   it("forwards bytes that only begin a pattern, including a held tail flushed at end of stream", () => {
@@ -701,6 +738,46 @@ describe("with-secrets.ps1 -ListKeys and -Check", { timeout: helperLaunchTimeout
     expect(command.status).not.toBe(0);
     expect(command.stderr).toContain("404 Not Found");
     expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
+  });
+
+  it("classifies a profile adapter creation failure without leaking exception text", () => {
+    const seat = createSeat({ omitAdapter: true, bws: { list: secretList([`synthetic-key-${randomUUID()}`]) } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output should-not-run"]);
+
+    expect(result.status).toBe(2);
+    expect(unixLines(result.stderr)).toBe("with-secrets: bws-failed\n");
+    expect(result.stdout).toBe("");
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
+    expect(result.stderr).not.toContain("profile-free");
+    expect(result.stderr).not.toContain("should-not-run");
+    expect(readdirSync(os.tmpdir()).filter((name) => name.startsWith("chase-sets-profile-free-")).length).toBe(0);
+  });
+
+  it("scrubs an executed-shell 404 and leaves no profile marker", () => {
+    const seat = createSeat({
+      bws: {
+        executeShell: true,
+        runNotFound: true,
+        list: secretList([`synthetic-key-${randomUUID()}`]),
+        segments: [{ stream: "stderr", text: "Error {{TOKEN}}\n" }],
+      },
+    });
+    const marker = path.join(seat.root, `profile-marker-${randomUUID()}`);
+    const profile = path.join(privatePwshHome, "profile.ps1");
+    expect(existsSync(profile)).toBe(false);
+    writeRuntimeProfile(profile, `Set-Content -LiteralPath '${marker}' profile\n`);
+    try {
+      const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output boundary"]);
+      expect(result.status).not.toBe(0);
+      expect(unixLines(result.stderr)).toContain("[redacted]");
+      expect(result.stderr).not.toContain(seat.token);
+      expect(result.stderr).toContain("404 Not Found");
+      expect(existsSync(marker)).toBe(false);
+      expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
+    } finally {
+      removeRuntimeProfile(profile);
+      rmSync(marker, { force: true });
+    }
   });
 });
 

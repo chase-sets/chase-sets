@@ -307,7 +307,7 @@ function New-ProfileFreeShellAdapter {
     } else {
       $templatePath = Join-Path $PSScriptRoot 'profile-free-shell.sh'
       $target = Join-Path $directory 'profile-free-shell.sh'
-      $escaped = $interpreter.Replace("'", "'\\''")
+      $escaped = $interpreter.Replace("'", "'\''")
     }
     $content = [IO.File]::ReadAllText($templatePath).Replace('__POWERSHELL_PATH__', $escaped)
     [IO.File]::WriteAllText($target, $content, [Text.UTF8Encoding]::new($false))
