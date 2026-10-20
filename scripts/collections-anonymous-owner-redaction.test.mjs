@@ -612,6 +612,10 @@ test("workflow keeps credentials on exporter step and verify offline", () => {
     workflow,
     /environment: \$\{\{ inputs\.target == 'production' && \(inputs\.mode == 'activate' \|\| inputs\.mode == 'redact'\) && 'production-cutover' \|\| inputs\.target \}\}/,
   );
+  assert.match(
+    workflow,
+    /REDACTION_JOB_ENVIRONMENT:\s*\$\{\{ inputs\.target == 'production' && \(inputs\.mode == 'activate' \|\| inputs\.mode == 'redact'\) && 'production-cutover' \|\| inputs\.target \}\}/,
+  );
   assert.match(workflow, /if: inputs.mode != 'verify'/);
   assert.match(workflow, /contents: read/);
   assert.equal((workflow.match(/secrets\./g) ?? []).length, 3);
