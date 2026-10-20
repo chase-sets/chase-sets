@@ -380,8 +380,8 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
         ? state.socialLoginLinks.find(
             (candidate) =>
               candidate.providerName === command.authenticationMethod &&
-              (state.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ?? "active") ===
-                "active",
+              (state.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ??
+                "active") === "active",
           )
         : null;
       assert(
@@ -396,8 +396,8 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
           state.socialLoginLinks.some(
             (candidate) =>
               candidate.providerName !== command.providerName &&
-              (state.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ?? "active") ===
-                "active",
+              (state.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ??
+                "active") === "active",
           ),
         "At least one other method is required.",
       );
@@ -547,8 +547,8 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (state, event)
       };
       return revokedState.socialLoginLinks.some(
         (candidate) =>
-          (revokedState.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ?? "active") ===
-          "active",
+          (revokedState.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ??
+            "active") === "active",
       )
         ? revokedState
         : { ...revokedState, authMethods: revokedState.authMethods.filter((method) => method !== "social-login") };

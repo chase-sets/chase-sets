@@ -375,9 +375,16 @@ describe("Identity API mutation snapshots", () => {
     ]) {
       const credential = await requestJson(app, path, {
         method: "POST",
-        body: JSON.stringify(path.endsWith("social-login-link")
-          ? { providerName: "google", providerSubject: "google-subject", email: "owner@example.com" }
-          : { credentialId: "crd_1", providerName: "google", providerSubject: "google-subject", email: "owner@example.com" }),
+        body: JSON.stringify(
+          path.endsWith("social-login-link")
+            ? { providerName: "google", providerSubject: "google-subject", email: "owner@example.com" }
+            : {
+                credentialId: "crd_1",
+                providerName: "google",
+                providerSubject: "google-subject",
+                email: "owner@example.com",
+              },
+        ),
       });
       expect(credential.response.status).toBe(200);
       expect(credential.body).toEqual(
