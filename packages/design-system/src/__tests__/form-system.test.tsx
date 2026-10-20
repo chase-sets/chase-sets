@@ -796,6 +796,23 @@ describe("form system", () => {
     expect(new FormData(form).get("listing_name")).toBe("Blastoise");
   });
 
+  it("preserves the contents layout class on a disabled RouterForm fieldset", () => {
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        element: (
+          <RouterForm submitting>
+            <TextInput label="Listing name" name="listing_name" defaultValue="Blastoise" />
+          </RouterForm>
+        ),
+      },
+    ]);
+
+    const { container } = render(<RouterProvider router={router} />);
+
+    expect(container.querySelector("fieldset")?.className).toContain("contents");
+  });
+
   it("associates helper text and errors with stable field ids at the same time", () => {
     render(
       <TextInput
