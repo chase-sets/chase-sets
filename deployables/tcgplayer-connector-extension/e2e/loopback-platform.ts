@@ -25,6 +25,10 @@ export async function loopbackPlatform(
   let cookieArrived = false;
   let queryClosed = false;
   let tokenClosed = false;
+  let claimCount = 0;
+  let claimCookieArrived = false;
+  let tokenCookieArrived = false;
+  let redirectTargetCount = 0;
   let state = "";
   let challenge = "";
   let verifier = "";
@@ -36,6 +40,15 @@ export async function loopbackPlatform(
     reply.setHeader("Connection", "close");
     if (await options.handle?.(request, reply)) return;
     const url = new URL(request.url!, "http://127.0.0.1");
+    if (url.pathname === "/forward-redirect") {
+      reply.writeHead(302, { Location: `${origin}/redirect-target` }).end();
+      return;
+    }
+    if (url.pathname === "/redirect-target") {
+      redirectTargetCount++;
+      reply.writeHead(200).end("redirect-target");
+      return;
+    }
     reply.setHeader("Cache-Control", "no-store");
     if (url.pathname === "/api/channels/connections/connection_synthetic/connector-pairing/code") {
       let raw = "";
@@ -104,6 +117,7 @@ export async function loopbackPlatform(
     }
     if (url.pathname === "/channel-connector/oauth/token") {
       tokenCount++;
+      tokenCookieArrived = !!request.headers.cookie;
       let raw = "";
       for await (const chunk of request) raw += chunk;
       const body = JSON.parse(raw);
@@ -137,6 +151,13 @@ export async function loopbackPlatform(
       );
       return;
     }
+    if (url.pathname.endsWith("/claim")) {
+      claimCount++;
+      claimCookieArrived = !!request.headers.cookie;
+      reply.writeHead(401, { "Content-Type": "application/json" });
+      reply.end(JSON.stringify({ error: "invalid-credential" }));
+      return;
+    }
     if (url.pathname.startsWith("/account/channels")) {
       reply.end("<!doctype html><title>Channels</title>");
       return;
@@ -166,7 +187,7 @@ export async function loopbackPlatform(
     release: () => {
       release?.();
     },
-    observation: () => ({ authorizeCount, tokenCount, cookieArrived, queryClosed, tokenClosed }),
+    observation: () => ({ authorizeCount, tokenCount, cookieArrived, queryClosed, tokenClosed, claimCount, claimCookieArrived, tokenCookieArrived, redirectTargetCount }),
     forbidden: () => [
       synthetic.cookieName,
       synthetic.cookieValue,
@@ -184,7 +205,7 @@ export async function loopbackPlatform(
   };
 }
 
-export async function createSyntheticPairingCode(origin: string) {
+export async function createSyntheticPairingCode(origin: string): Promise<string> {
   const response = await fetch(`${origin}/api/channels/connections/connection_synthetic/connector-pairing/code`, {
     method: "POST",
     redirect: "error",
@@ -192,4 +213,5 @@ export async function createSyntheticPairingCode(origin: string) {
     body: "{}",
   });
   if (!response.ok) throw new Error("synthetic-pairing-code-refused");
+  return "synthetic-pairing";
 }

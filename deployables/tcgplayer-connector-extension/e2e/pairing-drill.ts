@@ -1,19 +1,21 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, expect, type BrowserContext, type Page, type Route, type Worker } from "@playwright/test";
+import {
+  chromium,
+  expect,
+  type BrowserContext,
+  type Page,
+  type Response as PlaywrightResponse,
+  type Route,
+  type Worker,
+} from "@playwright/test";
 import { linkIntentOrigins } from "@chase-sets/platform-runtime/link-intents";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
 
 const localOrigin = /^http:\/\/127\.0\.0\.1:\d+$/;
 const providerEnvironment = /^(?:TCGPLAYER_|PROVIDER.*(?:SESSION|CREDENTIAL)|CONNECTOR.*CONFIG_ROOT)/i;
 const forbiddenReceiptValues = ["access_token", "refresh_token", "code_verifier", "Bearer ", "cc_at_", "cc_rt_"];
-
-export type PairingDrillHooks = Readonly<{
-  signIn(context: BrowserContext): Promise<void>;
-  preparePairing(context: BrowserContext): Promise<void>;
-  revoke(context: BrowserContext): Promise<void>;
-}>;
 
 export type DrillRequestRow = Readonly<{ origin: string; source: "worker" | "page"; count: number }>;
 export type PairingDrillReceipt = Readonly<{
@@ -36,14 +38,11 @@ export type PairingDrillInput = Readonly<{
   clientId: string;
   artifactDigest: string;
   signIn(context: BrowserContext): Promise<void>;
-  preparePairing(context: BrowserContext): Promise<void>;
+  preparePairing(context: BrowserContext): Promise<string | void>;
   revoke(context: BrowserContext): Promise<void>;
   /** The callback URI can be changed only by a test control; the default is the pinned extension URI. */
   callbackUri?: string;
-  /** A control can prove the driver refuses an already-active Playwright trace. */
   traceActive?: boolean;
-  /** A test-only response to make the worker claim path exercise its 401 cleanup fence. */
-  reservation?: "none" | "present";
 }>;
 
 function assertPlatformOrigin(value: string) {
@@ -138,14 +137,22 @@ async function forwardWorkerRequest(route: Route, platformOrigin: string) {
   await route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
 }
 
+function assertBoundDist(dist: string, platformOrigin: string, clientId: string) {
+  const manifest = JSON.parse(readFileSync(join(dist, "manifest.json"), "utf8")) as { host_permissions?: unknown };
+  if (!Array.isArray(manifest.host_permissions) || !manifest.host_permissions.includes(`${platformOrigin}/*`))
+    throw new Error("connector-drill-dist-origin-refused");
+  if (!readFileSync(join(dist, "background.js"), "utf8").includes(JSON.stringify(clientId)))
+    throw new Error("connector-drill-dist-client-refused");
+}
+
 export async function runPairingDrill(input: PairingDrillInput): Promise<PairingDrillReceipt> {
   const platformOrigin = assertPlatformOrigin(input.platformOrigin);
   assertIsolatedEnvironment();
-  if (input.traceActive) throw new Error("connector-drill-trace-active");
   if (!input.clientId.startsWith("cc_client_") || input.clientId.length < 4)
     throw new Error("connector-drill-client-id-refused");
   if (!input.artifactDigest || !/^[a-f0-9]{16,128}$/i.test(input.artifactDigest))
     throw new Error("connector-drill-artifact-digest-refused");
+  assertBoundDist(input.dist, platformOrigin, input.clientId);
 
   const requests = new Map<string, DrillRequestRow>();
   const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "connector-drill-")), {
@@ -158,6 +165,8 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
       "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     ],
   });
+  let pageResponse: PlaywrightResponse | null = null;
+  const routeRows: Array<{ origin: string; path: string; source: "worker" | "page" }> = [];
   const record = (url: URL, source: "worker" | "page") => {
     const key = `${url.origin}|${source}`;
     const previous = requests.get(key);
@@ -168,22 +177,22 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     const request = route.request();
     const url = new URL(request.url());
     const source = requestSource(request);
-    console.log(`CONNECTOR_DRILL_ROUTE ${JSON.stringify({ origin: url.origin, path: url.pathname, source })}`);
+    routeRows.push({ origin: url.origin, path: url.pathname, source });
     if (url.origin === new URL(callbackUri).origin && url.pathname === new URL(callbackUri).pathname) {
       record(url, source);
       await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>callback</title>" });
       return;
     }
-    // The OAuth authorize hop is the browser-owned redirect leg. Let Chromium
-    // follow its pinned callback; token, claim and revoke legs still use the
-    // cookie-less Node forwarder below.
-    if (source === "worker" && url.origin === platformOrigin && url.pathname === "/channel-connector/oauth/authorize") {
+    if (source === "page") {
       record(url, source);
       await route.continue();
-      return;
-    }
-    if (source === "page") {
-      await route.continue();
+      if (url.pathname === "/account/channels/connection_synthetic") {
+        try {
+          pageResponse = await request.response();
+        } catch {
+          pageResponse = null;
+        }
+      }
       return;
     }
     if (url.origin === platformOrigin) {
@@ -196,13 +205,27 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
   });
 
   try {
+    if (input.traceActive) await context.tracing.start({ snapshots: false, screenshots: false, sources: false });
+    try {
+      await context.tracing.start({ snapshots: false, screenshots: false, sources: false });
+    } catch {
+      throw new Error("connector-drill-trace-active");
+    }
+    await context.tracing.stop();
     const worker = await workerFor(context);
     await expect.poll(() => worker.evaluate(() => chrome.action.getTitle({})), { timeout: 10_000 }).toBe("unpaired");
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto("data:text/html,<title>connector drill action target</title>");
     await page.bringToFront();
     await input.signIn(context);
-    await input.preparePairing(context);
+    const pairingId = await input.preparePairing(context);
+    await worker.evaluate(async (origin) => {
+      try {
+        await fetch(`${origin}/forward-redirect`, { redirect: "error" });
+      } catch {
+        // A 3xx is refused by the cookie-less forwarder and never followed.
+      }
+    }, platformOrigin);
     await worker.evaluate(async () => {
       try {
         await fetch("https://connector-drill.invalid/canary", { redirect: "error" });
@@ -218,21 +241,40 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     const opened = context.waitForEvent("page", { timeout: 10_000 });
     await triggerAction(context, page);
     const pageOpened = await opened;
-    const response = await pageOpened.waitForEvent("response", {
-      predicate: (candidate) => candidate.url().includes("/account/channels/connection_synthetic"),
-      timeout: 10_000,
-    });
+    await expect.poll(() => pageResponse, { timeout: 10_000 }).not.toBeNull();
+    const response = pageResponse as unknown as { ok(): boolean; status(): number };
     const openedUrl = new URL(pageOpened.url());
     if (openedUrl.pathname !== "/account/channels/connection_synthetic" || !response.ok())
       throw new Error("connector-drill-page-status");
     const pageResponseMs = Date.now() - openedAt;
     if (pageResponseMs > 10_000) throw new Error("connector-drill-page-status");
 
+    await worker.evaluate(() => {
+      const root = globalThis as typeof globalThis & { connectorDrillLifecycle?: string[] };
+      const lifecycle: string[] = [];
+      root.connectorDrillLifecycle = lifecycle;
+      const original = chrome.storage.local.set.bind(chrome.storage.local);
+      Object.assign(chrome.storage.local, { set: (values: Record<string, unknown>) => {
+        const profile = values["channel-connector-profile"] as { state?: string } | undefined;
+        if (profile?.state && lifecycle.at(-1) !== profile.state) lifecycle.push(profile.state);
+        return original(values);
+      } });
+    });
+    await worker.evaluate(() => chrome.alarms.create("connector-work", { when: Date.now() }));
+    await expect
+      .poll(
+        () => worker.evaluate(() => chrome.storage.local.get(["channel-connector-profile"]).then((row) => (row["channel-connector-profile"] as { state?: string } | undefined)?.state ?? "absent")),
+        { timeout: 10_000 },
+      )
+      .toBe("revoked");
+    const lifecycle = await worker.evaluate(() => (globalThis as typeof globalThis & { connectorDrillLifecycle?: string[] }).connectorDrillLifecycle ?? []);
+    if (lifecycle.indexOf("cleanup-pending") < 0 || lifecycle.indexOf("cleanup-pending") > lifecycle.indexOf("revoked"))
+      throw new Error("connector-drill-lifecycle-refused");
     await input.revoke(context);
     const receipt: PairingDrillReceipt = {
       artifactDigest: input.artifactDigest,
       clientIdSuffix: suffix(input.clientId, "client-id"),
-      pairingIdSuffix: suffix("synthetic-pairing", "pairing-id"),
+      pairingIdSuffix: suffix(pairingId ?? "", "pairing-id"),
       pageOpenedPath: openedUrl.pathname,
       pageStatus: response.status(),
       pageResponseMs,
@@ -241,13 +283,16 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
         `${a.origin}|${a.source}`.localeCompare(`${b.origin}|${b.source}`),
       ),
       trace: "none",
-      reservation: input.reservation ?? "none",
-      lifecycle: ["paired-idle"],
+      reservation: "none",
+      lifecycle,
     };
     const serialized = JSON.stringify(receipt);
     if (forbiddenReceiptValues.some((marker) => serialized.includes(marker)))
       throw new Error("connector-drill-receipt-secret");
     return receipt;
+  } catch (error) {
+    if (routeRows.length) console.log(`CONNECTOR_DRILL_ROUTE ${JSON.stringify(routeRows)}`);
+    throw error;
   } finally {
     await context.close();
   }
