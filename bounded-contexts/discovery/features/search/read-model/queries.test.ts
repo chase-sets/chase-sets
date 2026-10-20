@@ -491,7 +491,9 @@ describe("searchDiscoveryItems cursor paging", () => {
 
     const searchCalls = calls.filter((call) => call.sql.includes("discovery_search_items"));
     expect(searchCalls[0]?.sql).toContain("(selected_market.lowest_price_currency_code IS DISTINCT FROM $2");
-    expect(searchCalls[0]?.sql).toContain("OR selected_market.lowest_price_amount IS NULL OR selected_market.lowest_price_amount >= $3::numeric)");
+    expect(searchCalls[0]?.sql).toContain(
+      "OR selected_market.lowest_price_amount IS NULL OR selected_market.lowest_price_amount >= $3::numeric)",
+    );
     expect(searchCalls[0]?.sql).toContain("(selected_market.lowest_price_currency_code IS DISTINCT FROM $2");
     const facet = calls.find((call) => call.sql.includes("option_market AS"));
     expect(facet?.sql).toContain("lowest_price_currency_code");
