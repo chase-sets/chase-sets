@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RouteObject } from "react-router";
@@ -67,6 +67,7 @@ import { alternateListing, baseListing, createItem, variantSchema } from "./item
 const ITEM_PATH = "/items/charizard-base-set-cat_charizard";
 const BUY_FORM = "form#buy-card-buy-now";
 const BUY_NOW = { form: BUY_FORM, submitter: 'button[name="intent"][value="buy-this-listing"]' };
+const MOBILE_BUY_FORM = "form#mobile-buy-card-buy-now";
 const routes: RouteObject[] = [
   { id: "item-detail", path: "/items/:id", loader, action, Component: DiscoveryItemDetailRoute },
   { id: "other", path: "/other", Component: () => <p>Another page</p> },
@@ -161,11 +162,13 @@ async function realtimeSource() {
   return FakeEventSource.instances.at(-1)!;
 }
 
-async function typeQuantity(page: HydratedDocument, quantity: string) {
+async function typeQuantity(
+  page: HydratedDocument,
+  quantity: string,
+  form = page.container.querySelector<HTMLFormElement>(BUY_FORM)!,
+) {
   const user = userEvent.setup();
-  const field = within(page.container.querySelector<HTMLFormElement>(BUY_FORM)!).getByRole("spinbutton", {
-    name: "Quantity",
-  });
+  const field = within(form).getByRole("spinbutton", { name: "Quantity" });
   await user.tripleClick(field);
   await user.keyboard(quantity);
 }
@@ -195,9 +198,27 @@ function submitted(body: URLSearchParams) {
   );
 }
 
-/** The same fields as the rendered Buy form holds them. */
-function rendered(page: HydratedDocument) {
-  const form = page.container.querySelector<HTMLFormElement>(BUY_FORM)!;
+/** Opens a mobile action bar action's bottom sheet. */
+async function openMobileSheet(page: HydratedDocument, action: "Buy" | "Sell") {
+  await userEvent.setup().click(within(page.container).getByRole("button", { name: action }));
+  return screen.getByRole("dialog");
+}
+
+/** The market intent and market book tab the page shows; an open sheet hides them from the accessibility tree. */
+function presentedTabs(page: HydratedDocument) {
+  const options = { hidden: true } as const;
+  const intents = within(within(page.container).getByRole("radiogroup", { name: "Choose market intent", ...options }));
+  const marketBook = within(page.container.querySelector<HTMLElement>("[data-market-book-navigation]")!);
+  return {
+    intent: ["Buy", "Sell", "Watch"].find((name) => intents.queryByRole("radio", { name, checked: true, ...options })),
+    marketBook: ["Listings", "Offers", "Sales", "Details"].find((name) =>
+      marketBook.queryByRole("tab", { name, selected: true, ...options }),
+    ),
+  };
+}
+
+/** The same fields as a rendered Buy form holds them; the desktop rail's form unless another is given. */
+function rendered(page: HydratedDocument, form = page.container.querySelector<HTMLFormElement>(BUY_FORM)!) {
   return submitted(
     new URLSearchParams([...new FormData(form)].map(([name, value]) => [name, String(value)] as [string, string])),
   );
@@ -434,6 +455,36 @@ describe("item detail Buy now entry key", () => {
     expect(rendered(page)).toEqual(chosen);
     const [buy] = await clickBuy(page);
     expect(submitted(buy!)).toEqual(chosen);
+  });
+
+  it("AC3 a display-only patch or a revalidation still closes the mobile sheet and resets the market tabs, keeping the Buy choices and keys", async () => {
+    const page = await show(await open());
+    const user = userEvent.setup();
+    await user.click(within(page.container).getByRole("button", { name: "Select Card Vault listing at $410.00" }));
+    const chosen = rendered(page);
+    const buySheet = await openMobileSheet(page, "Buy");
+    await typeQuantity(page, "2", buySheet.querySelector<HTMLFormElement>(MOBILE_BUY_FORM)!);
+    const sheetChosen = rendered(page, buySheet.querySelector<HTMLFormElement>(MOBILE_BUY_FORM)!);
+    expect(sheetChosen).toMatchObject({ lockedListingId: alternateListing.listing_id, quantity: "2" });
+
+    const source = await realtimeSource();
+    await act(async () => source.emit("projection.patch", DISPLAY_ONLY_PATCH));
+    await waitFor(() => expect(within(page.container).getAllByText(/389\.99/).length).toBeGreaterThan(0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(rendered(page)).toEqual(chosen);
+    const reopened = await openMobileSheet(page, "Buy");
+    expect(rendered(page, reopened.querySelector<HTMLFormElement>(MOBILE_BUY_FORM)!)).toEqual(sheetChosen);
+    await user.click(within(reopened).getByRole("button", { name: "Close" }));
+
+    // The mobile Sell action also moves the market intent to Sell and the market book to Offers.
+    await openMobileSheet(page, "Sell");
+    expect(presentedTabs(page)).toEqual({ intent: "Sell", marketBook: "Offers" });
+    mocks.getItemDetail.mockResolvedValue(item({ subtitle: "Base Set 4/102 Holo Rare (Unlimited)" }));
+    await act(async () => source.emit("sync.required", SYNC_REQUIRED));
+    await waitFor(() => expect(within(page.container).getAllByText(/\(Unlimited\)/).length).toBeGreaterThan(0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(presentedTabs(page)).toEqual({ intent: "Buy", marketBook: "Listings" });
+    expect(rendered(page)).toEqual(chosen);
   });
 
   it("AC3 keeps chosen product options and their key across a realtime remount", async () => {

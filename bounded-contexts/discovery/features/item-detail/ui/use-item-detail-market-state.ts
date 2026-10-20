@@ -72,9 +72,11 @@ export function useItemDetailMarketState({
     initialMarketIntent === "sell" ? "offers" : "listings",
   );
   const [appliedUrlSelectionKey, setAppliedUrlSelectionKey] = useState(urlSelectionKey);
+  const [appliedData, setAppliedData] = useState(data);
+  const urlSelectionChanged = appliedUrlSelectionKey !== urlSelectionKey;
 
   // Only a navigation to another URL selection resets the buyer's choices.
-  if (appliedUrlSelectionKey !== urlSelectionKey) {
+  if (urlSelectionChanged) {
     setAppliedUrlSelectionKey(urlSelectionKey);
     setSelections(
       getInitialSelections(
@@ -88,6 +90,11 @@ export function useItemDetailMarketState({
     );
     setSelectedListingId(initialSelectedListingId);
     setSelectedOfferId(initialSelectedOfferId);
+  }
+
+  // A navigation, realtime patch or revalidation resets the market tabs and closes the mobile commerce panel.
+  if (urlSelectionChanged || appliedData !== data) {
+    setAppliedData(data);
     setMarketIntent(initialMarketIntent);
     setMarketBookTab(initialMarketIntent === "sell" ? "offers" : "listings");
     setActiveMobileCommerce(null);
