@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { findAuthoredTextRejection } from "../features/reviews/domain/authored-text-safeguard";
 
 // Source-derived inventory of every caller that authors, transports, wires, or
 // moderates a Listing Evidence description, Review Feedback, Review Response,
@@ -264,6 +265,20 @@ describe("issue-5258-marketplace-ac1 authored text entrypoint inventory", () => 
     const derived = deriveProductionEntrypoints([...repositoryFiles(), { path: plantedPath, source: plantedSource }]);
 
     expect(derived.filter((file) => !Object.hasOwn(inventory, file))).toEqual([plantedPath]);
+  });
+
+  it("runs every seeded Review and description literal through the safeguard", () => {
+    const sources = new Map(repositoryFiles().map((file) => [file.path, file.source]));
+    const seeded = Object.entries(inventory)
+      .filter(([, entry]) => entry.surface === "seed")
+      .flatMap(([file]) =>
+        [...(sources.get(file) ?? "").matchAll(/\b(?:feedback|altText):\s*(["`])((?:(?!\1)[^\\]|\\.)*)\1/g)].map(
+          (match) => match[2]!.replace(/\$\{[^}]*\}/g, "1"),
+        ),
+      );
+
+    expect(seeded.length).toBeGreaterThanOrEqual(5);
+    expect(seeded.filter((text) => findAuthoredTextRejection(text) !== null)).toEqual([]);
   });
 
   it("finds no authored-text entrypoint on any MCP tool surface", () => {
