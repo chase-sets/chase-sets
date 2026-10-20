@@ -181,13 +181,9 @@ export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function 
           {derivedPending ? pendingAnnouncement : ""}
         </div>
       ) : null}
-      {controlsDisabled ? (
-        <fieldset disabled={controlsDisabled} className="contents">
-          {children}
-        </fieldset>
-      ) : (
-        children
-      )}
+      {controlsDisabled
+        ? createElement("fieldset", { disabled: controlsDisabled, className: "contents" }, children)
+        : children}
     </>
   );
   useEffect(() => {
