@@ -278,15 +278,24 @@ test.describe.serial("catalog admin integrations", () => {
     // BulkActionPanel (no hand-rolled WorkbenchDetailPanel selection block). The
     // browser-e2e Catalog seed backs the "Review changes" stage with exactly one
     // selectable row, the changed tcgdex Source Observation
-    // tcgdex_en_base2_60_1st_edition (seedChangedSourceObservationScenario); its
-    // enabled checkbox is the convergence boundary after the provider re-select
-    // revalidates the review slice. Select it and prove the bulk bar surfaces the
-    // consolidated command taxonomy: primary "Preview promotion", secondary "Defer" /
-    // "Clear selection", and the destructive reason-required "Reject" behind a
-    // BulkActionPanel trigger that opens a reason input. Every review row also
-    // carries its own "Preview promotion: <name>" / "Defer: <name>" actions, so the
-    // bar's commands are asserted inside the bar's own action regions.
+    // tcgdex_en_base2_60_1st_edition (seedChangedSourceObservationScenario). Only the
+    // provider-scoped route lists review rows, so wait for the re-select navigation
+    // to commit first. The review table sits in the "Source Observation evidence"
+    // disclosure, which mounted on the unscoped first load and keeps a collapsed
+    // default when that load listed merge candidates, so open it before waiting on
+    // the row. Select it and prove the bulk bar surfaces the consolidated command
+    // taxonomy: primary "Preview promotion", secondary "Defer" / "Clear selection",
+    // and the destructive reason-required "Reject" behind a BulkActionPanel trigger
+    // that opens a reason input. Every review row also carries its own
+    // "Preview promotion: <name>" / "Defer: <name>" actions, so the bar's commands
+    // are asserted inside the bar's own action regions.
+    await expect(page).toHaveURL(new RegExp(`[?&]providerKey=${currentProvider}(?:&|$)`));
     await page.getByRole("button", { name: "Review changes" }).first().click();
+    const sourceObservationEvidenceDisclosure = page
+      .getByRole("button", { name: "Source Observation evidence" })
+      .first();
+    await expect(sourceObservationEvidenceDisclosure).toBeVisible();
+    await clickUntilDisclosureExpanded(sourceObservationEvidenceDisclosure, true);
     const sourceObservationReviewTable = page.getByRole("table", { name: "Source Observation review" });
     const changedReviewRowCheckbox = sourceObservationReviewTable.getByRole("checkbox", {
       name: "Select row tcgdex_en_base2_60_1st_edition",
