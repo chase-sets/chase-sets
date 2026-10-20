@@ -320,7 +320,8 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
       );
     }
     for (const option of options) {
-      if (option === "scope-sync-count-lifecycle") continue;
+      // Dedicated jobs, never matrix journeys.
+      if (option === "scope-sync-count-lifecycle" || option === "scrydex-cache-capture") continue;
       expect(resolveJourneyMatrix(workflowSource, option), option).not.toBeNull();
     }
     const withoutArm = workflowSource.replace("|scope-sync-batch-preview-probe)", ")");
@@ -364,6 +365,8 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
       [scopeSyncBatchPreviewProbeArtifactPath],
       ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
       ["artifacts/catalog-count-lifecycle/receipt.json"],
+      ["artifacts/catalog-scrydex-cache-capture/capture.json"],
+      ["artifacts/catalog-scrydex-cache-capture/capture.json"],
     ]);
 
     const previewUpload = (document) =>
