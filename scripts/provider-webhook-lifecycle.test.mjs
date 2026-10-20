@@ -48,6 +48,12 @@ const input = {
   easyPostApiKey: "EZTKfixture",
 };
 
+function isStripeWebhookListUrl(url) {
+  const requested = new URL(url);
+  const stripeApi = new URL(input.stripeApiBase ?? "https://api.stripe.com");
+  return requested.origin === stripeApi.origin && requested.pathname === "/v1/webhook_endpoints";
+}
+
 describe("provider webhook lifecycle", () => {
   it("retains row 8 unrestricted test-key admission and bounded restricted-key refusal", () => {
     expect(() => assertStripeTestKey({ stripeApiKey: "sk_test_fixture" })).not.toThrow();
@@ -162,7 +168,7 @@ describe("provider webhook lifecycle", () => {
         deleted.push(url);
         return response({ deleted: true });
       }
-      if (url.includes("stripe.com")) {
+      if (isStripeWebhookListUrl(url)) {
         return response({
           object: "list",
           has_more: false,
@@ -195,7 +201,7 @@ describe("provider webhook lifecycle", () => {
         deleted.push(url);
         return response({ deleted: true });
       }
-      if (url.includes("stripe.com")) {
+      if (isStripeWebhookListUrl(url)) {
         const cursor = new URL(url).searchParams.get("starting_after");
         return cursor
           ? response({
@@ -218,12 +224,12 @@ describe("provider webhook lifecycle", () => {
 
   it("fails closed on incomplete pagination and malformed EasyPost responses", async () => {
     const emptyContinuation = async (url) =>
-      url.includes("stripe.com") ? response({ object: "list", has_more: true, data: [] }) : response({ webhooks: [] });
+      isStripeWebhookListUrl(url) ? response({ object: "list", has_more: true, data: [] }) : response({ webhooks: [] });
     await expect(deleteProviderWebhooks(input, { fetch: emptyContinuation })).rejects.toThrow(
       "omitted its continuation cursor",
     );
     const malformedEasyPost = async (url) =>
-      url.includes("stripe.com")
+      isStripeWebhookListUrl(url)
         ? response({ object: "list", has_more: false, data: [] })
         : response({ webhooks: [], has_more: false });
     await expect(deleteProviderWebhooks(input, { fetch: malformedEasyPost })).rejects.toThrow(
