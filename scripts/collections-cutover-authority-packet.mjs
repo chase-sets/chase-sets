@@ -1,8 +1,9 @@
-// Collections cutover authority packet (#10210). `verifyAuthorityPacket` is the 8933-impl-g1
+// Collections cutover authority packet. `verifyAuthorityPacket` is the 8933-impl-g1
 // `authority-packet-completeness` verifier (sha256 1a214a07d64fb4a512d0e6d2ab3c7b24e7b324124f53c17d57d1435801811b7c)
-// ported unchanged: it compares the closed target inventory to the three #8933 captures. A field is complete
-// only as `{ value, source }`; `{ status: "unknown", missingAuthority, hostAction }` is a governed bounded
-// unknown; anything else, a secret-shaped value, an extra target or a recovery-commit floor is invalid.
+// ported unchanged: it compares the closed target inventory to the writer-authority, authority-matrix and
+// runner-binding captures. A field is complete only as `{ value, source }`;
+// `{ status: "unknown", missingAuthority, hostAction }` is a governed bounded unknown; anything else, a
+// secret-shaped value, an extra target or a recovery-commit floor is invalid.
 // Completeness only: it never proves retirement. `applyProviderCapture` folds one read-only CI capture in.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

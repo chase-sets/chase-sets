@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Read-only Collections cutover authority capture (#10210). One run captures one target into one
+// Read-only Collections cutover authority capture. One run captures one target into one
 // `collections-cutover-provider-capture/v1` of counts, names, revisions and digests. Every provider read passes
 // `admitCommand` and every database statement passes `admitStatement`; raw provider output stays in memory, and
 // a read that cannot prove completeness becomes a governed unknown, never an empty set or 0.
