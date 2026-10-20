@@ -191,6 +191,7 @@ describe("scheduled preview cleanup batching", () => {
     expect(destroy.if).toBe("needs.discover-preview-cleanup.outputs.target_count != '0'");
     expect(cleanupMatrixForBatches([])).toEqual({ include: [] });
     expect(discover.outputs.target_count).toBe("${{ steps.targets.outputs.target_count }}");
+    expect(discover.outputs.result).toBe("${{ steps.targets.outputs.result }}");
   });
 
   it("guards Terraform phases, sizes batch timeouts, and carries import identity", () => {
