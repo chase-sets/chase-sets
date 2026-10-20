@@ -1963,20 +1963,23 @@ describe("guest Buy Now freshness probe", () => {
 
   it("builds the signed-in Buy Now action fallback form from the resolved checkout-ready fixture", () => {
     expect(
-      accountBuyNowActionFormForCandidate({
-        previewRequest: {
-          lines: [
-            {
-              listingId: "lst_1",
-              lockedListingId: "lst_locked",
-              productId: "prod_1",
-              productSummary: "Near Mint",
-              selectedOptions: [{ dimensionId: "condition", optionId: "near-mint" }],
-              quantity: 2,
-            },
-          ],
+      accountBuyNowActionFormForCandidate(
+        {
+          previewRequest: {
+            lines: [
+              {
+                listingId: "lst_1",
+                lockedListingId: "lst_locked",
+                productId: "prod_1",
+                productSummary: "Near Mint",
+                selectedOptions: [{ dimensionId: "condition", optionId: "near-mint" }],
+                quantity: 2,
+              },
+            ],
+          },
         },
-      }),
+        "chkentry_0f6c4a5ed1b84bb6a1d0c41f8f6f2a9e",
+      ),
     ).toEqual({
       intent: "buy-this-listing",
       productId: "prod_1",
@@ -1984,6 +1987,7 @@ describe("guest Buy Now freshness probe", () => {
       productSummary: "Near Mint",
       quantity: "2",
       lockedListingId: "lst_locked",
+      entryAttemptKey: "chkentry_0f6c4a5ed1b84bb6a1d0c41f8f6f2a9e",
     });
   });
 
@@ -2023,6 +2027,7 @@ describe("guest Buy Now freshness probe", () => {
           productSummary: "",
           quantity: "1",
           lockedListingId: "lst_1",
+          entryAttemptKey: expect.stringMatching(/^chkentry_[0-9a-f]{32}$/),
         },
         maxRedirects: 0,
         timeout: 45_000,
