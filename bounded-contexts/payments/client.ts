@@ -53,6 +53,12 @@ export type PaymentsSavedCheckoutSetupSession = Readonly<{
   processor_publishable_key?: string | null;
 }>;
 
+/**
+ * One Saved Checkout Instrument Attempt: the loader's account and a canonical UUIDv4 minted per
+ * form before its first submit. Retrying with the same pair replays; it never re-sends.
+ */
+export type SavedPaymentMethodAttempt = Readonly<{ accountId: string; attemptId: string }>;
+
 export type PaymentsPaymentMethodReconciliationResult = Readonly<{
   checked: number;
   updated: number;
@@ -217,7 +223,7 @@ export function createPaymentsApiClient({
       );
     },
     async createSavedPaymentSetupSession(
-      body: Readonly<{ returnUrlPath?: string | null }> = {},
+      body: SavedPaymentMethodAttempt & Readonly<{ returnUrlPath?: string | null }>,
     ): Promise<PaymentsSavedCheckoutSetupSession> {
       return parseJsonResponse(
         await client.account["payment-methods"]["setup-sessions"].$post({
@@ -236,18 +242,26 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async setDefaultPaymentMethod(instrumentId: string): Promise<PaymentsSavedCheckoutInstrument> {
+    async setDefaultPaymentMethod(
+      instrumentId: string,
+      attempt: SavedPaymentMethodAttempt,
+    ): Promise<PaymentsSavedCheckoutInstrument> {
       return parseJsonResponse(
         await client.account["payment-methods"][":instrumentId"].default.$post({
           param: { instrumentId },
+          json: attempt,
           header: headers,
         }),
       );
     },
-    async removePaymentMethod(instrumentId: string): Promise<PaymentsSavedCheckoutInstrument> {
+    async removePaymentMethod(
+      instrumentId: string,
+      attempt: SavedPaymentMethodAttempt,
+    ): Promise<PaymentsSavedCheckoutInstrument> {
       return parseJsonResponse(
         await client.account["payment-methods"][":instrumentId"].remove.$post({
           param: { instrumentId },
+          json: attempt,
           header: headers,
         }),
       );
