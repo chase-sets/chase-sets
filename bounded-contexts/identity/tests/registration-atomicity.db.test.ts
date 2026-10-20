@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { AppendToStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
+import {
+  EVENT_STORE_READ_PAGE_SIZE_MAX,
+  type AppendToStreamInput,
+  type StoredEvent,
+} from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
@@ -188,6 +192,22 @@ describeDb("registration atomicity and convergence", () => {
     return { services: createServices(eventStore), fault, eventStore };
   }
 
+  async function readCompleteEventHistory(store: EventStore): Promise<readonly StoredEvent[]> {
+    const events: StoredEvent[] = [];
+    let afterGlobalPosition: StoredEvent["globalPosition"] | undefined;
+    while (true) {
+      const page = await store.readAll({
+        limit: EVENT_STORE_READ_PAGE_SIZE_MAX,
+        ...(afterGlobalPosition ? { afterGlobalPosition } : {}),
+      });
+      events.push(...page);
+      if (page.length < EVENT_STORE_READ_PAGE_SIZE_MAX) return events;
+      const lastEvent = page.at(-1);
+      if (!lastEvent) throw new Error("A full event-store page must have a final event.");
+      afterGlobalPosition = lastEvent.globalPosition;
+    }
+  }
+
   function safeJson(text: string): Record<string, unknown> {
     try {
       return JSON.parse(text) as Record<string, unknown>;
@@ -223,7 +243,7 @@ describeDb("registration atomicity and convergence", () => {
   }
 
   async function postState(harness: Harness) {
-    const events = await harness.eventStore.readAll({ limit: 500 });
+    const events = await readCompleteEventHistory(harness.eventStore);
     const streamsWithPrefix = (prefix: string) => [
       ...new Set(events.filter((event: StoredEvent) => event.streamId.startsWith(prefix)).map((e) => e.streamId)),
     ];
@@ -239,6 +259,28 @@ describeDb("registration atomicity and convergence", () => {
       reservations: reservations.rows,
     };
   }
+
+  it("rejects a forged Consent Activation Authority guard before registration append", async () => {
+    const harness = createHarness();
+    const before = await readCompleteEventHistory(harness.eventStore);
+    const originalRead = harness.services.policies.consentActivation.read;
+    vi.spyOn(harness.services.policies.consentActivation, "read").mockImplementation(async (policyKey) => {
+      const snapshot = await originalRead(policyKey);
+      if (policyKey !== identityConsentActiveVersionPolicies["terms-of-service"].policyKey) return snapshot;
+      return { ...snapshot, guard: { ...snapshot.guard } } as never;
+    });
+    const append = vi.spyOn(harness.eventStore, "appendToStreams");
+
+    const response = await register(harness, {});
+
+    expect(response).toEqual({
+      status: 500,
+      body: { error: { code: "internal_error", message: "Internal server error." } },
+    });
+    expect(append).not.toHaveBeenCalled();
+    expect(await readCompleteEventHistory(harness.eventStore)).toEqual(before);
+    expect(JSON.stringify(response.body)).not.toContain("platform-policy.consent-activation-authority");
+  });
 
   const positions: readonly InjectionPosition[] = ["account", "user", "membership", "consent-1", "consent-2"];
 
@@ -281,7 +323,7 @@ describeDb("registration atomicity and convergence", () => {
       return bound;
     });
     const append = vi.spyOn(harness.eventStore, "appendToStreams");
-    const before = (await harness.eventStore.readAll({ limit: 500 })).filter((event) =>
+    const before = (await readCompleteEventHistory(harness.eventStore)).filter((event) =>
       event.streamId.startsWith("identity."),
     );
     const failed = await register(harness, {});
@@ -312,7 +354,7 @@ describeDb("registration atomicity and convergence", () => {
       })),
     );
     expect(
-      (await harness.eventStore.readAll({ limit: 500 })).filter((event) => event.streamId.startsWith("identity.")),
+      (await readCompleteEventHistory(harness.eventStore)).filter((event) => event.streamId.startsWith("identity.")),
     ).toEqual(before);
     expect((await postState(harness)).reservations).toEqual([]);
   });
@@ -375,7 +417,7 @@ describeDb("registration atomicity and convergence", () => {
         { expectedVersion: "no_stream", events: [] },
         { expectedVersion: "no_stream", events: [] },
       ]);
-      expect((await inner.readAll({ limit: 500 })).filter((event) => event.streamId.startsWith("identity."))).toEqual(
+      expect((await readCompleteEventHistory(inner)).filter((event) => event.streamId.startsWith("identity."))).toEqual(
         [],
       );
       expect((await postState(harness)).reservations).toEqual([]);
@@ -426,12 +468,12 @@ describeDb("registration atomicity and convergence", () => {
     expect((await consentFixture.policies.consentActivation.read(definition.policyKey)).activeVersion).toBe("v2");
     const harness = createHarness();
     const append = vi.spyOn(harness.eventStore, "appendToStreams");
-    const before = await harness.eventStore.readAll({ limit: 500 });
+    const before = await readCompleteEventHistory(harness.eventStore);
     const rejected = await register(harness, {});
     expect(rejected.status).toBe(400);
     expect(rejected.body.error).toMatchObject({ code: "registration_consent_expired", reason: "superseded" });
     expect(append).not.toHaveBeenCalled();
-    expect(await harness.eventStore.readAll({ limit: 500 })).toEqual(before);
+    expect(await readCompleteEventHistory(harness.eventStore)).toEqual(before);
   });
 
   it.each(positions)("converges on retry after a failure at %s, without a conflict", async (position) => {

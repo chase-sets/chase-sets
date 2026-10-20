@@ -30,6 +30,10 @@ import { createIdentityServices, type IdentityServices } from "../support/runtim
 import { activeRegistrationConsentFixture } from "./consent-activation-authority-fixtures";
 import * as consentBundle from "../features/consents/domain/consent-bundle";
 import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../features/account-capabilities/api/authority";
+import {
+  ConsentActivationAuthorityError,
+  decodeConsentActivationAuthoritySnapshot,
+} from "@chase-sets/platform-policy/consent-activation-authority";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -360,6 +364,41 @@ describeDb("registration operation semantic validation", () => {
     expect((response.body.error as { code?: string } | undefined)?.code).toBe(code);
     expect(await stateSnapshot()).toEqual(before);
   }
+
+  it.each(["lifecycle", "stream", "revision", "history"] as const)(
+    "rejects %s authority corruption with the generic registration error",
+    async (kind) => {
+      const before = await stateSnapshot();
+      const originalRead = services.policies.consentActivation.read;
+      vi.spyOn(services.policies.consentActivation, "read").mockImplementation(async (policyKey) => {
+        const snapshot = await originalRead(policyKey);
+        if (kind === "history") {
+          throw new ConsentActivationAuthorityError(
+            "history_too_long",
+            "synthetic authority history exceeded its bound",
+          );
+        }
+        const mutated =
+          kind === "lifecycle"
+            ? { ...snapshot, status: "inactive" }
+            : kind === "stream"
+              ? { ...snapshot, streamId: `${snapshot.streamId}-forged` }
+              : { ...snapshot, authorityVersion: -1 };
+        return decodeConsentActivationAuthoritySnapshot(policyKey, mutated as never);
+      });
+      const append = vi.spyOn(eventStore, "appendToStreams");
+
+      const response = await register();
+
+      expect(response).toEqual({
+        status: 500,
+        body: { error: { code: "internal_error", message: "Internal server error." } },
+      });
+      expect(append).not.toHaveBeenCalled();
+      expect(await stateSnapshot()).toEqual(before);
+      expect(JSON.stringify(response.body)).not.toContain("platform-policy.consent-activation-authority");
+    },
+  );
 
   const claimDisagreements = [
     ["operation key digest", { operationKeyDigest: "0".repeat(64) }, undefined],

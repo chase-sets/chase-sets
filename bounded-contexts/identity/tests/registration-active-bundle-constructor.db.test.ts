@@ -1,4 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -102,4 +105,77 @@ describeDb("registration Consent constructor against an isolated active publicat
     expect(declaration.requirements).toEqual([]);
     expect(declaration.outcomes.every((outcome) => outcome.kind === "publication-ineligible")).toBe(true);
   });
+});
+
+it("keeps the registration endpoint-invoker census explicit and fail-closed", () => {
+  const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+  const registrationEndpoints = ["/internal/auth/" + "personal-identities", "/internal/auth/" + "registration-consent"];
+  const expected = new Map([
+    ["bounded-contexts/identity/tests/api-mutation-snapshots.test.ts", "RegistrationConsentBundles fixture"],
+    ["bounded-contexts/identity/tests/internal-auth-routes.test.ts", "RegistrationConsentBundles fixture"],
+    [
+      "bounded-contexts/identity/tests/registration-atomicity.db.test.ts",
+      "constructor + resolveConsentBundle publication spy",
+    ],
+    ["bounded-contexts/identity/tests/registration-consent-boundary.test.ts", "RegistrationConsentBundles fixture"],
+    [
+      "bounded-contexts/identity/tests/registration-operation-recovery.db.test.ts",
+      "constructor + resolveConsentBundle publication spy",
+    ],
+    [
+      "bounded-contexts/identity/tests/registration-operation-validation.db.test.ts",
+      "constructor + resolveConsentBundle publication spy",
+    ],
+    ["bounded-contexts/identity/tests/registration-active-bundle-constructor-dormant.db.test.ts", "real constructor"],
+    [
+      "bounded-contexts/identity/tests/registration-active-bundle-constructor.db.test.ts",
+      "constructor + resolveConsentBundle publication spy",
+    ],
+    [
+      "bounded-contexts/identity/features/account-management/api/account-management.db.test.ts",
+      "RegistrationConsentBundles fixture",
+    ],
+  ] as const);
+  const tracked = execFileSync("git", ["ls-files", "--", "bounded-contexts/identity/**/*.test.ts"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  })
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const sources = new Map(
+    tracked.map((relativePath) => [relativePath, readFileSync(resolvePath(repoRoot, relativePath), "utf8")]),
+  );
+  const deriveInvokers = (files: ReadonlyMap<string, string>) =>
+    [...files]
+      .filter(([relativePath, source]) => {
+        const explicitlyAdded =
+          relativePath.endsWith("registration-active-bundle-constructor.db.test.ts") ||
+          relativePath.endsWith("registration-active-bundle-constructor-dormant.db.test.ts");
+        return (
+          registrationEndpoints.some((endpoint) => source.includes(endpoint)) ||
+          explicitlyAdded ||
+          (source.includes("registrationConsentBundles") &&
+            (source.includes("buildIdentityApi") || source.includes("createIdentityServices")))
+        );
+      })
+      .map(([relativePath]) => relativePath);
+  const invoking = deriveInvokers(sources);
+
+  expect(new Set(invoking)).toEqual(new Set(expected.keys()));
+  const unexpected = new Map(sources);
+  unexpected.set("bounded-contexts/identity/tests/synthetic-unexpected-invoker.test.ts", registrationEndpoints[0]);
+  expect(() => expect(new Set(deriveInvokers(unexpected))).toEqual(new Set(expected.keys()))).toThrow();
+  const missing = new Map(expected);
+  missing.delete("bounded-contexts/identity/tests/registration-atomicity.db.test.ts");
+  expect(() => expect(new Set(invoking)).toEqual(new Set(missing.keys()))).toThrow();
+  for (const [relativePath, seam] of expected) {
+    expect(tracked, `${relativePath} must remain tracked`).toContain(relativePath);
+    const source = readFileSync(resolvePath(repoRoot, relativePath), "utf8");
+    if (seam.startsWith("constructor") || seam === "real constructor")
+      expect(source).toContain("createIdentityServices");
+    if (seam === "constructor + resolveConsentBundle publication spy")
+      expect(source).toContain('"resolveConsentBundle"');
+    if (seam === "RegistrationConsentBundles fixture")
+      expect(source).toMatch(/registrationConsentBundlesFixture|activeRegistrationConsentFixture/);
+  }
 });
