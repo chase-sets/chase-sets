@@ -9,6 +9,10 @@ GitHub-hosted `ubuntu-24.04` VM, as its actual sudo-capable runner principal.
 Root and host runner processes are trusted administrators; Chromium and its
 descendants are not. The AppArmor profile grants namespace construction, not a
 firewall. The installed native launcher owns the network/root/handle boundary.
+Setup archives native inputs only from an exact commit byte-identical to the
+checkout: the candidate or, for a pull request that never changed them, its
+merge ref's base tip contained in `refs/remotes/origin/main`, as
+`provider-boundary-native-source:<head|base>:<sha>` records.
 
 ## Protocol
 
