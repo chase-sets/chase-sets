@@ -134,7 +134,7 @@ export function boundPresentment(
 ): (UcpPresentment & Readonly<{ ignored: boolean }>) | null {
   const hasBounds = bound.min !== undefined || bound.max !== undefined;
   if (!hasBounds) return { ...presentment, ignored: false };
-  if (false) return { ...presentment, ignored: true };
+  if (boundCurrencyCode(bound.currency) !== presentment.currency) return { ...presentment, ignored: true };
   const filtered = presentment.listings.filter((listing) => {
     const converted = eligibleListing(listing);
     return (
