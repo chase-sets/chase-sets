@@ -12,6 +12,19 @@ firewall. The installed native launcher owns the network/root/handle boundary.
 
 ## Protocol
 
+When the installed Chromium launch rejects, the `sandboxed-chromium` mediation
+record appends a bounded `launch` envelope. It recognizes only whole,
+PID-bound Playwright message lines (`<launched>`, `[pid][out]`, `[pid][err]`,
+and the exact process-exit line), deduplicates identical lines, and emits only
+the closed class, window, exit code/signal vocabulary, and a `nativeRefusal`
+stage when the refusal bytes are bound to the same PID and status 78. Unknown,
+partial, conflicting, multi-PID, ANSI, and format-drift evidence remains
+`unknown`/`null`; no message, stderr, argv, path, or trace text is retained.
+The hosted `B3-launch-refusal-class` control runs the installed launcher with
+the shared Chromium options and a wrong 64-hex digest, requiring the exact
+`exited`/`from-launch`/78/`source-identity` envelope and failing closed on
+Playwright format drift.
+
 The launcher stays non-dumpable. Each outer or nested seed closes inherited
 descriptors and installs an x86-64-only seccomp allowlist before becoming
 dumpable. The protected parent maps, checks namespace type/owner/parent, joins,
