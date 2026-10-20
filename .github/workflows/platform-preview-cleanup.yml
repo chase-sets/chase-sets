@@ -160,7 +160,6 @@ jobs:
           PULL_REQUEST_MERGED: ${{ github.event.pull_request.merged || false }}
           PULL_REQUEST_MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha || '' }}
           PULL_REQUEST_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
-          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
           PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
           IDLE_DRAFT_RECHECK: ${{ inputs.idle_draft_recheck && 'true' || 'false' }}
@@ -203,10 +202,7 @@ jobs:
               ? process.env.CHECKOUT_REF
               : process.env.PULL_REQUEST_MERGED === "true" && process.env.PULL_REQUEST_MERGE_COMMIT_SHA
                 ? process.env.PULL_REQUEST_MERGE_COMMIT_SHA
-                : process.env.PULL_REQUEST_BASE_SHA;
-          if (eventName === "pull_request_target" && !/^[0-9a-f]{40}$/i.test(checkoutRef ?? "")) {
-            throw new Error("Closed pull request cleanup requires an immutable commit checkout ref.");
-          }
+                : process.env.PULL_REQUEST_BASE_REF;
           const imageSha = eventName === "workflow_dispatch" ? process.env.IMAGE_SHA : process.env.PULL_REQUEST_HEAD_SHA;
           const matrix = {
             include: [
@@ -384,22 +380,17 @@ jobs:
     if: needs.discover-preview-cleanup.outputs.target_count != '0'
     runs-on: ubuntu-latest
     environment: preview
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.batch_index != null && 330 || 45 }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover-preview-cleanup.outputs.matrix) }}
     concurrency:
-      # Close-event compatibility anchor; scheduled runs use batch_index.
-      # group: platform-preview-pr-${{ matrix.pr_number }}
       group: ${{ matrix.batch_index != null && format('platform-preview-batch-{0}', matrix.batch_index) || format('platform-preview-pr-{0}', matrix.pr_number) }}
       cancel-in-progress: false
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: preview
-      # Scheduled batches set these target-specific values inside their loop.
-      # TF_VAR_preview_identifier: pr-${{ matrix.pr_number }}
-      # TF_VAR_platform_image_tag: pr-${{ matrix.pr_number }}-${{ matrix.image_sha }}
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
@@ -661,7 +652,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: always()
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
           node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf || {
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
@@ -669,9 +660,6 @@ jobs:
           }
 
       - name: Terraform init
-        # Close-event compatibility anchor; scheduled batches substitute each
-        # target's key in the loop below.
-        # -backend-config=key=platform/previews/pr-${{ matrix.pr_number }}.tfstate
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -679,7 +667,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: always()
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
           set -uo pipefail
           failed=0
@@ -689,7 +677,7 @@ jobs:
             terraform -chdir=infrastructure/digitalocean/platform init \
               -reconfigure \
               -backend-config=bucket=chase-sets-terraform-state \
-              -backend-config=key=platform/previews/pr-${pr_number}.tfstate \
+              "-backend-config=key=platform/previews/pr-${pr_number}.tfstate" \
               -backend-config=region=us-east-1 \
               -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
               -backend-config=skip_credentials_validation=true \
@@ -712,7 +700,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: always()
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
           set -uo pipefail
           failed="${PREVIEW_BATCH_FAILED:-0}"
@@ -722,7 +710,7 @@ jobs:
             terraform -chdir=infrastructure/digitalocean/platform init \
               -reconfigure \
               -backend-config=bucket=chase-sets-terraform-state \
-              -backend-config=key=platform/previews/pr-${pr_number}.tfstate \
+              "-backend-config=key=platform/previews/pr-${pr_number}.tfstate" \
               -backend-config=region=us-east-1 \
               -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
               -backend-config=skip_credentials_validation=true \
@@ -731,7 +719,7 @@ jobs:
               -backend-config=skip_requesting_account_id=true \
               -backend-config=use_path_style=true \
               -backend-config=use_lockfile=true || { failed=1; echo "$pr_number" >> "$failed_targets"; continue; }
-            if ! node scripts/digitalocean-preview-cleanup-sweep.mjs import-database \
+            if ! TF_VAR_preview_identifier="pr-${pr_number}" node scripts/digitalocean-preview-cleanup-sweep.mjs import-database \
               --pr-number "$pr_number" \
               --cluster-name "chase-sets-pr-${pr_number}-postgres" \
               --terraform-directory infrastructure/digitalocean/platform; then
@@ -753,7 +741,7 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         working-directory: infrastructure/digitalocean/platform
-        if: always()
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
           set -uo pipefail
           failed="${PREVIEW_BATCH_FAILED:-0}"
@@ -766,7 +754,7 @@ jobs:
             terraform init \
               -reconfigure \
               -backend-config=bucket=chase-sets-terraform-state \
-              -backend-config=key=platform/previews/pr-${pr_number}.tfstate \
+              "-backend-config=key=platform/previews/pr-${pr_number}.tfstate" \
               -backend-config=region=us-east-1 \
               -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
               -backend-config=skip_credentials_validation=true \
