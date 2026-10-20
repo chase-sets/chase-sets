@@ -1288,6 +1288,21 @@ describe("governed lifecycle against a fake staging", () => {
     expect(stateOf(env).stops).toEqual(["admission-key-apply-refused"]);
   });
 
+  it("refuses before installing any credential when the cleanup observer is never confirmed", async () => {
+    const staging = fakeStaging();
+    staging.deps.github.observerRuns = async () => ({ workflow_runs: [] });
+    const env = runEnv();
+    expect(await runSteps(env, staging.deps, ["inputs", "preflight", "provision"])).toEqual({
+      inputs: 0,
+      preflight: 0,
+      provision: 1,
+    });
+    expect(stateOf(env).stops).toEqual(["observer-unconfirmed"]);
+    expect(staging.state.calls).toEqual(["dispatch"]);
+    expect(staging.state.applies).toEqual([]);
+    expect(staging.state.data).not.toHaveProperty(ADMISSION_SECRET_KEY);
+  });
+
   it("fails a close observed after D even though closed_at is clamped", async () => {
     const staging = fakeStaging();
     const env = runEnv();
