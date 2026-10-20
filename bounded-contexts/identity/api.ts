@@ -1451,12 +1451,23 @@ async function unlinkSocialLoginForAuth(
     providerSubject: string;
     authenticationMethod: "password" | "passkey" | "sms-code" | "magic-link" | "social-login" | "google" | "facebook";
     authenticatedAt: string | null | undefined;
+    operationId?: string;
     context: EventStoreContext;
   }>,
 ) {
   const now = new Date().toISOString();
   return services.mutationPersistence.transaction([], async (tx) => {
     const streamId = `identity.user-${params.userId}`;
+    const operationId = params.operationId ?? `social-login-unlink:${params.userId}:${params.providerName}:${normalizeLabel(params.providerSubject)}`;
+    const operationStreamId = `identity.social-login-unlink-operation-${createHash("sha256").update(operationId, "utf8").digest("hex")}`;
+    const operationHistory = await tx.read(operationStreamId);
+    const priorOperation = operationHistory.at(-1);
+    if (priorOperation?.eventType === "identity.social-login-unlink-attempt.completed") {
+      const operation = priorOperation.payload as { userId?: string; providerName?: string; providerSubject?: string };
+      if (operation.userId !== params.userId || operation.providerName !== params.providerName || operation.providerSubject !== normalizeLabel(params.providerSubject)) {
+        throw new IdentityDomainError("Contradictory social login operation.");
+      }
+    }
     const history = await tx.read(streamId);
     const priorState = foldUserHistory(history);
     const events = decideUser(priorState, {
@@ -1467,7 +1478,15 @@ async function unlinkSocialLoginForAuth(
       authenticatedAt: params.authenticatedAt,
       now,
     });
-    const appended = await tx.append!([{ streamId, expectedVersion: history.length || "no_stream", context: params.context, events: events.map((event) => ({ eventType: event.type, payload: event.data as JsonObject, eventId: createId("evt") })) }]);
+    const appended = await tx.append!([
+      {
+        streamId: operationStreamId,
+        expectedVersion: operationHistory.length || "no_stream",
+        context: params.context,
+        events: priorOperation ? [] : [{ eventType: "identity.social-login-unlink-attempt.completed", payload: { userId: params.userId, providerName: params.providerName, providerSubject: normalizeLabel(params.providerSubject), operationId } as JsonObject, eventId: createId("evt") }],
+      },
+      { streamId, expectedVersion: history.length || "no_stream", context: params.context, events: events.map((event) => ({ eventType: event.type, payload: event.data as JsonObject, eventId: createId("evt") })) },
+    ]);
     const nextState = events.reduce(evolveUser, priorState);
     return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, { version: history.length + events.length, state: nextState })], storedEvents: appended[0]?.storedEvents ?? [] };
   });
@@ -1908,6 +1927,9 @@ export function buildIdentityApi(
           409,
         );
       }
+      if (error instanceof IdentityDomainError) {
+        return c.json({ error: { code: "validation_failed", message: "Social login request is invalid." } }, 400);
+      }
 
       throw error;
     }
@@ -1944,6 +1966,7 @@ export function buildIdentityApi(
         userId: c.req.param("id"),
         providerName,
         providerSubject,
+        operationId: c.req.header("Idempotency-Key") ?? undefined,
         authenticationMethod: actor.authenticationMethod === "google" || actor.authenticationMethod === "facebook"
           ? actor.authenticationMethod
           : actor.authenticationMethod === "password" || actor.authenticationMethod === "passkey" || actor.authenticationMethod === "sms-code" || actor.authenticationMethod === "magic-link"
@@ -1981,6 +2004,7 @@ export function buildIdentityApi(
         providerSubject,
         authenticationMethod: actor.authenticationMethod === "google" || actor.authenticationMethod === "facebook" || actor.authenticationMethod === "password" || actor.authenticationMethod === "passkey" || actor.authenticationMethod === "sms-code" || actor.authenticationMethod === "magic-link" ? actor.authenticationMethod : "social-login",
         authenticatedAt: actor.authenticatedAt,
+        operationId: c.req.header("Idempotency-Key") ?? undefined,
         context: getRequiredContext(c),
       });
       return c.json({ ok: true, ...result });
