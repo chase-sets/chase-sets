@@ -9,6 +9,12 @@ export const checkoutEnglishTranslations = {
     "This device has {limit} Buy Cart lines saved. Remove an item before adding another.",
   "checkout.features.cart.api.route.anonymous.request.rate.limited":
     "Too many anonymous Buy Cart requests. Wait a few minutes and try again.",
+  "checkout.features.cart.api.route.attempt.ambiguous":
+    "We could not confirm this Buy Cart change. Check your cart before sending it again.",
+  "checkout.features.cart.api.route.attempt.conflict":
+    "This Buy Cart change was already sent with different details. Nothing new was applied.",
+  "checkout.features.cart.api.route.cart.changed":
+    "Your Buy Cart changed while this update was saving. Nothing was applied; review your cart and try again.",
   "checkout.features.cart.api.route.forbidden": "Forbidden.",
   "checkout.features.cart.api.route.request.failed": "Request failed.",
   "checkout.features.cart.integrations.catalog.catalogSchema.create.table.if.not.exists.checkout":
@@ -17,6 +23,17 @@ export const checkoutEnglishTranslations = {
     "\nCREATE TABLE IF NOT EXISTS checkout_cart_line_pages (\n  buyer_account_id text NOT NULL,\n  line_id text NOT NULL,\n  catalog_catalog_item_id text NOT NULL,\n  product_id text NOT NULL,\n  item_language_code text NULL,\n  item_title text NOT NULL,\n  item_subtitle text NULL,\n  item_image_url text NULL,\n  item_image_srcset text NULL,\n  item_image_loading_url text NULL,\n  item_image_loading_alt text NULL,\n  item_image_loading_srcset text NULL,\n  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,\n  product_summary text NULL,\n  quantity integer NOT NULL CHECK (quantity > 0),\n  fulfillment_mode text NOT NULL DEFAULT 'optimize',\n  locked_listing_id text NULL,\n  seller_preference_id text NULL,\n  availability_state text NOT NULL DEFAULT 'available',\n  created_at timestamptz NOT NULL DEFAULT now(),\n  updated_at timestamptz NOT NULL DEFAULT now(),\n  PRIMARY KEY (buyer_account_id, line_id)\n);\n\nCREATE INDEX IF NOT EXISTS checkout_cart_line_pages_buyer_idx\n  ON checkout_cart_line_pages (buyer_account_id, updated_at DESC, line_id ASC);\n\nCREATE INDEX IF NOT EXISTS checkout_cart_line_pages_catalog_version_idx\n  ON checkout_cart_line_pages (product_id);\n",
   "checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a":
     "Browse the marketplace and add a product to start building a Buy Cart checkout.",
+  "checkout.features.cart.ui.cartPage.attempt.ambiguous.description":
+    "Your change may or may not have been saved. Cart changes are paused until you refresh your cart or send the same change again.",
+  "checkout.features.cart.ui.cartPage.attempt.ambiguous.title": "We couldn't confirm your cart change",
+  "checkout.features.cart.ui.cartPage.attempt.failed.safe.description":
+    "Nothing was changed. Review your cart and try again.",
+  "checkout.features.cart.ui.cartPage.attempt.failed.safe.title": "Your cart change was not applied",
+  "checkout.features.cart.ui.cartPage.attempt.line.not.applied": "One line could not be updated.",
+  "checkout.features.cart.ui.cartPage.attempt.partial.description":
+    "Some of your changes were saved. These lines were not updated:",
+  "checkout.features.cart.ui.cartPage.attempt.partial.title": "Some cart changes were not applied",
+  "checkout.features.cart.ui.cartPage.attempt.resend": "Send the same change again",
   "checkout.features.cart.ui.cartPage.buy.cart": "Buy cart",
   "checkout.features.cart.ui.cartPage.cart.update.pending": "Updating cart",
   "checkout.features.cart.ui.cartPage.cart.update.pending.title": "Your cart is catching up",
