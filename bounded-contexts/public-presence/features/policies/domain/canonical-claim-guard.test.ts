@@ -835,7 +835,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.privacyPolicy]: "458b04e7594d16a9ffcbc0eacf38bb0d0db92a99f9701d0739824d2819ed6fc0",
   [citationFencePaths.authenticityTest]: "373914b5510020641186b833c170ccd3e9ed072d541573ade9306e1216124873",
   // #10066 repin after the causal scoped-step surface edit.
-  [citationFencePaths.staticSurfaces]: "f8c38f28aa107cc5e0ffc54fdab977cdf9e708e336295fcf184942f72bd97901",
+  [citationFencePaths.staticSurfaces]: "25e7deb769dcca7a4e48d0235cdd6cad07dfbb378386cc8b046e39271e238f1a",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

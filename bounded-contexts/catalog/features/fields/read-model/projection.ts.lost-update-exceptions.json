@@ -1,0 +1,46 @@
+[
+  {
+    "id": "exception-86a2e136097e4d78",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/fields/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_fields",
+      "digest": "9846beb543e417d7481ec4ae71fcba5f1ba4ee45933d4a07c038193a20052486"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/fields/read-model/projection.ts:56 directly synchronizes catalog_fields from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-3d0dd6e7f82aea5a",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/fields/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_fields",
+      "digest": "95e8a19295bf35fea9d56b3246b4f1d1821c7175ed3a50bd405c62e9c7f657a5"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/fields/read-model/projection.ts:78 directly synchronizes catalog_fields from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-136b125a1a99b177",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/fields/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_fields",
+      "digest": "96e89a17bab111333a1a5b3d14b8246e8f610d20cc231ca263b446649533131e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/fields/read-model/projection.ts:87 directly synchronizes catalog_fields from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-4a15386c165f9a47",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/fields/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_fields",
+      "digest": "fb5b96040c629a4f5a784e129f9dc120aafd6dfdef7d910d467917ef4635b346"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/fields/read-model/projection.ts:96 directly synchronizes catalog_fields from an incoming projection or command fact; no prior row state decides this write."
+  }
+]
