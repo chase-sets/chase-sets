@@ -996,8 +996,8 @@ describe("form system", () => {
     streetLink.focus();
     await user.keyboard("{Enter}");
     expect(document.activeElement).toBe(street);
-    expect(keyDowns).toEqual([{ target: streetLink, key: "Enter", defaultPrevented: true }]);
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(keyDowns).toEqual([{ target: streetLink, key: "Enter", defaultPrevented: true }]);
 
     const missingLink = screen.getByRole("link", { name: "Missing target." });
     missingLink.focus();
