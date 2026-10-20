@@ -46,7 +46,7 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
           buildFounderClaimReactionHandlers(services.foundersCohort.claimFounderNumber),
       },
     }),
-  seedProfiles: ["scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"],
+  seedProfiles: ["critical-bootstrap", "scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"],
   seed: seedIdentityDatabase,
   inspectSeedState: (pool, options) => inspectIdentitySeedState(pool, options),
 });

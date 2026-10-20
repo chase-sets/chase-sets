@@ -254,7 +254,16 @@ export function createMembershipSetRuntime(pool: PgTransactionalPool, store: Eve
       return {
         status: "authoritative" as const,
         revision: set.version,
-        memberships: set.memberships,
+        memberships: set.memberships.map(
+          ({ membershipId, userId: subjectUserId, accountId, roleKey, status, sourceRevision }) => ({
+            membershipId,
+            userId: subjectUserId,
+            accountId,
+            roleKey,
+            status,
+            sourceRevision,
+          }),
+        ),
         throughPosition: checkpoint.verifiedThrough!,
       };
     } catch {

@@ -51,6 +51,18 @@ describe("User Membership Set atomic authority", () => {
     expect(await store.readStream({ streamId })).toEqual([]);
   });
 
+  it("rejects caller-supplied Set facts but preserves ordinary zero-event version guards", async () => {
+    const store = createInMemoryEventStore();
+    const guard = { streamId: "identity.user-membership-set-usr_set_test", expectedVersion: 0, context, events: [] };
+    expect(await planMembershipSetAppends(store, [guard])).toEqual([guard]);
+    await expect(
+      planMembershipSetAppends(store, [
+        { ...guard, events: [{ eventType: "identity.user-membership-set.membership-recorded", payload: {} }] },
+      ]),
+    ).rejects.toThrow("caller-supplied Set facts");
+    expect(store.streams.size).toBe(0);
+  });
+
   it("reconciles 500/501 revisions without a cap or duplicate import", async () => {
     const store = createInMemoryEventStore();
     await store.appendToStream({ streamId, expectedVersion: 0, context, events: [grant] });

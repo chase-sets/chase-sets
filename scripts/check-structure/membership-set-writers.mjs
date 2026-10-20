@@ -166,6 +166,8 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
         violations.push(`${file}: Membership runtime bypasses Identity composition`);
       if (!appendNames.has(called)) return;
       appendSites++;
+      if (readOnlyFactories.has(file) && (called.startsWith("append") || called === "createAggregateCommandHandler"))
+        violations.push(`${file}: non-Membership EventStore factory gained a raw append`);
       const receiver = property(node.expression?.expression);
       if (
         called === "commandHandler" &&

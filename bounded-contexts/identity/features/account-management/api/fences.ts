@@ -12,7 +12,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import manifest from "../../../context.json" with { type: "json" };
 import { validateOwnerHistory } from "./owners";
-import { planMembershipSetAppends } from "../../memberships/api/membership-set";
+import { assertMembershipSetFactOwnership, planMembershipSetAppends } from "../../memberships/api/membership-set";
 import { membershipHistoryReader } from "../../memberships/api/membership-set-cutover";
 
 type ScopeEvent = Readonly<{ eventType: string; payload: Readonly<Record<string, unknown>> }>;
@@ -206,6 +206,7 @@ export function createIdentityMutationPersistence(
   }
 
   async function append(inputs: readonly AppendToStreamInput[]) {
+    assertMembershipSetFactOwnership(inputs);
     const contributors = await Promise.all(
       inputs
         .filter((input) => isFencedStream(input.streamId))

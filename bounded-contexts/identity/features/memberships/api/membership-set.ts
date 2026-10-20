@@ -201,14 +201,18 @@ export async function readUserMembershipSet(
   return foldMembershipSet(await completeHistory(reader, streamId), userId, tenantId);
 }
 
+export function assertMembershipSetFactOwnership(inputs: readonly AppendToStreamInput[]): void {
+  if (inputs.some((input) => input.streamId.startsWith("identity.user-membership-set-") && input.events.length > 0))
+    membershipSetUnknown("caller-supplied Set facts");
+}
+
 /** Expands a command batch before its one atomic expected-version append. */
 export async function planMembershipSetAppends(
   reader: MembershipHistoryReader,
   inputs: readonly AppendToStreamInput[],
   options: Readonly<{ reconcile?: boolean }> = {},
 ): Promise<readonly AppendToStreamInput[]> {
-  if (inputs.some((input) => input.streamId.startsWith("identity.user-membership-set-")))
-    membershipSetUnknown("caller-supplied Set facts");
+  assertMembershipSetFactOwnership(inputs);
   const result = [...inputs];
   const groups = new Map<
     string,

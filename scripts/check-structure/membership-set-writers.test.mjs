@@ -73,3 +73,17 @@ test("a new function in an existing writer file cannot inherit its authority", (
     ),
   );
 });
+
+test("a marker-free append cannot hide behind an existing read-only store factory", () => {
+  const candidate = sources();
+  const file = "bounded-contexts/identity/features/consents/api/terms-acceptance-resolver.ts";
+  candidate.set(
+    file,
+    "export function different(store, input) { const emit = store['appendToStream'].bind(store); return emit(input); }",
+  );
+  assert.ok(
+    scanMembershipSetWriters(candidate, [...paths, file]).violations.includes(
+      `${file}: non-Membership EventStore factory gained a raw append`,
+    ),
+  );
+});

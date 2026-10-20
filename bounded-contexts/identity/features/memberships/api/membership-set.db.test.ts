@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { bootstrapContextDatabase, seedApiModuleIfEmpty } from "@chase-sets/bounded-context-runtime";
 import { productionLikeDataProfiles } from "@chase-sets/platform-runtime/api";
 import {
   closeMultiContextTestPools,
@@ -232,7 +232,7 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
       displayName: "Set Administrator",
       accountName: "Set Administration",
     };
-    await seedIdentityDatabase(pool, undefined, { enabledDataProfiles: productionLikeDataProfiles });
+    await seedApiModuleIfEmpty(identityModule, pool, undefined, { enabledDataProfiles: productionLikeDataProfiles });
     await bootstrapPlatformAdminIdentity(services, admin);
     for (const profile of ["scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"] as const) {
       await seedIdentityDatabase(pool, undefined, { enabledDataProfiles: [profile] });
