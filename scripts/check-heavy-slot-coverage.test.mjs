@@ -468,7 +468,6 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/provider-object-disposition/test-window-browser-admission.test.mjs":
     "browser fixture does not spawn the guard",
   "scripts/provider-object-disposition/test-window-main.test.mjs": "browser fixture does not spawn the guard",
-  "scripts/public-web-help-category-response-budget.test.mjs": "budget test owns its direct probe admission",
   "scripts/route-census/admission.test.mjs": "route census does not spawn the guard",
   "scripts/route-census/partition-scope.test.mjs": "route census does not spawn the guard",
   "scripts/route-census/publication.test.mjs": "route census does not spawn the guard",
