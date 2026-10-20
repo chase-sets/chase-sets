@@ -46,31 +46,37 @@ function digestDist() {
 }
 
 test("connector-pairing-drill-loopback-chromium", async ({}, testInfo) => {
-  const receipt = await runPairingDrill({
-    dist,
-    platformOrigin: platform.origin,
-    clientId: synthetic.clientId,
-    artifactDigest: digestDist(),
-    reservation: "present",
-    async signIn(context) {
-      await context.addCookies([
-        {
-          name: synthetic.cookieName,
-          value: synthetic.cookieValue,
-          url: platform.origin,
-          httpOnly: true,
-          sameSite: "Lax",
-        },
-      ]);
-    },
-    async preparePairing() {
-      await createSyntheticPairingCode(platform.origin);
-    },
-    async revoke() {
-      // The product's work alarm is intentionally not invoked by the second action.
-      // The route still records any claim/revoke leg without exposing its values.
-    },
-  });
+  let receipt;
+  try {
+    receipt = await runPairingDrill({
+      dist,
+      platformOrigin: platform.origin,
+      clientId: synthetic.clientId,
+      artifactDigest: digestDist(),
+      reservation: "present",
+      async signIn(context) {
+        await context.addCookies([
+          {
+            name: synthetic.cookieName,
+            value: synthetic.cookieValue,
+            url: platform.origin,
+            httpOnly: true,
+            sameSite: "Lax",
+          },
+        ]);
+      },
+      async preparePairing() {
+        await createSyntheticPairingCode(platform.origin);
+      },
+      async revoke() {
+        // The product's work alarm is intentionally not invoked by the second action.
+        // The route still records any claim/revoke leg without exposing its values.
+      },
+    });
+  } catch (error) {
+    console.log(`CONNECTOR_DRILL_PLATFORM ${JSON.stringify(platform.observation())}`);
+    throw error;
+  }
   const output = testInfo.outputPath("receipt");
   mkdirSync(output, { recursive: true });
   writeFileSync(join(output, "receipt.json"), JSON.stringify(receipt, null, 2));

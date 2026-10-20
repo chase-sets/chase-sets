@@ -168,6 +168,7 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     const request = route.request();
     const url = new URL(request.url());
     const source = requestSource(request);
+    console.log(`CONNECTOR_DRILL_ROUTE ${JSON.stringify({ origin: url.origin, path: url.pathname, source })}`);
     if (url.origin === new URL(callbackUri).origin && url.pathname === new URL(callbackUri).pathname) {
       record(url, source);
       await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>callback</title>" });
