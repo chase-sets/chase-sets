@@ -160,6 +160,7 @@ jobs:
           PULL_REQUEST_MERGED: ${{ github.event.pull_request.merged || false }}
           PULL_REQUEST_MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha || '' }}
           PULL_REQUEST_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
           PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
           IDLE_DRAFT_RECHECK: ${{ inputs.idle_draft_recheck && 'true' || 'false' }}
@@ -202,7 +203,10 @@ jobs:
               ? process.env.CHECKOUT_REF
               : process.env.PULL_REQUEST_MERGED === "true" && process.env.PULL_REQUEST_MERGE_COMMIT_SHA
                 ? process.env.PULL_REQUEST_MERGE_COMMIT_SHA
-                : process.env.PULL_REQUEST_BASE_REF;
+                : process.env.PULL_REQUEST_BASE_SHA;
+          if (eventName === "pull_request_target" && !/^[0-9a-f]{40}$/i.test(checkoutRef ?? "")) {
+            throw new Error("Closed pull request cleanup requires an immutable commit checkout ref.");
+          }
           const imageSha = eventName === "workflow_dispatch" ? process.env.IMAGE_SHA : process.env.PULL_REQUEST_HEAD_SHA;
           const matrix = {
             include: [
@@ -436,6 +440,7 @@ jobs:
         # PRs fall back to the base branch, and manual/scheduled runs use the selected ref.
         with:
           ref: ${{ matrix.checkout_ref }}
+          persist-credentials: false
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
@@ -500,6 +505,11 @@ jobs:
           const batch = record.batches?.find((candidate) => candidate.index === batchIndex);
           if (!batch || !Array.isArray(batch.targets) || batch.targets.length === 0) {
             throw new Error(`Discovery artifact has no targets for batch ${batchIndex}.`);
+          }
+          for (const target of batch.targets) {
+            if (!Number.isSafeInteger(target.prNumber) || target.prNumber <= 0) {
+              throw new Error(`Discovery artifact has an invalid PR number in batch ${batchIndex}.`);
+            }
           }
           fs.writeFileSync("artifacts/release-health/platform-preview-cleanup-batch.json", JSON.stringify(batch));
           NODE
