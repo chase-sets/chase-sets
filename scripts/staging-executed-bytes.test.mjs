@@ -21,6 +21,9 @@ import { parse } from "yaml";
 import { repoRoot } from "./lib/repo.mjs";
 import {
   classifyDeployedRuntime,
+  DEPLOYED_RUNTIME_RELATIONS,
+  DEPLOYED_RUNTIME_STOPS,
+  EXECUTED_BYTES_STOPS,
   readExecutedBytes,
   runGit,
   validateCompatibility,
@@ -348,6 +351,11 @@ describe("refuses each executed-byte clause", () => {
       expect(await mutated.readExecutedBytes(redInput, runGit)).not.toEqual(refusal);
     },
   );
+
+  it("exports exactly the stops its controls exercise", () => {
+    const exercised = new Set([...executedByteClauses.map(({ refusal }) => refusal.stop), "unexpected-internal-error"]);
+    expect(new Set(EXECUTED_BYTES_STOPS)).toEqual(exercised);
+  });
 
   it("refuses malformed or defaulted input before any git read", async () => {
     const repository = createWorkingRepository();
@@ -705,6 +713,15 @@ describe("classifies the deployed head relation", () => {
   it("returns each relation, deployable path and stop on real temporary history", async () => {
     const names = Object.keys(cases);
     expect(await classifyEach(classifyDeployedRuntime, names)).toEqual(expectedEach(names));
+  });
+
+  it("exports exactly the stops and relations its cases exercise", () => {
+    const expected = Object.values(cases).map((relationCase) => relationCase.expected);
+    const stops = new Set([...expected.flatMap(({ stop }) => stop ?? []), "unexpected-internal-error"]);
+    expect(new Set(DEPLOYED_RUNTIME_STOPS)).toEqual(stops);
+    expect(new Set(DEPLOYED_RUNTIME_RELATIONS)).toEqual(
+      new Set(expected.flatMap(({ compatibility }) => compatibility?.relation ?? [])),
+    );
   });
 
   it.each(relationMutants)("is red for the $mutant.0 mutant", async ({ mutant, kills, keeps }) => {
