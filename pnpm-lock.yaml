@@ -2523,12 +2523,18 @@ importers:
       hono:
         specifier: ^4.13.13
         version: 4.13.13
+      isbot:
+        specifier: ^5
+        version: 5.1.40
       morgan:
         specifier: ^1.12.1
         version: 1.12.1
       react:
         specifier: ^19.2.5
         version: 19.2.6
+      react-dom:
+        specifier: ^19.2.5
+        version: 19.2.6(react@19.2.6)
       react-router:
         specifier: ^7.18.4
         version: 7.18.4(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
