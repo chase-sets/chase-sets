@@ -26,6 +26,7 @@ import type {
   listRepricingCategories,
 } from "../../features/repricing-policies/read-model/controls";
 import type { RepricingActivityFilter, listRepricingActivity } from "../../features/repricing-engine/api/activity";
+import type { PricingHealthData } from "../../features/pricing-health/api/services";
 
 export type RepricingPolicyListItem = RepricingPolicyState & Readonly<{ changesUsedToday: number }>;
 export type RepricingBudget = Readonly<{ day: string; changesUsed: number }>;
@@ -118,6 +119,22 @@ export function createPricingApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async getPricingHealth(policyId?: string): Promise<PricingHealthData & { canCompute: boolean }> {
+      return parseJsonResponse(
+        await client.account["pricing-health"].$get({
+          query: policyId === undefined ? {} : { policyId },
+          header: headers,
+        }),
+      );
+    },
+    async computePricingHealth(policyId: string): Promise<{ dryRunId: string }> {
+      return parseJsonResponse(
+        await client.account["pricing-health"][":policyId"].compute.$post({
+          param: { policyId },
+          header: headers,
+        }),
+      );
+    },
     async listAccountRecommendations(query = ""): Promise<ListResponse<AccountRecommendationListItem>> {
       return parseJsonResponse(
         await client.account.recommendations.$get({
