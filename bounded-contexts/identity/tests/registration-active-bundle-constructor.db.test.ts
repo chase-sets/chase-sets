@@ -136,10 +136,17 @@ it("keeps the registration endpoint-invoker census explicit and fail-closed", ()
       "RegistrationConsentBundles fixture",
     ],
   ] as const);
-  const tracked = execFileSync("git", ["ls-files", "--", "bounded-contexts/identity/**/*.test.ts"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  })
+  // Every suffix the bounded-context Vitest config collects, so a .tsx invoker cannot slip past the census.
+  const tracked = execFileSync(
+    "git",
+    [
+      "ls-files",
+      "--",
+      ":(glob)bounded-contexts/identity/**/*.test.ts",
+      ":(glob)bounded-contexts/identity/**/*.test.tsx",
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  )
     .split(/\r?\n/)
     .filter(Boolean);
   const sources = new Map(

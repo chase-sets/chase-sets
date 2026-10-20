@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import {
   EVENT_STORE_READ_PAGE_SIZE_MAX,
   type AppendToStreamInput,
   type StoredEvent,
 } from "@chase-sets/event-core/storage";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
@@ -45,6 +47,15 @@ function requireDatabaseBaseUrl(): string {
     throw new Error("TEST_DATABASE_URL is required for database-backed tests.");
   }
   return databaseBaseUrl;
+}
+
+// Production serves this router behind the platform error boundary, which owns
+// the generic body an unclassified registration failure returns.
+function buildApp(services: IdentityServices) {
+  const app = new Hono();
+  app.onError(errorHandler);
+  app.route("/", buildIdentityApi(services));
+  return app;
 }
 
 /** Isolated activatable publications; the compiled production corpus remains dormant. */
@@ -220,7 +231,7 @@ describeDb("registration atomicity and convergence", () => {
     harness: Harness,
     body: Readonly<Record<string, unknown>>,
   ): Promise<Readonly<{ status: number; body: Record<string, unknown> }>> {
-    const response = await buildIdentityApi(harness.services).request("/internal/auth/personal-identities", {
+    const response = await buildApp(harness.services).request("/internal/auth/personal-identities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

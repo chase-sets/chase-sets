@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -34,6 +35,7 @@ import {
   ConsentActivationAuthorityError,
   decodeConsentActivationAuthoritySnapshot,
 } from "@chase-sets/platform-policy/consent-activation-authority";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -48,6 +50,15 @@ function requireDatabaseBaseUrl(): string {
     throw new Error("TEST_DATABASE_URL is required for database-backed tests.");
   }
   return databaseBaseUrl;
+}
+
+// Production serves this router behind the platform error boundary, which owns
+// the generic body an unclassified registration failure returns.
+function buildApp(services: IdentityServices) {
+  const app = new Hono();
+  app.onError(errorHandler);
+  app.route("/", buildIdentityApi(services));
+  return app;
 }
 
 const EMAIL = "owner@pokebash.example";
@@ -130,7 +141,7 @@ describeDb("registration operation semantic validation", () => {
     body: Record<string, unknown> = {},
     requirements: readonly RegistrationConsentRequirement[] = [TERMS_V1],
   ) {
-    const response = await buildIdentityApi(services).request("/internal/auth/personal-identities", {
+    const response = await buildApp(services).request("/internal/auth/personal-identities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
