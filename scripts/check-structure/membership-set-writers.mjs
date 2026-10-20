@@ -145,7 +145,7 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
         const value = binding(node);
         if (value && typeof value !== "string" && membership(value, seen)) return true;
       }
-      if (file.startsWith(identity) && property(node) === "memberships") return true;
+      if (file.startsWith(identity) && /^memberships?$/.test(property(node) ?? "")) return true;
       const partial = partialString(node);
       if (partial && /^identity\.(?:membership[.-]|user-membership-set[.-])/.test(partial)) return true;
       let found = false;

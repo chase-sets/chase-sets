@@ -31,6 +31,17 @@ test("Membership writer census partitions every source and rejects the different
       result.rows.some((row) => row.file === `bounded-contexts/identity/${suffix}`),
       suffix,
     );
+  for (const owner of [
+    "membershipRoutes",
+    "appendPersonalIdentityRegistration",
+    "grantGuestAccountForAuth",
+    "acceptInvitationForUserFromAuth",
+    "bootstrapPlatformAdminIdentity",
+    "membershipReconciler",
+    "reconcileRepresentativeMembership",
+    "provisionAdminQaActorFixture",
+  ])
+    assert.ok(result.rows.some((row) => row.owner === owner), owner);
 });
 
 test("source omission cannot turn the census green", () => {
