@@ -94,7 +94,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.app.root.marketplace.error": "Marketplace error",
   "marketplace.app.root.page.not.found": "Page not found",
   "marketplace.app.root.page.not.found.description": "This marketplace page does not exist or is no longer available.",
-  "marketplace.app.root.unknown.error": "Unknown error",
+  "marketplace.app.root.unknown.error": "Something went wrong. Please try again.",
   "marketplace.app.routes.layout.exit.guest.checkout": "Exit guest checkout",
   "marketplace.app.routes.layout.sign.out": "Sign Out",
   "marketplace.app.routes.layout.add.passkey": "Add a passkey to secure your account",

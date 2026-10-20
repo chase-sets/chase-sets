@@ -7,9 +7,9 @@ import { describe, expect, it } from "vitest";
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 
 const expectedInventory = [
+  ["bounded-contexts/checkout/features/sessions/api/session-cleanup.ts", "readCleanupCommitMetadata"],
+  ["bounded-contexts/checkout/features/sessions/api/session-entry.ts", "existingStartedSession"],
   ["bounded-contexts/settlement/features/payouts/api/payout-primitives.ts", "getCommittedPayoutLedgerEntry"],
-  ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "cleanupCommitMetadata"],
-  ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "existingStartedSession"],
   [
     "bounded-contexts/inventory/support/runtime-support/inventory-adjustment-idempotency.ts",
     "recoverInventoryAdjustmentIdempotency",
