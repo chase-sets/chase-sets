@@ -24,6 +24,11 @@ import {
 } from "@chase-sets/design-system";
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import type { DiscoveryGradedCardDetails } from "../../../../support/client-support/contracts";
+import {
+  EntryAttemptKeyField,
+  MarketSelectionField,
+  useBuyQuantity,
+} from "../../../../support/ui-support/entry-attempt-key";
 import { FounderBadge, hasFounderBadge, hasTrustedSellerBadge, TrustedSellerBadge } from "../account-badges";
 import {
   formatMoneyAmount,
@@ -161,6 +166,7 @@ export function CheckoutPurchaseIntentSection({
   errorMessage?: string | null;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
+  const [quantity, setQuantity] = useBuyQuantity(formId);
   const addToCartFetcher = useFetcher<ItemDetailActionData>();
   const isProductCartWorkflow = actionMode === "add-to-cart";
   const isListingWorkflow = Boolean(selectedListing && !isProductCartWorkflow);
@@ -380,6 +386,11 @@ export function CheckoutPurchaseIntentSection({
     <Form spacing="none" id={formId} method="post" ref={formRef} onSubmit={trackPurchaseIntentSubmit}>
       <Stack gap={3}>
         <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
+        <EntryAttemptKeyField
+          formId={formId}
+          inputs={{ lockedListingId: selectedListing?.listing_id ?? null, productId, selectedOptions, quantity }}
+        />
+        <MarketSelectionField />
         <HiddenInput type="hidden" name="attemptId" defaultValue="" />
         <HiddenInput type="hidden" name="listingId" value="" />
         <HiddenInput type="hidden" name="lockedListingId" value={selectedListing?.listing_id ?? ""} />
@@ -527,7 +538,8 @@ export function CheckoutPurchaseIntentSection({
           label={t("discovery.routes.itemDetail.quantity")}
           name="quantity"
           min={1}
-          defaultValue={1}
+          defaultValue={quantity ?? undefined}
+          onValueChange={setQuantity}
           required
         />
         {actions !== undefined ? actions : defaultActions}
