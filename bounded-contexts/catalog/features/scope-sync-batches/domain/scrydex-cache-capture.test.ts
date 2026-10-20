@@ -671,11 +671,11 @@ describe("Scrydex cache capture receipt", () => {
     expect(validateScrydexCacheCaptureReceipt(JSON.parse(JSON.stringify(receipt)))).toEqual([]);
   });
 
-  it("marks membership unread, never member, when the unit's option list is incomplete", () => {
+  it("marks membership unreadable, never member, when the unit's option list is incomplete", () => {
     const evidence = completeEvidence();
     evidence.units[0]!.pages[0] = { ...evidence.units[0]!.pages[0]!, completedAt: "2026-10-21T06:00:00.000Z" };
     const receipt = buildScrydexCacheCaptureReceipt(evidence);
-    expect(receipt.scopes[0]!.mappings[0]).toMatchObject({ unitKey: onePieceSet, membership: "unread" });
+    expect(receipt.scopes[0]!.mappings[0]).toMatchObject({ unitKey: onePieceSet, membership: "unreadable" });
   });
 
   it.each<[string, (receipt: any) => void]>([

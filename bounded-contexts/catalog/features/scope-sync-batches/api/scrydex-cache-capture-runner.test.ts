@@ -332,7 +332,7 @@ describe("Scrydex cache capture runner", () => {
     );
     expect(receipt.scopes.find((scope) => scope.scopeRecordId === "synthetic-l-1")!.mappings[1]).toMatchObject({
       unitKey: lorcanaCard,
-      membership: "unread",
+      membership: "unreadable",
     });
   });
 
@@ -340,7 +340,7 @@ describe("Scrydex cache capture runner", () => {
     const { receipt } = await capture({ clock: "2026-10-21T05:59:20.000Z" });
     expect(receipt.captureStatus).toBe("governed-unknown");
     expect(receipt.reasons).toContain(`option-list-late:${onePieceSet}`);
-    expect(receipt.scopes[0]!.mappings.every((mapping) => mapping.membership === "unread")).toBe(true);
+    expect(receipt.scopes[0]!.mappings.every((mapping) => mapping.membership === "unreadable")).toBe(true);
   });
 
   it("refuses a Scope Record inventory that stops short of its total", async () => {

@@ -513,7 +513,7 @@ const mappingEvidenceSchema = z
   })
   .strict();
 const mappingReceiptSchema = mappingEvidenceSchema
-  .extend({ coordinate: boundedText.nullable(), membership: z.enum(["member", "non-member", "unread"]) })
+  .extend({ coordinate: boundedText.nullable(), membership: z.enum(["member", "non-member", "unreadable"]) })
   .strict();
 const scopeShape = { scopeRecordId: id, productDomain, ...readStamp };
 
@@ -653,7 +653,7 @@ export function buildScrydexCacheCaptureReceipt(evidence: ScrydexCacheCaptureEvi
         return {
           ...mapping,
           coordinate,
-          membership: !values ? "unread" : coordinate !== null && values.has(coordinate) ? "member" : "non-member",
+          membership: !values ? "unreadable" : coordinate !== null && values.has(coordinate) ? "member" : "non-member",
         };
       }),
     })),
