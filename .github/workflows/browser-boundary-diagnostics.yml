@@ -136,9 +136,6 @@ jobs:
               close(parent_to_target[1]);
               close(target_to_parent[0]);
               if (unshare(CLONE_NEWUSER) != 0) die("userns");
-              int groups = open("/proc/self/setgroups", O_WRONLY | O_CLOEXEC);
-              if (groups < 0 || write(groups, "deny\n", 5) != 5) die("setgroups");
-              close(groups);
               if (write(target_to_parent[1], "r", 1) != 1) die("target-ready");
               char ack;
               if (read(parent_to_target[0], &ack, 1) != 1) die("target-ack");
@@ -151,6 +148,7 @@ jobs:
             close(target_to_parent[1]);
             char ready;
             if (read(target_to_parent[0], &ready, 1) != 1) die("parent-ready");
+            write_text(target, "setgroups", "deny\n");
             map_one(target, "uid_map", (unsigned)getuid());
             map_one(target, "gid_map", (unsigned)getgid());
             if (write(parent_to_target[1], "a", 1) != 1) die("parent-ack");
