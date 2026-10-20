@@ -256,6 +256,20 @@ const catalogCountLifecycleDelta = [
     purpose: "application-runtime",
   },
 ];
+// #10003 threads the canonical staging Admin keys into only the isolated cache-only Scrydex capture and its
+// sealed-receipt validation steps.
+const scrydexCacheCaptureDelta = [
+  "name:Capture Scrydex option cache without refresh#4",
+  "name:Validate exact runner-sealed capture#5",
+].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-cache-capture",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
 // #9962 adds the read-only preview-pool census workflow's provider authority grants.
 const previewPoolCensusDelta = [
   ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
@@ -641,13 +655,14 @@ describe("managed Postgres authority source generator", () => {
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
+        ...scrydexCacheCaptureDelta,
         ...previewPoolCensusDelta,
         ...credentialHealthDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1660);
+    expect(expected.grants).toHaveLength(1666);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
