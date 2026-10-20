@@ -22,7 +22,7 @@ function readAccountBadgeKey(value: unknown): AccountBadgeKey | null {
 }
 
 function canManageAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId: string) {
-  return Boolean(actor) && (actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.accountId === accountId);
+  return actor?.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor?.accountId === accountId;
 }
 
 function canManageAccountBadges(actor: IdentityApiEnv["Variables"]["actor"]) {
