@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
-import { bootstrapContextDatabase, seedApiModuleIfEmpty } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  seedApiModuleIfEmpty,
+  syncLocalProjectionGroups,
+} from "@chase-sets/bounded-context-runtime";
 import { productionLikeDataProfiles } from "@chase-sets/platform-runtime/api";
 import {
   closeMultiContextTestPools,
@@ -234,11 +238,19 @@ function grant(index: number, userId = "usr_set_boundary"): AppendToStreamInput 
     };
     await seedApiModuleIfEmpty(identityModule, pool, undefined, { enabledDataProfiles: productionLikeDataProfiles });
     await bootstrapPlatformAdminIdentity(services, admin);
+    const drain = () =>
+      syncLocalProjectionGroups(
+        { contextName: "identity", module: identityModule, services, pool, projectionHandlerSets: services.projectors },
+        { settleIdleCheckpoints: true },
+      );
+    await drain();
     for (const profile of ["scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"] as const) {
       await seedIdentityDatabase(pool, undefined, { enabledDataProfiles: [profile] });
       await services.membershipSets.reconcile(context);
+      await drain();
       await seedIdentityDatabase(pool, undefined, { enabledDataProfiles: [profile] });
       await services.membershipSets.reconcile(context);
+      await drain();
     }
     const original = await pool.query(
       "SELECT count(*)::text AS count FROM event_store_events WHERE event_type = 'identity.user-membership-set.membership-recorded'",
