@@ -272,6 +272,17 @@ export const browserE2ePlatformWorkerCiCommand = Object.freeze(
 
 export const browserE2eProductionTarget = "browser-e2e-production";
 
+const devBootstrapWorkspaces = Object.freeze(["@chase-sets/app-platform-api", "@chase-sets/app-platform-worker"]);
+
+// The API bootstrap owns the complete context registry used by browser E2E,
+// including the worker's contexts. The worker process still bootstraps its
+// runtime-owned Settlement schema on launch; running the duplicate worker
+// workspace bootstrap first would consume the Playwright web-server budget
+// after the API seed has already completed.
+export function resolveDevBootstrapWorkspaces(targetName) {
+  return isBrowserE2eTarget(targetName) ? [devBootstrapWorkspaces[0]] : [...devBootstrapWorkspaces];
+}
+
 const browserE2eProductionWorkspaces = Object.freeze({
   "platform-api": "@chase-sets/app-platform-api",
   "platform-worker": "@chase-sets/app-platform-worker",

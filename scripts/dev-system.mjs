@@ -22,6 +22,7 @@ import {
   createPublicWebDevProcessDefinition,
   isBrowserE2eTarget,
   readSandboxPostgresSettings,
+  resolveDevBootstrapWorkspaces,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
 import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
@@ -171,8 +172,6 @@ async function preparePlatformDatabase() {
     }, databaseName);
   }
 }
-
-const bootstrapWorkspaces = ["@chase-sets/app-platform-api", "@chase-sets/app-platform-worker"];
 
 function buildContextDatabaseEnv() {
   return Object.fromEntries(
@@ -495,7 +494,7 @@ async function runBootstrap(targetName = "all", lifecycleRecorder = null) {
   await ensureDevDatabase();
 
   const bootstrapProcesses = applyDevTargetEnvOverrides(targetName, processes);
-  for (const workspace of bootstrapWorkspaces) {
+  for (const workspace of resolveDevBootstrapWorkspaces(targetName)) {
     prefixedConsole("bootstrap", `Running ${workspace} bootstrap...`);
     const processDefinition = bootstrapProcesses.find((definition) => definition.workspace === workspace);
     const invocation = buildPackageManagerInvocation(["--filter", workspace, "run", "bootstrap"]);

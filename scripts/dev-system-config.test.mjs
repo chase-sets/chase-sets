@@ -22,6 +22,7 @@ import {
   createMarketplaceDevProcessDefinition,
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
+  resolveDevBootstrapWorkspaces,
 } from "./dev-system-config.mjs";
 
 const temporaryDirectories = [];
@@ -44,6 +45,24 @@ function expectMarketplaceCliBinding(source) {
 function expectMarketplaceOrigin(environment) {
   expect(environment.CHASE_SETS_INTERNAL_API_ORIGIN).toBe(marketplaceSandbox.urls.platformApi);
 }
+
+describe("browser E2E bootstrap ownership", () => {
+  it("lets the API own the shared schema and seed bootstrap for browser targets", () => {
+    expect(resolveDevBootstrapWorkspaces("browser-e2e")).toEqual(["@chase-sets/app-platform-api"]);
+    expect(resolveDevBootstrapWorkspaces(browserE2eProductionTarget)).toEqual(["@chase-sets/app-platform-api"]);
+  });
+
+  it("retains both deployable bootstraps for non-browser targets", () => {
+    expect(resolveDevBootstrapWorkspaces("all")).toEqual([
+      "@chase-sets/app-platform-api",
+      "@chase-sets/app-platform-worker",
+    ]);
+    expect(resolveDevBootstrapWorkspaces("platform-worker")).toEqual([
+      "@chase-sets/app-platform-api",
+      "@chase-sets/app-platform-worker",
+    ]);
+  });
+});
 
 describe("marketplace dev sandbox origin", () => {
   it("binds the shared definition into the CLI process table and all three targets", () => {
