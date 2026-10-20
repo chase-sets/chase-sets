@@ -643,6 +643,7 @@ describe("next-work ranking", () => {
     expect(document.excluded).toEqual({
       EPIC: 1,
       TRACKING_ONLY: 1,
+      PLATFORM_HELD: 0,
       NO_MILESTONE: 1,
       NOT_COMMITTED_OUTCOME: 3,
       EXCLUDED_MILESTONE: 1,
@@ -673,6 +674,21 @@ describe("next-work ranking", () => {
     expect(() => rankNextWork(facts(milestones, [issue(14, { unlockCount: undefined })]))).toThrow(
       "NEXT_WORK_FACTS_INCOMPLETE",
     );
+  });
+
+  it("excludes platform-held and platform-return issues once before ranking", () => {
+    const milestones = [outcome(10, "delivery", 100)];
+    const document = rankNextWork(
+      facts(milestones, [
+        issue(1, { labels: [...CLASSIFIED, "dispatch:platform"] }),
+        issue(2, { labels: [...CLASSIFIED, "dispatch:platform-return"] }),
+        issue(3, { labels: [...CLASSIFIED] }),
+      ]),
+    );
+
+    expect(document.excluded.PLATFORM_HELD).toBe(2);
+    expect(document.classes.product.map(({ issue: number }) => number)).toEqual([3]);
+    expect(Object.values(document.classes).flat().some(({ issue: number }) => [1, 2].includes(number))).toBe(false);
   });
 });
 
