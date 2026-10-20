@@ -325,7 +325,7 @@ class CaptureSources {
       productDomain,
       completedAt: result.completedAt,
       responseSha256: result.responseSha256,
-      mappings: decoded.mappings,
+      mappings: [...decoded.mappings],
     });
   }
 }

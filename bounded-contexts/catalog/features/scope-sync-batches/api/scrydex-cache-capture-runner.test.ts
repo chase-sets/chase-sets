@@ -6,6 +6,7 @@ import type { ProviderScopeMappingServices } from "../../provider-scope-mapping/
 import { buildScopeCoverageMatrix } from "../../provider-scope-mapping/api/scope-coverage-admin-contracts";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import { catalogScopeRegistryRoutes } from "../../scope-registry/api/route";
+import type { CatalogScopeRecordListParams } from "../../scope-registry/read-model/queries";
 import { providerOptionRoutes } from "../../source-observations/api/route-modules/provider-options-routes";
 import { providerProfileRoutes } from "../../source-observations/api/route-modules/provider-profile-routes";
 import { queryCatalogProviderIntegrationOptionsWithCache } from "../../source-observations/api/providers/provider-option-query-cache";
@@ -143,13 +144,15 @@ async function deployedAdmin(world: World, serverNow: () => string) {
     "/api/catalog/scope-records",
     catalogScopeRegistryRoutes({
       getScopeRecord: async () => null,
-      listScopeRecords: async (params) => {
+      listScopeRecords: async (params?: CatalogScopeRecordListParams) => {
         scopeListCalls += 1;
-        const domain = params.productDomain as "one-piece" | "lorcana";
+        const domain = params?.productDomain as "one-piece" | "lorcana";
         const ids = world.scopes[domain] ?? [];
         const visible = world.shrinkingInventory && scopeListCalls > 1 ? [] : ids;
+        const offset = Number(params?.offset ?? 0);
+        const limit = Number(params?.limit ?? 50);
         return {
-          items: visible.slice(params.offset, params.offset + params.limit).map((id) => syntheticScopeRow(id, domain)),
+          items: visible.slice(offset, offset + limit).map((id) => syntheticScopeRow(id, domain)),
           total: ids.length,
         };
       },

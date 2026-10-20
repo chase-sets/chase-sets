@@ -442,7 +442,7 @@ describe("planner coordinate", () => {
     const mapping = {
       mappingId: "synthetic-map",
       unitKey: onePieceSet,
-      reviewStatus: "accepted",
+      reviewStatus: "accepted" as const,
       version: "2026-10-03T00:00:00.000Z",
     };
     expect(
