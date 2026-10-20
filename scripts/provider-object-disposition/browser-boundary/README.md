@@ -9,8 +9,25 @@ GitHub-hosted `ubuntu-24.04` VM, as its actual sudo-capable runner principal.
 Root and host runner processes are trusted administrators; Chromium and its
 descendants are not. The AppArmor profile grants namespace construction, not a
 firewall. The installed native launcher owns the network/root/handle boundary.
+Setup archives native inputs only from an exact commit byte-identical to the
+checkout: the candidate or, for a pull request that never changed them, its
+merge ref's base tip contained in `refs/remotes/origin/main`, as
+`provider-boundary-native-source:<head|base>:<sha>` records.
 
 ## Protocol
+
+When the installed Chromium launch rejects, the `sandboxed-chromium` mediation
+record appends a bounded `launch` envelope. It recognizes only whole,
+PID-bound Playwright message lines (`<launched>`, `[pid][out]`, `[pid][err]`,
+and the exact process-exit line), deduplicates identical lines, and emits only
+the closed class, window, exit code/signal vocabulary, and a `nativeRefusal`
+stage when the refusal bytes are bound to the same PID and status 78. Unknown,
+partial, conflicting, multi-PID, ANSI, and format-drift evidence remains
+`unknown`/`null`; no message, stderr, argv, path, or trace text is retained.
+The hosted `B3-launch-refusal-class` control runs the installed launcher with
+the shared Chromium options and a wrong 64-hex digest, requiring the exact
+`exited`/`from-launch`/78/`source-identity` envelope and failing closed on
+Playwright format drift.
 
 The launcher stays non-dumpable. Each outer or nested seed closes inherited
 descriptors and installs an x86-64-only seccomp allowlist before becoming
@@ -67,6 +84,20 @@ replaced and unexplained records still refuse. This shared census governs native
 identity observation, the process-tree observer and per-case installation
 removal, without retries or new budgets.
 
+Between two census passes the removal classifier (#10023) identifies a process
+by PID and start only; reparenting is not drift. A candidate is a record in a
+non-initial PID namespace or with the launcher or target image; UID alone never
+makes one, and every possible root or member is a candidate. Start/image drift
+and parent-order inversion refuse only when either record is a candidate. An
+exact exit is not drift: same PID and start, an image before, then a non-kernel
+`Z` record without an image. A zombie member keeps its UID and namespace, so it
+still refuses as live or orphan; an exited launcher is no longer a root, but
+removal still needs the existing second empty pass. Foreign-image and
+member-cycle checks, the same-read exit proof above and every census refusal
+are unchanged. `ownership.py` is an installed source, so a predicate change
+also changes the installed source digest. The other `snapshot()`/`parse_stat`
+consumers do not classify.
+
 Success, failure, cancellation and handled shutdown require event-driven owned
 drain. No periodic sweep substitutes for terminal cleanup. Runner loss or an
 absent cleanup-complete mark means externally disposed/unknown, not cleaned.
@@ -81,8 +112,10 @@ It does not change CP-T/CP-A, native 78, installer/wrapper 1, ownership predicat
 iteration order, deadlines, or deletion authority. Success adds no diagnostic.
 The first propagated ambiguity uses the classifier's same-read records, never
 a later census: `identity-drift`, `parent-order`, `foreign-image`, or
-`member-cycle`. Stable unrelated input is `none`; unrelated start/image drift
-still refuses and is not proof of foreign ownership.
+`member-cycle`. Stable unrelated input is `none`. Candidate start/image drift
+still refuses and is not proof of foreign ownership; exact exits and
+non-candidate drift or parent order emit no witness. Non-candidate drift stays
+valid v1 grammar.
 
 Version 1 is a closed ASCII line, including exactly one trailing LF, at most
 1024 bytes. Its fixed field order is `v1;predicate=...;records=...;start-drift=...;
@@ -106,7 +139,10 @@ the entire original envelope together. Missing, duplicate, extra, truncated,
 overflow, noncanonical or inconsistent detail cannot pass an ambiguous-output
 assertion or authorize deletion. Invalid helper detail becomes census refusal;
 resources remain retained. Raw paths, argv, environment and exceptions are not
-forwarded. Native and non-ambiguous output contracts remain unchanged.
+forwarded. Native and non-ambiguous output contracts remain unchanged. A failed
+per-case cleanup line adds `removalStage` (the stage `removalRefusal` accepts,
+else `unknown`) and `removalWitness` (the validated line for an ambiguous
+refusal, else `null`); the original case error still wins.
 
 Diagnostic evidence must retain the FIRST normal final-head hosted removal
 after complete unchanged serial controls, renderer cleanup/reinstall and final

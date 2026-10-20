@@ -1,12 +1,13 @@
 import { formatBpsPercent, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { Form } from "../../../support/ui-support/mutation-form";
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import {
   HiddenInput,
   Accordion,
   Banner,
   Button,
   Card,
+  Combobox,
   FileDropzone,
   Grid,
   Inline,
@@ -26,10 +27,14 @@ import {
   NativeSelect,
 } from "@chase-sets/design-system";
 import {
+  getOrderedActiveProductSelectionDimensions,
+  getOrderedProductSelectionDimensions,
+  isProductSelectionDimensionActive,
   normalizeProductSelection,
   productSelectionEntriesToRecord,
   recordToProductSelectionEntries,
   toProductSelectionFields,
+  type ProductSelectionRecord,
   type ProductSelectionSchema,
 } from "@chase-sets/product-selection";
 import type {
@@ -40,19 +45,344 @@ import type {
 import { EvidenceReadinessChecklist } from "./listing-evidence-readiness";
 import { trackListingEvidenceEvent } from "./listing-evidence-analytics";
 
-const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
+const CATALOG_SUGGESTION_API_URL = "/api/marketplace/items/suggest";
+const CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
 const DEFAULT_EVIDENCE_READINESS_API_URL = "/api/marketplace/account/listings/evidence-readiness/preview";
+const CATALOG_LOOKUP_SETTLE_MS = 250;
+const CATALOG_SUGGESTION_MIN_QUERY_LENGTH = 2;
+const CATALOG_ITEM_ID_PATTERN = /^cat_\S+$/;
 
 type ListingCatalogItemSnapshot = Readonly<{
   catalog_item_id: string;
   title: string;
   subtitle?: string | null;
+  status: string;
   product_schema: ProductSelectionSchema | null;
 }>;
 
-type ListingCatalogItemSearchResponse = Readonly<{
-  items?: readonly ListingCatalogItemSnapshot[];
+type ListingCatalogSuggestion = Readonly<{
+  catalogItemId: string;
+  title: string;
+  subtitle: string | null;
+  category: string | null;
 }>;
+
+type ListingCatalogCandidate = Readonly<{
+  catalogItemId: string;
+  label: string;
+  description?: string;
+  hydratedItem: ListingCatalogItemSnapshot | null;
+}>;
+
+type ListingCatalogLookup =
+  | Readonly<{ kind: "none" }>
+  | Readonly<{ kind: "suggest"; query: string }>
+  | Readonly<{ kind: "exact"; purpose: "candidate" | "choice"; catalogItemId: string }>
+  | Readonly<{ kind: "exact"; purpose: "restore"; catalogItemId: string; initialOptions: ProductSelectionRecord }>;
+
+type ListingCatalogPickerStatus = "idle" | "loading" | "populated" | "empty" | "error" | "selected";
+
+type ListingCatalogPickerState = Readonly<{
+  query: string;
+  lookup: ListingCatalogLookup;
+  status: ListingCatalogPickerStatus;
+  candidates: readonly ListingCatalogCandidate[];
+  chosenCatalogItemId: string;
+  selectedItem: ListingCatalogItemSnapshot | null;
+  selectedOptions: ProductSelectionRecord;
+  optionsReset: boolean;
+}>;
+
+type ListingCatalogPickerEvent =
+  | Readonly<{ type: "edited"; query: string }>
+  | Readonly<{ type: "chosen"; catalogItemId: string }>
+  | Readonly<{ type: "option-changed"; dimensionId: string; optionId: string }>
+  | Readonly<{ type: "suggested"; lookup: ListingCatalogLookup; suggestions: readonly ListingCatalogSuggestion[] }>
+  | Readonly<{ type: "hydrated"; lookup: ListingCatalogLookup; item: ListingCatalogItemSnapshot }>
+  | Readonly<{ type: "failed"; lookup: ListingCatalogLookup; status: "empty" | "error" }>;
+
+const NO_CATALOG_LOOKUP: ListingCatalogLookup = { kind: "none" };
+
+function initialCatalogPickerState({
+  catalogItemId,
+  selectedOptions,
+}: {
+  catalogItemId: string;
+  selectedOptions: ProductSelectionRecord;
+}): ListingCatalogPickerState {
+  return {
+    query: catalogItemId,
+    lookup: catalogItemId
+      ? { kind: "exact", purpose: "restore", catalogItemId, initialOptions: selectedOptions }
+      : NO_CATALOG_LOOKUP,
+    status: catalogItemId ? "loading" : "idle",
+    candidates: [],
+    chosenCatalogItemId: "",
+    selectedItem: null,
+    selectedOptions: {},
+    optionsReset: false,
+  };
+}
+
+function catalogLookupForQuery(query: string): ListingCatalogLookup {
+  const trimmed = query.trim();
+  if (CATALOG_ITEM_ID_PATTERN.test(trimmed)) {
+    return { kind: "exact", purpose: "candidate", catalogItemId: trimmed };
+  }
+
+  return trimmed.length < CATALOG_SUGGESTION_MIN_QUERY_LENGTH ? NO_CATALOG_LOOKUP : { kind: "suggest", query: trimmed };
+}
+
+function candidateFromSuggestion(suggestion: ListingCatalogSuggestion): ListingCatalogCandidate {
+  return {
+    catalogItemId: suggestion.catalogItemId,
+    label: suggestion.title,
+    description: suggestion.subtitle?.trim() || suggestion.category || undefined,
+    hydratedItem: null,
+  };
+}
+
+function candidateFromItem(item: ListingCatalogItemSnapshot): ListingCatalogCandidate {
+  return {
+    catalogItemId: item.catalog_item_id,
+    label: item.title,
+    description: item.subtitle?.trim() || undefined,
+    hydratedItem: item,
+  };
+}
+
+// Keeps only selections that are still allowed and active under the current schema. With
+// fillRequiredDefaults the shared normalizer also defaults required dimensions; without it a
+// cleared dimension stays empty until the seller chooses it.
+function reconcileListingOptions(
+  schema: ProductSelectionSchema,
+  selections: ProductSelectionRecord,
+  fillRequiredDefaults: boolean,
+): Record<string, string> {
+  if (fillRequiredDefaults) {
+    return normalizeProductSelection(schema, selections);
+  }
+
+  const next: Record<string, string> = {};
+  for (const dimension of getOrderedProductSelectionDimensions(schema)) {
+    const optionId = selections[dimension.dimensionId];
+    if (
+      optionId !== undefined &&
+      isProductSelectionDimensionActive(dimension, next) &&
+      dimension.allowedOptions.some((option) => option.optionId === optionId)
+    ) {
+      next[dimension.dimensionId] = optionId;
+    }
+  }
+
+  return next;
+}
+
+function restoreListingOptions(schema: ProductSelectionSchema | null, initialOptions: ProductSelectionRecord) {
+  if (!schema) {
+    return { selectedOptions: {}, optionsReset: false };
+  }
+
+  const kept = reconcileListingOptions(schema, initialOptions, false);
+  const stale = Object.entries(initialOptions).some(([dimensionId, optionId]) => kept[dimensionId] !== optionId);
+
+  return stale
+    ? { selectedOptions: kept, optionsReset: true }
+    : { selectedOptions: normalizeProductSelection(schema, initialOptions), optionsReset: false };
+}
+
+function chosenListingOptions(item: ListingCatalogItemSnapshot) {
+  return {
+    selectedOptions: item.product_schema ? normalizeProductSelection(item.product_schema, {}) : {},
+    optionsReset: false,
+  };
+}
+
+function listingOptionsComplete(schema: ProductSelectionSchema | null, selections: ProductSelectionRecord) {
+  if (!schema) {
+    return true;
+  }
+
+  return getOrderedActiveProductSelectionDimensions(schema, selections).every(
+    (dimension) =>
+      !dimension.required ||
+      dimension.allowedOptions.some((option) => option.optionId === selections[dimension.dimensionId]),
+  );
+}
+
+function selectCatalogItem(
+  state: ListingCatalogPickerState,
+  item: ListingCatalogItemSnapshot,
+  options: { selectedOptions: ProductSelectionRecord; optionsReset: boolean },
+): ListingCatalogPickerState {
+  return {
+    ...state,
+    status: "selected",
+    chosenCatalogItemId: item.catalog_item_id,
+    selectedItem: item,
+    selectedOptions: options.selectedOptions,
+    optionsReset: options.optionsReset,
+  };
+}
+
+function reduceCatalogPicker(
+  state: ListingCatalogPickerState,
+  event: ListingCatalogPickerEvent,
+): ListingCatalogPickerState {
+  switch (event.type) {
+    case "edited": {
+      // The Combobox echoes the chosen label back through its input; only a changed value is an edit.
+      if (event.query === state.query) {
+        return state;
+      }
+
+      const lookup = catalogLookupForQuery(event.query);
+      return {
+        query: event.query,
+        lookup,
+        status: lookup.kind === "none" ? "idle" : "loading",
+        candidates: [],
+        chosenCatalogItemId: "",
+        selectedItem: null,
+        selectedOptions: {},
+        optionsReset: false,
+      };
+    }
+    case "chosen": {
+      if (event.catalogItemId === state.selectedItem?.catalog_item_id) {
+        return state;
+      }
+
+      const candidate = state.candidates.find((entry) => entry.catalogItemId === event.catalogItemId);
+      if (!candidate) {
+        return state;
+      }
+
+      const chosenState = { ...state, query: candidate.label, chosenCatalogItemId: candidate.catalogItemId };
+      if (candidate.hydratedItem) {
+        return selectCatalogItem(
+          { ...chosenState, lookup: NO_CATALOG_LOOKUP },
+          candidate.hydratedItem,
+          chosenListingOptions(candidate.hydratedItem),
+        );
+      }
+
+      return {
+        ...chosenState,
+        lookup: { kind: "exact", purpose: "choice", catalogItemId: candidate.catalogItemId },
+        status: "loading",
+        selectedItem: null,
+        selectedOptions: {},
+        optionsReset: false,
+      };
+    }
+    case "option-changed": {
+      const schema = state.selectedItem?.product_schema;
+      if (!schema || !event.optionId) {
+        return state;
+      }
+
+      return {
+        ...state,
+        selectedOptions: reconcileListingOptions(
+          schema,
+          { ...state.selectedOptions, [event.dimensionId]: event.optionId },
+          !state.optionsReset,
+        ),
+      };
+    }
+    case "suggested": {
+      if (event.lookup !== state.lookup) {
+        return state;
+      }
+
+      const candidates = event.suggestions.map(candidateFromSuggestion);
+      return { ...state, candidates, status: candidates.length > 0 ? "populated" : "empty" };
+    }
+    case "hydrated": {
+      const lookup = state.lookup;
+      if (event.lookup !== lookup || lookup.kind !== "exact") {
+        return state;
+      }
+
+      const schema = event.item.product_schema;
+      switch (lookup.purpose) {
+        case "candidate":
+          return { ...state, candidates: [candidateFromItem(event.item)], status: "populated" };
+        case "choice":
+          return selectCatalogItem(state, event.item, chosenListingOptions(event.item));
+        case "restore":
+          return selectCatalogItem(
+            { ...state, query: event.item.title, candidates: [candidateFromItem(event.item)] },
+            event.item,
+            restoreListingOptions(schema, lookup.initialOptions),
+          );
+      }
+    }
+    case "failed": {
+      if (event.lookup !== state.lookup) {
+        return state;
+      }
+
+      return { ...state, status: event.status, candidates: state.chosenCatalogItemId ? state.candidates : [] };
+    }
+  }
+}
+
+async function runCatalogLookup(
+  lookup: Exclude<ListingCatalogLookup, { kind: "none" }>,
+  signal: AbortSignal,
+): Promise<ListingCatalogPickerEvent> {
+  try {
+    if (lookup.kind === "suggest") {
+      const response = await fetch(`${CATALOG_SUGGESTION_API_URL}?${new URLSearchParams({ q: lookup.query })}`, {
+        credentials: "include",
+        signal,
+      });
+      if (!response.ok) {
+        return { type: "failed", lookup, status: "error" };
+      }
+
+      const body = (await response.json()) as { items?: readonly ListingCatalogSuggestion[] };
+      return { type: "suggested", lookup, suggestions: body.items ?? [] };
+    }
+
+    const response = await fetch(`${CATALOG_ITEM_API_BASE_URL}/${encodeURIComponent(lookup.catalogItemId)}`, {
+      credentials: "include",
+      signal,
+    });
+    if (response.status === 404) {
+      return { type: "failed", lookup, status: "empty" };
+    }
+    if (!response.ok) {
+      return { type: "failed", lookup, status: "error" };
+    }
+
+    const item = (await response.json()) as ListingCatalogItemSnapshot;
+    return item.catalog_item_id === lookup.catalogItemId && item.status === "active"
+      ? { type: "hydrated", lookup, item }
+      : { type: "failed", lookup, status: "empty" };
+  } catch {
+    return { type: "failed", lookup, status: "error" };
+  }
+}
+
+function catalogPickerStatusText(status: ListingCatalogPickerStatus) {
+  switch (status) {
+    case "idle":
+      return t("marketplace.features.listings.ui.listingCreatePage.select.a.catalog.item");
+    case "loading":
+      return t("marketplace.features.listings.ui.listingCreatePage.searching.catalog.items");
+    case "populated":
+      return t("marketplace.features.listings.ui.listingCreatePage.choose.the.visible.catalog.item");
+    case "empty":
+      return t("marketplace.features.listings.ui.listingCreatePage.no.active.catalog.items.matched");
+    case "error":
+      return t("marketplace.features.listings.ui.listingCreatePage.catalog.item.lookup.failed");
+    case "selected":
+      return null;
+  }
+}
 
 function formatMoney(amount: string | null, currencyCode: string) {
   if (!amount || !currencyCode.trim()) {
@@ -90,10 +420,6 @@ function selectedInventorySummary(
   return inventoryItems.find((inventoryItem) => inventoryItem.item_id === inventoryItemId) ?? null;
 }
 
-function catalogItemOptionLabel(item: ListingCatalogItemSnapshot) {
-  return [item.title, item.subtitle].filter(Boolean).join(" - ");
-}
-
 export function MarketplaceListingCreatePage({
   inventoryItems,
   createForm,
@@ -101,7 +427,6 @@ export function MarketplaceListingCreatePage({
   evidenceReadiness: initialEvidenceReadiness,
   errorMessage,
   hasListingStockLocation,
-  catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
   evidenceReadinessApiUrl = DEFAULT_EVIDENCE_READINESS_API_URL,
   backHref = "/account/listings",
 }: {
@@ -121,7 +446,6 @@ export function MarketplaceListingCreatePage({
   evidenceReadiness?: MarketplaceListingEvidenceReadiness | null;
   errorMessage?: string | null;
   hasListingStockLocation: boolean;
-  catalogItemApiBaseUrl?: string;
   evidenceReadinessApiUrl?: string;
   backHref?: string;
 }) {
@@ -134,19 +458,39 @@ export function MarketplaceListingCreatePage({
   const selectedInventoryBlocksPublication =
     selectedInventory !== null && selectedInventory.product_measure_snapshot === null;
   const hasInventory = inventoryItems.length > 0;
-  const [initialCatalogItemId] = useState(() => createForm?.catalogItemId?.trim() ?? "");
-  const [initialSelectedOptions] = useState(() => productSelectionEntriesToRecord(createForm?.selectedOptions ?? []));
-  const [catalogItemSearch, setCatalogItemSearch] = useState(initialCatalogItemId);
-  const [catalogSearchResults, setCatalogSearchResults] = useState<readonly ListingCatalogItemSnapshot[]>([]);
-  const [catalogItemId, setCatalogItemId] = useState(initialCatalogItemId);
-  const [catalogItem, setCatalogItem] = useState<ListingCatalogItemSnapshot | null>(null);
-  const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
-  const [catalogLookupPending, setCatalogLookupPending] = useState(false);
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
-  const productSelectionFields = toProductSelectionFields(catalogItem?.product_schema ?? null, selectedOptions);
-  const serializedSelectedOptions = catalogItem?.product_schema
-    ? JSON.stringify(recordToProductSelectionEntries(catalogItem.product_schema, selectedOptions))
-    : JSON.stringify(createForm?.selectedOptions ?? []);
+  const [catalogPicker, dispatchCatalogPicker] = useReducer(
+    reduceCatalogPicker,
+    {
+      catalogItemId: createForm?.catalogItemId?.trim() ?? "",
+      selectedOptions: productSelectionEntriesToRecord(createForm?.selectedOptions ?? []),
+    },
+    initialCatalogPickerState,
+  );
+  const catalogLookup = catalogPicker.lookup;
+  const selectedCatalogItem = catalogPicker.selectedItem;
+  const selectedProductSchema = selectedCatalogItem?.product_schema ?? null;
+  const catalogSelectionReady =
+    selectedCatalogItem !== null && listingOptionsComplete(selectedProductSchema, catalogPicker.selectedOptions);
+  const catalogSelectionBlocksMutation = !inventoryItemId && !catalogSelectionReady;
+  const productSelectionFields = toProductSelectionFields(selectedProductSchema, catalogPicker.selectedOptions).map(
+    (field) =>
+      field.value
+        ? field
+        : {
+            ...field,
+            options: [
+              { value: "", label: t("marketplace.features.listings.ui.listingCreatePage.choose.product.option") },
+              ...field.options,
+            ],
+          },
+  );
+  const submittedCatalogItemId = catalogSelectionReady ? selectedCatalogItem.catalog_item_id : "";
+  const serializedSelectedOptions = JSON.stringify(
+    catalogSelectionReady && selectedProductSchema
+      ? recordToProductSelectionEntries(selectedProductSchema, catalogPicker.selectedOptions)
+      : [],
+  );
+  const catalogStatusText = catalogPickerStatusText(catalogPicker.status);
 
   useEffect(() => {
     if (!inventoryItemId) {
@@ -183,103 +527,24 @@ export function MarketplaceListingCreatePage({
   }, [evidenceReadinessApiUrl, inventoryItemId, priceAmount]);
 
   useEffect(() => {
-    const search = catalogItemSearch.trim();
-    if (search.length < 2) {
-      setCatalogSearchResults([]);
-      setCatalogLookupError(null);
-      setCatalogLookupPending(false);
+    if (catalogLookup.kind === "none") {
       return undefined;
     }
 
     const controller = new AbortController();
-    setCatalogLookupPending(true);
-    const query = new URLSearchParams({ search, status: "active", limit: "10" });
+    const lookUp = () => void runCatalogLookup(catalogLookup, controller.signal).then(dispatchCatalogPicker);
+    // Restoring a caller-supplied ID and hydrating an explicit choice run at once; typed or pasted input settles first.
+    const settles = catalogLookup.kind === "suggest" || catalogLookup.purpose === "candidate";
+    const timeout = settles ? window.setTimeout(lookUp, CATALOG_LOOKUP_SETTLE_MS) : undefined;
+    if (!settles) {
+      lookUp();
+    }
 
-    void fetch(`${catalogItemApiBaseUrl}?${query.toString()}`, {
-      credentials: "include",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
-          const message = typeof body?.error === "string" ? body.error : body?.error?.message;
-          throw new Error(
-            message ?? t("marketplace.features.listings.ui.listingCreatePage.catalog.item.lookup.failed"),
-          );
-        }
-
-        return response.json() as Promise<ListingCatalogItemSearchResponse>;
-      })
-      .then((result) => {
-        const items = result.items ?? [];
-        setCatalogSearchResults(items);
-        setCatalogLookupError(
-          items.length === 0
-            ? t("marketplace.features.listings.ui.listingCreatePage.no.active.catalog.items.matched")
-            : null,
-        );
-
-        if (catalogItemId) {
-          const selectedItem = items.find((item) => item.catalog_item_id === catalogItemId);
-          if (selectedItem) {
-            setCatalogItem(selectedItem);
-            if (catalogItemSearch.trim() === catalogItemId) {
-              setCatalogItemSearch(selectedItem.title);
-              setSelectedOptions(
-                selectedItem.product_schema
-                  ? normalizeProductSelection(
-                      selectedItem.product_schema,
-                      catalogItemId === initialCatalogItemId ? initialSelectedOptions : {},
-                    )
-                  : {},
-              );
-            }
-          }
-        }
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setCatalogSearchResults([]);
-        setCatalogLookupError(
-          error instanceof Error
-            ? error.message
-            : t("marketplace.features.listings.ui.listingCreatePage.catalog.item.lookup.failed"),
-        );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setCatalogLookupPending(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [catalogItemApiBaseUrl, catalogItemId, catalogItemSearch, initialCatalogItemId, initialSelectedOptions]);
-
-  function resetCatalogItemSelection(nextSearch: string) {
-    setCatalogItemSearch(nextSearch);
-    setCatalogItemId("");
-    setCatalogItem(null);
-    setSelectedOptions({});
-  }
-
-  function selectCatalogItem(nextCatalogItemId: string) {
-    const item = catalogSearchResults.find((candidate) => candidate.catalog_item_id === nextCatalogItemId);
-    setCatalogItemId(nextCatalogItemId);
-    setCatalogItem(item ?? null);
-    setCatalogLookupError(null);
-    setCatalogItemSearch(item?.title ?? catalogItemSearch);
-    setSelectedOptions(
-      item?.product_schema
-        ? normalizeProductSelection(
-            item.product_schema,
-            nextCatalogItemId === initialCatalogItemId ? initialSelectedOptions : {},
-          )
-        : {},
-    );
-  }
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [catalogLookup]);
 
   return (
     <Page>
@@ -348,44 +613,34 @@ export function MarketplaceListingCreatePage({
                   )}
                 />
               ) : null}
+              <HiddenInput type="hidden" name="catalogItemId" value={submittedCatalogItemId} />
               <HiddenInput type="hidden" name="selectedOptions" value={serializedSelectedOptions} />
               <Grid columns={{ base: 1, lg: 2 }} gap={5}>
                 <Stack gap={3}>
-                  <TextInput
+                  <Combobox
                     label={t("marketplace.features.listings.ui.listingCreatePage.search.catalog")}
                     placeholder={t("marketplace.features.listings.ui.listingCreatePage.search.or.paste.catalog.item")}
-                    value={catalogItemSearch}
-                    onChange={(event) => resetCatalogItemSelection(event.target.value)}
                     description={t(
                       "marketplace.features.listings.ui.listingCreatePage.search.by.title.or.paste.catalog",
                     )}
-                  />
-                  <NativeSelect
-                    label={t("marketplace.features.listings.ui.listingCreatePage.catalog.item")}
-                    name="catalogItemId"
-                    required
-                    value={catalogItemId}
-                    onChange={(event) => selectCatalogItem(event.target.value)}
-                    disabled={catalogSearchResults.length === 0}
-                    placeholder={
-                      catalogLookupPending
-                        ? t("marketplace.features.listings.ui.listingCreatePage.searching.catalog.items")
-                        : t("marketplace.features.listings.ui.listingCreatePage.select.a.catalog.item")
+                    status={catalogStatusText}
+                    noMatchesLabel={
+                      catalogStatusText ??
+                      t("marketplace.features.listings.ui.listingCreatePage.no.active.catalog.items.matched")
                     }
-                    items={catalogSearchResults.map((item) => ({
-                      value: item.catalog_item_id,
-                      label: catalogItemOptionLabel(item),
+                    required
+                    items={catalogPicker.candidates.map((candidate) => ({
+                      value: candidate.catalogItemId,
+                      label: candidate.label,
+                      description: candidate.description,
                     }))}
-                    description={t(
-                      "marketplace.features.listings.ui.listingCreatePage.choose.the.visible.catalog.item",
-                    )}
+                    value={catalogPicker.chosenCatalogItemId}
+                    onValueChange={(catalogItemId) => dispatchCatalogPicker({ type: "chosen", catalogItemId })}
+                    inputValue={catalogPicker.query}
+                    onInputValueChange={(query) => dispatchCatalogPicker({ type: "edited", query })}
+                    filterItems={false}
+                    openOnInputClick
                   />
-                  {catalogLookupPending ? (
-                    <Text size="sm" tone="secondary">
-                      {t("marketplace.features.listings.ui.listingCreatePage.searching.catalog.items")}
-                    </Text>
-                  ) : null}
-                  {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
                   <Grid columns={{ base: 1, md: 2 }} gap={3}>
                     <CurrencyInput
                       label={t("marketplace.features.listings.ui.listingCreatePage.price")}
@@ -457,25 +712,26 @@ export function MarketplaceListingCreatePage({
                 </Stack>
                 <Stack gap={3}>
                   <Inset>
-                    {catalogItem?.product_schema ? (
+                    {selectedCatalogItem?.product_schema ? (
                       <Stack gap={2}>
-                        <Text weight="semibold">{catalogItem.title}</Text>
+                        <Text weight="semibold">{selectedCatalogItem.title}</Text>
+                        {catalogPicker.optionsReset && !catalogSelectionReady ? (
+                          <MarketplaceNotice
+                            tone="warning"
+                            title={t("marketplace.features.listings.ui.listingCreatePage.product.options.changed")}
+                          />
+                        ) : null}
                         <ProductSelectionFields
                           fields={productSelectionFields}
                           fieldName={(dimensionId) => `selectedOptions:${dimensionId}`}
                           onFieldChange={(dimensionId, optionId) =>
-                            setSelectedOptions((current) =>
-                              normalizeProductSelection(catalogItem.product_schema!, {
-                                ...current,
-                                [dimensionId]: optionId,
-                              }),
-                            )
+                            dispatchCatalogPicker({ type: "option-changed", dimensionId, optionId })
                           }
                         />
                       </Stack>
-                    ) : catalogItem ? (
+                    ) : selectedCatalogItem ? (
                       <Text size="sm" tone="secondary">
-                        {catalogItem.title}
+                        {selectedCatalogItem.title}
                       </Text>
                     ) : (
                       <Text tone="secondary">
@@ -584,14 +840,30 @@ export function MarketplaceListingCreatePage({
                   type="submit"
                   name="intent"
                   value="create-and-publish-listing"
-                  disabled={selectedInventoryBlocksPublication || !evidenceReadiness?.coverage.complete}
+                  disabled={
+                    catalogSelectionBlocksMutation ||
+                    selectedInventoryBlocksPublication ||
+                    !evidenceReadiness?.coverage.complete
+                  }
                 >
                   {t("marketplace.features.listings.ui.listingCreatePage.create.and.publish")}
                 </Button>
-                <Button type="submit" name="intent" value="preview-listing" tone="secondary">
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="preview-listing"
+                  tone="secondary"
+                  disabled={catalogSelectionBlocksMutation}
+                >
                   {t("marketplace.features.listings.ui.listingCreatePage.preview.fees")}
                 </Button>
-                <Button type="submit" name="intent" value="create-listing" tone="ghost">
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="create-listing"
+                  tone="ghost"
+                  disabled={catalogSelectionBlocksMutation}
+                >
                   {t("marketplace.features.listings.ui.listingCreatePage.save.as.draft")}
                 </Button>
               </Stack>

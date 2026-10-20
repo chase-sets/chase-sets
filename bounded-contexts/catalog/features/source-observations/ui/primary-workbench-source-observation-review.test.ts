@@ -42,6 +42,38 @@ const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
 };
 
 describe("Catalog primary workbench read model - source observation review", () => {
+  it("keeps other scope and provider selections out of the Jungle review query", () => {
+    for (const [providerKey, expansionId] of [
+      ["tcgdex", "base3"],
+      ["tcgplayer", "base2"],
+    ]) {
+      const model = buildCatalogPrimaryWorkbenchReadModel({
+        requestUrl: `https://admin.example/catalog/integrations?providerKey=${providerKey}&languageCode=en&expansionId=${expansionId}`,
+        scopes: {
+          items: [
+            sourceObservationScope({ expansion_id: "base2", expansion_name: "Jungle", promoted_observations: 1 }),
+          ],
+          total: 1,
+          count: 1,
+        },
+        profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+        reviewObservations: { items: [], total: 0, count: 0 },
+      });
+      const params = new URLSearchParams(
+        buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
+          model.routeContext,
+          {},
+          model.sourceScopeWorkset.selectedScope.scope,
+        )!,
+      );
+      expect(params.get("provider")).toBe(providerKey);
+      expect(params.get("expansionId")).toBe(expansionId);
+      expect(model.sourceObservationReview.rows).toEqual([]);
+      expect(model.sourceObservationReview.counts.promoted).toBe(0);
+    }
+  });
   it("uses loaded review rows when the scope summary projection is empty for the selected provider scope", () => {
     const { review } = sourceObservationReviewCompositionFor({
       canManage: true,

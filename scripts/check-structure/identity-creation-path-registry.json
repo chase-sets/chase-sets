@@ -73,7 +73,7 @@
       "kind": "direct-register-client",
       "disposition": "bound",
       "reason": "Registers a synthetic probe account against the real register route and resolves before it registers.",
-      "sites": [{ "file": "scripts/guest-buy-now-freshness-probe.mjs", "line": 1335 }]
+      "sites": [{ "file": "scripts/guest-buy-now-freshness-probe.mjs", "line": 1377 }]
     },
     {
       "id": "stripe-money-smoke-test",

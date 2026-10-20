@@ -148,6 +148,31 @@ Prefer:
 
 Bounded contexts should read as feature-first by default.
 
+### Authored metadata composition
+
+Contexts may opt into feature-owned metadata by adding `context.source.mjs`.
+The source is the authored input and must export one JSON-serializable manifest
+object as `contextManifest`, `manifest`, or the default export. It should import
+`metadata.json` fragments from the owning `features/<slice>/` directories and compose
+the existing manifest shape with ordinary object and array spreads. Context-wide
+identity, admission, and ownership fields remain in this thin source; feature
+contributions retain their explicit existing order.
+
+`scripts/sync-workspace-metadata.mjs` composes every source before locale,
+TypeScript-alias, registry, or schema generation. A source error is fail-closed:
+the generator never falls back to stale `context.json`. Normal sync serializes
+the validated composition to canonical `context.json`; `--check` compares those
+bytes and all downstream outputs without writing. Contexts without a source
+remain legacy-authored until their migration issue.
+
+The source seam does not change the public `context.json` shape or runtime
+discovery. Nested fragment-only directories are not admitted contexts, and
+duplicate identities within a contribution family are rejected. Once a source
+exists, route files under `routes/` are public thin adapters only; behavior and
+metadata belong under the owning feature. A feature localization export may be
+declared as `./localization` only when its target is browser-safe and has no
+server/runtime reachability.
+
 Top-level directory intent:
 
 - Implemented contexts use explicit root buckets: `features/`, `support/`, `routes/`, optional `tests/`, and optional `docs/`.

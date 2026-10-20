@@ -16,6 +16,7 @@ const DOCKER_KEYS = ["file", "jobId", "stepAnchor", "pathMapping"];
 const PURPOSES = new Set([
   "alerting",
   "application-runtime",
+  "credential-rotation",
   "delivery-board",
   "digitalocean-ops",
   "managed-postgres-boundary",

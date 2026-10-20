@@ -17,6 +17,13 @@ on:
         description: Preview pull request number to destroy
         required: true
         type: number
+      # #9964: set by retire-idle-draft-previews. Destroys only if the PR is
+      # still an idle draft when this run re-checks it.
+      idle_draft_recheck:
+        description: Destroy only if the PR is still an idle draft (open draft, preview namespace at least 24h old)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,7 +66,7 @@ jobs:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || inputs.idle_draft_recheck
         with:
           terraform_wrapper: false
         env:
@@ -88,13 +95,15 @@ jobs:
       # that outlived all three. This is best-effort (continue-on-error): if
       # kubeconfig setup fails, the sweep still runs on state/cluster/DNS
       # candidates and the script degrades the missing namespace listing to a
-      # warning rather than failing the whole discovery run.
+      # warning rather than failing the whole discovery run. An idle-draft
+      # re-check (#9964) reuses this step; without a context its namespace
+      # listing fails, so the re-check fails closed and destroys nothing.
       - name: Configure staging Kubernetes context for preview sweep
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || inputs.idle_draft_recheck
         continue-on-error: true
         working-directory: infrastructure/digitalocean/doks
         run: |
@@ -153,6 +162,7 @@ jobs:
           PULL_REQUEST_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
           PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
+          IDLE_DRAFT_RECHECK: ${{ inputs.idle_draft_recheck && 'true' || 'false' }}
           CHECKOUT_REF: ${{ github.ref }}
           IMAGE_SHA: ${{ github.sha }}
         run: |
@@ -164,6 +174,18 @@ jobs:
               --checkout-ref "${CHECKOUT_REF}" \
               --image-sha "${IMAGE_SHA}" \
               --out artifacts/release-health/platform-preview-cleanup-sweep.json \
+              --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # #9964: emits the single-PR matrix only if the PR is still an idle
+          # draft; otherwise target_count=0 with the reason. Never dispatches.
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${IDLE_DRAFT_RECHECK}" = "true" ]; then
+            node ./scripts/digitalocean-preview-cleanup-sweep.mjs discover-idle-drafts \
+              --pr-number "${DISPATCH_PR_NUMBER}" \
+              --checkout-ref "${CHECKOUT_REF}" \
+              --image-sha "${IMAGE_SHA}" \
+              --out artifacts/release-health/platform-preview-idle-drafts.json \
               --github-output "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -252,6 +274,15 @@ jobs:
           name: platform-preview-cleanup-sweep-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/release-health/platform-preview-cleanup-sweep.json
           if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload idle draft re-check record
+        if: ${{ always() && inputs.idle_draft_recheck }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-preview-idle-drafts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/platform-preview-idle-drafts.json
+          if-no-files-found: error
           retention-days: 14
 
   discover-stale-verification:
@@ -1029,6 +1060,160 @@ jobs:
             echo "Refused gate-named namespaces detected; inspect the merge-gate-stale-sweep artifact — a foreign chase-sets-gate-* namespace should not exist." >&2
           fi
 
+  # #9964: an idle draft preview (open draft PR whose chase-sets-pr-<n>
+  # namespace was last deployed at least 24h ago) holds a reserved
+  # preview-pool slot. This job only selects and dispatches: each dispatched
+  # workflow_dispatch run re-checks the rule and drives the unchanged
+  # destroy-preview job. Dispatched runs are never schedule events, so they
+  # can never dispatch again. It must not depend on discover-preview-cleanup,
+  # whose daily straggler discovery times out.
+  retire-idle-draft-previews:
+    name: Retire Idle Draft Previews
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: preview
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Configure staging Kubernetes context for idle draft retirement
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        working-directory: infrastructure/digitalocean/doks
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-idle-draft-retirement.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure staging Kubernetes context for idle draft retirement." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Staging Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured staging Kubernetes context for idle draft retirement: ${current_context}"
+
+      - name: Select idle draft previews
+        id: idle-drafts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node ./scripts/digitalocean-preview-cleanup-sweep.mjs discover-idle-drafts \
+            --out artifacts/release-health/platform-preview-idle-drafts.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      # GITHUB_TOKEN may create workflow_dispatch runs. Each run re-checks
+      # its PR before destroy-preview tears anything down.
+      - name: Dispatch idle draft retirements
+        if: steps.idle-drafts.outputs.target_count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBERS: ${{ steps.idle-drafts.outputs.pr_numbers }}
+        run: |
+          set -euo pipefail
+          for pr_number in ${PR_NUMBERS}; do
+            if ! [[ "${pr_number}" =~ ^[0-9]+$ ]]; then
+              echo "Refusing to dispatch a non-numeric PR number: ${pr_number}" >&2
+              exit 1
+            fi
+            gh workflow run platform-preview-cleanup.yml --repo "${GITHUB_REPOSITORY}" --ref main \
+              -f pr_number="${pr_number}" -f idle_draft_recheck=true
+            echo "Dispatched idle draft re-check and retirement for PR #${pr_number}."
+          done
+
+      - name: Summarize idle draft retirement
+        if: always()
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/platform-preview-idle-drafts.json"
+          if [ ! -f "$record" ]; then
+            echo "No idle draft retirement record was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("## Idle Draft Preview Retirement");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Live preview namespaces: ${record.namespaces?.length ?? 0}`);
+          console.log(`- Selected for retirement: ${record.selected?.length ?? 0}`);
+          console.log(`- Deferred past the ${record.maxSelections}-per-run cap: ${record.deferred?.length ?? 0}`);
+          if (record.namespaces?.length) {
+            console.log("");
+            console.log("### Decisions");
+            for (const namespace of record.namespaces) {
+              console.log(`- ${namespace.namespace} (${namespace.ageHours}h): ${namespace.decision}: ${namespace.reason}`);
+            }
+          }
+          if (record.errors?.length) {
+            console.log("");
+            console.log("### Errors");
+            for (const error of record.errors) {
+              console.log(`- ${error}`);
+            }
+          }
+          NODE
+
+      - name: Upload idle draft retirement record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-preview-idle-drafts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/platform-preview-idle-drafts.json
+          if-no-files-found: error
+          retention-days: 14
+
   reporter:
     name: Report Preview Cleanup Failure
     needs:
@@ -1041,6 +1226,7 @@ jobs:
       - discover-stale-gate
       - destroy-stale-gate
       - report-stale-gate-sweep
+      - retire-idle-draft-previews
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

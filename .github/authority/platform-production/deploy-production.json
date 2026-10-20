@@ -144,13 +144,6 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "job",
-      "secretName": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-production",
-      "stepAnchor": "job",
       "secretName": "UCP_BUSINESS_SIGNING_ALG",
       "purpose": "terraform-infra"
     },

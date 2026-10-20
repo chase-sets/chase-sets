@@ -15,6 +15,7 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { CountAcquisitionRefused } from "../domain/count-acquisition";
 import { countCaptureFields } from "../domain/count-capture-plan";
 import {
+  countCaptureCompleteInputSchema,
   countCaptureFreezeInputSchema,
   countCapturePlannerInputSchema,
   type CountCaptureLifecycle,
@@ -107,6 +108,10 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
   app.post(
     "/count-capture/freeze",
     captureStep(countCaptureFreezeInputSchema, (session, input) => capture!.freeze(session, input)),
+  );
+  app.post(
+    "/count-capture/complete",
+    captureStep(countCaptureCompleteInputSchema, (session, input) => capture!.complete(session, input)),
   );
   app.post(
     "/count-capture/pre-confirm",

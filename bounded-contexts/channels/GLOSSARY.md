@@ -58,6 +58,22 @@ capture-derived plan, staged-import enablement is unavailable. The guarded send
 port supplies neither an executor nor provider qualification. Standalone Export
 From Live is a separate executor and receives no cadence authority here.
 
+## Staged Import Field Classification
+
+A **Staged Import Field Classification** is the closed Channels record that
+declares every staged-import envelope field and its derived source. A
+`candidate-unverified` classification is a testable hypothesis, never founder-
+session authority.
+
+## Staged Readback Verdict
+
+A **Staged Readback Verdict** is the closed, counts-only result of comparing
+the worker-authorized pre/post staged exports with the composed members. It is
+`applied` only when completeness, identity, member projection and non-member
+stability all hold; otherwise it is unknown or basis-diverged. A member may
+declare a non-zero pending basis only as a compensation whose composed delta
+exactly cancels it.
+
 ## Connector Liveness Authority
 
 **Connector Liveness Authority** is the never-deleted, lockable current row for a

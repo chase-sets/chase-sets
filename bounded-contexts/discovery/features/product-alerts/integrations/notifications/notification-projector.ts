@@ -24,6 +24,7 @@ type MarketActivity = Readonly<{
   source_stream_version: number;
   quantity: number;
   status: string;
+  owner_account_status?: string | null;
   seller_listing_availability_status?: "available" | "unavailable" | null;
   created_at: string;
   updated_at: string;
@@ -52,8 +53,12 @@ function normalizeSelectedOptions(value: unknown) {
 }
 
 function isActiveForSide(
-  activity: Pick<MarketActivity, "market_side" | "status" | "quantity" | "seller_listing_availability_status">,
+  activity: Pick<
+    MarketActivity,
+    "market_side" | "status" | "quantity" | "seller_listing_availability_status" | "owner_account_status"
+  >,
 ) {
+  if ((activity.owner_account_status ?? "active") !== "active") return false;
   return activity.market_side === "listing"
     ? activity.status === "active" &&
         activity.quantity > 0 &&
@@ -473,6 +478,7 @@ async function loadMarketActivity(db: PgQueryable, activityId: string): Promise<
        activity.source_stream_version,
        activity.quantity,
        activity.status,
+       COALESCE(account.status, 'active') AS owner_account_status,
        COALESCE(account.seller_listing_availability_status, 'available') AS seller_listing_availability_status,
        activity.created_at,
        activity.updated_at

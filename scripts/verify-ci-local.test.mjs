@@ -13,6 +13,7 @@ import {
   createLocalCommandPlan,
   defaultCommandExecutor,
   executeGateEntries,
+  main,
   parseCiLocalArgs,
   runCiLocalVerification,
   validateChangeScopeCommandShape,
@@ -21,8 +22,9 @@ import {
   validateLocalCommandCoverage,
 } from "./verify-ci-local.mjs";
 
-// Only the partial spawn-result test overrides one native call. CLI tests run
-// the real source in a separate process with no mock or alternative executor.
+// Only the partial spawn-result test overrides one native call. Fixture CLI
+// tests run the real source in a separate process with no mock or alternative
+// executor; heavy-slot admission tests drive main with an acquire spy instead.
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal();
   return { ...original, spawnSync: vi.fn(original.spawnSync) };
@@ -808,6 +810,7 @@ describe("verify-ci-local", () => {
     expect(records.filter(({ gate }) => gate.id === "e2e-tests").map(({ spec }) => spec)).toEqual(prCommands);
     expect(receipt.plan.gates.find(({ id }) => id === "e2e-tests").e2eBatches).toEqual([
       "marketplace_browse,catalog_admin_integrations",
+      "rendered_copy",
     ]);
   });
 
@@ -1075,5 +1078,142 @@ describe("verify-ci-local", () => {
       mode: "pull-request",
       provenance: "same-repository",
     });
+  });
+});
+
+function cliHarness({ acquire = () => {} } = {}) {
+  const events = [];
+  const scope = scopeFor();
+  const acquireSpy = vi.fn((kind) => {
+    events.push(`acquire:${kind}`);
+    return acquire(kind);
+  });
+  const executor = executorFor(scope);
+  const run = vi.fn((options) =>
+    runCiLocalVerification(options, {
+      gitExec: fakeGit,
+      executor: (spec, gate) => {
+        events.push(`gate:${gate.id}`);
+        return executor(spec, gate);
+      },
+      now: clock(),
+    }),
+  );
+  const stdout = [];
+  const invoke = (argv) => {
+    const log = vi.spyOn(console, "log").mockImplementation((line) => stdout.push(line));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      return main(argv, { acquire: acquireSpy, run });
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+    }
+  };
+  return { events, acquire: acquireSpy, run, invoke, stdout: () => stdout.join("\n") };
+}
+
+describe("verify-ci-local CLI heavy-slot admission", () => {
+  const pullRequest = ["--mode=pull-request", "--provenance=same-repository"];
+
+  it("plan-only does not acquire the heavy slot", () => {
+    const planOnly = (labels) =>
+      JSON.stringify(
+        runCiLocalVerification(
+          {
+            mode: "pull-request",
+            provenance: "same-repository",
+            labels,
+            baseRef: "origin/main",
+            headRef: "HEAD",
+            dryRun: true,
+          },
+          { gitExec: fakeGit, executor: executorFor(scopeFor()), now: clock() },
+        ),
+        null,
+        2,
+      );
+    for (const [argv, expected] of [
+      [[...pullRequest, "--dry-run", "--json"], planOnly([])],
+      [[...pullRequest, "--json", "--dry-run"], planOnly([])],
+      [[...pullRequest, "--dry-run", "--dry-run", "--json"], planOnly([])],
+      [["--", ...pullRequest, "--base=origin/main", "--head=HEAD", "--dry-run", "--json"], planOnly([])],
+      [["--label=preview", ...pullRequest, "--dry-run", "--json"], planOnly(["preview"])],
+    ]) {
+      const cli = cliHarness();
+      expect(cli.invoke(argv)).toBe(0);
+      expect(cli.acquire).not.toHaveBeenCalled();
+      expect(cli.events).toEqual(["gate:change-scope"]);
+      expect(cli.stdout()).toBe(expected);
+      expect(validateCiLocalReceipt(JSON.parse(cli.stdout())).disposition).toBe("PLAN_ONLY");
+    }
+    const human = cliHarness();
+    expect(human.invoke([...pullRequest, "--dry-run"])).toBe(0);
+    expect(human.acquire).not.toHaveBeenCalled();
+    expect(human.stdout()).toMatch(/^CI local verification: PLAN_ONLY\n/);
+  });
+
+  it("executing mode acquires before any gate", () => {
+    for (const argv of [
+      [...pullRequest, "--json"],
+      [...pullRequest],
+      ["--", "--mode=merge-group", "--json"],
+      ["--json", "--label=preview", ...pullRequest, "--base=origin/main", "--head=HEAD"],
+    ]) {
+      const cli = cliHarness();
+      expect(cli.invoke(argv)).toBe(0);
+      expect(cli.acquire).toHaveBeenCalledTimes(1);
+      expect(cli.acquire).toHaveBeenCalledWith("script-battery");
+      expect(cli.events.slice(0, 2)).toEqual(["acquire:script-battery", "gate:change-scope"]);
+      expect(cli.events.filter((event) => event.startsWith("acquire:"))).toHaveLength(1);
+      expect(cli.events.length).toBeGreaterThan(2);
+    }
+    // The real client refuses with process.exit(73); the stub throws so nothing after it can run.
+    const exit = vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`process.exit(${code})`);
+    });
+    for (const refuse of [
+      () => {
+        throw new Error("HEAVY_SLOT_REFUSED: synthetic");
+      },
+      () => process.exit(73),
+    ]) {
+      const cli = cliHarness({ acquire: refuse });
+      expect(cli.invoke([...pullRequest, "--json"])).toBe(2);
+      expect(cli.acquire).toHaveBeenCalledTimes(1);
+      expect(cli.run).not.toHaveBeenCalled();
+      expect(cli.events).toEqual(["acquire:script-battery"]);
+      expect(validateCiLocalReceipt(JSON.parse(cli.stdout()))).toMatchObject({
+        disposition: "FAIL_CLOSED",
+        gates: [],
+        plan: null,
+      });
+    }
+    expect(exit.mock.calls).toEqual([[73]]);
+  });
+
+  it("invalid arguments fail closed without acquiring", () => {
+    for (const [argv, code] of [
+      [[...pullRequest, "--json", "--unknown"], "UNKNOWN_ARGUMENT"],
+      [[...pullRequest, "--json", "--dry-run", "--unknown"], "UNKNOWN_ARGUMENT"],
+      [[...pullRequest, "--json", "--mode=merge-group"], "DUPLICATE_ARGUMENT"],
+      [[...pullRequest, "--json", "--dry-run", "--mode=pull-request"], "DUPLICATE_ARGUMENT"],
+      [[...pullRequest, "--json", "--provenance=fork"], "DUPLICATE_ARGUMENT"],
+      [[...pullRequest, "--json", "--base=origin/main", "--base=HEAD"], "DUPLICATE_ARGUMENT"],
+      [[...pullRequest, "--json", "--head=HEAD", "--head=HEAD"], "DUPLICATE_ARGUMENT"],
+    ]) {
+      const cli = cliHarness();
+      expect(cli.invoke(argv)).toBe(2);
+      expect(cli.acquire).not.toHaveBeenCalled();
+      expect(cli.run).not.toHaveBeenCalled();
+      expect(cli.events).toEqual([]);
+      const receipt = validateCiLocalReceipt(JSON.parse(cli.stdout()));
+      expect(receipt).toMatchObject({ disposition: "FAIL_CLOSED", gates: [], plan: null });
+      expect(receipt.errors.map((error) => error.code)).toEqual([code]);
+    }
+    const human = cliHarness();
+    expect(human.invoke([...pullRequest, "--unknown"])).toBe(2);
+    expect(human.acquire).not.toHaveBeenCalled();
+    expect(human.stdout()).toMatch(/^CI local verification: FAIL_CLOSED\n/);
   });
 });

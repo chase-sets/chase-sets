@@ -1,0 +1,20 @@
+{
+  "advisories": {
+    "lodash": {
+      "module_name": "lodash",
+      "severity": "high",
+      "github_advisory_id": "GHSA-35jh-r3h4-6jhm",
+      "patched_versions": ">=4.17.21",
+      "findings": [
+        {
+          "version": "4.17.15",
+          "paths": ["root>lodash"],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ]
+    }
+  },
+  "metadata": { "vulnerabilities": { "high": 1 } }
+}

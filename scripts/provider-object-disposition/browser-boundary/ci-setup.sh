@@ -29,17 +29,34 @@ done
 require input-absent test ! -e "$input"
 require input-not-symlink test ! -L "$input"
 mark validate-checkout
+protected_inputs=(scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs scripts/provider-object-disposition/test-window-policy.mjs)
 /usr/bin/git cat-file -e "$BOUNDARY_HEAD_SHA^{commit}"
-require checkout-ancestry /usr/bin/git merge-base --is-ancestor "$BOUNDARY_HEAD_SHA" HEAD
-# Shared Static guards retain the normal PR merge-ref provenance. Native inputs
-# must still be byte-identical to the candidate, and installation uses its archive.
-require checkout-boundary-bytes /usr/bin/git diff --quiet "$BOUNDARY_HEAD_SHA" -- \
-  scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs scripts/provider-object-disposition/test-window-policy.mjs
+parents="$(/usr/bin/git rev-list --parents --max-count=1 HEAD)"
+read -r checkout base candidate extra <<<"$parents"
+source_role=head
+source_sha="$BOUNDARY_HEAD_SHA"
+if test "$checkout" != "$BOUNDARY_HEAD_SHA"; then
+  # Shared Static guards retain the normal PR merge-ref provenance: parents
+  # [base tip, candidate]. The synthetic merge commit is never native authority.
+  require checkout-ancestry test "$candidate:$extra" = "$BOUNDARY_HEAD_SHA:"
+  if ! /usr/bin/git diff --quiet "$BOUNDARY_HEAD_SHA" -- "${protected_inputs[@]}"; then
+    # Otherwise only a base tip that landed main contains may supply them; bytes
+    # changed on both sides match neither commit and still refuse below.
+    /usr/bin/git cat-file -e "$base^{commit}"
+    require checkout-boundary-bytes /usr/bin/git merge-base --is-ancestor "$base" refs/remotes/origin/main
+    source_role=base
+    source_sha="$base"
+  fi
+fi
+# Native inputs must be byte-identical to the selected exact commit, and
+# installation uses its archive.
+require checkout-boundary-bytes /usr/bin/git diff --quiet "$source_sha" -- "${protected_inputs[@]}"
 printf 'provider-boundary-candidate:%s\n' "$BOUNDARY_HEAD_SHA"
+printf 'provider-boundary-native-source:%s:%s\n' "$source_role" "$source_sha"
 mark create-input
 sudo install -d -o root -g root -m 0755 "$input"
 mark archive-input
-/usr/bin/git archive "$BOUNDARY_HEAD_SHA" -- scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs scripts/provider-object-disposition/test-window-policy.mjs | \
+/usr/bin/git archive "$source_sha" -- "${protected_inputs[@]}" | \
   sudo /bin/tar --extract --directory="$input" --no-same-owner --no-same-permissions --mode=u=rwX,go=rX
 mark install-boundary
 sudo /usr/bin/gcc -std=gnu11 -O2 -Wall -Wextra -Werror \

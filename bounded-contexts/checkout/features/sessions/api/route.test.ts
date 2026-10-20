@@ -1,7 +1,8 @@
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION, type AppendToStreamInput, type GlobalPosition } from "@chase-sets/event-core/storage";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
 import { CHECKOUT_ANONYMOUS_CART_COOKIE_NAME } from "../../../support/request-support/guest-checkout";
@@ -276,6 +277,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     cancelSession: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     getSession: vi.fn(async () => createSession()),
+    getLastRecordedQuote: vi.fn(async () => null),
     getPaymentSummary: vi.fn(async () => null),
     getPaymentConfirmation: vi.fn(async () => null),
     listSavedPaymentInstruments: vi.fn(async () => []),
@@ -3508,7 +3510,7 @@ async function unionCleanupHarness() {
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
   let listingSequence = 0;
   const add = async (owner: string) =>
-    cart.addLine(
+    cartAttemptDriver(cart).addLine(
       {
         accountId: owner as never,
         catalogItemId: "cat_1",
@@ -3682,30 +3684,40 @@ describe("HTTP union cleanup caller closure", () => {
         });
         mockCreateCheckoutInventoryReservations.mockClear();
         const original = h.eventStore.appendToStream.bind(h.eventStore);
+        const originalBatch = h.eventStore.appendToStreams!.bind(h.eventStore);
         let removals = 0;
-        const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
-          const type = input.events[0]?.eventType;
-          const at =
-            type === "checkout.session.orders-created"
-              ? "orders"
-              : type === "checkout.cart.line-removed"
-                ? `remove-${++removals}`
-                : type === "checkout.session.cart-cleanup-completed"
-                  ? "complete"
-                  : "other";
+        // Session events append one stream at a time; a cart removal commits with
+        // its attempt record in one atomic batch, so each batch is one boundary.
+        const crashAt = async <T>(inputs: readonly AppendToStreamInput[], append: () => Promise<T>) => {
+          const types = inputs.flatMap((input) => input.events.map((event) => event.eventType));
+          const at = types.includes("checkout.session.orders-created")
+            ? "orders"
+            : types.includes("checkout.cart.line-removed")
+              ? `remove-${++removals}`
+              : types.includes("checkout.session.cart-cleanup-completed")
+                ? "complete"
+                : "other";
           if (at === boundary || (boundary === "complete-ack" && at === "complete")) {
-            if (boundary !== "complete") await original(input);
+            if (boundary !== "complete") await append();
             throw new CheckoutDomainError(`stream ${h.anonymous} unavailable`);
           }
-          return original(input);
-        });
+          return append();
+        };
+        const faults = [
+          vi
+            .spyOn(h.eventStore, "appendToStream")
+            .mockImplementation((input) => crashAt([input], () => original(input))),
+          vi
+            .spyOn(h.eventStore, "appendToStreams")
+            .mockImplementation((inputs) => crashAt(inputs, () => originalBatch(inputs))),
+        ];
         const failed = await buildApp(h.runtime()).fetch(requestFor(h.params.sessionId));
         const failedBody = await failed.json();
         expect(failed.status, boundary).toBe(400);
         expect(failedBody.error.message).toBe("Cart cleanup could not finish. Retry checkout.");
         expect(JSON.stringify(failedBody)).not.toContain(h.anonymous);
         expect(failedBody.commitPositions).toContainEqual(h.record.orderWriteCommitPositions[0]);
-        fault.mockRestore();
+        for (const fault of faults) fault.mockRestore();
         h.setProjected(
           projection === "absent"
             ? null
@@ -3744,7 +3756,7 @@ describe("HTTP union cleanup caller closure", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const fault = vi.spyOn(h.realCart, "removeLine").mockRejectedValue(new Error(`store ${h.anonymous}`));
+      const fault = vi.spyOn(h.realCart, "executeCartAttempt").mockRejectedValue(new Error(`store ${h.anonymous}`));
       const denied = await buildApp(h.runtime(), createBuyerActor({ accountId: "acc_foreign" as never })).fetch(
         requestFor(h.params.sessionId),
       );

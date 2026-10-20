@@ -12,6 +12,9 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, CheckoutSessionId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutCartServices } from "../../cart/api/runtime";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
+import type { CheckoutCartLineCommandInput } from "../../command-attempts/api/cart-attempt";
+import { computeCheckoutCommandAttemptRequestHash } from "../../command-attempts/api/contracts";
+import { checkoutOrderCartCleanupAttemptId } from "../../command-attempts/api/attempt-history";
 import {
   applyCartReadinessToLines,
   cartReadinessDecisionsFromSnapshot,
@@ -262,6 +265,8 @@ export type CheckoutSessionServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
+  /** The buyer's session's last recorded quote, read from its stream; null when unknown or never quoted. */
+  getLastRecordedQuote: (sessionId: string, accountId: string) => Promise<CheckoutFulfillmentPreview | null>;
   getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
   getPaymentConfirmation: (sessionId: string, accountId: string) => Promise<CheckoutPaymentConfirmation | null>;
   listSavedPaymentInstruments: (accountId: AccountId) => Promise<CheckoutSavedPaymentInstrumentRow[]>;
@@ -706,6 +711,37 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     }
   }
 
+  /**
+   * Applies one order-cart cleanup step as a Cart attempt under its derived id,
+   * so a resumed cleanup replays the result its first run recorded instead of
+   * writing again. A line the owner no longer holds stays a no-op; an ownership
+   * refusal propagates.
+   */
+  async function applyOrderCartCleanupAttempt(
+    sessionId: string,
+    ownerKey: string,
+    target: CartLineId | "checkout",
+    context: EventStoreContext,
+  ) {
+    const commands: CheckoutCartLineCommandInput[] =
+      target === "checkout" ? [{ type: "checkout" }] : [{ type: "remove", lineId: target }];
+    const { result } = await deps.cart.executeCartAttempt(
+      {
+        ownerKey,
+        attemptId: checkoutOrderCartCleanupAttemptId(sessionId, ownerKey, target),
+        kind: "cart.session-cleanup",
+        target,
+        requestHash: await computeCheckoutCommandAttemptRequestHash({ commands }),
+        commands,
+      },
+      context,
+    );
+    const line = result.ownerStatus === "committed" ? result.vector![0] : undefined;
+    if (!line || line.outcome !== "succeeded") {
+      throw new CheckoutDomainError(line?.message ?? "Order cart cleanup could not be confirmed.");
+    }
+  }
+
   async function cleanupCommitMetadata(sessionId: string, state: CheckoutSessionState) {
     const events = await readCompleteStream(deps.eventStore, { streamId: `checkout.session-${sessionId}` });
     const metadata = commitMetadataFromStoredEvents(events);
@@ -734,11 +770,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       for (const ownerKey of cleanup.plan.sourceOwnerKeys) {
         if (claimedOwnerKeys.has(ownerKey)) continue;
         for (const lineId of cleanup.plan.lineIds) {
-          try {
-            await deps.cart.removeLine({ accountId: ownerKey as AccountId, lineId: lineId as CartLineId }, context);
-          } catch (error) {
-            if (!(error instanceof CheckoutDomainError && error.message === "Cart line not found.")) throw error;
-          }
+          await applyOrderCartCleanupAttempt(params.sessionId, ownerKey, lineId as CartLineId, context);
         }
       }
       const completed = await applySessionCommandForBuyer(
@@ -1156,7 +1188,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         (params.fulfilledLineKeys?.length ?? 0) === 0 &&
         result.commitEventIds?.length
       ) {
-        await deps.cart.checkout(state.buyerAccountId!, context);
+        await applyOrderCartCleanupAttempt(params.sessionId, state.buyerAccountId!, "checkout", context);
         return result;
       }
       return resumeOrderCartCleanup(params, context);
@@ -1260,6 +1292,8 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
 
       return session;
     },
+    getLastRecordedQuote: async (sessionId, accountId) =>
+      (await loadSessionStateForBuyerOrNull(sessionId, accountId))?.lastRecordedQuote ?? null,
     getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
     getPaymentConfirmation: async (sessionId, accountId) => {
       const payment = await getCheckoutPaymentConfirmationProjection(deps.db, sessionId, accountId);

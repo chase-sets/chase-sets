@@ -1,0 +1,11 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "metadata",
+      "stepAnchor": "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+      "secretName": "CREDENTIAL_ROTATION_APP_PRIVATE_KEY",
+      "purpose": "credential-rotation"
+    }
+  ]
+}

@@ -979,9 +979,10 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     );
     expect(misses).toEqual([]);
     expect(discovered).toContain("bounded-contexts/identity/support/seed-support/account-management-browser.ts");
+    expect(discovered).toContain("bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts");
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 165,
-      persistentCount: 160,
+      discovered: 168,
+      persistentCount: 163,
       ruledCount: 5,
     });
   });
@@ -1166,6 +1167,22 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
 });
 
 describe("registration contract drift (fail-closed registration)", () => {
+  it("classifies market observation event payloads as a persistent release surface", () => {
+    expect(releaseQualificationScopeRegistry.contracts["tcgplayer-market-observations"]).toBe(
+      "event-store-persistence",
+    );
+    const record = classifyReleaseQualificationScope({
+      base: DUMMY_BASE,
+      candidate: DUMMY_CANDIDATE,
+      changedFiles: [{ path: "contracts/tcgplayer-market-observations/index.ts", status: "modified" }],
+      readFileAt: (_ref, filePath) => readFileSync(path.join(repoRoot, filePath), "utf8"),
+      releaseWorkflowScriptReferences: new Set(),
+      now: () => 1753100000000,
+    });
+    expect(record.class).toBe("persistent_required");
+    expect(record.reasonCodes).toEqual(["migration_schema"]);
+  });
+
   it("classifies provider credential vocabulary as a runtime library, not a live provider", () => {
     expect(releaseQualificationScopeRegistry.contracts["provider-credentials"]).toBe("runtime-library");
     const record = classifyReleaseQualificationScope({

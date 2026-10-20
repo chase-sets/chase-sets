@@ -15,6 +15,10 @@ import { loadTargetHonoAuthority, sha256 } from "./target-authority.mts";
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+// The resolved hono release whose routing helpers the target authority loads;
+// it moves only with the workspace hono floor.
+export const targetHonoVersion = "4.13.13";
+
 async function evidence(relativePath) {
   const filePath = await realpath(path.join(repoRoot, relativePath));
   return { relativePath, realpath: filePath, sha256: sha256(await readFile(filePath)) };

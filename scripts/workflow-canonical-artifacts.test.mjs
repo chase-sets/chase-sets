@@ -151,10 +151,29 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 67, scannedSurfaces: 28, totalSurfaces: 28 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 70, scannedSurfaces: 34, totalSurfaces: 34 });
     expect(current.findings).toHaveLength(21);
+    const idleDraftRecord = {
+      workflowFile: ".github/workflows/platform-preview-cleanup.yml",
+      outPath: "artifacts/release-health/platform-preview-idle-drafts.json",
+      uploadPath: "artifacts/release-health/platform-preview-idle-drafts.json",
+      missingFileBehavior: "error",
+    };
+    // The re-check in the dispatched run and the scheduled retirement job each upload their own record.
+    expect(current.surfaces.filter(({ outPath }) => outPath === idleDraftRecord.outPath)).toEqual([
+      expect.objectContaining(idleDraftRecord),
+      expect.objectContaining(idleDraftRecord),
+    ]);
     expect(current.surfaces).toEqual(
       expect.arrayContaining([
+        ...["metadata", "report"].map((name) =>
+          expect.objectContaining({
+            workflowFile: ".github/workflows/platform-credential-health.yml",
+            outPath: `artifacts/credential-health/${name}.json`,
+            uploadPath: `artifacts/credential-health/${name}.json`,
+            missingFileBehavior: "error",
+          }),
+        ),
         expect.objectContaining({
           workflowFile: ".github/workflows/browser-boundary-diagnostics.yml",
           outPath: "artifacts/browser-boundary-diagnostics/summary.json",

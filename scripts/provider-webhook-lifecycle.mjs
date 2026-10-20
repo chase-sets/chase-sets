@@ -10,7 +10,11 @@ import {
   SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH,
 } from "./provider-webhook-paths.mjs";
 import { isStripeTestServerKey } from "./stripe-key-mode.mjs";
-import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, appendStripeEnabledEvents } from "./stripe-webhook-events.mjs";
+import {
+  STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS,
+  appendStripeEnabledEvents,
+  stripeV1ConnectWebhookEvents,
+} from "./stripe-webhook-events.mjs";
 
 export const PROVIDER_WEBHOOK_LIFECYCLE_VERSION = "provider-webhook-lifecycle/v1";
 
@@ -152,48 +156,68 @@ export async function proveStripePaymentWebhookContract(input, dependencies = {}
   }
 }
 
+function redactSecrets(message, secrets) {
+  return secrets.reduce((redacted, secret) => (secret ? redacted.replaceAll(secret, "[masked]") : redacted), message);
+}
+
+async function createRoleEndpoint(role, secrets, create) {
+  try {
+    return await create();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Provider webhook create failed for the ${role} endpoint: ${redactSecrets(message, secrets)}`);
+  }
+}
+
 export async function createProviderWebhooks(input, dependencies = {}) {
   assertSandboxKeys(input);
   const urls = endpointUrls(input.baseUrl);
+  const connectEvents = stripeV1ConnectWebhookEvents(input.stripeConnectAccountsApi ?? "v2");
   const fetchImpl = dependencies.fetch ?? fetch;
   const easyPostSecret = (dependencies.randomBytes ?? randomBytes)(32).toString("hex");
+  const secrets = [input.stripeApiKey, input.easyPostApiKey, easyPostSecret];
   const created = [];
   try {
-    const payment = await createStripeEndpoint(
-      {
-        apiBase: input.stripeApiBase ?? "https://api.stripe.com",
-        apiKey: input.stripeApiKey,
-        namespace: input.namespace,
-        url: urls.payment,
-        connect: false,
-        events: STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS,
-      },
-      fetchImpl,
+    const payment = await createRoleEndpoint("payment", secrets, () =>
+      createStripeEndpoint(
+        {
+          apiBase: input.stripeApiBase ?? "https://api.stripe.com",
+          apiKey: input.stripeApiKey,
+          namespace: input.namespace,
+          url: urls.payment,
+          connect: false,
+          events: STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS,
+        },
+        fetchImpl,
+      ),
     );
     created.push({ provider: "stripe", id: payment.id });
-    const connect = await createStripeEndpoint(
-      {
-        apiBase: input.stripeApiBase ?? "https://api.stripe.com",
-        apiKey: input.stripeApiKey,
-        namespace: input.namespace,
-        url: urls.connect,
-        connect: true,
-        events: [
-          ...webhookEventRegistry.connectAccounts[input.stripeConnectAccountsApi ?? "v2"],
-          ...webhookEventRegistry.connectMoneyMovement,
-        ],
-      },
-      fetchImpl,
+    secrets.push(payment.secret);
+    const connect = await createRoleEndpoint("connect", secrets, () =>
+      createStripeEndpoint(
+        {
+          apiBase: input.stripeApiBase ?? "https://api.stripe.com",
+          apiKey: input.stripeApiKey,
+          namespace: input.namespace,
+          url: urls.connect,
+          connect: true,
+          events: connectEvents,
+        },
+        fetchImpl,
+      ),
     );
     created.push({ provider: "stripe", id: connect.id });
-    const easyPost = await requestJson(
-      `${input.easyPostApiBase ?? "https://api.easypost.com/v2"}/webhooks`,
-      {
-        method: "POST",
-        headers: easyPostHeaders(input.easyPostApiKey),
-        body: JSON.stringify({ webhook: { url: urls.easyPost, webhook_secret: easyPostSecret } }),
-      },
-      fetchImpl,
+    secrets.push(connect.secret);
+    const easyPost = await createRoleEndpoint("easypost", secrets, () =>
+      requestJson(
+        `${input.easyPostApiBase ?? "https://api.easypost.com/v2"}/webhooks`,
+        {
+          method: "POST",
+          headers: easyPostHeaders(input.easyPostApiKey),
+          body: JSON.stringify({ webhook: { url: urls.easyPost, webhook_secret: easyPostSecret } }),
+        },
+        fetchImpl,
+      ),
     );
     created.push({ provider: "easypost", id: easyPost.id });
     return {

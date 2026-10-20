@@ -14,7 +14,7 @@ export type StagedImportCapturePlan = Readonly<{
   membershipDigest: string;
   batchDigest: string;
   composedRows: number;
-  requests: readonly Readonly<{ requestId: string; maximumDurationMs: number }>[];
+  requests: readonly Readonly<{ requestId: string; kind: "read" | "mutation"; maximumDurationMs: number }>[];
   platformReadMs: number;
   parsingMs: number;
   reportMs: number;
@@ -56,9 +56,9 @@ export function decodeStagedImportCapturePlan(input: unknown): StagedImportCaptu
       throw new Error();
     const ids = new Set<string>();
     for (const request of row.requests) {
-      const hop = closedRecord(request, ["requestId", "maximumDurationMs"]);
+      const hop = closedRecord(request, ["requestId", "kind", "maximumDurationMs"]);
       const id = connectorValue(hop.requestId);
-      if (ids.has(id)) throw new Error();
+      if (ids.has(id) || (hop.kind !== "read" && hop.kind !== "mutation")) throw new Error();
       ids.add(id);
       positiveDuration(hop.maximumDurationMs);
     }
