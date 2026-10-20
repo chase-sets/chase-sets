@@ -2,14 +2,15 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
-  cpSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  linkSync,
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -42,6 +43,22 @@ function withoutRealBws(searchPath) {
     .split(path.delimiter)
     .filter((entry) => !["bws", "bws.exe", "bws.cmd"].some((name) => entry && existsSync(path.join(entry, name))))
     .join(path.delimiter);
+}
+
+function linkPrivatePowerShellHome(source, target) {
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(target, entry.name);
+    if (entry.isDirectory()) {
+      symlinkSync(from, to, isWindows ? "junction" : "dir");
+    } else {
+      try {
+        linkSync(from, to);
+      } catch {
+        copyFileSync(from, to);
+      }
+    }
+  }
 }
 
 // The helper sees the developer's environment minus anything that could reach
@@ -259,7 +276,7 @@ beforeAll(() => {
   const sharedProfile = path.join(sharedPwshHome, "profile.ps1");
   expect(existsSync(sharedProfile)).toBe(false);
   privatePwshHome = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-private-pwsh-"));
-  cpSync(sharedPwshHome, privatePwshHome, { recursive: true });
+  linkPrivatePowerShellHome(sharedPwshHome, privatePwshHome);
   expect(existsSync(path.join(privatePwshHome, "profile.ps1"))).toBe(false);
   const version = runPwsh(["-Command", "$PSVersionTable.PSVersion.Major"], {
     cwd: os.tmpdir(),
