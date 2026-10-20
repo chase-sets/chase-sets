@@ -1240,7 +1240,7 @@ function normalizePurchaseLimitValue(
   return value;
 }
 
-function normalizePurchaseLimits(
+export function normalizePurchaseLimits(
   limits: Partial<MarketplaceListingPurchaseLimits> | null | undefined,
   quantityCapInput: number,
 ): MarketplaceListingPurchaseLimits {
