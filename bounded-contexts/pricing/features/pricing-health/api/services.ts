@@ -230,4 +230,16 @@ async function readAllTraces(
 
 export type PricingHealthServices = Omit<ReturnType<typeof createPricingHealthServices>, "compare"> &
   Partial<Pick<ReturnType<typeof createPricingHealthServices>, "compare">>;
-export type PricingHealthData = NonNullable<Awaited<ReturnType<PricingHealthServices["getHealth"]>>>;
+export type PricingHealthData = Readonly<{
+  policies: readonly { policyId: string; name: string }[];
+  target: { policyId: string; name: string } | null;
+  health: Awaited<ReturnType<typeof readPricingHealthRun>>["health"];
+  run: Awaited<ReturnType<typeof readPricingHealthRun>>["run"];
+  grades: readonly PricingHealthGrade[];
+  computing: boolean;
+  goals?: readonly GoalChoice[];
+  comparison?: readonly CandidateMetrics[];
+  recommendation?: Recommendation;
+  branch?: "comparison" | "advanced-editor" | "create-editor";
+  canCompute?: boolean;
+}>;
