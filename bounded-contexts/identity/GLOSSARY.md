@@ -158,6 +158,21 @@ Examples:
 - memberships table
 - MembershipCreated event
 
+### User Membership Set
+
+A **User Membership Set** is the User-keyed event-sourced census of every Membership,
+including its Account, role, active or revoked status, and source Membership revision.
+Every Membership fact and its matching Set fact commit in one expected-version batch.
+Ordinary Membership projections remain read/UI models and do not prove completeness.
+
+### User Membership Set Cutover
+
+The **User Membership Set Cutover** imports existing Membership history through a
+captured global position, retaining restart checkpoints. A second complete
+through-position reconciliation must match every source revision to exactly one
+Set fact before the Set can authorize completeness. Incomplete, capped, poisoned,
+or mismatched history is blocked-unknown. The cutover does not issue deletion commands.
+
 ### User Preferences
 
 **User Preferences** are durable User-owned presentation choices that should follow a signed-in user across accounts and devices.

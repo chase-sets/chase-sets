@@ -9,6 +9,7 @@ Identity owns users and the accounts they act for in Chase Sets.
 - User
 - Account
 - Membership
+- User Membership Set
 - Role
 - Permission
 - API Key
@@ -88,6 +89,15 @@ The catalog declarations are `authenticity.seller-included`, `inventory.location
 4. Buying and selling are available to active accounts by default.
 5. Buyer and Seller remain contextual transaction roles, not account capability classes.
 6. Every non-closed Account retains at least one active owner Membership.
+7. Every Membership fact commits atomically with its User Membership Set fact.
+   Membership projections serve ordinary reads and UI, not completeness authority.
+
+Identity seeding also resumes the User Membership Set Cutover for every data profile,
+including profiles with no synthetic identities. Existing streams are imported through
+a captured global position; a second complete source-to-Set reconciliation admits
+authority. Retrying an unchanged verified cutover adds no facts. Invalid or incomplete
+history remains blocked-unknown. This supplies Membership completeness, not deletion
+commands or deletion fences.
 
 Closing an Account does not revoke or demote its Memberships. They remain as auditable Identity facts; after closure,
 authorized operators may explicitly revoke or change them without the owner-retention invariant blocking teardown.
