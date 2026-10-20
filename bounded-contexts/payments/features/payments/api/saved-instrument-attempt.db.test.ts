@@ -88,6 +88,9 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       async connect() {
         const client = await pool.connect();
         clients += 1;
+        await client.query("SELECT set_config('application_name', $1, false)", [
+          `payments-saved-instrument-attempt-${runtime}`,
+        ]);
         return {
           query: observe(clients, client.query.bind(client)) as PgQueryable["query"],
           release: (error?: unknown) => client.release(error),
@@ -192,30 +195,56 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
     return (await eventStore.readStream({ streamId: `payments.checkout-affordances-${accountId}`, limit: 500 })).length;
   }
 
+  async function activity() {
+    return (
+      await pools.payments.query<{
+        application_name: string;
+        state: string;
+        wait_event_type: string | null;
+        wait_event: string | null;
+      }>(
+        `SELECT application_name, state, wait_event_type, wait_event
+         FROM pg_stat_activity
+         WHERE application_name IN ('payments-saved-instrument-attempt-primary', 'payments-saved-instrument-attempt-replica')`,
+      )
+    ).rows;
+  }
+
   const isDefaultWrite = (sql: string) => /SET is_default = instrument_id/.test(sql);
   // The event store's first statement of every append, so it marks which stream a client appends to.
   const streamUpsert = (statement: Statement, streamId: string) =>
     /INSERT INTO event_store_streams/.test(statement.sql) && statement.params[0] === streamId;
   const isAttemptLock = (statement: Statement, attemptId?: string) =>
-    /pg_advisory_xact_lock/.test(statement.sql) &&
+    /pg_advisory_xact_lock\(hashtextextended/.test(statement.sql) &&
     (attemptId === undefined || statement.params[0] === `payments-command:${streamIdFor(attemptId)}`);
   const deferred = () => {
     let resolve!: () => void;
+    let settled = false;
     const promise = new Promise<void>((done) => {
-      resolve = done;
+      resolve = () => {
+        settled = true;
+        done();
+      };
     });
-    return { promise, resolve };
+    return {
+      promise,
+      resolve,
+      get settled() {
+        return settled;
+      },
+    };
   };
   // A barrier opens after a bound instead of hanging, so a red head fails on its assertions.
   const bounded = async (promise: Promise<void>) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      promise,
-      new Promise<void>((done) => {
-        timer = setTimeout(done, 20_000);
+    const opened = await Promise.race([
+      promise.then(() => true),
+      new Promise<boolean>((done) => {
+        timer = setTimeout(() => done(false), 20_000);
       }),
     ]);
     clearTimeout(timer);
+    return opened;
   };
 
   async function appendHistory(attemptId: string, events: readonly EventRecordToStore[]) {
@@ -692,39 +721,83 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       await seedInstrument("sci_SYNTHETIC_B");
     });
 
-    it("applies an exact default racing on two runtimes once: one update, audit row and publication", async () => {
-      const primary = harness();
-      const replica = harness({}, "replica");
-      const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId: freshAttemptId() };
-      // The first runtime to reach its default update holds there until the other is admitted (it
-      // asks for the attempt lock, or reaches its own update), so both copies are in flight at once.
-      const admitted = { primary: deferred(), replica: deferred() };
-      intercept = async (statement, run) => {
-        if (isAttemptLock(statement) || isDefaultWrite(statement.sql)) admitted[statement.runtime].resolve();
-        if (isDefaultWrite(statement.sql)) {
-          await bounded(admitted[statement.runtime === "primary" ? "replica" : "primary"].promise);
+    it.each<Runtime>(["primary", "replica"])(
+      "applies an exact default racing on two runtimes once when %s reaches the stream first",
+      async (firstRuntime) => {
+        const primary = harness();
+        const replica = harness({}, "replica");
+        const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId: freshAttemptId() };
+        const firstStreamReady = deferred();
+        const secondStreamAttempted = deferred();
+        const releaseFirstStream = deferred();
+        const startedRuntimes: Runtime[] = [];
+        const secondRuntime: Runtime = firstRuntime === "primary" ? "replica" : "primary";
+        const streamId = streamIdFor(command.attemptId);
+
+        // Force each order at the stream upsert. The first transaction owns the row while the
+        // second reaches its upsert, exposing the exact row-lock wait without holding a JS barrier
+        // on either party's later effect.
+        intercept = async (statement, run) => {
+          if (streamUpsert(statement, streamId) && !startedRuntimes.includes(statement.runtime)) {
+            startedRuntimes.push(statement.runtime);
+            if (statement.runtime === firstRuntime) {
+              await run();
+              firstStreamReady.resolve();
+              await bounded(secondStreamAttempted.promise);
+              await bounded(releaseFirstStream.promise);
+              return;
+            }
+            secondStreamAttempted.resolve();
+          }
+          return run();
+        };
+
+        const firstCall = (firstRuntime === "primary" ? primary : replica).services.setSavedCheckoutInstrumentDefault(
+          command,
+          context,
+        );
+        await bounded(firstStreamReady.promise);
+        const secondCall = (secondRuntime === "primary" ? primary : replica).services.setSavedCheckoutInstrumentDefault(
+          command,
+          context,
+        );
+        try {
+          await bounded(secondStreamAttempted.promise);
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          const rows = await activity();
+          expect(rows).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                application_name: `payments-saved-instrument-attempt-${firstRuntime}`,
+                state: "idle in transaction",
+              }),
+              expect.objectContaining({
+                application_name: `payments-saved-instrument-attempt-${secondRuntime}`,
+                wait_event_type: "Lock",
+              }),
+            ]),
+          );
+        } finally {
+          releaseFirstStream.resolve();
         }
-        return run();
-      };
 
-      const results = await Promise.all([
-        primary.services.setSavedCheckoutInstrumentDefault(command, context),
-        replica.services.setSavedCheckoutInstrumentDefault(command, context),
-      ]);
+        const results = await Promise.all([firstCall, secondCall]);
 
-      expect(results).toEqual([
-        expect.objectContaining({ instrument_id: "sci_SYNTHETIC_B", is_default: true }),
-        expect.objectContaining({ instrument_id: "sci_SYNTHETIC_B", is_default: true }),
-      ]);
-      expect(writes.filter(isDefaultWrite)).toHaveLength(1);
-      expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
-      expect(await publications()).toBe(1);
-      expect(await defaults()).toEqual(["sci_SYNTHETIC_B"]);
-      expect(await eventTypes(primary.eventStore, command.attemptId)).toEqual([
-        SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED,
-        SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
-      ]);
-    });
+        expect(results).toEqual([
+          expect.objectContaining({ instrument_id: "sci_SYNTHETIC_B", is_default: true }),
+          expect.objectContaining({ instrument_id: "sci_SYNTHETIC_B", is_default: true }),
+        ]);
+        expect(startedRuntimes).toEqual([firstRuntime, secondRuntime]);
+        expect(writes.filter(isDefaultWrite)).toHaveLength(1);
+        expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
+        expect(await publications()).toBe(1);
+        expect(await defaults()).toEqual(["sci_SYNTHETIC_B"]);
+        expect(await eventTypes(primary.eventStore, command.attemptId)).toEqual([
+          SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED,
+          SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
+        ]);
+      },
+    );
 
     it("never lets a delayed exact duplicate overwrite a later completed distinct default", async () => {
       const primary = harness();
@@ -733,14 +806,14 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       const releaseDuplicate = deferred();
       let firstHeld = false;
       let duplicateHeld = false;
-      // The duplicate (replica) is admitted, then held before the attempt lock (or, without one,
-      // before its update) until its first copy and a later distinct default have both completed.
+      // The duplicate is admitted, then held before its attempt lock until its first copy and a
+      // later distinct default have both completed. The barrier is bounded so a red head settles.
       intercept = async (statement, run) => {
         const step = isAttemptLock(statement) || isDefaultWrite(statement.sql);
         if (statement.runtime === "replica" && step && !duplicateHeld) {
           duplicateHeld = true;
           duplicateAdmitted.resolve();
-          await releaseDuplicate.promise;
+          await bounded(releaseDuplicate.promise);
         }
         if (statement.runtime === "primary" && isDefaultWrite(statement.sql) && !firstHeld) {
           firstHeld = true;
@@ -764,6 +837,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       }
 
       await expect(duplicate).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: false });
+      expect(duplicateHeld).toBe(true);
       expect(await defaults()).toEqual(["sci_SYNTHETIC_A"]);
       expect(writes.filter(isDefaultWrite)).toHaveLength(2);
       expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
