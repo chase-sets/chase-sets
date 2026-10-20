@@ -181,7 +181,10 @@ export function isInventoryImportSafeRawRow(value: unknown): boolean {
       ? Array.isArray(text) &&
         text.every(
           (warning) =>
-            warning && typeof warning === "object" && !Array.isArray(warning) && Object.values(warning).every(isSafeStoredText),
+            warning &&
+            typeof warning === "object" &&
+            !Array.isArray(warning) &&
+            Object.values(warning).every(isSafeStoredText),
         )
       : isValueKey(key) && isSafeStoredText(text),
   );

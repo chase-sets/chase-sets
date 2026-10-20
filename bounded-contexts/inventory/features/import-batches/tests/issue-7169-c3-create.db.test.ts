@@ -93,7 +93,10 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
       await pools.inventory.query(
         `INSERT INTO inventory_import_batch_jobs (job_id, job_kind, status, payload, progress, created_at, updated_at)
          VALUES ($1, 'create', 'queued', $2::jsonb, '{"phase":"queued","total":1}'::jsonb, now(), now())`,
-        [`job_legacy_${kind}_synthetic`, JSON.stringify({ accountId, batchId: `imb_legacy_${kind}`, create: fallback })],
+        [
+          `job_legacy_${kind}_synthetic`,
+          JSON.stringify({ accountId, batchId: `imb_legacy_${kind}`, create: fallback }),
+        ],
       );
       await bootstrapContextDatabase(inventoryModule, pools.inventory);
       await bootstrapContextDatabase(inventoryModule, pools.inventory);

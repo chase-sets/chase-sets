@@ -83,7 +83,9 @@ describeDb("issue-9846-source-contraction", () => {
     await resetMultiContextTestSchemas(pools);
     // An upgraded database that has never run the contraction.
     await bootstrapContextDatabase(floorModule, pool);
-    await pool.query("INSERT INTO inventory_catalog_items (catalog_item_id, status) VALUES ('cat_9846_synthetic', 'active')");
+    await pool.query(
+      "INSERT INTO inventory_catalog_items (catalog_item_id, status) VALUES ('cat_9846_synthetic', 'active')",
+    );
     await pool.query(
       `INSERT INTO inventory_storage_locations (storage_location_id, account_id, name, ship_from_code)
       VALUES ('loc_9846_synthetic', $1, 'Synthetic shelf', 'MAIN')`,
@@ -127,7 +129,9 @@ describeDb("issue-9846-source-contraction", () => {
     );
     const leaked: string[] = [];
     for (const { table_name, column_name } of columns.rows) {
-      const hit = await pool.query(`SELECT 1 FROM "${table_name}" WHERE "${column_name}"::text LIKE '%https://%' LIMIT 1`);
+      const hit = await pool.query(
+        `SELECT 1 FROM "${table_name}" WHERE "${column_name}"::text LIKE '%https://%' LIMIT 1`,
+      );
       if (hit.rows.length) leaked.push(`${table_name}.${column_name}`);
     }
     return leaked.sort();
@@ -193,8 +197,18 @@ describeDb("issue-9846-source-contraction", () => {
       rowNote: INVENTORY_IMPORT_LEGACY_VALUE_MARKER,
       sellerSku: INVENTORY_IMPORT_LEGACY_VALUE_MARKER,
       legacyMigrationWarnings: expect.arrayContaining([
-        { recordType: "batch-row", recordId: "imr_9846_post_floor", field: "raw_row.rowNote", reason: "unsafe-retained-text" },
-        { recordType: "batch-row", recordId: "imr_9846_post_floor", field: "raw_row.sellerSku", reason: "unsafe-retained-text" },
+        {
+          recordType: "batch-row",
+          recordId: "imr_9846_post_floor",
+          field: "raw_row.rowNote",
+          reason: "unsafe-retained-text",
+        },
+        {
+          recordType: "batch-row",
+          recordId: "imr_9846_post_floor",
+          field: "raw_row.sellerSku",
+          reason: "unsafe-retained-text",
+        },
       ]),
     });
     const job = await pool.query<{ result: Record<string, unknown> }>(
@@ -276,8 +290,11 @@ describeDb("issue-9846-source-contraction", () => {
       (await pool.query("SELECT raw_row FROM inventory_import_batch_rows WHERE row_id = 'imr_9846_safe'")).rows,
     ).toEqual([{ raw_row: safeTcgplayerRawRow }]);
     expect(
-      (await pool.query("SELECT result IS NULL AS unset FROM inventory_import_batch_jobs WHERE job_id = 'job_9846_queued'"))
-        .rows,
+      (
+        await pool.query(
+          "SELECT result IS NULL AS unset FROM inventory_import_batch_jobs WHERE job_id = 'job_9846_queued'",
+        )
+      ).rows,
     ).toEqual([{ unset: true }]);
   });
 
@@ -317,8 +334,12 @@ describeDb("issue-9846-source-contraction", () => {
 
     const original = prepareInventoryImportSnapshot(params);
     expect(
-      (await pool.query("SELECT job_kind, payload->'create' AS create FROM inventory_import_batch_jobs WHERE job_id = $1", [valid.jobId]))
-        .rows,
+      (
+        await pool.query(
+          "SELECT job_kind, payload->'create' AS create FROM inventory_import_batch_jobs WHERE job_id = $1",
+          [valid.jobId],
+        )
+      ).rows,
     ).toEqual([
       {
         job_kind: "create-snapshot-v1",
@@ -332,7 +353,11 @@ describeDb("issue-9846-source-contraction", () => {
       },
     ]);
     expect(
-      (await pool.query("SELECT DISTINCT unit_kind FROM inventory_import_batch_work_units WHERE job_id = $1", [valid.jobId])).rows,
+      (
+        await pool.query("SELECT DISTINCT unit_kind FROM inventory_import_batch_work_units WHERE job_id = $1", [
+          valid.jobId,
+        ])
+      ).rows,
     ).toEqual([{ unit_kind: "create-snapshot-v1" }]);
     expect((await loadInventoryImportSnapshotPage(pool, validInputId, accountId)).rows).toEqual(original.rows);
     expect(

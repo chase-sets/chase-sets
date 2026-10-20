@@ -172,7 +172,8 @@ export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] 
   // Runs after the safe-snapshot readers it converts into; the runner applies this array in order.
   {
     migrationId: "20261020_inventory_import_raw_source_contraction",
-    description: "Convert leftover legacy import sources, re-sanitize retained history and drop the raw-source columns.",
+    description:
+      "Convert leftover legacy import sources, re-sanitize retained history and drop the raw-source columns.",
     statements: [
       "SET LOCAL lock_timeout = '5s'",
       `ALTER TABLE inventory_import_batch_job_inputs

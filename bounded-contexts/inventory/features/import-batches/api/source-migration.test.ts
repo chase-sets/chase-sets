@@ -33,7 +33,9 @@ describe("contractInventoryImportSources", () => {
     ]);
     expect(statements.slice(4).filter((sql) => /\bLOCK\b|lock_timeout|pg_advisory/i.test(sql))).toEqual([]);
     expect(
-      statements.filter((sql) => /^(?:BEGIN|COMMIT|ROLLBACK)\b|CONCURRENTLY|information_schema|_source_contracted/i.test(sql)),
+      statements.filter((sql) =>
+        /^(?:BEGIN|COMMIT|ROLLBACK)\b|CONCURRENTLY|information_schema|_source_contracted/i.test(sql),
+      ),
     ).toEqual([]);
   });
 
