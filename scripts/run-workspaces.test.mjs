@@ -873,7 +873,7 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(58);
+    expect(census.entries).toHaveLength(59);
     expect(census.entries).toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.entries).toContain("__tests__/activate-agent-grant-revocation.test.ts");
@@ -1271,8 +1271,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(67);
-    expect(replay.observations).toHaveLength(91);
+    expect(unitEntries).toHaveLength(68);
+    expect(replay.observations).toHaveLength(92);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {

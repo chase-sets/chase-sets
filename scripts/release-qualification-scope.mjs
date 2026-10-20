@@ -139,6 +139,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "evidence-window-provider-write": "live-provider",
     http: "runtime-library",
     "identity-seed": "seed-machinery",
+    "inventory-draft-listing": "runtime-library",
     localization: "runtime-library",
     "market-estimate-display": "runtime-library",
     "money-movement": "money-movement-contract",
