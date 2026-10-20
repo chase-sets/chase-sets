@@ -188,7 +188,7 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
   "scripts/check-structure/json-import-attributes.test.mjs": {
     rule: "repository-wide tracked JSON-import census (tracked TypeScript inventory, git grep, workspace vite/vitest partition), script analyzers and registry-builder helpers, plus the live Channels context-root contract",
     evidence: [
-      "scripts/check-structure/json-import-attributes.test.mjs:1-15,139-140,489-497,700-760,880-906,1005-1012",
+      "scripts/check-structure/json-import-attributes.test.mjs:1-15,139-140,489-497,700-760,880-906,1020-1027",
       "scripts/check-structure/json-import-attributes.mjs:44-82,584-645",
     ],
     include: [{ kind: "any" }],
