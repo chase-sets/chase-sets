@@ -688,7 +688,11 @@ describe("next-work ranking", () => {
 
     expect(document.excluded.PLATFORM_HELD).toBe(2);
     expect(document.classes.product.map(({ issue: number }) => number)).toEqual([3]);
-    expect(Object.values(document.classes).flat().some(({ issue: number }) => [1, 2].includes(number))).toBe(false);
+    expect(
+      Object.values(document.classes)
+        .flat()
+        .some(({ issue: number }) => [1, 2].includes(number)),
+    ).toBe(false);
   });
 });
 
