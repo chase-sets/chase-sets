@@ -61,16 +61,30 @@ export function findAuthoredTextRejection(text: string): AuthoredTextRejectionCo
   let duplicateLink = false;
   for (const token of inspected.split(/\s+/u)) {
     const schemes = [...token.matchAll(URI_SCHEME)];
-    for (const [index, match] of schemes.entries()) {
+    const linkStarts = schemes
+      .filter((match) => token.startsWith("//", match.index! + match[0].length))
+      .map((match) => match.index!);
+    let inLink = false;
+    let next = 0;
+    for (const match of schemes) {
       const scheme = match[1]!.toLowerCase();
       const start = match.index!;
       const hierarchical = token.startsWith("//", start + match[0].length);
-      if (hierarchical ? scheme !== "https" : SCRIPT_OR_DATA_SCHEMES.has(scheme)) return "text_unsafe_link";
-      if (!hierarchical) continue;
+      if (!hierarchical) {
+        // A scheme-like segment directly following URL syntax belongs to the
+        // running hierarchical link rather than starting a new scheme.
+        const before = token[start - 1];
+        if (inLink && before !== undefined && "/?=&#:@".includes(before)) continue;
+        if (SCRIPT_OR_DATA_SCHEMES.has(scheme)) return "text_unsafe_link";
+        continue;
+      }
+      if (scheme !== "https") return "text_unsafe_link";
+      inLink = true;
+      next++;
 
-      // A link runs to the next scheme in the same token, keeping the scan
-      // linear for whitespace-free runs of links.
-      const link = linkIdentity(token.slice(start, schemes[index + 1]?.index ?? token.length));
+      // A link runs to the next hierarchical scheme in the same token,
+      // keeping the scan linear for whitespace-free runs of links.
+      const link = linkIdentity(token.slice(start, linkStarts[next] ?? token.length));
       duplicateLink ||= seenLinks.has(link);
       seenLinks.add(link);
     }

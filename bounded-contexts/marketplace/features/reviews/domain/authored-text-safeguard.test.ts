@@ -26,6 +26,21 @@ const acceptedText: readonly (readonly [string, string])[] = [
     "colons in ordinary prose",
     "Note: fast. Rating:5/5 at 10:30, re:shipping. Tracking data: delivered. File: on record",
   ],
+  ["https link with a File: path segment", "Photo matches https://en.wikipedia.org/wiki/File:Pikachu.png"],
+  ["https link with a data: path segment", "https://docs.example/data:formats"],
+  [
+    "distinct https links with colon path segments",
+    "See https://en.wikipedia.org/wiki/Category:Pokemon and https://en.wikipedia.org/wiki/Category:Magic",
+  ],
+  ["distinct https links with explicit ports", "https://a.example:8443/x and https://b.example:8443/y"],
+  [
+    "distinct https links with colon query segments",
+    "https://cards.example/search?q=set:lea and https://cards.example/search?q=set:leb",
+  ],
+  [
+    "distinct https links with colon timestamp query segments",
+    "https://video.example/watch?v=1&t=1:30 https://video.example/watch?v=2&t=1:30",
+  ],
   ["mailto and tel are not script or data schemes", "Reach me via the order page, not mailto:x or tel:1"],
   ["a word that merely contains a scheme name", "Seejavascript:later and metadata:intact"],
 ];
@@ -69,6 +84,11 @@ const rejectedText: readonly (readonly [string, string, string])[] = [
     "text_duplicate_link",
   ],
   ["repeated link inside one token", "https://a.example/x,https://a.example/x", "text_duplicate_link"],
+  [
+    "repeated https link differing only by default port",
+    "https://example.com:443/a https://example.com/a",
+    "text_duplicate_link",
+  ],
 ];
 
 describe("issue-5258-marketplace-ac2 authored text safeguard matrix", () => {
@@ -156,6 +176,11 @@ describe("issue-5258-marketplace-ac2 authored text safeguard matrix", () => {
     // character at most once; a span running to the end of the run would not.
     expect(parses).toBe(20_000);
     expect(parsedCharacters).toBeLessThanOrEqual(adversarial.length);
+  });
+
+  it("keeps unsafe schemes after an https link and in angle brackets rejected", () => {
+    expect(findAuthoredTextRejection('https://a.example/x"javascript:alert(1)')).toBe("text_unsafe_link");
+    expect(findAuthoredTextRejection("<javascript:alert(1)>")).toBe("text_unsafe_link");
   });
 });
 
