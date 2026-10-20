@@ -17,6 +17,7 @@ export const platformOperationsWakeRegistryEntry = registryEntry({
     "platform-operations:experience-platform-feedback-projection",
     "platform-operations:platform-policy-document-projection",
     "platform-operations:public-doc-review-queue-projection",
+    "platform-operations:account-appeal-projection",
     "platform-operations:reported-content-queue-projection",
     "platform-operations:risk-alert-queue-projection",
     "fulfillment:fulfillment-support-return-source-projection",

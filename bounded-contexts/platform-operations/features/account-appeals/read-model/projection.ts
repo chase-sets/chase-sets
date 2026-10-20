@@ -6,16 +6,15 @@ import {
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { AppealableEnforcementAction } from "../domain/domain";
-
-export type AccountAppealSource =
-  | "identity.account.suspended"
-  | "identity.account.reactivated"
-  | "identity.account.closed"
-  | "marketplace.listing.operator-unlisted"
-  | "marketplace.listing.auto-unlisted"
-  | "enf"
-  | "lea";
+import type { AppealableEnforcementAction, AppealableActionSource } from "../domain/domain";
+export type AccountAppealSource = AppealableActionSource;
+const ACCOUNT_APPEAL_SOURCES = new Set<AccountAppealSource>([
+  "identity.account.suspended",
+  "identity.account.reactivated",
+  "identity.account.closed",
+  "marketplace.listing.operator-unlisted",
+  "marketplace.listing.auto-unlisted",
+]);
 type ActionIdentity = Readonly<{ id: string; accountId: string; occurredAt: string }>;
 type ActionRow = Readonly<{
   appealable_action_id: string;
@@ -35,7 +34,11 @@ function identityAction(event: TransportEvent, accountId: string): ActionIdentit
   const data = record(event.data);
   if (data && Object.keys(data).length === 0) return null;
   const enforcement = record(data?.enforcement);
-  if (enforcement?.version !== 1 || typeof enforcement.enforcementActionId !== "string")
+  if (
+    enforcement?.version !== 1 ||
+    typeof enforcement.enforcementActionId !== "string" ||
+    !/^enf_[0-9A-HJKMNP-TV-Z]{26}$/.test(enforcement.enforcementActionId)
+  )
     throw new Error(`Malformed modern ${event.type} payload.`);
   return { id: enforcement.enforcementActionId, accountId, occurredAt: event.timing.occurredAt };
 }
@@ -54,6 +57,8 @@ async function insert(
        WHERE platform_operations_account_appealable_actions.owner_account_id <> EXCLUDED.owner_account_id
           OR platform_operations_account_appealable_actions.source_stream_id <> EXCLUDED.source_stream_id
           OR platform_operations_account_appealable_actions.source_stream_version <> EXCLUDED.source_stream_version
+          OR platform_operations_account_appealable_actions.source <> EXCLUDED.source
+          OR platform_operations_account_appealable_actions.source_event_type <> EXCLUDED.source_event_type
      RETURNING conflict_state`,
     [action.id, action.accountId, source, event.streamId, event.streamVersion, action.occurredAt, event.type],
   );
@@ -80,7 +85,8 @@ export function buildAccountAppealInterestProjectionHandlers(
   const identity = async (event: TransportEvent) => {
     const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
     const action = identityAction(event, accountId);
-    if (action) await insert(db, event, "enf", action);
+    if (action && ACCOUNT_APPEAL_SOURCES.has(event.type as AccountAppealSource))
+      await insert(db, event, event.type as AccountAppealSource, action);
   };
   const handlers: ProjectorHandlerMap = {
     "identity.account.suspended": identity,
@@ -94,7 +100,7 @@ export function buildAccountAppealInterestProjectionHandlers(
         throw new Error(`Malformed modern ${event.type} payload.`, { cause: error });
       }
       const action = marketplaceAction(record(parsed)!);
-      if (action) await insert(db, event, "lea", action);
+      if (action) await insert(db, event, "marketplace.listing.operator-unlisted", action);
     },
     "marketplace.listing.auto-unlisted": async (event) => {
       let parsed;
@@ -104,7 +110,7 @@ export function buildAccountAppealInterestProjectionHandlers(
         throw new Error(`Malformed modern ${event.type} payload.`, { cause: error });
       }
       const action = marketplaceAction(record(parsed)!);
-      if (action) await insert(db, event, "lea", action);
+      if (action) await insert(db, event, "marketplace.listing.auto-unlisted", action);
     },
   };
   if (!selectedEventTypes) return handlers;
@@ -126,7 +132,7 @@ export async function resolveAccountAppealableAction(
     ? {
         appealableActionId: row.appealable_action_id as AppealableEnforcementAction["appealableActionId"],
         ownerAccountId: row.owner_account_id as AppealableEnforcementAction["ownerAccountId"],
-        source: row.source === "lea" ? "lea" : "enf",
+        source: row.source as AccountAppealSource,
         sourceStreamId: row.source_stream_id,
         sourceStreamVersion: row.source_stream_version,
         ...(row.conflict_state === "conflicted" ? { conflicted: true } : {}),
@@ -176,18 +182,21 @@ export function buildAccountAppealProjectionHandlers(db: PgQueryable): Projector
       ? [status, data.outcome, data.rationale, data.operatorUserId, data.note]
       : [status, null, null, null, null];
     const actionId = event.streamId.slice("platform-operations.account-appeal-".length);
-    await db.query(
+    const appealUpdate = await db.query(
       `UPDATE platform_operations_account_appeals SET status=$1, outcome=$2, rationale=$3, operator_user_id=$4, note=$5, stream_version=$6, updated_at=now() WHERE appealable_action_id=$7 AND stream_version=$8`,
       [...values, event.streamVersion, actionId, event.streamVersion - 1],
     );
-    await db.query(
+    if (appealUpdate.rowCount !== 1) throw new Error(`Appeal projection version gap for ${actionId}.`);
+    const sellerUpdate = await db.query(
       `UPDATE platform_operations_account_appeal_seller_history SET status=$1, outcome=$2, rationale=$3, stream_version=$4, updated_at=now() WHERE appealable_action_id=$5 AND stream_version=$6`,
       [status, data.outcome ?? null, data.rationale ?? null, event.streamVersion, actionId, event.streamVersion - 1],
     );
-    await db.query(
+    if (sellerUpdate.rowCount !== 1) throw new Error(`Seller appeal projection version gap for ${actionId}.`);
+    const operatorUpdate = await db.query(
       `UPDATE platform_operations_account_appeal_operator_history SET status=$1, outcome=$2, rationale=$3, operator_user_id=$4, note=$5, stream_version=$6, updated_at=now() WHERE appeal_id=(SELECT appeal_id FROM platform_operations_account_appeals WHERE appealable_action_id=$7) AND stream_version=$8`,
       [...values, event.streamVersion, actionId, event.streamVersion - 1],
     );
+    if (operatorUpdate.rowCount !== 1) throw new Error(`Operator appeal projection version gap for ${actionId}.`);
   };
   return {
     "platform-operations.account-appeal.filed": filed,

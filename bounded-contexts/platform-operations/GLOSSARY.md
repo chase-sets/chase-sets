@@ -273,7 +273,11 @@ It is an observation, not a verdict. It asserts no statutory applicability, eval
 
 An **Account Appeal** is the Platform Operations private aggregate for an account owner’s challenge to one immutable, lookup-authoritative **Appealable Enforcement Action**. Its **Appeal Status** progresses from filed to in-review and one terminal outcome, or withdrawn.
 
+### Appealable Enforcement Action
+
 An **Appealable Enforcement Action** is a complete, non-conflicted registry tuple linking an enforcement action to its owning account, source discriminator, source stream id, and source stream version. Absence or conflict is indeterminate, never eligibility.
+
+### Appeal Outcome
 
 An **Appeal Outcome** is the private terminal decision upheld, reversed, or modified, retaining the operator, rationale, and internal note in the owning context.
 

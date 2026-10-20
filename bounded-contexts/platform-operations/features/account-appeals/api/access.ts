@@ -41,8 +41,9 @@ export function withAccountAppealSellerAccess<T>(
   actor: AccountAppealActor,
   permission: "account-appeals.view" | "account-appeals.file",
   run: (capability: AccountAppealSellerCapability) => T,
-): T | null {
-  if (!actor.tenantId || !actor.accountId || !actor.userId || !actor.permissions.includes(permission)) return null;
+): T | AccountAppealAccessRejection {
+  if (!actor.tenantId || !actor.accountId || !actor.userId) return ACCOUNT_APPEAL_UNAUTHENTICATED;
+  if (!actor.permissions.includes(permission)) return ACCOUNT_APPEAL_FORBIDDEN;
   return run(
     Object.freeze({
       tenantId: actor.tenantId,
@@ -56,8 +57,9 @@ export function withAccountAppealOperatorAccess<T>(
   actor: AccountAppealActor,
   permission: "account-appeals.review",
   run: (capability: AccountAppealOperatorCapability) => T,
-): T | null {
-  if (!actor.tenantId || !actor.userId || !actor.roleKey || !actor.permissions.includes(permission)) return null;
+): T | AccountAppealAccessRejection {
+  if (!actor.tenantId || !actor.userId || !actor.roleKey) return ACCOUNT_APPEAL_UNAUTHENTICATED;
+  if (!actor.permissions.includes(permission)) return ACCOUNT_APPEAL_FORBIDDEN;
   return run(
     Object.freeze({
       tenantId: actor.tenantId,
@@ -71,36 +73,32 @@ export function withAccountAppealOperatorAccess<T>(
 export type AppealableActionLookup = Readonly<{
   resolve: (id: string) => Promise<(AppealableEnforcementAction & { conflicted?: boolean }) | null>;
 }>;
-let registryLookup: AppealableActionLookup | null = null;
-export function configureAccountAppealRegistryLookup(lookup: AppealableActionLookup): void {
-  registryLookup = lookup;
-}
 export type ResolutionResult =
   | Readonly<{ status: "resolved"; action: AppealableEnforcementActionCapability }>
   | Readonly<{ status: "indeterminate" }>;
 export const APPEALABLE_ACTION_INDETERMINATE: ResolutionResult = Object.freeze({ status: "indeterminate" });
-export async function resolveAppealableEnforcementAction(
-  capability: AccountAppealSellerCapability,
-  id: string,
-): Promise<ResolutionResult> {
-  const lookup = registryLookup;
-  if (!lookup) return APPEALABLE_ACTION_INDETERMINATE;
-  try {
-    const candidate = await lookup.resolve(id);
-    if (
-      !candidate ||
-      candidate.conflicted ||
-      candidate.ownerAccountId !== capability.accountId ||
-      candidate.appealableActionId !== id ||
-      !candidate.sourceStreamId ||
-      !Number.isInteger(candidate.sourceStreamVersion) ||
-      candidate.sourceStreamVersion < 1
-    )
+export function createAppealableEnforcementActionResolver(lookup: AppealableActionLookup) {
+  return async function resolveAppealableEnforcementAction(
+    capability: AccountAppealSellerCapability,
+    id: string,
+  ): Promise<ResolutionResult> {
+    try {
+      const candidate = await lookup.resolve(id);
+      if (
+        !candidate ||
+        candidate.conflicted ||
+        candidate.ownerAccountId !== capability.accountId ||
+        candidate.appealableActionId !== id ||
+        !candidate.sourceStreamId ||
+        !Number.isInteger(candidate.sourceStreamVersion) ||
+        candidate.sourceStreamVersion < 1
+      )
+        return APPEALABLE_ACTION_INDETERMINATE;
+      return { status: "resolved", action: Object.freeze({ ...candidate }) as AppealableEnforcementActionCapability };
+    } catch {
       return APPEALABLE_ACTION_INDETERMINATE;
-    return { status: "resolved", action: Object.freeze({ ...candidate }) as AppealableEnforcementActionCapability };
-  } catch {
-    return APPEALABLE_ACTION_INDETERMINATE;
-  }
+    }
+  };
 }
 export function fileAccountAppeal(
   capability: AccountAppealSellerCapability,
@@ -108,7 +106,7 @@ export function fileAccountAppeal(
   input: Readonly<{ statement: string; appealId?: AccountAppealId }>,
 ): Extract<AccountAppealCommand, { type: "FileAccountAppeal" }> {
   if (action.ownerAccountId !== capability.accountId)
-    throw new Error("Appealable action owner does not match seller capability.");
+    throw new Error("Appealable action owner does not match the capability account.");
   return {
     type: "FileAccountAppeal",
     accountId: capability.accountId,

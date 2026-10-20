@@ -6,7 +6,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
-import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createProviderConnectionsRuntime } from "../../features/provider-connections/api/runtime";
 import type { ProviderConnectionsCrossContextPort } from "../../features/provider-connections/api/contracts";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
@@ -43,7 +43,6 @@ import {
   getSupportRequestById,
 } from "../../features/support-requests/read-model/queries";
 import { createAccountAppealRuntime, type AccountAppealRuntime } from "../../features/account-appeals/api/runtime";
-import { buildAccountAppealProjectionHandlers } from "../../features/account-appeals/read-model/projection";
 
 export type PlatformOperationsHostPorts = Readonly<{
   providerConnectionsCrossContext?: ProviderConnectionsCrossContextPort;
@@ -234,10 +233,6 @@ export function createPlatformOperationsServices(
       ...riskAlerts.projectors,
       ...supportRequests.projectors,
       ...policies.projectors,
-      createProjectionHandlerSet({
-        projectionName: "account-appeal-projection",
-        handlers: buildAccountAppealProjectionHandlers(db),
-      }),
     ],
     accountAppeals,
   };

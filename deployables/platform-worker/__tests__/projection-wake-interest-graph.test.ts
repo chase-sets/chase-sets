@@ -117,6 +117,37 @@ const NOTIFICATIONS_FULFILLMENT_TARGET = {
 } as const;
 
 describe("platform worker projection wake interest graph", () => {
+  it("resolves every account-appeal source through the platform-operations registry", () => {
+    const runtime = createPlatformWorkerHost();
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    const sources = [
+      ["identity", "identity.account.suspended"],
+      ["identity", "identity.account.reactivated"],
+      ["identity", "identity.account.closed"],
+      ["marketplace", "marketplace.listing.operator-unlisted"],
+      ["marketplace", "marketplace.listing.auto-unlisted"],
+    ] as const;
+    for (const [sourceContextName, eventType] of sources) {
+      const interests = lookupProjectionInterests(index, { sourceContextName, eventType });
+      expect(interests).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            targetContextName: "platform-operations",
+            projectionName: "account-appeal-interest-projection",
+          }),
+        ]),
+      );
+      const runner = runtime.subscriptionRunners.find(
+        (candidate) =>
+          candidate.sourceContextName === sourceContextName &&
+          candidate.projectionName === "account-appeal-interest-projection",
+      );
+      expect(runner?.checkpointKey).toBe(`account-appeal-interest-projection:${sourceContextName}:v1`);
+      expect(runner?.eventTypes).toContain(eventType);
+      expect(runner?.handlers?.[eventType]).toBeTypeOf("function");
+    }
+  });
+
   it("composes forward-only listing directive delivery independently of review checkpoints and removal consumers", () => {
     const runtime = createPlatformWorkerHost();
     const eventType = "platform-operations.reported-content.listing-removal-directed";

@@ -10,7 +10,12 @@ import {
 
 export type AccountAppealId = TypedUlid<"apl">;
 export type AppealStatus = "filed" | "in-review" | "upheld" | "reversed" | "modified" | "withdrawn";
-export type AppealableActionSource = "enf" | "lea";
+export type AppealableActionSource =
+  | "identity.account.suspended"
+  | "identity.account.reactivated"
+  | "identity.account.closed"
+  | "marketplace.listing.operator-unlisted"
+  | "marketplace.listing.auto-unlisted";
 
 export type AppealableEnforcementAction = Readonly<{
   appealableActionId: EnforcementActionId | ListingEnforcementActionId;
@@ -48,7 +53,7 @@ export const initialAccountAppealState: AccountAppealState = {
   filedByUserId: null,
 };
 
-const duplicateFilingRows = [
+export const ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT = Object.freeze([
   Object.freeze({
     caseId: "identical-filed-statement",
     given: "a filed or in-review appeal with the same account, filer, and statement",
@@ -67,12 +72,7 @@ const duplicateFilingRows = [
     whenStatement: "a filing is attempted",
     then: "reject the command",
   }),
-] as const;
-export const ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT = Object.freeze(
-  Object.assign(duplicateFilingRows, {
-    then: "the first appeal id is returned; a differing statement conflicts and terminal or withdrawn appeals reject",
-  }),
-);
+] as const);
 
 export const ACCOUNT_APPEAL_DUPLICATE_FILING_ERROR =
   "The appeal filing conflicts with the existing account, filer, or statement.";
@@ -130,7 +130,14 @@ export const decideAccountAppeal: AggregateDecider<AccountAppealState, AccountAp
     case "FileAccountAppeal": {
       const statement = clean(command.statement, "Appeal statement");
       if (state.status === "filed" || state.status === "in-review") {
+        const duplicateCase =
+          state.accountId === command.accountId &&
+          state.filedByUserId === command.filedByUserId &&
+          state.statement === statement
+            ? ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT.find((row) => row.caseId === "identical-filed-statement")
+            : ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT.find((row) => row.caseId === "differing-filed-statement");
         if (
+          duplicateCase?.caseId === "identical-filed-statement" &&
           state.accountId === command.accountId &&
           state.filedByUserId === command.filedByUserId &&
           state.statement === statement
@@ -144,9 +151,15 @@ export const decideAccountAppeal: AggregateDecider<AccountAppealState, AccountAp
         state.status === "modified" ||
         state.status === "withdrawn"
       ) {
-        throw new Error("A terminal or withdrawn appeal cannot be filed.");
+        const terminalCase = ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT.find(
+          (row) => row.caseId === "terminal-or-withdrawn",
+        );
+        if (terminalCase?.caseId === "terminal-or-withdrawn")
+          throw new Error("A terminal or withdrawn appeal cannot be filed.");
       }
       if (state.id !== null) throw new Error("Appeal stream is already initialized.");
+      if (command.accountId !== command.action.ownerAccountId)
+        throw new Error("Appealable action owner does not match appeal account.");
       return [
         {
           type: "platform-operations.account-appeal.filed",
@@ -196,6 +209,7 @@ export const decideAccountAppeal: AggregateDecider<AccountAppealState, AccountAp
 export const evolveAccountAppeal: AggregateEvolver<AccountAppealState, AccountAppealEvent> = (state, event) => {
   switch (event.type) {
     case "platform-operations.account-appeal.filed":
+      if (state.id !== null || state.status !== null) throw new Error("Appeal filing requires an empty state.");
       return {
         ...state,
         id: event.data.appealId,
@@ -207,8 +221,10 @@ export const evolveAccountAppeal: AggregateEvolver<AccountAppealState, AccountAp
         filedByUserId: event.data.filedByUserId,
       };
     case "platform-operations.account-appeal.review-started":
+      if (state.status !== "filed") throw new Error("Review start requires a filed appeal.");
       return { ...state, status: "in-review" };
     case "platform-operations.account-appeal.outcome-recorded":
+      if (state.status !== "in-review") throw new Error("Outcome requires an in-review appeal.");
       return {
         ...state,
         status: event.data.outcome,
@@ -218,6 +234,8 @@ export const evolveAccountAppeal: AggregateEvolver<AccountAppealState, AccountAp
         operatorUserId: event.data.operatorUserId,
       };
     case "platform-operations.account-appeal.withdrawn":
+      if (state.status !== "filed" && state.status !== "in-review")
+        throw new Error("Withdrawal requires a filed or in-review appeal.");
       return { ...state, status: "withdrawn" };
   }
 };

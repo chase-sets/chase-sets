@@ -46,6 +46,7 @@ import { riskAlertsSchemaMigrations } from "./features/risk-alerts/read-model/sc
 import { sellerComplianceSalesSchemaMigrations } from "./features/seller-compliance-sales/read-model/schema";
 import { accountAppealSchemaMigrations } from "./features/account-appeals/read-model/schema";
 import { buildAccountAppealInterestProjectionHandlers } from "./features/account-appeals/read-model/projection";
+import { buildAccountAppealProjectionHandlers } from "./features/account-appeals/read-model/projection";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectPlatformOperationsSeedState, seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
@@ -153,6 +154,7 @@ export const module = defineBoundedContextModule<
             "marketplace.listing.operator-unlisted",
             "marketplace.listing.auto-unlisted",
           ]),
+        "platform-operations.account-appeal-projection": () => buildAccountAppealProjectionHandlers(services.db),
       },
     }),
     ...buildEventReactionsFromManifest({

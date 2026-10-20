@@ -19,7 +19,7 @@ const file = {
   action: {
     appealableActionId: action,
     ownerAccountId: account,
-    source: "enf" as const,
+    source: "identity.account.suspended" as const,
     sourceStreamId: "identity.account-test",
     sourceStreamVersion: 1,
   },
@@ -76,7 +76,7 @@ describe("account appeal aggregate", () => {
         operatorUserId: operator,
       }),
     ).toThrow();
-    expect(ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT.then).toContain("differing statement");
+    expect(ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT[1]?.then).toContain("duplicate filing");
     expect(terminal.operatorUserId).toBe(operator);
   });
 
@@ -115,5 +115,33 @@ describe("account appeal aggregate", () => {
     const filed = stateAfter(file);
     expect(decideAccountAppeal(filed, { type: "WithdrawAccountAppeal" })).toHaveLength(1);
     expect(() => decideAccountAppeal(initialAccountAppealState, { type: "StartAccountAppealReview" })).toThrow();
+  });
+
+  it("covers the state matrix and rejects impossible histories", () => {
+    expect(() =>
+      evolveAccountAppeal(initialAccountAppealState, {
+        type: "platform-operations.account-appeal.review-started",
+        data: {},
+      }),
+    ).toThrow();
+    expect(() =>
+      evolveAccountAppeal(initialAccountAppealState, {
+        type: "platform-operations.account-appeal.withdrawn",
+        data: {},
+      }),
+    ).toThrow();
+    const filed = stateAfter(file);
+    expect(() =>
+      evolveAccountAppeal(filed, {
+        type: "platform-operations.account-appeal.outcome-recorded",
+        data: { outcome: "upheld", rationale: "r", note: "n", operatorUserId: operator },
+      }),
+    ).toThrow();
+  });
+
+  it("keeps private event and terminal facts out of public payload shape", () => {
+    const event = decideAccountAppeal(initialAccountAppealState, file)[0]!;
+    expect(event.type).toMatch(/^platform-operations\.account-appeal\./);
+    expect(event.data).toHaveProperty("action");
   });
 });
