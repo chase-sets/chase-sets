@@ -32,11 +32,27 @@ export const catalogBrowserE2ePromotedObservation = {
   displayName: "Pikachu",
 } as const;
 
+export const catalogBrowserE2eChangedObservation = {
+  observationId: "tcgdex_en_base2_60_1st_edition",
+  displayName: "Pikachu",
+} as const;
+
 const sourceObservationStreamId =
   `catalog.source-observation-${catalogBrowserE2ePromotedObservation.observationId}` as const;
+const changedSourceObservationStreamId =
+  `catalog.source-observation-${catalogBrowserE2eChangedObservation.observationId}` as const;
+const tcgdexSourceObservationStreamPrefix = "catalog.source-observation-tcgdex_";
 const promotedAt = "2026-06-03T00:01:00.000Z";
 const observedAt = "2026-06-03T00:00:00.000Z";
+const changedRevisionObservedAt = "2026-06-10T09:00:00.000Z";
+type TcgdexScenarioCard = typeof tcgdexBase260ScenarioFixture.card;
+// TCGdex later re-published the scenario card; the newer revision timestamp is its only difference.
+const changedRevisionCard: TcgdexScenarioCard = {
+  ...tcgdexBase260ScenarioFixture.card,
+  updated: "2026-06-10T09:00:00+01:00",
+};
 const promotedSeedLifecycle = ["catalog.source-observation.recorded", "catalog.source-observation.promoted"] as const;
+const changedSeedLifecycle = [...promotedSeedLifecycle, "catalog.source-observation.changed"] as const;
 // One refresh is the seed's only reconciliation append, so a reconciled stream keeps a fixed shape.
 const reconciledPromotedSeedLifecycle = [...promotedSeedLifecycle, "catalog.source-observation.refreshed"] as const;
 const migratedPromotedSeedLifecycle = [
@@ -58,6 +74,12 @@ export type CatalogBrowserE2ePromotedObservationSeedEvidence = Readonly<{
   promotionPlan: CatalogProviderPromotionCommandPlan;
 }>;
 
+export type CatalogBrowserE2eChangedObservationSeedEvidence = Readonly<{
+  recordCommand: Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>;
+  promotionCommand: Extract<SourceObservationCommand, { type: "PromoteSourceObservation" }>;
+  changedRecordCommand: Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>;
+}>;
+
 /**
  * Gives disposable scenario environments one stable promoted review row so the
  * browser journey can prove row-level reapply/replay wiring without a live provider pull.
@@ -65,18 +87,12 @@ export type CatalogBrowserE2ePromotedObservationSeedEvidence = Readonly<{
 export async function seedPromotedSourceObservationScenario(services: CatalogServices): Promise<void> {
   await requireExactPromotionTarget(services);
   const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(services.db);
-  const existing = await services.db.query<StoredSourceObservationEvent>(
-    `SELECT event_type, payload, stream_version::integer AS stream_version
-       FROM event_store_events
-       WHERE stream_id = $1
-       ORDER BY stream_version ASC`,
-    [sourceObservationStreamId],
-  );
-  const state = rehydrateSeedHistory(existing.rows);
+  const existing = await loadSeedHistory(services.db, sourceObservationStreamId);
+  const state = rehydrateSeedHistory(existing);
   const expectedRecordedState = expectedStateAfter(evidence.recordCommand, initialSourceObservationState);
   const expectedPromotedState = expectedStateAfter(evidence.promotionCommand, expectedRecordedState);
 
-  if (existing.rows.length === 0) {
+  if (existing.length === 0) {
     await sendSeedCommand(
       services.sourceObservations.commandHandler,
       sourceObservationStreamId,
@@ -90,7 +106,7 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
     return;
   }
 
-  const eventTypes = existing.rows.map((row) => row.event_type);
+  const eventTypes = existing.map((row) => row.event_type);
   if (isExactLifecycle(eventTypes, ["catalog.source-observation.recorded"])) {
     requireSeedState("recorded-only", state, expectedRecordedState);
     await sendSeedCommand(
@@ -103,7 +119,7 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
 
   if (isExactLifecycle(eventTypes, promotedSeedLifecycle)) {
     if (state.promotionPlanFingerprint === historicalPlanFingerprint) {
-      await migrateHistoricalSeedPlan(services, evidence, existing.rows, state, expectedPromotedState);
+      await migrateHistoricalSeedPlan(services, evidence, existing, state, expectedPromotedState);
       return;
     }
     await reconcileOrRefusePromotedSeedHistory(services, evidence.recordCommand, state, expectedPromotedState);
@@ -111,7 +127,7 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
   }
 
   if (isExactLifecycle(eventTypes, migratedPromotedSeedLifecycle)) {
-    await migrateHistoricalSeedPlan(services, evidence, existing.rows, state, expectedPromotedState);
+    await migrateHistoricalSeedPlan(services, evidence, existing, state, expectedPromotedState);
     return;
   }
 
@@ -126,32 +142,113 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
 }
 
 /**
- * The promotion plan is validated against `db`: the seed passes the scenario
- * database so the refresh plan resolves the exact Pikachu Jungle target's
- * display identity; database-free tests pass a clearly synthetic queryable.
+ * Gives the browser journey its one selectable changed review row: the scenario
+ * card's 1st Edition observation was recorded and promoted, then a newer TCGdex
+ * revision changed it. The authoritative stream must be an exact prefix of those
+ * three events; the seed appends only the missing suffix at the verified stream
+ * version and refuses every other history instead of repairing it.
  */
+export async function seedChangedSourceObservationScenario(services: CatalogServices): Promise<void> {
+  await requireExactPromotionTarget(services);
+  const evidence = await buildCatalogBrowserE2eChangedObservationSeedEvidence(services.db);
+  const commands = [evidence.recordCommand, evidence.promotionCommand, evidence.changedRecordCommand];
+  // The exact events these commands write when replayed in order from an empty stream.
+  let expectedState = initialSourceObservationState;
+  const expectedEvents = commands.map((command) => {
+    const event = decideSeedEvent(command, expectedState);
+    expectedState = evolveSourceObservation(expectedState, event);
+    return event;
+  });
+  const expectedLifecycle = expectedEvents.map((event) => event.type);
+  if (!isExactLifecycle(expectedLifecycle, changedSeedLifecycle)) {
+    throw new Error("Catalog browser changed Source Observation fixture must decide recorded -> promoted -> changed.");
+  }
+
+  const existing = await loadSeedHistory(services.db, changedSourceObservationStreamId);
+  if (existing.length > expectedEvents.length) {
+    throw new Error(
+      `Catalog browser changed Source Observation seed cannot reconcile lifecycle '${existing
+        .map((row) => row.event_type)
+        .join(" -> ")}'.`,
+    );
+  }
+  for (const [index, row] of existing.entries()) {
+    requireExactSeedEvent("changed history", row, expectedEvents[index], index + 1);
+  }
+
+  for (let version = existing.length; version < commands.length; version += 1) {
+    await services.sourceObservations.commandHandler({
+      streamId: changedSourceObservationStreamId,
+      command: commands[version],
+      context: seedContext,
+      expectedVersion: version,
+    });
+  }
+  await logScenarioSourceObservationEvidence(services.db);
+}
+
 export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(
   db: PgQueryable,
 ): Promise<CatalogBrowserE2ePromotedObservationSeedEvidence> {
+  const observation = await scenarioSourceObservation(
+    catalogBrowserE2ePromotedObservation.observationId,
+    tcgdexBase260ScenarioFixture.card,
+    observedAt,
+  );
+  return { recordCommand: toRecordCommand(observation), ...(await scenarioPromotion(db, observation)) };
+}
+
+export async function buildCatalogBrowserE2eChangedObservationSeedEvidence(
+  db: PgQueryable,
+): Promise<CatalogBrowserE2eChangedObservationSeedEvidence> {
+  const { observationId } = catalogBrowserE2eChangedObservation;
+  const observation = await scenarioSourceObservation(observationId, tcgdexBase260ScenarioFixture.card, observedAt);
+  const changedRevision = await scenarioSourceObservation(
+    observationId,
+    changedRevisionCard,
+    changedRevisionObservedAt,
+  );
+  const { promotionCommand } = await scenarioPromotion(db, observation);
+  return {
+    recordCommand: toRecordCommand(observation),
+    promotionCommand,
+    changedRecordCommand: toRecordCommand(changedRevision),
+  };
+}
+
+async function scenarioSourceObservation(
+  observationId: string,
+  card: TcgdexScenarioCard,
+  revisionObservedAt: string,
+): Promise<CatalogProviderSourceObservationInput> {
   const payloads = await fetchTcgdexSetObservationPayloads({
     profile: tcgdexPokemonTcgProviderProfile,
     languageCode: "en",
     setId: "base2",
-    observedAt,
-    fetch: fetchTcgdexScenarioFixture,
+    observedAt: revisionObservedAt,
+    fetch: tcgdexScenarioFixtureFetch(card),
   });
-  const payload = payloads.find(
-    (candidate) => candidate.payload.observationId === catalogBrowserE2ePromotedObservation.observationId,
-  );
+  const payload = payloads.find((candidate) => candidate.payload.observationId === observationId);
   if (!payload) {
-    throw new Error("Catalog browser TCGdex fixture did not produce the required standard Pikachu observation.");
+    throw new Error(`Catalog browser TCGdex fixture did not produce the required '${observationId}' observation.`);
   }
 
-  const observation = requireCatalogProviderSourceObservation({
+  return requireCatalogProviderSourceObservation({
     contract: tcgdexPokemonCardSourceObservationMappingContract,
     payload: payload.payload,
     observedAt: payload.observedAt,
   });
+}
+
+/**
+ * The promotion plan is validated against `db`: the seed passes the scenario
+ * database so the refresh plan resolves the exact Pikachu Jungle target's
+ * display identity; database-free tests pass a clearly synthetic queryable.
+ */
+async function scenarioPromotion(
+  db: PgQueryable,
+  observation: CatalogProviderSourceObservationInput,
+): Promise<Omit<CatalogBrowserE2ePromotedObservationSeedEvidence, "recordCommand">> {
   const promotionPlanResult = await planCatalogProviderPromotionCommands({
     db,
     profile: tcgdexPokemonTcgProviderProfile,
@@ -177,7 +274,6 @@ export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(
   }
 
   return {
-    recordCommand: toRecordCommand(observation),
     promotionCommand: {
       type: "PromoteSourceObservation",
       catalogItemId: catalogSeedIds.items.pikachuJungle,
@@ -226,7 +322,7 @@ async function migrateHistoricalSeedPlan(
   ];
   requireSeedState("migration predecessor", rehydrateSeedHistory(rows.slice(0, 2)), predecessor);
   for (const [index, event] of predecessorEvents.entries()) {
-    requireMigrationEvent(rows[index], event, index + 1);
+    requireExactSeedEvent("migration", rows[index], event, index + 1);
   }
 
   const command: Extract<SourceObservationCommand, { type: "RecordSourceObservationPromotionPlan" }> = {
@@ -240,7 +336,7 @@ async function migrateHistoricalSeedPlan(
   requireSeedState("migration result", migrated, expected);
 
   if (rows.length === 3) {
-    requireMigrationEvent(rows[2], decideSourceObservation(predecessor, command)[0], 3);
+    requireExactSeedEvent("migration", rows[2], decideSourceObservation(predecessor, command)[0], 3);
     requireSeedState("migrated promoted", actual, expected);
     return;
   }
@@ -254,7 +350,8 @@ async function migrateHistoricalSeedPlan(
   });
 }
 
-function requireMigrationEvent(
+function requireExactSeedEvent(
+  label: string,
   actual: StoredSourceObservationEvent | undefined,
   expected: SourceObservationEvent,
   version: number,
@@ -264,8 +361,12 @@ function requireMigrationEvent(
     actual.event_type !== expected.type ||
     !isDeepStrictEqual(actual.payload, expected.data)
   ) {
+    const divergentFieldPath =
+      actual?.event_type === expected.type ? diagnoseSeedStateDivergence(actual.payload, expected.data) : null;
     throw new Error(
-      `Catalog browser Source Observation seed migration requires the exact event at version ${version}.`,
+      `Catalog browser Source Observation seed ${label} requires the exact event at version ${version}${
+        divergentFieldPath ? ` (field path '${divergentFieldPath}')` : ""
+      }.`,
     );
   }
 }
@@ -313,6 +414,37 @@ async function requireExactPromotionTarget(services: CatalogServices): Promise<v
   }
 }
 
+/**
+ * The browser-e2e bootstrap's count-and-lifecycle record for the scenario Source
+ * Observations, read back from the event store after the changed seed converges.
+ */
+async function logScenarioSourceObservationEvidence(db: PgQueryable): Promise<void> {
+  const tcgdexStreams = await db.query<{ count: number }>(
+    "SELECT count(*)::integer AS count FROM event_store_streams WHERE starts_with(stream_id, $1)",
+    [tcgdexSourceObservationStreamPrefix],
+  );
+  const changedHistory = await loadSeedHistory(db, changedSourceObservationStreamId);
+  console.log(
+    JSON.stringify({
+      event: "catalog-scenario-source-observations-seeded",
+      tcgdexObservationCount: tcgdexStreams.rows[0]?.count ?? 0,
+      changedObservationId: catalogBrowserE2eChangedObservation.observationId,
+      changedObservationLifecycle: changedHistory.map((row) => row.event_type),
+    }),
+  );
+}
+
+async function loadSeedHistory(db: PgQueryable, streamId: string): Promise<readonly StoredSourceObservationEvent[]> {
+  const history = await db.query<StoredSourceObservationEvent>(
+    `SELECT event_type, payload, stream_version::integer AS stream_version
+       FROM event_store_events
+       WHERE stream_id = $1
+       ORDER BY stream_version ASC`,
+    [streamId],
+  );
+  return history.rows;
+}
+
 function rehydrateSeedHistory(rows: readonly StoredSourceObservationEvent[]): SourceObservationState {
   let state = initialSourceObservationState;
   for (const [index, row] of rows.entries()) {
@@ -349,11 +481,15 @@ function sourceObservationEvent(row: StoredSourceObservationEvent): SourceObserv
 }
 
 function expectedStateAfter(command: SourceObservationCommand, state: SourceObservationState): SourceObservationState {
+  return evolveSourceObservation(state, decideSeedEvent(command, state));
+}
+
+function decideSeedEvent(command: SourceObservationCommand, state: SourceObservationState): SourceObservationEvent {
   const events = decideSourceObservation(state, command);
   if (events.length !== 1) {
     throw new Error("Catalog browser Source Observation fixture must remain within one bounded record event.");
   }
-  return evolveSourceObservation(state, events[0]);
+  return events[0];
 }
 
 /**
@@ -499,17 +635,19 @@ function scenarioPromotionCatalogMapping() {
   };
 }
 
-function fetchTcgdexScenarioFixture(input: RequestInfo | URL): Promise<Response> {
-  const url = String(input);
-  const response = url.endsWith("/en/sets/base2")
-    ? tcgdexBase260ScenarioFixture.set
-    : url.endsWith("/en/cards/base2-60")
-      ? tcgdexBase260ScenarioFixture.card
-      : null;
+function tcgdexScenarioFixtureFetch(card: TcgdexScenarioCard): (input: RequestInfo | URL) => Promise<Response> {
+  return (input) => {
+    const url = String(input);
+    const response = url.endsWith("/en/sets/base2")
+      ? tcgdexBase260ScenarioFixture.set
+      : url.endsWith("/en/cards/base2-60")
+        ? card
+        : null;
 
-  return Promise.resolve(
-    response
-      ? new Response(JSON.stringify(response), { status: 200, headers: { "content-type": "application/json" } })
-      : new Response(null, { status: 404 }),
-  );
+    return Promise.resolve(
+      response
+        ? new Response(JSON.stringify(response), { status: 200, headers: { "content-type": "application/json" } })
+        : new Response(null, { status: 404 }),
+    );
+  };
 }

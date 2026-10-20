@@ -275,53 +275,58 @@ test.describe.serial("catalog admin integrations", () => {
     await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
 
     // #1974: the selected-record command surface is the canonical BulkActionBar /
-    // BulkActionPanel (no hand-rolled WorkbenchDetailPanel selection block). Open the
-    // "Review changes" stage and, IF the browser-e2e daily route has a selectable
-    // changed Source Observation (the deterministic recovery fixture is promoted,
-    // and no test or seed runs a live Catalog sync; see logSeedContractGap below), select its row checkbox and
-    // prove the bulk bar surfaces the consolidated command taxonomy: primary
-    // "Preview promotion", secondary "Defer" / "Clear selection", and the destructive
-    // reason-required "Reject" behind a BulkActionPanel trigger that opens a reason
-    // input. This stays an explicit, loudly-logged conditional (not a silent
-    // if-present guard) rather than a hard seed contract, until a real sync/seed
-    // exists for this surface.
+    // BulkActionPanel (no hand-rolled WorkbenchDetailPanel selection block). The
+    // browser-e2e Catalog seed backs the "Review changes" stage with exactly one
+    // selectable row, the changed tcgdex Source Observation
+    // tcgdex_en_base2_60_1st_edition (seedChangedSourceObservationScenario); its
+    // enabled checkbox is the convergence boundary after the provider re-select
+    // revalidates the review slice. Select it and prove the bulk bar surfaces the
+    // consolidated command taxonomy: primary "Preview promotion", secondary "Defer" /
+    // "Clear selection", and the destructive reason-required "Reject" behind a
+    // BulkActionPanel trigger that opens a reason input. Every review row also
+    // carries its own "Preview promotion: <name>" / "Defer: <name>" actions, so the
+    // bar's commands are asserted inside the bar's own action regions.
     await page.getByRole("button", { name: "Review changes" }).first().click();
-    const reviewRowCheckbox = page.getByRole("row").getByRole("checkbox");
-    const hasReviewRow = (await reviewRowCheckbox.count()) > 0;
-    if (!hasReviewRow) {
-      logSeedContractGap(
-        "Review changes stage has no selectable row: browser-e2e never runs a live Catalog sync, so the " +
-          "review queue is legitimately empty. Skipping the selection/bulk-action-bar assertions.",
-      );
-    } else {
-      await reviewRowCheckbox.first().check();
-      // The bar replaces the old hand-rolled panel: its primary/secondary commands and
-      // the reject panel trigger are now the only selection-command affordances.
-      await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
-      await expect(page.getByRole("button", { name: "Defer" }).first()).toBeVisible();
-      await expect(page.getByRole("button", { name: "Clear selection" }).first()).toBeVisible();
-      // #1975/#5116: selection is durable, sessionStorage-backed page state now, not
-      // a URL detour (see primary-workbench-selection-store.ts) -- checking a row
-      // never grows the URL, no matter how large the selection gets. The bar's own
-      // "N observation(s) selected" label (BulkActionBar's formatSelectedLabel) is
-      // the externally-observable proof that the check landed in the working set.
-      await expect(page.getByText(/\d+ observation\(s\) selected/)).toBeVisible();
-      // Reject is reason-required, so it lives behind a panel trigger rather than inline.
-      const rejectPanelTrigger = page.getByRole("button", { name: "Reject…" });
-      await expect(rejectPanelTrigger.first()).toBeVisible();
-      await rejectPanelTrigger.first().click();
-      await expect(page.getByRole("textbox", { name: /Reject reason/i }).first()).toBeVisible();
-      await page.keyboard.press("Escape");
-      // "Clear selection" tears the bar back down, proving it is selection-scoped.
-      await page.getByRole("button", { name: "Clear selection" }).first().click();
-      await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
-      // Clearing drops the durable sessionStorage-backed working set too (no
-      // orphaned selection survives): the bar and its selected-count label are gone.
-      await expect(page.getByText(/\d+ observation\(s\) selected/)).toHaveCount(0);
-    }
+    const sourceObservationReviewTable = page.getByRole("table", { name: "Source Observation review" });
+    const changedReviewRowCheckbox = sourceObservationReviewTable.getByRole("checkbox", {
+      name: "Select row tcgdex_en_base2_60_1st_edition",
+    });
+    const changedReviewRow = sourceObservationReviewTable.getByRole("row").filter({ has: changedReviewRowCheckbox });
+    await expect(changedReviewRow.getByText("Changed", { exact: true })).toBeVisible();
+    await expect(changedReviewRowCheckbox).toBeEnabled();
+    await changedReviewRowCheckbox.check();
+    await expect(changedReviewRowCheckbox).toBeChecked();
+    // Checking that one row fills "Select all rows": no other review row is selectable.
+    await expect(sourceObservationReviewTable.getByRole("checkbox", { name: "Select all rows" })).toBeChecked();
+    // The bar replaces the old hand-rolled panel: its primary/secondary commands and
+    // the reject panel trigger are now the only selection-command affordances.
+    const bulkPrimaryActions = page.locator('[data-bulk-action-region="primary"]');
+    const bulkSecondaryActions = page.locator('[data-bulk-action-region="secondary"]');
+    await expect(bulkPrimaryActions.getByRole("button", { name: /Preview promotion/i })).toBeVisible();
+    await expect(bulkSecondaryActions.getByRole("button", { name: "Defer" })).toBeVisible();
+    await expect(bulkSecondaryActions.getByRole("button", { name: "Clear selection" })).toBeVisible();
+    // #1975/#5116: selection is durable, sessionStorage-backed page state now, not
+    // a URL detour (see primary-workbench-selection-store.ts) -- checking a row
+    // never grows the URL, no matter how large the selection gets. The bar's own
+    // "N observation(s) selected" label (BulkActionBar's formatSelectedLabel) is
+    // the externally-observable proof that the check landed in the working set.
+    await expect(page.getByText("1 observation(s) selected")).toBeVisible();
+    // Reject is reason-required, so it lives behind a panel trigger rather than inline.
+    const rejectPanelTrigger = bulkSecondaryActions.getByRole("button", { name: "Reject…" });
+    await expect(rejectPanelTrigger).toBeVisible();
+    await rejectPanelTrigger.click();
+    await expect(page.getByRole("textbox", { name: /Reject reason/i }).first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    // "Clear selection" tears the bar back down, proving it is selection-scoped.
+    await bulkSecondaryActions.getByRole("button", { name: "Clear selection" }).click();
+    await expect(bulkPrimaryActions).toHaveCount(0);
+    // Clearing drops the durable sessionStorage-backed working set too (no
+    // orphaned selection survives): the bar, its selected-count label, and the row's check are gone.
+    await expect(page.getByText(/\d+ observation\(s\) selected/)).toHaveCount(0);
+    await expect(changedReviewRowCheckbox).not.toBeChecked();
 
     // #2600: the review stage is candidate-first. Open a merged candidate's evidence
-    // sheet (IF the browser-e2e route has one — see logSeedContractGap above) and
+    // sheet (IF the browser-e2e route has one — see logSeedContractGap below) and
     // prove operators see source comparison, field provenance, and proposed
     // reference/Product mapping without any raw JSON entry path. Source Observation
     // evidence remains available as a supporting disclosure below and is asserted
@@ -377,7 +382,7 @@ test.describe.serial("catalog admin integrations", () => {
       }
     } else {
       logSeedContractGap(
-        "No merged candidate rendered: the review queue is empty (same root cause as the review-row gap above).",
+        "No merged candidate rendered: the browser-e2e seed creates Source Observations but no merge candidates.",
       );
     }
 

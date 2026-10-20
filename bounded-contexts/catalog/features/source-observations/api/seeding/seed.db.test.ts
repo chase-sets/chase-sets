@@ -27,9 +27,12 @@ import {
   type SourceObservationState,
 } from "../../domain/domain";
 import {
+  buildCatalogBrowserE2eChangedObservationSeedEvidence,
   buildCatalogBrowserE2ePromotedObservationSeedEvidence,
+  catalogBrowserE2eChangedObservation,
   catalogBrowserE2ePromotedObservation,
   diagnoseSeedStateDivergence,
+  seedChangedSourceObservationScenario,
   seedPromotedSourceObservationScenario,
 } from "./seed";
 
@@ -39,6 +42,12 @@ if (!databaseBaseUrl && process.env.CI) {
 }
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const observationStreamId = `catalog.source-observation-${catalogBrowserE2ePromotedObservation.observationId}`;
+const changedObservationStreamId = `catalog.source-observation-${catalogBrowserE2eChangedObservation.observationId}`;
+const changedSeedLifecycle = [
+  "catalog.source-observation.recorded",
+  "catalog.source-observation.promoted",
+  "catalog.source-observation.changed",
+];
 
 type StoredEventInput = Readonly<{ eventType: string; payload: JsonObject }>;
 
@@ -520,6 +529,119 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
       promoted_catalog_item_id: catalogSeedIds.items.pikachuJungle,
     });
   });
+
+  it("scenario bootstraps author exactly one changed tcgdex observation and repeat boots append nothing", async () => {
+    await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: ["scenario-seed"] });
+    const firstBoot = await completeEventRows(changedObservationStreamId);
+    await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: ["scenario-seed"] });
+    expect(await completeEventRows(changedObservationStreamId)).toEqual(firstBoot);
+
+    const history = await pool.query<{ event_type: string; payload: JsonObject }>(
+      "SELECT event_type, payload FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
+      [changedObservationStreamId],
+    );
+    expect(history.rows.map((row) => row.event_type)).toEqual(changedSeedLifecycle);
+    expect(
+      replayStoredEvents(history.rows.map((row) => ({ eventType: row.event_type, payload: row.payload }))),
+    ).toMatchObject({
+      id: catalogBrowserE2eChangedObservation.observationId,
+      status: "changed",
+      promotedCatalogItemId: catalogSeedIds.items.pikachuJungle,
+    });
+    await drainLocalProjectionHandlerSets("catalog", pool, createCatalogServices(pool).sourceObservations.projectors);
+    expect(await projectedObservation(pool, catalogBrowserE2eChangedObservation.observationId)).toMatchObject({
+      status: "changed",
+      promoted_catalog_item_id: catalogSeedIds.items.pikachuJungle,
+    });
+    const tcgdexStreams = await pool.query<{ count: number }>(
+      "SELECT count(*)::integer AS count FROM event_store_streams WHERE starts_with(stream_id, 'catalog.source-observation-tcgdex_')",
+    );
+    expect(tcgdexStreams.rows).toEqual([{ count: 2 }]);
+  });
+
+  it("resumes a changed seed whose append committed before its acknowledgement was lost", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const commandHandler = services.sourceObservations.commandHandler;
+    const interrupted = {
+      ...services,
+      sourceObservations: {
+        ...services.sourceObservations,
+        commandHandler: async (input: Parameters<typeof commandHandler>[0]) => {
+          expect(input.expectedVersion).toBe(0);
+          await commandHandler(input);
+          throw new Error("synthetic lost acknowledgement after commit");
+        },
+      },
+    };
+
+    await expect(seedChangedSourceObservationScenario(interrupted)).rejects.toThrow(
+      "synthetic lost acknowledgement after commit",
+    );
+    expect(await observationEventCount(pool, changedObservationStreamId)).toBe(1);
+    await seedChangedSourceObservationScenario(services);
+    await seedChangedSourceObservationScenario(services);
+
+    const lifecycle = (await completeEventRows(changedObservationStreamId)).map(
+      (row) => JSON.parse(row.row_json).event_type,
+    );
+    expect(lifecycle).toEqual(changedSeedLifecycle);
+  });
+
+  it("refuses a concurrent append between the changed seed's prefix proof and its command commit", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const commandHandler = services.sourceObservations.commandHandler;
+    const competing = {
+      ...services,
+      sourceObservations: {
+        ...services.sourceObservations,
+        commandHandler: async (input: Parameters<typeof commandHandler>[0]) => {
+          if (input.expectedVersion === 1) {
+            await commandHandler({
+              ...input,
+              command: {
+                type: "DeferSourceObservation",
+                reason: "synthetic competing review",
+                deferredAt: "2026-06-04T00:00:00.000Z",
+              },
+            });
+          }
+          return commandHandler(input);
+        },
+      },
+    };
+
+    await expect(seedChangedSourceObservationScenario(competing)).rejects.toMatchObject({
+      code: "concurrency_conflict",
+    });
+    const raced = await completeEventRows(changedObservationStreamId);
+    expect(raced.map((row) => JSON.parse(row.row_json).event_type)).toEqual([
+      "catalog.source-observation.recorded",
+      "catalog.source-observation.deferred",
+    ]);
+    await expect(seedChangedSourceObservationScenario(services)).rejects.toThrow(
+      "requires the exact event at version 2.",
+    );
+    expect(await completeEventRows(changedObservationStreamId)).toEqual(raced);
+  });
+
+  it("refuses a malformed partial changed history without appending a repair", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const evidence = await buildCatalogBrowserE2eChangedObservationSeedEvidence(pool);
+    const recorded = commandEvents(evidence.recordCommand).events[0]!;
+    await appendObservationHistory(
+      pool,
+      [mutateEvent(recorded, { normalized: { ...(recorded.payload.normalized as JsonObject), name: "Raichu" } })],
+      changedObservationStreamId,
+    );
+
+    await expect(seedChangedSourceObservationScenario(services)).rejects.toThrow(
+      "requires the exact event at version 1 (field path 'normalized.name')",
+    );
+    expect(await observationEventCount(pool, changedObservationStreamId)).toBe(1);
+  });
 });
 
 function poisonedHistory(
@@ -584,12 +706,16 @@ function mutateEvent(event: StoredEventInput, patch: JsonObject): StoredEventInp
   return { ...event, payload: { ...event.payload, ...patch } };
 }
 
-async function appendObservationHistory(pool: PgTransactionalPool, events: readonly StoredEventInput[]): Promise<void> {
+async function appendObservationHistory(
+  pool: PgTransactionalPool,
+  events: readonly StoredEventInput[],
+  streamId = observationStreamId,
+): Promise<void> {
   if (events.length === 0) {
     return;
   }
   await createPostgresEventStore({ pool }).appendToStream({
-    streamId: observationStreamId,
+    streamId,
     expectedVersion: "no_stream",
     context: seedContext,
     events,
@@ -658,7 +784,10 @@ async function publishGlobalTitleDisplayTemplate(
   await drainLocalProjectionHandlerSets("catalog", pool, services.displayTemplates.projectors);
 }
 
-async function projectedObservation(pool: PgTransactionalPool) {
+async function projectedObservation(
+  pool: PgTransactionalPool,
+  observationId: string = catalogBrowserE2ePromotedObservation.observationId,
+) {
   const result = await pool.query<{
     observation_id: string;
     status: string;
@@ -669,15 +798,15 @@ async function projectedObservation(pool: PgTransactionalPool) {
     `SELECT observation_id, status, promoted_catalog_item_id, source_record_hash, promotion_plan_fingerprint
        FROM catalog_source_observations
        WHERE observation_id = $1`,
-    [catalogBrowserE2ePromotedObservation.observationId],
+    [observationId],
   );
   return result.rows[0];
 }
 
-async function observationEventCount(pool: PgTransactionalPool): Promise<number> {
+async function observationEventCount(pool: PgTransactionalPool, streamId = observationStreamId): Promise<number> {
   const result = await pool.query<{ count: string }>(
     "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id = $1",
-    [observationStreamId],
+    [streamId],
   );
   return Number(result.rows[0]?.count ?? 0);
 }
