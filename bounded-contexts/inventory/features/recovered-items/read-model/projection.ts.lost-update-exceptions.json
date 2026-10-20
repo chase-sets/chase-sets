@@ -1,0 +1,101 @@
+[
+  {
+    "id": "exception-15eae2886a1affcd",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "3049ccf95df3d916b422ff2676863b8dded18e0f4f0483a542f38d4e486eb815"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:100 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-093c21eaa7c89169",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "537e780e24e848edef65471bd59629afd5bd6fea1225425ca6e681e6732ba6ec"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:119 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e636cfe4a1ecb219",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "300b1a9965b53bf849667301c469bb32930628b62f5f8287099d2fead2c2d034"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:129 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-85d4ac308440a2f0",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "ac7e3a2aa24fe0c613377e180392cf7cff1a18c96e7bb1deb8821cf68fd1da36"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:141 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-fc77acc36da71758",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "92c7cec8d8e6c9fb7bab0ff3e0d06517bea29a86690832c012a3df30f28eb545"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:151 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-6feee961aeb8c82c",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "d5ed3ae96dd5d5cc6d86bd423b84a4694c885963bd9ce53fc48d87472343dcc0"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:170 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-cf94346cb4445631",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "84be4fdc0b0383f9e53b54f34b7f237ad2e00f131e638bd2b0d0ed95cf33ab95"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:215 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9454c7bf49e9228b",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "0b20d53dc7f5448dd83833d80b8f1643cf3db1feae18844c4bfa318102a1c4e6"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:226 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-102016f43b62c06c",
+    "binding": {
+      "module": "bounded-contexts/inventory/features/recovered-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "inventory_recovered_items",
+      "digest": "e4beeba6d0f4bbde48bd66d6daf21fc507fda1fd0c60223187345e58bf8f4546"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/inventory/features/recovered-items/read-model/projection.ts:246 directly synchronizes inventory_recovered_items from an incoming projection or command fact; no prior row state decides this write."
+  }
+]
