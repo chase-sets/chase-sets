@@ -9,19 +9,14 @@ type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 
 export type UcpCurrency = Readonly<{ code: string; exponent: number }>;
 
-export type UcpCatalogListing = Readonly<{
-  id?: string;
-  listing_id?: string;
-  amount?: string;
-  price_amount?: string;
-  currency?: string | null;
-  price_currency_code?: string | null;
-  [key: string]: unknown;
-}>;
+export type UcpCatalogListing = Pick<
+  DiscoveryItemDetailRow["market_listings"][number],
+  "listing_id" | "price_amount" | "price_currency_code"
+>;
 
-export type UcpPresentment = Readonly<{
+export type UcpPresentment<L extends UcpCatalogListing = UcpCatalogListing> = Readonly<{
   currency: string;
-  listings: readonly UcpCatalogListing[];
+  listings: readonly L[];
   priceRange: Readonly<{ min: number; max: number }>;
   omittedListings: boolean;
 }>;
@@ -80,22 +75,22 @@ export function minorBoundToDecimal(bound: number, currency: string | UcpCurrenc
 }
 
 function listingCurrency(listing: UcpCatalogListing) {
-  return listing.price_currency_code ?? listing.currency ?? null;
+  return listing.price_currency_code;
 }
 
 function listingAmount(listing: UcpCatalogListing) {
-  return listing.price_amount ?? listing.amount ?? null;
+  return listing.price_amount;
 }
 
-function eligibleListing(listing: UcpCatalogListing) {
+function eligibleListing<L extends UcpCatalogListing>(listing: L) {
   const converted = toUcpMinorUnits(listingAmount(listing), listingCurrency(listing));
   return converted ? { listing, ...converted } : null;
 }
 
-export function selectPresentment(
-  listings: readonly UcpCatalogListing[],
+export function selectPresentment<L extends UcpCatalogListing>(
+  listings: readonly L[],
   requestCurrency: unknown,
-): UcpPresentment | null {
+): UcpPresentment<L> | null {
   const eligible = listings.map(eligibleListing).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   if (eligible.length === 0) return null;
   const requested = resolveUcpCurrency(requestCurrency)?.code;
@@ -128,10 +123,10 @@ function boundCurrencyCode(value: UcpPresentmentBound["currency"]) {
   return typeof value === "string" ? (resolveUcpCurrency(value)?.code ?? null) : (value?.code ?? null);
 }
 
-export function boundPresentment(
-  presentment: UcpPresentment,
+export function boundPresentment<L extends UcpCatalogListing>(
+  presentment: UcpPresentment<L>,
   bound: UcpPresentmentBound,
-): (UcpPresentment & Readonly<{ ignored: boolean }>) | null {
+): (UcpPresentment<L> & Readonly<{ ignored: boolean }>) | null {
   const hasBounds = bound.min !== undefined || bound.max !== undefined;
   if (!hasBounds) return { ...presentment, ignored: false };
   if (boundCurrencyCode(bound.currency) !== presentment.currency) return { ...presentment, ignored: true };
