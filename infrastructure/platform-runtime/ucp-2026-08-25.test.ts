@@ -69,7 +69,7 @@ describe("UCP 2026-08-25 contract", () => {
     expect(compileUcpSchema(ucpToolInputSchema("create_checkout"))({ checkout: { line_items: minimalCheckout.line_items } })).toBe(true);
     expect(compileUcpSchema(ucpToolInputSchema("update_checkout"))({ id: "chk_1", checkout: { line_items: minimalCheckout.line_items } })).toBe(true);
     expect(compileUcpSchema(ucpToolInputSchema("get_checkout"))({ id: "chk_1" })).toBe(true);
-    expect(compileUcpSchema(ucpToolInputSchema("complete_checkout"))({ id: "chk_1", checkout: minimalCheckout })).toBe(true);
+    expect(compileUcpSchema(ucpToolInputSchema("complete_checkout"))({ id: "chk_1", checkout: { line_items: minimalCheckout.line_items } })).toBe(true);
     expect(compileUcpSchema(ucpToolInputSchema("cancel_checkout"))({ id: "chk_1" })).toBe(true);
     expect(compileUcpSchema(ucpToolInputSchema("get_order"))({ id: "ord_1" })).toBe(true);
     for (const tool of ["create_checkout", "get_checkout", "update_checkout", "complete_checkout", "cancel_checkout"] as const) {
