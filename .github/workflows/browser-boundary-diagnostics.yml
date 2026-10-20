@@ -13,6 +13,7 @@ on:
         options:
           - 13c-alone
           - 13c-concurrent-live
+          - ac01-feasibility
 
 permissions:
   contents: read
@@ -34,7 +35,7 @@ jobs:
           SELECTOR: ${{ inputs.selector }}
         run: |
           case "$SELECTOR" in
-            13c-alone | 13c-concurrent-live) printf 'provider-boundary-diagnostic-selector:%s\n' "$SELECTOR" ;;
+            13c-alone | 13c-concurrent-live | ac01-feasibility) printf 'provider-boundary-diagnostic-selector:%s\n' "$SELECTOR" ;;
             *)
               printf 'provider-boundary-diagnostic-refused:selector\n' >&2
               exit 1
@@ -53,24 +54,160 @@ jobs:
         run: bash scripts/provider-object-disposition/browser-boundary/ci-setup.sh
 
       - name: Run isolated serial repetition
+        if: inputs.selector == '13c-alone' || inputs.selector == '13c-concurrent-live'
         id: repetition
         env:
           SELECTOR: ${{ inputs.selector }}
         run: node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs --diagnostic "$SELECTOR" --out artifacts/browser-boundary-diagnostics/summary.json
+
+      - name: Run AC-01 credential-free feasibility probe
+        if: inputs.selector == 'ac01-feasibility'
+        id: feasibility
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/browser-boundary-diagnostics
+          test "$(id -u)" != 0
+          cat > /tmp/provider-boundary-ac01.c <<'EOF'
+          #define _GNU_SOURCE
+          #include <errno.h>
+          #include <fcntl.h>
+          #include <sched.h>
+          #include <signal.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <sys/prctl.h>
+          #include <sys/syscall.h>
+          #include <sys/types.h>
+          #include <sys/wait.h>
+          #include <unistd.h>
+
+          static void die(const char *stage) {
+            fprintf(stderr, "probe-fatal:%s:errno=%d:%s\n", stage, errno, strerror(errno));
+            _exit(111);
+          }
+
+          static void map_one(pid_t pid, const char *name, unsigned id) {
+            char path[128], text[64];
+            snprintf(text, sizeof(text), "%u %u 1\n", id, id);
+            snprintf(path, sizeof(path), "/proc/%d/%s", pid, name);
+            int fd = open(path, O_WRONLY | O_CLOEXEC);
+            if (fd < 0 || write(fd, text, strlen(text)) != (ssize_t)strlen(text)) die("mapping");
+            close(fd);
+          }
+
+          static void open_attempt(pid_t target, const char *phase, const char *entry) {
+            char path[160];
+            snprintf(path, sizeof(path), "/proc/%d/%s", target, entry);
+            errno = 0;
+            int fd = open(path, O_RDONLY | O_CLOEXEC);
+            int error = fd < 0 ? errno : 0;
+            if (fd >= 0) close(fd);
+            printf("phase=%s target=%d relation=peer-sibling entry=%s result=%s errno=%d\n",
+                   phase, target, entry, fd >= 0 ? "allowed" : "denied", error);
+          }
+
+          static void pidfd_setns_attempt(pid_t target, const char *phase) {
+            errno = 0;
+            int pidfd = (int)syscall(SYS_pidfd_open, target, 0);
+            int open_error = pidfd < 0 ? errno : 0;
+            int setns_error = 0;
+            if (pidfd >= 0) {
+              errno = 0;
+              if (setns(pidfd, CLONE_NEWUSER) != 0) setns_error = errno;
+              close(pidfd);
+            }
+            printf("phase=%s target=%d relation=peer-sibling entry=pidfd-setns result=%s pidfd_errno=%d errno=%d\n",
+                   phase, target, (pidfd >= 0 && setns_error == 0) ? "allowed" : "denied",
+                   open_error, setns_error);
+          }
+
+          static void run_phase(const char *phase, int dumpable) {
+            int parent_to_target[2], target_to_parent[2];
+            if (pipe(parent_to_target) != 0 || pipe(target_to_parent) != 0) die("pipe");
+            pid_t target = fork();
+            if (target < 0) die("target-fork");
+            if (target == 0) {
+              close(parent_to_target[1]);
+              close(target_to_parent[0]);
+              if (unshare(CLONE_NEWUSER) != 0) die("userns");
+              int groups = open("/proc/self/setgroups", O_WRONLY | O_CLOEXEC);
+              if (groups < 0 || write(groups, "deny\n", 5) != 5) die("setgroups");
+              close(groups);
+              if (write(target_to_parent[1], "r", 1) != 1) die("target-ready");
+              char ack;
+              if (read(parent_to_target[0], &ack, 1) != 1) die("target-ack");
+              if (dumpable < 0 && prctl(PR_SET_DUMPABLE, 0) != 0) die("dumpable-zero");
+              if (dumpable > 0 && prctl(PR_SET_DUMPABLE, 1) != 0) die("dumpable-reopen");
+              if (write(target_to_parent[1], "d", 1) != 1) die("dumpable-ready");
+              for (;;) pause();
+            }
+            close(parent_to_target[0]);
+            close(target_to_parent[1]);
+            char ready;
+            if (read(target_to_parent[0], &ready, 1) != 1) die("parent-ready");
+            map_one(target, "uid_map", (unsigned)getuid());
+            map_one(target, "gid_map", (unsigned)getgid());
+            if (write(parent_to_target[1], "a", 1) != 1) die("parent-ack");
+            char dump_ready;
+            if (read(target_to_parent[0], &dump_ready, 1) != 1) die("dumpable-ack");
+            pid_t peer = fork();
+            if (peer < 0) die("peer-fork");
+            if (peer == 0) {
+              const char *entries[] = {
+                "environ", "mem", "fd/0", "fd/1", "fd/2",
+                "ns/user", "ns/mnt", "ns/pid", "ns/net", "ns/ipc", "ns/uts"
+              };
+              for (size_t i = 0; i < sizeof(entries) / sizeof(entries[0]); i++)
+                open_attempt(target, phase, entries[i]);
+              pidfd_setns_attempt(target, phase);
+              _exit(0);
+            }
+            if (waitpid(peer, NULL, 0) != peer) die("peer-wait");
+            kill(target, SIGKILL);
+            if (waitpid(target, NULL, 0) != target) die("target-wait");
+            close(parent_to_target[1]);
+            close(target_to_parent[0]);
+          }
+
+          int main(void) {
+            setbuf(stdout, NULL);
+            printf("probe=ac01-same-uid-peer\nuid=%u euid=%u relation=non-descendant-sibling\n",
+                   (unsigned)getuid(), (unsigned)geteuid());
+            run_phase("mapping-complete-dumpable-open", 0);
+            run_phase("mapping-complete-dumpable-zero", -1);
+            run_phase("mapping-complete-dumpable-reopened", 1);
+            return 0;
+          }
+          EOF
+          gcc -std=c11 -O2 -Wall -Wextra -Werror /tmp/provider-boundary-ac01.c -o /tmp/provider-boundary-ac01
+          {
+            printf 'diagnostic=AC-01\n'
+            printf 'runner_uid=%s\n' "$(id -u)"
+            printf 'kernel=%s\n' "$(uname -srvm)"
+            printf 'yama_ptrace_scope='; cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || printf 'unavailable'; printf '\n'
+            printf 'lsm='; cat /sys/kernel/security/lsm 2>/dev/null || printf 'unavailable'; printf '\n'
+            printf 'apparmor_enabled='; cat /sys/module/apparmor/parameters/enabled 2>/dev/null || printf 'unavailable'; printf '\n'
+            printf 'apparmor_parser='; apparmor_parser --version 2>&1 | head -n 1 || printf 'unavailable';
+            printf 'apparmor_lever=not-relied-upon;installed-profile-is-unconfined-userns\n'
+            printf 'minimum_kernel=5.8-for-pidfd-setns-diagnostic;PR_SET_DUMPABLE-and-userns-feasibility-is-older\n'
+            /tmp/provider-boundary-ac01
+          } | tee artifacts/browser-boundary-diagnostics/ac01-feasibility.txt
+          node -e 'const fs=require("fs"); const p="artifacts/browser-boundary-diagnostics/ac01-feasibility.txt"; const t=fs.readFileSync(p,"utf8"); if(!t.includes("phase=mapping-complete-dumpable-zero") || !t.includes("result=denied errno=13")) process.exit(1); fs.writeFileSync("artifacts/browser-boundary-diagnostics/summary.json", JSON.stringify({diagnostic:"AC-01",bytes:Buffer.byteLength(t),credentialFree:true,runnerUid:Number(process.getuid())}));'
 
       - name: Remove owned provider browser boundary
         if: always()
         run: bash scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh
 
       - name: Validate diagnostic summary payload
-        if: always() && (steps.repetition.outcome == 'success' || steps.repetition.outcome == 'failure')
+        if: always() && (steps.repetition.outcome == 'success' || steps.repetition.outcome == 'failure' || steps.feasibility.outcome == 'success' || steps.feasibility.outcome == 'failure')
         run: test -s artifacts/browser-boundary-diagnostics/summary.json
 
       - name: Upload nongoverning diagnostic summary
-        if: always() && (steps.repetition.outcome == 'success' || steps.repetition.outcome == 'failure')
+        if: always() && (steps.repetition.outcome == 'success' || steps.repetition.outcome == 'failure' || steps.feasibility.outcome == 'success' || steps.feasibility.outcome == 'failure')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: browser-boundary-diagnostics-${{ inputs.selector }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/browser-boundary-diagnostics/summary.json
+          path: artifacts/browser-boundary-diagnostics/
           if-no-files-found: error
           retention-days: 14
