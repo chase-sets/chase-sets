@@ -1,6 +1,9 @@
 import { expect, it } from "vitest";
 import { Hono } from "hono";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { resetMultiContextTestSchemas } from "@chase-sets/bounded-context-runtime/test-support";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
+import { module as channelsModule } from "../../../index";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { aggregateSellerAttentionQueue } from "@chase-sets/seller-attention-queue";
@@ -74,6 +77,7 @@ describeDb("channel-action canonical bounded page", () => {
 
 describeDb("channel-action-source-contract", () => {
   const h = healthDatabase("attention_source");
+  const drain = healthDatabase("attention_reader_lifetime");
   const queueContext = () => ({ accountId: context.audit.forAccountId, now: new Date().toISOString() });
   async function project(id: string) {
     const handlers = buildChannelConnectionProjectionHandlers(h.db);
@@ -270,4 +274,69 @@ describeDb("channel-action-source-contract", () => {
       expect(queue.items).toEqual([]);
     },
   );
+
+  it("drains a real connector SELECT before reporting a sibling source failure", async () => {
+    const connectionId = await drain.connection();
+    const gateKey = 10247n;
+    const observer = await drain.db.connect();
+    let sourceSettled = false;
+    try {
+      await observer.query("SELECT pg_advisory_lock($1::bigint)", [gateKey]);
+      const waitForConnector = async () => {
+        for (let attempt = 0; attempt < 80; attempt++) {
+          const activity = await observer.query<{
+            pid: number;
+            state: string;
+            wait_event_type: string | null;
+            query: string;
+          }>(
+            `SELECT pid,state,wait_event_type,query
+             FROM pg_stat_activity
+             WHERE datname=current_database() AND pid<>pg_backend_pid()
+               AND query LIKE '%channel_live_export_operations%'`,
+          );
+          if (activity.rows.length > 0) return activity.rows[0];
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error("connector-reader-not-observed");
+      };
+      const source = createChannelActionAttentionSourceFromReadModel({
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          if (sql.includes("channel_live_export_operations")) {
+            const gated = `WITH reader_gate AS MATERIALIZED (
+              SELECT pg_advisory_xact_lock($3::bigint) AS locked
+            ), result AS MATERIALIZED (${sql})
+            SELECT result.* FROM reader_gate CROSS JOIN result`;
+            return drain.db.query<Row>(gated, [...(params ?? []), gateKey]);
+          }
+          if (sql.includes("SELECT connection.connection_id,attention.reason_code")) {
+            const activity = await waitForConnector();
+            expect(activity.query).toContain("channel_live_export_operations");
+            throw new Error("synthetic-owner-unavailable");
+          }
+          return drain.db.query<Row>(sql, params);
+        },
+      });
+      const pending = source.load({ accountId: context.audit.forAccountId, now: new Date().toISOString() });
+      void pending.then(
+        () => {
+          sourceSettled = true;
+        },
+        () => {
+          sourceSettled = true;
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(sourceSettled).toBe(false);
+      await observer.query("SELECT pg_advisory_unlock($1::bigint)", [gateKey]);
+      await expect(pending).rejects.toThrow("channel-action-unavailable");
+      expect(sourceSettled).toBe(true);
+    } finally {
+      await observer.query("SELECT pg_advisory_unlock($1::bigint)", [gateKey]).catch(() => undefined);
+      observer.release();
+      await resetMultiContextTestSchemas({ channels: drain.db });
+      await bootstrapContextDatabase(channelsModule, drain.db);
+    }
+    expect(connectionId).toMatch(/^connection_health_attention_reader_lifetime-/);
+  });
 });
