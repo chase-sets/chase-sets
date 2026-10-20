@@ -12,10 +12,27 @@ const account = createId("acc");
 const action = createId("enf");
 const appeal = createId("apl");
 const operator = createId("usr");
-const file = { type: "FileAccountAppeal" as const, appealId: appeal, accountId: account, action: { appealableActionId: action, ownerAccountId: account, source: "enf" as const, sourceStreamId: "identity.account-test", sourceStreamVersion: 1 }, statement: "The action was mistaken", filedByUserId: operator, tenantId: createId("tnt") };
+const file = {
+  type: "FileAccountAppeal" as const,
+  appealId: appeal,
+  accountId: account,
+  action: {
+    appealableActionId: action,
+    ownerAccountId: account,
+    source: "enf" as const,
+    sourceStreamId: "identity.account-test",
+    sourceStreamVersion: 1,
+  },
+  statement: "The action was mistaken",
+  filedByUserId: operator,
+  tenantId: createId("tnt"),
+};
 
 function stateAfter(...commands: Parameters<typeof decideAccountAppeal>[1][]): AccountAppealState {
-  return commands.reduce((state, command) => evolveAccountAppeal(state, decideAccountAppeal(state, command)[0]!), initialAccountAppealState);
+  return commands.reduce(
+    (state, command) => evolveAccountAppeal(state, decideAccountAppeal(state, command)[0]!),
+    initialAccountAppealState,
+  );
 }
 
 describe("account appeal aggregate", () => {
@@ -23,15 +40,42 @@ describe("account appeal aggregate", () => {
     const filed = decideAccountAppeal(initialAccountAppealState, file);
     expect(filed).toHaveLength(1);
     const reviewing = stateAfter(file, { type: "StartAccountAppealReview" });
-    const outcome = decideAccountAppeal(reviewing, { type: "RecordAccountAppealOutcome", outcome: "reversed", rationale: "Evidence changed", note: "Internal note", operatorUserId: operator });
+    const outcome = decideAccountAppeal(reviewing, {
+      type: "RecordAccountAppealOutcome",
+      outcome: "reversed",
+      rationale: "Evidence changed",
+      note: "Internal note",
+      operatorUserId: operator,
+    });
     expect(outcome[0]?.type).toBe("platform-operations.account-appeal.outcome-recorded");
-    expect(evolveAccountAppeal(reviewing, outcome[0]!)).toMatchObject({ status: "reversed", rationale: "Evidence changed", note: "Internal note" });
+    expect(evolveAccountAppeal(reviewing, outcome[0]!)).toMatchObject({
+      status: "reversed",
+      rationale: "Evidence changed",
+      note: "Internal note",
+    });
   });
 
   it("makes retries idempotent and terminal outcomes immutable", () => {
     const reviewing = stateAfter(file, { type: "StartAccountAppealReview" });
-    const terminal = evolveAccountAppeal(reviewing, decideAccountAppeal(reviewing, { type: "RecordAccountAppealOutcome", outcome: "upheld", rationale: "Confirmed", note: "Keep", operatorUserId: operator })[0]!);
-    expect(() => decideAccountAppeal(terminal, { type: "RecordAccountAppealOutcome", outcome: "reversed", rationale: "Changed", note: "No", operatorUserId: operator })).toThrow();
+    const terminal = evolveAccountAppeal(
+      reviewing,
+      decideAccountAppeal(reviewing, {
+        type: "RecordAccountAppealOutcome",
+        outcome: "upheld",
+        rationale: "Confirmed",
+        note: "Keep",
+        operatorUserId: operator,
+      })[0]!,
+    );
+    expect(() =>
+      decideAccountAppeal(terminal, {
+        type: "RecordAccountAppealOutcome",
+        outcome: "reversed",
+        rationale: "Changed",
+        note: "No",
+        operatorUserId: operator,
+      }),
+    ).toThrow();
     expect(ACCOUNT_APPEAL_DUPLICATE_FILING_CONTRACT.then).toContain("differing statement");
   });
 

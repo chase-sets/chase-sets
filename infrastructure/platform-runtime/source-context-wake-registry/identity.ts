@@ -44,6 +44,7 @@ export const identityWakeRegistryEntry = registryEntry({
     "marketplace:marketplace-review-account-source-projection",
     "ordering:ordering-account-projection",
     "payments:payments-account-risk-source-projection",
+    "platform-operations:account-appeal-interest-projection",
     "platform-operations:risk-alert-queue-projection",
     "pricing:pricing-market-trades-projection",
     "public-presence:public-presence-waitlist-transactional-email-projection",

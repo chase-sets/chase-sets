@@ -45,6 +45,7 @@ import { supportRequestSchemaMigrations } from "./features/support-requests/read
 import { riskAlertsSchemaMigrations } from "./features/risk-alerts/read-model/schema";
 import { sellerComplianceSalesSchemaMigrations } from "./features/seller-compliance-sales/read-model/schema";
 import { accountAppealSchemaMigrations } from "./features/account-appeals/read-model/schema";
+import { buildAccountAppealInterestProjectionHandlers } from "./features/account-appeals/read-model/projection";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectPlatformOperationsSeedState, seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
@@ -141,8 +142,17 @@ export const module = defineBoundedContextModule<
           buildOrderingSellerComplianceSalesProjectionHandlers(services.db),
         "payments.seller-compliance-sales-projection": () =>
           buildPaymentsSellerComplianceSalesProjectionHandlers(services.db),
-        "platform-operations.account-appeal-interest-projection": () =>
-          services.projectors.find((projector) => projector.projectionName === "platform-operations.account-appeal-interest-projection")?.handlers ?? {},
+        "identity.account-appeal-interest-projection": () =>
+          buildAccountAppealInterestProjectionHandlers(services.db, [
+            "identity.account.suspended",
+            "identity.account.reactivated",
+            "identity.account.closed",
+          ]),
+        "marketplace.account-appeal-interest-projection": () =>
+          buildAccountAppealInterestProjectionHandlers(services.db, [
+            "marketplace.listing.operator-unlisted",
+            "marketplace.listing.auto-unlisted",
+          ]),
       },
     }),
     ...buildEventReactionsFromManifest({
