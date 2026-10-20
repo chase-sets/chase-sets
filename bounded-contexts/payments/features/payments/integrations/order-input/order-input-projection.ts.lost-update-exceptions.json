@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-d45a544f9229befd",
+    "binding": {
+      "module": "bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_order_inputs",
+      "digest": "7f2905f43494035d0c92b8f05f04e6a8c267c7c7666b7039050aca4f2da54f5d"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts:203 directly synchronizes payments_order_inputs from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c7a85eaccc0ceb8f",
+    "binding": {
+      "module": "bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_order_inputs",
+      "digest": "16817f85f72d02cd48f93e2afa2089de5fb5023b4a2284ee7bc90ba25f582945"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts:220 directly synchronizes payments_order_inputs from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-77e0c4e3d75e473f",
+    "binding": {
+      "module": "bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_order_inputs",
+      "digest": "774123a4f1ac900ed9fcabdfe1274854ebf837197dcf56382fca3f8454e1f23e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/payments/integrations/order-input/order-input-projection.ts:235 directly synchronizes payments_order_inputs from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

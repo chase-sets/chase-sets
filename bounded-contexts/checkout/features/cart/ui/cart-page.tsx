@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import { centsToSignedMoneyAmount, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
@@ -12,9 +12,11 @@ import {
   CheckoutTotals,
   DestructiveAction,
   Form,
+  Heading,
   HiddenInput,
   Inline,
   LinkButton,
+  LiveRegion,
   MarketplaceCartLineItem,
   MarketplaceEmptyState,
   Page,
@@ -38,7 +40,11 @@ import {
   type CartReadinessSnapshot,
 } from "../domain/readiness";
 import type { CheckoutCartLine } from "./contracts";
-import { useOptimisticCartMutationConsistency, type OptimisticCorrectionStatus } from "./optimistic-correction";
+import {
+  useOptimisticCartMutationConsistency,
+  type CartAttemptState,
+  type OptimisticCorrectionStatus,
+} from "./optimistic-correction";
 
 type CheckoutCartLineGroup = CheckoutCartLine & {
   groupKey: string;
@@ -519,10 +525,12 @@ function QuantityControl({
   line,
   status,
   onQuantityChange,
+  disabled,
 }: {
   line: CheckoutCartLineGroup;
   status: OptimisticCorrectionStatus;
   onQuantityChange: (line: CheckoutCartLineGroup, quantity: number) => void;
+  disabled: boolean;
 }) {
   const safeQuantity = Math.max(1, Number(line.quantity) || 1);
 
@@ -561,6 +569,7 @@ function QuantityControl({
         onValueChange={setQuantity}
         decrementLabel={t("checkout.features.cart.ui.cartPage.decrease")}
         incrementLabel={t("checkout.features.cart.ui.cartPage.increase")}
+        disabled={disabled}
       />
     </Box>
   );
@@ -571,11 +580,13 @@ function CartLineActions({
   status,
   onRemove,
   onLockPreferredListing,
+  disabled,
 }: {
   line: CheckoutCartLineGroup;
   status: OptimisticCorrectionStatus;
   onRemove: (line: CheckoutCartLineGroup) => void;
   onLockPreferredListing: (line: CheckoutCartLineGroup) => void;
+  disabled: boolean;
 }) {
   const lockAction =
     line.seller_preference_id && line.fulfillment_mode !== "locked-listing" ? (
@@ -588,6 +599,7 @@ function CartLineActions({
         data-correction-source="fresh-read:loader-revalidation"
         data-optimistic-resource={line.lineIds.join(":")}
         data-optimistic-status={status}
+        disabled={disabled}
         onClick={() => onLockPreferredListing(line)}
       >
         {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
@@ -607,6 +619,7 @@ function CartLineActions({
       data-correction-source="fresh-read:loader-revalidation"
       data-optimistic-resource={line.lineIds.join(":")}
       data-optimistic-status={status}
+      disabled={disabled}
       onClick={() => onRemove(line)}
     >
       {t("checkout.features.cart.ui.cartPage.remove")}
@@ -634,12 +647,14 @@ function CartLineRow({
   onQuantityChange,
   onRemove,
   onLockPreferredListing,
+  disabled,
 }: {
   line: CheckoutCartLineGroup;
   status: OptimisticCorrectionStatus;
   onQuantityChange: (line: CheckoutCartLineGroup, quantity: number) => void;
   onRemove: (line: CheckoutCartLineGroup) => void;
   onLockPreferredListing: (line: CheckoutCartLineGroup) => void;
+  disabled: boolean;
 }) {
   return (
     <MarketplaceCartLineItem
@@ -668,13 +683,16 @@ function CartLineRow({
           <LinePrice line={line} />
         </Stack>
       }
-      quantityControl={<QuantityControl line={line} status={status} onQuantityChange={onQuantityChange} />}
+      quantityControl={
+        <QuantityControl line={line} status={status} onQuantityChange={onQuantityChange} disabled={disabled} />
+      }
       actions={
         <CartLineActions
           line={line}
           status={status}
           onRemove={onRemove}
           onLockPreferredListing={onLockPreferredListing}
+          disabled={disabled}
         />
       }
     />
@@ -751,17 +769,97 @@ function fulfillmentReviewDescription(count: number) {
   );
 }
 
+const CART_ATTEMPT_HEADING_ID = "checkout-cart-attempt-result";
+
+function cartAttemptTitle(state: CartAttemptState["state"]) {
+  switch (state) {
+    case "ambiguous":
+      return t("checkout.features.cart.ui.cartPage.attempt.ambiguous.title");
+    case "partial":
+      return t("checkout.features.cart.ui.cartPage.attempt.partial.title");
+    case "failed-safe":
+      return t("checkout.features.cart.ui.cartPage.attempt.failed.safe.title");
+  }
+}
+
+function cartAttemptDescription(attempt: CartAttemptState) {
+  switch (attempt.state) {
+    case "ambiguous":
+      return t("checkout.features.cart.ui.cartPage.attempt.ambiguous.description");
+    case "partial":
+      return t("checkout.features.cart.ui.cartPage.attempt.partial.description");
+    case "failed-safe":
+      return attempt.message ?? t("checkout.features.cart.ui.cartPage.attempt.failed.safe.description");
+  }
+}
+
+/**
+ * The owner's answer to the last cart submission that did not simply succeed.
+ * Its heading takes focus and its description is announced, so a buyer using
+ * assistive technology learns the outcome without hunting for it. An
+ * ambiguous attempt offers only an explicit resend of the same attempt or a
+ * fresh read of the cart -- never an automatic retry.
+ */
+function CartAttemptNotice({
+  attempt,
+  onResend,
+  resending,
+}: {
+  attempt: CartAttemptState;
+  onResend: () => void;
+  resending: boolean;
+}) {
+  useEffect(() => {
+    globalThis.document?.getElementById(CART_ATTEMPT_HEADING_ID)?.focus();
+  }, [attempt.attemptId, attempt.state]);
+
+  return (
+    <Surface tone="subtle" elevation="tinted">
+      <Stack gap={3}>
+        <Heading level={2} visualSize={4} id={CART_ATTEMPT_HEADING_ID} tabIndex={-1}>
+          {cartAttemptTitle(attempt.state)}
+        </Heading>
+        <LiveRegion politeness="polite">
+          <Text tone="secondary">{cartAttemptDescription(attempt)}</Text>
+        </LiveRegion>
+        {attempt.state === "partial" && attempt.terminalLines.length > 0 ? (
+          <Stack gap={1}>
+            {attempt.terminalLines.map((line, index) => (
+              <Text key={`${line.lineId ?? "line"}-${index}`} size="sm">
+                {line.message ?? t("checkout.features.cart.ui.cartPage.attempt.line.not.applied")}
+              </Text>
+            ))}
+          </Stack>
+        ) : null}
+        {attempt.state === "ambiguous" ? (
+          <Inline gap={2}>
+            <Button type="button" tone="secondary" onClick={onResend} disabled={resending}>
+              {t("checkout.features.cart.ui.cartPage.attempt.resend")}
+            </Button>
+            <LinkButton href="/account/cart" tone="secondary">
+              {t("checkout.features.cart.ui.cartPage.refresh.cart")}
+            </LinkButton>
+          </Inline>
+        ) : null}
+      </Stack>
+    </Surface>
+  );
+}
+
 export function CheckoutCartPage({
   cartLines,
   errorMessage,
   recoveryState,
+  attemptState,
 }: {
   cartLines: readonly CheckoutCartLine[];
   errorMessage?: string | null;
   recoveryState?: CartRecoveryState | null;
+  attemptState?: CartAttemptState | null;
 }) {
   const sourceCartLineGroups = useMemo(() => groupCartLines(cartLines), [cartLines]);
   const cartMutations = useOptimisticCartMutationConsistency({ sourceCartLineGroups });
+  const visibleAttempt = cartMutations.attemptState ?? attemptState ?? null;
   const cartLineGroups = cartMutations.cartLineGroups;
   const visibleErrorMessage = cartMutations.errorMessage ?? errorMessage;
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
@@ -903,6 +1001,13 @@ export function CheckoutCartPage({
         description={t("checkout.features.cart.ui.cartPage.review.items.before.checkout")}
       >
         <Stack gap={4}>
+          {visibleAttempt ? (
+            <CartAttemptNotice
+              attempt={visibleAttempt}
+              onResend={cartMutations.resend}
+              resending={cartMutations.resending}
+            />
+          ) : null}
           {visibleErrorMessage ? (
             <Surface tone="subtle" elevation="tinted">
               <Stack gap={2}>
@@ -965,6 +1070,7 @@ export function CheckoutCartPage({
                     key={line.line_id}
                     line={line}
                     status={cartMutations.statusForLine(line)}
+                    disabled={cartMutations.actionsDisabled}
                     onQuantityChange={cartMutations.setQuantity}
                     onRemove={cartMutations.removeLine}
                     onLockPreferredListing={cartMutations.lockPreferredListing}

@@ -72,7 +72,7 @@ export type EventRecordToStore = Readonly<{
   eventId?: EventId;
   eventType: string;
   payload: JsonObject;
-  metadata?: JsonObject;
+  metadata?: JsonObject | undefined;
   occurredAt?: IsoUtcTimestamp;
 }>;
 
@@ -93,10 +93,10 @@ export type StoredEvent<
   recordedAt: IsoUtcTimestamp;
   performedByUserId: UserId;
   forAccountId: AccountId;
-  traceId?: TraceId;
-  spanId?: SpanId;
-  parentSpanId?: SpanId;
-  traceState?: string;
+  traceId?: TraceId | undefined;
+  spanId?: SpanId | undefined;
+  parentSpanId?: SpanId | undefined;
+  traceState?: string | undefined;
 }>;
 
 export type AppendToStreamInput = Readonly<{

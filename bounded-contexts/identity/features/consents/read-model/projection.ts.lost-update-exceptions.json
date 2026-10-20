@@ -1,0 +1,24 @@
+[
+  {
+    "id": "exception-a6a6421aaa221a56",
+    "binding": {
+      "module": "bounded-contexts/identity/features/consents/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_consents",
+      "digest": "1d487fa88a5b0b80380677893a1832a90a0021f548b930dacc610338e53575e2"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/consents/read-model/projection.ts:71 directly synchronizes identity_consents from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-bfcc17d7014ca351",
+    "binding": {
+      "module": "bounded-contexts/identity/features/consents/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_consent_current_states",
+      "digest": "a5fcbc044a832be520545f4726d761c54fc27a4dcad0714f875aa2668d9eb7a4"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/consents/read-model/projection.ts:104 directly synchronizes identity_consent_current_states from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

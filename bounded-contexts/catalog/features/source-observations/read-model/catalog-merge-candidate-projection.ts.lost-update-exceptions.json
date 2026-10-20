@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exception-8d000153ecd8ee41",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_merge_candidates",
+      "digest": "a784c76e0d3437fce5b440616b4f61875fb56e1e917fcd74776901efc47719e0"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts:64 directly synchronizes catalog_merge_candidates from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-393c8523dd1ae636",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_merge_candidate_observations",
+      "digest": "a0bae8b3aae0a49c84584519700c2c9f5cd3c6ab82b8080fe2f31d33e421cf02"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts:99 directly synchronizes catalog_merge_candidate_observations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-8512fa165ef1de18",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_merge_candidate_observations",
+      "digest": "5663ebe955a8a50cbe56892dd6e3d4b88aa423e8d6af12090cb34af3ba9e7472"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts:299 directly synchronizes catalog_merge_candidate_observations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-524268a0920bf1ae",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_merge_candidates",
+      "digest": "81209d7e22ba9e62afa96834db553971bd0c272c32c9cb7f1095d0780599ca0f"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts:364 directly synchronizes catalog_merge_candidates from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-02d39ac89505e2e3",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_merge_candidates",
+      "digest": "f2e89b4cfe7cba236faa4e89bddf90d2de7432315ba84eb5decd89f13615ace9"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts:385 directly synchronizes catalog_merge_candidates from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

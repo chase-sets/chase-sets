@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-43e669e1253a9c7f",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/attention-queue/read-model/dismissal-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_attention_dismissals",
+      "digest": "e440bceec05b8fef98b2c8c902b27d090534b043b9f1d1e1bd31565802dd3c69"
+    },
+    "classification": "key-only but safe",
+    "reason": "Event replay removes the exact aggregate-projected dismissal without a row-state decision."
+  }
+]
