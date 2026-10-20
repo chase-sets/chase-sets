@@ -256,6 +256,20 @@ const catalogCountLifecycleDelta = [
     purpose: "application-runtime",
   },
 ];
+// #10003 threads the canonical staging Admin keys into only the isolated cache-only Scrydex capture and its
+// sealed-receipt validation steps.
+const scrydexCacheCaptureDelta = [
+  "name:Capture Scrydex option cache without refresh#4",
+  "name:Validate exact runner-sealed capture#5",
+].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-cache-capture",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
 // #9962 adds the read-only preview-pool census workflow's provider authority grants.
 const previewPoolCensusDelta = [
   ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
@@ -402,6 +416,51 @@ const collectionsAnonymousOwnerRedactionDelta = [
   secretName,
   purpose: "managed-postgres-boundary",
 }));
+// #10224 reviewed delta: the staging evidence window job's and its cleanup observer's grants. Both share the
+// staging boundary and Kubernetes-context grants; only the window's three read-only Stripe steps take the key.
+const stagingEvidenceWindowDelta = [
+  [".github/workflows/platform-staging-evidence-window.yml", "staging-evidence-window", 7],
+  [".github/workflows/platform-staging-evidence-window-cleanup.yml", "evidence-window-cleanup", 6],
+].flatMap(([file, jobId, contextStep]) => [
+  {
+    file,
+    jobId,
+    stepAnchor: "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  ...["SPACES_ACCESS_ID", "SPACES_SECRET_KEY", "DIGITALOCEAN_ACCESS_TOKEN"].map((secretName) => ({
+    file,
+    jobId,
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName,
+    purpose: "managed-postgres-boundary",
+  })),
+  ...[
+    ["SPACES_ACCESS_ID", "spaces-evidence"],
+    ["SPACES_SECRET_KEY", "spaces-evidence"],
+    ["DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+  ].map(([secretName, purpose]) => ({
+    file,
+    jobId,
+    stepAnchor: `name:Configure staging Kubernetes context#${contextStep}`,
+    secretName,
+    purpose,
+  })),
+  ...(jobId === "staging-evidence-window"
+    ? [
+        "Install admission, restart runtimes, create the journal login and arm the observer#9",
+        "Attest the Stripe test account, fixtures and webhook delivery#10",
+        "Recapture the binding and open one window#11",
+      ].map((step) => ({
+        file,
+        jobId,
+        stepAnchor: `name:${step}`,
+        secretName: "STRIPE_SECRET_KEY",
+        purpose: "marketplace-ops",
+      }))
+    : []),
+]);
 // #10210 reviewed delta: the read-only Collections cutover authority capture's boundary, kubeconfig and state-pull grants.
 const collectionsCutoverAuthorityCaptureDelta = [
   ["name:Capture Collections cutover authority#8", "SPACES_ACCESS_ID", "spaces-evidence"],
@@ -641,13 +700,15 @@ describe("managed Postgres authority source generator", () => {
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
+        ...scrydexCacheCaptureDelta,
         ...previewPoolCensusDelta,
         ...credentialHealthDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
+        ...stagingEvidenceWindowDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1660);
+    expect(expected.grants).toHaveLength(1683);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
