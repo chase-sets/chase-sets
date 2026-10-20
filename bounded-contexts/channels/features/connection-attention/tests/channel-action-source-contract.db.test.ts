@@ -277,6 +277,7 @@ describeDb("channel-action-source-contract", () => {
 
   it("drains a real connector SELECT before reporting a sibling source failure", async () => {
     const connectionId = await drain.connection();
+    await drain.services.connectionHealth.submitObservation(await drain.observation(connectionId), context);
     const gateKey = 10247n;
     const observer = await drain.db.connect();
     let sourceSettled = false;
