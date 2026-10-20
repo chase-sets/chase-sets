@@ -15,6 +15,8 @@ import {
   buildPreviewDatabaseClusterInventory,
   cleanupLeakedPreviewDatabaseClusters,
   cleanupMatrixForTargets,
+  cleanupBatchesForTargets,
+  cleanupMatrixForBatches,
   classifyDatabaseCluster,
   commandOutput,
   combinePreviewCleanupCandidates,
@@ -151,6 +153,30 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     });
   });
 
+  it("partitions sorted cleanup targets into deterministic batches", () => {
+    const targets = Array.from({ length: 513 }, (_, index) => ({ prNumber: 513 - index }));
+    const batches = cleanupBatchesForTargets(targets, 256);
+    expect(
+      batches.map(({ index, firstPrNumber, lastPrNumber, targets: batchTargets }) => ({
+        index,
+        firstPrNumber,
+        lastPrNumber,
+        count: batchTargets.length,
+      })),
+    ).toEqual([
+      { index: 0, firstPrNumber: 1, lastPrNumber: 256, count: 256 },
+      { index: 1, firstPrNumber: 257, lastPrNumber: 512, count: 256 },
+      { index: 2, firstPrNumber: 513, lastPrNumber: 513, count: 1 },
+    ]);
+    expect(cleanupMatrixForBatches(batches, { checkoutRef: "main", imageSha: "abc123" })).toEqual({
+      include: [
+        { batch_index: 0, batch_count: 3, checkout_ref: "main", image_sha: "abc123" },
+        { batch_index: 1, batch_count: 3, checkout_ref: "main", image_sha: "abc123" },
+        { batch_index: 2, batch_count: 3, checkout_ref: "main", image_sha: "abc123" },
+      ],
+    });
+  });
+
   it("discovers closed pull requests from preview state and live database clusters", async () => {
     const result = await discoverPreviewCleanupTargets(
       {
@@ -198,25 +224,31 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.matrix).toEqual({
       include: [
         {
-          pr_number: 10,
+          batch_index: 0,
+          batch_count: 1,
           checkout_ref: "main",
           image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-10-postgres",
-        },
-        {
-          pr_number: 12,
-          checkout_ref: "main",
-          image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-12-postgres",
-        },
-        {
-          pr_number: 13,
-          checkout_ref: "main",
-          image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-13-postgres",
         },
       ],
     });
+  });
+
+  it("records an empty successful no-op without a destroy matrix", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+    });
+    expect(result.record).toMatchObject({
+      result: "empty",
+      closedTargetCount: 0,
+      batchSize: 256,
+      batchCount: 0,
+      batches: [],
+    });
+    expect(result.matrix).toEqual({ include: [] });
   });
 
   it("builds a read-only inventory and marks closed or merged preview clusters leaked", async () => {
@@ -475,7 +507,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.record.targets).toEqual([
       expect.objectContaining({ prNumber: 50, pullRequestState: "closed", selected: true }),
     ]);
-    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 50 })]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
   });
 
   it("extracts preview PR numbers from live chase-sets-pr-* namespace names only", () => {
@@ -542,7 +574,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       expect.objectContaining({ prNumber: 4736, pullRequestState: "closed", merged: true, selected: true }),
     ]);
     expect(result.record.targets.some((target) => target.prNumber === 4783)).toBe(false);
-    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 4736 })]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
   });
 
   it("degrades to a warning instead of failing the whole sweep when namespace listing is unavailable", async () => {
@@ -829,6 +861,43 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     }
   });
 
+  it("looks up each sorted candidate once with no more than eight active workers", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const lookedUp = [];
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({
+        Contents: Array.from({ length: 1_260 }, (_, index) => ({ Key: `platform/previews/pr-${index + 1}.tfstate` })),
+      }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+      fetchPullRequest: async (prNumber) => {
+        lookedUp.push(prNumber);
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        active -= 1;
+        return { state: "closed", merged: false };
+      },
+    });
+    expect(maximumActive).toBeLessThanOrEqual(8);
+    expect(lookedUp).toHaveLength(1_260);
+    expect(new Set(lookedUp).size).toBe(1_260);
+    expect(result.record.targets).toHaveLength(1_260);
+    expect(result.record.batchSize).toBe(256);
+    expect(result.record.batchCount).toBe(5);
+    expect(result.record.batches.map((batch) => batch.targets.length)).toEqual([256, 256, 256, 256, 236]);
+    expect(result.matrix.include).toEqual([
+      { batch_index: 0, batch_count: 5, checkout_ref: "main", image_sha: "abc123" },
+      { batch_index: 1, batch_count: 5, checkout_ref: "main", image_sha: "abc123" },
+      { batch_index: 2, batch_count: 5, checkout_ref: "main", image_sha: "abc123" },
+      { batch_index: 3, batch_count: 5, checkout_ref: "main", image_sha: "abc123" },
+      { batch_index: 4, batch_count: 5, checkout_ref: "main", image_sha: "abc123" },
+    ]);
+  });
+
   it("fails closed at the discovery budget", async () => {
     const calls = { namespaces: 0, lookups: 0 };
     let nowMs = 0;
@@ -932,7 +1001,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
         testCase.name,
       ).toEqual(testCase.expected);
       expect(
-        result.matrix.include.map((target) => target.pr_number),
+        result.record.targets.map((target) => target.prNumber),
         testCase.name,
       ).toEqual(testCase.expected);
       if (testCase.listCount !== undefined) {
@@ -1532,10 +1601,10 @@ describe("discover-idle-drafts (#9964)", () => {
     expect(result.matrix).toEqual({
       include: [
         {
-          pr_number: 502,
+          batch_index: 0,
+          batch_count: 1,
           checkout_ref: "main",
           image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-502-postgres",
         },
       ],
     });

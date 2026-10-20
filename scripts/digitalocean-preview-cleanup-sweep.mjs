@@ -38,6 +38,8 @@ export const PREVIEW_SHARED_DNS_FQDN = `*.${PREVIEW_DNS_ENVIRONMENT_LABEL}.${PRE
 export const DISCOVERY_BUDGET_MS = 8 * 60 * 1000;
 export const DISCOVERY_COMMAND_TIMEOUT_MS = 120 * 1000;
 export const DISCOVERY_PULL_REQUEST_TIMEOUT_MS = 15 * 1000;
+export const PREVIEW_CLEANUP_BATCH_SIZE = 256;
+export const PREVIEW_CLEANUP_LOOKUP_WORKERS = 8;
 
 export function commandOutput(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -387,6 +389,36 @@ export function cleanupMatrixForTargets(targets, options = {}) {
   };
 }
 
+export function cleanupBatchesForTargets(targets, batchSize = PREVIEW_CLEANUP_BATCH_SIZE) {
+  const size =
+    Number.isInteger(batchSize) && batchSize > 0
+      ? Math.min(PREVIEW_CLEANUP_BATCH_SIZE, batchSize)
+      : PREVIEW_CLEANUP_BATCH_SIZE;
+  const orderedTargets = [...targets].sort((left, right) => left.prNumber - right.prNumber);
+  const batches = [];
+  for (let offset = 0; offset < orderedTargets.length; offset += size) {
+    const batchTargets = orderedTargets.slice(offset, offset + size);
+    batches.push({
+      index: batches.length,
+      firstPrNumber: batchTargets[0].prNumber,
+      lastPrNumber: batchTargets.at(-1).prNumber,
+      targets: batchTargets,
+    });
+  }
+  return batches;
+}
+
+export function cleanupMatrixForBatches(batches, options = {}) {
+  return {
+    include: batches.map((batch) => ({
+      batch_index: batch.index,
+      batch_count: batches.length,
+      checkout_ref: options.checkoutRef,
+      image_sha: options.imageSha,
+    })),
+  };
+}
+
 function normalizeTimeout(value) {
   if (value === undefined) {
     return undefined;
@@ -547,6 +579,9 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
     stateObjectBytes: emptyStateObjectBytes(),
     candidateCount: 0,
     closedTargetCount: 0,
+    batchSize: PREVIEW_CLEANUP_BATCH_SIZE,
+    batchCount: 0,
+    batches: [],
     phases,
     result: "failure",
     warnings: [],
@@ -589,6 +624,8 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
   };
   const budgetCut = () => {
     record.targets = [];
+    record.batchCount = 0;
+    record.batches = [];
     record.errors.push("budget-exhausted");
     return { record, matrix: { include: [] } };
   };
@@ -839,15 +876,15 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
   }
   startPhase(phases[4]);
   const lookupStartedAt = now();
+  let nextCandidateIndex = 0;
   let lookupsStarted = 0;
-  for (const candidate of record.candidates) {
+  let budgetExhausted = false;
+  const lookupResults = new Array(record.candidates.length);
+  const lookupCandidate = async (candidate, index) => {
     const remaining = remainingBudget();
     if (remaining <= 0) {
-      phases[4].count = lookupsStarted;
-      phases[4].error = "budget-exhausted";
-      finishPhase(phases[4], lookupStartedAt);
-      markUnstarted("budget-exhausted");
-      return budgetCut();
+      budgetExhausted = true;
+      return;
     }
     const timeoutMs = Math.min(pullRequestTimeoutMs, remaining);
     const deadlineBound = remaining <= pullRequestTimeoutMs;
@@ -872,39 +909,71 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
               `PR #${candidate.prNumber} lookup`,
             );
       const state = String(pullRequest.state ?? "unknown").toLowerCase();
-      const target = {
+      lookupResults[index] = {
         ...candidate,
         pullRequestState: state,
         merged: Boolean(pullRequest.merged),
         selected: state === "closed",
       };
-      if (target.selected) {
-        record.closedTargetCount += 1;
-        record.targets.push(target);
-      }
     } catch (error) {
       if (deadlineBound && isTimeoutError(error)) {
-        phases[4].count = lookupsStarted;
-        phases[4].error = "budget-exhausted";
-        finishPhase(phases[4], lookupStartedAt);
-        markUnstarted("budget-exhausted");
-        return budgetCut();
+        budgetExhausted = true;
+        return;
       }
       const detail =
         isTimeoutError(error) || error?.name === "AbortError"
           ? `timed out after ${timeoutMs}ms.`
           : describeError(error);
-      phases[4].error ??= detail;
-      record.errors.push(`PR #${candidate.prNumber} lookup failed: ${detail}`);
+      lookupResults[index] = { error: `PR #${candidate.prNumber} lookup failed: ${detail}` };
     }
-  }
+  };
+  const lookupWorker = async () => {
+    while (!budgetExhausted) {
+      const index = nextCandidateIndex;
+      if (index >= record.candidates.length) {
+        return;
+      }
+      nextCandidateIndex += 1;
+      await lookupCandidate(record.candidates[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: PREVIEW_CLEANUP_LOOKUP_WORKERS }, () => lookupWorker()));
   phases[4].count = lookupsStarted;
   finishPhase(phases[4], lookupStartedAt);
+  if (budgetExhausted) {
+    phases[4].error = "budget-exhausted";
+    markUnstarted("budget-exhausted");
+    return budgetCut();
+  }
 
-  record.result = record.errors.length > 0 ? "failure" : record.warnings.length > 0 ? "warning" : "success";
+  for (const result of lookupResults) {
+    if (!result) {
+      continue;
+    }
+    if (result.error) {
+      phases[4].error ??= result.error.replace(/^PR #[0-9]+ lookup failed: /, "");
+      record.errors.push(result.error);
+      continue;
+    }
+    if (result.selected) {
+      record.closedTargetCount += 1;
+      record.targets.push(result);
+    }
+  }
+  record.targets.sort((left, right) => left.prNumber - right.prNumber);
+  record.batches = cleanupBatchesForTargets(record.targets, record.batchSize);
+  record.batchCount = record.batches.length;
+  record.result =
+    record.errors.length > 0
+      ? "failure"
+      : record.warnings.length > 0
+        ? "warning"
+        : record.targets.length > 0
+          ? "success"
+          : "empty";
   return {
     record,
-    matrix: cleanupMatrixForTargets(record.targets, {
+    matrix: cleanupMatrixForBatches(record.batches, {
       checkoutRef: options.checkoutRef,
       imageSha: options.imageSha,
     }),
