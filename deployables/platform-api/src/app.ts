@@ -353,7 +353,7 @@ export function createPlatformApiHost(
       const allocation = await inventory?.channelStockAllocations.readAuthoritative({ accountId, inventoryItemId });
       if (!allocation || "kind" in allocation) return { value: null, reservations: [] };
       const partition = allocation.partitions.find((candidate) => candidate.channelConnectionId === connectionId);
-      const eligibleQuantity = allocation.mode === "shared-pool" ? item.available_quantity : partition?.units ?? 0;
+      const eligibleQuantity = allocation.mode === "shared-pool" ? item.available_quantity : (partition?.units ?? 0);
       if (allocation.revision !== allocationRevision || eligibleQuantity <= 0) {
         return { value: null, reservations: [] };
       }

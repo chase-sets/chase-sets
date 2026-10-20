@@ -5,6 +5,8 @@ import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
 import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServices } from "./runtime";
 
+type Mutable<T> = { -readonly [P in keyof T]: T[P] };
+
 function buildApp(
   options: Readonly<{
     actor: MarketplaceApiEnv["Variables"]["actor"];
@@ -322,60 +324,72 @@ describe("listing target command snapshots", () => {
   };
 
   function targetServices() {
-    const services = createServices();
-    services.acceptListingTargetPrice = vi.fn<MarketplaceListingServices["acceptListingTargetPrice"]>().mockResolvedValue({
-      listingId: "lst_1",
-      version: 4,
-      acceptedTargetPrice: {
-        schemaVersion: 1,
-        accountId: "acc_seller",
+    const services = createServices() as Mutable<MarketplaceListingServices>;
+    services.acceptListingTargetPrice = vi
+      .fn<MarketplaceListingServices["acceptListingTargetPrice"]>()
+      .mockResolvedValue({
         listingId: "lst_1",
-        target,
-        priceAmount: "12.00",
-        priceCurrencyCode: "USD",
-        targetPriceRevision: 2,
-        listingRevision: 4,
-        acceptedByUserId: "usr_seller",
-        acceptedAt: "2026-10-19T00:00:00.000Z",
-        sourceEventId: "evt_target_price",
-        decision: { kind: "seller-reference" },
-        connectionAuthority: {
-          connectionId: "chn_1",
-          providerKey: "tcgplayer",
-          environment: "sandbox",
-          identityRevision: 2,
+        version: 4,
+        acceptedTargetPrice: {
+          schemaVersion: 1,
+          accountId: "acc_seller",
+          listingId: "lst_1",
+          target,
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          targetPriceRevision: 2,
+          listingRevision: 4,
+          acceptedByUserId: "usr_seller",
+          acceptedAt: "2026-10-19T00:00:00.000Z",
+          sourceEventId: "evt_target_price",
+          decision: { kind: "seller-reference" },
+          connectionAuthority: {
+            connectionId: "chn_1",
+            providerKey: "tcgplayer",
+            environment: "sandbox",
+            identityRevision: 2,
+          },
         },
-      },
-    });
-    services.activateListingForChannel = vi.fn<MarketplaceListingServices["activateListingForChannel"]>().mockResolvedValue({
-      listingId: "lst_1",
-      version: 5,
-    });
+      });
+    services.activateListingForChannel = vi
+      .fn<MarketplaceListingServices["activateListingForChannel"]>()
+      .mockResolvedValue({
+        listingId: "lst_1",
+        version: 5,
+      });
     return services;
   }
 
   it.each([
     ["target-prices", "acceptListingTargetPrice", priceInput, { id: "lst_1", version: 4, target }],
-    ["target-activations", "activateListingForChannel", activationInput, { id: "lst_1", version: 5, status: "channel-active" }],
-  ] as const)("returns the %s committed command snapshot without a projection read", async (path, method, input, expected) => {
-    const services = targetServices();
-    const app = buildApp({ actor: sellerActor, services });
-    const response = await app.request(`/account/listings/lst_1/${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
+    [
+      "target-activations",
+      "activateListingForChannel",
+      activationInput,
+      { id: "lst_1", version: 5, status: "channel-active" },
+    ],
+  ] as const)(
+    "returns the %s committed command snapshot without a projection read",
+    async (path, method, input, expected) => {
+      const services = targetServices();
+      const app = buildApp({ actor: sellerActor, services });
+      const response = await app.request(`/account/listings/lst_1/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(expected);
-    expect(services[method]).toHaveBeenCalledWith(
-      { ...input, listingId: "lst_1", accountId: "acc_seller" },
-      expect.objectContaining({ audit: { performedByUserId: "usr_seller", forAccountId: "acc_seller" } }),
-    );
-    expect(services.getSellerListing).not.toHaveBeenCalled();
-    expect(services.listSellerListings).not.toHaveBeenCalled();
-    expect(services.publishListing).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual(expected);
+      expect(services[method]).toHaveBeenCalledWith(
+        { ...input, listingId: "lst_1", accountId: "acc_seller" },
+        expect.objectContaining({ audit: { performedByUserId: "usr_seller", forAccountId: "acc_seller" } }),
+      );
+      expect(services.getSellerListing).not.toHaveBeenCalled();
+      expect(services.listSellerListings).not.toHaveBeenCalled();
+      expect(services.publishListing).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["target-prices", "acceptListingTargetPrice", priceInput],

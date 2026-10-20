@@ -288,7 +288,7 @@ const creationChain: Citation[] = [
     /feeLocks: event.data.feeLocks/,
   ],
   [
-        `${listingRuntime}:1498-1568`,
+    `${listingRuntime}:1498-1568`,
     /params\.publicationScope === "channel-only" \? null : await quoteListingTerms\(params\.accountId, params\.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: quote \? feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\) : null/,
