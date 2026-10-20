@@ -40,14 +40,14 @@
       "jobId": "cleanup",
       "stepAnchor": "name:Validate observer cleanup credentials#4",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
-      "purpose": "application-runtime"
+      "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
       "jobId": "cleanup",
       "stepAnchor": "name:Validate observer cleanup credentials#4",
       "secretName": "EASYPOST_API_KEY",
-      "purpose": "application-runtime"
+      "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",
@@ -68,7 +68,7 @@
       "jobId": "cleanup",
       "stepAnchor": "name:Validate observer cleanup credentials#4",
       "secretName": "STRIPE_SECRET_KEY",
-      "purpose": "application-runtime"
+      "purpose": "marketplace-ops"
     },
     {
       "file": ".github/workflows/platform-merge-qualification-observer.yml",

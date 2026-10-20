@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Advisory merge-group qualification behind a default-off enablement policy.
 //
-// This module owns four fixture-proven contracts:
+// This module owns three fixture-proven contracts:
 //
 //   1. The checked-in enablement policy (`merge-qualification-policy/v1`),
 //      validated fail-closed: an absent, disabled, expired, or malformed
@@ -108,7 +108,6 @@ const TERMINAL_REASON_CODES = Object.freeze({
     "publisher_skipped_enabled",
   ]),
 });
-
 
 const REPOSITORY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const IMAGE_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
