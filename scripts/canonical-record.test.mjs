@@ -138,7 +138,9 @@ function withTempDirectory(prefix, action) {
   }
 }
 
-function parseGitIndex(output = execFileSync("git", ["ls-files", "-s", "-z"], { cwd: ROOT })) {
+function parseGitIndex(
+  output = execFileSync("git", ["ls-files", "-s", "-z"], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }),
+) {
   const entries = output
     .toString("utf8")
     .split("\0")
