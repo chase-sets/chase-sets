@@ -25,11 +25,19 @@ import {
   ACCOUNT_CART_ADD_LINE_HANDOFF,
   ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
   appendAnonymousSellListCookie,
+  CHECKOUT_CART_ATTEMPT_CART_TARGET,
+  checkoutCartAttemptCommitSource,
   createCheckoutRequestApiClient,
   ensureAnonymousCartId,
   ensureAnonymousSellListId,
+  isCheckoutCommandAttemptId,
+  mintCheckoutCommandAttemptId,
+  submitCheckoutCartAttempt,
 } from "@chase-sets/checkout/server";
-import type { AddToCartActionData } from "../../../features/item-detail/ui/commerce-sections";
+import type {
+  AddToCartActionData,
+  AddToCartAmbiguousActionData,
+} from "../../../features/item-detail/ui/commerce-sections";
 import { canUseAccountCheckoutCart } from "../../../features/item-detail/ui/commerce-sections";
 import {
   buildRegisterToClaimListingDraftHref,
@@ -306,9 +314,51 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedListingSnapshot: selectedListingSnapshotFromListing(preferredListing),
       };
 
-      if (!canUseAccountCheckoutCart(actor)) {
-        const anonymousCartId = ensureAnonymousCartId(request);
-        const result = await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
+      // One attempt per deliberate add, minted by the buyer's browser at submit.
+      // A post that arrives without one (no script ran) mints it here once.
+      const presentedAttemptId = String(formData.get("attemptId") ?? "");
+      const attemptId = isCheckoutCommandAttemptId(presentedAttemptId)
+        ? presentedAttemptId
+        : mintCheckoutCommandAttemptId();
+      const addBody = { ...cartLine, attemptId };
+      const guestCartId = canUseAccountCheckoutCart(actor) ? null : ensureAnonymousCartId(request);
+      const submission = await submitCheckoutCartAttempt({
+        attemptId,
+        kind: "cart.add-line",
+        target: CHECKOUT_CART_ATTEMPT_CART_TARGET,
+        body: addBody,
+        send: () =>
+          guestCartId ? checkoutApi.addGuestCartLine(guestCartId, addBody) : checkoutApi.addCartLine(addBody),
+        lookup: (query) =>
+          guestCartId
+            ? checkoutApi.getGuestCartCommandAttempt(guestCartId, query)
+            : checkoutApi.getCartCommandAttempt(query),
+      });
+      if (submission.state === "ambiguous") {
+        const response = Response.json({
+          status: "add-to-cart-ambiguous",
+          attemptId,
+        } satisfies AddToCartAmbiguousActionData);
+        if (guestCartId) appendAnonymousCartCookie(response.headers, guestCartId, request);
+        return response;
+      }
+      if (submission.state !== "succeeded") {
+        throw new Error(
+          submission.message ??
+            submission.attempt?.vector?.[0]?.message ??
+            t("discovery.routes.itemDetail.add.to.cart.failed"),
+        );
+      }
+      const committedLine = submission.attempt!.vector![0]!;
+      const result = submission.response ?? {
+        id: committedLine.lineId ?? "",
+        version: committedLine.version,
+        status: committedLine.status ?? "added",
+        ...checkoutCartAttemptCommitSource(submission),
+      };
+
+      if (guestCartId) {
+        const anonymousCartId = guestCartId;
         if (intent === "buy-best-match") {
           const response = redirect(
             await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/cart", {
@@ -332,7 +382,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return response;
       }
 
-      const result = await checkoutApi.addCartLine(cartLine);
       if (intent === "buy-best-match") {
         return redirect(
           await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/cart", {
