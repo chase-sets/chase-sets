@@ -340,13 +340,15 @@ export function createPlatformApiHost(
       const channels = runtime?.services.channels;
       if (!isChannelsServices(channels)) return { value: null, reservations: [] };
       const loaded = await channels.connections.loadOwned?.(accountId, connectionId);
-      if (!loaded || loaded.state.status !== "active") return { value: null, reservations: [] };
+      if (!loaded || loaded.state.status !== "active" || !loaded.state.providerKey || !loaded.state.environment) {
+        return { value: null, reservations: [] };
+      }
       return {
         value: {
           connectionId,
           accountId,
-          providerKey: loaded.state.providerKey!,
-          environment: loaded.state.environment!,
+          providerKey: loaded.state.providerKey,
+          environment: loaded.state.environment,
           identityRevision: loaded.version,
         },
         reservations: [
