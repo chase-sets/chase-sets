@@ -98,6 +98,16 @@ function createWorkingRepository(extraFiles = {}) {
   return { root, head };
 }
 
+function createShadowedOriginMainRepository() {
+  const repository = createWorkingRepository();
+  const staleOriginMain = repository.head;
+  writeFiles(repository.root, { "src/other.mjs": "export const other = advanced;\n" });
+  const head = commitAll(repository.root, "advance");
+  git(repository.root, ["update-ref", "refs/remotes/origin/main", head]);
+  git(repository.root, ["branch", "origin/main", staleOriginMain]);
+  return { ...repository, head };
+}
+
 function executedInput(repository, overrides = {}) {
   return {
     worktree: repository.root,
@@ -181,6 +191,16 @@ describe("readExecutedBytes", () => {
 
     git(repository.root, ["update-ref", "refs/remotes/origin/main", descendantOf(repository)]);
     expect(await readExecutedBytes(executedInput(repository), runGit)).toEqual(result);
+  });
+
+  it("does not allow a local origin/main branch to shadow the remote-tracking ref", async () => {
+    const repository = createShadowedOriginMainRepository();
+    const input = executedInput(repository);
+
+    expect(await readExecutedBytes(input, runGit)).toMatchObject({ outcome: "ok" });
+
+    const mutated = await loadMutant(["origin-main-local-shadow", '"refs/remotes/origin/main"', '"origin/main"']);
+    expect(await mutated.readExecutedBytes(input, mutated.runGit)).toEqual(refused("head-not-merged"));
   });
 });
 
