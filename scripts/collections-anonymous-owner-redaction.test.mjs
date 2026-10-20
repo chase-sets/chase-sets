@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { databaseUrlsFromTerraformState } from "./terraform-state-database-urls.mjs";
 import {
   databaseIdentityDigest,
+  expectedJobEnvironment,
+  binding,
   deriveFloor,
   runRedaction,
   verifyReceipts,
@@ -124,7 +126,7 @@ function fixture(h, target = "staging") {
   const options = {
     mode: "redact",
     target,
-    jobEnvironment: target,
+    jobEnvironment: expectedJobEnvironment(target, "redact"),
     approvalReference: "synthetic approval",
     ref: "refs/heads/main",
     defaultBranch: "main",
@@ -603,7 +605,13 @@ test("workflow keeps credentials on exporter step and verify offline", () => {
     "utf8",
   );
   assert.match(workflow, /fetch-depth: 0/);
-  assert.match(workflow, /environment: \$\{\{ inputs.target \}\}/);
+  const environmentExpression =
+    "${{ inputs.target == 'production' && (inputs.mode == 'activate' || inputs.mode == 'redact') && 'production-cutover' || inputs.target }}";
+  assert.equal(workflow.split(environmentExpression).length - 1, 2);
+  assert.match(
+    workflow,
+    /environment: \$\{\{ inputs\.target == 'production' && \(inputs\.mode == 'activate' \|\| inputs\.mode == 'redact'\) && 'production-cutover' \|\| inputs\.target \}\}/,
+  );
   assert.match(workflow, /if: inputs.mode != 'verify'/);
   assert.match(workflow, /contents: read/);
   assert.equal((workflow.match(/secrets\./g) ?? []).length, 3);
@@ -619,4 +627,42 @@ test("workflow keeps credentials on exporter step and verify offline", () => {
     script,
     /import\("\.\.\/bounded-contexts\/collections\/features\/saved-lists\/api\/anonymous-owner-redaction\.ts"\)/,
   );
+});
+
+test("production mutations use the dedicated reviewer environment and every other mode keeps target", async (t) => {
+  for (const target of ["staging", "production"])
+    for (const mode of ["dry-run", "activate", "redact"]) {
+      const h = history();
+      t.after(h.close);
+      const f = fixture(h, target);
+      f.options.mode = mode;
+      f.options.jobEnvironment = expectedJobEnvironment(target, mode);
+      assert.doesNotThrow(() => binding(f.options), `${target}/${mode}`);
+      f.options.jobEnvironment =
+        target === "production" && (mode === "activate" || mode === "redact") ? target : "production-cutover";
+      assert.throws(() => binding(f.options), { message: "target-mismatch" }, `${target}/${mode} negative`);
+    }
+});
+
+test("production-cutover is scoped to the cutover job", () => {
+  const workflowDir = new URL("../.github/workflows/", import.meta.url);
+  const files = readdirSync(workflowDir)
+    .filter((name) => /\.ya?ml$/.test(name))
+    .map((name) => ({ name, source: readFileSync(new URL(name, workflowDir), "utf8") }));
+  const assertScope = (entries) => {
+    const occurrences = entries.flatMap(({ name, source }) =>
+      [...source.matchAll(/production-cutover/g)].map(() => name),
+    );
+    assert.equal(occurrences.length, 2);
+    assert.deepEqual(occurrences, [
+      "collections-anonymous-owner-redaction.yml",
+      "collections-anonymous-owner-redaction.yml",
+    ]);
+  };
+  assertScope(files);
+  const synthetic = [
+    ...files,
+    { name: "synthetic-extra.yml", source: "jobs:\n  deploy:\n    environment: production-cutover\n" },
+  ];
+  assert.throws(() => assertScope(synthetic));
 });
