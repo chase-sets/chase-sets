@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -14,6 +14,8 @@ import { repoRoot } from "./lib/repo.mjs";
 
 const workflowPath = path.join(repoRoot, ".github/workflows/platform-preview-cleanup.yml");
 const authorityPath = path.join(repoRoot, ".github/authority/platform-preview-cleanup/destroy-preview.json");
+// 62 s worst close-event target (run 39475717987) plus two terraform init -reconfigure steps.
+const measuredWorstCloseEventSeconds = 66;
 
 function workflow() {
   return parse(readFileSync(workflowPath, "utf8"));
@@ -40,9 +42,7 @@ function runNode(script, { cwd, env }) {
   });
 }
 
-function bashPath(value) {
-  return value.replace(/^([A-Za-z]):[\\/]/, (_, drive) => `/mnt/${drive.toLowerCase()}/`).replaceAll("\\", "/");
-}
+const bashLauncher = process.platform === "win32" ? "C:\\Program Files\\Git\\usr\\bin\\bash.exe" : "bash";
 
 function fixtureTargets(count) {
   return Array.from({ length: count }, (_, index) => {
@@ -71,7 +71,7 @@ describe("scheduled preview cleanup batching", () => {
     const resolveRun = step("destroy-preview", "Resolve scheduled cleanup batch").run;
     const script = nodeHereDoc(resolveRun);
     const resolved = [];
-    for (const batchIndex of [0, 1, 2, 3, 4]) {
+    for (const batchIndex of Array.from({ length: 40 }, (_, index) => index)) {
       const result = runNode(script, {
         cwd: recordDir,
         env: { BATCH_INDEX: String(batchIndex) },
@@ -85,32 +85,65 @@ describe("scheduled preview cleanup batching", () => {
 
     const outOfRange = runNode(script, {
       cwd: recordDir,
-      env: { BATCH_INDEX: "5" },
+      env: { BATCH_INDEX: "40" },
     });
     expect(outOfRange.status).not.toBe(0);
-    expect(outOfRange.stderr).toContain("no targets for batch 5");
+    expect(outOfRange.stderr).toContain("no targets for batch 40");
   });
 
-  it("keeps per-target cleanup inputs identical to the pre-batch matrix", () => {
-    const targets = fixtureTargets(1260);
-    const before = cleanupMatrixForTargets(targets, { checkoutRef: "main", imageSha: "abc123" }).include;
-    const batches = cleanupBatchesForTargets(targets);
-    const after = batches.flatMap((batch) =>
-      batch.targets.map((target) => ({
-        pr_number: target.prNumber,
-        state_key: target.stateKey,
-        cluster_name: target.databaseClusters[0].clusterName,
-        TF_VAR_preview_identifier: `pr-${target.prNumber}`,
-      })),
-    );
-    expect(after).toHaveLength(before.length);
-    for (const [index, expected] of before.entries()) {
-      expect(after[index]).toEqual({
-        pr_number: expected.pr_number,
-        state_key: `platform/previews/pr-${expected.pr_number}.tfstate`,
-        cluster_name: expected.expected_database_cluster_name,
-        TF_VAR_preview_identifier: `pr-${expected.pr_number}`,
-      });
+  it("executes workflow import and destroy loops with the batched cleanup inputs", () => {
+    const targets = fixtureTargets(5);
+    const expected = cleanupMatrixForTargets(targets, { checkoutRef: "main", imageSha: "abc123" }).include;
+    const root = mkdtempSync(path.join(tmpdir(), "preview-cleanup-loop-"));
+    const rootPath = root.replaceAll("\\", "/");
+    const bashRoot = rootPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+    const targetFile = `${rootPath}/runner/preview-cleanup-targets`;
+    const importRun = step("destroy-preview", "Import live preview database cluster into cleanup state").run
+      .replaceAll("${{ steps.batch-targets.outputs.target_file }}", targetFile)
+      .replaceAll("$RUNNER_TEMP", `${rootPath}/runner`)
+      .replaceAll("$GITHUB_ENV", `${rootPath}/github-env`)
+      .replaceAll("${{ matrix.image_sha }}", "abc123");
+    const destroyRun = step("destroy-preview", "Terraform destroy").run
+      .replaceAll("${{ steps.batch-targets.outputs.target_file }}", targetFile)
+      .replaceAll("$RUNNER_TEMP", `${rootPath}/runner`)
+      .replaceAll("$GITHUB_ENV", `${rootPath}/github-env`)
+      .replaceAll("${{ matrix.image_sha }}", "abc123");
+    const shell = [
+      "set -euo pipefail",
+      `export RUNNER_TEMP="${rootPath}/runner" GITHUB_ENV="${rootPath}/github-env" PATH="${bashRoot}/bin:/usr/bin:/bin:/mingw64/bin"`,
+      `mkdir -p "${rootPath}/bin" "${rootPath}/runner"`,
+      `cat > "${rootPath}/bin/terraform" <<'EOF'`,
+      "#!/usr/bin/env bash",
+      `printf 'TERRAFORM|%s|%s|%s\\n' "$TF_VAR_preview_identifier" "$TF_VAR_platform_image_tag" "$*" >> "${rootPath}/commands.log"`,
+      "exit 0",
+      "EOF",
+      `cat > "${rootPath}/bin/node" <<'EOF'`,
+      "#!/usr/bin/env bash",
+      `printf 'NODE|%s|%s|%s\\n' "$TF_VAR_preview_identifier" "$TF_VAR_platform_image_tag" "$*" >> "${rootPath}/commands.log"`,
+      "exit 0",
+      "EOF",
+      `chmod +x "${rootPath}/bin/terraform" "${rootPath}/bin/node"`,
+      `printf '1\\n2\\n3\\n4\\n5\\n' > "${targetFile}"`,
+      importRun,
+      destroyRun,
+      `cat "${rootPath}/commands.log"`,
+    ].join("\n");
+    const shellPath = `${rootPath}/workflow.sh`;
+    try {
+      writeFileSync(shellPath, shell);
+      const result = spawnSync(bashLauncher, [shellPath], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 });
+      expect(result.status, result.stderr).toBe(0);
+      const log = readFileSync(path.join(root, "commands.log"), "utf8");
+      for (const target of expected) {
+        const prNumber = target.pr_number;
+        expect(log).toContain(`--cluster-name ${target.expected_database_cluster_name}`);
+        expect(log).toContain(`-backend-config=key=platform/previews/pr-${prNumber}.tfstate`);
+        expect(log).toContain(`|pr-${prNumber}|`);
+        expect(log).toContain(`pr-${prNumber}-abc123`);
+      }
+      expect(log.match(/-backend-config=key=platform\/previews\/pr-[1-5]\.tfstate/g)).toHaveLength(10);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -137,51 +170,53 @@ describe("scheduled preview cleanup batching", () => {
   });
 
   it("aggregates a per-target failure without skipping later targets", () => {
-    const root = `/tmp/preview-cleanup-loop-${Date.now()}`;
-    const targetFile = `${root}/runner/preview-cleanup-targets`;
+    const root = mkdtempSync(path.join(tmpdir(), "preview-cleanup-loop-"));
+    const rootPath = root.replaceAll("\\", "/");
+    const bashRoot = rootPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+    const targetFile = `${rootPath}/runner/preview-cleanup-targets`;
     const workflowRun = step("destroy-preview", "Terraform init")
       .run.replaceAll("${{ steps.batch-targets.outputs.target_file }}", targetFile)
-      .replaceAll("$RUNNER_TEMP", `${root}/runner`)
-      .replaceAll("$GITHUB_ENV", `${root}/github-env`);
+      .replaceAll("$RUNNER_TEMP", `${rootPath}/runner`)
+      .replaceAll("$GITHUB_ENV", `${rootPath}/github-env`);
     const shell = [
       "set -uo pipefail",
-      `mkdir -p ${root}/bin ${root}/runner`,
-      `cat > ${root}/bin/terraform <<'EOF'`,
+      `export PATH="${bashRoot}/bin:/usr/bin:/bin:/mingw64/bin"`,
+      `mkdir -p "${rootPath}/bin" "${rootPath}/runner"`,
+      `cat > "${rootPath}/bin/terraform" <<'EOF'`,
       "#!/usr/bin/env bash",
-      `printf '%s\\n' "$*" >> ${root}/terraform.log`,
+      `printf '%s\\n' "$*" >> "${rootPath}/terraform.log"`,
       'case "$*" in *pr-2.tfstate*) exit 1;; esac',
       "exit 0",
       "EOF",
-      `chmod +x ${root}/bin/terraform`,
-      `printf '1\\n2\\n3\\n4\\n5\\n' > ${targetFile}`,
-      `export PATH="${root}/bin:$PATH"`,
+      `chmod +x "${rootPath}/bin/terraform"`,
+      `printf '1\\n2\\n3\\n4\\n5\\n' > "${targetFile}"`,
       "(",
       workflowRun,
       ")",
       "workflow_status=$?",
       `printf 'WORKFLOW_STATUS=%s\\n' "$workflow_status"`,
-      `printf 'TERRAFORM_LOG_BEGIN\\n'; cat ${root}/terraform.log`,
-      `printf 'GITHUB_ENV_BEGIN\\n'; cat ${root}/github-env`,
-      `printf 'FAILED_TARGETS_BEGIN\\n'; cat ${root}/runner/preview-cleanup-failed-targets`,
+      `printf 'TERRAFORM_LOG_BEGIN\\n'; cat "${rootPath}/terraform.log"`,
+      `printf 'GITHUB_ENV_BEGIN\\n'; cat "${rootPath}/github-env"`,
+      `printf 'FAILED_TARGETS_BEGIN\\n'; cat "${rootPath}/runner/preview-cleanup-failed-targets"`,
     ].join("\n");
-    const shellPath = path.join(repoRoot, `scripts/.preview-cleanup-loop-${Date.now()}.sh`);
-    writeFileSync(shellPath, shell);
-    const result = spawnSync("C:\\Windows\\system32\\bash.exe", [bashPath(shellPath)], {
-      encoding: "utf8",
-      timeout: 30_000,
-    });
-    unlinkSync(shellPath);
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("WORKFLOW_STATUS=1");
-    expect(result.stdout.match(/pr-[1-5]\.tfstate/g)).toEqual([
-      "pr-1.tfstate",
-      "pr-2.tfstate",
-      "pr-3.tfstate",
-      "pr-4.tfstate",
-      "pr-5.tfstate",
-    ]);
-    expect(result.stdout).toContain("PREVIEW_BATCH_FAILED=1");
-    expect(result.stdout).toMatch(/FAILED_TARGETS_BEGIN\n2\n/);
+    const shellPath = `${rootPath}/workflow.sh`;
+    try {
+      writeFileSync(shellPath, shell);
+      const result = spawnSync(bashLauncher, [shellPath], { encoding: "utf8", timeout: 30_000 });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("WORKFLOW_STATUS=1");
+      expect(result.stdout.match(/pr-[1-5]\.tfstate/g)).toEqual([
+        "pr-1.tfstate",
+        "pr-2.tfstate",
+        "pr-3.tfstate",
+        "pr-4.tfstate",
+        "pr-5.tfstate",
+      ]);
+      expect(result.stdout).toContain("PREVIEW_BATCH_FAILED=1");
+      expect(result.stdout).toMatch(/FAILED_TARGETS_BEGIN\n2\n/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps empty discovery as a successful no-op with no destroy matrix", () => {
@@ -196,7 +231,11 @@ describe("scheduled preview cleanup batching", () => {
 
   it("guards Terraform phases, sizes batch timeouts, and carries import identity", () => {
     const destroy = workflow().jobs["destroy-preview"];
-    expect(destroy["timeout-minutes"]).toBe("${{ matrix.batch_index != null && 330 || 45 }}");
+    expect(destroy["timeout-minutes"]).toBe(45);
+    expect(destroy.strategy["max-parallel"]).toBe(2);
+    const destroyBlock = readFileSync(workflowPath, "utf8").match(/  destroy-preview:[\s\S]*?\n  destroy-stale-verification:/)?.[0] ?? "";
+    expect(destroyBlock).toMatch(/^    timeout-minutes:\s*\d+\s*$/m);
+    expect(32 * measuredWorstCloseEventSeconds + 30).toBeLessThanOrEqual(45 * 60);
     for (const name of [
       "Disable stateful destroy guard for approved preview cleanup",
       "Terraform init",

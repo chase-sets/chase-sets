@@ -380,9 +380,10 @@ jobs:
     if: needs.discover-preview-cleanup.outputs.target_count != '0'
     runs-on: ubuntu-latest
     environment: preview
-    timeout-minutes: ${{ matrix.batch_index != null && 330 || 45 }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix: ${{ fromJSON(needs.discover-preview-cleanup.outputs.matrix) }}
     concurrency:
       group: ${{ matrix.batch_index != null && format('platform-preview-batch-{0}', matrix.batch_index) || format('platform-preview-pr-{0}', matrix.pr_number) }}

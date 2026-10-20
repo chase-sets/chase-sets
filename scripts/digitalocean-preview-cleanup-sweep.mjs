@@ -38,8 +38,9 @@ export const PREVIEW_SHARED_DNS_FQDN = `*.${PREVIEW_DNS_ENVIRONMENT_LABEL}.${PRE
 export const DISCOVERY_BUDGET_MS = 8 * 60 * 1000;
 export const DISCOVERY_COMMAND_TIMEOUT_MS = 120 * 1000;
 export const DISCOVERY_PULL_REQUEST_TIMEOUT_MS = 15 * 1000;
-export const PREVIEW_CLEANUP_BATCH_SIZE = 256;
+export const PREVIEW_CLEANUP_BATCH_SIZE = 32;
 export const PREVIEW_CLEANUP_LOOKUP_WORKERS = 8;
+const PREVIEW_CLEANUP_MAX_BATCHES = 256;
 
 export function commandOutput(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -963,6 +964,11 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
   record.targets.sort((left, right) => left.prNumber - right.prNumber);
   record.batches = cleanupBatchesForTargets(record.targets, record.batchSize);
   record.batchCount = record.batches.length;
+  if (record.batches.length > PREVIEW_CLEANUP_MAX_BATCHES) {
+    record.result = "failure";
+    record.errors.push("matrix-limit-exceeded");
+    return { record, matrix: { include: [] } };
+  }
   record.result =
     record.errors.length > 0
       ? "failure"
