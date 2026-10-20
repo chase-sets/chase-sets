@@ -98,13 +98,13 @@ describe("scheduled preview cleanup batching", () => {
     const rootPath = root.replaceAll("\\", "/");
     const bashRoot = rootPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
     const targetFile = `${rootPath}/runner/preview-cleanup-targets`;
-    const importRun = step("destroy-preview", "Import live preview database cluster into cleanup state").run
-      .replaceAll("${{ steps.batch-targets.outputs.target_file }}", targetFile)
+    const importRun = step("destroy-preview", "Import live preview database cluster into cleanup state")
+      .run.replaceAll("${{ steps.batch-targets.outputs.target_file }}", targetFile)
       .replaceAll("$RUNNER_TEMP", `${rootPath}/runner`)
       .replaceAll("$GITHUB_ENV", `${rootPath}/github-env`)
       .replaceAll("${{ matrix.image_sha }}", "abc123");
-    const destroyRun = step("destroy-preview", "Terraform destroy").run
-      .replaceAll("${{ steps.batch-targets.outputs.target_file }}", targetFile)
+    const destroyRun = step("destroy-preview", "Terraform destroy")
+      .run.replaceAll("${{ steps.batch-targets.outputs.target_file }}", targetFile)
       .replaceAll("$RUNNER_TEMP", `${rootPath}/runner`)
       .replaceAll("$GITHUB_ENV", `${rootPath}/github-env`)
       .replaceAll("${{ matrix.image_sha }}", "abc123");
@@ -233,7 +233,8 @@ describe("scheduled preview cleanup batching", () => {
     const destroy = workflow().jobs["destroy-preview"];
     expect(destroy["timeout-minutes"]).toBe(45);
     expect(destroy.strategy["max-parallel"]).toBe(2);
-    const destroyBlock = readFileSync(workflowPath, "utf8").match(/  destroy-preview:[\s\S]*?\n  destroy-stale-verification:/)?.[0] ?? "";
+    const destroyBlock =
+      readFileSync(workflowPath, "utf8").match(/  destroy-preview:[\s\S]*?\n  destroy-stale-verification:/)?.[0] ?? "";
     expect(destroyBlock).toMatch(/^    timeout-minutes:\s*\d+\s*$/m);
     expect(32 * measuredWorstCloseEventSeconds + 30).toBeLessThanOrEqual(45 * 60);
     for (const name of [
