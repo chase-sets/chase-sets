@@ -364,6 +364,40 @@ describe("shared CI gate plan", () => {
     }
   });
 
+  it("plans the observed account, seller and connector extension selection with the extension alone", () => {
+    // Suite-selecting paths of the settlement change whose account/extension job hit the 25-minute limit.
+    const scope = classifyChanges({
+      changedFiles: [
+        "bounded-contexts/channels/features/connector-client/tests/coordinator-test-support.ts",
+        "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
+        "bounded-contexts/channels/features/tcgplayer-csv/api/runtime.ts",
+        "deployables/tcgplayer-connector-extension/__tests__/harness/executors.harness.ts",
+      ],
+      workspaces,
+    });
+    const batches = ["marketplace_account,marketplace_seller", "tcgplayer_connector_extension", "rendered_copy"];
+    expect(scope.e2eSuiteIds).toEqual(["marketplace_account", "marketplace_seller", "tcgplayer_connector_extension"]);
+    expect(JSON.parse(toOutputMap(scope).e2e_suite_batches_json)).toEqual(batches);
+    for (const scenario of scenarios) {
+      const plan = createCiGatePlan({ ...scenario, scope });
+      expect(
+        plan.gates.find(({ id }) => id === "e2e-tests"),
+        JSON.stringify(scenario),
+      ).toMatchObject({
+        selection: "REQUIRED",
+        reason: "scope",
+        e2eBatches: batches,
+      });
+      expect(ciGatePlanOutputMap(plan).e2e_tests_required).toBe("true");
+      expect(executedSuiteIds(plan)).toEqual([
+        "marketplace_account",
+        "marketplace_seller",
+        "rendered_copy",
+        "tcgplayer_connector_extension",
+      ]);
+    }
+  });
+
   it("enumerates every canonical mapping shape and its real executable territory", () => {
     const source = readFileSync("scripts/e2e-suites.mjs", "utf8");
     const names = [

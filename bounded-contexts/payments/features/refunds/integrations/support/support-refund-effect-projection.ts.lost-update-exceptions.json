@@ -1,0 +1,94 @@
+[
+  {
+    "id": "exception-c1e90bdf09a4cd1b",
+    "binding": {
+      "module": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_support_refund_effects",
+      "digest": "d972ac46b31b046887b1f453741751c7aca1413251bf10a5cef85148ba6a58d2"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:193 directly synchronizes payments_support_refund_effects from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-34359344e0944bb6",
+    "binding": {
+      "module": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_support_refund_effects",
+      "digest": "7ed7aaae450d7724b3dfb54fbffdc8332184c47a0e7d717002e2ab1522bbef35"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:341 directly synchronizes payments_support_refund_effects from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-925b0bf7fcbfe0ea",
+    "binding": {
+      "module": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_return_label_sources",
+      "digest": "8b0166dab932a04d7a575487ec02aa7a2e9e760c90d83400f6e1a1c55f19cdf6"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:382 directly synchronizes payments_return_label_sources from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-1852002e0005604a",
+    "binding": {
+      "module": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_return_label_sources",
+      "digest": "8264e3ea99ef81eb132eb493b89fd535b5193d4cade8ea2d21cb27a98c0496ab"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:404 directly synchronizes payments_return_label_sources from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-a5ae273f923aa5a7",
+    "binding": {
+      "module": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_support_refund_effects",
+      "digest": "1f342767667f8b7082553b8b5010cd6e771f256fec5f0779943fe61f005f7195",
+      "boundary": "\"support.support-request.refund-released.v1\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:553 directly synchronizes payments_support_refund_effects from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ece18eea607fbcb0",
+    "binding": {
+      "module": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_support_refund_effects",
+      "digest": "f0755315fbcf9e751b89e09c2963d07b0dc320e62ceecb0fa17dc903c5245f6a",
+      "boundary": "\"support.support-request.refund-released.v1\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:566 directly synchronizes payments_support_refund_effects from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0f2d892653fb6715",
+    "binding": {
+      "module": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_support_refund_effects",
+      "digest": "1f342767667f8b7082553b8b5010cd6e771f256fec5f0779943fe61f005f7195",
+      "boundary": "\"support.support-request.return-refund-released\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:687 directly synchronizes payments_support_refund_effects from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e352f1de622cd379",
+    "binding": {
+      "module": "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts",
+      "kind": "UPDATE",
+      "table": "payments_support_refund_effects",
+      "digest": "f0755315fbcf9e751b89e09c2963d07b0dc320e62ceecb0fa17dc903c5245f6a",
+      "boundary": "\"support.support-request.return-refund-released\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.ts:708 directly synchronizes payments_support_refund_effects from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-3d0bb2dbf18790a1",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/recommendations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_recommendation_pages",
+      "digest": "e3aa5686963f678653510409d9c5721fb2a79b937aacc0bc36252e4564bd77db"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/read-model/projection.ts:56 directly synchronizes pricing_recommendation_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-12e31566542f719b",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/recommendations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_recommendation_pages",
+      "digest": "146117624677d2cc95dc833fa74a05c4f0488433c4987e535b592efad43424ea"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/read-model/projection.ts:151 directly synchronizes pricing_recommendation_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-78809c6bf41dd902",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/recommendations/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_recommendation_pages",
+      "digest": "2e25df27235376a844d5d95a89aead27271debb1f317a2a4fe5d015fc8137bae"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/pricing/features/recommendations/read-model/projection.ts:186 directly synchronizes pricing_recommendation_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

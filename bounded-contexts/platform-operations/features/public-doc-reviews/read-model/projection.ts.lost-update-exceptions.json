@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-5ec5d673046ab659",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/public-doc-reviews/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "platform_operations_public_doc_review_queue_pages",
+      "digest": "e4ce51c75a246bf59ba88f4c1ee3b1823e3b77004dc13adb11890f7f4178130d"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/public-doc-reviews/read-model/projection.ts:67 directly synchronizes platform_operations_public_doc_review_queue_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

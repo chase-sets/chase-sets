@@ -148,6 +148,25 @@ export const VERIFY_STATIC_SCOPED_EXCLUSIONS = Object.freeze({
 // Repository-wide reads cannot be narrowed to the paths in historical failures.
 // These rules describe scan inputs, not the tests' static import graphs.
 export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
+  "scripts/check-structure/lost-update-write-guard.test.mjs": {
+    rule: "owner-local lost-update metadata and every source admitted by the unchanged guard discovery predicate",
+    evidence: ["scripts/check-structure/lost-update-write-guard.mjs:1-40"],
+    include: [
+      ...exact(
+        "scripts/check-structure/lost-update-write-guard.mjs",
+        "scripts/check-structure/lost-update-write-guard.test.mjs",
+        "scripts/verify-static-surfaces.mjs",
+        "pnpm-lock.yaml",
+      ),
+      ...prefix("packages/typescript-compiler-api"),
+      ...regex(
+        "^bounded-contexts/.+\\.lost-update-exceptions\\.json$",
+        "^bounded-contexts/.+/read-model/.+\\.(?:ts|tsx|js|jsx|mjs|cjs)$",
+        "^bounded-contexts/.+(?:projection|queue)\\.(?:ts|tsx|js|jsx|mjs|cjs)$",
+      ),
+      ...exact("bounded-contexts/channels/features/credentials/api/runtime.ts"),
+    ],
+  },
   "scripts/check-structure/sql-execution-surface.test.mjs": {
     rule: "repository-wide tracked TypeScript inventory and module-resolution file inventory",
     evidence: [

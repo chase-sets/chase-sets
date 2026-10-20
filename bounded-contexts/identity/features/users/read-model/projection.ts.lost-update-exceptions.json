@@ -1,0 +1,138 @@
+[
+  {
+    "id": "exception-dbf8954467b5a11c",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "DELETE",
+      "table": "identity_user_emails",
+      "digest": "867c0074753ddfd54d4829b1e5d5fcf872b5c2d7ebff41d10ea714b141aae6fa"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/identity/features/users/read-model/projection.ts:33 directly synchronizes identity_user_emails from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-673940999e3d2a0e",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "DELETE",
+      "table": "identity_user_phones",
+      "digest": "7478491ced0543ee223cbe0f9f170ff1c198d76f40fa4ccfea139ead6a54401c"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/identity/features/users/read-model/projection.ts:66 directly synchronizes identity_user_phones from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-6c7c3a19888735af",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "171a22c03fced30e44893626d90a8974df3d64627f6eac61dd6d600355ffe120"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:176 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-69e87e4d9574bfc2",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "50425a03d4386ccc89c8b4ceca154c472c02b9a5c187241afb1997bd8e5f9512",
+      "boundary": "\"identity.user.contact-method-added\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:201 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ba2aaa9f7c373018",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "50425a03d4386ccc89c8b4ceca154c472c02b9a5c187241afb1997bd8e5f9512",
+      "boundary": "\"identity.user.contact-method-verified\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:226 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-fa016a379c981548",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "b2106ea769ffec9337b420fa17ac8e452f9f44ad070d7929e39bbeb8ee81a9b3",
+      "boundary": "\"identity.user.auth-method-enabled\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:244 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-bec6158ff972f356",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "b2106ea769ffec9337b420fa17ac8e452f9f44ad070d7929e39bbeb8ee81a9b3",
+      "boundary": "\"identity.user.auth-method-disabled\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:261 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-3b583e834ace98d9",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "50d03234633f80d4cb61f5559a35075b32bb597130aa9ec724a7087ce543ed7a"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:271 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-49cb243c0a5537be",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "e656a6cccc9ba7e2d4b27d216b3dc841e4e17c9a951788879cacce1391de7f6f"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:291 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-852d0757f193e457",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "e579fbadfbd84fbd2238f16c68565191dbe9d4d79b552e777d18c1e6d200fac1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:322 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9518978b13067be0",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "df9cf4dcea99c481c0587ab4ae24f759a645d3cb370fef56f65bb390dc4b7a02"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:356 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ce61a629579aa256",
+    "binding": {
+      "module": "bounded-contexts/identity/features/users/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_users",
+      "digest": "0e25aae91a7fc1f5ab2011621efcbe6ac4ddc001d93cf9c885c759b07b865000"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/users/read-model/projection.ts:366 directly synchronizes identity_users from an incoming projection or command fact; no prior row state decides this write."
+  }
+]
