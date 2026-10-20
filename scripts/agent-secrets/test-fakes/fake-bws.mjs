@@ -11,29 +11,55 @@ import { fileURLToPath } from "node:url";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(path.join(directory, "fake-bws.json"), "utf8"));
+// MSVC runtime argument splitting: whitespace separates arguments outside
+// quotes, `""` inside quotes is one quote, and backslashes are literal unless
+// they precede a quote. A quoted path holding spaces stays one argument.
+function splitWindowsArguments(text) {
+  const args = [];
+  let current = null;
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "\\") {
+      let count = 1;
+      while (text[index + count] === "\\") count += 1;
+      const beforeQuote = text[index + count] === '"';
+      current = (current ?? "") + "\\".repeat(beforeQuote ? Math.floor(count / 2) : count);
+      index += count - 1;
+      if (beforeQuote && count % 2 === 1) {
+        current += '"';
+        index += 1;
+      }
+    } else if (char === '"') {
+      if (quoted && text[index + 1] === '"') {
+        current = (current ?? "") + '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+        current ??= "";
+      }
+    } else if (!quoted && (char === " " || char === "\t")) {
+      if (current !== null) args.push(current);
+      current = null;
+    } else {
+      current = (current ?? "") + char;
+    }
+  }
+  if (current !== null) args.push(current);
+  return args;
+}
+
 function parseWindowsArguments(text) {
-  const match = text.match(/\/c\s+""[^\"]+"\s+(.*)"\s*$/i);
-  if (match && /^-c\s+/i.test(match[1])) {
-    const command = match[1]
-      .replace(/^-c\s+"/i, "")
-      .replace(/"$/, "")
-      .replaceAll('\\"', '"')
-      .replaceAll('""', '"')
-      .replaceAll("%%cd:~,%", "%");
-    return ["run", "--", command];
-  }
-  const args = match?.[1]?.trim() ?? "";
+  const args = text.match(/\/c\s+""[^\"]+"\s+(.*)"\s*$/i)?.[1]?.trim() ?? "";
   const separator = args.lastIndexOf(" -- ");
-  if (separator >= 0) {
-    const command = args
-      .slice(separator + 4)
-      .replace(/^"|"$/g, "")
-      .replaceAll('\\"', '"')
-      .replaceAll('""', '"')
-      .replaceAll("%%cd:~,%", "%");
-    return [...args.slice(0, separator).split(/\s+/).filter(Boolean), "--", command];
-  }
-  return args.split(/\s+/).filter(Boolean);
+  if (separator < 0) return splitWindowsArguments(args);
+  const command = args
+    .slice(separator + 4)
+    .replace(/^"|"$/g, "")
+    .replaceAll('\\"', '"')
+    .replaceAll('""', '"')
+    .replaceAll("%%cd:~,%", "%");
+  return [...splitWindowsArguments(args.slice(0, separator)), "--", command];
 }
 
 const argv = process.env.CHASE_SETS_FAKE_BWS_CMDLINE

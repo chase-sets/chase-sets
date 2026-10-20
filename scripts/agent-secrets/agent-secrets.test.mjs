@@ -6,13 +6,14 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  linkSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { copyFile, link } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,20 +46,25 @@ function withoutRealBws(searchPath) {
     .join(path.delimiter);
 }
 
-function linkPrivatePowerShellHome(source, target) {
+// Symbolic links keep their own target text, so the hosted runtime's dangling
+// libcrypto/libssl links stay dangling. Regular files are hardlinked, or copied
+// where the runner refuses links to root-owned files; the copies run
+// concurrently so a cold runtime fits the default hook timeout.
+async function linkPrivatePowerShellHome(source, target) {
+  const files = [];
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     const from = path.join(source, entry.name);
     const to = path.join(target, entry.name);
-    if (entry.isDirectory()) {
+    if (entry.isSymbolicLink()) {
+      symlinkSync(readlinkSync(from), to);
+    } else if (entry.isDirectory()) {
       symlinkSync(from, to, isWindows ? "junction" : "dir");
     } else {
-      try {
-        linkSync(from, to);
-      } catch {
-        copyFileSync(from, to);
-      }
+      files.push(link(from, to).catch(() => copyFile(from, to)));
     }
   }
+  const failed = (await Promise.allSettled(files)).find((result) => result.status === "rejected");
+  if (failed) throw failed.reason;
 }
 
 // The helper sees the developer's environment minus anything that could reach
@@ -268,7 +274,7 @@ function expectTokenOnlyInBwsEnvironment(seat, result) {
   expect(filesContaining(seat.root, seat.token, ["stub-credential.json"])).toEqual([]);
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   const probe = runPwsh(["-Command", "$PSHOME"], { cwd: os.tmpdir(), env: process.env });
   expect(probe.status).toBe(0);
   sharedPwshHome = probe.stdout.trim();
@@ -276,7 +282,7 @@ beforeAll(() => {
   const sharedProfile = path.join(sharedPwshHome, "profile.ps1");
   expect(existsSync(sharedProfile)).toBe(false);
   privatePwshHome = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-private-pwsh-"));
-  linkPrivatePowerShellHome(sharedPwshHome, privatePwshHome);
+  await linkPrivatePowerShellHome(sharedPwshHome, privatePwshHome);
   expect(existsSync(path.join(privatePwshHome, "profile.ps1"))).toBe(false);
   const version = runPwsh(["-Command", "$PSVersionTable.PSVersion.Major"], {
     cwd: os.tmpdir(),
@@ -286,10 +292,10 @@ beforeAll(() => {
   expect(Number(version.stdout.trim())).toBeGreaterThanOrEqual(7);
 });
 
+// A failed beforeAll may leave either home unset; its own error is the cause.
 afterAll(() => {
-  const sharedProfile = path.join(sharedPwshHome, "profile.ps1");
-  expect(existsSync(sharedProfile)).toBe(false);
-  rmSync(privatePwshHome, { recursive: true, force: true });
+  if (sharedPwshHome) expect(existsSync(path.join(sharedPwshHome, "profile.ps1"))).toBe(false);
+  if (privatePwshHome) rmSync(privatePwshHome, { recursive: true, force: true });
 });
 
 afterEach(() => {
@@ -328,10 +334,11 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
     },
   );
 
+  // INHERITED reports a synthetic helper variable: only the inherited child keeps it.
   it.each([
-    ["inherited", []],
-    ["-NoInheritEnv", ["-NoInheritEnv"]],
-  ])("suppresses the nested PowerShell profile at the bws shell boundary (%s)", (_name, flags) => {
+    ["inherited", [], "True"],
+    ["-NoInheritEnv", ["-NoInheritEnv"], "False"],
+  ])("suppresses the nested PowerShell profile at the bws shell boundary (%s)", (_name, flags, inherited) => {
     const injectedValue = `synthetic-key-${randomUUID()}`;
     const seat = createSeat({ bws: { executeShell: true, list: secretList([injectedValue]) } });
     const marker = path.join(seat.root, `profile-marker-${randomUUID()}`);
@@ -352,13 +359,18 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
       rmSync(marker, { force: true });
       expect(existsSync(marker)).toBe(false);
 
-      const result = runSeat(seat, "with-secrets.ps1", [
-        "-Command",
-        'Write-Output "BWS_ACCESS_TOKEN=$([bool]$env:BWS_ACCESS_TOKEN) KEY_0=$([bool]$env:KEY_0)"',
-        ...flags,
-      ]);
+      const result = runSeat(
+        seat,
+        "with-secrets.ps1",
+        [
+          "-Command",
+          'Write-Output "BWS_ACCESS_TOKEN=$([bool]$env:BWS_ACCESS_TOKEN) KEY_0=$([bool]$env:KEY_0) INHERITED=$([bool]$env:SYNTHETIC_INHERITED_SENTINEL)"',
+          ...flags,
+        ],
+        { SYNTHETIC_INHERITED_SENTINEL: `synthetic-${randomUUID()}` },
+      );
       expect(result.status).toBe(0);
-      expect(unixLines(result.stdout)).toBe("BWS_ACCESS_TOKEN=False KEY_0=True\n");
+      expect(unixLines(result.stdout)).toBe(`BWS_ACCESS_TOKEN=False KEY_0=True INHERITED=${inherited}\n`);
       expect(existsSync(marker)).toBe(false);
       expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
       expect(bwsCalls(seat)[1].shellContent).toContain("-NoProfile");
@@ -759,7 +771,14 @@ describe("with-secrets.ps1 -ListKeys and -Check", { timeout: helperLaunchTimeout
 
   it("classifies a profile adapter creation failure without leaking exception text", () => {
     const seat = createSeat({ omitAdapter: true, bws: { list: secretList([`synthetic-key-${randomUUID()}`]) } });
-    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output should-not-run"]);
+    // The helper's own temp directory, so a concurrent helper run cannot leave an adapter in it.
+    const temp = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-temp-"));
+    seats.push(temp);
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output should-not-run"], {
+      TMP: temp,
+      TEMP: temp,
+      TMPDIR: temp,
+    });
 
     expect(result.status).toBe(2);
     expect(unixLines(result.stderr)).toBe("with-secrets: bws-failed\n");
@@ -767,7 +786,7 @@ describe("with-secrets.ps1 -ListKeys and -Check", { timeout: helperLaunchTimeout
     expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
     expect(result.stderr).not.toContain("profile-free");
     expect(result.stderr).not.toContain("should-not-run");
-    expect(readdirSync(os.tmpdir()).filter((name) => name.startsWith("chase-sets-profile-free-")).length).toBe(0);
+    expect(readdirSync(temp)).toEqual([]);
   });
 
   it("scrubs an executed-shell 404 and leaves no profile marker", () => {
