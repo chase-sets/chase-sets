@@ -21,16 +21,16 @@ describe("account appeal access", () => {
   it("mints an account-owner capability only for an exact permission", async () => {
     await withAccountAppealSellerAccess(actor, "account-appeals.file", async (owner) => {
       const action = createId("enf");
-      configureAccountAppealRegistryLookup({ resolve: async () => ({
-            appealableActionId: action,
-            ownerAccountId: owner.accountId,
-            source: "enf",
-            sourceStreamId: "identity.account-x",
-            sourceStreamVersion: 2,
-          }) });
-      await expect(
-        resolveAppealableEnforcementAction(owner, action),
-      ).resolves.toMatchObject({ status: "resolved" });
+      configureAccountAppealRegistryLookup({
+        resolve: async () => ({
+          appealableActionId: action,
+          ownerAccountId: owner.accountId,
+          source: "enf",
+          sourceStreamId: "identity.account-x",
+          sourceStreamVersion: 2,
+        }),
+      });
+      await expect(resolveAppealableEnforcementAction(owner, action)).resolves.toMatchObject({ status: "resolved" });
     });
     expect(
       withAccountAppealSellerAccess({ ...actor, permissions: [] }, "account-appeals.file", () => undefined),
@@ -42,13 +42,15 @@ describe("account appeal access", () => {
       const action = createId("enf");
       configureAccountAppealRegistryLookup({ resolve: async () => null });
       const absent = await resolveAppealableEnforcementAction(owner, action);
-      configureAccountAppealRegistryLookup({ resolve: async () => ({
+      configureAccountAppealRegistryLookup({
+        resolve: async () => ({
           appealableActionId: action,
           ownerAccountId: createId("acc"),
           source: "enf",
           sourceStreamId: "s",
           sourceStreamVersion: 1,
-      }) });
+        }),
+      });
       const foreign = await resolveAppealableEnforcementAction(owner, action);
       expect(absent).toBe(APPEALABLE_ACTION_INDETERMINATE);
       expect(foreign).toBe(APPEALABLE_ACTION_INDETERMINATE);

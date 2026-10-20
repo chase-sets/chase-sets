@@ -24,4 +24,10 @@ const accountAppealSchemaStatements = [
 ] as const;
 
 export const accountAppealSchemaSql = accountAppealSchemaStatements.join("\n");
-export const accountAppealSchemaMigrations: readonly BcSchemaMigration[] = [{ migrationId: "20261020_platform_operations_account_appeals", description: "Create account-appeal registry and projection tables.", statements: accountAppealSchemaStatements }];
+export const accountAppealSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261020_platform_operations_account_appeals",
+    description: "Create account-appeal registry and projection tables.",
+    statements: accountAppealSchemaStatements,
+  },
+];

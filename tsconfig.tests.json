@@ -26,8 +26,8 @@
     "packages/**/*.spec.ts",
     "packages/**/*.spec.tsx",
     "asset-env.d.ts",
-    "test-env.d.ts"
-    ,"test-typecheck/**/*.test.ts"
+    "test-env.d.ts",
+    "test-typecheck/**/*.test.ts"
   ],
   "exclude": ["**/*.tmp.*", "**/build/**", "**/coverage/**", "**/dist/**", "**/node_modules/**"]
 }
