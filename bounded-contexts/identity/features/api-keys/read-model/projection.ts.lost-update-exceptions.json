@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-3a3f48058c4f9e4d",
+    "binding": {
+      "module": "bounded-contexts/identity/features/api-keys/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_api_keys",
+      "digest": "8867dd7619d7a0d655a2518fad9cfb08a425c3bf11ffb50d2ff7fdeb3e50e2cc"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/api-keys/read-model/projection.ts:72 directly synchronizes identity_api_keys from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-b8090a0da0309830",
+    "binding": {
+      "module": "bounded-contexts/identity/features/api-keys/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_api_keys",
+      "digest": "dbe66638410c0896a6fbc08f4b41a60478bf72b9ba74fbb2488e4fdae7ab4cb3"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/api-keys/read-model/projection.ts:89 directly synchronizes identity_api_keys from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-65622d1a2d6338f1",
+    "binding": {
+      "module": "bounded-contexts/identity/features/api-keys/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_api_keys",
+      "digest": "39bbc126c36885719ccfbe6293884fbd4156ed4255208fd4c10f680bd3495dfd"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/api-keys/read-model/projection.ts:103 directly synchronizes identity_api_keys from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

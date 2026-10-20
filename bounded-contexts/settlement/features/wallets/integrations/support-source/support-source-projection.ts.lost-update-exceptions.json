@@ -1,0 +1,79 @@
+[
+  {
+    "id": "exception-29b5c3608eb5046d",
+    "binding": {
+      "module": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "settlement_support_holds",
+      "digest": "5a82cbf4532ee29de5ce94a32d2671a74acb3dbd5ce0aca5b07dd93f05c3d5a2"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:88 directly synchronizes settlement_support_holds from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-1d3a24124c55b638",
+    "binding": {
+      "module": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "settlement_support_holds",
+      "digest": "862c436be065ee4a0ea3942d44cdd87120cb3c5118b80cadc88f6f45ff453630"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:108 directly synchronizes settlement_support_holds from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-520a1b74e894dada",
+    "binding": {
+      "module": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "settlement_support_holds",
+      "digest": "068f273ca0d5588f5773c9a1fde21b121a7e07a14b66485e47879fa265f5808b"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:185 directly synchronizes settlement_support_holds from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-d300849c8f08cb0f",
+    "binding": {
+      "module": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "settlement_support_holds",
+      "digest": "bc4f8171b7d688f105012cc85f23ca65845ca6c9453748984f639801490a524e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:205 directly synchronizes settlement_support_holds from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9936c3061377f01c",
+    "binding": {
+      "module": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "settlement_support_holds",
+      "digest": "6cde055fea42a4452c84b8c1d652ce287485b715e9709991e154dda9a14021dd"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:231 directly synchronizes settlement_support_holds from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-27f6c1ffde5e8ef0",
+    "binding": {
+      "module": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "settlement_support_holds",
+      "digest": "aaa2b375b1e1b80efee42d5d36d1e80c48e1d90d35b5febc8cfbe47dfbf4178e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:259 directly synchronizes settlement_support_holds from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ee4822d225bff297",
+    "binding": {
+      "module": "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts",
+      "kind": "UPDATE",
+      "table": "settlement_support_holds",
+      "digest": "272257c36ff4a33c5bceb4ff8886a5e2b73bacaa14655dabdeeed83926118a6c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts:283 directly synchronizes settlement_support_holds from an incoming projection or command fact; no prior row state decides this write."
+  }
+]
