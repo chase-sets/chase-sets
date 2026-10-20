@@ -47,6 +47,27 @@ import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 export const RELEASE_QUALIFICATION_SCOPE_SCHEMA_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_POLICY_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_CLASSES = Object.freeze(["not_applicable", "isolated", "persistent_required"]);
+// Stable classifier reason-code vocabulary consumed by the advisory lifecycle
+// producer. Keep the map explicit so terminal validation cannot accept a
+// reason from an unrelated classifier or silently widen on a future version.
+export const RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS = Object.freeze({
+  not_applicable: Object.freeze(["ci_only_workflow", "docs_or_test_only", "repo_tooling_only", "empty_diff"]),
+  isolated: Object.freeze(["application_image", "application_runtime"]),
+  persistent_required: Object.freeze([
+    "migration_schema",
+    "seed_bootstrap_import_reconciliation",
+    "money_movement_contract",
+    "terraform_infrastructure",
+    "helm_doks_ingress_dns_spaces",
+    "live_provider_contract",
+    "deployment_release_workflow",
+    "unregistered_workflow_semantics",
+    "unrecognized_migration_mechanism",
+    "destructive_data",
+    "unreadable_file",
+    "unknown_surface",
+  ]),
+});
 export const RELEASE_QUALIFICATION_APPLICABILITY_KINDS = Object.freeze(["path-scope/v0", "pure-module/v1"]);
 export const RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS = Object.freeze(["type-only", "value"]);
 
@@ -226,6 +247,8 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "scripts/promoted-release.mjs",
     "scripts/release-deployment-scope.mjs",
     "scripts/release-qualification-record.mjs",
+    "scripts/merge-qualification-policy.json",
+    "scripts/merge-qualification.mjs",
     "scripts/release-qualification-scope.mjs",
     "scripts/run-catalog-integration-reset.mjs",
     "scripts/staging-bootstrap-hook-drill.mjs",
