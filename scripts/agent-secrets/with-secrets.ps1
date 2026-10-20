@@ -288,6 +288,39 @@ function Invoke-Bws {
   }
 }
 
+# bws v2.1.0 starts its --shell as `shell -c <command>`. A generated adapter
+# makes that nested PowerShell launch explicitly profile-free while retaining
+# the helper's own interpreter even when --no-inherit-env keeps only PATH.
+function New-ProfileFreeShellAdapter {
+  $directory = Join-Path ([IO.Path]::GetTempPath()) ('chase-sets-profile-free-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $directory -Force | Out-Null
+  try {
+    $interpreter = [Environment]::ProcessPath
+    if ($interpreter -notmatch '\.(?:exe|com)$') { $interpreter = (Get-Process -Id $PID).Path }
+    if ([string]::IsNullOrWhiteSpace($interpreter) -or -not [IO.Path]::IsPathFullyQualified($interpreter)) {
+      throw 'PowerShell interpreter path is unavailable'
+    }
+    if ($IsWindows) {
+      $templatePath = Join-Path $PSScriptRoot 'profile-free-shell.cmd'
+      $target = Join-Path $directory 'profile-free-shell.cmd'
+      $escaped = $interpreter.Replace('%', '%%')
+    } else {
+      $templatePath = Join-Path $PSScriptRoot 'profile-free-shell.sh'
+      $target = Join-Path $directory 'profile-free-shell.sh'
+      $escaped = $interpreter.Replace("'", "'\''")
+    }
+    $content = [IO.File]::ReadAllText($templatePath).Replace('__POWERSHELL_PATH__', $escaped)
+    [IO.File]::WriteAllText($target, $content, [Text.UTF8Encoding]::new($false))
+    if (-not $IsWindows) {
+      [IO.File]::SetUnixFileMode($target, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+    }
+    return [pscustomobject]@{ Path = $target; Directory = $directory }
+  } catch {
+    Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+    throw
+  }
+}
+
 # Values stay in this script's memory: -ListKeys prints only key names and
 # -Command only builds its scrub set from the values. Any shape other than an
 # array of objects with a string value and a string key free of control
@@ -457,11 +490,17 @@ try {
           Stop-WithClassification 'unscrubbable-value' 'the token and every project value must be at least 8 printable ASCII characters; nothing was run'
         }
       }
-      $arguments = @('run', '--project-id', $projectId, '--shell', [Environment]::ProcessPath)
-      if ($NoInheritEnv) { $arguments += '--no-inherit-env' }
-      $arguments += @('--', $Command)
-      $result = Invoke-Bws -BwsPath $bws -Token $token -Arguments $arguments -Scrub $secrets
-      exit $result.ExitCode
+      $adapter = $null
+      try {
+        $adapter = New-ProfileFreeShellAdapter
+        $arguments = @('run', '--project-id', $projectId, '--shell', $adapter.Path)
+        if ($NoInheritEnv) { $arguments += '--no-inherit-env' }
+        $arguments += @('--', $Command)
+        $result = Invoke-Bws -BwsPath $bws -Token $token -Arguments $arguments -Scrub $secrets
+        exit $result.ExitCode
+      } finally {
+        if ($null -ne $adapter) { Remove-Item -LiteralPath $adapter.Directory -Recurse -Force -ErrorAction SilentlyContinue }
+      }
     }
     'Check' {
       $list = Get-ProjectSecretList -BwsPath $bws -ProjectId $projectId -Token $token

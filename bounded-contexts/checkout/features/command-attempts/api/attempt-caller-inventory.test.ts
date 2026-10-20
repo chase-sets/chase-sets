@@ -51,7 +51,7 @@ const EXPECTED_PARTITION: readonly CallerRow[] = [
     shapes: ["direct cart aggregate write"],
   },
   {
-    path: "bounded-contexts/checkout/features/sessions/api/runtime.ts",
+    path: "bounded-contexts/checkout/features/sessions/api/session-cleanup.ts",
     classification: "attempt-producing",
     shapes: ["owner attempt"],
   },
