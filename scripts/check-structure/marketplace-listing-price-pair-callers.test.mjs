@@ -23,7 +23,7 @@ const registeredCallers = new Map([
   ],
   [
     "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
-    ["priceAmount: snapshot.priceAmount"],
+    ["priceAmount: snapshot.priceAmount", "priceCurrencyCode: snapshot.priceCurrencyCode"],
   ],
   [
     "bounded-contexts/marketplace/features/listings/api/route.ts",
