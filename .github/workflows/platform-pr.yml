@@ -764,9 +764,10 @@ jobs:
         id: qualification_policy
         if: github.event_name == 'merge_group'
         continue-on-error: true
+        working-directory: .qualification-authority
         run: |
-          node ./.qualification-authority/scripts/merge-qualification.mjs policy \
-            --policy .qualification-authority/scripts/merge-qualification-policy.json \
+          node ./scripts/merge-qualification.mjs policy \
+            --policy ./scripts/merge-qualification-policy.json \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
@@ -778,17 +779,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILT_IMAGE_DIGEST: ${{ steps.push.outputs.image_digest }}
           MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
+        working-directory: .qualification-authority
         run: |
           set -euo pipefail
-          mkdir -p artifacts/merge-qualification-candidate
-          mkdir -p artifacts/merge-qualification-candidate/diagnostics
-          run_metadata="artifacts/merge-qualification-candidate/diagnostics/run.json"
-          merge_queue_snapshot="artifacts/merge-qualification-candidate/diagnostics/merge-queue-snapshot.json"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics"
+          run_metadata="$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics/run.json"
+          merge_queue_snapshot="$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics/merge-queue-snapshot.json"
           gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" > "$run_metadata"
           candidate_sha="$(jq -r '.head_sha' "$run_metadata")"
           candidate_tree="$(jq -r '.head_commit.tree_id' "$run_metadata")"
-          test "$candidate_sha" = "$(git rev-parse HEAD)"
-          test "$candidate_tree" = "$(git rev-parse 'HEAD^{tree}')"
+          test "$candidate_sha" = "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          test "$candidate_tree" = "$(git -C "$GITHUB_WORKSPACE" rev-parse 'HEAD^{tree}')"
           queue_branch="${MERGE_GROUP_BASE_REF#refs/heads/}"
           query="$(cat <<'GRAPHQL'
           query($owner: String!, $name: String!, $branch: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { entries(first: 100) { totalCount nodes { position state solo enqueuedAt headCommit { oid } baseCommit { oid } pullRequest { number headRefOid } } } } } }
@@ -800,13 +802,13 @@ jobs:
             -f branch="$queue_branch" \
             -f query="$query" \
             > "$merge_queue_snapshot"
-          node ./.qualification-authority/scripts/merge-qualification.mjs candidate-evidence \
+          node ./scripts/merge-qualification.mjs candidate-evidence \
             --repository "${{ github.repository }}" \
             --run-metadata "$run_metadata" \
             --merge-queue-snapshot "$merge_queue_snapshot" \
             --queue-base-sha "${{ github.event.merge_group.base_sha }}" \
             --built-image-digest "$BUILT_IMAGE_DIGEST" \
-            --out artifacts/merge-qualification-candidate/candidate.json
+            --out "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/candidate.json"
 
       - name: Upload exact merge qualification candidate image
         if: github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true' && steps.candidate_record.outcome == 'success'
@@ -840,7 +842,7 @@ jobs:
             -f producer_run_id="${{ github.run_id }}" \
             -f producer_run_attempt="${{ github.run_attempt }}" \
             -f candidate_sha="${{ github.event.merge_group.head_sha }}" \
-            -f candidate_tree="$(git rev-parse 'HEAD^{tree}')" \
+          -f candidate_tree="$(git -C "$GITHUB_WORKSPACE" rev-parse 'HEAD^{tree}')" \
             -f base_sha="${{ github.event.merge_group.base_sha }}"
 
       - name: Report skipped merge-group image push

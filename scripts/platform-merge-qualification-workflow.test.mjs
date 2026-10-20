@@ -124,8 +124,9 @@ describe("continuation acceptance boundaries", () => {
   it("AC2 gates producer discovery, publication, diagnostics and dispatch on trusted policy", () => {
     const producer = job(platformPr, "docker-image");
     const policy = step(platformPr, "Evaluate trusted merge qualification policy");
-    expect(policy).toContain(".qualification-authority/scripts/merge-qualification.mjs policy");
-    expect(policy).toContain("--policy .qualification-authority/scripts/merge-qualification-policy.json");
+    expect(policy).toContain("working-directory: .qualification-authority");
+    expect(policy).toContain("node ./scripts/merge-qualification.mjs policy");
+    expect(policy).toContain("--policy ./scripts/merge-qualification-policy.json");
     expect(producer).toContain("ref: ${{ github.event.repository.default_branch }}");
     expect(producer.indexOf("Evaluate trusted merge qualification policy")).toBeLessThan(
       producer.indexOf("Record exact merge qualification candidate image"),
@@ -139,7 +140,7 @@ describe("continuation acceptance boundaries", () => {
       expect(step(platformPr, name)).toContain("steps.qualification_policy.outputs.enabled == 'true'");
     }
     expect(step(platformPr, "Record exact merge qualification candidate image")).toContain(
-      "node ./.qualification-authority/scripts/merge-qualification.mjs candidate-evidence",
+      "working-directory: .qualification-authority",
     );
     expect(step(platformPr, "Upload exact merge qualification candidate image")).toContain(
       "steps.candidate_record.outcome == 'success'",
