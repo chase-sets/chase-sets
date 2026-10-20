@@ -15,7 +15,7 @@ import {
   refusalCode,
   summarizeRuntimeLog,
 } from "./agent-grant-revocation-release.mjs";
-import { classifyDeploymentRootCause } from "./platform-deploy-incident.mjs";
+import { classifyDeploymentRootCause, DEPLOY_ROOT_CAUSE_CODES } from "./platform-deploy-incident.mjs";
 
 const secretMarker = "synthetic-secret-marker-7f3c";
 
@@ -1087,6 +1087,24 @@ describe("revocation-caller-partition workflow caller", () => {
         `--status-out artifacts/agent-grant-revocation/${environment}/prepare-status.json`,
       );
     }
+  });
+
+  it("documents the shipped selector, refusal codes, status artifact and recovery in the runbook", () => {
+    const runbook = readFileSync(resolve(root, "docs/runbooks/doks-platform-operations.md"), "utf8");
+    const section = runbook.slice(runbook.indexOf("### Agent Grant Revocation Activation (#10235)"));
+    for (const claim of [
+      "`agent_grant_revocation_activation`",
+      ...selections.map((selection) => `\`${selection}\``),
+      "`revocation_activation_not_deployed`",
+      "`agent-grant-revocation-activation-refused`",
+      "`agent-grant-revocation-status-<environment>`",
+      "`kubectl logs --since=5m --tail=200`",
+      "`revocation_membership_changed`",
+      "(N18)",
+      "Passing tests are not evidence of a live activation.",
+    ])
+      expect(section, claim).toContain(claim);
+    expect(DEPLOY_ROOT_CAUSE_CODES).toContain("agent-grant-revocation-activation-refused");
   });
 
   it("isolates an activation refusal from abort and rollback, and keeps recovery for a real deploy failure", () => {
