@@ -27,13 +27,15 @@ CREATE TABLE IF NOT EXISTS platform_operations_account_appeals (
   stream_version integer NOT NULL,
   updated_at timestamptz NOT NULL
 );
-CREATE INDEX CONCURRENTLY IF NOT EXISTS platform_operations_account_appeals_account_idx ON platform_operations_account_appeals(account_id, updated_at DESC);
 `;
+
+const accountAppealSchemaIndexSql =
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS platform_operations_account_appeals_account_idx ON platform_operations_account_appeals(account_id, updated_at DESC);";
 
 export const accountAppealSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20261020_platform_operations_account_appeals",
     description: "Create account-appeal registry and projection tables.",
-    statements: [accountAppealSchemaSql],
+    statements: [accountAppealSchemaSql, accountAppealSchemaIndexSql],
   },
 ];
