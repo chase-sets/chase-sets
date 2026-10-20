@@ -38,23 +38,25 @@ export function ValidationMessageList({ messages }: ValidationMessageListProps) 
   );
 }
 
-function focusValidationTarget(fieldId: string) {
+function focusValidationTarget(fieldId: string): boolean {
   // ValidationSummary only receives stable field ids, so the id remains the
   // compatibility bridge for controls whose refs now point at their natural
   // focus target. A ref registry here would add context and lifecycle coupling
   // without improving the public ValidationSummary contract.
   const target = document.getElementById(fieldId);
   if (!target) {
-    return;
+    return false;
   }
 
   const focusableTarget = target.matches("button, input, select, textarea, [tabindex]")
     ? target
     : target.querySelector("button, input, select, textarea, [tabindex]");
 
-  if (focusableTarget instanceof HTMLElement) {
-    focusableTarget.focus();
+  if (!(focusableTarget instanceof HTMLElement)) {
+    return false;
   }
+  focusableTarget.focus();
+  return document.activeElement === focusableTarget;
 }
 
 export function ValidationSummary({
@@ -80,7 +82,11 @@ export function ValidationSummary({
     if (event.defaultPrevented || event.key !== "Enter") {
       return;
     }
-    focusValidationTarget(fieldId);
+    // Once focus has moved, the rest of this keystroke would reach the target;
+    // a text input inside a form would then submit it implicitly.
+    if (focusValidationTarget(fieldId)) {
+      event.preventDefault();
+    }
   }
 
   return (
