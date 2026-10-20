@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // One governed staging TEST-MODE evidence window, provisioned, admitted, held, closed
-// and revoked inside the CI job that holds the staging deploy lock (#10224). Every
+// and revoked inside the CI job that holds the staging deploy lock. Every
 // credential is generated, used and revoked here; none leaves the job. The closed
 // commands below are the workflow's steps:
 //

@@ -1,6 +1,6 @@
 name: Platform Staging Evidence Window
 
-# One governed staging TEST-MODE evidence window (#10224): this job generates, uses and
+# One governed staging TEST-MODE evidence window: this job generates, uses and
 # revokes every credential the window needs, holding the staging deploy lock from the
 # admission key's install to its revocation. Inputs are closed and nonsecret; no
 # command, credential or ref reaches the job through them. Stripe is read with GET

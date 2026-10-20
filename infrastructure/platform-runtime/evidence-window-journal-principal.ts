@@ -1,8 +1,8 @@
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-// The run-named control-database login a staging evidence window lends its journal
-// (#10224). It is limited to `evidence_window_provider_write` and `evidence_window`:
+// The run-named control-database login a staging evidence window lends its journal.
+// It is limited to `evidence_window_provider_write` and `evidence_window`:
 // `FOR SHARE` on `evidence_window` needs a column UPDATE grant
 // (https://www.postgresql.org/docs/current/ddl-priv.html), which the ledgered control-plane
 // migration makes non-effective for every name this pattern accepts. The job that
