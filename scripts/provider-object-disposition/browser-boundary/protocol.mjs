@@ -105,7 +105,89 @@ export function nativeRefusal(stdout, stderr, status) {
   return match[1];
 }
 
-export function mediationFailure(stage, error, restriction = "unknown") {
+const launchPid = "(?:0|[1-9][0-9]{0,9})";
+const launchLinePatterns = {
+  launched: new RegExp(`^<launched> pid=(${launchPid})$`),
+  out: new RegExp(`^\\[pid=(${launchPid})\\]\\[out\\] (.*)$`),
+  err: new RegExp(`^\\[pid=(${launchPid})\\]\\[err\\] (.*)$`),
+  exit: new RegExp(`^\\[pid=(${launchPid})\\] <process did exit: exitCode=(-?[0-9]+|null), signal=([A-Z0-9]+|null)>$`),
+};
+const launchSignals = new Set([
+  "SIGTERM",
+  "SIGINT",
+  "SIGHUP",
+  "SIGKILL",
+  "SIGSEGV",
+  "SIGABRT",
+  "SIGBUS",
+  "SIGILL",
+  "SIGTRAP",
+  "SIGSYS",
+]);
+
+function launchLines(error) {
+  if (typeof error?.message !== "string") return [];
+  const unique = new Set();
+  for (const original of error.message.split("\n")) {
+    const line = original.startsWith("  - ") ? original.slice(4) : original;
+    if (Object.values(launchLinePatterns).some((pattern) => pattern.test(line))) unique.add(line);
+  }
+  return [...unique];
+}
+
+export function launchDiagnostic(error, playwrightTimeout = false) {
+  const lines = launchLines(error);
+  const parsed = lines
+    .map((line) => {
+      for (const [kind, pattern] of Object.entries(launchLinePatterns)) {
+        const match = pattern.exec(line);
+        if (match) return { kind, line, pid: match[1], payload: match[2], exitCode: match[2], signal: match[3] };
+      }
+      return null;
+    })
+    .filter(Boolean);
+  const pids = new Set(parsed.map(({ pid }) => pid));
+  const launched = parsed.filter(({ kind }) => kind === "launched");
+  const exits = parsed.filter(({ kind }) => kind === "exit");
+  const first = typeof error?.message === "string" ? (error.message.split("\n")[0] ?? "") : "";
+  const spawnLine = first.startsWith("browserType.launch: ") ? first.slice("browserType.launch: ".length) : first;
+  let classification = "unknown";
+  if (playwrightTimeout) classification = "timeout";
+  else if (spawnLine.startsWith("Failed to launch: ")) classification = "spawn-failed";
+  else if (pids.size === 1 && exits.length === 1) classification = "exited";
+
+  const pid = pids.size === 1 ? [...pids][0] : null;
+  const exit = classification === "exited" ? exits[0] : null;
+  const numericExit = exit && exit.exitCode !== "null" ? Number(exit.exitCode) : null;
+  const exitCode =
+    numericExit !== null && Number.isInteger(numericExit) && numericExit >= 0 && numericExit <= 255
+      ? numericExit
+      : null;
+  const exitSignal =
+    exit?.signal === "null" ? null : exit ? (launchSignals.has(exit.signal) ? exit.signal : "other") : null;
+  let refusal = null;
+  if (classification === "exited" && exitCode === 78 && pid) {
+    const stdout = parsed
+      .filter((entry) => entry.kind === "out" && entry.pid === pid)
+      .map(({ payload }) => `${payload}\n`)
+      .join("");
+    const stderr = parsed
+      .filter((entry) => entry.kind === "err" && entry.pid === pid)
+      .map(({ payload }) => `${payload}\n`)
+      .join("");
+    refusal = nativeRefusal(stdout, stderr, exitCode);
+  }
+  return {
+    version: 1,
+    class: classification,
+    window: pid && launched.some((entry) => entry.pid === pid) ? "from-launch" : "partial",
+    exitCode: classification === "exited" ? exitCode : null,
+    exitSignal: classification === "exited" ? exitSignal : null,
+    refusal,
+  };
+}
+
+export function mediationFailure(stage, error, restriction = "unknown", playwrightTimeout = false) {
   const stdout = bytes(error?.stdout);
   const stderr = bytes(error?.stderr);
   const status = Number.isInteger(error?.code) && error.code >= 0 && error.code <= 255 ? error.code : null;
@@ -125,6 +207,7 @@ export function mediationFailure(stage, error, restriction = "unknown") {
     complete: !truncated && stdout !== null && stderr !== null,
     userNamespaceRestriction: [0, 1].includes(restriction) ? restriction : "unknown",
   };
+  if (stage === "sandboxed-chromium") diagnostic.launch = launchDiagnostic(error, playwrightTimeout);
   const failure = new Error(`browser-mediation-unavailable: ${JSON.stringify(diagnostic)}`);
   diagnostics.set(failure, Object.freeze(diagnostic));
   return failure;

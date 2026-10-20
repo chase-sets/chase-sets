@@ -2534,6 +2534,36 @@ describe("change-scope", () => {
     expect(toOutputMap(scope).exposure_posture_changed).toBe("false");
   });
 
+  it.each([
+    {
+      // Suite-selecting paths of the settlement change whose account/extension job hit the 25-minute limit.
+      changedFiles: [
+        "bounded-contexts/channels/features/connector-client/tests/coordinator-test-support.ts",
+        "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
+        "bounded-contexts/channels/features/tcgplayer-csv/api/runtime.ts",
+        "deployables/tcgplayer-connector-extension/__tests__/harness/executors.harness.ts",
+      ],
+      suites: ["marketplace_account", "marketplace_seller", "tcgplayer_connector_extension"],
+      batches: ["marketplace_account,marketplace_seller", "tcgplayer_connector_extension", "rendered_copy"],
+    },
+    {
+      changedFiles: [
+        "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+        "deployables/tcgplayer-connector-extension/src/background.ts",
+      ],
+      suites: ["marketplace_account", "tcgplayer_connector_extension"],
+      batches: ["marketplace_account", "tcgplayer_connector_extension", "rendered_copy"],
+    },
+  ])("emits the connector extension as its own matrix batch for $suites", ({ changedFiles, suites, batches }) => {
+    const scope = classifyChanges({ changedFiles });
+    const output = toOutputMap(scope);
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(suites);
+    expect(output.e2e_tests).toBe("true");
+    expect(output.e2e_suites).toBe(suites.join(","));
+    expect(JSON.parse(output.e2e_suite_batches_json)).toEqual(batches);
+  });
+
   it("routes context UI and API slices to owned E2E suites", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
