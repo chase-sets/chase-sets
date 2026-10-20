@@ -277,14 +277,8 @@ An **Appealable Enforcement Action** is a complete, non-conflicted registry tupl
 
 An **Appeal Outcome** is the private terminal decision upheld, reversed, or modified, retaining the operator, rationale, and internal note in the owning context.
 
-### Appealable Enforcement Action
-
-An **Appealable Enforcement Action** is the complete registry tuple that proves an account-owned enforcement fact may be challenged.
-
 ### Appeal Status
 
 An **Appeal Status** is the aggregate lifecycle state: filed, in-review, upheld, reversed, modified, or withdrawn.
 
-### Appeal Outcome
-
-An **Appeal Outcome** is the private terminal decision upheld, reversed, or modified, including its rationale and operator note.
+Marketplace's planned **Reputation Appeal** is a separate marketplace concern; it is not an Account Appeal and does not mint this context's capabilities.
