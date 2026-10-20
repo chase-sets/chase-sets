@@ -593,7 +593,10 @@ describe("with-secrets.ps1 -ListKeys and -Check", { timeout: helperLaunchTimeout
 
   // The fake answers `run` with the 404 that bws 2.1.0 returns for an empty project.
   it.each([
-    [["-Check"], `OK: account 'lanes' can read project ${projectId} (0 keys).\n`],
+    [
+      ["-Check"],
+      `OK: account 'lanes' can read project ${projectId} (0 keys).\ntoken expiry not recorded for account 'lanes'\n`,
+    ],
     [["-ListKeys"], ""],
   ])("treats a readable project with zero secrets as readable for %j without calling bws run", (args, stdout) => {
     const seat = createSeat({ bws: { list: "[]", runNotFound: true } });
@@ -811,7 +814,10 @@ describe("with-secrets.ps1 agent tier guard", { timeout: helperLaunchTimeoutMs }
     const passing = createSeat({ inventory: repositoryInventory, bws: { list: project(compliant()) } });
     const checked = runSeat(passing, "with-secrets.ps1", ["-Check"]);
     expect(checked.status).toBe(0);
-    expect(checked.stdout.trim()).toBe(`OK: account 'lanes' can read project ${projectId} (5 keys).`);
+    const [ok, expiry, ...rest] = unixLines(checked.stdout).split("\n");
+    expect(ok).toBe(`OK: account 'lanes' can read project ${projectId} (5 keys).`);
+    expect(expiry).toMatch(/^token expires 2027-01-16 \(-?\d+ days\)$/);
+    expect(rest).toEqual([""]);
   });
 
   it.each([
@@ -856,6 +862,122 @@ describe("with-secrets.ps1 agent tier guard", { timeout: helperLaunchTimeoutMs }
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("KEY_0");
     expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
+  });
+});
+
+describe("with-secrets.ps1 -Check token expiry (#10034)", { timeout: helperLaunchTimeoutMs }, () => {
+  const DAY = 86_400_000;
+  const utcToday = () => Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+  const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const account = (name, tokenExpiresOn) => ({
+    name,
+    machineAccount: `chase-sets-${name}`,
+    access: "read",
+    tokenExpiresOn,
+  });
+  // The synthetic-tier inventory with the given agentTier.accounts.
+  const withAccounts = (accounts) => {
+    const value = JSON.parse(syntheticTierInventory);
+    return JSON.stringify({ ...value, agentTier: { ...value.agentTier, accounts } });
+  };
+  const okLine = (name = "lanes") => `OK: account '${name}' can read project ${projectId} (0 keys).`;
+  const warning = (name, date, days) =>
+    `with-secrets: warning: the token for account '${name}' expires ${date} (${days} days); see Agent token renewal in docs/runbooks/credential-rotation.md\n`;
+
+  // The helper counts from its own UTC day, so a run straddling UTC midnight
+  // may report either side of it.
+  function runCheck(offset, extraArgs = [], name = "lanes") {
+    const date = isoDay(utcToday() + offset * DAY);
+    const seat = createSeat({
+      inventory: withAccounts([account("lanes", date), account("spare", isoDay(utcToday() + 60 * DAY))]),
+      bws: { list: "[]" },
+    });
+    const before = Math.round((Date.parse(date) - utcToday()) / DAY);
+    const result = runSeat(seat, "with-secrets.ps1", ["-Check", ...extraArgs]);
+    const after = Math.round((Date.parse(date) - utcToday()) / DAY);
+    const [ok, expiry, ...rest] = unixLines(result.stdout).split("\n");
+    expect(ok).toBe(okLine(name));
+    expect(rest).toEqual([""]);
+    const days = Number(/^token expires \d{4}-\d{2}-\d{2} \((-?\d+) days\)$/.exec(expiry)?.[1]);
+    expect([before, after]).toContain(days);
+    return { result, date, days, expiry };
+  }
+
+  it("prints the recorded date and days remaining and warns nothing outside 21 days (AC3)", () => {
+    const { result, date, days, expiry } = runCheck(30);
+    expect(result.status).toBe(0);
+    expect(expiry).toBe(`token expires ${date} (${days} days)`);
+    expect(result.stderr).toBe("");
+  });
+
+  it.each([
+    ["within 21 days", 20],
+    ["past the date", -3],
+  ])("warns on stderr %s and still exits 0, never refusing on the date alone (AC3)", (_label, offset) => {
+    const { result, date, days } = runCheck(offset);
+    expect(result.status).toBe(0);
+    expect(unixLines(result.stderr)).toBe(warning("lanes", date, days));
+  });
+
+  it("reads the -Account's own row", () => {
+    const { result, days } = runCheck(60, ["-Account", "spare"], "spare");
+    expect(result.status).toBe(0);
+    expect(days).toBeGreaterThanOrEqual(59);
+    expect(result.stderr).toBe("");
+  });
+
+  it.each([
+    ["a null tokenExpiresOn", withAccounts([account("lanes", null)])],
+    ["no row for the account", withAccounts([account("spare", "2027-01-16")])],
+    ["no accounts list", syntheticTierInventory],
+    ["a date that is not on the calendar", withAccounts([account("lanes", "2027-02-30")])],
+    ["a date without zero padding", withAccounts([account("lanes", "2027-1-16")])],
+    ["a non-list accounts value", withAccounts({ lanes: "2027-01-16" })],
+  ])("says the expiry is not recorded for %s, without warning or refusing", (_label, inventory) => {
+    const seat = createSeat({ inventory, bws: { list: "[]" } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Check"]);
+
+    expect(result.status).toBe(0);
+    expect(unixLines(result.stdout)).toBe(`${okLine()}\ntoken expiry not recorded for account 'lanes'\n`);
+    expect(result.stderr).toBe("");
+  });
+
+  it("prints no expiry when the bws check fails", () => {
+    const seat = createSeat({
+      inventory: withAccounts([account("lanes", isoDay(utcToday() + 3 * DAY))]),
+      bws: { list: "", listExitCode: 1 },
+    });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Check"]);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(unixLines(result.stderr)).toBe("with-secrets: bws-failed: bws secret list exited 1\n");
+  });
+
+  it("counts whole UTC days from the given day at the 21-day boundary", () => {
+    const seat = createSeat({
+      inventory: withAccounts([account("lanes", "2026-11-09"), account("spare", "2026-11-10")]),
+    });
+    const inventoryPath = path.join(seat.root, "..", "..", ".github", "credential-inventory.json");
+    const today = "[DateTime]::new(2026, 10, 19, 0, 0, 0, [DateTimeKind]::Utc)";
+    const script = [
+      `. '${path.join(seat.root, "with-secrets.ps1")}' -Command unused`,
+      ...["lanes", "spare", "absent"].map(
+        (name) =>
+          `ConvertTo-Json -Compress -InputObject (Get-AgentTokenExpiry -Path '${inventoryPath}' -Account '${name}' -Today (${today}))`,
+      ),
+    ].join("; ");
+    const result = runPwsh(["-Command", script], { cwd: seat.root, env: helperEnvironment() });
+
+    expect(result.status).toBe(0);
+    expect(
+      unixLines(result.stdout)
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toEqual([{ Date: "2026-11-09", Days: 21 }, { Date: "2026-11-10", Days: 22 }, null]);
+    expect(bwsCalls(seat)).toEqual([]);
+    expect(credentialCalls(seat)).toEqual([]);
   });
 });
 
