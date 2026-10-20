@@ -41,10 +41,7 @@ export function createAggregateRepository<State, Event extends DomainEvent>(
       );
       const baseState = snapshotBase ? snapshotBase.state : config.initialState();
       const state = foldEvents(baseState, config.evolve, domainEvents);
-      const version =
-        storedEvents.length === 0
-          ? (snapshotBase?.streamVersion ?? 0)
-          : storedEvents[storedEvents.length - 1].streamVersion;
+      const version = storedEvents.at(-1)?.streamVersion ?? snapshotBase?.streamVersion ?? 0;
 
       return {
         state,

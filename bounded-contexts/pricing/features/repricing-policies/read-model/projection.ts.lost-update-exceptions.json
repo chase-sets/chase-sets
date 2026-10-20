@@ -1,0 +1,46 @@
+[
+  {
+    "id": "exception-00269ff25e9dec28",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_repricing_policies",
+      "digest": "3f5aaff56075c209327ccdac48321cda1c3ce6fcb50f194d37935b297f2eb408"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts:86 directly synchronizes pricing_repricing_policies from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-1f666f7b07a7480f",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_repricing_policies",
+      "digest": "d40b762ec7c08b92c0dd799cc72253f22c596d968094be9df386e0f47f8eab3d"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts:112 directly synchronizes pricing_repricing_policies from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-8e548f8fd83de464",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_repricing_policies",
+      "digest": "bfa5563b8cfb4c31a452f8ef956e81a38422d2bbd5ec221d5044fe2e14f95f66"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts:122 directly synchronizes pricing_repricing_policies from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-07a6369c86df0ab3",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_repricing_policies",
+      "digest": "d6de5997f30b23b93d14fb330dd08b8d6510c0152a1c3dccdc8b45e759ad92fe"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts:132 directly synchronizes pricing_repricing_policies from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

@@ -3,7 +3,7 @@ import type { StoredEvent } from "./storage";
 
 export type EventCommitMetadata = Readonly<{
   eventIds: readonly string[];
-  maxGlobalPosition?: string;
+  maxGlobalPosition?: string | undefined;
   sources: readonly EventCommitSourceMetadata[];
   /** Full committed events retained only inside the current process/request. */
   committedEvents: readonly StoredEvent[];
