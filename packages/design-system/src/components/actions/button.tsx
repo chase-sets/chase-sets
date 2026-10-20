@@ -1,5 +1,5 @@
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
-import { forwardRef, useMemo, useState } from "react";
+import { forwardRef, useCallback, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
@@ -71,16 +71,20 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
   const nativeProps = toMotionDomProps(rest);
   const isDisabled = disabled || loading;
-  const derivedLoading = pendingSubmitter === buttonElement;
+  const derivedLoading = pendingSubmitter !== null && pendingSubmitter === buttonElement;
+  const setButtonRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      setButtonElement(node);
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
 
   return (
     <motion.button
       {...nativeProps}
-      ref={(node) => {
-        setButtonElement(node);
-        if (typeof ref === "function") ref(node);
-        else if (ref) ref.current = node;
-      }}
+      ref={setButtonRef}
       type={type}
       disabled={isDisabled}
       aria-busy={loading || derivedLoading || undefined}
@@ -88,7 +92,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       className={cx(buttonBaseClass, buttonToneClasses[tone], buttonSizeClasses[size], block && "w-full")}
     >
       {loading || derivedLoading ? <ButtonSpinner tone={tone} /> : null}
-      <span className={cx("inline-flex min-w-0 max-w-full items-center justify-center gap-2", (loading || derivedLoading) && "invisible")}>
+      <span className={cx("inline-flex min-w-0 max-w-full items-center justify-center gap-2", loading && "invisible")}>
         {renderLeadingIcon(leadingIcon, tone)}
         <span className="min-w-0">{children}</span>
         {trailingIcon ? <Icon name={trailingIcon} size="sm" tone={iconTone(tone)} /> : null}

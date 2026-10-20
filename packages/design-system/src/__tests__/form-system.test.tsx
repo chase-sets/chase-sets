@@ -42,6 +42,14 @@ type DeferredValidation = {
   resolve: (value: { code?: string } | null) => void;
 };
 
+function deferred<T = unknown>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
 function FormContextProbe() {
   const form = useFormContext();
 
@@ -1247,5 +1255,280 @@ describe("form system", () => {
 
     await waitFor(() => expect(screen.getByText("ready").getAttribute("data-valid")).toBe("true"));
     expect(validate).toHaveBeenCalledTimes(2);
+  });
+
+  it("siblings and rows busy only themselves and preserve submitter serialization", async () => {
+    const gate = deferred();
+    const received: FormData[] = [];
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: ({ request }) =>
+          request.formData().then((data) => {
+            received.push(data);
+            return gate.promise;
+          }),
+        element: (
+          <>
+            <RouterForm method="post" data-testid="row-a">
+              <input type="hidden" name="row" value="a" />
+              <Button type="submit" name="intent" value="save">
+                Save A
+              </Button>
+            </RouterForm>
+            <RouterForm method="post" data-testid="row-b">
+              <input type="hidden" name="row" value="b" />
+              <Button type="submit" name="intent" value="save">
+                Save B
+              </Button>
+            </RouterForm>
+          </>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save A" }));
+    await waitFor(() => expect(screen.getByTestId("row-a").getAttribute("data-submitting")).toBe("true"));
+    expect(screen.getByTestId("row-b").getAttribute("data-submitting")).toBeNull();
+    expect([...received[0]!.entries()]).toEqual([
+      ["row", "a"],
+      ["intent", "save"],
+    ]);
+    gate.resolve(null);
+  });
+
+  it("byte-identical twin supersession clears the earlier form", async () => {
+    const gate = deferred();
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => gate.promise,
+        element: (
+          <>
+            <RouterForm method="post" data-testid="twin-a">
+              <Button type="submit">A</Button>
+            </RouterForm>
+            <RouterForm method="post" data-testid="twin-b">
+              <Button type="submit">B</Button>
+            </RouterForm>
+          </>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "A" }));
+    await waitFor(() => expect(screen.getByTestId("twin-a").getAttribute("data-submitting")).toBe("true"));
+    await user.click(screen.getByRole("button", { name: "B" }));
+    await waitFor(() => expect(screen.getByTestId("twin-b").getAttribute("data-submitting")).toBe("true"));
+    expect(screen.getByTestId("twin-a").getAttribute("data-submitting")).not.toBe("true");
+    gate.resolve(null);
+  });
+
+  it("two submitters busy only the selected one", async () => {
+    const gate = deferred();
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => gate.promise,
+        element: (
+          <RouterForm method="post" data-testid="multi">
+            <Button type="submit" name="intent" value="first">
+              First
+            </Button>
+            <Button type="submit" name="intent" value="second">
+              Second
+            </Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Second" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Second" }).getAttribute("aria-busy")).toBe("true"));
+    expect(screen.getByRole("button", { name: "First" }).getAttribute("aria-busy")).toBeNull();
+    gate.resolve(null);
+  });
+
+  it("caller-written field keeps pending and reaches the action", async () => {
+    const gate = deferred();
+    let received = "";
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: async ({ request }) => {
+          received = String((await request.formData()).get("attempt"));
+          return gate.promise;
+        },
+        element: (
+          <RouterForm
+            method="post"
+            data-testid="written"
+            onSubmit={(event) => {
+              const input = document.createElement("input");
+              input.name = "attempt";
+              input.value = "written";
+              event.currentTarget.append(input);
+            }}
+          >
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByTestId("written").getAttribute("data-submitting")).toBe("true"));
+    expect(received).toBe("written");
+    gate.resolve(null);
+  });
+
+  it("holds through loading and returns idle at a terminal", async () => {
+    const gate = deferred();
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => gate.promise,
+        element: (
+          <RouterForm method="post" data-testid="terminal">
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByTestId("terminal").getAttribute("data-submitting")).toBe("true"));
+    gate.resolve(null);
+    await waitFor(() => expect(screen.getByTestId("terminal").getAttribute("data-submitting")).toBeNull());
+  });
+
+  it("ignores fetcher and GET transports", async () => {
+    let count = 0;
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => {
+          count += 1;
+          return null;
+        },
+        element: (
+          <>
+            <RouterForm method="post" navigate={false} fetcherKey="f" data-testid="fetcher">
+              <Button type="submit">Fetcher</Button>
+            </RouterForm>
+            <RouterForm method="get" data-testid="getter">
+              <Button type="submit">Get</Button>
+            </RouterForm>
+          </>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Fetcher" }));
+    await waitFor(() => expect(count).toBe(1));
+    expect(screen.getByTestId("fetcher").getAttribute("data-submitting")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Get" }));
+    expect(screen.getByTestId("getter").getAttribute("data-submitting")).toBeNull();
+  });
+
+  it("suppresses pointer and Enter re-submits", async () => {
+    const gate = deferred();
+    let count = 0;
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => {
+          count += 1;
+          return gate.promise;
+        },
+        element: (
+          <RouterForm method="post" data-testid="repeat">
+            <input aria-label="Name" />
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByTestId("repeat").getAttribute("data-submitting")).toBe("true"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByLabelText("Name"));
+    await user.keyboard("{Enter}");
+    expect(count).toBe(1);
+    gate.resolve(null);
+  });
+
+  it("caller-cancelled then requestSubmit records a null submitter", async () => {
+    const gate = deferred();
+    let count = 0;
+    let cancelled = false;
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => {
+          count += 1;
+          return gate.promise;
+        },
+        element: (
+          <RouterForm
+            method="post"
+            data-testid="request"
+            onSubmit={(event) => {
+              if (!cancelled) {
+                cancelled = true;
+                event.preventDefault();
+                const form = event.currentTarget;
+                queueMicrotask(() => form.requestSubmit());
+              }
+            }}
+          >
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(count).toBe(1));
+    expect(screen.getByTestId("request").getAttribute("data-submitting")).toBe("true");
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBeNull();
+    gate.resolve(null);
+  });
+
+  it("announces caller text only while derived pending and preserves busy name", async () => {
+    const gate = deferred();
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => gate.promise,
+        element: (
+          <RouterForm method="post" pendingAnnouncement="Saving" data-testid="announce">
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    expect(screen.getByRole("status").textContent).toBe("");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Saving"));
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBe("true");
+    gate.resolve(null);
+  });
+
+  it("keeps explicit submitting caller-owned and reloadDocument out of props", () => {
+    const { container } = render(
+      <RouterForm submitting data-testid="explicit">
+        <Button type="submit">Save</Button>
+      </RouterForm>,
+    );
+    expect(container.querySelector("fieldset[disabled]")).not.toBeNull();
+    // @ts-expect-error reloadDocument is intentionally excluded from RouterFormProps
+    const invalid = <RouterForm reloadDocument />;
+    expect(invalid).toBeTruthy();
   });
 });

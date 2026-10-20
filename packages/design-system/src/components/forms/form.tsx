@@ -8,7 +8,6 @@ export interface FormContextValue {
   disabled: boolean;
   submitting: boolean;
   pendingSubmitter: HTMLButtonElement | HTMLInputElement | null;
-  pendingAnnouncement?: string;
   status: FormStatus;
   formId?: string;
   validationSummaryId?: string;
@@ -38,7 +37,6 @@ export function FormProvider({
   disabled = false,
   submitting = false,
   pendingSubmitter = null,
-  pendingAnnouncement,
   status = submitting ? "submitting" : "idle",
   formId,
   validationSummaryId,
@@ -48,7 +46,6 @@ export function FormProvider({
     disabled,
     submitting,
     pendingSubmitter,
-    pendingAnnouncement,
     status,
     formId,
     validationSummaryId,
@@ -62,7 +59,6 @@ export interface FormProps extends Omit<FormHTMLAttributes<HTMLFormElement>, "st
   errorAnnouncement?: FormContextValue["errorAnnouncement"];
   disabled?: boolean;
   submitting?: boolean;
-  pendingAnnouncement?: string;
   status?: FormStatus;
   validationSummaryId?: string;
   spacing?: "none" | "sm" | "md" | "lg";
@@ -81,7 +77,6 @@ export const Form = forwardRef<HTMLFormElement, FormProps>(function Form(
     errorAnnouncement,
     disabled = false,
     submitting = false,
-    pendingAnnouncement,
     status = submitting ? "submitting" : "idle",
     validationSummaryId,
     spacing = "md",
@@ -99,7 +94,6 @@ export const Form = forwardRef<HTMLFormElement, FormProps>(function Form(
       errorAnnouncement={errorAnnouncement}
       disabled={disabled}
       submitting={submitting}
-      pendingAnnouncement={pendingAnnouncement}
       status={status}
       formId={id}
       validationSummaryId={validationSummaryId}
