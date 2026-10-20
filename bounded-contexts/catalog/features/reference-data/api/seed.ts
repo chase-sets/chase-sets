@@ -12,11 +12,19 @@ import {
   evolveReferenceType,
   initialReferenceRecordState,
   initialReferenceTypeState,
+  isLegalReferenceRecordTransition,
   type ReferenceRecordEvent,
   type ReferenceRecordState,
   type ReferenceRelationship,
   type ReferenceTypeEvent,
 } from "../domain/domain";
+import {
+  evolveProviderScopeMapping,
+  initialProviderScopeMappingState,
+  type ProviderScopeMappingEvent,
+  type ProviderScopeMappingState,
+} from "../../provider-scope-mapping/domain/domain";
+import { isProviderScopeMappingAccepted } from "../../provider-scope-mapping/domain/mapping";
 import { buildCatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
 import {
   catalogAliasStreamId,
@@ -628,7 +636,7 @@ async function reconcileReferenceRecord(services: CatalogServices, def: Referenc
     expectedKey: def.key,
     keyScope: { field: "typeKey", value: def.typeKey },
     initialState: initialReferenceRecordState,
-    evolve: evolveReferenceRecord,
+    evolve: (state, event) => evolveValidatedReferenceRecord(state, event, def.referenceRecordId),
     validateIdentity: (state) => {
       if (state.typeKey !== def.typeKey) {
         throw new Error(
@@ -641,7 +649,7 @@ async function reconcileReferenceRecord(services: CatalogServices, def: Referenc
     await createReferenceRecord(services, def);
     return;
   }
-  await correctSupersededAttributes(services, def, streamId, aggregate.state);
+  await correctSupersededAttributes(services, def, streamId, aggregate.state, aggregate.events.length);
   if (aggregate.kind === "draft") {
     await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
       type: "PublishReferenceRecord",
@@ -654,6 +662,7 @@ async function correctSupersededAttributes(
   def: ReferenceRecordDef,
   streamId: string,
   state: ReferenceRecordState,
+  expectedVersion: number,
 ): Promise<void> {
   const corrected = Object.entries(def.supersededAttributes ?? {}).flatMap(([attributeKey, supersededValue]) => {
     const value = def.attributes?.[attributeKey];
@@ -665,22 +674,34 @@ async function correctSupersededAttributes(
     return;
   }
 
-  await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
-    type: "ReviseReferenceRecord",
-    typeKey: def.typeKey,
-    key: def.key,
-    name: state.name ?? localizedTextMapFromEnglish(def.name),
-    description: state.description,
-    attributes: { ...state.attributes, ...Object.fromEntries(corrected) },
-    relationships: state.relationships,
+  await services.referenceData.referenceRecordCommandHandler({
+    streamId,
+    command: {
+      type: "ReviseReferenceRecord",
+      typeKey: def.typeKey,
+      key: def.key,
+      name: state.name ?? localizedTextMapFromEnglish(def.name),
+      description: state.description,
+      attributes: { ...state.attributes, ...Object.fromEntries(corrected) },
+      relationships: state.relationships,
+    },
+    context: seedContext,
+    expectedVersion,
   });
-  console.log(
-    `  Reference Record "${def.name}" corrected ${corrected
-      .map(
-        ([attributeKey, value]) => `${attributeKey} '${String(state.attributes[attributeKey])}' -> '${String(value)}'`,
-      )
-      .join(", ")}`,
-  );
+}
+
+function evolveValidatedReferenceRecord(
+  state: ReferenceRecordState,
+  event: ReferenceRecordEvent,
+  referenceRecordId: string,
+): ReferenceRecordState {
+  if (!isLegalReferenceRecordTransition(state, event, referenceRecordId)) {
+    throw new Error(
+      `Catalog integration bootstrap found illegal retained Reference Record history '${referenceRecordId}': ` +
+        `'${event.type}' after '${state.status}'.`,
+    );
+  }
+  return evolveReferenceRecord(state, event);
 }
 
 /**
@@ -697,7 +718,10 @@ async function retireDuplicateReferenceRecord(
 ): Promise<void> {
   const streamId = `catalog.reference-record-${duplicate.referenceRecordId}`;
   const events = await loadSeedStreamEvents<ReferenceRecordEvent>(services.db, streamId);
-  const state = events.reduce(evolveReferenceRecord, initialReferenceRecordState);
+  const state = events.reduce(
+    (state, event) => evolveValidatedReferenceRecord(state, event, duplicate.referenceRecordId),
+    initialReferenceRecordState,
+  );
   if (events.length === 0 || state.status === "deprecated" || state.status === "archived") {
     return;
   }
@@ -707,7 +731,10 @@ async function retireDuplicateReferenceRecord(
       services.db,
       `catalog.reference-record-${duplicate.canonicalReferenceRecordId}`,
     )
-  ).reduce(evolveReferenceRecord, initialReferenceRecordState);
+  ).reduce(
+    (state, event) => evolveValidatedReferenceRecord(state, event, duplicate.canonicalReferenceRecordId),
+    initialReferenceRecordState,
+  );
   const sharedValue = canonical.attributes[duplicate.attributeKey];
   const refusal = `Catalog integration bootstrap cannot retire duplicate Reference Record '${duplicate.referenceRecordId}'`;
   if (
@@ -724,8 +751,34 @@ async function retireDuplicateReferenceRecord(
         `${duplicate.attributeKey} '${String(state.attributes[duplicate.attributeKey])}'.`,
     );
   }
-  const acceptedMappings = await services.providerScopeMappings.listAcceptedMappingsByScopeRecord(
-    duplicate.referenceRecordId,
+  // Discover from proposal events, then fold complete histories: a missing
+  // projection row is not evidence that the duplicate has no accepted mapping.
+  const mappingEvents = await services.db.query<{
+    stream_id: string;
+    event_type: ProviderScopeMappingEvent["type"];
+    payload: ProviderScopeMappingEvent["data"];
+  }>(
+    `SELECT stream_id, event_type, payload FROM event_store_events
+     WHERE stream_id IN (
+       SELECT stream_id FROM event_store_events
+       WHERE event_type = 'catalog.provider-scope-mapping.proposed'
+         AND payload->>'scopeRecordId' = $1
+     )
+     ORDER BY stream_id, stream_version`,
+    [duplicate.referenceRecordId],
+  );
+  const mappings = new Map<string, ProviderScopeMappingState>();
+  for (const row of mappingEvents.rows) {
+    mappings.set(
+      row.stream_id,
+      evolveProviderScopeMapping(mappings.get(row.stream_id) ?? initialProviderScopeMappingState, {
+        type: row.event_type,
+        data: row.payload,
+      } as ProviderScopeMappingEvent),
+    );
+  }
+  const acceptedMappings = [...mappings.values()].filter(
+    (mapping) => mapping.reviewStatus !== null && isProviderScopeMappingAccepted(mapping.reviewStatus),
   );
   if (acceptedMappings.length > 0) {
     throw new Error(`${refusal}: it still owns ${acceptedMappings.length} accepted Provider Scope Mapping(s).`);
@@ -739,10 +792,6 @@ async function retireDuplicateReferenceRecord(
     context: seedContext,
     expectedVersion: events.length,
   });
-  console.log(
-    `  Reference Record '${duplicate.referenceRecordId}' deprecated as a duplicate of ` +
-      `'${duplicate.canonicalReferenceRecordId}' (${duplicate.attributeKey} '${String(sharedValue)}')`,
-  );
 }
 
 function expansion(

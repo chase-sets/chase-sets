@@ -230,13 +230,14 @@ describeDb("English Pokemon reference data seed against the TCGdex English set l
   }
 
   /** SYNTHETIC Provider Scope Mapping from `scopeRecordId` to TCGdex English `sv08`. */
-  async function mapToSurgingSparks(scopeRecordId: string, accept: boolean): Promise<void> {
+  async function mapToSurgingSparks(scopeRecordId: string, accept: boolean, autoAccept = false): Promise<void> {
     const candidate = buildProviderScopeMappingCandidate({
       scopeRecordId,
       providerKey: "tcgdex",
       unitKey: "synthetic-10062-cards",
       coordinates: { setId: "sv08", setName: "Surging Sparks", language: { languageCode: "en" } },
       confidence: "exact",
+      reviewStatus: autoAccept ? "auto-accepted" : "proposed",
       provenance: { source: "synthetic-10062" },
     });
     const streamId = providerScopeMappingStreamId(candidate);
@@ -371,4 +372,126 @@ describeDb("English Pokemon reference data seed against the TCGdex English set l
     expect(await eventTypes(duplicateId)).toEqual(duplicateHistoryBefore);
     expect((await folded(duplicateId)).status).toBe("active");
   });
+
+  it("preserves the canonical record through Catalog bootstrap, provider promotion and read-only preview", async () => {
+    await stagingShapedPreChangeState();
+    await catalogModule.seed(pool, undefined, { enabledDataProfiles: ["catalog-integration-bootstrap"] });
+    await drain();
+    expect(await activeSurgingSparksRecords()).toEqual([canonicalId]);
+    expect(await seededTcgdexSetIds()).toEqual(englishTcgdexSetIds);
+    expect(await preview()).toBe(canonicalId);
+    expect(await provision()).toBe(canonicalId);
+    const before = await streamEventCounts();
+    await catalogModule.seed(pool, undefined, { enabledDataProfiles: ["catalog-integration-bootstrap"] });
+    await drain();
+    expect(await streamEventCounts()).toEqual(before);
+  });
+
+  it.each([
+    ["accepted", false],
+    ["accepted", true],
+    ["auto-accepted", false],
+    ["auto-accepted", true],
+  ] as const)(
+    "refuses a %s mapping with projection lag=%s, preserving authoritative histories",
+    async (status, lag) => {
+      await stagingShapedPreChangeState();
+      await mapToSurgingSparks(duplicateId, status === "accepted", status === "auto-accepted");
+      await drain();
+      if (lag) {
+        await pool.query("DELETE FROM catalog_provider_scope_mappings WHERE scope_record_id = $1", [duplicateId]);
+      }
+      const before = await streamEventCounts();
+      const itemsBefore = await catalogItemCounts();
+      await expect(seedReferenceData(services)).rejects.toThrow("it still owns 1 accepted Provider Scope Mapping(s)");
+      const after = await streamEventCounts();
+      expect(after[recordStream(duplicateId)]).toBe(before[recordStream(duplicateId)]);
+      for (const [streamId, count] of Object.entries(before)) {
+        if (streamId.startsWith("catalog.provider-scope-mapping-") || streamId.startsWith("catalog.item-")) {
+          expect(after[streamId]).toBe(count);
+        }
+      }
+      expect(await catalogItemCounts()).toEqual(itemsBefore);
+      expect((await folded(duplicateId)).status).toBe("active");
+    },
+  );
+
+  it.each(["unrelated attribute", "provider id"])(
+    "fences correction against an intervening %s revision",
+    async (edit) => {
+      await stagingShapedPreChangeState();
+      const handler = services.referenceData.referenceRecordCommandHandler;
+      let interleaved = false;
+      const racingServices: CatalogServices = {
+        ...services,
+        referenceData: {
+          ...services.referenceData,
+          referenceRecordCommandHandler: async (input) => {
+            if (
+              !interleaved &&
+              input.streamId === recordStream(canonicalId) &&
+              input.command.type === "ReviseReferenceRecord"
+            ) {
+              interleaved = true;
+              const state = await folded(canonicalId);
+              await handler({
+                streamId: input.streamId,
+                command: {
+                  type: "ReviseReferenceRecord",
+                  typeKey: state.typeKey!,
+                  key: state.key!,
+                  name: state.name!,
+                  description: state.description,
+                  relationships: state.relationships,
+                  attributes: {
+                    ...state.attributes,
+                    "tcgdex-set-id": edit === "provider id" ? "synthetic-custom-id" : "sv8",
+                    "synthetic-operator-note": "concurrent-update",
+                  },
+                },
+                context: seedContext,
+              });
+            }
+            return handler(input);
+          },
+        },
+      };
+      const before = await eventTypes(canonicalId);
+      await expect(seedReferenceData(racingServices)).rejects.toThrow(/concurr|version/i);
+      expect(await eventTypes(canonicalId)).toEqual([...before, "catalog.reference-record.revised"]);
+      expect((await folded(canonicalId)).attributes).toMatchObject({
+        "tcgdex-set-id": edit === "provider id" ? "synthetic-custom-id" : "sv8",
+        "synthetic-operator-note": "concurrent-update",
+      });
+      expect((await folded(duplicateId)).status).toBe("active");
+    },
+  );
+
+  it.each(["duplicate", "canonical"] as const)(
+    "rejects poisoned %s retained lifecycle without another event",
+    async (target) => {
+      await stagingShapedPreChangeState();
+      const id = target === "duplicate" ? duplicateId : canonicalId;
+      const handler = services.referenceData.referenceRecordCommandHandler;
+      await handler({
+        streamId: recordStream(id),
+        command: { type: "DeprecateReferenceRecord" },
+        context: seedContext,
+      });
+      await handler({ streamId: recordStream(id), command: { type: "ArchiveReferenceRecord" }, context: seedContext });
+      await expect(
+        handler({ streamId: recordStream(id), command: { type: "PublishReferenceRecord" }, context: seedContext }),
+      ).rejects.toThrow("Only draft reference records");
+      // SYNTHETIC illegal event; no real external evidence identity is changed.
+      await createPostgresEventStore({ pool }).appendToStream({
+        streamId: recordStream(id),
+        expectedVersion: (await eventTypes(id)).length,
+        events: [{ eventType: "catalog.reference-record.published", payload: {} }],
+        context: seedContext,
+      });
+      const before = await eventTypes(id);
+      await expect(seedReferenceData(services)).rejects.toThrow("illegal retained Reference Record history");
+      expect(await eventTypes(id)).toEqual(before);
+    },
+  );
 });
