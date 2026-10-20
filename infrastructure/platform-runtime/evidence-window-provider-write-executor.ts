@@ -24,7 +24,7 @@ export async function executeGovernedProviderWrite<T>(
     window?: ProviderWriteWindow;
     binding: ProviderWriteBinding;
     envelope: ProviderWriteEnvelope;
-    governance?: ProviderCancelGovernance;
+    governance?: ProviderCancelGovernance | undefined;
     send: (envelope: ProviderWriteEnvelope, idempotencyKey: string) => Promise<T>;
     retrieve: (reference: string) => Promise<T>;
     response: (response: T) => Readonly<{ reference: string | null; expiresAt?: string | null; captured?: boolean }>;
