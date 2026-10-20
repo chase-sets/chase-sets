@@ -60,6 +60,24 @@ function classify(method: string, path: string, phase: "sign-in" | "capture", na
   });
 }
 
+// Tamper cases edit untrusted decoder and validator JSON by path and may write any value into it.
+type JsonNode = Record<string, unknown>;
+
+function asNode(value: unknown): JsonNode {
+  if (typeof value !== "object" || value === null) throw new Error("Tamper path leaves the JSON document.");
+  return value as JsonNode;
+}
+
+function nodeAt(json: unknown, ...path: readonly (string | number)[]): JsonNode {
+  return path.reduce<JsonNode>((node, key) => asNode(node[key]), asNode(json));
+}
+
+function listAt(json: unknown, ...path: readonly (string | number)[]): unknown[] {
+  const list = path.reduce<unknown>((node, key) => asNode(node)[key], json);
+  if (!Array.isArray(list)) throw new Error("Tamper path does not end at a JSON array.");
+  return list;
+}
+
 describe("Scope Coverage acceptedMappings decoder", () => {
   const scopeRecordId = "synthetic-op-scope-1";
   const rows = [
@@ -153,48 +171,44 @@ describe("Scope Coverage acceptedMappings decoder", () => {
     ).toEqual({ ok: true, mappings: [] });
   });
 
-  it.each([
-    ["schema version", (json: any) => (json.schemaVersion = "catalog-scope-coverage-v2"), "coverage-malformed"],
-    ["scope identity", (json: any) => (json.scopeRecordId = "synthetic-other-scope"), "coverage-scope-mismatch"],
-    ["product domain", (json: any) => (json.productDomain = "lorcana"), "coverage-scope-mismatch"],
+  it.each<[string, (json: unknown) => void, string]>([
+    ["schema version", (json) => (nodeAt(json).schemaVersion = "catalog-scope-coverage-v2"), "coverage-malformed"],
+    ["scope identity", (json) => (nodeAt(json).scopeRecordId = "synthetic-other-scope"), "coverage-scope-mismatch"],
+    ["product domain", (json) => (nodeAt(json).productDomain = "lorcana"), "coverage-scope-mismatch"],
     [
       "duplicate provider rows",
-      (json: any) => json.providers.push(json.providers.find((row: any) => row.providerKey === "scrydex")),
+      (json) => listAt(json, "providers").push(scrydexRow(json)),
       "coverage-provider-duplicate",
     ],
     [
       "non-accepted status inside acceptedMappings",
-      (json: any) => (scrydexRow(json).acceptedMappings[0].reviewStatus = "proposed"),
+      (json) => (scrydexMapping(json, 0).reviewStatus = "proposed"),
       "coverage-mapping-malformed",
     ],
     [
       "mapping version that is not an instant",
-      (json: any) => (scrydexRow(json).acceptedMappings[0].updatedAt = "yesterday"),
+      (json) => (scrydexMapping(json, 0).updatedAt = "yesterday"),
       "coverage-mapping-malformed",
     ],
-    [
-      "mapping without coordinates",
-      (json: any) => delete scrydexRow(json).acceptedMappings[0].coordinates,
-      "coverage-mapping-malformed",
-    ],
+    ["mapping without coordinates", (json) => delete scrydexMapping(json, 0).coordinates, "coverage-mapping-malformed"],
     [
       "mapping for another Scope Record",
-      (json: any) => (scrydexRow(json).acceptedMappings[0].scopeRecordId = "synthetic-other-scope"),
+      (json) => (scrydexMapping(json, 0).scopeRecordId = "synthetic-other-scope"),
       "coverage-mapping-malformed",
     ],
     [
       "mapping for another provider",
-      (json: any) => (scrydexRow(json).acceptedMappings[0].providerKey = "tcgplayer"),
+      (json) => (scrydexMapping(json, 0).providerKey = "tcgplayer"),
       "coverage-mapping-malformed",
     ],
     [
       "two mappings for one unit",
-      (json: any) => (scrydexRow(json).acceptedMappings[1].unitKey = scrydexRow(json).acceptedMappings[0].unitKey),
+      (json) => (scrydexMapping(json, 1).unitKey = scrydexMapping(json, 0).unitKey),
       "coverage-mapping-duplicate",
     ],
     [
       "one mapping id twice",
-      (json: any) => (scrydexRow(json).acceptedMappings[1].mappingId = scrydexRow(json).acceptedMappings[0].mappingId),
+      (json) => (scrydexMapping(json, 1).mappingId = scrydexMapping(json, 0).mappingId),
       "coverage-mapping-duplicate",
     ],
   ])("refuses %s", async (_name, mutate, reason) => {
@@ -205,8 +219,12 @@ describe("Scope Coverage acceptedMappings decoder", () => {
   });
 });
 
-function scrydexRow(json: any) {
-  return json.providers.find((row: any) => row.providerKey === "scrydex");
+function scrydexRow(json: unknown): JsonNode {
+  return asNode(listAt(json, "providers").find((row) => asNode(row).providerKey === "scrydex"));
+}
+
+function scrydexMapping(json: unknown, index: number): JsonNode {
+  return nodeAt(scrydexRow(json), "acceptedMappings", index);
 }
 
 describe("Scope Record inventory page decoder", () => {
@@ -223,12 +241,12 @@ describe("Scope Record inventory page decoder", () => {
     });
   });
 
-  it.each([
-    ["another product domain", (json: any) => (json.items[0].productDomain = "one-piece")],
-    ["a non-set Scope Record", (json: any) => (json.items[0].scopeKind = "expansion")],
-    ["an inactive Scope Record", (json: any) => (json.items[0].lifecycleStatus = "retired")],
-    ["a count that disagrees with the items", (json: any) => (json.count = 5)],
-    ["a missing total", (json: any) => delete json.total],
+  it.each<[string, (json: unknown) => void]>([
+    ["another product domain", (json) => (nodeAt(json, "items", 0).productDomain = "one-piece")],
+    ["a non-set Scope Record", (json) => (nodeAt(json, "items", 0).scopeKind = "expansion")],
+    ["an inactive Scope Record", (json) => (nodeAt(json, "items", 0).lifecycleStatus = "retired")],
+    ["a count that disagrees with the items", (json) => (nodeAt(json).count = 5)],
+    ["a missing total", (json) => delete nodeAt(json).total],
   ])("refuses %s", (_name, mutate) => {
     const json = syntheticScopePageJson({ productDomain: "lorcana", scopeRecordIds: ["synthetic-l-1"] });
     mutate(json);
@@ -292,27 +310,30 @@ describe("cache-only option page decoder", () => {
     ).rejects.toThrow(/cache is empty for cache-only mode/);
   });
 
-  it.each([
-    ["a live provider read", (json: any) => (json.cache.source = "live"), "option-live-read"],
-    ["a forced refresh", (json: any) => (json.cache.forceRefresh = true), "option-not-cache-only"],
-    ["a page that was not cache-only", (json: any) => (json.cache.cacheOnly = false), "option-not-cache-only"],
-    ["a cache miss", (json: any) => (json.cache.status = "miss"), "option-cache-status"],
-    ["a bypass", (json: any) => (json.cache.status = "bypass"), "option-cache-status"],
-    ["an unexpected cursor", (json: any) => (json.page.cursor = "offset:25"), "option-page-malformed"],
+  it.each<[string, (json: unknown) => void, string]>([
+    ["a live provider read", (json) => (nodeAt(json, "cache").source = "live"), "option-live-read"],
+    ["a forced refresh", (json) => (nodeAt(json, "cache").forceRefresh = true), "option-not-cache-only"],
+    ["a page that was not cache-only", (json) => (nodeAt(json, "cache").cacheOnly = false), "option-not-cache-only"],
+    ["a cache miss", (json) => (nodeAt(json, "cache").status = "miss"), "option-cache-status"],
+    ["a bypass", (json) => (nodeAt(json, "cache").status = "bypass"), "option-cache-status"],
+    ["an unexpected cursor", (json) => (nodeAt(json, "page").cursor = "offset:25"), "option-page-malformed"],
     [
       "an item from another provider",
-      (json: any) => (json.items[0].providerKey = "tcgplayer"),
+      (json) => (nodeAt(json, "items", 0).providerKey = "tcgplayer"),
       "option-page-malformed",
     ],
-    ["an item from another query", (json: any) => (json.items[0].queryKind = "cards"), "option-page-malformed"],
-    ["a count that disagrees with the items", (json: any) => (json.count = 7), "option-page-malformed"],
-    ["hasMore without a next cursor", (json: any) => (json.page.hasMore = true), "option-page-malformed"],
+    ["an item from another query", (json) => (nodeAt(json, "items", 0).queryKind = "cards"), "option-page-malformed"],
+    ["a count that disagrees with the items", (json) => (nodeAt(json).count = 7), "option-page-malformed"],
+    ["hasMore without a next cursor", (json) => (nodeAt(json, "page").hasMore = true), "option-page-malformed"],
     [
       "freshness out of order",
-      (json: any) => (json.cache.staleUntil = json.cache.fetchedAt.replace("06:00", "05:00")),
+      (json) => {
+        const cache = nodeAt(json, "cache");
+        cache.staleUntil = String(cache.fetchedAt).replace("06:00", "05:00");
+      },
       "option-page-malformed",
     ],
-    ["a missing cache key", (json: any) => (json.cache.cacheKey = ""), "option-page-malformed"],
+    ["a missing cache key", (json) => (nodeAt(json, "cache").cacheKey = ""), "option-page-malformed"],
   ])("refuses %s", async (_name, mutate, reason) => {
     const record = await syntheticOptionCacheRecord({ unitKey: lorcanaSet, expansionIds: [lorcanaExpansion] });
     const json = await syntheticOptionPageJson({
@@ -587,41 +608,41 @@ describe("Scrydex cache capture receipt", () => {
     expect(validateScrydexCacheCaptureReceipt(JSON.parse(JSON.stringify(receipt)))).toEqual([]);
   });
 
-  it.each<[string, (evidence: any) => void, string]>([
+  it.each<[string, (evidence: ScrydexCacheCaptureEvidence) => void, string]>([
     [
       "a response completing within the skew window before staleUntil",
-      (e) => (e.units[0].pages[0].completedAt = "2026-10-21T05:59:30.000Z"),
+      (e) => (e.units[0]!.pages[0]!.completedAt = "2026-10-21T05:59:30.000Z"),
       `option-list-late:${onePieceSet}`,
     ],
     [
       "a truncated continuation",
-      (e) => (e.units[1].pages[0].nextCursor = "offset:2"),
+      (e) => (e.units[1]!.pages[0]!.nextCursor = "offset:2"),
       `option-list-incomplete:${onePieceCard}`,
     ],
     [
       "values short of the cached total",
-      (e) => (e.units[2].pages[0].total = 3),
+      (e) => (e.units[2]!.pages[0]!.total = 3),
       `option-list-incomplete:${onePieceSealed}`,
     ],
     [
       "a skipped continuation page",
-      (e) => e.units[3].pages.push({ ...e.units[3].pages[0], cursor: "offset:5" }),
+      (e) => e.units[3]!.pages.push({ ...e.units[3]!.pages[0]!, cursor: "offset:5" }),
       `option-list-incomplete:${lorcanaSet}`,
     ],
     ["a missing unit option list", (e) => e.units.splice(4, 1), `option-list-missing:${lorcanaCard}`],
     [
       "a declared unit without any accepted mapping",
-      (e) => e.scopes[1].mappings.splice(1, 1),
+      (e) => e.scopes[1]!.mappings.splice(1, 1),
       `required-unit-unmapped:${lorcanaCard}`,
     ],
     [
       "an accepted mapping for an undeclared unit",
-      (e) => (e.scopes[1].mappings[1].unitKey = "scrydex:lorcana:sealed-product:source-observation-import"),
+      (e) => (e.scopes[1]!.mappings[1]!.unitKey = "scrydex:lorcana:sealed-product:source-observation-import"),
       "undeclared-unit:scrydex:lorcana:sealed-product:source-observation-import",
     ],
     [
       "two mappings for one unit on one Scope Record",
-      (e) => e.scopes[1].mappings.push({ ...e.scopes[1].mappings[0], mappingId: "synthetic-map-l-set-2" }),
+      (e) => e.scopes[1]!.mappings.push({ ...e.scopes[1]!.mappings[0]!, mappingId: "synthetic-map-l-set-2" }),
       "mapping-duplicate:synthetic-l-scope-1",
     ],
     [
@@ -657,7 +678,7 @@ describe("Scrydex cache capture receipt", () => {
     ],
     [
       "an incomplete Scope Record inventory",
-      (e) => (e.scopeInventories[0].total = 2),
+      (e) => (e.scopeInventories[0]!.total = 2),
       "scope-inventory-incomplete:one-piece",
     ],
     ["an inventoried Scope Record without coverage", (e) => e.scopes.splice(1, 1), "coverage-incomplete:lorcana"],
@@ -678,22 +699,25 @@ describe("Scrydex cache capture receipt", () => {
     expect(receipt.scopes[0]!.mappings[0]).toMatchObject({ unitKey: onePieceSet, membership: "unreadable" });
   });
 
-  it.each<[string, (receipt: any) => void]>([
+  it.each<[string, (receipt: unknown) => void]>([
     [
       "a hand-set complete status over governed-unknown evidence",
-      (r) => ((r.units[0].pages[0].completedAt = "2026-10-21T06:00:00.000Z"), (r.captureStatus = "complete")),
+      (r) => (
+        (nodeAt(r, "units", 0, "pages", 0).completedAt = "2026-10-21T06:00:00.000Z"),
+        (nodeAt(r).captureStatus = "complete")
+      ),
     ],
-    ["reasons that differ from the evidence", (r) => r.reasons.push("synthetic-reason")],
-    ["a hand-set membership", (r) => (r.scopes[0].mappings[2].membership = "member")],
-    ["a hand-set coordinate", (r) => (r.scopes[0].mappings[0].coordinate = "synthetic-other")],
-    ["an unknown field", (r) => (r.units[0].rawPayload = {})],
-    ["an unknown nested field", (r) => (r.deployment.before.extra = true)],
-    ["a timestamp without a zone", (r) => (r.startedAt = "2026-10-20T16:00:00")],
-    ["a negative request count", (r) => (r.requests.coverageReads = -1)],
-    ["a malformed response digest", (r) => (r.units[0].pages[0].responseSha256 = "not-a-digest")],
-    ["another schema version", (r) => (r.schemaVersion = "scrydex-cache-capture/v0")],
-    ["a stop without an unbound deployment", (r) => (r.deployment.beforeStop = "deploy-in-progress")],
-    ["a non-array scope list", (r) => (r.scopes = {})],
+    ["reasons that differ from the evidence", (r) => listAt(r, "reasons").push("synthetic-reason")],
+    ["a hand-set membership", (r) => (nodeAt(r, "scopes", 0, "mappings", 2).membership = "member")],
+    ["a hand-set coordinate", (r) => (nodeAt(r, "scopes", 0, "mappings", 0).coordinate = "synthetic-other")],
+    ["an unknown field", (r) => (nodeAt(r, "units", 0).rawPayload = {})],
+    ["an unknown nested field", (r) => (nodeAt(r, "deployment", "before").extra = true)],
+    ["a timestamp without a zone", (r) => (nodeAt(r).startedAt = "2026-10-20T16:00:00")],
+    ["a negative request count", (r) => (nodeAt(r, "requests").coverageReads = -1)],
+    ["a malformed response digest", (r) => (nodeAt(r, "units", 0, "pages", 0).responseSha256 = "not-a-digest")],
+    ["another schema version", (r) => (nodeAt(r).schemaVersion = "scrydex-cache-capture/v0")],
+    ["a stop without an unbound deployment", (r) => (nodeAt(r, "deployment").beforeStop = "deploy-in-progress")],
+    ["a non-array scope list", (r) => (nodeAt(r).scopes = {})],
   ])("validation refuses %s", (_name, mutate) => {
     const receipt = JSON.parse(JSON.stringify(buildScrydexCacheCaptureReceipt(completeEvidence())));
     mutate(receipt);
