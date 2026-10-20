@@ -274,6 +274,14 @@ describe("selectStagingDeployGeneration", () => {
       `${signedLogs}118064914233?sig=synthetic`,
     ]);
   });
+});
+
+describe("verifyDeployGeneration", () => {
+  it("rejects invalid input without requests", async () => {
+    const transport = vi.fn();
+    await expect(verifyDeployGeneration({}, { transport })).rejects.toThrow("staging-deploy-generation-input-invalid");
+    expect(transport).not.toHaveBeenCalled();
+  });
 
   it("verifyDeployGeneration recomputes per phase and fails closed", async () => {
     expect((await verify(capturedWorld())).result).toEqual({ verdict: "current" });
@@ -354,6 +362,10 @@ describe("selectStagingDeployGeneration", () => {
     let mutationCount = 0;
     const runPhase = async () => {
       const outcome = await verify(phases);
+      const requestsAtVerification = outcome.requests.length;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(outcome.requests.length).toBe(requestsAtVerification);
+      expect(requestsAtVerification).toBeGreaterThan(0);
       if (outcome.result.verdict === "current") mutationCount++;
       return outcome;
     };
@@ -372,7 +384,9 @@ describe("selectStagingDeployGeneration", () => {
     expect((await runPhase()).result).toEqual({ verdict: "deploy-generation-advanced" });
     expect(mutationCount).toBe(1);
   });
+});
 
+describe("selectStagingDeployGeneration", () => {
   it("skips coalesced and unexecuted jobs", async () => {
     // Captured run 39079933000: attempt 1 skipped Deploy Staging (zero steps,
     // placeholder times), attempt 2 coalesced (activation success, deploy and
