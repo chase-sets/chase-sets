@@ -554,7 +554,7 @@ function identityStatus(namespace, run) {
  * The post-command record a deploy job retains. Every section is read
  * independently; a failed read is recorded as an unknown code, never as a pass.
  */
-export function captureStatus({ environment, namespace, command, outcome, refusal }, { run, now }) {
+function captureStatus({ environment, namespace, command, outcome, refusal }, { run, now }) {
   const section = (read) => {
     try {
       return read();
