@@ -18,8 +18,7 @@ const providerEnvironment = /^(?:TCGPLAYER_|PROVIDER.*(?:SESSION|CREDENTIAL)|CON
 const savedEnvironment = new Map<string, string | undefined>();
 
 test.beforeAll(async () => {
-  platform = await loopbackPlatform({
-  });
+  platform = await loopbackPlatform({});
   for (const key of Object.keys(process.env))
     if (providerEnvironment.test(key)) {
       savedEnvironment.set(key, process.env[key]);
@@ -47,7 +46,9 @@ test.afterAll(async () => {
 });
 
 function digestDist() {
-  const files = readdirSync(dist).sort().map((file) => readFileSync(join(dist, file)));
+  const files = readdirSync(dist)
+    .sort()
+    .map((file) => readFileSync(join(dist, file)));
   return createHash("sha256").update(Buffer.concat(files)).digest("hex");
 }
 
@@ -95,7 +96,12 @@ test("connector-pairing-drill-loopback-chromium", async ({}, testInfo) => {
   expect(
     receipt.requests.find((row) => row.origin === platform.origin && row.source === "worker")?.count,
   ).toBeGreaterThan(0);
-  expect(platform.observation()).toMatchObject({ claimCount: 1, claimCookieArrived: false, tokenCookieArrived: false, redirectTargetCount: 0 });
+  expect(platform.observation()).toMatchObject({
+    claimCount: 1,
+    claimCookieArrived: false,
+    tokenCookieArrived: false,
+    redirectTargetCount: 0,
+  });
   expect(receipt.requests.every((row) => row.origin !== "https://store.tcgplayer.com")).toBe(true);
   expect(scanRetainedArtifacts(output, platform.forbidden())).toBeGreaterThan(0);
 });

@@ -254,20 +254,29 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
       const lifecycle: string[] = [];
       root.connectorDrillLifecycle = lifecycle;
       const original = chrome.storage.local.set.bind(chrome.storage.local);
-      Object.assign(chrome.storage.local, { set: (values: Record<string, unknown>) => {
-        const profile = values["channel-connector-profile"] as { state?: string } | undefined;
-        if (profile?.state && lifecycle.at(-1) !== profile.state) lifecycle.push(profile.state);
-        return original(values);
-      } });
+      Object.assign(chrome.storage.local, {
+        set: (values: Record<string, unknown>) => {
+          const profile = values["channel-connector-profile"] as { state?: string } | undefined;
+          if (profile?.state && lifecycle.at(-1) !== profile.state) lifecycle.push(profile.state);
+          return original(values);
+        },
+      });
     });
     await worker.evaluate(() => chrome.alarms.create("connector-work", { when: Date.now() }));
     await expect
       .poll(
-        () => worker.evaluate(() => chrome.storage.local.get(["channel-connector-profile"]).then((row) => (row["channel-connector-profile"] as { state?: string } | undefined)?.state ?? "absent")),
+        () =>
+          worker.evaluate(() =>
+            chrome.storage.local
+              .get(["channel-connector-profile"])
+              .then((row) => (row["channel-connector-profile"] as { state?: string } | undefined)?.state ?? "absent"),
+          ),
         { timeout: 10_000 },
       )
       .toBe("revoked");
-    const lifecycle = await worker.evaluate(() => (globalThis as typeof globalThis & { connectorDrillLifecycle?: string[] }).connectorDrillLifecycle ?? []);
+    const lifecycle = await worker.evaluate(
+      () => (globalThis as typeof globalThis & { connectorDrillLifecycle?: string[] }).connectorDrillLifecycle ?? [],
+    );
     if (lifecycle.indexOf("cleanup-pending") < 0 || lifecycle.indexOf("cleanup-pending") > lifecycle.indexOf("revoked"))
       throw new Error("connector-drill-lifecycle-refused");
     await input.revoke(context);
