@@ -3,7 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
-import { createCheckoutUcpHandlers, checkoutUcpState, type CheckoutUcpListing } from "../support/ucp-support/checkout";
+import {
+  createCheckoutUcpHandlers,
+  checkoutUcpState,
+  resolveCheckoutUcpQuote,
+  type CheckoutUcpListing,
+  type CheckoutUcpOrderFact,
+  type CheckoutUcpQuote,
+} from "../support/ucp-support/checkout";
+import type { CheckoutFulfillmentPreview } from "../features/sessions/domain/fulfillment-preview";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
 
@@ -431,5 +439,235 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     expect(readFileSync(new URL("../features/sessions/api/buy-now-preparation.ts", import.meta.url), "utf8")).toContain(
       '"unresolved_fulfillment"',
     );
+  });
+});
+
+// Quote sources from decision D1 of #10088 ("an honest quote source for every Checkout state") for a
+// two-line session: lst_1 x2 and lst_2 x1. Each source prices the lines differently and no subtotal
+// divided by the three units equals a line price, so a wrong source, a line from another source or
+// an averaged price fails the table.
+const quoteLines = [
+  { ...line, quantity: 2 },
+  { ...line, listingId: "lst_2", lockedListingId: "lst_2", catalogItemId: "cat_2", productId: "cat_2::form:raw" },
+];
+function recordedQuote(
+  [itemSubtotalAmount, shippingAmount, salesTaxAmount, totalAmount]: readonly string[],
+  prices: Readonly<Record<string, string>>,
+) {
+  // The quote reads only totals and line prices, so the rest of the preview shape is omitted.
+  return {
+    sellerGroups: [
+      {
+        lines: Object.entries(prices).map(([listingId, estimatedUnitPriceAmount]) => ({
+          listingId,
+          estimatedUnitPriceAmount,
+        })),
+      },
+    ],
+    totals: { itemSubtotalAmount, shippingAmount, salesTaxAmount, totalAmount, packageCount: 1 },
+  } as unknown as CheckoutFulfillmentPreview;
+}
+const snapshotTotals = ["52.00", "5.00", "4.16", "61.16"];
+const snapshotQuote = recordedQuote(snapshotTotals, { lst_1: "20.00", lst_2: "12.00" });
+const freshTotals = ["54.50", "5.50", "4.36", "64.36"];
+const freshQuote = recordedQuote(freshTotals, { lst_1: "21.00", lst_2: "12.50" });
+const lst2UnavailableTotals = ["42.00", "4.50", "3.36", "49.86"];
+const lst2UnavailableQuote = recordedQuote(lst2UnavailableTotals, { lst_1: "21.00" });
+const retainedTotals = ["49.50", "4.75", "3.96", "58.21"];
+const retainedQuote = recordedQuote(retainedTotals, { lst_1: "19.00", lst_2: "11.50" });
+const purchase1: CheckoutUcpOrderFact = {
+  id: "ord_1",
+  status: "pending-payment",
+  totals: { itemSubtotal: "37.00", shipping: "4.00", tax: "0.10", total: "41.10" },
+  lines: [{ listingId: "lst_1", unitPrice: "18.50" }],
+};
+const purchase2: CheckoutUcpOrderFact = {
+  id: "ord_2",
+  status: "pending-payment",
+  totals: { itemSubtotal: "11.25", shipping: "3.10", tax: "0.20", total: "14.55" },
+  lines: [{ listingId: "lst_2", unitPrice: "11.25" }],
+};
+const priced = (totals: readonly string[], ...prices: readonly (string | null)[]) => ({ totals, prices });
+const view = (quote: CheckoutUcpQuote | null) =>
+  quote &&
+  priced(
+    [quote.subtotal, quote.fulfillment, quote.tax, quote.total],
+    quote.linePrice("lst_1"),
+    quote.linePrice("lst_2"),
+  );
+type QuoteCell = Readonly<{
+  session: Partial<CheckoutSessionRow>;
+  facts?: readonly CheckoutUcpOrderFact[];
+  preview: CheckoutFulfillmentPreview | null;
+  retained?: CheckoutFulfillmentPreview | null;
+  expected: ReturnType<typeof view>;
+  retainedReads: number;
+}>;
+const cancelled = { cancelled_at: "2026-10-16T01:00:00.000Z" };
+const ordered = { order_ids: ["ord_1", "ord_2"], payment_id: "pay_1" };
+const snapshotView = priced(snapshotTotals, "20.00", "12.00");
+const retainedView = priced(retainedTotals, "19.00", "11.50");
+// The adapter passes no preview for terminal or ordered sessions (F5); C6 and C7 are reads after the
+// session's 06:00 handoff expiry, which the clock-free resolver sees only as that missing preview.
+const quoteCells: [string, QuoteCell][] = [
+  [
+    "C1 live: snapshot totals and lines, not the preview",
+    {
+      session: { fulfillment_preview_snapshot: snapshotQuote },
+      preview: freshQuote,
+      expected: snapshotView,
+      retainedReads: 0,
+    },
+  ],
+  [
+    "C2 live after invalidation: the same-request preview",
+    { session: {}, preview: freshQuote, expected: priced(freshTotals, "21.00", "12.50"), retainedReads: 0 },
+  ],
+  [
+    "C3 unavailable line: snapshot totals and line",
+    {
+      session: { fulfillment_preview_snapshot: snapshotQuote },
+      preview: lst2UnavailableQuote,
+      expected: snapshotView,
+      retainedReads: 0,
+    },
+  ],
+  [
+    "C3 unavailable line without a snapshot: preview totals, retained line",
+    {
+      session: {},
+      preview: lst2UnavailableQuote,
+      expected: priced(lst2UnavailableTotals, "21.00", "11.50"),
+      retainedReads: 1,
+    },
+  ],
+  [
+    "C4 signed-cancelled: snapshot",
+    {
+      session: { ...cancelled, fulfillment_preview_snapshot: snapshotQuote },
+      preview: null,
+      expected: snapshotView,
+      retainedReads: 0,
+    },
+  ],
+  [
+    "C5 signed-cancelled after invalidation: retained",
+    { session: cancelled, preview: null, expected: retainedView, retainedReads: 1 },
+  ],
+  [
+    "C6 expired: snapshot",
+    {
+      session: { fulfillment_preview_snapshot: snapshotQuote },
+      preview: null,
+      expected: snapshotView,
+      retainedReads: 0,
+    },
+  ],
+  ["C7 expired after invalidation: retained", { session: {}, preview: null, expected: retainedView, retainedReads: 1 }],
+  [
+    "C8 two orders with complete facts: exact sums and order lines",
+    {
+      session: ordered,
+      facts: [purchase2, purchase1],
+      preview: null,
+      expected: priced(["48.25", "7.10", "0.30", "55.65"], "18.50", "11.25"),
+      retainedReads: 0,
+    },
+  ],
+  [
+    "C9 one order fact missing: retained",
+    { session: ordered, facts: [purchase1], preview: null, expected: retainedView, retainedReads: 1 },
+  ],
+  [
+    "C9 one order fact without totals: retained",
+    {
+      session: ordered,
+      facts: [purchase1, { id: "ord_2", status: "pending-payment" }],
+      preview: null,
+      expected: retainedView,
+      retainedReads: 1,
+    },
+  ],
+  [
+    "C10 never quoted: the C5 retained read finds none",
+    { session: { ...cancelled, source_type: "cart" }, preview: null, retained: null, expected: null, retainedReads: 1 },
+  ],
+];
+function quoteInput(cell: QuoteCell) {
+  return {
+    session: session({ lines: quoteLines, ...cell.session }),
+    orderFacts: cell.facts ?? [],
+    preview: cell.preview,
+    loadRetainedQuote: vi.fn(async () => (cell.retained === undefined ? retainedQuote : cell.retained)),
+  };
+}
+
+describe("UCP quote source follows decision D1 cells C1-C10", () => {
+  it.each(quoteCells)("%s", async (_name, cell) => {
+    const input = quoteInput(cell);
+    expect(view(await resolveCheckoutUcpQuote(input))).toEqual(cell.expected);
+    // The retained quote is read only in C3, C5, C7 and C9; C10 is the C5 read finding none.
+    expect(input.loadRetainedQuote).toHaveBeenCalledTimes(cell.retainedReads);
+  });
+  it("keeps a session line's offer price and prices no unquoted listing", async () => {
+    const offerLine = { ...quoteLines[0], offerPriceAmount: "15.00", offerPriceCurrencyCode: "USD" };
+    const input = quoteInput({
+      session: {
+        source_type: "offer-intent",
+        fulfillment_preview_snapshot: snapshotQuote,
+        lines: [offerLine, quoteLines[1]],
+      },
+      preview: null,
+      expected: null,
+      retainedReads: 0,
+    });
+    const quote = await resolveCheckoutUcpQuote(input);
+    expect(view(quote)).toEqual(priced(snapshotTotals, "15.00", "12.00"));
+    expect(quote?.linePrice("lst_unquoted")).toBeNull();
+    expect(input.loadRetainedQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("UCP quote source is stable on a day-later re-read", () => {
+  // Records every wall-clock read made while `run` resolves.
+  async function clockReads<T>(run: () => Promise<T>) {
+    const reads: string[] = [];
+    vi.stubGlobal(
+      "Date",
+      new Proxy(Date, {
+        construct: (target, args, newTarget) => {
+          if (args.length === 0) reads.push("new Date()");
+          return Reflect.construct(target, args, newTarget);
+        },
+        get: (target, key, receiver) => {
+          if (key === "now") reads.push("Date.now");
+          return Reflect.get(target, key, receiver);
+        },
+      }),
+    );
+    try {
+      return { value: await run(), reads };
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+  it("re-resolves C4-C9 identically a day later without reading a clock", async () => {
+    const stableCells = quoteCells.filter(([name]) => /^C[4-9] /.test(name));
+    expect(stableCells.map(([name]) => name.slice(0, 2))).toEqual(["C4", "C5", "C6", "C7", "C8", "C9", "C9"]);
+    vi.useFakeTimers({ now: new Date("2026-10-16T07:00:00.000Z") });
+    try {
+      for (const [name, cell] of stableCells) {
+        const input = quoteInput(cell);
+        vi.setSystemTime(new Date("2026-10-16T07:00:00.000Z"));
+        const first = await clockReads(() => resolveCheckoutUcpQuote(input));
+        vi.setSystemTime(new Date("2026-10-17T07:00:00.000Z"));
+        const dayLater = await clockReads(() => resolveCheckoutUcpQuote(input));
+        expect(view(dayLater.value), name).toEqual(view(first.value));
+        expect(view(dayLater.value), name).toEqual(cell.expected);
+        expect([...first.reads, ...dayLater.reads], name).toEqual([]);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
