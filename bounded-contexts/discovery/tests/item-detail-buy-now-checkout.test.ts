@@ -1,6 +1,9 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RouteObject } from "react-router";
 import { readCompactPostWriteToken, readFreshWriteToken, readPostWriteHandoff } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
+import { createId } from "@chase-sets/primitives/typed-ids";
 
 import {
   mockAcceptOfferMatch,
@@ -87,7 +90,20 @@ vi.mock("@chase-sets/inventory/server", () => ({
   createInventoryRequestApiClient: mockCreateInventoryRequestApiClient,
 }));
 
-import { action, loader } from "../routes/item-detail";
+import DiscoveryItemDetailRoute, { action, loader } from "../routes/item-detail";
+import {
+  checkoutApiError,
+  expectDocument,
+  expectRedirect,
+  loaderEntryKey,
+  postForm,
+  serverRender,
+  unhydratedFormSubmission,
+} from "./entry-attempt-key-harness";
+import { baseListing, createItem } from "./item-detail-commerce-panel-test-harness";
+
+const PRESENTED_ENTRY_KEY = "chkentry_01JD2K3M4N5P6Q7R8S9T0V1W2X";
+const ENTRY_KEY_CHANGED_COPY = "Your selection changed after you chose Buy now. Check it and choose Buy now again.";
 
 async function resolvePostWriteUrl(url: URL) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
@@ -529,6 +545,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
     form.set("lockedListingId", "lst_charizard");
+    form.set("entryAttemptKey", PRESENTED_ENTRY_KEY);
 
     const response = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -541,7 +558,7 @@ describe("item detail buy now checkout actions", () => {
     } as never)) as Response;
 
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: expect.stringMatching(/^chkentry_[0-9a-f]{32}$/),
+      entryAttemptKey: PRESENTED_ENTRY_KEY,
       source: {
         type: "buy-now",
         listingId: "lst_charizard",
@@ -572,6 +589,7 @@ describe("item detail buy now checkout actions", () => {
     } as never)) as Response;
 
     expect(secondResponse.status).toBe(302);
+    expect(firstEntryAttemptKey).toBe(PRESENTED_ENTRY_KEY);
     expect(mockCreateCheckoutSession.mock.calls[1]?.[0]?.entryAttemptKey).toBe(firstEntryAttemptKey);
   });
 
@@ -1320,6 +1338,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
     form.set("lockedListingId", "lst_charizard");
+    form.set("entryAttemptKey", PRESENTED_ENTRY_KEY);
 
     const response = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -1389,6 +1408,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("productSummary", "Raw");
     form.set("quantity", "1");
     form.set("lockedListingId", "lst_charizard");
+    form.set("entryAttemptKey", PRESENTED_ENTRY_KEY);
     form.set("priceAmount", "1.00");
     form.set("priceCurrencyCode", "USD");
     form.set("sellerName", "Tampered Seller");
@@ -1715,6 +1735,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("productSummary", "Raw");
     form.set("quantity", "1");
     form.set("lockedListingId", "lst_charizard");
+    form.set("entryAttemptKey", PRESENTED_ENTRY_KEY);
 
     const response = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -1727,7 +1748,7 @@ describe("item detail buy now checkout actions", () => {
     } as never)) as Response;
 
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      entryAttemptKey: expect.stringMatching(/^chkentry_[0-9a-f]{32}$/),
+      entryAttemptKey: PRESENTED_ENTRY_KEY,
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_charizard",
@@ -1739,5 +1760,170 @@ describe("item detail buy now checkout actions", () => {
     expect(response.status).toBe(302);
     expectFreshWriteRedirect(response, "/checkout/buy/session/chk_locked");
     expect(mockAddGuestCartLine).not.toHaveBeenCalled();
+  });
+});
+
+describe("item detail Buy now entry key", () => {
+  const itemRoutes: RouteObject[] = [
+    { id: "item-detail", path: "/items/:id", loader, action, Component: DiscoveryItemDetailRoute },
+  ];
+  const ITEM_URL = "http://localhost/items/charizard-base-set-cat_charizard";
+  const BUY_NOW = { form: "form#buy-card-buy-now", submitter: 'button[name="intent"][value="buy-this-listing"]' };
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function stubItemDetailPage(actor: Readonly<{ accountId: string; userId: string; permissions: string[] }> | null) {
+    mockResolveActorFromAuthApi.mockResolvedValue(actor);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi
+        .fn()
+        .mockResolvedValue(createItem({ market_listings: [baseListing], offer_demand_matches: [] })),
+      getSimilarItems: vi.fn().mockResolvedValue({ items: [] }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ createCheckoutSession: mockCreateCheckoutSession });
+  }
+
+  function stubBuyNowAction(actor: Readonly<{ accountId: string; permissions: string[] }> | null) {
+    mockResolveActorFromAuthApi.mockResolvedValue(actor);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [activeListing()],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ createCheckoutSession: mockCreateCheckoutSession });
+  }
+
+  function buyNowForm(entryAttemptKey: string | null) {
+    const form = new URLSearchParams({
+      intent: "buy-this-listing",
+      productId: "cat_charizard::form:raw",
+      selectedOptions: JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+      productSummary: "Raw",
+      quantity: "1",
+      lockedListingId: "lst_charizard",
+    });
+    if (entryAttemptKey !== null) form.set("entryAttemptKey", entryAttemptKey);
+    return form;
+  }
+
+  async function buyNow(form: URLSearchParams) {
+    return action({
+      request: postForm("http://localhost/items/cat_charizard", form),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never);
+  }
+
+  function expectChangedWithFreshKey(result: unknown, presented: string | null) {
+    expect(result).toEqual({
+      error: ENTRY_KEY_CHANGED_COPY,
+      intent: "buy-this-listing",
+      entryAttemptKey: expect.stringMatching(/^chkentry_[0-9A-Z]{26}$/),
+    });
+    expect((result as { entryAttemptKey: string }).entryAttemptKey).not.toBe(presented);
+  }
+
+  it("forwards the form entry key", async () => {
+    stubBuyNowAction({ accountId: "acc_buyer", permissions: [] });
+    mockCreateCheckoutSession.mockResolvedValue(commandResult({ session_id: "chk_form_key" }));
+    const formKey = createId("chkentry");
+
+    const response = (await buyNow(buyNowForm(formKey))) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+    expect(mockCreateCheckoutSession.mock.calls[0]?.[0]?.entryAttemptKey).toBe(formKey);
+  });
+
+  it.each([
+    ["missing", null],
+    ["empty", ""],
+    ["shorter than 22 characters", "chkentry_short"],
+    ["outside base64url", "chkentry_01JD2K3M4N5P6Q7R8S9T0V1W2X!"],
+    ["longer than 128 characters", `chkentry_${"A".repeat(120)}`],
+  ])("refuses a %s entry key with zero Checkout calls and the changed copy with a fresh key", async (_case, key) => {
+    for (const actor of [{ accountId: "acc_buyer", permissions: [] }, null]) {
+      stubBuyNowAction(actor);
+
+      const result = await buyNow(buyNowForm(key));
+
+      expect(result).not.toBeInstanceOf(Response);
+      expectChangedWithFreshKey(result, key);
+    }
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("answers a 409 checkout_attempt_conflict with the changed copy and a fresh key, and sends nothing more", async () => {
+    stubBuyNowAction({ accountId: "acc_buyer", permissions: [] });
+    mockCreateCheckoutSession.mockRejectedValue(checkoutApiError(409, "checkout_attempt_conflict"));
+
+    expectChangedWithFreshKey(await buyNow(buyNowForm(PRESENTED_ENTRY_KEY)), PRESENTED_ENTRY_KEY);
+    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the presented key with the shipped error copy after a transport error, and sends nothing more", async () => {
+    stubBuyNowAction({ accountId: "acc_buyer", permissions: [] });
+    mockCreateCheckoutSession.mockRejectedValue(checkoutApiError(504, "gateway_timeout", "Checkout did not answer."));
+
+    expect(await buyNow(buyNowForm(PRESENTED_ENTRY_KEY))).toEqual({
+      error: "Checkout did not answer.",
+      intent: "buy-this-listing",
+      entryAttemptKey: PRESENTED_ENTRY_KEY,
+    });
+    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC4 server HTML carries the loader key and the unhydrated signed-in form forwards it to createCheckoutSession", async () => {
+    stubItemDetailPage({ accountId: "acc_buyer", userId: "usr_buyer", permissions: [] });
+    mockCreateCheckoutSession.mockResolvedValue(commandResult({ session_id: "chk_no_js" }));
+
+    const served = expectDocument(await serverRender(itemRoutes, new Request(ITEM_URL)));
+    const pageViewKey = loaderEntryKey(served, "item-detail");
+    expect(pageViewKey).toMatch(/^chkentry_[0-9A-Z]{26}$/);
+    const submission = unhydratedFormSubmission(served.html, BUY_NOW);
+    expect(submission.method).toBe("post");
+    expect(submission.body.get("entryAttemptKey")).toBe(pageViewKey);
+
+    const posted = expectRedirect(await serverRender(itemRoutes, postForm(ITEM_URL, submission.body)));
+    expect(posted.location.pathname).toBe("/checkout/buy/session/chk_no_js");
+    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+    expect(mockCreateCheckoutSession.mock.calls[0]?.[0]?.entryAttemptKey).toBe(pageViewKey);
+
+    // Planted control: the same server form without its key is refused before Checkout.
+    const keyless = unhydratedFormSubmission(served.html, BUY_NOW, (form) =>
+      form.querySelector('input[name="entryAttemptKey"]')?.remove(),
+    );
+    const refused = expectDocument(await serverRender(itemRoutes, postForm(ITEM_URL, keyless.body)));
+    expectChangedWithFreshKey(refused.hydrationData.actionData?.["item-detail"], null);
+    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC4 the unhydrated guest form forwards the loader key in the body its 307 replays to Checkout start", async () => {
+    stubItemDetailPage(null);
+
+    const served = expectDocument(await serverRender(itemRoutes, new Request(ITEM_URL)));
+    const pageViewKey = loaderEntryKey(served, "item-detail");
+    const submission = unhydratedFormSubmission(served.html, BUY_NOW);
+    expect(submission.body.get("entryAttemptKey")).toBe(pageViewKey);
+
+    const handoff = expectRedirect(await serverRender(itemRoutes, postForm(ITEM_URL, submission.body)));
+    expect(handoff.status).toBe(307);
+    expect(handoff.location.pathname).toBe("/checkout/buy/readiness");
+    expect(handoff.location.searchParams.get("source")).toBe("buy-now");
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+
+    // Planted control: a keyless guest form gets no 307 at all.
+    const keyless = unhydratedFormSubmission(served.html, BUY_NOW, (form) =>
+      form.querySelector('input[name="entryAttemptKey"]')?.remove(),
+    );
+    const refused = expectDocument(await serverRender(itemRoutes, postForm(ITEM_URL, keyless.body)));
+    expectChangedWithFreshKey(refused.hydrationData.actionData?.["item-detail"], null);
   });
 });
