@@ -127,12 +127,12 @@ function discoverLabelCharter() {
 }
 
 describe("canonical label registry schema and partition", () => {
-  it("records the implementation-head 81-label total as one valid total partition", () => {
-    expect(LABEL_REGISTRY).toHaveLength(81);
-    expect(new Set(LABEL_REGISTRY.map((entry) => entry.name)).size).toBe(81);
+  it("records the implementation-head 83-label total as one valid total partition", () => {
+    expect(LABEL_REGISTRY).toHaveLength(83);
+    expect(new Set(LABEL_REGISTRY.map((entry) => entry.name)).size).toBe(83);
     expect(validateLabelRegistry()).toEqual([]);
     expect(LABEL_REGISTRY.every((entry) => ["canonical", "grandfathered-frozen"].includes(entry.status))).toBe(true);
-    expect(LABEL_REGISTRY.filter((entry) => entry.status === "canonical")).toHaveLength(46);
+    expect(LABEL_REGISTRY.filter((entry) => entry.status === "canonical")).toHaveLength(48);
     expect(LABEL_REGISTRY.filter((entry) => entry.status === "grandfathered-frozen")).toHaveLength(35);
   });
 
@@ -446,7 +446,7 @@ describe("scheduled enforcing audit boundary", () => {
     expect(logger.errors).toEqual([]);
     expect(logger.warnings).toEqual([]);
     expect(logger.logs).toContain(
-      "Label inventory scanned: 81/81 across 1 REST page(s); independent GraphQL total reconciled.",
+      "Label inventory scanned: 83/83 across 1 REST page(s); independent GraphQL total reconciled.",
     );
     expect(logger.logs).toContain("Label registry enforcement passed: every live label is partitioned.");
     expect(logger.logs).toContain(
