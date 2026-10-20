@@ -72,6 +72,6 @@ export type AggregateRepositoryConfig<State, Event extends DomainEvent> = Readon
   initialState: () => State;
   evolve: AggregateEvolver<State, Event>;
   /** Complete-history and conditional-append limit. Cannot be combined with snapshots or expectedVersion="any". */
-  maxEvents?: number;
-  snapshots?: AggregateRepositorySnapshotConfig<State>;
+  maxEvents?: number | undefined;
+  snapshots?: AggregateRepositorySnapshotConfig<State> | undefined;
 }>;

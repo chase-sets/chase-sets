@@ -30,6 +30,31 @@ import { BRAND_FOIL_PROOF_ENTRY_PATHS, BRAND_FOIL_PROOF_INPUT_PATHS } from "./ch
 
 const temporaryDirectories = [];
 
+it("sidecar-only changes select the lost-update guard", () => {
+  const guard = "scripts/check-structure/lost-update-write-guard.test.mjs";
+  const source = "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts";
+  const sidecar = `${source}.lost-update-exceptions.json`;
+  for (const changedFiles of [
+    [sidecar],
+    [source],
+    ["bounded-contexts/channels/features/credentials/api/runtime.ts"],
+    ["scripts/check-structure/lost-update-write-guard.mjs"],
+  ])
+    expect(selectVerifyStaticGuardTests({ changedFiles })).toContain(guard);
+  for (const status of [
+    `R100\0${source}\0archive/queries.ts\0`,
+    `D\0${source}\0`,
+    `R100\0${sidecar}\0archive/queries.ts.lost-update-exceptions.json\0`,
+    `D\0${sidecar}\0`,
+  ])
+    expect(selectVerifyStaticGuardTests({ changedFiles: parseNameStatusZ(status) })).toContain(guard);
+  const bypass = {
+    ...VERIFY_STATIC_GUARD_TEST_SURFACES,
+    [guard]: { ...VERIFY_STATIC_GUARD_TEST_SURFACES[guard], include: [{ kind: "exact", value: source }] },
+  };
+  expect(selectVerifyStaticGuardTests({ changedFiles: [sidecar], surfaces: bypass })).not.toContain(guard);
+});
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -312,6 +337,15 @@ describe("scoped guard-test selection", () => {
   const brandGuard = "scripts/check-structure/brand-mark-representations.test.mjs";
   const representativeSurfaces = [
     [
+      "scripts/check-structure/lost-update-write-guard.test.mjs",
+      [
+        "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts.lost-update-exceptions.json",
+        "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts",
+        "bounded-contexts/example/features/stream/updates-projection.ts",
+        "bounded-contexts/channels/features/credentials/api/runtime.ts",
+      ],
+    ],
+    [
       "scripts/check-structure/sql-execution-surface.test.mjs",
       [
         "bounded-contexts/identity/support/runtime-support/seed.ts",
@@ -400,7 +434,7 @@ describe("scoped guard-test selection", () => {
     },
   );
 
-  it("has exactly nine existing, line-cited guard surfaces", () => {
+  it("has exactly the declared existing, line-cited guard surfaces", () => {
     expect(Object.keys(VERIFY_STATIC_GUARD_TEST_SURFACES).sort()).toEqual(
       representativeSurfaces.map(([file]) => file).sort(),
     );
@@ -433,10 +467,10 @@ describe("scoped guard-test selection", () => {
 
   it("requires repository-wide rules for repository-wide tracked-content and inventory scans", () => {
     for (const file of [
-      representativeSurfaces[0][0],
+      "scripts/check-structure/sql-execution-surface.test.mjs",
       brandGuard,
       "scripts/ci-gate-plan.test.mjs",
-      representativeSurfaces[4][0],
+      "scripts/check-structure/consent-authorization-sites.test.mjs",
       "scripts/check-structure/json-import-attributes.test.mjs",
     ]) {
       expect(VERIFY_STATIC_GUARD_TEST_SURFACES[file].include).toContainEqual({ kind: "any" });
@@ -464,7 +498,7 @@ describe("scoped guard-test selection", () => {
   });
 
   it("narrowed-scan-root-mutant", () => {
-    const file = representativeSurfaces[0][0];
+    const file = "scripts/check-structure/sql-execution-surface.test.mjs";
     const narrowed = {
       ...VERIFY_STATIC_GUARD_TEST_SURFACES,
       [file]: { ...VERIFY_STATIC_GUARD_TEST_SURFACES[file], include: [{ kind: "prefix", value: "bounded-contexts" }] },
