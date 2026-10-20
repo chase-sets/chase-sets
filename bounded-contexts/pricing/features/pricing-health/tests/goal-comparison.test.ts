@@ -4,8 +4,6 @@ import {
   isOneRuleUnconditional,
   recommendGoalChange,
   selectableGoalChoices,
-  validateGoalParameterRequests,
-  GoalComparisonValidationError,
 } from "../api/goal-comparison";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
 
@@ -127,29 +125,4 @@ describe("Pricing Health goal comparison", () => {
     ).toBe("compare-goals");
   });
 
-  it.each([
-    ["out-of-schema", [{ goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 1000 } }]],
-    ["non-selectable", [{ goalId: "retired-goal", goalVersion: 9, parameters: {} }]],
-    [
-      "duplicate",
-      [
-        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 65 } },
-        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 66 } },
-      ],
-    ],
-  ])("rejects %s before any candidate can be enqueued", (_, requests) => {
-    const choices = selectableGoalChoices(pricingGoalDefinitions(), [
-      {
-        goalId: "fixed-percentile",
-        goalVersion: 1,
-        lifecycle: "selectable",
-        incumbentVersion: null,
-        selectable: true,
-        promotable: true,
-        reason: null,
-        grades: null,
-      },
-    ]);
-    expect(() => validateGoalParameterRequests(choices, requests)).toThrow(GoalComparisonValidationError);
-  });
 });

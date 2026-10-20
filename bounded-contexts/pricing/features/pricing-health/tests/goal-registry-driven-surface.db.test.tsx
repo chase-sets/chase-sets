@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
@@ -8,7 +10,8 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
-import { buildCandidateBody } from "../api/goal-comparison";
+import { GoalPicker } from "../ui/goal-comparison";
+import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 import { dryRunContext, seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
 import {
   comparisonAccountId,
@@ -17,6 +20,28 @@ import {
   comparisonTestServices,
   createComparisonPolicy,
 } from "./goal-comparison-db-fixture";
+
+const registryCapture = vi.hoisted(() => ({ registries: [] as Array<{
+  registerPricingGoal: (goal: PricingGoalDefinition) => void;
+  definitions: () => readonly PricingGoalDefinition[];
+}> }));
+vi.mock("../../repricing-policies/domain/goals/registry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../repricing-policies/domain/goals/registry")>();
+  return {
+    ...actual,
+    createPricingGoalRegistry: (...args: Parameters<typeof actual.createPricingGoalRegistry>) => {
+      const registry = actual.createPricingGoalRegistry(...args);
+      const fixed = registry.definitions().find((goal) => goal.id === "fixed-percentile");
+      if (fixed) {
+        registry.registerPricingGoal({ ...fixed, version: 2, lifecycle: "shadow" });
+        registry.registerPricingGoal({ ...fixed, version: 3, lifecycle: "selectable" });
+        registry.registerPricingGoal({ ...fixed, version: 4, lifecycle: "retired" });
+      }
+      registryCapture.registries.push(registry);
+      return registry;
+    },
+  };
+});
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -50,26 +75,33 @@ describeDb("Pricing Health real-composition registry surface", () => {
 
   it("drives the real Adoption Gate and registry, then carries a non-default value into compare readback", async () => {
     const data = await services.health.getHealth(comparisonAccountId, comparisonPolicyId, comparisonNow);
-    expect(data?.goals?.map(({ goalId, goalVersion }) => `${goalId}@${goalVersion}`)).toEqual(
-      expect.arrayContaining([
+    expect(data?.goals?.map(({ goalId, goalVersion }) => `${goalId}@${goalVersion}`)).toEqual([
         "fixed-percentile@1",
         "target-horizon@1",
         "profit-per-day@1",
         "hold-value@1",
         "cash-target@1",
-      ]),
-    );
+      ]);
     expect(data?.goals?.every((goal) => goal.lifecycle === "selectable")).toBe(true);
+    expect(registryCapture.registries).toHaveLength(1);
+    const registered = registryCapture.registries[0]!.definitions();
+    expect(registered.filter((goal) => goal.id === "fixed-percentile").map((goal) => `${goal.id}@${goal.version}`)).toEqual([
+      "fixed-percentile@1",
+      "fixed-percentile@2",
+      "fixed-percentile@3",
+      "fixed-percentile@4",
+    ]);
+    const adoptions = await services.forecastLedger.listGoalAdoptions();
+    expect(adoptions.find((entry) => entry.goalId === "fixed-percentile" && entry.goalVersion === 3)).toMatchObject({
+      selectable: false,
+      reason: "shadow-grade-missing",
+    });
+    const html = renderToStaticMarkup(createElement(GoalPicker, { goals: data!.goals! }));
+    expect(html).toContain("Price at the 65th market percentile");
+    expect(html).not.toContain("Market-evidence pricing goal");
+    expect(html).not.toContain("fixed-percentile@1");
 
-    const edited = data!.goals!.map((goal) => ({
-      goalId: goal.goalId,
-      goalVersion: goal.goalVersion,
-      parameters: {
-        ...goal.parameters,
-        ...(goal.goalId === "fixed-percentile" ? { percentile: 66 } : {}),
-      },
-    }));
-    const runs = await services.health.compare(comparisonAccountId, comparisonPolicyId, dryRunContext, edited);
+    const runs = await services.health.compare(comparisonAccountId, comparisonPolicyId, dryRunContext);
     expect(runs).toHaveLength(data!.goals!.length);
     const fixed = runs!.find((run) => run.goalId === "fixed-percentile")!;
     const rows = await pools.pricing.query<{ body: unknown; body_hash: string }>(
@@ -77,7 +109,7 @@ describeDb("Pricing Health real-composition registry surface", () => {
       [fixed.dryRunId],
     );
     expect(rows.rows[0]?.body).toMatchObject({
-      rules: [{ directive: { anchorChain: [{ parameters: { percentile: 66 } }] } }],
+      rules: [{ directive: { anchorChain: [{ parameters: { percentile: 65 } }] } }],
     });
     expect(rows.rows[0]?.body_hash).not.toBe(null);
   });

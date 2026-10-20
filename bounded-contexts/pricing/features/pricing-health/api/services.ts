@@ -6,8 +6,6 @@ import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { listAccountRepricingPolicies } from "../../repricing-policies/read-model/queries";
 import { forecastLedgerPolicy } from "../../forecast-ledger/domain/policy";
 import type { ForecastLedgerServices } from "../../forecast-ledger/api/runtime";
-import type { EconomicsServices } from "../../economics/api/services";
-import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import { gradingRulesVersion } from "../../forecast-ledger/domain/grade-ledger";
 import { listForecastGrades } from "../../forecast-ledger/read-model/queries";
 import { discloseForecastGrade, type PricingHealthGrade } from "./grades";
@@ -18,8 +16,6 @@ import {
   isOneRuleUnconditional,
   recommendGoalChange,
   selectableGoalChoices,
-  validateGoalParameterRequests,
-  type GoalParameterRequest,
   type CandidateMetrics,
   type GoalChoice,
   type Recommendation,
@@ -37,14 +33,12 @@ export function createPricingHealthServices({
   repricingEngine,
   repricingPolicies,
   forecastLedger,
-  economics,
 }: Readonly<{
   db: PgQueryable;
   policies: Pick<PolicyRuntime, "resolvePolicy">;
   repricingEngine: Pick<RepricingEngineServices, "enqueueDryRun" | "getDryRun">;
   repricingPolicies: Pick<RepricingPolicyServices, "loadOwnedRepricingPolicy" | "getHalt">;
   forecastLedger: Pick<ForecastLedgerServices, "listGoalAdoptions">;
-  economics: Pick<EconomicsServices, "resolve">;
 }>) {
   const currentTarget = async (accountId: string, policyId: string) => {
     const loaded = await repricingPolicies.loadOwnedRepricingPolicy(policyId, accountId);
@@ -68,90 +62,15 @@ export function createPricingHealthServices({
       },
     };
   };
-  const choices = async (
-    accountId?: string,
-    target?: Awaited<ReturnType<typeof currentTarget>>,
-    now?: string,
-  ): Promise<readonly GoalChoice[]> => {
+  const choices = async (): Promise<readonly GoalChoice[]> => {
     const adoptions = await forecastLedger.listGoalAdoptions();
-    const selected = selectableGoalChoices(pricingGoalDefinitions(), adoptions);
-    if (!accountId || !target || !now || !selected.some((goal) => goal.requiresEconomics)) return selected;
-    if (!economics) throw new Error("Pricing Health requires Economics resolution for Economics-backed goals.");
-    const listing = await db.query<{
-      inventory_item_id: string | null;
-      catalog_catalog_item_id: string;
-      price_amount: string;
-      price_currency_code: string | null;
-      quantity_cap: number;
-    }>(
-      `SELECT inventory_item_id, catalog_catalog_item_id, price_amount::text, price_currency_code, quantity_cap
-       FROM pricing_market_listing_inputs
-       WHERE seller_account_id=$1 AND status='active'
-         AND ($2::text = 'all-listings' OR listing_id = ANY($3::text[]))
-       ORDER BY catalog_catalog_item_id, product_id, listing_id LIMIT 1`,
-      [accountId, target.scope.kind, target.scope.kind === "listing-set" ? target.scope.listingIds : []],
-    );
-    const row = listing.rows[0];
-    const resolution =
-      row?.inventory_item_id && row.price_currency_code
-        ? await economics.resolve({
-            accountId,
-            scope: { kind: "native-marketplace" },
-            catalogItemId: row.catalog_catalog_item_id,
-            inventoryItemId: row.inventory_item_id,
-            marketUnitPrice: {
-              amount: normalizeMoneyAmount(row.price_amount),
-              currency: row.price_currency_code.toLowerCase(),
-            },
-            quantity: 1,
-            effectiveAt: now,
-          })
-        : null;
-    const provenance = resolution
-      ? resolution.kind === "resolved"
-        ? {
-            availability: "resolved" as const,
-            currency: resolution.economics.currency,
-            effectiveAt: resolution.economics.effectiveAt,
-            reason: null,
-            facts: Object.fromEntries(
-              Object.entries(resolution.economics.facts).map(([name, fact]) => [
-                name,
-                {
-                  effectiveValue: fact.effectiveValue,
-                  observedAt: fact.observedAt,
-                  source: fact.source.kind,
-                  override: fact.override,
-                },
-              ]),
-            ),
-          }
-        : {
-            availability: "unavailable" as const,
-            currency: resolution.currency,
-            effectiveAt: resolution.effectiveAt,
-            reason: resolution.reason,
-            facts: Object.fromEntries(
-              Object.entries(resolution.facts).map(([name, fact]) => [
-                name,
-                {
-                  effectiveValue: fact.effectiveValue,
-                  observedAt: fact.observedAt,
-                  source: fact.source.kind,
-                  override: fact.override,
-                },
-              ]),
-            ),
-          }
-      : null;
-    return selected.map((goal) => ({ ...goal, economics: goal.requiresEconomics ? provenance : null }));
+    return selectableGoalChoices(pricingGoalDefinitions(), adoptions);
   };
   return {
     getHealth: async (
       accountId: string,
       policyId: string | undefined,
       now: string,
-      parameterRequests?: readonly GoalParameterRequest[],
     ): Promise<PricingHealthData | null> => {
       const active = (await listAccountRepricingPolicies(db, { accountId })).filter(
         ({ status }) => status === "active",
@@ -212,7 +131,7 @@ export function createPricingHealthServices({
           ...rows.map((row) => ({ ...goal, ...discloseForecastGrade(row, policy.gradeDisclosureMinimumCount) })),
         );
       }
-      const goalChoices = validateGoalParameterRequests(await choices(accountId, target, now), parameterRequests);
+      const goalChoices = await choices();
       const currentFacts = stored.run
         ? await readComparisonFacts(db, { accountId, dryRunId: stored.run.dryRunId, now })
         : null;
@@ -274,14 +193,10 @@ export function createPricingHealthServices({
       accountId: string,
       policyId: string,
       context: Parameters<RepricingEngineServices["enqueueDryRun"]>[1],
-      requests?: readonly GoalParameterRequest[],
     ) => {
       const target = await currentTarget(accountId, policyId);
       if (!target || !isOneRuleUnconditional(target.rules)) return null;
-      const goalChoices = validateGoalParameterRequests(
-        await choices(accountId, target, new Date().toISOString()),
-        requests,
-      );
+      const goalChoices = await choices();
       const runs = [];
       for (const choice of goalChoices) {
         const body = buildCandidateBody(target.body, choice);

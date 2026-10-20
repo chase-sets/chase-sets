@@ -8,30 +8,13 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient, PricingApiError } from "../request-support/api-client";
 import { PricingHealthPage } from "../../features/pricing-health/ui/page";
 import { healthCopy as copy } from "../../features/pricing-health/ui/copy";
-import type { GoalParameterRequest } from "../../features/pricing-health/api/goal-comparison";
 
 export const PRICING_HEALTH_HREF = "/account/desk/pricing-health";
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "pricing.view" });
   try {
     const policyId = new URL(request.url).searchParams.get("policyId") ?? undefined;
-    const goalsText = new URL(request.url).searchParams.get("goals");
-    let goals: unknown;
-    if (goalsText) {
-      try {
-        goals = JSON.parse(goalsText);
-        if (!Array.isArray(goals)) throw new Error("goals must be an array");
-      } catch {
-        return { data: null, loadFailed: false, error: copy("goals.validation") };
-      }
-    }
-    return {
-      data: await createPricingRequestApiClient(request).getPricingHealth(
-        policyId,
-        goals as GoalParameterRequest[] | undefined,
-      ),
-      loadFailed: false,
-    };
+    return { data: await createPricingRequestApiClient(request).getPricingHealth(policyId), loadFailed: false };
   } catch (error) {
     if (error instanceof PricingApiError) {
       if (error.status >= 500) return { data: null, loadFailed: true };
@@ -51,24 +34,8 @@ export const action = defineFormAction({
     },
     compare: async ({ request, formData }) => {
       const policyId = String(formData.get("policyId") ?? "");
-      const goalsText = formData.get("goals") ?? new URL(request.url).searchParams.get("goals");
-      const goalsValue = typeof goalsText === "string" ? goalsText : undefined;
-      let goals: unknown;
-      if (goalsValue) {
-        try {
-          goals = JSON.parse(goalsValue);
-          if (!Array.isArray(goals)) throw new Error("goals must be an array");
-        } catch {
-          return { error: copy("goals.validation") };
-        }
-      }
-      await createPricingRequestApiClient(request).comparePricingHealth(
-        policyId,
-        goals as GoalParameterRequest[] | undefined,
-      );
-      const query = new URLSearchParams({ policyId });
-      if (goalsValue) query.set("goals", goalsValue);
-      return redirect(`${PRICING_HEALTH_HREF}?${query}`);
+      await createPricingRequestApiClient(request).comparePricingHealth(policyId);
+      return redirect(`${PRICING_HEALTH_HREF}?${new URLSearchParams({ policyId })}`);
     },
   },
   onUnknownIntent: () => ({ error: copy("computeError") }),
@@ -80,7 +47,7 @@ export const action = defineFormAction({
 });
 
 export default function PricingHealthRoute() {
-  const { data, loadFailed, error: loaderError } = useLoaderData<typeof loader>();
+  const { data, loadFailed } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as { error?: string } | undefined;
   const navigation = useNavigation();
   const revalidator = useRevalidator();
@@ -93,7 +60,7 @@ export default function PricingHealthRoute() {
     <PricingHealthPage
       data={data}
       loading={navigation.state === "loading" && navigation.formMethod?.toLowerCase() === "get"}
-      error={loaderError ?? (loadFailed ? copy("error.description") : actionData?.error)}
+      error={loadFailed ? copy("error.description") : actionData?.error}
       policySelector={
         data && data.policies.length > 1 ? (
           <RouterForm method="get" action={PRICING_HEALTH_HREF}>

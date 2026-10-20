@@ -27,7 +27,6 @@ import type {
 } from "../../features/repricing-policies/read-model/controls";
 import type { RepricingActivityFilter, listRepricingActivity } from "../../features/repricing-engine/api/activity";
 import type { PricingHealthData } from "../../features/pricing-health/api/services";
-import type { GoalParameterRequest } from "../../features/pricing-health/api/goal-comparison";
 
 export type RepricingPolicyListItem = RepricingPolicyState & Readonly<{ changesUsedToday: number }>;
 export type RepricingBudget = Readonly<{ day: string; changesUsed: number }>;
@@ -120,15 +119,11 @@ export function createPricingApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async getPricingHealth(
-      policyId?: string,
-      goals?: readonly GoalParameterRequest[],
-    ): Promise<PricingHealthData & { canCompute: boolean }> {
+    async getPricingHealth(policyId?: string): Promise<PricingHealthData & { canCompute: boolean }> {
       return parseJsonResponse(
         await client.account["pricing-health"].$get({
           query: {
             ...(policyId === undefined ? {} : { policyId }),
-            ...(goals ? { goals: JSON.stringify(goals) } : {}),
           },
           header: headers,
         }),
@@ -144,12 +139,10 @@ export function createPricingApiClient({
     },
     async comparePricingHealth(
       policyId: string,
-      goals?: readonly GoalParameterRequest[],
     ): Promise<{ runs: readonly { goalId: string; goalVersion: number; dryRunId: string }[] }> {
       return parseJsonResponse(
         await client.account["pricing-health"][":policyId"].compare.$post({
           param: { policyId },
-          json: goals ? { goals } : {},
           header: headers,
         }),
       );

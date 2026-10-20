@@ -6,7 +6,6 @@ import { Hono } from "hono";
 import type { PricingApiEnv } from "../../../api";
 import { createPricingHealthRoutes } from "../api/route";
 import { PricingHealthCandidateRefusedError, type PricingHealthServices } from "../api/services";
-import { GoalComparisonValidationError } from "../api/goal-comparison";
 import contextManifest from "../../../context.json";
 import { SELLER_DESK_SURFACES } from "../../../../../contracts/seller-desk";
 import PricingHealthRoute, { action, loader } from "../../../routes/marketplace/account-desk-pricing-health";
@@ -39,35 +38,14 @@ describe("Pricing Health route", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: { code: "candidate_enqueue_refused" } });
   });
-  it("reports whole-request goal validation as 400", async () => {
-    const { app, services } = setup();
-    services.compare.mockRejectedValue(new GoalComparisonValidationError(["duplicate goal fixed-percentile@1"]));
-    const response = await app.request("/health/rpp_owned/compare", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        goals: [
-          { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 65 } },
-          { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 66 } },
-        ],
-      }),
-    });
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "validation_failed" } });
-  });
-  it.each([
-    ["malformed JSON", "{", 400],
-    ["non-array goals", JSON.stringify({ goals: {} }), 400],
-    ["unknown key", JSON.stringify({ goals: [], extra: true }), 400],
-    ["array body", JSON.stringify([]), 400],
-  ] as const)("rejects closed compare schema: %s", async (_, body, status) => {
+  it.each([["non-empty body", JSON.stringify({})], ["text body", "compare"]] as const)("rejects closed compare schema: %s", async (_, body) => {
     const { app, services } = setup();
     const response = await app.request("/health/rpp_owned/compare", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
     });
-    expect(response.status).toBe(status);
+    expect(response.status).toBe(400);
     expect(services.compare).not.toHaveBeenCalled();
   });
   it("registers the canonical Seller Desk page and authorized route", () => {

@@ -3,47 +3,21 @@ import {
   Card,
   DataTable,
   Fieldset,
-  KeyValueList,
   LinkButton,
-  ProgressiveDisclosure,
   Stack,
   Text,
-  TextInput,
 } from "@chase-sets/design-system";
-import { useState } from "react";
-import { useNavigate } from "react-router";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
 import {
   goalExplanation,
   goalLabel,
   healthCopy as copy,
   healthReasonLabel,
-  localizedEconomicsFact,
-  localizedEconomicsSource,
   localizedGoalStatus,
   recommendationCopy,
 } from "./copy";
 
 export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>) {
-  const navigate = useNavigate();
-  const [parameters, setParameters] = useState(() =>
-    Object.fromEntries(goals.map((goal) => [`${goal.goalId}@${goal.goalVersion}`, { ...goal.parameters }])),
-  );
-  const updateUrl = (next: typeof parameters) => {
-    if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    url.searchParams.set(
-      "goals",
-      JSON.stringify(
-        goals.map((goal) => ({
-          goalId: goal.goalId,
-          goalVersion: goal.goalVersion,
-          parameters: next[`${goal.goalId}@${goal.goalVersion}`] ?? goal.parameters,
-        })),
-      ),
-    );
-    navigate(`${url.pathname}${url.search}`, { replace: true });
-  };
   return (
     <Card elevation="tinted" data-testid="pricing-health-goal-picker">
       <Card.Header>
@@ -56,65 +30,8 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
         ) : (
           <Stack gap={3}>
             {goals.map((goal) => (
-              <Fieldset
-                key={`${goal.goalId}@${goal.goalVersion}`}
-                legend={goalLabel({
-                  ...goal,
-                  parameters: parameters[`${goal.goalId}@${goal.goalVersion}`] ?? goal.parameters,
-                })}
-              >
+              <Fieldset key={`${goal.goalId}@${goal.goalVersion}`} legend={goalLabel(goal)}>
                 <Text size="sm">{goalExplanation(goal)}</Text>
-                <ProgressiveDisclosure title={copy("goals.advanced")}>
-                  <Stack gap={2}>
-                    {Object.entries(goal.parameterSchema).map(([parameter, bounds]) => {
-                      const key = `${goal.goalId}@${goal.goalVersion}`;
-                      const value = parameters[key]?.[parameter] ?? bounds.default;
-                      const numericValue = Number(value);
-                      const invalid =
-                        !Number.isFinite(numericValue) ||
-                        numericValue < bounds.minimum ||
-                        numericValue > bounds.maximum;
-                      return (
-                        <TextInput
-                          key={parameter}
-                          type="number"
-                          label={healthCopyParameterLabel(goal, parameter)}
-                          name={`goal.${goal.goalId}.${goal.goalVersion}.${parameter}`}
-                          value={String(value)}
-                          min={bounds.minimum}
-                          max={bounds.maximum}
-                          step="any"
-                          error={invalid ? copy("goals.validation") : undefined}
-                          onChange={(event) => {
-                            const next = {
-                              ...parameters,
-                              [key]: { ...parameters[key], [parameter]: Number(event.target.value) },
-                            };
-                            setParameters(next);
-                            updateUrl(next);
-                          }}
-                        />
-                      );
-                    })}
-                  </Stack>
-                  <KeyValueList
-                    items={
-                      goal.economics
-                        ? Object.entries(goal.economics.facts).map(([name, fact]) => ({
-                            key: localizedEconomicsFact(name),
-                            value: `${String(fact.effectiveValue)} · ${localizedEconomicsSource(fact.source)} · ${fact.observedAt}`,
-                          }))
-                        : []
-                    }
-                  />
-                  <Text size="sm">
-                    {goal.requiresEconomics
-                      ? goal.economics?.availability === "resolved"
-                        ? copy("goals.economics.provenance")
-                        : copy("goals.economics.unavailable")
-                      : copy("goals.economics.default")}
-                  </Text>
-                </ProgressiveDisclosure>
               </Fieldset>
             ))}
           </Stack>
@@ -122,10 +39,6 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
       </Card.Body>
     </Card>
   );
-}
-
-function healthCopyParameterLabel(goal: GoalChoice, parameter: string): string {
-  return copy(`goals.parameter.${goal.goalId}.${parameter}`) || parameter;
 }
 
 export function GoalComparison({

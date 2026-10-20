@@ -25,7 +25,6 @@ export function buildPricingApi(services: PricingServices) {
       createPricingHealthServices({
         ...services,
         forecastLedger: services.forecastLedger,
-        economics: services.economics,
       }),
     ),
   );

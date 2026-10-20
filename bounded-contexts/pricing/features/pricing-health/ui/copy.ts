@@ -15,14 +15,6 @@ export const localizedGoalStatus = (value: string) =>
   hasTranslation(`pricing.features.pricingHealth.goals.statusValue.${value}`)
     ? healthCopy(`goals.statusValue.${value}`)
     : healthCopy("goals.statusValue.unknown");
-export const localizedEconomicsFact = (value: string) =>
-  hasTranslation(`pricing.features.pricingHealth.goals.economics.fact.${value}`)
-    ? healthCopy(`goals.economics.fact.${value}`)
-    : healthCopy("goals.economics.fact.unknown", { value });
-export const localizedEconomicsSource = (value: string) =>
-  hasTranslation(`pricing.features.pricingHealth.goals.economics.source.${value}`)
-    ? healthCopy(`goals.economics.source.${value}`)
-    : healthCopy("goals.economics.source.unknown", { value });
 export const healthNumber = (value: number | null) =>
   value === null
     ? healthCopy("unavailable")

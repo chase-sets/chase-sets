@@ -134,27 +134,13 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     const before = await (await page.request.get(`${policiesApi}/${created.policyId}`)).json();
     await page.goto(`/account/desk/pricing-health?policyId=${created.policyId}`);
     const compare = page.getByRole("button", { name: "Compare goals", exact: true });
-    const editDisclosure = page.getByRole("button", { name: "Advanced controls and provenance", exact: true }).first();
-    await expect(editDisclosure).toBeVisible();
-    await editDisclosure.focus();
-    await page.keyboard.press("Enter");
-    await expect(editDisclosure).toHaveAttribute("aria-expanded", "true");
-    const parameter = page.getByRole("spinbutton").first();
-    await expect(parameter).toBeVisible();
-    await parameter.fill("66");
-    await expect.poll(() => new URL(page.url()).searchParams.get("goals") ?? "").toContain("66");
-    await editDisclosure.focus();
-    await page.keyboard.press("Enter");
-    await expect(editDisclosure).toHaveAttribute("aria-expanded", "false");
     await expect(compare).toBeVisible();
     await compare.focus();
     await expect(compare).toBeFocused();
     await page.keyboard.press("Enter");
     const read = async () =>
       (await (
-        await page.request.get(
-          `${healthApi}?policyId=${created!.policyId}&goals=${encodeURIComponent(new URL(page.url()).searchParams.get("goals") ?? "")}`,
-        )
+        await page.request.get(`${healthApi}?policyId=${created!.policyId}`)
       ).json()) as PricingHealthResponse;
     const first = await read();
     // 45 s setup + <=75 s candidates (5 × 12 s) + 30 s UI/axe/responsive + 20 s drain = 170 s < 180 s.
@@ -213,23 +199,11 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     ];
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
-      const disclosure = page.getByRole("button", { name: "Advanced controls and provenance", exact: true }).first();
-      await expect(disclosure).toHaveAttribute("aria-expanded", "false");
-      await disclosure.focus();
-      await page.keyboard.press("Enter");
-      await expect(disclosure).toHaveAttribute("aria-expanded", "true");
       expect(
         await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
       ).toBe(true);
       await captureAccessibilityEvidence({ page, testInfo, surface: `Pricing Goal comparison ${viewport.width}` });
-      await disclosure.focus();
-      await page.keyboard.press("Enter");
-      await expect(disclosure).toHaveAttribute("aria-expanded", "false");
     }
-    const disclosure = page.getByRole("button", { name: "Advanced controls and provenance", exact: true }).first();
-    await disclosure.focus();
-    await page.keyboard.press("Enter");
-    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
     await page.setViewportSize({ width: 360, height: 800 });
     await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-comparison-360" });
     await page.setViewportSize({ width: 390, height: 844 });
