@@ -2149,21 +2149,18 @@ const SCRYDEX_LORCANA_PROFILE_KEY = "lorcana-card-print-source-observation";
 const SCRYDEX_ONE_PIECE_SCOPE = {
   provider: "scrydex",
   profileKey: SCRYDEX_ONE_PIECE_PROFILE_KEY,
-  ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
   language: "en",
   setId: "op-01",
 };
 const SCRYDEX_ONE_PIECE_SET_SCOPE = {
   provider: "scrydex",
   profileKey: SCRYDEX_ONE_PIECE_SET_PROFILE_KEY,
-  ingestionUnitKey: "scrydex:one-piece:set:reference-data",
   language: "en",
   setId: "op-01",
 };
 const SCRYDEX_LORCANA_SCOPE = {
   provider: "scrydex",
   profileKey: SCRYDEX_LORCANA_PROFILE_KEY,
-  ingestionUnitKey: "scrydex:lorcana:single-card:source-observation-import",
   language: "en",
   setId: "1",
 };
@@ -2189,6 +2186,7 @@ async function resolvedScrydexUnitKey(profileKey: string): Promise<string> {
 async function runQueuedScrydexImport(input: {
   policy: CatalogIntegrationRolloutControlPolicy;
   scope: Record<string, unknown>;
+  profileSnapshot?: Record<string, unknown> | null;
   profileVersions?: ReturnType<typeof sharedScrydexProfileVersions>;
 }) {
   const originalFetch = globalThis.fetch;
@@ -2198,7 +2196,11 @@ async function runQueuedScrydexImport(input: {
   process.env.SCRYDEX_TEAM_ID = "main";
   const fetch = vi.fn(scrydexOnePieceFetch());
   globalThis.fetch = fetch as typeof globalThis.fetch;
-  const harness = createIntegrationJobClaimHandoffHarness({ scope: input.scope, renewSucceeds: true });
+  const harness = createIntegrationJobClaimHandoffHarness({
+    scope: input.scope,
+    profileSnapshot: input.profileSnapshot ?? null,
+    renewSucceeds: true,
+  });
   try {
     const services = createSourceObservationRuntime(
       harness.deps,
@@ -2290,9 +2292,11 @@ describe("source observation runtime: resolved-unit import rollout enforcement",
       scope: Record<string, unknown>;
       profileSnapshot: Record<string, unknown>;
     };
+    expect(enqueuedPayload.profileSnapshot).toMatchObject({ ingestionUnitKey: stoppedUnitKey });
     const denied = await runQueuedScrydexImport({
       policy: createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] }),
       scope: enqueuedPayload.scope,
+      profileSnapshot: enqueuedPayload.profileSnapshot,
       profileVersions: sharedScrydexProfileVersions(),
     });
     expect(denied.harness.job.status).toBe("failed");
