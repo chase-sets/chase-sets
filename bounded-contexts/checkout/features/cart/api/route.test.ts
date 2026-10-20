@@ -16,6 +16,9 @@ import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./route";
 import type { CheckoutCartLineRow } from "../read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "./runtime";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { CheckoutCartLineOutcome } from "../../command-attempts/api/contracts";
+import { CheckoutCommandAttemptRefusal } from "../../command-attempts/api/cart-attempt";
 
 function buildApp(
   options: Readonly<{
@@ -33,28 +36,168 @@ function buildApp(
   });
 }
 
-function createServices(): CheckoutCartServices {
+let testAttemptSequence = 0;
+
+/** One distinct attempt id per test request body, as a deliberate submission would mint. */
+function nextTestAttemptId() {
+  testAttemptSequence += 1;
+  return `route-test-attempt-${String(testAttemptSequence).padStart(6, "0")}`;
+}
+
+/**
+ * Per-command doubles for the route surface. The route reaches Cart only
+ * through `executeCartAttempt`; this adapter turns one attempt into the
+ * per-command calls below and folds their answers into a committed vector, so
+ * each test can assert which owner and command the route asked for.
+ */
+function createRouteCartCommands() {
   return {
+    addLine: vi.fn(
+      async (_params: Readonly<Record<string, unknown> & { accountId: string }>, _context: EventStoreContext) => ({
+        lineId: "cli_1",
+        version: 1,
+        status: "added" as "added" | "merged",
+      }),
+    ),
+    addLines: vi.fn(
+      async (
+        _params: Readonly<{ accountId: string; lines: readonly Record<string, unknown>[] }>,
+        _context: EventStoreContext,
+      ) => ({
+        lines: [
+          {
+            index: 0,
+            lineId: "cli_1" as string | null,
+            status: "added" as "added" | "merged" | "failed",
+            message: null as string | null,
+          },
+          {
+            index: 1,
+            lineId: "cli_2" as string | null,
+            status: "merged" as "added" | "merged" | "failed",
+            message: null as string | null,
+          },
+        ],
+      }),
+    ),
+    setLineQuantity: vi.fn(
+      async (
+        _params: Readonly<{ accountId: string; lineId: string; quantity: number }>,
+        _context: EventStoreContext,
+      ) => ({
+        lineId: "cli_1",
+        version: 2,
+      }),
+    ),
+    setLineFulfillment: vi.fn(
+      async (
+        _params: Readonly<Record<string, unknown> & { accountId: string; lineId: string }>,
+        _context: EventStoreContext,
+      ) => ({
+        lineId: "cli_1",
+        version: 4,
+      }),
+    ),
+    removeLine: vi.fn(
+      async (_params: Readonly<{ accountId: string; lineId: string }>, _context: EventStoreContext) => ({
+        lineId: "cli_1",
+        version: 3,
+      }),
+    ),
+  };
+}
+
+function createServices() {
+  const commands = createRouteCartCommands();
+  const executeCartAttempt = vi.fn<CheckoutCartServices["executeCartAttempt"]>(async (request, context) => {
+    const vector: CheckoutCartLineOutcome[] = [];
+    if (request.kind === "cart.add-lines") {
+      const added = await commands.addLines(
+        { accountId: request.ownerKey, lines: request.commands.map(({ type: _type, ...line }) => line) },
+        context,
+      );
+      for (const line of added.lines.slice(0, request.commands.length)) {
+        vector.push({
+          index: line.index,
+          command: "add",
+          outcome: line.status === "failed" ? "error" : "succeeded",
+          lineId: line.lineId,
+          status: line.status === "failed" ? null : line.status,
+          version: 1,
+          message: line.message,
+        });
+      }
+    } else {
+      for (const [index, command] of request.commands.entries()) {
+        try {
+          const { type, ...fields } = command;
+          const answer =
+            type === "add"
+              ? await commands.addLine({ accountId: request.ownerKey, ...fields }, context)
+              : type === "quantity"
+                ? await commands.setLineQuantity(
+                    { accountId: request.ownerKey, ...(fields as { lineId: string; quantity: number }) },
+                    context,
+                  )
+                : type === "fulfillment"
+                  ? await commands.setLineFulfillment(
+                      { accountId: request.ownerKey, ...(fields as { lineId: string }) },
+                      context,
+                    )
+                  : await commands.removeLine(
+                      { accountId: request.ownerKey, ...(fields as { lineId: string }) },
+                      context,
+                    );
+          vector.push({
+            index,
+            command: type,
+            outcome: "succeeded",
+            lineId: answer.lineId,
+            status:
+              type === "add"
+                ? (answer as unknown as { status: "added" | "merged" }).status
+                : type === "quantity"
+                  ? "quantity-updated"
+                  : type === "fulfillment"
+                    ? "fulfillment-updated"
+                    : "removed",
+            version: answer.version,
+            message: null,
+          });
+        } catch (error) {
+          if (error instanceof CheckoutDomainError && error.message === "Cart is owned by a different account.") {
+            throw error;
+          }
+          vector.push({
+            index,
+            command: command.type,
+            outcome: "error",
+            lineId: null,
+            status: null,
+            version: 0,
+            message: error instanceof Error ? error.message : "refused",
+          });
+        }
+      }
+    }
+    return {
+      replayed: false,
+      result: {
+        schemaVersion: 1,
+        kind: request.kind,
+        fingerprint: "0".repeat(64),
+        actorBinding: { kind: request.ownerKey.startsWith("anon_") ? "anonymous" : "account", digest: "0".repeat(64) },
+        target: request.target,
+        requestHash: request.requestHash,
+        ownerStatus: "committed",
+        vector,
+      },
+    };
+  });
+  const services = {
     commandHandler: vi.fn() as never,
-    addLine: vi.fn<CheckoutCartServices["addLine"]>(async () => ({
-      lineId: "cli_1" as never,
-      version: 1,
-      status: "added",
-    })),
-    addLines: vi.fn<CheckoutCartServices["addLines"]>(async () => ({
-      requestedLineCount: 2,
-      addedLineCount: 1,
-      mergedLineCount: 1,
-      failedLineCount: 0,
-      lines: [
-        { index: 0, lineId: "cli_1" as never, status: "added", message: null },
-        { index: 1, lineId: "cli_2" as never, status: "merged", message: null },
-      ],
-    })),
-    setLineQuantity: vi.fn(async () => ({ lineId: "cli_1" as never, version: 2 })),
-    setLineFulfillment: vi.fn(async () => ({ lineId: "cli_1" as never, version: 4 })),
-    removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 3 })),
-    checkout: vi.fn(async () => ({ version: 5 })),
+    executeCartAttempt,
+    lookupCartAttempt: vi.fn<CheckoutCartServices["lookupCartAttempt"]>(),
     claimCart: vi.fn(async () => ({ version: 1 })),
     listCartLines: vi.fn(async () => []),
     resolveCartSourceAuthority: vi.fn<CheckoutCartServices["resolveCartSourceAuthority"]>(async () => ({
@@ -88,6 +231,7 @@ function createServices(): CheckoutCartServices {
     })),
     projectors: [],
   } satisfies CheckoutCartServices;
+  return Object.assign(services, commands);
 }
 
 function accountCartActor(overrides: TestActorOverrides = {}): NonNullable<CheckoutApiEnv["Variables"]["actor"]> {
@@ -242,6 +386,7 @@ describe("checkout cart routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           catalogItemId: "cat_charizard",
           productId: "cat_charizard::form=raw",
           itemTitle: "Charizard",
@@ -254,7 +399,7 @@ describe("checkout cart routes", () => {
     );
 
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       id: "cli_1",
       version: 1,
       status: "added",
@@ -312,6 +457,7 @@ describe("checkout cart routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           catalogItemId: "cat_charizard",
           productId: "cat_charizard::",
           itemTitle: "Charizard",
@@ -367,6 +513,7 @@ describe("checkout cart routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
         }),
       }),
@@ -402,7 +549,7 @@ describe("checkout cart routes", () => {
           "x-checkout-anonymous-cart-id": "  anon_raw_marker  ",
           "x-account-id": "acc_attacker",
         },
-        body: JSON.stringify({ accountId: "acc_attacker" }),
+        body: JSON.stringify({ attemptId: nextTestAttemptId(), accountId: "acc_attacker" }),
       }),
     );
     const responseText = await response.text();
@@ -430,7 +577,7 @@ describe("checkout cart routes", () => {
             "Content-Type": "application/json",
             "x-checkout-anonymous-cart-id": headerValue,
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ attemptId: nextTestAttemptId() }),
         }),
       );
 
@@ -449,7 +596,7 @@ describe("checkout cart routes", () => {
       new Request("http://checkout.test/account/cart/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": "anon_raw_marker" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       });
 
     expect((await unauthenticated.fetch(request())).status).toBe(401);
@@ -479,7 +626,7 @@ describe("checkout cart routes", () => {
       new Request("http://checkout.test/account/cart/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       }),
     );
 
@@ -541,7 +688,7 @@ describe("checkout cart routes", () => {
       new Request("http://checkout.test/account/cart/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       }),
     );
 
@@ -633,6 +780,7 @@ describe("checkout cart routes", () => {
             "x-checkout-anonymous-cart-id": "anon_cart_sensitive",
           },
           body: JSON.stringify({
+            attemptId: nextTestAttemptId(),
             optimization: {
               decision,
               lineId: "cli_optimized_sensitive",
@@ -685,6 +833,7 @@ describe("checkout cart routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           catalogItemId: "cat_charizard",
           productId: "cat_charizard::form=raw",
           itemTitle: "Charizard",
@@ -724,6 +873,7 @@ describe("checkout cart routes", () => {
           "x-checkout-anonymous-cart-id": "anon_cart_1",
         },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           catalogItemId: "cat_charizard",
           productId: "cat_charizard::form=raw",
           itemTitle: "Charizard",
@@ -752,130 +902,68 @@ describe("checkout cart routes", () => {
     );
   });
 
-  it("blocks a new anonymous Buy Cart line after the device line limit", async () => {
+  // The guest line limit is decided by the attempt against the cart's own
+  // evolved state (see cart-attempt tests); the route's job is to pass the limit
+  // and map the attempt's refusal onto the unchanged localized 400 body.
+  it("passes the device line limit to every guest capture attempt and maps its refusal", async () => {
     const services = createServices();
-    vi.mocked(services.listCartLines).mockResolvedValue(
-      Array.from({ length: 50 }, (_, index) => cartLine(index)) as never,
+    services.executeCartAttempt.mockRejectedValue(
+      new CheckoutCommandAttemptRefusal("Anonymous carts may hold at most 50 lines.", "anonymous_cart_limit_exceeded"),
     );
-    const app = buildApp({
-      actor: null,
-      services,
-    });
+    const app = buildApp({ actor: null, services });
 
-    const response = await app.fetch(
-      new Request("http://checkout.test/guest/cart", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-checkout-anonymous-cart-id": "anon_cart_limit",
-          "x-forwarded-for": "203.0.113.101",
-        },
-        body: JSON.stringify({
-          catalogItemId: "cat_new",
-          productId: "cat_new::form=raw",
-          itemTitle: "New card",
-          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
-          quantity: 1,
+    for (const [path, body, forwardedFor] of [
+      [
+        "/guest/cart",
+        { catalogItemId: "cat_new", productId: "cat_new::form=raw", itemTitle: "New card", quantity: 1 },
+        "203.0.113.101",
+      ],
+      [
+        "/guest/cart/bulk",
+        { lines: [{ catalogItemId: "cat_new_1", productId: "cat_new_1::form=raw", itemTitle: "New 1", quantity: 1 }] },
+        "203.0.113.103",
+      ],
+    ] as const) {
+      const response = await app.fetch(
+        new Request(`http://checkout.test${path}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-cart-id": "anon_cart_limit",
+            "x-forwarded-for": forwardedFor,
+          },
+          body: JSON.stringify({ attemptId: nextTestAttemptId(), ...body }),
         }),
-      }),
-    );
+      );
 
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "anonymous_cart_limit_exceeded",
-      },
-    });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "anonymous_cart_limit_exceeded" } });
+    }
+    expect(services.executeCartAttempt.mock.calls.map(([request]) => request.newLineLimit)).toEqual([50, 50]);
     expect(services.addLine).not.toHaveBeenCalled();
+    expect(services.addLines).not.toHaveBeenCalled();
   });
 
-  it("allows an anonymous Buy Cart duplicate line at the device line limit", async () => {
+  it("never applies the guest line limit to signed-in account capture", async () => {
     const services = createServices();
-    vi.mocked(services.listCartLines).mockResolvedValue([
-      {
-        ...cartLine(0),
-        catalog_catalog_item_id: "cat_charizard",
-        product_id: "cat_charizard::form=raw",
-      },
-      ...Array.from({ length: 49 }, (_, index) => cartLine(index + 1)),
-    ] as never);
-    const app = buildApp({
-      actor: null,
-      services,
-    });
+    const app = buildApp({ actor: accountCartActor(), services });
 
     const response = await app.fetch(
-      new Request("http://checkout.test/guest/cart", {
+      new Request("http://checkout.test/account/cart", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-checkout-anonymous-cart-id": "anon_cart_duplicate",
-          "x-forwarded-for": "203.0.113.102",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           catalogItemId: "cat_charizard",
           productId: "cat_charizard::form=raw",
           itemTitle: "Charizard",
-          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
           quantity: 1,
         }),
       }),
     );
 
     expect(response.status).toBe(201);
-    expect(services.addLine).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accountId: "anon_cart_duplicate",
-        productId: "cat_charizard::form=raw",
-      }),
-      expect.any(Object),
-    );
-  });
-
-  it("blocks anonymous Buy Cart bulk adds that would exceed the device line limit", async () => {
-    const services = createServices();
-    vi.mocked(services.listCartLines).mockResolvedValue(
-      Array.from({ length: 49 }, (_, index) => cartLine(index)) as never,
-    );
-    const app = buildApp({
-      actor: null,
-      services,
-    });
-
-    const response = await app.fetch(
-      new Request("http://checkout.test/guest/cart/bulk", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-checkout-anonymous-cart-id": "anon_cart_bulk_limit",
-          "x-forwarded-for": "203.0.113.103",
-        },
-        body: JSON.stringify({
-          lines: [
-            {
-              catalogItemId: "cat_new_1",
-              productId: "cat_new_1::form=raw",
-              itemTitle: "New card 1",
-              quantity: 1,
-            },
-            {
-              catalogItemId: "cat_new_2",
-              productId: "cat_new_2::form=raw",
-              itemTitle: "New card 2",
-              quantity: 1,
-            },
-          ],
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "anonymous_cart_limit_exceeded",
-      },
-    });
-    expect(services.addLines).not.toHaveBeenCalled();
+    expect(services.executeCartAttempt.mock.calls[0]?.[0].newLineLimit).toBeUndefined();
   });
 
   it("rate limits repeated anonymous Buy Cart capture requests", async () => {
@@ -896,6 +984,7 @@ describe("checkout cart routes", () => {
             "x-forwarded-for": "203.0.113.104",
           },
           body: JSON.stringify({
+            attemptId: nextTestAttemptId(),
             catalogItemId: `cat_rate_${index}`,
             productId: `cat_rate_${index}::form=raw`,
             itemTitle: "Rate limited card",
@@ -930,6 +1019,7 @@ describe("checkout cart routes", () => {
           "x-checkout-anonymous-cart-id": "anon_cart_1",
         },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           lineOutcomes: [{ lineId: "cli_waiting", outcome: "save-for-later" }],
         }),
       }),
@@ -957,6 +1047,7 @@ describe("checkout cart routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           lines: [
             {
               catalogItemId: "cat_charizard",
@@ -1018,7 +1109,7 @@ describe("checkout cart routes", () => {
           "Content-Type": "application/json",
           "x-checkout-anonymous-cart-id": "anon_cart_1",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       }),
     );
 
@@ -1055,7 +1146,7 @@ describe("checkout cart routes", () => {
         cookie: "chase_sets_guest_checkout=secret-token",
         "x-checkout-anonymous-cart-id": "anon_cart_secret",
       },
-      body: JSON.stringify({ providerPayload: "secret-body" }),
+      body: JSON.stringify({ attemptId: nextTestAttemptId(), providerPayload: "secret-body" }),
     });
 
     const response = await app.fetch(request);
@@ -1111,7 +1202,7 @@ describe("checkout cart routes", () => {
           "Content-Type": "application/json",
           "x-checkout-anonymous-cart-id": "anon_cart_1",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       }),
     );
 
@@ -1131,6 +1222,7 @@ describe("checkout cart routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId: nextTestAttemptId(),
           fulfillmentMode: "locked-listing",
           lockedListingId: "lst_card_vault",
         }),
@@ -1177,7 +1269,7 @@ describe("guest cart routes on a claimed anonymous key", () => {
       new Request(`http://checkout.test${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": CLAIMED_SOURCE },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ attemptId: nextTestAttemptId(), ...body }),
       }),
     );
 
@@ -1248,6 +1340,7 @@ describe("guest cart routes on a claimed anonymous key", () => {
       method: "POST",
       headers: { "content-type": "application/json", "x-checkout-anonymous-cart-id": source },
       body: JSON.stringify({
+        attemptId: nextTestAttemptId(),
         lines: [
           {
             catalogItemId: "cat_2",
@@ -1284,7 +1377,7 @@ describe("guest cart routes on a claimed anonymous key", () => {
           new Request("http://checkout.test/guest/cart/cli_claimed/quantity", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": CLAIMED_SOURCE },
-            body: JSON.stringify({ quantity: 2 }),
+            body: JSON.stringify({ attemptId: nextTestAttemptId(), quantity: 2 }),
           }),
         ),
       ),
@@ -1310,18 +1403,19 @@ describe("guest cart routes on a claimed anonymous key", () => {
       new Request("http://checkout.test/guest/cart/cli_1/quantity", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": "anon_unclaimed" },
-        body: JSON.stringify({ quantity: 3 }),
+        body: JSON.stringify({ attemptId: nextTestAttemptId(), quantity: 3 }),
       }),
     );
     const removal = await app.request(
       new Request("http://checkout.test/guest/cart/cli_1/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": "anon_unclaimed" },
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       }),
     );
 
-    expect(await quantity.json()).toEqual({ id: "cli_1", version: 2, status: "quantity-updated" });
-    expect(await removal.json()).toEqual({ id: "cli_1", version: 3, status: "removed" });
+    expect(await quantity.json()).toMatchObject({ id: "cli_1", version: 2, status: "quantity-updated" });
+    expect(await removal.json()).toMatchObject({ id: "cli_1", version: 3, status: "removed" });
     expect(vi.mocked(services.setLineQuantity).mock.calls[0]?.[0]).toMatchObject({
       accountId: "anon_unclaimed",
       lineId: "cli_1",
@@ -1459,7 +1553,7 @@ describe("post-claim cart reads through the real Cart runtime", () => {
       app.request("/guest/cart/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": ownerKey },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       });
 
     const refused = await readiness(CLAIMED_SOURCE);
@@ -1489,7 +1583,7 @@ describe("post-claim cart reads through the real Cart runtime", () => {
       const response = await app.request("/guest/cart/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       });
 
       expect(response.status).toBe(400);
@@ -1507,7 +1601,7 @@ describe("post-claim cart reads through the real Cart runtime", () => {
         new Request("http://checkout.test/account/cart/readiness", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...headers },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ attemptId: nextTestAttemptId() }),
         }),
       );
 
@@ -1614,7 +1708,7 @@ describe("post-claim cart reads through the real Cart runtime", () => {
       const response = await app.request("/guest/cart/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": ownerKey },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ attemptId: nextTestAttemptId() }),
       });
       return { response, body: await response.text(), work: [...harness.work] };
     };
