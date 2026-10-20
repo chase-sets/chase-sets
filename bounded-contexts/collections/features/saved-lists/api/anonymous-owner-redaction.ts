@@ -2,9 +2,13 @@ import { type PgQueryable, type PgTransactionalPool, withPgTransaction } from "@
 import { readAnonymousOwnerActivation } from "../../../support/runtime-support/anonymous-owner-activation";
 import { savedListCanonicalIdentifier, savedListFingerprint } from "./anonymous-owner";
 
+/** The legacy raw-owner count `observe()` runs; capture tooling explains this exact statement. */
+export const legacyAnonymousOwnerCountSql = `SELECT count(*)::text AS remaining
+    FROM collections_anonymous_saved_list_intents WHERE anonymous_owner_id IS NOT NULL`;
+
 async function observe(db: PgQueryable) {
   try {
-    const activation = await readAnonymousOwnerActivation(db);
+    const activation = await readAnonymousOwnerActivation(db, "none");
     const ledger = await db.query<{ migration_id: string }>(
       "SELECT migration_id FROM bounded_context_schema_migrations ORDER BY migration_id",
     );
@@ -15,8 +19,7 @@ async function observe(db: PgQueryable) {
       AND t.tgname = 'collections_anonymous_owner_raw_fence' AND t.tgenabled IN ('O', 'A')
       AND p.proname = 'collections_anonymous_owner_raw_fence' AND NOT t.tgisinternal
   ) AS present`);
-    const count = await db.query<{ remaining: string }>(`SELECT count(*)::text AS remaining
-    FROM collections_anonymous_saved_list_intents WHERE anonymous_owner_id IS NOT NULL`);
+    const count = await db.query<{ remaining: string }>(legacyAnonymousOwnerCountSql);
     return {
       activation,
       schemaLedger: ledger.rows.map((row) => row.migration_id),
