@@ -89,7 +89,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Permission-guarded operator action; the operator creating the account is not the consenting subject, so there is no registration moment to bind.",
-      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 114 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 117 }]
     },
     {
       "id": "protected-user-administration",
