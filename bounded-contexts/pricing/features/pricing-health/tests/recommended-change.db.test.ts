@@ -15,6 +15,7 @@ import {
   comparisonAccountId as accountId,
   comparisonPolicyId as policyId,
   comparisonNow as now,
+  comparisonAdvancedTargets,
   comparisonContribution,
   comparisonSummary,
   comparisonTestServices,
@@ -160,10 +161,7 @@ describeDb("S12 over stored synthetic A1 runs through the real composition", () 
     },
   );
 
-  it.each([
-    ["multi-rule", [...dryRunBody.rules, ...dryRunBody.rules]],
-    ["conditional", [{ ...dryRunBody.rules[0]!, conditions: [{ type: "quantity-at-least" as const, quantity: 2 }] }]],
-  ])("emits no recommendation or runs for %s targets", async (_, rules) => {
+  it.each(comparisonAdvancedTargets)("emits no recommendation or runs for %s targets", async (_, rules) => {
     await createComparisonPolicy(pools.pricing, services, rules);
     expect((await read())?.recommendation).toBeUndefined();
     expect(await services.health.compare(accountId, policyId, dryRunContext)).toBeNull();

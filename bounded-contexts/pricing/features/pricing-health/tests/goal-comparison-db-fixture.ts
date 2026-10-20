@@ -18,6 +18,21 @@ export const comparisonNow = "2026-10-20T00:00:00.000Z";
 export const comparisonPolicyId = "rpp_synthetic_comparison";
 export const comparisonAccountId = "acc_7910";
 
+export const comparisonAdvancedTargets = [
+  [
+    "multi-rule",
+    [
+      { ...dryRunBody.rules[0]!, conditions: [{ type: "quantity-at-least", quantity: 3 }] },
+      { ...dryRunBody.rules[0]!, conditions: [{ type: "quantity-at-least", quantity: 2 }] },
+      ...dryRunBody.rules,
+    ],
+  ],
+  [
+    "conditional",
+    [{ ...dryRunBody.rules[0]!, conditions: [{ type: "quantity-at-least", quantity: 2 }] }, ...dryRunBody.rules],
+  ],
+] as const;
+
 export function comparisonTestServices(db: PgTransactionalPool) {
   const eventStore = createPostgresEventStore({ pool: db });
   const policies = createPolicyRuntime({ eventStore, db });
@@ -55,7 +70,7 @@ export async function createComparisonPolicy(
       type: "CreateRepricingPolicy",
       policyId: comparisonPolicyId,
       accountId: comparisonAccountId,
-      name: "Synthetic comparison policy",
+      name: "Synthetic health policy comparison",
       createdAt: comparisonNow,
     },
   });

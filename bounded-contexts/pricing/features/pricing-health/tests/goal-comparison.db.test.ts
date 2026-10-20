@@ -23,6 +23,7 @@ import { dryRunBody, dryRunContext, seedDryRunListings } from "../../repricing-e
 import { projectSyntheticPricingHealthPolicy } from "../../../support/runtime-support/pricing-health-browser-seed";
 import {
   comparisonAccountId,
+  comparisonAdvancedTargets,
   comparisonPolicyId,
   comparisonTestServices,
   createComparisonPolicy,
@@ -224,49 +225,49 @@ describeDb("Pricing Goal comparison whole target scope", () => {
     expect((await services.health.getHealth(comparisonAccountId, comparisonPolicyId, now))?.comparison).toEqual([]);
   });
 
-  it.each([
-    ["multi-rule", [...dryRunBody.rules, ...dryRunBody.rules]],
-    ["conditional", [{ ...dryRunBody.rules[0]!, conditions: [{ type: "quantity-at-least" as const, quantity: 2 }] }]],
-  ])("opens the existing editor with the intact %s body, no candidate or silent mutation", async (_, rules) => {
-    const services = comparisonTestServices(pools.pricing);
-    await createComparisonPolicy(pools.pricing, services, rules);
-    const before = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
-    const data = (await services.health.getHealth(comparisonAccountId, comparisonPolicyId, now))!;
-    expect(data.branch).toBe("advanced-editor");
-    expect(renderToStaticMarkup(createElement(PricingHealthPage, { data }))).toContain(
-      `/account/desk/repricing/${comparisonPolicyId}?edit=1`,
-    );
-    vi.spyOn(pricingApi, "getRepricingAuthoringPrerequisites").mockImplementation(() =>
-      services.policies.getAuthoringPrerequisites(comparisonAccountId),
-    );
-    vi.spyOn(pricingApi, "listRepricingCategories").mockImplementation(() =>
-      services.policies.listCategories(comparisonAccountId),
-    );
-    const Stub = createRoutesStub([{ path: "/account/desk/repricing/:policyId", Component: RepricingPolicyRoute }]);
-    render(
-      createElement(Stub, {
-        initialEntries: [`/account/desk/repricing/${comparisonPolicyId}?edit=1`],
-        hydrationData: {
-          loaderData: {
-            "0": {
-              recovery: null,
-              policy: before!.state,
-              halt: await services.policies.getHalt(comparisonAccountId),
-              changesUsedToday: 0,
-              activity: null,
-              activityFilter: null,
-              activityLoadFailed: false,
+  it.each(comparisonAdvancedTargets)(
+    "opens the existing editor with the intact %s body, no candidate or silent mutation",
+    async (_, rules) => {
+      const services = comparisonTestServices(pools.pricing);
+      await createComparisonPolicy(pools.pricing, services, rules);
+      const before = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
+      const data = (await services.health.getHealth(comparisonAccountId, comparisonPolicyId, now))!;
+      expect(data.branch).toBe("advanced-editor");
+      expect(renderToStaticMarkup(createElement(PricingHealthPage, { data }))).toContain(
+        `/account/desk/repricing/${comparisonPolicyId}?edit=1`,
+      );
+      vi.spyOn(pricingApi, "getRepricingAuthoringPrerequisites").mockImplementation(() =>
+        services.policies.getAuthoringPrerequisites(comparisonAccountId),
+      );
+      vi.spyOn(pricingApi, "listRepricingCategories").mockImplementation(() =>
+        services.policies.listCategories(comparisonAccountId),
+      );
+      const Stub = createRoutesStub([{ path: "/account/desk/repricing/:policyId", Component: RepricingPolicyRoute }]);
+      render(
+        createElement(Stub, {
+          initialEntries: [`/account/desk/repricing/${comparisonPolicyId}?edit=1`],
+          hydrationData: {
+            loaderData: {
+              "0": {
+                recovery: null,
+                policy: before!.state,
+                halt: await services.policies.getHalt(comparisonAccountId),
+                changesUsedToday: 0,
+                activity: null,
+                activityFilter: null,
+                activityLoadFailed: false,
+              },
             },
           },
-        },
-      }),
-    );
-    expect(((await screen.findByLabelText("Policy name")) as HTMLInputElement).value).toBe(before!.state.name);
-    expect(screen.getByText("Advanced rule editor", { exact: true })).toBeTruthy();
-    expect(await services.health.compare(comparisonAccountId, comparisonPolicyId, dryRunContext)).toBeNull();
-    expect((await pools.pricing.query("SELECT dry_run_id FROM pricing_repricing_dry_runs")).rows).toEqual([]);
-    expect(await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId)).toEqual(before);
-  });
+        }),
+      );
+      expect(((await screen.findByLabelText("Policy name")) as HTMLInputElement).value).toBe(before!.state.name);
+      expect(screen.getByText("Advanced rule editor", { exact: true })).toBeTruthy();
+      expect(await services.health.compare(comparisonAccountId, comparisonPolicyId, dryRunContext)).toBeNull();
+      expect((await pools.pricing.query("SELECT dry_run_id FROM pricing_repricing_dry_runs")).rows).toEqual([]);
+      expect(await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId)).toEqual(before);
+    },
+  );
 
   it("opens the existing create editor and preset prompts for a zero-policy account without enqueue", async () => {
     const services = comparisonTestServices(pools.pricing);
