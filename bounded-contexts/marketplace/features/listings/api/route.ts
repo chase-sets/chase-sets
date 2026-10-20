@@ -1022,6 +1022,7 @@ export function createAccountListingRoutes(
           "maxUnitsPerCustomerAccount",
           "inventorySnapshot",
           "listingIdOverride",
+          "publicationScope",
           "evidence",
           "listingPhotoAltText",
         ]);
@@ -1043,6 +1044,7 @@ export function createAccountListingRoutes(
             maxUnitsPerCustomerAccount: formValue(formData, "maxUnitsPerCustomerAccount"),
             inventorySnapshot: formValue(formData, "inventorySnapshot"),
             listingIdOverride: formValue(formData, "listingIdOverride"),
+            publicationScope: formValue(formData, "publicationScope"),
           }
         : await c.req.json();
       const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
@@ -1060,6 +1062,7 @@ export function createAccountListingRoutes(
           "purchaseLimits",
           "inventorySnapshot",
           "listingIdOverride",
+          "publicationScope",
         ],
         "Listing create",
       );
@@ -1077,6 +1080,7 @@ export function createAccountListingRoutes(
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
               listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
+              ...(body.publicationScope === "channel-only" ? { publicationScope: "channel-only" as const } : {}),
             },
             context,
           )
@@ -1090,6 +1094,7 @@ export function createAccountListingRoutes(
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
               listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
+              ...(body.publicationScope === "channel-only" ? { publicationScope: "channel-only" as const } : {}),
             },
             context,
           );
@@ -1114,6 +1119,90 @@ export function createAccountListingRoutes(
         "command-rejected",
         "evidence-invalid",
       ]);
+    }
+  });
+
+  app.post("/listings/:id/target-prices", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.manage");
+      if (access.response) return access.response;
+      const context = c.get("context");
+      if (!context)
+        return c.json(
+          { error: { code: "authentication_required", message: "Authentication context is required." } },
+          401,
+        );
+      const body = await c.req.json<Record<string, unknown>>();
+      assertClosedObject(
+        body,
+        [
+          "target",
+          "priceAmount",
+          "priceCurrencyCode",
+          "expectedListingVersion",
+          "expectedTargetPriceRevision",
+          "idempotencyKey",
+          "decision",
+        ],
+        "Target price acceptance",
+      );
+      const result = await services.acceptListingTargetPrice(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          target: body.target as never,
+          priceAmount: String(body.priceAmount ?? ""),
+          priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
+          expectedListingVersion: Number(body.expectedListingVersion ?? 0),
+          expectedTargetPriceRevision: Number(body.expectedTargetPriceRevision ?? 0),
+          idempotencyKey: String(body.idempotencyKey ?? ""),
+          decision: body.decision as never,
+        },
+        context,
+      );
+      return c.json({ id: result.listingId, version: result.version, target: result.acceptedTargetPrice.target });
+    } catch (error) {
+      return listingErrorResponse(error, ["unknown-field", "listing-not-found", "command-rejected"]);
+    }
+  });
+
+  app.post("/listings/:id/target-activations", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.manage");
+      if (access.response) return access.response;
+      const context = c.get("context");
+      if (!context)
+        return c.json(
+          { error: { code: "authentication_required", message: "Authentication context is required." } },
+          401,
+        );
+      const body = await c.req.json<Record<string, unknown>>();
+      assertClosedObject(
+        body,
+        [
+          "connectionId",
+          "expectedListingVersion",
+          "expectedTargetPriceRevision",
+          "allocationRevision",
+          "idempotencyKey",
+        ],
+        "Channel activation",
+      );
+      const result = await services.activateListingForChannel(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          connectionId: String(body.connectionId ?? ""),
+          expectedListingVersion: Number(body.expectedListingVersion ?? 0),
+          expectedTargetPriceRevision: Number(body.expectedTargetPriceRevision ?? 0),
+          allocationRevision: Number(body.allocationRevision ?? 0),
+          idempotencyKey: String(body.idempotencyKey ?? ""),
+        },
+        context,
+      );
+      return c.json({ id: result.listingId, version: result.version, status: "channel-active" });
+    } catch (error) {
+      return listingErrorResponse(error, ["unknown-field", "listing-not-found", "command-rejected"]);
     }
   });
 

@@ -5,6 +5,11 @@ import {
 } from "@chase-sets/platform-runtime/auth";
 export type { IdentityHostPorts, IdentityServices } from "./support/runtime-support/services";
 export {
+  createListingActivationAuthority,
+  type ListingActivationIdentityReader,
+  type ListingActivationManageAuthority,
+} from "./features/accounts/api/listing-activation-authority";
+export {
   DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
   parseCapabilityAdministrationAuthority,
 } from "./features/account-capabilities/api/authority";

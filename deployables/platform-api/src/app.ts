@@ -68,6 +68,9 @@ import {
   type InventoryDraftListingCreator,
   type InventoryServices,
 } from "@chase-sets/inventory/server";
+import type { ListingTargetAuthority } from "@chase-sets/marketplace/server";
+import type { IdentityServices } from "@chase-sets/identity/server";
+import { createListingActivationAuthority } from "@chase-sets/identity/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createOrderingUcpHandlers,
@@ -321,6 +324,105 @@ export function createPlatformApiHost(
     }>,
 ): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
+  const reservation = (
+    ownerContext: string,
+    streamId: string,
+    expectedVersion: number,
+    assertCurrent: () => Promise<void>,
+  ) => ({ ownerContext, streamId, expectedVersion, assertCurrent });
+  const listingTargetAuthority: ListingTargetAuthority = {
+    authorizeManage: async ({ accountId }, context) => {
+      const identity = runtime?.services.identity as IdentityServices | undefined;
+      if (!identity) return { value: false, reservations: [] };
+      return createListingActivationAuthority(identity).authorizeManage({ accountId }, context);
+    },
+    resolveConnection: async ({ accountId, connectionId }) => {
+      const channels = runtime?.services.channels;
+      if (!isChannelsServices(channels)) return { value: null, reservations: [] };
+      const loaded = await channels.connections.loadOwned?.(accountId, connectionId);
+      if (!loaded || loaded.state.status !== "active") return { value: null, reservations: [] };
+      return {
+        value: {
+          connectionId,
+          accountId,
+          providerKey: loaded.state.providerKey!,
+          environment: loaded.state.environment!,
+          identityRevision: loaded.version,
+        },
+        reservations: [
+          reservation("channels", `channels.connection-${connectionId}`, loaded.version, async () => {
+            const current = await channels.connections.loadOwned?.(accountId, connectionId);
+            if (!current || current.version !== loaded.version || current.state.status !== "active") {
+              throw new Error("Channels connection authority changed.");
+            }
+          }),
+        ],
+      };
+    },
+    resolveAllocation: async ({ accountId, inventoryItemId, productId, connectionId, allocationRevision }) => {
+      const inventory = runtime?.services.inventory as InventoryServices | undefined;
+      const itemLoaded = await inventory?.items.loadItemWithVersion?.(inventoryItemId, accountId);
+      const item = itemLoaded?.state;
+      if (!itemLoaded || !item) return { value: null, reservations: [] };
+      if (String(item.productId) !== productId) return { value: null, reservations: [] };
+      const itemRead = await inventory?.items.getItem(inventoryItemId, accountId);
+      if (!itemRead || itemRead.product_id !== productId || itemRead.account_id !== accountId) {
+        return { value: null, reservations: [] };
+      }
+      const allocation = await inventory?.channelStockAllocations.readAuthoritative({ accountId, inventoryItemId });
+      if (!allocation || "kind" in allocation) return { value: null, reservations: [] };
+      const partition = allocation.partitions.find((candidate) => candidate.channelConnectionId === connectionId);
+      const eligibleQuantity =
+        allocation.mode === "shared-pool" ? itemRead.available_quantity : (partition?.units ?? 0);
+      if (allocation.revision !== allocationRevision || eligibleQuantity <= 0) {
+        return { value: null, reservations: [] };
+      }
+      return {
+        value: {
+          accountId,
+          inventoryItemId,
+          productId: String(item.productId),
+          allocationRevision: allocation.revision,
+          eligibleQuantity,
+        },
+        reservations: [
+          reservation("inventory", `inventory.item-${inventoryItemId}`, itemLoaded.version, async () => {
+            const currentItem = await inventory!.items.loadItemWithVersion?.(inventoryItemId, accountId);
+            const currentAllocation = await inventory!.channelStockAllocations.readAuthoritative({
+              accountId,
+              inventoryItemId,
+            });
+            if (
+              !currentItem ||
+              currentItem.version !== itemLoaded.version ||
+              String(currentItem.state.productId) !== productId ||
+              !currentAllocation ||
+              "kind" in currentAllocation ||
+              currentAllocation.revision !== allocationRevision
+            ) {
+              throw new Error("Inventory allocation authority changed.");
+            }
+            const currentRead = await inventory!.items.getItem(inventoryItemId, accountId);
+            const currentPartition = currentAllocation.partitions.find(
+              (candidate) => candidate.channelConnectionId === connectionId,
+            );
+            const currentEligibleQuantity =
+              currentAllocation.mode === "shared-pool"
+                ? (currentRead?.available_quantity ?? 0)
+                : (currentPartition?.units ?? 0);
+            if (
+              !currentRead ||
+              currentRead.account_id !== accountId ||
+              currentRead.product_id !== productId ||
+              currentEligibleQuantity <= 0
+            ) {
+              throw new Error("Inventory allocation authority changed.");
+            }
+          }),
+        ],
+      };
+    },
+  };
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const identityPool = getPlatformApiPool(options.pools.identity);
@@ -691,6 +793,7 @@ export function createPlatformApiHost(
       ...options.hostPorts,
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      listingTargetAuthority,
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(walletFundingEligibilityResolver ? { walletFundingEligibilityResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),

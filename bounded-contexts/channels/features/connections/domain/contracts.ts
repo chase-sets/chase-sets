@@ -223,6 +223,11 @@ export interface ChannelConnectionServices {
     context: EventStoreContext,
   ): Promise<ChannelConnectionCommandResult>;
   getConnection(input: Readonly<{ accountId: string; connectionId: string }>): Promise<PublicChannelConnection | null>;
+  /** Authoritative owner read, including the aggregate version. */
+  loadOwned?: (
+    accountId: string,
+    connectionId: string,
+  ) => Promise<Readonly<{ state: ChannelConnectionState; version: number }>>;
   listConnections(
     input: Readonly<{
       accountId: string;

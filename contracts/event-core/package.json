@@ -27,6 +27,7 @@
     "./public-event-payloads/inventory": "./public-event-payloads/inventory.ts",
     "./public-event-payloads/collections": "./public-event-payloads/collections.ts",
     "./storage": "./storage.ts",
+    "./owner-seal": "./owner-seal.ts",
     "./stream-id": "./stream-id.ts",
     "./test-support": "./test-support.ts",
     "./transport": "./transport.ts"

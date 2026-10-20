@@ -613,6 +613,14 @@ A **Store Invitation** is the planned request for a User or email address to joi
 
 An **Agent Grant Revocation Operation** is Identity's retained owner of one Account's withdrawal of an Agent Grant. It records the first revocation time, reason and provenance, then tracks Identity terminal authority, Payments cleanup, webhook exclusion and completion. Repeated token and Account requests resume that owner rather than creating another revocation. Adoption records system recovery of an already-revoked Grant; it does not invent historical user intent or cleanup completion.
 
+## Listing Activation Authority
+
+A **Listing Activation Authority** is Identity's current, versioned decision that an authenticated User has the `listings.manage` permission through an active owner or manager Membership on an active Account. It returns owner-local revisions for fail-closed command revalidation; it is not a Marketplace projection or a new Account Capability.
+
+## Owner-Stream Reservation
+
+An **Owner-Stream Reservation** is a captured Identity-owned stream revision and its fail-closed current-version assertion, held while a cross-context command prepares its Marketplace append.
+
 ## Language Rules
 
 To maintain consistency:

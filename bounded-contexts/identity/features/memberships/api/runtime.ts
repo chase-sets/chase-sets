@@ -26,6 +26,10 @@ export type MembershipServices = Readonly<{
   getMembership: (membershipId: string) => ReturnType<typeof getMembership>;
   countActiveOwnersForAccount: (accountId: string) => ReturnType<typeof countActiveOwnersForAccount>;
   getMembershipState: (membershipId: string) => Promise<MembershipState | null>;
+  /** Owner-local revision for cross-context version fences. */
+  getMembershipStateWithVersion?: (
+    membershipId: string,
+  ) => Promise<Readonly<{ state: MembershipState; version: number }> | null>;
   getActiveMembershipForUserAccount: (
     userId: string,
     accountId: string,
@@ -51,6 +55,10 @@ export function createMembershipRuntime(deps: IdentityRuntimeDeps): MembershipSe
     getMembershipState: async (membershipId) => {
       const aggregate = await repository.load(`identity.membership-${membershipId}`);
       return aggregate.state.id ? aggregate.state : null;
+    },
+    getMembershipStateWithVersion: async (membershipId) => {
+      const aggregate = await repository.load(`identity.membership-${membershipId}`);
+      return aggregate.state.id ? aggregate : null;
     },
     getActiveMembershipForUserAccount: (userId, accountId) =>
       getActiveMembershipForUserAccount(deps.db, userId, accountId),

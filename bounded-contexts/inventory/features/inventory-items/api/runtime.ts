@@ -105,6 +105,11 @@ export type InventoryItemServices = Readonly<{
   ) => Promise<{ itemId: string; version: number }>;
   listItems: (params: Parameters<typeof listInventoryItems>[1]) => ReturnType<typeof listInventoryItems>;
   getItem: (itemId: string, accountId: string) => ReturnType<typeof getInventoryItem>;
+  /** Authoritative aggregate read for owner-local version fences. */
+  loadItemWithVersion?: (
+    itemId: string,
+    accountId: string,
+  ) => Promise<Readonly<{ state: InventoryItemState; version: number }> | null>;
   ensureListingStock: (
     params: Readonly<{
       accountId: AccountId;
@@ -391,6 +396,10 @@ export function createInventoryItemRuntime(
     },
     listItems: (params) => listInventoryItems(deps.db, params),
     getItem: (itemId, accountId) => getInventoryItem(deps.db, itemId, accountId),
+    loadItemWithVersion: async (itemId, accountId) => {
+      const aggregate = await repository.load(`inventory.item-${itemId}`);
+      return aggregate.state.id !== null && aggregate.state.accountId === accountId ? aggregate : null;
+    },
     ensureListingStock: async (params, context) => {
       if (!Number.isInteger(params.quantity) || params.quantity <= 0) {
         throw new InventoryDomainError("Listing stock quantity must be a positive whole number.");

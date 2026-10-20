@@ -20,6 +20,10 @@ export type AccountServices = Readonly<{
   getAccount: (accountId: string) => ReturnType<typeof getAccount>;
   getAccountForRead: (accountId: string) => Promise<AccountRow | null>;
   getAccountState: (accountId: string) => Promise<AccountState | null>;
+  /** Owner-local revision for cross-context version fences. */
+  getAccountStateWithVersion?: (
+    accountId: string,
+  ) => Promise<Readonly<{ state: AccountState; version: number }> | null>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -66,6 +70,10 @@ export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices
     getAccountState: async (accountId) => {
       const state = await loadAccountState(accountId);
       return state.id ? state : null;
+    },
+    getAccountStateWithVersion: async (accountId) => {
+      const loaded = await repository.load(`identity.account-${accountId}`);
+      return loaded.state.id ? loaded : null;
     },
     projectors: [
       createProjectionHandlerSet({

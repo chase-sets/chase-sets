@@ -73,6 +73,8 @@ import {
   type EvidenceGarbageCollectionEntry,
 } from "../domain/evidence-garbage-collection";
 import { createListingPublishedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
+import { createListingTargetRuntime } from "./target-runtime";
+import type { ListingTargetAuthority, ListingTargetServices } from "./target-contracts";
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
 import {
@@ -183,35 +185,14 @@ export class MarketplaceListingEvidenceIncompleteError extends Error {
 
 export type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
 
-export type MarketplaceListingServices = Readonly<{
-  operatorUnlistListing: (
-    params: Readonly<{
-      listingId: ListingId;
-      sourceActionId: ReportedContentActionId;
-      listingEnforcementActionId: ListingEnforcementActionId;
-      recordedAt: string;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: ListingId; version: number }>;
-  getListingPhotoJpeg: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      photoId: string;
-    }>,
-  ) => Promise<Readonly<{ body: Uint8Array; etag: string }> | null>;
-  commandHandler: CommandHandler<MarketplaceListingCommand, MarketplaceListingState, MarketplaceListingEvent>;
-  sellerAvailabilityCommandHandler: CommandHandler<
-    SellerListingAvailabilityCommand,
-    SellerListingAvailabilityState,
-    SellerListingAvailabilityEvent
-  >;
-  orderCapacityCommandHandler: CommandHandler<
-    SellerOrderCapacityCommand,
-    SellerOrderCapacityState,
-    SellerOrderCapacityEvent
-  >;
-  createListing: (
+type MarketplaceCreateListingResult = Readonly<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+type MarketplaceCreateChannelOnlyListingResult = Readonly<{
+  listingId: ListingId;
+  version: number;
+  feeQuoteFingerprint: null;
+}>;
+type MarketplaceCreateListing = {
+  (
     params: Readonly<{
       accountId: AccountId;
       inventoryItemId: string;
@@ -223,362 +204,410 @@ export type MarketplaceListingServices = Readonly<{
       listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
-  createBatchDraftListingFromInventorySnapshot: (
+  ): Promise<MarketplaceCreateListingResult>;
+  (
     params: Readonly<{
-      accountId: string;
-      importBatchId: string;
-      importRowId: string;
+      accountId: AccountId;
       inventoryItemId: string;
-      listingIdOverride: ListingId;
-      catalogItemId: string;
-      productId: string;
-      selectedOptions: readonly { dimensionId: string; optionId: string }[];
-      gradedCard?: MarketplaceListingState["gradedCard"];
-      storageLocationId: string;
-      storageLocationName: string;
-      shipFromCode: string;
-      shipFromAddress: AddressSnapshot;
-      totalQuantity: number;
-      availableQuantity?: number;
-      acquisitionCostAmount: string | null;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      quantityCap: number;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-      listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
-  createListingFromInventorySnapshot: (
-    params: Readonly<{
-      accountId: string;
-      inventoryItemId: string;
-      catalogItemId: string;
-      productId: string;
-      selectedOptions: readonly { dimensionId: string; optionId: string }[];
-      gradedCard?: MarketplaceListingState["gradedCard"];
-      storageLocationId: string;
-      storageLocationName: string;
-      shipFromCode: string;
-      shipFromAddress: AddressSnapshot;
-      totalQuantity: number;
-      availableQuantity?: number;
-      acquisitionCostAmount: string | null;
       priceAmount: string;
       priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
       listingIdOverride?: ListingId;
+      publicationScope: "channel-only";
     }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
-  addListingPhotos: (
-    params: Readonly<{
-      accountId: string;
+  ): Promise<MarketplaceCreateChannelOnlyListingResult>;
+};
+
+export type MarketplaceListingServices = ListingTargetServices &
+  Readonly<{
+    operatorUnlistListing: (
+      params: Readonly<{
+        listingId: ListingId;
+        sourceActionId: ReportedContentActionId;
+        listingEnforcementActionId: ListingEnforcementActionId;
+        recordedAt: string;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: ListingId; version: number }>;
+    getListingPhotoJpeg: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        photoId: string;
+      }>,
+    ) => Promise<Readonly<{ body: Uint8Array; etag: string }> | null>;
+    commandHandler: CommandHandler<MarketplaceListingCommand, MarketplaceListingState, MarketplaceListingEvent>;
+    sellerAvailabilityCommandHandler: CommandHandler<
+      SellerListingAvailabilityCommand,
+      SellerListingAvailabilityState,
+      SellerListingAvailabilityEvent
+    >;
+    orderCapacityCommandHandler: CommandHandler<
+      SellerOrderCapacityCommand,
+      SellerOrderCapacityState,
+      SellerOrderCapacityEvent
+    >;
+    createListing: MarketplaceCreateListing;
+    createBatchDraftListingFromInventorySnapshot: (
+      params: Readonly<{
+        accountId: string;
+        importBatchId: string;
+        importRowId: string;
+        inventoryItemId: string;
+        listingIdOverride: ListingId;
+        catalogItemId: string;
+        productId: string;
+        selectedOptions: readonly { dimensionId: string; optionId: string }[];
+        gradedCard?: MarketplaceListingState["gradedCard"];
+        storageLocationId: string;
+        storageLocationName: string;
+        shipFromCode: string;
+        shipFromAddress: AddressSnapshot;
+        totalQuantity: number;
+        availableQuantity?: number;
+        acquisitionCostAmount: string | null;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        quantityCap: number;
+        purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+        listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+    createListingFromInventorySnapshot: (
+      params: Readonly<{
+        accountId: string;
+        inventoryItemId: string;
+        catalogItemId: string;
+        productId: string;
+        selectedOptions: readonly { dimensionId: string; optionId: string }[];
+        gradedCard?: MarketplaceListingState["gradedCard"];
+        storageLocationId: string;
+        storageLocationName: string;
+        shipFromCode: string;
+        shipFromAddress: AddressSnapshot;
+        totalQuantity: number;
+        availableQuantity?: number;
+        acquisitionCostAmount: string | null;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        quantityCap: number;
+        purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+        listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
+        listingIdOverride?: ListingId;
+        publicationScope?: "channel-only";
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+    addListingPhotos: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        listingPhotoUploads: readonly MarketplaceListingPhotoUpload[];
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    /** Classify an existing active evidence entry into a configured slot/view kind. */
+    classifyListingPhoto: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        photoId: string;
+        slotId: string | null;
+        viewKind: string | null;
+        altText?: string | null;
+        capturedAt?: string | null;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    /** Replace an active evidence entry with a freshly normalized upload. */
+    replaceListingPhoto: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        replacedPhotoId: string;
+        upload: MarketplaceListingPhotoUpload;
+        slotId?: string | null;
+        viewKind?: string | null;
+        capturedAt?: string | null;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    /** Remove an active evidence entry; retained for commitment resolution. */
+    removeListingPhoto: (
+      params: Readonly<{ accountId: string; listingId: string; photoId: string }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    /** Reorder the active evidence entries. */
+    reorderListingPhotos: (
+      params: Readonly<{ accountId: string; listingId: string; orderedPhotoIds: readonly string[] }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    /**
+     * Builds the immutable Listing Evidence Snapshot for a listing's current
+     * active evidence. Offer Acceptance consumes this to publish the committed
+     * evidence, including the recorded requirement policy hash.
+     */
+    getListingEvidenceSnapshot: (
+      params: Readonly<{ accountId: string; listingId: string }>,
+    ) => Promise<ListingEvidenceSnapshot>;
+    getListingEvidenceReadiness: (
+      params: Readonly<{ accountId: string; listingId: string; now?: string | null }>,
+    ) => Promise<import("../ui/contracts").MarketplaceListingEvidenceReadiness>;
+    previewListingEvidenceReadiness: (
+      params: Readonly<{ accountId: string; inventoryItemId: string; priceAmount: string; now?: string | null }>,
+    ) => Promise<import("../ui/contracts").MarketplaceListingEvidenceReadiness>;
+    /**
+     * Idempotent, observable evidence garbage collection sweep. Deletes storage
+     * objects for replaced/removed evidence past the safe delay whose source is
+     * no longer referenced by any active entry. Returns a report.
+     */
+    collectListingEvidenceGarbage: (
+      params?: Readonly<{ safeDelayHours?: number; limit?: number; now?: string }>,
+    ) => Promise<MarketplaceListingEvidenceGarbageCollectionReport>;
+    previewListingTerms: (
+      params: Readonly<{ accountId: string; priceAmount: string }>,
+    ) => Promise<MarketplaceListingTermsPreview>;
+    previewPublicStandardListingTerms: (
+      params: Readonly<{ priceAmount: string }>,
+    ) => Promise<MarketplacePublicStandardTermsPreview>;
+    createAnonymousListingDraftIntent: (
+      params: Readonly<{
+        anonymousOwnerId: string;
+        sourcePath: string;
+        catalogItemId: string;
+        productId: string;
+        selectedOptions: readonly { dimensionId: string; optionId: string }[];
+        productSummary?: string | null;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        quantityCap: number;
+        purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      }>,
+    ) => Promise<MarketplaceAnonymousListingDraftIntent>;
+    getAnonymousListingDraftIntent: (
+      params: Readonly<{
+        anonymousOwnerId: string;
+        intentId: string;
+      }>,
+    ) => Promise<MarketplaceAnonymousListingDraftIntent | null>;
+    claimAnonymousListingDraftIntent: (
+      params: Readonly<{
+        anonymousOwnerId: string;
+        intentId: string;
+        accountId: string;
+      }>,
+    ) => Promise<MarketplaceAnonymousListingDraftIntent>;
+    updateListingPrice: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        feeQuoteFingerprint?: string | null;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    /**
+     * Chunked multi-listing price-update append, part of the m113 (repricing
+     * at scale) throughput lane: applies many `UpdateListingPrice` commands
+     * amortized across `marketplaceListingBulkPriceUpdatePolicy`-sized
+     * chunks, one advisory-lock window and one multi-row event INSERT per
+     * chunk, with the lane yielding between chunks so a bulk repricing run
+     * cannot starve interactive listing edits. One listing's version
+     * conflict, domain error (e.g. a withdrawn listing), or stale fee quote
+     * is isolated to that listing -- every other listing in the batch still
+     * applies. Consumed by the future bulk-ingestion on-ramp, `pricing`'s
+     * `applyRecommendations`, and the policy evaluation engine; all funnel
+     * through this same path.
+     *
+     * Terms resolution (m113 repricing-at-scale throughput lane): every
+     * listing in `params.updates` belongs to the SAME `params.accountId`, so
+     * the account's commercial terms are resolved into one session for the
+     * whole call -- not once per listing or chunk. Each price update requotes
+     * every pre-existing fee-lock tranche from that tranche's own stored
+     * terms. `feeQuoteFingerprint` stays optional per update: when a caller
+     * supplies one (e.g. a human confirming a previewed price), it must still match the freshly-resolved quote or
+     * the update is isolated as an error,
+     * exactly like `updateListingPrice`; when omitted (bulk/system callers
+     * with no separate preview step), the stored terms still apply with no
+     * confirmation required.
+     */
+    applyBulkListingPriceUpdates: (
+      params: Readonly<{
+        accountId: string;
+        updates: readonly MarketplaceBulkListingPriceUpdateInput[];
+      }>,
+      context: EventStoreContext,
+    ) => Promise<readonly MarketplaceBulkListingPriceUpdateOutcome[]>;
+    updateListingQuantityCap: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        quantityCap: number;
+        purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+        feeQuoteFingerprint?: string | null;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    updateListingPurchaseLimits: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    publishListing: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        feeQuoteFingerprint?: string | null;
+        idempotencyKey?: string;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    pauseListing: (
+      params: Readonly<{
+        accountId: string;
+        listingId: string;
+        reason?: "seller" | "policy-input-missing";
+        idempotencyKey?: string;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    withdrawListing: (
+      params: Readonly<{ accountId: string; listingId: string }>,
+      context: EventStoreContext,
+    ) => Promise<{ listingId: string; version: number }>;
+    getSellerListingAvailability: (accountId: string) => ReturnType<typeof getSellerListingAvailability>;
+    disableSellerListingAvailability: (
+      params: Readonly<{
+        accountId: string;
+        reasonCategory: SellerListingAvailabilityReasonCategory | null;
+        availableAgainOn: string | null;
+        /**
+         * The authoritative resume instant, captured client-side (seller-local
+         * start-of-day for the chosen date). Optional for back-compat with
+         * system callers and non-JS form submits, which fall back to the
+         * informational-only `availableAgainOn` date.
+         */
+        availableAgainAt?: string | null;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ accountId: string; version: number; status: "unavailable" }>;
+    enableSellerListingAvailability: (
+      params: Readonly<{
+        accountId: string;
+        /** Defaults to `"seller"`; the auto-resume sweep passes `"scheduled"`. */
+        enabledBy?: SellerListingAvailabilityEnabledBy;
+        /** Compare-and-swap guard for a scheduled enable; see the domain command's `dueBy` doc comment. */
+        dueBy?: string | null;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ accountId: string; version: number; status: "available" }>;
+    getSellerOrderCapacity: (accountId: string) => ReturnType<typeof getSellerOrderCapacity>;
+    setSellerOrderCapacity: (
+      params: Readonly<{ accountId: string; maxOpenOrders: number }>,
+      context: EventStoreContext,
+    ) => Promise<{ accountId: string; version: number; maxOpenOrders: number }>;
+    clearSellerOrderCapacity: (
+      params: Readonly<{ accountId: string }>,
+      context: EventStoreContext,
+    ) => Promise<{ accountId: string; version: number; maxOpenOrders: null }>;
+    /**
+     * Auto-resume sweep: finds seller listing availability rows whose Resume
+     * Instant has passed while still `unavailable` and auto-enables them with
+     * `enabledBy: "scheduled"` provenance. Bounded to one due-index query and
+     * batch per call (mirrors `sweepReviewWindowExpirations`) -- the scheduled
+     * runner's own interval cadence drains any remainder on the next tick.
+     * Each restore is compare-and-swap protected against a lost race (see
+     * `EnableSellerListingAvailabilityCommand.dueBy`): a seller who manually
+     * enabled or pushed their Resume Instant forward between this sweep's
+     * read and its command is never overridden, and that lost race counts as
+     * `skipped`, never `failed`.
+     */
+    sweepDueSellerAvailabilityRestores: (
+      params: Readonly<{ now?: string; limit?: number }> | undefined,
+      context: EventStoreContext,
+    ) => Promise<{ checked: number; restored: number; skipped: number }>;
+    /**
+     * Books a future away period: Seller Listing Availability will
+     * auto-disable at `startsAt` (Away Window start sweep) and, once away,
+     * ride the existing Resume Instant sweep back to available at `endsAt`.
+     * At most one pending window may exist -- cancel the existing one first
+     * to reschedule.
+     */
+    scheduleSellerAwayWindow: (
+      params: Readonly<{
+        accountId: string;
+        startsAt: string;
+        endsAt: string | null;
+        reasonCategory: SellerListingAvailabilityReasonCategory;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<{ accountId: string; version: number }>;
+    /** Cancels the pending Away Window, if any; no-ops when none exists. */
+    cancelScheduledAwayWindow: (
+      params: Readonly<{ accountId: string }>,
+      context: EventStoreContext,
+    ) => Promise<{ accountId: string; version: number }>;
+    /**
+     * Away Window start sweep: finds pending windows whose `startsAt` has
+     * passed and disables the account with `disabledBy: "scheduled"`,
+     * `reasonCategory` and `availableAgainAt` taken from the window itself.
+     * The window's end boundary then rides the existing Resume Instant sweep
+     * (`sweepDueSellerAvailabilityRestores`) for free -- this sweep only ever
+     * handles the start. Each disable is compare-and-swap protected (see
+     * `DisableSellerListingAvailabilityCommand.dueBy`): a seller who
+     * cancelled the window between this sweep's read and its command is
+     * never overridden, and that lost race counts as `skipped`, never
+     * `failed`.
+     */
+    sweepDueSellerAwayWindowStarts: (
+      params: Readonly<{ now?: string; limit?: number }> | undefined,
+      context: EventStoreContext,
+    ) => Promise<{ checked: number; started: number; skipped: number }>;
+    listSellerListings: (params: Parameters<typeof listSellerListings>[1]) => ReturnType<typeof listSellerListings>;
+    getSellerListingStatusCounts: (accountId: string) => ReturnType<typeof getSellerListingStatusCounts>;
+    listSellerInventoryItemSupply: (
+      params: Parameters<typeof listSellerInventoryItemSupply>[1],
+    ) => ReturnType<typeof listSellerInventoryItemSupply>;
+    hasSellerSupplyLocationNamed: (
+      params: Parameters<typeof hasSellerSupplyLocationNamed>[1],
+    ) => ReturnType<typeof hasSellerSupplyLocationNamed>;
+    getSellerListing: (listingId: string, accountId: string) => ReturnType<typeof getSellerListing>;
+    getListingEvidenceCoverage: (params: Readonly<{ accountId: string; listingId: string; now?: string }>) => Promise<{
       listingId: string;
-      listingPhotoUploads: readonly MarketplaceListingPhotoUpload[];
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  /** Classify an existing active evidence entry into a configured slot/view kind. */
-  classifyListingPhoto: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      photoId: string;
-      slotId: string | null;
-      viewKind: string | null;
-      altText?: string | null;
-      capturedAt?: string | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  /** Replace an active evidence entry with a freshly normalized upload. */
-  replaceListingPhoto: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      replacedPhotoId: string;
-      upload: MarketplaceListingPhotoUpload;
-      slotId?: string | null;
-      viewKind?: string | null;
-      capturedAt?: string | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  /** Remove an active evidence entry; retained for commitment resolution. */
-  removeListingPhoto: (
-    params: Readonly<{ accountId: string; listingId: string; photoId: string }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  /** Reorder the active evidence entries. */
-  reorderListingPhotos: (
-    params: Readonly<{ accountId: string; listingId: string; orderedPhotoIds: readonly string[] }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  /**
-   * Builds the immutable Listing Evidence Snapshot for a listing's current
-   * active evidence. Offer Acceptance consumes this to publish the committed
-   * evidence, including the recorded requirement policy hash.
-   */
-  getListingEvidenceSnapshot: (
-    params: Readonly<{ accountId: string; listingId: string }>,
-  ) => Promise<ListingEvidenceSnapshot>;
-  getListingEvidenceReadiness: (
-    params: Readonly<{ accountId: string; listingId: string; now?: string | null }>,
-  ) => Promise<import("../ui/contracts").MarketplaceListingEvidenceReadiness>;
-  previewListingEvidenceReadiness: (
-    params: Readonly<{ accountId: string; inventoryItemId: string; priceAmount: string; now?: string | null }>,
-  ) => Promise<import("../ui/contracts").MarketplaceListingEvidenceReadiness>;
-  /**
-   * Idempotent, observable evidence garbage collection sweep. Deletes storage
-   * objects for replaced/removed evidence past the safe delay whose source is
-   * no longer referenced by any active entry. Returns a report.
-   */
-  collectListingEvidenceGarbage: (
-    params?: Readonly<{ safeDelayHours?: number; limit?: number; now?: string }>,
-  ) => Promise<MarketplaceListingEvidenceGarbageCollectionReport>;
-  previewListingTerms: (
-    params: Readonly<{ accountId: string; priceAmount: string }>,
-  ) => Promise<MarketplaceListingTermsPreview>;
-  previewPublicStandardListingTerms: (
-    params: Readonly<{ priceAmount: string }>,
-  ) => Promise<MarketplacePublicStandardTermsPreview>;
-  createAnonymousListingDraftIntent: (
-    params: Readonly<{
-      anonymousOwnerId: string;
-      sourcePath: string;
-      catalogItemId: string;
-      productId: string;
-      selectedOptions: readonly { dimensionId: string; optionId: string }[];
-      productSummary?: string | null;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      quantityCap: number;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-    }>,
-  ) => Promise<MarketplaceAnonymousListingDraftIntent>;
-  getAnonymousListingDraftIntent: (
-    params: Readonly<{
-      anonymousOwnerId: string;
-      intentId: string;
-    }>,
-  ) => Promise<MarketplaceAnonymousListingDraftIntent | null>;
-  claimAnonymousListingDraftIntent: (
-    params: Readonly<{
-      anonymousOwnerId: string;
-      intentId: string;
-      accountId: string;
-    }>,
-  ) => Promise<MarketplaceAnonymousListingDraftIntent>;
-  updateListingPrice: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      feeQuoteFingerprint?: string | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  /**
-   * Chunked multi-listing price-update append, part of the m113 (repricing
-   * at scale) throughput lane: applies many `UpdateListingPrice` commands
-   * amortized across `marketplaceListingBulkPriceUpdatePolicy`-sized
-   * chunks, one advisory-lock window and one multi-row event INSERT per
-   * chunk, with the lane yielding between chunks so a bulk repricing run
-   * cannot starve interactive listing edits. One listing's version
-   * conflict, domain error (e.g. a withdrawn listing), or stale fee quote
-   * is isolated to that listing -- every other listing in the batch still
-   * applies. Consumed by the future bulk-ingestion on-ramp, `pricing`'s
-   * `applyRecommendations`, and the policy evaluation engine; all funnel
-   * through this same path.
-   *
-   * Terms resolution (m113 repricing-at-scale throughput lane): every
-   * listing in `params.updates` belongs to the SAME `params.accountId`, so
-   * the account's commercial terms are resolved into one session for the
-   * whole call -- not once per listing or chunk. Each price update requotes
-   * every pre-existing fee-lock tranche from that tranche's own stored
-   * terms. `feeQuoteFingerprint` stays optional per update: when a caller
-   * supplies one (e.g. a human confirming a previewed price), it must still match the freshly-resolved quote or
-   * the update is isolated as an error,
-   * exactly like `updateListingPrice`; when omitted (bulk/system callers
-   * with no separate preview step), the stored terms still apply with no
-   * confirmation required.
-   */
-  applyBulkListingPriceUpdates: (
-    params: Readonly<{
-      accountId: string;
-      updates: readonly MarketplaceBulkListingPriceUpdateInput[];
-    }>,
-    context: EventStoreContext,
-  ) => Promise<readonly MarketplaceBulkListingPriceUpdateOutcome[]>;
-  updateListingQuantityCap: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      quantityCap: number;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-      feeQuoteFingerprint?: string | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  updateListingPurchaseLimits: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  publishListing: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      feeQuoteFingerprint?: string | null;
-      idempotencyKey?: string;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  pauseListing: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      reason?: "seller" | "policy-input-missing";
-      idempotencyKey?: string;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  withdrawListing: (
-    params: Readonly<{ accountId: string; listingId: string }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; version: number }>;
-  getSellerListingAvailability: (accountId: string) => ReturnType<typeof getSellerListingAvailability>;
-  disableSellerListingAvailability: (
-    params: Readonly<{
-      accountId: string;
-      reasonCategory: SellerListingAvailabilityReasonCategory | null;
-      availableAgainOn: string | null;
-      /**
-       * The authoritative resume instant, captured client-side (seller-local
-       * start-of-day for the chosen date). Optional for back-compat with
-       * system callers and non-JS form submits, which fall back to the
-       * informational-only `availableAgainOn` date.
-       */
-      availableAgainAt?: string | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ accountId: string; version: number; status: "unavailable" }>;
-  enableSellerListingAvailability: (
-    params: Readonly<{
-      accountId: string;
-      /** Defaults to `"seller"`; the auto-resume sweep passes `"scheduled"`. */
-      enabledBy?: SellerListingAvailabilityEnabledBy;
-      /** Compare-and-swap guard for a scheduled enable; see the domain command's `dueBy` doc comment. */
-      dueBy?: string | null;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ accountId: string; version: number; status: "available" }>;
-  getSellerOrderCapacity: (accountId: string) => ReturnType<typeof getSellerOrderCapacity>;
-  setSellerOrderCapacity: (
-    params: Readonly<{ accountId: string; maxOpenOrders: number }>,
-    context: EventStoreContext,
-  ) => Promise<{ accountId: string; version: number; maxOpenOrders: number }>;
-  clearSellerOrderCapacity: (
-    params: Readonly<{ accountId: string }>,
-    context: EventStoreContext,
-  ) => Promise<{ accountId: string; version: number; maxOpenOrders: null }>;
-  /**
-   * Auto-resume sweep: finds seller listing availability rows whose Resume
-   * Instant has passed while still `unavailable` and auto-enables them with
-   * `enabledBy: "scheduled"` provenance. Bounded to one due-index query and
-   * batch per call (mirrors `sweepReviewWindowExpirations`) -- the scheduled
-   * runner's own interval cadence drains any remainder on the next tick.
-   * Each restore is compare-and-swap protected against a lost race (see
-   * `EnableSellerListingAvailabilityCommand.dueBy`): a seller who manually
-   * enabled or pushed their Resume Instant forward between this sweep's
-   * read and its command is never overridden, and that lost race counts as
-   * `skipped`, never `failed`.
-   */
-  sweepDueSellerAvailabilityRestores: (
-    params: Readonly<{ now?: string; limit?: number }> | undefined,
-    context: EventStoreContext,
-  ) => Promise<{ checked: number; restored: number; skipped: number }>;
-  /**
-   * Books a future away period: Seller Listing Availability will
-   * auto-disable at `startsAt` (Away Window start sweep) and, once away,
-   * ride the existing Resume Instant sweep back to available at `endsAt`.
-   * At most one pending window may exist -- cancel the existing one first
-   * to reschedule.
-   */
-  scheduleSellerAwayWindow: (
-    params: Readonly<{
-      accountId: string;
-      startsAt: string;
-      endsAt: string | null;
-      reasonCategory: SellerListingAvailabilityReasonCategory;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ accountId: string; version: number }>;
-  /** Cancels the pending Away Window, if any; no-ops when none exists. */
-  cancelScheduledAwayWindow: (
-    params: Readonly<{ accountId: string }>,
-    context: EventStoreContext,
-  ) => Promise<{ accountId: string; version: number }>;
-  /**
-   * Away Window start sweep: finds pending windows whose `startsAt` has
-   * passed and disables the account with `disabledBy: "scheduled"`,
-   * `reasonCategory` and `availableAgainAt` taken from the window itself.
-   * The window's end boundary then rides the existing Resume Instant sweep
-   * (`sweepDueSellerAvailabilityRestores`) for free -- this sweep only ever
-   * handles the start. Each disable is compare-and-swap protected (see
-   * `DisableSellerListingAvailabilityCommand.dueBy`): a seller who
-   * cancelled the window between this sweep's read and its command is
-   * never overridden, and that lost race counts as `skipped`, never
-   * `failed`.
-   */
-  sweepDueSellerAwayWindowStarts: (
-    params: Readonly<{ now?: string; limit?: number }> | undefined,
-    context: EventStoreContext,
-  ) => Promise<{ checked: number; started: number; skipped: number }>;
-  listSellerListings: (params: Parameters<typeof listSellerListings>[1]) => ReturnType<typeof listSellerListings>;
-  getSellerListingStatusCounts: (accountId: string) => ReturnType<typeof getSellerListingStatusCounts>;
-  listSellerInventoryItemSupply: (
-    params: Parameters<typeof listSellerInventoryItemSupply>[1],
-  ) => ReturnType<typeof listSellerInventoryItemSupply>;
-  hasSellerSupplyLocationNamed: (
-    params: Parameters<typeof hasSellerSupplyLocationNamed>[1],
-  ) => ReturnType<typeof hasSellerSupplyLocationNamed>;
-  getSellerListing: (listingId: string, accountId: string) => ReturnType<typeof getSellerListing>;
-  getListingEvidenceCoverage: (params: Readonly<{ accountId: string; listingId: string; now?: string }>) => Promise<{
-    listingId: string;
-    listingStatus: string;
-    evidence: readonly MarketplaceListingPhoto[];
-    policyHash: string;
-    policyVersion: number | null;
-    requirements: Awaited<ReturnType<typeof evaluateListingEvidencePolicy>>["requirements"];
-    coverage: ReturnType<typeof evaluateEvidenceCoverage>;
-    updatedAt: string;
+      listingStatus: string;
+      evidence: readonly MarketplaceListingPhoto[];
+      policyHash: string;
+      policyVersion: number | null;
+      requirements: Awaited<ReturnType<typeof evaluateListingEvidencePolicy>>["requirements"];
+      coverage: ReturnType<typeof evaluateEvidenceCoverage>;
+      updatedAt: string;
+    }>;
+    listSellerListingFeeHistory: (
+      params: Readonly<{ listingId: string; accountId: string }>,
+    ) => Promise<readonly MarketplaceListingFeeHistoryEntry[]>;
+    listSellerListingFeeLockReport: (
+      params: Parameters<typeof listSellerListingFeeLockReport>[1],
+    ) => Promise<{ items: MarketplaceListingFeeLockReportEntry[]; total: number }>;
+    getMarketSummaryForItem: (itemId: string) => ReturnType<typeof getMarketSummaryForItem>;
+    listItemListings: (itemId: string) => ReturnType<typeof listItemListings>;
+    getInventoryItemSupply: (itemId: string, accountId?: string) => ReturnType<typeof getInventoryItemSupply>;
+    loadListingState: (listingId: string) => Promise<MarketplaceListingState>;
+    reconcileInventoryCapacity: (inventoryItemId: string) => Promise<void>;
+    projectors: readonly ProjectionHandlerSet[];
   }>;
-  listSellerListingFeeHistory: (
-    params: Readonly<{ listingId: string; accountId: string }>,
-  ) => Promise<readonly MarketplaceListingFeeHistoryEntry[]>;
-  listSellerListingFeeLockReport: (
-    params: Parameters<typeof listSellerListingFeeLockReport>[1],
-  ) => Promise<{ items: MarketplaceListingFeeLockReportEntry[]; total: number }>;
-  getMarketSummaryForItem: (itemId: string) => ReturnType<typeof getMarketSummaryForItem>;
-  listItemListings: (itemId: string) => ReturnType<typeof listItemListings>;
-  getInventoryItemSupply: (itemId: string, accountId?: string) => ReturnType<typeof getInventoryItemSupply>;
-  loadListingState: (listingId: string) => Promise<MarketplaceListingState>;
-  reconcileInventoryCapacity: (inventoryItemId: string) => Promise<void>;
-  projectors: readonly ProjectionHandlerSet[];
-}>;
 
 type ListingRuntimeDeps = MarketplaceRuntimeDeps &
   Readonly<{
     commercialTermsResolver: CommercialTermsResolver;
+    listingTargetAuthority?: ListingTargetAuthority;
   }>;
 
 export type MarketplaceListingPhotoUpload = Readonly<{
@@ -694,6 +723,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       schemaVersion: MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION,
       everyNEvents: MARKETPLACE_LISTING_SNAPSHOT_EVERY_N_EVENTS,
     },
+  });
+  const targetServices = createListingTargetRuntime({
+    eventStore: deps.eventStore,
+    authority: deps.listingTargetAuthority,
+    load: (listingId) => repository.load(`marketplace.listing-${listingId}`),
   });
   const capacityCodec = createPassthroughDomainEventCodec<InventoryListingCapacityEvent>();
   const { repository: inventoryListingCapacityRepository } = createAggregateCommandHandler({
@@ -1426,6 +1460,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
       listingIdOverride?: ListingId;
+      publicationScope?: "native" | "channel-only";
     }>,
     context: EventStoreContext,
   ) {
@@ -1437,7 +1472,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
       }
       const feeQuoteFingerprint = existing.state.feeQuoteFingerprint;
-      assert(feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
+      if (params.publicationScope === "channel-only")
+        assert(existing.state.publicationScope === "channel-only", "Listing publication scope cannot change.");
       if (params.listingPhotoUploads?.length) {
         const photoResult = await addListingPhotos(
           {
@@ -1463,26 +1499,29 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     if (!supply) {
       throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
     }
-    const quote = await quoteListingTerms(params.accountId, params.priceAmount);
+    const quote =
+      params.publicationScope === "channel-only" ? null : await quoteListingTerms(params.accountId, params.priceAmount);
     const evidence = await normalizePhotoUploads({
       accountId: params.accountId,
       listingId,
       listingPhotoUploads: params.listingPhotoUploads ?? [],
     });
     const evaluatedAt = new Date().toISOString();
-    let evidenceRequirements;
-    try {
-      evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
-        accountId: params.accountId,
-        catalogItemId: supply.catalog_catalog_item_id,
-        productId: supply.product_id,
-        selectedOptions: supply.selected_options,
-        gradedItem: supply.graded_card !== null,
-        priceAmount: params.priceAmount,
-        evaluatedAt,
-      });
-    } catch {
-      throw new Error("Listing evidence requirements are unavailable.");
+    let evidenceRequirements: Awaited<ReturnType<typeof resolveListingEvidenceRequirements>> | null = null;
+    if (params.publicationScope !== "channel-only") {
+      try {
+        evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
+          accountId: params.accountId,
+          catalogItemId: supply.catalog_catalog_item_id,
+          productId: supply.product_id,
+          selectedOptions: supply.selected_options,
+          gradedItem: supply.graded_card !== null,
+          priceAmount: params.priceAmount,
+          evaluatedAt,
+        });
+      } catch {
+        throw new Error("Listing evidence requirements are unavailable.");
+      }
     }
 
     const version = await commitListingCreation(
@@ -1490,6 +1529,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       supply.item_id,
       {
         type: "CreateListing",
+        publicationScope: params.publicationScope ?? "native",
         listingId,
         accountId: params.accountId,
         inventoryItemId: supply.item_id,
@@ -1507,7 +1547,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         shipFromAddress: supply.ship_from_address,
         priceAmount: params.priceAmount,
         priceCurrencyCode: params.priceCurrencyCode,
-        feeLock: feeLockFromMarketplaceTermsQuote(params.quantityCap, quote),
+        feeLock: quote ? feeLockFromMarketplaceTermsQuote(params.quantityCap, quote) : null,
         quantityCap: params.quantityCap,
         purchaseLimits: params.purchaseLimits,
         evidenceRequirements,
@@ -1516,7 +1556,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       context,
     );
 
-    return { listingId, version, feeQuoteFingerprint: quote.fee_quote_fingerprint };
+    return { listingId, version, feeQuoteFingerprint: quote?.fee_quote_fingerprint ?? null };
   }
 
   async function addListingPhotos(
@@ -1548,10 +1588,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   }
 
   return {
+    ...targetServices,
     commandHandler,
     sellerAvailabilityCommandHandler,
     orderCapacityCommandHandler,
-    createListing,
+    createListing: createListing as MarketplaceCreateListing,
     createBatchDraftListingFromInventorySnapshot: async (params, context) => {
       assert(
         params.quantityCap <= params.totalQuantity,
@@ -1570,7 +1611,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           listingPhotoUploads: params.listingPhotoUploads,
         },
         context,
-      );
+      ) as Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
     },
     createListingFromInventorySnapshot: async (params, context) => {
       assert(
@@ -1588,9 +1629,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
           listingPhotoUploads: params.listingPhotoUploads,
+          publicationScope: params.publicationScope,
         },
         context,
-      );
+      ) as Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
     },
     addListingPhotos,
     getListingPhotoJpeg: async (params) => {

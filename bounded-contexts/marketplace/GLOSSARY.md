@@ -416,6 +416,14 @@ Seller Reliability, On-Time Shipment Rate, the Seller-Responsible Issue Rate, an
 
 Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window also moved out of this Planned section (m127 seller time-away audit's scheduled-window feature): it is shipped behavior now -- see the main glossary body above.
 
+## Channel Activation
+
+A **Channel Activation** is the committed Marketplace command result that makes a Listing available to one owned Channel Connection after the exact accepted target price and current Inventory allocation have been verified. It does not publish the Listing natively or create a native fee lock.
+
+## Accepted Target Price
+
+An **Accepted Target Price** is the complete account-owned price pair for one Listing target, including its target revision, Listing revision, actor, time, and verified source authority. A partial pair or scalar amount is not an accepted target price.
+
 Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reason Code, and related concepts) moved to the [Authenticity](../authenticity/GLOSSARY.md) bounded context ahead of the m109 Authenticity Check milestone (epic #4284); Marketplace does not own that vocabulary.
 ## Channel Inbound Clamp
 

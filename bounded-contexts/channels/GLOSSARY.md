@@ -451,3 +451,7 @@ A **Missed-Sale Gap** is a returned external sale line whose exact external Chan
 ## Channel Outbound Hold
 
 A **Channel Outbound Hold** is the outbound-only admission result composed from seller pause, failing Channel Health, and the operator kill switch. Eligible inline reconciliation continues bounded sale acquisition and verified recording while suppressing its own channel-state reads and repair/repush work. Independently verified inbound sale recording remains admitted.
+
+## Versioned Connection Authority
+
+**Versioned Connection Authority** is the Channels-owned aggregate state for one Account's Connection, including its exact owner, provider, environment, active status, and loaded stream revision. A projected or caller-supplied label cannot authorize a Marketplace Channel Activation.

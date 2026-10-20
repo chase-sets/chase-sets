@@ -32,6 +32,12 @@ import {
 } from "./fee-lock";
 import type { ListingEvidenceRequirementSnapshot } from "./evidence-requirement-snapshot";
 import type { ListingEvidenceReadinessResult } from "./listing-evidence-readiness";
+import {
+  listingPriceTargetKey,
+  normalizeAcceptedListingPrice,
+  type AcceptedListingTargetPriceV1,
+  type MarketplaceListingPriceTarget,
+} from "./target-price";
 
 export type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "./fee-lock";
 
@@ -132,6 +138,18 @@ function isPurchaseLimitsUnchanged(
 }
 
 function feeLockProjectionFields(feeLocks: readonly MarketplaceListingFeeLock[]) {
+  if (feeLocks.length === 0) {
+    return {
+      marketplaceSalesFeeUnitAmount: null,
+      sellerNetUnitAmount: null,
+      shippingAllowancePercentageBps: 0,
+      termsScheduleId: null,
+      termsAgreementId: null,
+      termsResolvedAt: null,
+      feeQuoteFingerprint: null,
+      feeLocks: [],
+    };
+  }
   const current = currentMarketplaceListingFeeLock(feeLocks);
   return {
     marketplaceSalesFeeUnitAmount: current.marketplaceSalesFeeUnitAmount,
@@ -336,6 +354,12 @@ const gradeLabelAliases = new Map(
 );
 
 export type MarketplaceListingState = Readonly<{
+  publicationScope: "native" | "channel-only";
+  nativeVisibility: "enabled" | "disabled";
+  nativeFeeState: "enrolled" | "not-enrolled";
+  nativePriceRevision: number;
+  acceptedTargetPrices: Readonly<Record<string, AcceptedListingTargetPriceV1>>;
+  channelActivations: Readonly<Record<string, Readonly<{ revision: number; allocationRevision: number }>>>;
   listingId: ListingId | null;
   accountId: AccountId | null;
   inventoryItemId: string | null;
@@ -379,6 +403,12 @@ export type AppliedListingEnforcement = Readonly<{
 }>;
 
 export const initialMarketplaceListingState: MarketplaceListingState = {
+  publicationScope: "native",
+  nativeVisibility: "enabled",
+  nativeFeeState: "not-enrolled",
+  nativePriceRevision: 0,
+  acceptedTargetPrices: {},
+  channelActivations: {},
   listingId: null,
   accountId: null,
   inventoryItemId: null,
@@ -420,6 +450,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
 
 export type CreateListingCommand = Readonly<{
   type: "CreateListing";
+  publicationScope?: "native" | "channel-only";
   listingId: ListingId;
   accountId: AccountId;
   inventoryItemId: string;
@@ -437,10 +468,10 @@ export type CreateListingCommand = Readonly<{
   shipFromAddress: AddressSnapshot;
   priceAmount: string;
   priceCurrencyCode: string;
-  feeLock: MarketplaceListingFeeLock;
+  feeLock: MarketplaceListingFeeLock | null;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-  evidenceRequirements: ListingEvidenceRequirementSnapshot;
+  evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   evidence?: readonly MarketplaceListingPhotoDraft[] | null;
 }>;
 
@@ -501,7 +532,19 @@ export type ReorderListingPhotosCommand = Readonly<{
 
 export type RefreshListingEvidenceRequirementsCommand = Readonly<{
   type: "RefreshListingEvidenceRequirements";
-  evidenceRequirements: ListingEvidenceRequirementSnapshot;
+  evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
+}>;
+
+export type AcceptListingTargetPriceCommand = Readonly<{
+  type: "AcceptListingTargetPrice";
+  acceptedTargetPrice: AcceptedListingTargetPriceV1;
+  expectedTargetPriceRevision: number;
+}>;
+export type ActivateListingForChannelCommand = Readonly<{
+  type: "ActivateListingForChannel";
+  connectionId: string;
+  expectedTargetPriceRevision: number;
+  allocationRevision: number;
 }>;
 
 export type PublishListingCommand = Readonly<{
@@ -534,6 +577,8 @@ export type WithdrawListingCommand = Readonly<{ type: "WithdrawListing" }>;
 
 export type MarketplaceListingCommand =
   | CreateListingCommand
+  | AcceptListingTargetPriceCommand
+  | ActivateListingForChannelCommand
   | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
@@ -552,6 +597,9 @@ export type MarketplaceListingCommand =
 export type ListingCreatedEvent = DomainEvent<
   "marketplace.listing.created",
   Readonly<{
+    publicationScope?: "native" | "channel-only";
+    nativeVisibility?: "enabled" | "disabled";
+    nativeFeeState?: "enrolled" | "not-enrolled";
     listingId: ListingId;
     accountId: AccountId;
     inventoryItemId: string;
@@ -570,20 +618,28 @@ export type ListingCreatedEvent = DomainEvent<
     priceAmount: string;
     /** Missing only on historical amount-only events. */
     priceCurrencyCode?: string | null;
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string | null;
+    sellerNetUnitAmount: string | null;
     shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
+    feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
     changeSource?: "repricing-engine";
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
-    evidenceRequirements: ListingEvidenceRequirementSnapshot;
+    evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
     evidence: MarketplaceListingPhoto[];
   }>
+>;
+export type ListingTargetPriceAcceptedEvent = DomainEvent<
+  "marketplace.listing.target-price-accepted",
+  Readonly<{ schemaVersion: 1; acceptedTargetPrice: AcceptedListingTargetPriceV1 }>
+>;
+export type ListingChannelActivatedEvent = DomainEvent<
+  "marketplace.listing.channel-activated",
+  Readonly<{ connectionId: string; targetPriceRevision: number; allocationRevision: number }>
 >;
 export type ListingPriceUpdatedEvent = DomainEvent<
   "marketplace.listing.price-updated",
@@ -591,14 +647,15 @@ export type ListingPriceUpdatedEvent = DomainEvent<
     priceAmount: string;
     /** Missing only on historical amount-only events. */
     priceCurrencyCode?: string | null;
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string | null;
+    sellerNetUnitAmount: string | null;
     shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
+    feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
+    acceptedTargetPrice?: AcceptedListingTargetPriceV1;
   }>
 >;
 export type ListingQuantityCapUpdatedEvent = DomainEvent<
@@ -606,13 +663,13 @@ export type ListingQuantityCapUpdatedEvent = DomainEvent<
   Readonly<{
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string | null;
+    sellerNetUnitAmount: string | null;
     shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
+    feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
   }>
 >;
@@ -660,7 +717,7 @@ export type ListingPhotosReorderedEvent = DomainEvent<
 export type ListingEvidenceRequirementsRefreshedEvent = DomainEvent<
   "marketplace.listing.evidence-requirements-refreshed",
   Readonly<{
-    evidenceRequirements: ListingEvidenceRequirementSnapshot;
+    evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   }>
 >;
 export type ListingPublishedEvent = DomainEvent<
@@ -692,6 +749,8 @@ export type ListingOfferCommitmentRecordedEvent = DomainEvent<
 
 export type MarketplaceListingEvent =
   | ListingCreatedEvent
+  | ListingTargetPriceAcceptedEvent
+  | ListingChannelActivatedEvent
   | ListingPriceUpdatedEvent
   | ListingQuantityCapUpdatedEvent
   | ListingPurchaseLimitsUpdatedEvent
@@ -720,12 +779,21 @@ export const decideMarketplaceListing: AggregateDecider<
         command.quantityCap,
         "Listing quantity cap must be a positive whole number.",
       );
-      const feeLock = normalizeMarketplaceListingFeeLock(command.feeLock);
-      assert(feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
+      const publicationScope = command.publicationScope ?? "native";
+      const feeLock = command.feeLock === null ? null : normalizeMarketplaceListingFeeLock(command.feeLock);
+      if (publicationScope === "native") {
+        assert(feeLock && feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
+        assert(command.evidenceRequirements, "Native listing evidence requirements are unavailable.");
+      } else {
+        assert(feeLock === null, "Channel-only listings cannot enroll native fee terms.");
+      }
       return [
         {
           type: "marketplace.listing.created",
           data: {
+            publicationScope,
+            nativeVisibility: publicationScope === "native" ? "enabled" : "disabled",
+            nativeFeeState: publicationScope === "native" ? "enrolled" : "not-enrolled",
             listingId: command.listingId,
             accountId: command.accountId,
             inventoryItemId: command.inventoryItemId.trim(),
@@ -746,11 +814,85 @@ export const decideMarketplaceListing: AggregateDecider<
             shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
             priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
-            ...feeLockProjectionFields([feeLock]),
+            ...feeLockProjectionFields(feeLock ? [feeLock] : []),
             quantityCap,
             purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
             evidenceRequirements: command.evidenceRequirements,
             evidence: normalizeListingPhotos(command.evidence ?? []),
+          },
+        },
+      ];
+    }
+    case "AcceptListingTargetPrice": {
+      assert(state.listingId !== null && state.status !== "withdrawn", "Listing cannot accept a target price.");
+      const accepted = command.acceptedTargetPrice;
+      assert(accepted.listingId === state.listingId && accepted.accountId === state.accountId, "Price owner mismatch.");
+      const key = listingPriceTargetKey(accepted.target);
+      const currentRevision =
+        accepted.target.kind === "native-marketplace"
+          ? state.nativePriceRevision
+          : (state.acceptedTargetPrices[key]?.targetPriceRevision ?? 0);
+      assert(currentRevision === command.expectedTargetPriceRevision, "Accepted target price revision changed.");
+      assert(accepted.targetPriceRevision > currentRevision, "Accepted target price revision must advance.");
+      assert(accepted.listingRevision > 0, "Listing revision is required.");
+      const pair = normalizeAcceptedListingPrice(accepted.priceAmount, accepted.priceCurrencyCode);
+      assert(
+        pair.priceAmount === accepted.priceAmount && pair.priceCurrencyCode === accepted.priceCurrencyCode,
+        "Price pair must be normalized.",
+      );
+      if (accepted.target.kind === "channel-connection") {
+        assert(state.publicationScope === "channel-only", "Channel target prices require a channel-only listing.");
+        assert(
+          accepted.connectionAuthority?.connectionId === accepted.target.connectionId,
+          "Connection authority mismatch.",
+        );
+        return [
+          {
+            type: "marketplace.listing.target-price-accepted",
+            data: { schemaVersion: 1, acceptedTargetPrice: accepted },
+          },
+        ];
+      }
+      assert(accepted.connectionAuthority === null, "Native prices cannot carry connection authority.");
+      const feeLocks = state.feeLocks.map((lock) => ({
+        ...lock,
+        marketplaceSalesFeeUnitAmount: lock.marketplaceSalesFeeUnitAmount,
+        sellerNetUnitAmount: lock.sellerNetUnitAmount,
+      }));
+      return [
+        {
+          type: "marketplace.listing.price-updated",
+          data: {
+            priceAmount: pair.priceAmount,
+            priceCurrencyCode: pair.priceCurrencyCode,
+            ...feeLockProjectionFields(feeLocks),
+            acceptedTargetPrice: accepted,
+          } as never,
+        },
+      ];
+    }
+    case "ActivateListingForChannel": {
+      assert(state.listingId !== null && state.status !== "withdrawn", "Listing cannot be activated.");
+      assert(state.publicationScope === "channel-only", "Only channel-only listings can be activated for a channel.");
+      const accepted =
+        state.acceptedTargetPrices[
+          listingPriceTargetKey({ kind: "channel-connection", connectionId: command.connectionId })
+        ];
+      assert(
+        accepted && accepted.targetPriceRevision === command.expectedTargetPriceRevision,
+        "Current accepted target price is required.",
+      );
+      assert(
+        Number.isSafeInteger(command.allocationRevision) && command.allocationRevision > 0,
+        "Current Inventory allocation is required.",
+      );
+      return [
+        {
+          type: "marketplace.listing.channel-activated",
+          data: {
+            connectionId: command.connectionId,
+            targetPriceRevision: command.expectedTargetPriceRevision,
+            allocationRevision: command.allocationRevision,
           },
         },
       ];
@@ -998,6 +1140,12 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
   switch (event.type) {
     case "marketplace.listing.created":
       return {
+        publicationScope: event.data.publicationScope ?? "native",
+        nativeVisibility: event.data.nativeVisibility ?? "enabled",
+        nativeFeeState: event.data.nativeFeeState ?? "enrolled",
+        nativePriceRevision: 0,
+        acceptedTargetPrices: {},
+        channelActivations: {},
         listingId: event.data.listingId,
         accountId: event.data.accountId,
         inventoryItemId: event.data.inventoryItemId,
@@ -1032,9 +1180,34 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         listingEnforcement: null,
         appliedListingEnforcements: [],
       };
+    case "marketplace.listing.target-price-accepted": {
+      const accepted = event.data.acceptedTargetPrice;
+      return {
+        ...state,
+        acceptedTargetPrices: { ...state.acceptedTargetPrices, [listingPriceTargetKey(accepted.target)]: accepted },
+      };
+    }
+    case "marketplace.listing.channel-activated":
+      return {
+        ...state,
+        channelActivations: {
+          ...state.channelActivations,
+          [event.data.connectionId]: {
+            revision: (state.channelActivations[event.data.connectionId]?.revision ?? 0) + 1,
+            allocationRevision: event.data.allocationRevision,
+          },
+        },
+      };
     case "marketplace.listing.price-updated":
       return {
         ...state,
+        nativePriceRevision: event.data.acceptedTargetPrice?.targetPriceRevision ?? state.nativePriceRevision + 1,
+        acceptedTargetPrices: event.data.acceptedTargetPrice
+          ? {
+              ...state.acceptedTargetPrices,
+              [listingPriceTargetKey(event.data.acceptedTargetPrice.target)]: event.data.acceptedTargetPrice,
+            }
+          : state.acceptedTargetPrices,
         priceAmount: event.data.priceAmount,
         priceCurrencyCode: event.data.priceCurrencyCode ?? null,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,

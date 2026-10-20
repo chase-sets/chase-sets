@@ -264,6 +264,7 @@ export function createChannelConnectionRuntime(
       });
     },
     getConnection: (input) => getPublicChannelConnection(deps.db, input),
+    loadOwned: (accountId, connectionId) => loadOwned(accountId, connectionId),
     listConnections: (input) => listPublicChannelConnections(deps.db, input),
     projectors,
   };
