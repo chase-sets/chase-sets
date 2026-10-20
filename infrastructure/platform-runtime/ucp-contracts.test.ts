@@ -195,6 +195,7 @@ describe("UCP error severity", () => {
     expect(ucpErrorSeverity("invalid_future_code")).toBe("recoverable");
     expect(ucpErrorSeverity("idempotency_key_future_code")).toBe("recoverable");
     expect(ucpErrorSeverity("custom_limited")).toBe("recoverable");
+    expect(ucpErrorSeverity("custom_limited_suffix")).toBe("unrecoverable");
     expect(ucpErrorSeverity("requires_buyer_input")).toBe("unrecoverable");
   });
 });
