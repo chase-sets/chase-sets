@@ -279,7 +279,8 @@ function isDeployment(deployment) {
 
 // Parses a serialized `{deployment, deployGeneration}` and refuses any unknown,
 // missing or duplicate key at any level, and any value outside its rule.
-// `deployGeneration` is the #6737 projection: five fields equal to deployment's.
+// `deployGeneration` is the projection consumers bind: five fields, each equal to
+// deployment's.
 export function readStagingDeployGeneration(text) {
   const refused = () => new Error("closed-schema-shallow-validation");
   if (typeof text !== "string") throw refused();
