@@ -348,6 +348,8 @@ export const discoveryEnglishTranslations = {
     "Get notified when matching supply appears at or below your target.",
   "discovery.routes.itemDetail.buy.card.description": "Choose a listing, product, or offer action.",
   "discovery.routes.itemDetail.buy.card.title": "Buy options",
+  "discovery.routes.itemDetail.buy.changed":
+    "Your selection changed after you chose Buy now. Check it and choose Buy now again.",
   "discovery.routes.itemDetail.buy.best.available.listing": "Buy best available listing",
   "discovery.routes.itemDetail.buy.best.match": "Buy best match",
   "discovery.routes.itemDetail.buy.now": "Buy this listing",
