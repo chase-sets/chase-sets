@@ -8,6 +8,7 @@ import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import {
   ADMIN_QA_ACTOR_FIXTURES,
   provisionAdminQaActorFixtures,
+  type AdminQaActorFixtureContacts,
   type AdminQaActorFixtureResult,
 } from "@chase-sets/identity/server";
 import { apiContextRegistry } from "./generated/api-context-registry";
@@ -86,6 +87,7 @@ export async function runAdminQaActorFixtures(options: Readonly<{ config?: Platf
 
   const pools = createSeedCommandPools(config);
   try {
+    const contacts = readAdminQaActorFixtureContacts();
     await bootstrapPlatformControlPlane(pools.control);
     const paymentProcessorGateway = createFakePaymentProcessorGateway();
     const runtime = createPlatformApiHost({
@@ -109,7 +111,7 @@ export async function runAdminQaActorFixtures(options: Readonly<{ config?: Platf
     });
 
     const identityServices = getIdentityServices(runtime.services);
-    const fixtures = await provisionAdminQaActorFixtures(identityServices);
+    const fixtures = await provisionAdminQaActorFixtures(identityServices, contacts);
 
     const evidence: AdminQaActorFixturesEvidence = {
       schemaVersion: ADMIN_QA_ACTOR_FIXTURES_EVIDENCE_VERSION,
@@ -133,6 +135,25 @@ export async function runAdminQaActorFixtures(options: Readonly<{ config?: Platf
   } finally {
     await closePlatformApiPools(pools);
   }
+}
+
+/** Reads all six protected inputs before any Identity bootstrap or append. */
+export function readAdminQaActorFixtureContacts(
+  environment: NodeJS.ProcessEnv = process.env,
+): AdminQaActorFixtureContacts {
+  const keys = [
+    "ADMIN_QA_PLATFORM_ADMIN_EMAIL",
+    "ADMIN_QA_OWNER_EMAIL",
+    "ADMIN_QA_MANAGER_EMAIL",
+    "ADMIN_QA_FULFILLMENT_EMAIL",
+    "ADMIN_QA_VIEWER_EMAIL",
+    "ADMIN_QA_CATALOG_ADMIN_EMAIL",
+  ] as const;
+  const values = Object.fromEntries(keys.map((key) => [key, environment[key]])) as Partial<AdminQaActorFixtureContacts>;
+  for (const key of keys) {
+    if (typeof values[key] !== "string" || values[key]!.trim() === "") throw new Error(`Missing ${key}.`);
+  }
+  return values as AdminQaActorFixtureContacts;
 }
 
 export async function writeAdminQaActorFixturesEvidence(

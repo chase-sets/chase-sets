@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { module as catalogModule } from "@chase-sets/catalog";
@@ -56,7 +56,28 @@ async function countEvents(pool: PlatformApiTestPools[PlatformApiContextName], e
   return Number(result.rows[0]?.count ?? 0);
 }
 
+/** Six synthetic protected inputs for the admin-QA composition, restored after the file. */
+const ADMIN_QA_CONTACT_KEYS = [
+  "ADMIN_QA_PLATFORM_ADMIN_EMAIL",
+  "ADMIN_QA_OWNER_EMAIL",
+  "ADMIN_QA_MANAGER_EMAIL",
+  "ADMIN_QA_FULFILLMENT_EMAIL",
+  "ADMIN_QA_VIEWER_EMAIL",
+  "ADMIN_QA_CATALOG_ADMIN_EMAIL",
+] as const;
+const previousAdminQaContacts = ADMIN_QA_CONTACT_KEYS.map((key) => [key, process.env[key]] as const);
+
 describe("seed commands with owned capped pools and preview-shaped waiters", () => {
+  beforeAll(() => {
+    for (const key of ADMIN_QA_CONTACT_KEYS) process.env[key] = `${key.toLowerCase()}@chasesets.test`;
+  });
+  afterAll(() => {
+    for (const [key, value] of previousAdminQaContacts) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
   it("completes representative commerce seeds, projections, fan-outs and post-state", async () => {
     const hookRuntime = createPlatformApiHost({
       runtimeProfile: "public",
