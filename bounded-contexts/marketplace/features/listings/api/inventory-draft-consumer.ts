@@ -110,7 +110,12 @@ function normalizedLegacyOptions(value: unknown): readonly { dimensionId: string
     const record: Record<string, unknown> = Object.fromEntries(Object.entries(entry));
     const dimensionId = record.dimensionId;
     const optionId = record.optionId;
-    if (typeof dimensionId !== "string" || typeof optionId !== "string" || dimensionId.trim() === "" || optionId.trim() === "")
+    if (
+      typeof dimensionId !== "string" ||
+      typeof optionId !== "string" ||
+      dimensionId.trim() === "" ||
+      optionId.trim() === ""
+    )
       throw new InventoryDraftListingConflict();
     if (dimensions.has(dimensionId)) throw new InventoryDraftListingConflict();
     dimensions.add(dimensionId);
@@ -155,7 +160,7 @@ async function inspectDraft(
     inventoryItemId: snapshot.inventoryItemId,
     catalogItemId: snapshot.catalogItemId,
     productId: snapshot.productId,
-    selectedOptions: normalizedLegacyOptions(event.payload.selectedOptions),
+    selectedOptions: snapshot.selectedOptions,
     gradedCard: null,
     storageLocationName: snapshot.storageLocationName,
     shipFromCode: snapshot.shipFromCode,

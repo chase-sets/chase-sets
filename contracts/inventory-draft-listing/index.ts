@@ -50,23 +50,6 @@ const selectedOptions = z
   .max(64)
   .refine((options) => new Set(options.map((option) => option.dimensionId)).size === options.length)
   .transform((options) => [...options].sort(compareInventoryDraftSelectedOptions));
-const gradedCard = z
-  .strictObject({
-    gradingCompany: text,
-    grade: text,
-    certificationNumber: text.nullable(),
-    population: z
-      .strictObject({
-        populationAtGrade: z.number().int().nonnegative().nullable(),
-        populationHigher: z.number().int().nonnegative().nullable(),
-        source: text.nullable(),
-        asOf: instant.nullable(),
-      })
-      .nullable(),
-    conditionDescriptors: z.array(text).max(64),
-  })
-  .nullable();
-
 export const inventoryDraftListingMessageSchema = z
   .strictObject({
     schemaVersion: z.literal("inventory-draft-listing/v1"),
@@ -97,10 +80,7 @@ export const inventoryDraftListingMessageSchema = z
   })
   .superRefine((message, context) => {
     const { snapshot } = message;
-    if (
-      message.messageId !== snapshot.importRowId ||
-      snapshot.quantityCap > snapshot.totalQuantity
-    ) {
+    if (message.messageId !== snapshot.importRowId || snapshot.quantityCap > snapshot.totalQuantity) {
       context.addIssue({ code: "custom", message: "Invalid committed row binding." });
     }
   });

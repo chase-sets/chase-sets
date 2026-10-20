@@ -15,11 +15,7 @@ import { module as marketplaceModule } from "../../../index";
 import { inventoryDraftReceiptMigrations } from "../read-model/inventory-draft-receipt-schema";
 import type { BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
-import {
-  decideMarketplaceListing,
-  initialMarketplaceListingState,
-  type CreateListingCommand,
-} from "../domain/domain";
+import { decideMarketplaceListing, initialMarketplaceListingState, type CreateListingCommand } from "../domain/domain";
 
 describe("issue-7169-c4-draft-receipt", () => {
   it("binds the committed row to a deterministic message and listing identity", () => {
@@ -88,6 +84,7 @@ function harness() {
   let savedReceipts: Record<string, unknown>[] = [];
   let kill: "draft" | "receipt" | "commit" | "reply" | null = null;
   const queries: string[] = [];
+  let createdOptions: readonly { dimensionId: string; optionId: string }[] | null = null;
   const query = vi.fn(async (sql: string, values: readonly unknown[] = []) => {
     queries.push(sql);
     if (sql.includes("AS ready")) return { rows: [{ ready: true }] };
@@ -207,7 +204,14 @@ function harness() {
   }
   const createDraft = vi.fn(async (_input: { priceCurrencyCode: string }) => {
     if (kill === "draft") throw new Error("synthetic death after draft facts");
-    seedLegacy({ ...draftMessage(), snapshot: { ...draftMessage().snapshot, priceCurrencyCode: _input.priceCurrencyCode } });
+    seedLegacy({
+      ...draftMessage(),
+      snapshot: { ...draftMessage().snapshot, priceCurrencyCode: _input.priceCurrencyCode },
+    });
+    if (createdOptions) {
+      const event = events[0]!;
+      events = [{ ...event, payload: { ...event.payload, selectedOptions: createdOptions } }];
+    }
     return { listingId: "lst_c4_1" as never, version: 1, feeQuoteFingerprint: "quote_c4" };
   });
   const consumer = createInventoryDraftListingConsumer({
@@ -231,6 +235,9 @@ function harness() {
     },
     replaceEvents: (next: StoredEvent[]) => {
       events = next;
+    },
+    setCreatedOptions: (next: readonly { dimensionId: string; optionId: string }[] | null) => {
+      createdOptions = next;
     },
   };
 }
@@ -359,6 +366,15 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     expect(h.pool.connect).not.toHaveBeenCalled();
   });
 
+  it("classifies a deterministic listing-domain rejection as unavailable without a receipt", async () => {
+    const h = harness();
+    h.createDraft.mockRejectedValueOnce(new Error("listing command rejected"));
+    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+    });
+    expect(h.events()).toHaveLength(0);
+    expect(h.receipts()).toHaveLength(0);
+  });
 });
 
 describe("issue-7169-c4-consumer-rollout", () => {
@@ -417,6 +433,81 @@ describe("issue-7169-c4-consumer-rollout", () => {
     expect(h.events()).toHaveLength(1);
     expect(h.receipts()).toHaveLength(1);
     expect(await h.consumer.accept(draftMessage(), draftContext)).toEqual(receipt);
+  });
+
+  it.each([
+    {
+      name: "changed optionId",
+      options: [
+        { dimensionId: "a", optionId: "oa_changed" },
+        { dimensionId: "z", optionId: "oz" },
+      ],
+    },
+    { name: "missing dimension", options: [{ dimensionId: "a", optionId: "oa" }] },
+    {
+      name: "extra dimension",
+      options: [
+        { dimensionId: "a", optionId: "oa" },
+        { dimensionId: "m", optionId: "om" },
+        { dimensionId: "z", optionId: "oz" },
+      ],
+    },
+  ])("rejects a legacy draft with $name options", async ({ options }) => {
+    const h = harness();
+    h.seedLegacy();
+    const event = h.events()[0]!;
+    h.replaceEvents([{ ...event, payload: { ...event.payload, selectedOptions: options } }]);
+    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-conflict",
+    });
+    expect(h.createDraft).not.toHaveBeenCalled();
+    expect(h.receipts()).toHaveLength(0);
+  });
+
+  it("rejects malformed and non-null legacy option/limit payloads", async () => {
+    for (const selectedOptions of [
+      [{ dimensionId: "a", optionId: "oa", unexpected: true }],
+      [
+        { dimensionId: "a", optionId: "oa" },
+        { dimensionId: "a", optionId: "oa_again" },
+      ],
+    ]) {
+      const h = harness();
+      h.seedLegacy();
+      const event = h.events()[0]!;
+      h.replaceEvents([{ ...event, payload: { ...event.payload, selectedOptions } }]);
+      await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+        code: "inventory-draft-conflict",
+      });
+      expect(h.createDraft).not.toHaveBeenCalled();
+      expect(h.receipts()).toHaveLength(0);
+    }
+    const h = harness();
+    h.seedLegacy();
+    const event = h.events()[0]!;
+    h.replaceEvents([
+      {
+        ...event,
+        payload: {
+          ...event.payload,
+          purchaseLimits: { maxUnitsPerOrder: 1, maxUnitsPerDay: 1, maxUnitsPerCustomerAccount: 1 },
+        },
+      },
+    ]);
+    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-conflict",
+    });
+    expect(h.createDraft).not.toHaveBeenCalled();
+    expect(h.receipts()).toHaveLength(0);
+  });
+
+  it("rejects message-path creator drift in selected options", async () => {
+    const h = harness();
+    h.setCreatedOptions([{ dimensionId: "a", optionId: "oa_changed" }]);
+    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-conflict",
+    });
+    expect(h.receipts()).toHaveLength(0);
   });
 
   it.each(["owner", "snapshot", "duplicate", "poison", "post-terminal"])(

@@ -1417,9 +1417,7 @@ function normalizeListingPhotoAssetVariant(
   };
 }
 
-function normalizeGradedCardDetails(
-  details: MarketplaceGradedCardDetails | null,
-): MarketplaceGradedCardDetails | null {
+function normalizeGradedCardDetails(details: MarketplaceGradedCardDetails | null): MarketplaceGradedCardDetails | null {
   if (!details) {
     return null;
   }

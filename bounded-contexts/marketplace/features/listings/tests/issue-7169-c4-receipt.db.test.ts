@@ -135,14 +135,45 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
     expect((await counts())?.drafts).toBe(1);
   });
 
+  it("keeps fresh-message and direct-port listing state equivalent apart from identity and option order", async () => {
+    const owner = services(pool);
+    const message = {
+      ...draftMessage(),
+      messageId: "imr_c4_2" as const,
+      snapshot: { ...draftMessage().snapshot, importRowId: "imr_c4_2" as const },
+    };
+    const direct = await owner.listings.createBatchDraftListingFromInventorySnapshot(
+      { ...directPortInput(), importRowId: "imr_c4_2", listingIdOverride: "lst_c4_2" as never },
+      draftContext,
+    );
+    const receipt = await owner.inventoryDraftListingConsumer.accept(message, draftContext);
+    const directState = await owner.listings.loadListingState(direct.listingId);
+    const messageState = await owner.listings.loadListingState(receipt.listingId);
+    const comparable = (state: typeof directState) => ({
+      accountId: state.accountId,
+      inventoryItemId: state.inventoryItemId,
+      catalogItemId: state.catalogItemId,
+      productId: state.productId,
+      selectedOptions: [...state.selectedOptions].sort((left, right) =>
+        left.dimensionId.localeCompare(right.dimensionId),
+      ),
+      gradedCard: state.gradedCard,
+      storageLocationName: state.storageLocationName,
+      shipFromCode: state.shipFromCode,
+      shipFromAddress: state.shipFromAddress,
+      priceAmount: state.priceAmount,
+      priceCurrencyCode: state.priceCurrencyCode,
+      quantityCap: state.quantityCap,
+      purchaseLimits: state.purchaseLimits,
+    });
+    expect(comparable(messageState)).toEqual(comparable(directState));
+  });
+
   it("serializes a real legacy direct writer against a consumer without a second creation or capacity fact", async () => {
     const owner = services(pool);
     const message = draftMessage();
     const [direct, receipt] = await Promise.all([
-      owner.listings.createBatchDraftListingFromInventorySnapshot(
-        directPortInput(),
-        draftContext,
-      ),
+      owner.listings.createBatchDraftListingFromInventorySnapshot(directPortInput(), draftContext),
       owner.inventoryDraftListingConsumer.accept(message, draftContext),
     ]);
     expect(receipt.listingId).toBe(direct.listingId);
