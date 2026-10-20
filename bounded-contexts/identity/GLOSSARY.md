@@ -14,6 +14,14 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
+### Social Login Link
+
+A **Social Login Link** is an Identity-owned association between one User and a normalized provider subject. Its lifecycle is `active`, `revocation-requested`, or `revoked`; the provider subject ownership claim is durable event history, not a projection row.
+
+### Link Revocation
+
+**Link Revocation** is the local, authenticated removal of a Social Login Link. Identity records the request and completion atomically, retains the ownership claim, and makes later sign-in or relinking of the subject refuse without creating a User.
+
 ### Account Management Mutation Attempt
 
 An **Account Management Mutation Attempt** binds one explicit account-management

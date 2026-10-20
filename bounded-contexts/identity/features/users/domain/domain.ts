@@ -15,6 +15,7 @@ import {
   type SocialLoginProviderKey,
   type UserStatus,
 } from "../../../support/runtime-support/common";
+import { isSocialLoginProviderKey } from "@chase-sets/auth-context";
 
 export type SocialLoginLink = Readonly<{
   providerName: SocialLoginProviderKey;
@@ -123,7 +124,7 @@ export type UnlinkSocialLoginCommand = Readonly<{
   type: "UnlinkSocialLogin";
   providerName: SocialLoginProviderKey;
   providerSubject: string;
-  authenticationMethod: AuthMethodKey;
+  authenticationMethod: AuthMethodKey | SocialLoginProviderKey;
   authenticatedAt: string | null | undefined;
   now: string;
 }>;
@@ -374,9 +375,30 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       const key = socialLoginLinkKey(command.providerName, providerSubject);
       const lifecycle = state.socialLoginLinkStates[key] ?? "active";
       if (lifecycle === "revoked" || lifecycle === "revocation-requested") return [];
-      assert(command.authenticationMethod !== "social-login", "A different authentication method is required.");
+      assert(command.authenticationMethod !== command.providerName, "A different authentication method is required.");
+      const authenticatingSocialLink = isSocialLoginProviderKey(command.authenticationMethod)
+        ? state.socialLoginLinks.find(
+            (candidate) =>
+              candidate.providerName === command.authenticationMethod &&
+              (state.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ?? "active") ===
+                "active",
+          )
+        : null;
       assert(
-        state.authMethods.some((method) => method !== "social-login"),
+        authenticatingSocialLink !== null ||
+          (!isSocialLoginProviderKey(command.authenticationMethod) &&
+            command.authenticationMethod !== "social-login" &&
+            state.authMethods.includes(command.authenticationMethod)),
+        "An active authentication method is required.",
+      );
+      assert(
+        state.authMethods.some((method) => method !== "social-login") ||
+          state.socialLoginLinks.some(
+            (candidate) =>
+              candidate.providerName !== command.providerName &&
+              (state.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ?? "active") ===
+                "active",
+          ),
         "At least one other method is required.",
       );
       assert(
@@ -516,13 +538,20 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (state, event)
         },
       };
     case "identity.user.social-login-revoked":
-      return {
+      const revokedState: UserState = {
         ...state,
         socialLoginLinkStates: {
           ...state.socialLoginLinkStates,
           [socialLoginLinkKey(event.data.providerName, event.data.providerSubject)]: "revoked",
         },
       };
+      return revokedState.socialLoginLinks.some(
+        (candidate) =>
+          (revokedState.socialLoginLinkStates[socialLoginLinkKey(candidate.providerName, candidate.providerSubject)] ?? "active") ===
+          "active",
+      )
+        ? revokedState
+        : { ...revokedState, authMethods: revokedState.authMethods.filter((method) => method !== "social-login") };
     case "identity.user.suspended":
       return { ...state, status: "suspended" };
     case "identity.user.reactivated":

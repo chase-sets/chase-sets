@@ -141,9 +141,11 @@ CREATE TABLE IF NOT EXISTS auth_identity_account_capabilities (
 );
 
 ALTER TABLE auth_identity_user_social_login_links
-  ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active';
+  DROP CONSTRAINT IF EXISTS auth_identity_user_social_login_links_state_check;
 ALTER TABLE auth_identity_user_social_login_links
-  ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL;`;
+  ADD CONSTRAINT auth_identity_user_social_login_links_state_check CHECK (state IN ('active', 'revocation-requested', 'revoked')) NOT VALID;
+ALTER TABLE auth_identity_user_social_login_links
+  VALIDATE CONSTRAINT auth_identity_user_social_login_links_state_check;`;
 
 export const authIdentityProjectionSchemaMigrations = [
   {
@@ -152,6 +154,9 @@ export const authIdentityProjectionSchemaMigrations = [
     statements: [
       "ALTER TABLE auth_identity_user_social_login_links ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active'",
       "ALTER TABLE auth_identity_user_social_login_links ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL",
+      "ALTER TABLE auth_identity_user_social_login_links DROP CONSTRAINT IF EXISTS auth_identity_user_social_login_links_state_check",
+      "ALTER TABLE auth_identity_user_social_login_links ADD CONSTRAINT auth_identity_user_social_login_links_state_check CHECK (state IN ('active', 'revocation-requested', 'revoked')) NOT VALID",
+      "ALTER TABLE auth_identity_user_social_login_links VALIDATE CONSTRAINT auth_identity_user_social_login_links_state_check",
     ],
   },
 ] as const;
@@ -244,6 +249,7 @@ type SocialLoginLinkRow = Readonly<{
   providerSubject: string;
   email: string;
   linkedAt: string;
+  state?: "active" | "revocation-requested" | "revoked";
 }>;
 
 type ContactMethodLookupRow = Readonly<{
@@ -797,7 +803,7 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
             { kind: "pathText", path: ["providerSubject"], value: link.providerSubject },
           ],
         },
-        element: link satisfies SocialLoginLinkRow,
+        element: { ...link, state: "active" } as SocialLoginLinkRow,
         orderBy: [
           { kind: "pathText", path: ["providerName"] },
           { kind: "pathText", path: ["providerSubject"] },
@@ -834,6 +840,14 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
          WHERE provider_name = $1 AND provider_subject = $2 AND user_id = $3 AND state = 'active'`,
         [link.providerName, link.providerSubject, userId, event.timing.recordedAt],
       );
+      await db.query(
+        `UPDATE auth_identity_users SET social_login_links = (
+           SELECT COALESCE(jsonb_agg(CASE WHEN value->>'providerName' = $2 AND value->>'providerSubject' = $3
+             THEN jsonb_set(value, '{state}', to_jsonb('revocation-requested'::text), true) ELSE value END), '[]'::jsonb)
+           FROM jsonb_array_elements(social_login_links) AS elements(value)
+         ), updated_at = $4 WHERE user_id = $1`,
+        [userId, link.providerName, link.providerSubject, event.timing.recordedAt],
+      );
     },
     "identity.user.social-login-revoked": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
@@ -843,6 +857,14 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
          WHERE provider_name = $1 AND provider_subject = $2 AND user_id = $3
            AND state IN ('active', 'revocation-requested')`,
         [link.providerName, link.providerSubject, userId, event.timing.recordedAt],
+      );
+      await db.query(
+        `UPDATE auth_identity_users SET social_login_links = (
+           SELECT COALESCE(jsonb_agg(CASE WHEN value->>'providerName' = $2 AND value->>'providerSubject' = $3
+             THEN jsonb_set(value, '{state}', to_jsonb('revoked'::text), true) ELSE value END), '[]'::jsonb)
+           FROM jsonb_array_elements(social_login_links) AS elements(value)
+         ), updated_at = $4 WHERE user_id = $1`,
+        [userId, link.providerName, link.providerSubject, event.timing.recordedAt],
       );
     },
     "identity.user.suspended": async (event) => {
@@ -1218,13 +1240,12 @@ export async function getAuthIdentityUserBySocialLogin(
   params: Readonly<{ providerName: string; providerSubject: string }>,
 ) {
   const result = await db.query<AuthIdentityUserRow>(
-    `SELECT users.*
+    `SELECT users.*, links.state AS social_login_state
      FROM auth_identity_user_social_login_links AS links
      INNER JOIN auth_identity_users AS users ON users.user_id = links.user_id
      WHERE links.provider_name = $1
-       AND links.provider_subject = $2
-       AND links.state = 'active'`,
-    [params.providerName, params.providerSubject],
+       AND links.provider_subject = $2`,
+    [params.providerName, params.providerSubject.trim()],
   );
   return result.rows[0] ?? null;
 }

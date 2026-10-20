@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createHash } from "node:crypto";
 import type { Context } from "hono";
 import { t } from "@chase-sets/localization";
 import { consentActivationGuardAppendInput } from "@chase-sets/platform-policy/consent-activation-authority";
@@ -1317,6 +1318,109 @@ class SocialLoginLinkConflictError extends Error {
   }
 }
 
+const SOCIAL_LOGIN_CLAIM_EVENT = "identity.social-login-ownership.claimed";
+
+function socialLoginClaimStreamId(providerName: "google" | "facebook", providerSubject: string) {
+  const key = `${providerName}:${normalizeLabel(providerSubject)}`;
+  return `identity.social-login-ownership-${createHash("sha256").update(key, "utf8").digest("hex")}`;
+}
+
+function socialLoginClaimScope(providerName: "google" | "facebook", providerSubject: string) {
+  return `identity:social-login:${providerName}:${normalizeLabel(providerSubject)}`;
+}
+
+function foldUserHistory(history: readonly StoredEvent[]): UserState {
+  return history.reduce(
+    (state, event) => evolveUser(state, { type: event.eventType, data: event.payload } as UserEvent),
+    initialUserState,
+  );
+}
+
+async function linkSocialLoginAtomically(
+  services: IdentityServices,
+  params: Readonly<{
+    userId: string;
+    providerName: "google" | "facebook";
+    providerSubject: string;
+    email: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const providerSubject = normalizeLabel(params.providerSubject);
+  if (providerSubject.length === 0 || providerSubject.length > 512 || params.email.length > 320) {
+    throw new IdentityDomainError("Social login input is invalid.");
+  }
+  if (!services.mutationPersistence) {
+    await services.users.commandHandler({
+      streamId: `identity.user-${params.userId}`,
+      command: { type: "EnableAuthMethod", authMethod: "social-login" },
+      context: params.context,
+    });
+    const result = await services.users.commandHandler({
+      streamId: `identity.user-${params.userId}`,
+      command: { type: "LinkSocialLogin", providerName: params.providerName, providerSubject, email: params.email, linkedAt: new Date().toISOString() },
+      context: params.context,
+    });
+    return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
+  }
+  const claimStreamId = socialLoginClaimStreamId(params.providerName, providerSubject);
+  return services.mutationPersistence.transaction(
+    [socialLoginClaimScope(params.providerName, providerSubject)],
+    async (tx) => {
+      const [claimHistory, userHistory] = await Promise.all([
+        tx.read(claimStreamId),
+        tx.read(`identity.user-${params.userId}`),
+      ]);
+      const claim = claimHistory.at(-1)?.eventType === SOCIAL_LOGIN_CLAIM_EVENT
+        ? (claimHistory.at(-1)?.payload as { userId?: string; providerName?: string; providerSubject?: string })
+        : null;
+      if (claim && (claim.userId !== params.userId || claim.providerName !== params.providerName || claim.providerSubject !== providerSubject)) {
+        throw new SocialLoginLinkConflictError();
+      }
+      const priorState = foldUserHistory(userHistory);
+      const link = priorState.socialLoginLinks.find(
+        (candidate) => candidate.providerName === params.providerName && candidate.providerSubject === providerSubject,
+      );
+      if (link) {
+        return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, { version: userHistory.length, state: priorState })] };
+      }
+      const enableEvents = decideUser(priorState, { type: "EnableAuthMethod", authMethod: "social-login" });
+      const stateAfterEnable = enableEvents.reduce(evolveUser, priorState);
+      const linkEvents = decideUser(stateAfterEnable, {
+        type: "LinkSocialLogin",
+        providerName: params.providerName,
+        providerSubject,
+        email: params.email,
+        linkedAt: new Date().toISOString(),
+      });
+      const events = [...enableEvents, ...linkEvents];
+      const claimEvents: readonly Readonly<{ eventType: string; payload: JsonObject }>[] = claim
+        ? []
+        : [{
+            eventType: SOCIAL_LOGIN_CLAIM_EVENT,
+            payload: { userId: params.userId, providerName: params.providerName, providerSubject } as JsonObject,
+          }];
+      const appended = await tx.append!([
+        {
+          streamId: claimStreamId,
+          expectedVersion: claimHistory.length || "no_stream",
+          context: params.context,
+          events: claimEvents,
+        },
+        {
+          streamId: `identity.user-${params.userId}`,
+          expectedVersion: userHistory.length || "no_stream",
+          context: params.context,
+          events: events.map((event) => ({ eventType: event.type, payload: event.data as JsonObject, eventId: createId("evt") })),
+        },
+      ]);
+      const storedEvents = appended.flatMap((entry) => entry.storedEvents);
+      const nextState = events.reduce(evolveUser, priorState);
+      return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, { version: userHistory.length + events.length, state: nextState })], storedEvents };
+    },
+  );
+}
+
 function roleKeyValidationError() {
   return {
     error: {
@@ -1336,58 +1440,7 @@ async function linkSocialLoginForAuth(
     context: EventStoreContext;
   }>,
 ) {
-  const existingLink = await services.users.getUserBySocialLogin({
-    providerName: params.providerName,
-    providerSubject: params.providerSubject,
-  });
-
-  if (existingLink && existingLink.user_id !== params.userId) {
-    throw new SocialLoginLinkConflictError();
-  }
-  if (existingLink?.social_login_state && existingLink.social_login_state !== "active") {
-    throw new SocialLoginLinkConflictError();
-  }
-
-  // The subject-keyed row is the concurrency authority. Reserve it before
-  // appending the user event so a racing second user never appends a link
-  // event that can later transfer the projection row.
-  const reservation = await services.db.query<{ user_id: string }>(
-    `INSERT INTO identity_user_social_login_links
-       (provider_name, provider_subject, user_id, email, linked_at, state, updated_at)
-     VALUES ($1, $2, $3, $4, now(), 'active', now())
-     ON CONFLICT (provider_name, provider_subject) DO NOTHING
-     RETURNING user_id`,
-    [params.providerName, params.providerSubject, params.userId, normalizeEmail(params.email)],
-  );
-  if (reservation?.rows && reservation.rows.length === 0) {
-    const owner = await services.db.query<{ user_id: string; state: string }>(
-      `SELECT user_id, state FROM identity_user_social_login_links
-       WHERE provider_name = $1 AND provider_subject = $2`,
-      [params.providerName, params.providerSubject],
-    );
-    if (owner?.rows?.[0]?.user_id !== params.userId || owner.rows[0]?.state !== "active") {
-      throw new SocialLoginLinkConflictError();
-    }
-  }
-
-  await services.users.commandHandler({
-    streamId: `identity.user-${params.userId}`,
-    command: { type: "EnableAuthMethod", authMethod: "social-login" },
-    context: params.context,
-  });
-
-  const result = await services.users.commandHandler({
-    streamId: `identity.user-${params.userId}`,
-    command: {
-      type: "LinkSocialLogin",
-      providerName: params.providerName,
-      providerSubject: params.providerSubject,
-      email: params.email,
-      linkedAt: new Date().toISOString(),
-    },
-    context: params.context,
-  });
-  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
+  return linkSocialLoginAtomically(services, params);
 }
 
 async function unlinkSocialLoginForAuth(
@@ -1396,24 +1449,28 @@ async function unlinkSocialLoginForAuth(
     userId: string;
     providerName: "google" | "facebook";
     providerSubject: string;
-    authenticationMethod: "password" | "passkey" | "sms-code" | "magic-link" | "social-login";
+    authenticationMethod: "password" | "passkey" | "sms-code" | "magic-link" | "social-login" | "google" | "facebook";
     authenticatedAt: string | null | undefined;
     context: EventStoreContext;
   }>,
 ) {
-  const result = await services.users.commandHandler({
-    streamId: `identity.user-${params.userId}`,
-    command: {
+  const now = new Date().toISOString();
+  return services.mutationPersistence.transaction([], async (tx) => {
+    const streamId = `identity.user-${params.userId}`;
+    const history = await tx.read(streamId);
+    const priorState = foldUserHistory(history);
+    const events = decideUser(priorState, {
       type: "UnlinkSocialLogin",
       providerName: params.providerName,
       providerSubject: params.providerSubject,
       authenticationMethod: params.authenticationMethod,
       authenticatedAt: params.authenticatedAt,
-      now: new Date().toISOString(),
-    },
-    context: params.context,
+      now,
+    });
+    const appended = await tx.append!([{ streamId, expectedVersion: history.length || "no_stream", context: params.context, events: events.map((event) => ({ eventType: event.type, payload: event.data as JsonObject, eventId: createId("evt") })) }]);
+    const nextState = events.reduce(evolveUser, priorState);
+    return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, { version: history.length + events.length, state: nextState })], storedEvents: appended[0]?.storedEvents ?? [] };
   });
-  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
 async function verifyEmailContactMethodForAuth(
@@ -1814,6 +1871,9 @@ export function buildIdentityApi(
 
   app.post("/internal/auth/users/:id/social-login-link", async (c) => {
     const body = await c.req.json();
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["providerName", "providerSubject", "email"].includes(key))) {
+      return c.json({ error: { code: "validation_failed", message: "Invalid social login request." } }, 400);
+    }
     const providerName = String(body.providerName ?? "");
     if (providerName !== "google" && providerName !== "facebook") {
       return c.json(
@@ -1855,22 +1915,41 @@ export function buildIdentityApi(
 
   app.post("/internal/auth/users/:id/social-login-unlink", async (c) => {
     const body = await c.req.json();
+    const actor = c.var.actor;
+    if (!actor || actor.userId !== c.req.param("id")) {
+      return c.json({ error: { code: "authentication_required", message: "Authentication required." } }, 401);
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["providerName", "providerSubject"].includes(key))) {
+      return c.json({ error: { code: "validation_failed", message: "Invalid social login request." } }, 400);
+    }
     const providerName = String(body.providerName ?? "");
     if (providerName !== "google" && providerName !== "facebook") {
       return c.json({ error: { code: "validation_failed", message: "Social login provider is unsupported." } }, 400);
     }
     try {
+      const userState = await services.users.getUserState(actor.userId);
+      const providerSubject = typeof body.providerSubject === "string" && body.providerSubject.length > 0
+        ? body.providerSubject
+        : userState?.socialLoginLinks.find((link) => link.providerName === providerName)?.providerSubject ?? "";
+      if (providerSubject.length === 0) {
+        return c.json({ error: { code: "social_login_not_owned", message: "Social login is not linked." } }, 409);
+      }
+      const ownedLink = userState?.socialLoginLinks.find(
+        (link) => link.providerName === providerName && link.providerSubject === normalizeLabel(providerSubject),
+      );
+      if (!ownedLink) {
+        return c.json({ error: { code: "social_login_not_owned", message: "Social login is not linked." } }, 409);
+      }
       const result = await unlinkSocialLoginForAuth(services, {
         userId: c.req.param("id"),
         providerName,
-        providerSubject: String(body.providerSubject ?? ""),
-        authenticationMethod: String(body.authenticationMethod ?? "social-login") as
-          | "password"
-          | "passkey"
-          | "sms-code"
-          | "magic-link"
-          | "social-login",
-        authenticatedAt: typeof body.authenticatedAt === "string" ? body.authenticatedAt : null,
+        providerSubject,
+        authenticationMethod: actor.authenticationMethod === "google" || actor.authenticationMethod === "facebook"
+          ? actor.authenticationMethod
+          : actor.authenticationMethod === "password" || actor.authenticationMethod === "passkey" || actor.authenticationMethod === "sms-code" || actor.authenticationMethod === "magic-link"
+            ? actor.authenticationMethod
+            : "social-login",
+        authenticatedAt: actor.authenticatedAt,
         context: getBootstrapContext(c),
       });
       return c.json({ ok: true, ...result });
@@ -1878,6 +1957,35 @@ export function buildIdentityApi(
       if (error instanceof IdentityDomainError) {
         return c.json({ error: { code: "social_login_unlink_refused", message: error.message } }, 409);
       }
+      throw error;
+    }
+  });
+
+  app.post("/users/:id/social-login-unlink", async (c) => {
+    const actor = c.var.actor;
+    if (!actor || actor.userId !== c.req.param("id")) {
+      return c.json({ error: { code: "authentication_required", message: "Authentication required." } }, 401);
+    }
+    const body = await c.req.json();
+    const providerName = body && typeof body === "object" && !Array.isArray(body) ? String(body.providerName ?? "") : "";
+    if (providerName !== "google" && providerName !== "facebook") {
+      return c.json({ error: { code: "validation_failed", message: "Social login provider is unsupported." } }, 400);
+    }
+    const userState = await services.users.getUserState(actor.userId);
+    const providerSubject = userState?.socialLoginLinks.find((link) => link.providerName === providerName)?.providerSubject ?? "";
+    if (!providerSubject) return c.json({ error: { code: "social_login_not_owned", message: "Social login is not linked." } }, 409);
+    try {
+      const result = await unlinkSocialLoginForAuth(services, {
+        userId: actor.userId,
+        providerName,
+        providerSubject,
+        authenticationMethod: actor.authenticationMethod === "google" || actor.authenticationMethod === "facebook" || actor.authenticationMethod === "password" || actor.authenticationMethod === "passkey" || actor.authenticationMethod === "sms-code" || actor.authenticationMethod === "magic-link" ? actor.authenticationMethod : "social-login",
+        authenticatedAt: actor.authenticatedAt,
+        context: getRequiredContext(c),
+      });
+      return c.json({ ok: true, ...result });
+    } catch (error) {
+      if (error instanceof IdentityDomainError) return c.json({ error: { code: "social_login_unlink_refused", message: error.message } }, 409);
       throw error;
     }
   });

@@ -57,6 +57,7 @@ export type IdentityServices = Readonly<{
   pool: PgTransactionalPool;
   db: PgQueryable;
   auth: ReturnType<typeof createIdentitySecretAdapters>;
+  mutationPersistence: ReturnType<typeof createIdentityMutationPersistence>;
 }>;
 
 export type IdentityHostPorts = Readonly<{
@@ -159,5 +160,6 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     pool,
     db,
     auth,
+    mutationPersistence,
   };
 }

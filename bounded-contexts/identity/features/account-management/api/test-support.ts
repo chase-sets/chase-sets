@@ -16,6 +16,7 @@ export function syntheticMutationResult(
     archive: "shipping-address-book",
     withdraw: "consent",
     "update-user": "user",
+    "unlink-social-login": "user",
     "create-api-key": "api-key",
     "rotate-api-key": "api-key",
     "revoke-api-key": "api-key",

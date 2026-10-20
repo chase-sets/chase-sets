@@ -70,7 +70,7 @@ export async function getUserBySocialLogin(
      WHERE links.provider_name = $1
        AND links.provider_subject = $2
        AND links.state = 'active'`,
-    [params.providerName, params.providerSubject],
+    [params.providerName, params.providerSubject.trim()],
   );
   return result.rows[0] ?? null;
 }

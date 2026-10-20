@@ -60,6 +60,9 @@ export const identityUserSchemaMigrations = [
     statements: [
       "ALTER TABLE identity_user_social_login_links ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active'",
       "ALTER TABLE identity_user_social_login_links ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL",
+      "ALTER TABLE identity_user_social_login_links DROP CONSTRAINT IF EXISTS identity_user_social_login_links_state_check",
+      "ALTER TABLE identity_user_social_login_links ADD CONSTRAINT identity_user_social_login_links_state_check CHECK (state IN ('active', 'revocation-requested', 'revoked')) NOT VALID",
+      "ALTER TABLE identity_user_social_login_links VALIDATE CONSTRAINT identity_user_social_login_links_state_check",
     ],
   },
 ] as const;

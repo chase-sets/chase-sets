@@ -108,6 +108,32 @@ export function SecurityPage({
       />
       {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
       <ApiKeySecretReveal secret={oneTimeSecret} />
+      {user.social_login_links?.length ? (
+        <PageSection title={t("identity.features.apiKeys.ui.accountSecurityPage.social.login.methods")} description={t("identity.features.apiKeys.ui.accountSecurityPage.social.login.methods.description")}>
+          <Stack gap={2}>
+            {user.social_login_links.map((link, index) => (
+              <Stack key={`${link.providerName ?? "social"}-${index}`} direction="row" justify="between" align="center" gap={2}>
+                <SpecificationList
+                  specs={[{ label: link.providerName ?? "Social login", value: link.state ?? "active" }]}
+                />
+                {link.state === "active" ? (
+                  <ModalDialog
+                    title={t("identity.features.apiKeys.ui.accountSecurityPage.remove.social.login.title")}
+                    description={t("identity.features.apiKeys.ui.accountSecurityPage.remove.social.login.description")}
+                    trigger={<Button type="button" tone="danger">{t("identity.features.apiKeys.ui.accountSecurityPage.remove")}</Button>}
+                  >
+                    <Form spacing="none" method="post">
+                      <HiddenInput type="hidden" name="intent" value="unlink-social-login" readOnly />
+                      <HiddenInput type="hidden" name="providerName" value={link.providerName ?? ""} readOnly />
+                      <Button type="submit" tone="danger">{t("identity.features.apiKeys.ui.accountSecurityPage.confirm.removal")}</Button>
+                    </Form>
+                  </ModalDialog>
+                ) : null}
+              </Stack>
+            ))}
+          </Stack>
+        </PageSection>
+      ) : null}
       <MarketplaceDashboardPanel
         title={t("identity.features.apiKeys.ui.accountSecurityPage.account.protection")}
         description={t("identity.features.apiKeys.ui.accountSecurityPage.account.protection.description")}

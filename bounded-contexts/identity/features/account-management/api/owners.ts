@@ -111,6 +111,8 @@ export function ownerForRequest(
       return { kind: "consent", id: target, streamId: `identity.consent-${target}` };
     case "update-user":
       return { kind: "user", id: actor.userId, streamId: `identity.user-${actor.userId}` };
+    case "unlink-social-login":
+      return { kind: "user", id: actor.userId, streamId: `identity.user-${actor.userId}` };
     case "create-api-key":
     case "rotate-api-key":
     case "revoke-api-key":

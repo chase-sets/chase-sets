@@ -224,6 +224,13 @@ export function createIdentityApiClient({
     async updateUser<T>(id: string, body: Record<string, unknown>): Promise<T> {
       return ownerResponse<T>(await client.users[":id"].$put({ param: { id }, json: body, header: headers }));
     },
+    async unlinkSocialLogin<T = { ok: true }>(params: Readonly<{ userId: string; providerName: "google" | "facebook" }>): Promise<T> {
+      return parseJsonResponse<T>(await configuredFetch(`${baseUrl}/users/${encodeURIComponent(params.userId)}/social-login-unlink`, {
+        method: "POST",
+        headers: { ...Object.fromEntries(new Headers(headers).entries()), "Content-Type": "application/json" },
+        body: JSON.stringify({ providerName: params.providerName, providerSubject: "" }),
+      }));
+    },
     async suspendUser<T>(id: string): Promise<T> {
       return parseJsonResponse<T>(
         await client.users[":id"].suspend.$post({ param: { id }, json: {}, header: headers }),

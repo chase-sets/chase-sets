@@ -313,7 +313,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
           (currentLink) =>
             currentLink.providerName !== link.providerName || currentLink.providerSubject !== link.providerSubject,
         ),
-        link,
+        { ...link, state: "active" },
       ].sort((left, right) =>
         `${left.providerName}:${left.providerSubject}`.localeCompare(`${right.providerName}:${right.providerSubject}`),
       );
@@ -355,7 +355,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          WHERE provider_name = $1 AND provider_subject = $2`,
         [link.providerName, link.providerSubject],
       );
-      if (owner.rows[0]?.user_id !== userId) throw new Error("Social login ownership conflict.");
+      if (owner.rows[0]?.user_id !== userId) throw new Error("social_login_ownership_conflict");
     },
     "identity.user.social-login-revocation-requested": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
@@ -365,6 +365,14 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          SET state = 'revocation-requested', updated_at = $4
          WHERE provider_name = $1 AND provider_subject = $2 AND user_id = $3 AND state = 'active'`,
         [link.providerName, link.providerSubject, userId, event.timing.recordedAt],
+      );
+      await db.query(
+        `UPDATE identity_users SET social_login_links = (
+           SELECT COALESCE(jsonb_agg(CASE WHEN value->>'providerName' = $2 AND value->>'providerSubject' = $3
+             THEN jsonb_set(value, '{state}', to_jsonb('revocation-requested'::text), true) ELSE value END), '[]'::jsonb)
+           FROM jsonb_array_elements(social_login_links) AS elements(value)
+         ), updated_at = $4 WHERE user_id = $1`,
+        [userId, link.providerName, link.providerSubject, event.timing.recordedAt],
       );
     },
     "identity.user.social-login-revoked": async (event) => {
@@ -376,6 +384,14 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          WHERE provider_name = $1 AND provider_subject = $2 AND user_id = $3
            AND state IN ('active', 'revocation-requested')`,
         [link.providerName, link.providerSubject, userId, event.timing.recordedAt],
+      );
+      await db.query(
+        `UPDATE identity_users SET social_login_links = (
+           SELECT COALESCE(jsonb_agg(CASE WHEN value->>'providerName' = $2 AND value->>'providerSubject' = $3
+             THEN jsonb_set(value, '{state}', to_jsonb('revoked'::text), true) ELSE value END), '[]'::jsonb)
+           FROM jsonb_array_elements(social_login_links) AS elements(value)
+         ), updated_at = $4 WHERE user_id = $1`,
+        [userId, link.providerName, link.providerSubject, event.timing.recordedAt],
       );
     },
     "identity.user.suspended": async (event) => {

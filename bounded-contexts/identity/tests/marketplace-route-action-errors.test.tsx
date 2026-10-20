@@ -53,6 +53,7 @@ const routes = [
       { intent: "create-api-key", name: "Ops" },
       { intent: "rotate-api-key", apiKeyId: "key_identity" },
       { intent: "revoke-api-key", apiKeyId: "key_identity" },
+      { intent: "unlink-social-login", providerName: "google" },
     ],
   },
   {
@@ -158,7 +159,7 @@ describe("Identity marketplace route action errors", () => {
       visit(file);
       expect(intents.sort()).toEqual(route.forms.map((form) => form.intent).sort());
     }
-    expect(cases).toHaveLength(10);
+    expect(cases).toHaveLength(11);
   });
 
   it.each(cases)(
