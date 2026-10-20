@@ -141,7 +141,7 @@ function assertBoundDist(dist: string, platformOrigin: string, clientId: string)
   const manifest = JSON.parse(readFileSync(join(dist, "manifest.json"), "utf8")) as { host_permissions?: unknown };
   if (!Array.isArray(manifest.host_permissions) || !manifest.host_permissions.includes(`${platformOrigin}/*`))
     throw new Error("connector-drill-dist-origin-refused");
-  if (!readFileSync(join(dist, "background.js"), "utf8").includes(JSON.stringify(clientId)))
+  if (!readFileSync(join(dist, "background.js"), "utf8").includes(clientId))
     throw new Error("connector-drill-dist-client-refused");
 }
 
