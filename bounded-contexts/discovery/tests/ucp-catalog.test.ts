@@ -266,8 +266,11 @@ describe("UCP currency and minor units follow decision C2 and C3", () => {
     numberFormat.mockImplementation(function () {
       return { resolvedOptions: () => ({ maximumFractionDigits: undefined }) } as Intl.NumberFormat;
     } as unknown as typeof Intl.NumberFormat);
-    expect(resolveUcpCurrency("USD")).toBeNull();
-    numberFormat.mockRestore();
+    try {
+      expect(resolveUcpCurrency("USD")).toBeNull();
+    } finally {
+      numberFormat.mockRestore();
+    }
     expect(toUcpMinorUnits("1000.00", "JPY")).toEqual({ currency: "JPY", minor: 1000 });
     expect(toUcpMinorUnits("1000.50", "JPY")).toBeNull();
     expect(toUcpMinorUnits("1.00", "KWD")).toEqual({ currency: "KWD", minor: 1000 });
@@ -319,24 +322,28 @@ describe("UCP presentment follows decision case 4", () => {
       priceRange: { min: 900, max: 900 },
       omittedListings: true,
     });
-    expect(selectPresentment(
-      [listing("usd_10", "10.00", "USD"), listing("usd_bad", "12.345", "USD"), listing("eur_9", "9.00", "EUR")],
-      "USD",
-    )).toEqual({
+    expect(
+      selectPresentment(
+        [listing("usd_10", "10.00", "USD"), listing("usd_bad", "12.345", "USD"), listing("eur_9", "9.00", "EUR")],
+        "USD",
+      ),
+    ).toEqual({
       currency: "USD",
       listings: [listing("usd_10", "10.00", "USD")],
       priceRange: { min: 1000, max: 1000 },
       omittedListings: true,
     });
-    expect(
-      selectPresentment(
-        [listing("usd_10", "10.00", "USD"), listing("usd_12", "12.00", "USD"), listing("eur_9", "9.00", "EUR")],
-        undefined,
-      ),
-    ).toEqual({
+    const m2 = [listing("usd_10", "10.00", "USD"), listing("usd_12", "12.00", "USD"), listing("eur_9", "9.00", "EUR")];
+    expect(selectPresentment(m2, undefined)).toEqual({
       currency: "USD",
-      listings: [mixed[0], listing("usd_12", "12.00", "USD")],
+      listings: [m2[0], m2[1]],
       priceRange: { min: 1000, max: 1200 },
+      omittedListings: true,
+    });
+    expect(selectPresentment(m2, "EUR")).toEqual({
+      currency: "EUR",
+      listings: [m2[2]],
+      priceRange: { min: 900, max: 900 },
       omittedListings: true,
     });
     expect(selectPresentment([listing("bad", "1000.50", "JPY")], undefined)).toBeNull();
