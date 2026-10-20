@@ -1,6 +1,7 @@
 export {
   type CommerceAccordionEdge,
   type AddToCartActionData,
+  type AddToCartAmbiguousActionData,
   getActionErrorMessage,
   canUseAccountCheckoutCart,
 } from "./commerce/commerce-primitives";

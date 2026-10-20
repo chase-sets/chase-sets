@@ -56,23 +56,32 @@ vi.mock("@chase-sets/marketplace/server", () => ({
   ensureAnonymousListingDraftOwnerId: mockEnsureAnonymousListingDraftOwnerId,
 }));
 
-vi.mock("@chase-sets/checkout/server", () => ({
-  ACCOUNT_CART_ADD_LINE_HANDOFF: {
-    kind: "checkout.cart.add-line",
-    expectation: "collection-non-empty",
-    surface: "account-cart",
-  },
-  ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF: {
-    kind: "checkout.sell-list.add-line",
-    expectation: "collection-non-empty",
-    surface: "account-sell-list",
-  },
-  appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
-  appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
-  createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
-  ensureAnonymousCartId: mockEnsureAnonymousCartId,
-  ensureAnonymousSellListId: mockEnsureAnonymousSellListId,
-}));
+vi.mock("@chase-sets/checkout/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/checkout/server")>("@chase-sets/checkout/server");
+  return {
+    // The real attempt resolver and id helpers: only the Checkout transport is mocked.
+    CHECKOUT_CART_ATTEMPT_CART_TARGET: actual.CHECKOUT_CART_ATTEMPT_CART_TARGET,
+    checkoutCartAttemptCommitSource: actual.checkoutCartAttemptCommitSource,
+    isCheckoutCommandAttemptId: actual.isCheckoutCommandAttemptId,
+    mintCheckoutCommandAttemptId: actual.mintCheckoutCommandAttemptId,
+    submitCheckoutCartAttempt: actual.submitCheckoutCartAttempt,
+    ACCOUNT_CART_ADD_LINE_HANDOFF: {
+      kind: "checkout.cart.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-cart",
+    },
+    ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF: {
+      kind: "checkout.sell-list.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-sell-list",
+    },
+    appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
+    appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
+    createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
+    ensureAnonymousCartId: mockEnsureAnonymousCartId,
+    ensureAnonymousSellListId: mockEnsureAnonymousSellListId,
+  };
+});
 
 vi.mock("@chase-sets/inventory/server", () => ({
   createInventoryRequestApiClient: mockCreateInventoryRequestApiClient,
@@ -147,6 +156,60 @@ function commandResult<T extends { id?: string; session_id?: string }>(value: T,
     enumerable: false,
   });
   return value;
+}
+
+const PRESENTED_ADD_ATTEMPT_ID = "attempt_item_detail_add_000001";
+
+/** The owner's closed add-line attempt result; digests are synthetic fixed hex. */
+function addLineAttempt(
+  ownerStatus: "committed" | "not-observed",
+  commitReceipt?: Readonly<{ eventId: string; globalPosition: string }>,
+) {
+  return {
+    schemaVersion: 1,
+    kind: "cart.add-line",
+    fingerprint: "a".repeat(64),
+    actorBinding: { kind: "account", digest: "b".repeat(64) },
+    target: "cart",
+    requestHash: "c".repeat(64),
+    ownerStatus,
+    ...(ownerStatus === "committed"
+      ? {
+          vector: [
+            {
+              index: 0,
+              command: "add",
+              outcome: "succeeded",
+              lineId: "cli_1",
+              status: "added",
+              version: 1,
+              message: null,
+            },
+          ],
+        }
+      : {}),
+    ...(commitReceipt ? { commitReceipt } : {}),
+  };
+}
+
+/** Attaches the committed attempt a Checkout add-line response carries, keeping any command receipt. */
+function withCommittedAttempt<T extends object>(value: T): T {
+  return Object.assign(value, { attempt: addLineAttempt("committed") });
+}
+
+function addToCartRequest(attemptId: string) {
+  const form = new URLSearchParams();
+  form.set("intent", "add-to-cart");
+  form.set("productId", "cat_charizard::form:raw");
+  form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+  form.set("productSummary", "Raw");
+  form.set("quantity", "1");
+  form.set("attemptId", attemptId);
+  return new Request("http://localhost/items/cat_charizard", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  });
 }
 
 describe("item detail buy now checkout actions", () => {
@@ -526,7 +589,9 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addCartLine: mockAddCartLine.mockResolvedValue(commandResult({ id: "cli_1", version: 1, status: "active" })),
+      addCartLine: mockAddCartLine.mockResolvedValue(
+        withCommittedAttempt(commandResult({ id: "cli_1", version: 1, status: "active" })),
+      ),
       createCheckoutSession: mockCreateCheckoutSession,
       addGuestCartLine: mockAddGuestCartLine,
     });
@@ -549,6 +614,7 @@ describe("item detail buy now checkout actions", () => {
     } as never)) as Response;
 
     expect(mockAddCartLine).toHaveBeenCalledWith({
+      attemptId: expect.stringMatching(/^[A-Za-z0-9_-]{22,128}$/),
       catalogItemId: "cat_charizard",
       productId: "cat_charizard::form:raw",
       itemTitle: "Charizard",
@@ -607,7 +673,9 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addCartLine: mockAddCartLine.mockResolvedValue({ id: "cli_1", version: 1, status: "active" }),
+      addCartLine: mockAddCartLine.mockResolvedValue(
+        withCommittedAttempt({ id: "cli_1", version: 1, status: "active" }),
+      ),
       createCheckoutSession: mockCreateCheckoutSession,
       addGuestCartLine: mockAddGuestCartLine,
     });
@@ -640,6 +708,82 @@ describe("item detail buy now checkout actions", () => {
     expect(readPostWriteHandoff(viewCartUrl)).toBeNull();
   });
 
+  it.each([
+    ["a transport loss", () => new TypeError("fetch failed")],
+    ["a gateway failure", () => Object.assign(new Error("gateway"), { status: 502 })],
+  ])("holds %s on add-to-cart as ambiguous after one lookup and never resends", async (_label, lost) => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    const getCartCommandAttempt = vi.fn().mockResolvedValue(addLineAttempt("not-observed"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addCartLine: mockAddCartLine.mockRejectedValue(lost()),
+      addGuestCartLine: mockAddGuestCartLine,
+      getCartCommandAttempt,
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const response = (await action({
+      request: addToCartRequest(PRESENTED_ADD_ATTEMPT_ID),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(await response.json()).toEqual({ status: "add-to-cart-ambiguous", attemptId: PRESENTED_ADD_ATTEMPT_ID });
+    expect(mockAddCartLine).toHaveBeenCalledTimes(1);
+    expect(mockAddCartLine).toHaveBeenCalledWith(expect.objectContaining({ attemptId: PRESENTED_ADD_ATTEMPT_ID }));
+    expect(getCartCommandAttempt).toHaveBeenCalledTimes(1);
+    expect(getCartCommandAttempt).toHaveBeenCalledWith({
+      attemptId: PRESENTED_ADD_ATTEMPT_ID,
+      kind: "cart.add-line",
+      target: "cart",
+      requestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("resolves a lost add-to-cart the owner recorded by lookup and carries its commit receipt", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    const getCartCommandAttempt = vi
+      .fn()
+      .mockResolvedValue(addLineAttempt("committed", { eventId: "evt_attempt_recorded", globalPosition: "77" }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addCartLine: mockAddCartLine.mockRejectedValue(new TypeError("fetch failed")),
+      addGuestCartLine: mockAddGuestCartLine,
+      getCartCommandAttempt,
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const response = (await action({
+      request: addToCartRequest(PRESENTED_ADD_ATTEMPT_ID),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(200);
+    const addedToCart = (await response.json()) as { status: string; viewCartHref: string };
+    expect(addedToCart.status).toBe("added-to-cart");
+    expect(mockAddCartLine).toHaveBeenCalledTimes(1);
+    expect(getCartCommandAttempt).toHaveBeenCalledTimes(1);
+    expect(await readResolvedFreshWriteToken(new URL(addedToCart.viewCartHref, "http://localhost"))).toMatchObject({
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "77", eventIds: ["evt_attempt_recorded"] }],
+    });
+  });
+
   it("adds an explicitly selected listing from the fresh authoritative row to the account Buy Cart", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
@@ -669,7 +813,9 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addCartLine: mockAddCartLine.mockResolvedValue(commandResult({ id: "cli_1", version: 1, status: "active" })),
+      addCartLine: mockAddCartLine.mockResolvedValue(
+        withCommittedAttempt(commandResult({ id: "cli_1", version: 1, status: "active" })),
+      ),
       addGuestCartLine: mockAddGuestCartLine,
       createCheckoutSession: mockCreateCheckoutSession,
     });
@@ -747,7 +893,7 @@ describe("item detail buy now checkout actions", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       addCartLine: mockAddCartLine,
       addGuestCartLine: mockAddGuestCartLine.mockResolvedValue(
-        commandResult({ id: "cli_1", version: 1, status: "active" }),
+        withCommittedAttempt(commandResult({ id: "cli_1", version: 1, status: "active" })),
       ),
       createCheckoutSession: mockCreateCheckoutSession,
     });
@@ -1283,7 +1429,7 @@ describe("item detail buy now checkout actions", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       addCartLine: mockAddCartLine,
       addGuestCartLine: mockAddGuestCartLine.mockResolvedValue(
-        commandResult({ id: "cli_1", version: 1, status: "active" }),
+        withCommittedAttempt(commandResult({ id: "cli_1", version: 1, status: "active" })),
       ),
       createCheckoutSession: mockCreateCheckoutSession,
     });
@@ -1306,6 +1452,7 @@ describe("item detail buy now checkout actions", () => {
     } as never)) as Response;
 
     expect(mockAddGuestCartLine).toHaveBeenCalledWith("anon_cart_1", {
+      attemptId: expect.stringMatching(/^[A-Za-z0-9_-]{22,128}$/),
       catalogItemId: "cat_charizard",
       productId: "cat_charizard::form:raw",
       itemTitle: "Charizard",
@@ -1365,7 +1512,7 @@ describe("item detail buy now checkout actions", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       addCartLine: mockAddCartLine,
       addGuestCartLine: mockAddGuestCartLine.mockResolvedValue(
-        commandResult({ id: "cli_1", version: 1, status: "active" }),
+        withCommittedAttempt(commandResult({ id: "cli_1", version: 1, status: "active" })),
       ),
       createCheckoutSession: mockCreateCheckoutSession,
     });
@@ -1429,7 +1576,9 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addCartLine: mockAddCartLine.mockResolvedValue(commandResult({ id: "cli_1", version: 1, status: "active" })),
+      addCartLine: mockAddCartLine.mockResolvedValue(
+        withCommittedAttempt(commandResult({ id: "cli_1", version: 1, status: "active" })),
+      ),
       addGuestCartLine: mockAddGuestCartLine,
       createCheckoutSession: mockCreateCheckoutSession,
     });
@@ -1479,7 +1628,9 @@ describe("item detail buy now checkout actions", () => {
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       createCheckoutSession: mockCreateCheckoutSession,
-      addCartLine: mockAddCartLine.mockResolvedValue(commandResult({ id: "cli_1", version: 1, status: "active" })),
+      addCartLine: mockAddCartLine.mockResolvedValue(
+        withCommittedAttempt(commandResult({ id: "cli_1", version: 1, status: "active" })),
+      ),
       addGuestCartLine: mockAddGuestCartLine,
     });
 
