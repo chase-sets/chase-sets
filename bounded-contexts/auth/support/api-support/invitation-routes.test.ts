@@ -265,6 +265,16 @@ describe("invitation auth routes", () => {
     expect(JSON.stringify(body)).not.toContain("secret source message");
   });
 
+  it("redacts a 5xx Identity failure instead of exposing its source message", async () => {
+    const response = await requestWithIdentityError(500, {
+      error: { code: "unknown", message: "secret source message" },
+    });
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+    expect(JSON.stringify(body)).not.toContain("secret source message");
+  });
+
   const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
   const keyedRequest = {
     method: "POST",
@@ -276,6 +286,18 @@ describe("invitation auth routes", () => {
       password: "synthetic-password",
     }),
   };
+  it.each(consentRejections)("PROBE F2 keyed attempt relays $code consent rejection", async (rejection) => {
+    const accept = vi
+      .spyOn(journey, "acceptInvitationAttempt")
+      .mockRejectedValueOnce(identityError(400, { error: rejection }));
+    try {
+      const response = await buildApp(createServices()).request("/invitations/accept", keyedRequest);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: rejection });
+    } finally {
+      accept.mockRestore();
+    }
+  });
   it.each([
     ["auth.invitation.accept.ip", "local", 10],
     ["auth.invitation.accept.identifier", "invitation:ivt_1", 5],

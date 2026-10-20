@@ -249,6 +249,9 @@ describe("social login routes", () => {
         expect(await response.text()).toBe("");
         expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
         const location = new URL(response.headers.get("Location")!, "https://marketplace.test");
+        expect(response.headers.get("Location")).toBe(
+          `${journey === "registration" ? "/register" : "/sign-in"}?socialLoginError=registration_consent_unavailable`,
+        );
         expect(location.pathname).toBe(journey === "registration" ? "/register" : "/sign-in");
         expect(location.searchParams.get("socialLoginError")).toBe("registration_consent_unavailable");
         expect(socialLoginErrorMessage(location.searchParams.get("socialLoginError"))).toBe(
@@ -267,6 +270,9 @@ describe("social login routes", () => {
         expect(await response.text()).toBe("");
         expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
         const location = new URL(response.headers.get("Location")!, "https://marketplace.test");
+        expect(response.headers.get("Location")).toBe(
+          `${journey === "registration" ? "/register" : "/sign-in"}?socialLoginError=identity_conflict`,
+        );
         expect(location.pathname).toBe(journey === "registration" ? "/register" : "/sign-in");
         expect(location.searchParams.get("socialLoginError")).toBe("identity_conflict");
         expect(socialLoginErrorMessage(location.searchParams.get("socialLoginError"))).toBe(

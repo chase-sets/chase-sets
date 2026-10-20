@@ -183,6 +183,16 @@ describe("magic link auth routes", () => {
     expect(JSON.stringify(body)).not.toContain("secret source message");
   });
 
+  it("redacts a 5xx Identity failure instead of exposing its source message", async () => {
+    const response = await requestWithIdentityError(500, {
+      error: { code: "unknown", message: "secret source message" },
+    });
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+    expect(JSON.stringify(body)).not.toContain("secret source message");
+  });
+
   it("requests a magic link without returning the bearer token to the browser", async () => {
     vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
     const services = createServices();
