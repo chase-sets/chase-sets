@@ -23,6 +23,66 @@ node ./producer.mjs --out=evidence/equals.json`),
     ).toEqual(["evidence/equals.json", "evidence/split.json"]);
   });
 
+  it("normalizes a quoted $GITHUB_WORKSPACE output to the workspace-relative upload path (#8026)", () => {
+    expect(
+      literalOutPaths(`node ./producer.mjs --out "$GITHUB_WORKSPACE/evidence/split.json"
+node ./producer.mjs --out="\${GITHUB_WORKSPACE}/evidence/equals.json"`),
+    ).toEqual(["evidence/equals.json", "evidence/split.json"]);
+    for (const nonLiteral of [
+      'node ./producer.mjs --out "$OTHER/evidence/x.json"',
+      'node ./producer.mjs --out "$GITHUB_WORKSPACE_EVIL/evidence/x.json"',
+      'node ./producer.mjs --out "${GITHUB_WORKSPACE_EVIL}/evidence/x.json"',
+      "node ./producer.mjs --out '$GITHUB_WORKSPACE/evidence/x.json'",
+      "node ./producer.mjs --out $GITHUB_WORKSPACE/evidence/x.json",
+      'node ./producer.mjs --out "$GITHUB_WORKSPACE/$RUN/x.json"',
+    ]) {
+      expect(literalOutPaths(nonLiteral), nonLiteral).toEqual([]);
+    }
+  });
+
+  it("resolves relative producer output against the step working directory (#8026)", () => {
+    const workflow = (out, uploadPath = "artifacts/required.json") => `jobs:
+  evidence:
+    steps:
+      - name: Produce from a trusted checkout
+        working-directory: trusted
+        run: node ./producer.mjs --out ${out}
+      - name: Upload
+        uses: actions/upload-artifact@0000000000000000000000000000000000000000
+        with:
+          path: ${uploadPath}
+          if-no-files-found: error
+`;
+    const surfaces = (source) =>
+      checkWorkflowCanonicalArtifacts(source).surfaces.map(({ outPath, uploadPath }) => ({ outPath, uploadPath }));
+
+    expect(surfaces(workflow('"$GITHUB_WORKSPACE/artifacts/required.json"'))).toEqual([
+      { outPath: "artifacts/required.json", uploadPath: "artifacts/required.json" },
+    ]);
+    // A relative payload lands inside the working directory, so the workspace upload never sees it.
+    expect(surfaces(workflow("artifacts/required.json"))).toEqual([]);
+    expect(surfaces(workflow("./artifacts/required.json", "trusted/artifacts/required.json"))).toEqual([
+      { outPath: "trusted/artifacts/required.json", uploadPath: "trusted/artifacts/required.json" },
+    ]);
+  });
+
+  it("pairs the trusted-checkout merge qualification candidate with its exact fail-closed upload (#8026)", () => {
+    const file = ".github/workflows/platform-pr.yml";
+    const workflow = readFileSync(resolve(file), "utf8");
+    const outPath = "artifacts/merge-qualification-candidate/candidate.json";
+    const candidate = (source) =>
+      checkWorkflowCanonicalArtifacts(source, { workflowFile: file }).surfaces.filter(
+        (surface) => surface.outPath === outPath,
+      );
+
+    expect(candidate(workflow)).toEqual([
+      expect.objectContaining({ outPath, uploadPath: outPath, missingFileBehavior: "error" }),
+    ]);
+    const relativeOut = workflow.replace(`--out "$GITHUB_WORKSPACE/${outPath}"`, `--out "${outPath}"`);
+    expect(relativeOut).not.toBe(workflow);
+    expect(candidate(relativeOut)).toEqual([]);
+  });
+
   it("guards the historical registry path as one exact validated canonical payload", () => {
     const result = checkWorkflowCanonicalArtifacts(registryWorkflow, { workflowFile: registryWorkflowFile });
 
@@ -186,6 +246,12 @@ jobs:
         expect.objectContaining({
           workflowFile: ".github/workflows/platform-production.yml",
           outPath: "artifacts/release-health/production-kubernetes-deployment-transition.json",
+        }),
+        expect.objectContaining({
+          workflowFile: ".github/workflows/platform-pr.yml",
+          outPath: "artifacts/merge-qualification-candidate/candidate.json",
+          uploadPath: "artifacts/merge-qualification-candidate/candidate.json",
+          missingFileBehavior: "error",
         }),
         expect.objectContaining({
           workflowFile: ".github/workflows/platform-production.yml",

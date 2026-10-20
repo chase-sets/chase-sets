@@ -17,6 +17,7 @@ import {
   inventoryMergeQualificationAttempts,
   validateMergeQualificationEvent,
   readMergeQualificationRunCollection,
+  MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS,
 } from "./merge-qualification.mjs";
 import { buildMergeGateProvisioningObservation } from "./merge-gate-verification.mjs";
 
@@ -72,14 +73,131 @@ const classifierRecord = {
 };
 
 describe("scheduled advisory attempt inventory", () => {
-  const completed = { ...run, status: "completed", conclusion: "success" };
+  const completed = { ...run, status: "completed", conclusion: "success", created_at: run.run_started_at };
+  const now = () => new Date("2026-07-21T12:00:00.000Z");
+  const windowStart = "2026-07-19T12:00:00Z";
   const inventory = (runs, options = {}) =>
     inventoryMergeQualificationAttempts({
       repository: candidate.repository,
       requestJson: async () => ({ total_count: runs.length, workflow_runs: runs }),
       readPolicyContent: async () => policy,
+      now,
       ...options,
     });
+  // Synthetic GitHub runs endpoint: honors the created lower bound and pages by created order.
+  const githubRuns = (runs, calls = []) => {
+    return async (endpoint) => {
+      calls.push(endpoint);
+      const query = new URL(endpoint, "https://api.github.invalid/").searchParams;
+      const since = Date.parse(query.get("created").replace(/^>=/u, ""));
+      const page = Number(query.get("page"));
+      const matching = runs.filter((candidateRun) => Date.parse(candidateRun.created_at) >= since);
+      return { total_count: matching.length, workflow_runs: matching.slice((page - 1) * 100, page * 100) };
+    };
+  };
+  const enabledRuns = (count, { created = completed.created_at, firstId = 5000 } = {}) =>
+    Array.from({ length: count }, (_, index) => ({
+      ...completed,
+      id: firstId + index,
+      created_at: created,
+      run_started_at: created,
+    }));
+
+  it("AC1 requests only the bounded recent window, shorter than evidence retention", async () => {
+    expect(MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS).toBe(48);
+    expect(MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS).toBeLessThan(30 * 24);
+    const calls = [];
+    const result = await inventory([], { requestJson: githubRuns([completed], calls) });
+    expect(calls).toEqual([
+      `repos/synthetic/repository/actions/workflows/platform-merge-qualification.yml/runs?created=%3E%3D${windowStart}&per_page=100&page=1`,
+    ]);
+    expect(result).toEqual({
+      attempts: [{ run_id: "30", run_attempt: "1", workflow_id: "12", conclusion: "success" }],
+      errors: [],
+    });
+  });
+
+  it("AC1 retires history: out-of-window volume never wedges the steady-state tick", async () => {
+    const retired = "2026-07-19T11:59:59.000Z";
+    const disabledHistory = Array.from({ length: 10_001 }, (_, index) => ({
+      ...completed,
+      id: 100_000 + index,
+      created_at: retired,
+    }));
+    const calls = [];
+    expect(await inventory([], { requestJson: githubRuns([...disabledHistory, completed], calls) })).toEqual({
+      attempts: [{ run_id: "30", run_attempt: "1", workflow_id: "12", conclusion: "success" }],
+      errors: [],
+    });
+    expect(calls).toHaveLength(1);
+    expect(
+      await inventory([], { requestJson: githubRuns(enabledRuns(257, { created: retired, firstId: 200_000 })) }),
+    ).toEqual({ attempts: [], errors: [] });
+  });
+
+  it("AC5 refuses a page whose runs fall outside the requested window", async () => {
+    for (const created_at of ["2026-07-19T11:59:59.000Z", null, "yesterday"]) {
+      expect(await inventory([{ ...completed, created_at }])).toEqual({
+        attempts: [],
+        errors: ["attempt_window_invalid"],
+      });
+    }
+  });
+
+  it("AC5 treats a filtered total at the 1,000-result search ceiling as incomplete", async () => {
+    const calls = [];
+    const result = await inventory([], {
+      requestJson: async (endpoint) => {
+        calls.push(endpoint);
+        return { total_count: 1_000, workflow_runs: enabledRuns(100) };
+      },
+    });
+    expect(result).toEqual({ attempts: [], errors: ["attempt_inventory_incomplete"] });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("AC5 refuses a short non-final page even when later pages would reach the total", async () => {
+    const pages = [enabledRuns(50), enabledRuns(1, { firstId: 9000 })];
+    const result = await inventory([], {
+      requestJson: async (endpoint) => {
+        const page = Number(new URL(endpoint, "https://api.github.invalid/").searchParams.get("page"));
+        return { total_count: 51, workflow_runs: pages[page - 1] ?? [] };
+      },
+    });
+    expect(result).toEqual({ attempts: [], errors: ["attempt_inventory_incomplete"] });
+  });
+
+  it("AC5 refuses a total that drifts between pages", async () => {
+    const pages = [
+      { total_count: 150, workflow_runs: enabledRuns(100) },
+      { total_count: 101, workflow_runs: enabledRuns(1, { firstId: 9000 }) },
+    ];
+    const result = await inventory([], {
+      requestJson: async (endpoint) =>
+        pages[Number(new URL(endpoint, "https://api.github.invalid/").searchParams.get("page")) - 1],
+    });
+    expect(result).toEqual({ attempts: [], errors: ["attempt_inventory_incomplete"] });
+  });
+
+  it("AC1 refuses an over-capacity window instead of dropping its tail", async () => {
+    const control = await inventory([], { requestJson: githubRuns(enabledRuns(256)) });
+    expect(control.errors).toEqual([]);
+    expect(control.attempts).toHaveLength(256);
+    expect(await inventory([], { requestJson: githubRuns(enabledRuns(257)) })).toEqual({
+      attempts: [],
+      errors: ["attempt_worker_capacity_exceeded"],
+    });
+  });
+
+  it("AC1 inventories only producer-dispatched advisory attempts", async () => {
+    for (const change of [
+      { event: "workflow_run" },
+      { display_title: "Merge Qualification merge_group 20-1" },
+      { display_title: "Merge Qualification pull_request 20-1" },
+    ]) {
+      expect(await inventory([{ ...completed, ...change }])).toEqual({ attempts: [], errors: [] });
+    }
+  });
   it.each([
     "success",
     "failure",
@@ -245,6 +363,22 @@ describe("durable observer terminal replay", () => {
       event: null,
       errors: [],
     });
+  });
+  it("AC1 refuses an otherwise-identical terminal that does not start at the original attempt instant", () => {
+    const shifted = buildMergeQualificationEvent({
+      ...decision,
+      terminalState: "cancelled_evicted",
+      builtImageDigest: null,
+      reasonCodes: ["run_force_cancelled"],
+      provisioned: false,
+      startedAt: "2026-07-21T10:01:00.000Z",
+      completedAt: "2026-07-21T10:05:00.000Z",
+      evidenceLinks: ["https://github.com/synthetic/repository/actions/runs/30/attempts/1"],
+    }).event;
+    expect(validateMergeQualificationEvent(shifted)).toEqual([]);
+    expect(
+      resolveMergeQualificationTerminalReplay({ decision, records: [`${JSON.stringify(shifted, null, 2)}\n`] }),
+    ).toEqual({ action: "unknown", event: null, errors: ["terminal_payload_binding_invalid"] });
   });
   it.each([
     ["conflicting result", [bytes, JSON.stringify({ ...event, reasonCodes: ["gate_cancelled"] })]],
@@ -442,6 +576,8 @@ describe("original revision recovery", () => {
       { policyRevision: sha },
       { run: { ...run, run_started_at: null } },
       { parentRun: { ...parentRun, run_attempt: 2 } },
+      { run: { ...run, event: "workflow_run" } },
+      { run: { ...run, display_title: "Merge Qualification merge_group 20-1" } },
     ]) {
       expect(
         recoverMergeQualificationDecision({
@@ -811,6 +947,101 @@ describe("scheduled terminal production commands without workflow_run delivery",
       expect(existsSync(`${dir}-conflict.json`)).toBe(false);
     },
   );
+});
+
+describe("terminal replay ownership binding", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "qualification-replay-ownership-"));
+  afterAll(() => rmSync(directory, { recursive: true, force: true }));
+  const decision = recoverMergeQualificationDecision({
+    run,
+    parentRun,
+    candidate,
+    policyRevision: revision,
+    policyContent: policy,
+    classifierRecord,
+  }).decision;
+  const ownership = buildMergeGateProvisioningObservation({
+    repository: candidate.repository,
+    workflowId: "12",
+    workflowPath: run.path,
+    runId: "30",
+    runAttempt: "1",
+    namespace: "chase-sets-gate-30-1",
+    candidateSha: sha,
+    candidateTreeSha: candidate.candidateTreeSha,
+    imageDigest: candidate.builtImageDigest,
+    observedAt: "2026-07-21T10:01:00.000Z",
+  });
+  const terminalize = (label, { recordProvisioned, ownershipObserved }) => {
+    const event = buildMergeQualificationEvent({
+      ...decision,
+      terminalState: "cancelled_evicted",
+      builtImageDigest: null,
+      reasonCodes: ["run_force_cancelled"],
+      provisioned: recordProvisioned,
+      startedAt: run.run_started_at,
+      completedAt: "2026-07-21T10:05:00.000Z",
+      evidenceLinks: ["https://github.com/synthetic/repository/actions/runs/30/attempts/1"],
+    }).event;
+    expect(validateMergeQualificationEvent(event)).toEqual([]);
+    const values = {
+      decision,
+      run: { ...run, status: "completed", conclusion: "cancelled", updated_at: "2026-07-21T10:05:00.000Z" },
+      "parent-run": parentRun,
+      "candidate-record": candidate,
+      jobs: { total_count: 0, jobs: [] },
+      "run-artifacts": { total_count: 0, artifacts: [] },
+      "terminal-records": { records: [`${JSON.stringify(event, null, 2)}\n`] },
+      ...(ownershipObserved ? { "provisioning-observation": ownership } : {}),
+    };
+    const args = [];
+    for (const [name, value] of Object.entries(values)) {
+      const file = path.join(directory, `${label}-${name}.json`);
+      writeFileSync(file, JSON.stringify(value));
+      args.push(`--${name}`, file);
+    }
+    const out = path.join(directory, `${label}-event.json`);
+    const githubOutput = path.join(directory, `${label}-output.txt`);
+    writeFileSync(githubOutput, "");
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/merge-qualification.mjs",
+        "terminalize",
+        ...args,
+        "--repository",
+        candidate.repository,
+        "--out",
+        out,
+        "--github-output",
+        githubOutput,
+      ],
+      { cwd: repoRoot, encoding: "utf8", timeout: 30_000 },
+    );
+    return { result, written: existsSync(out), output: readFileSync(githubOutput, "utf8") };
+  };
+
+  it.each([
+    ["provisioned replay without recovered ownership", { recordProvisioned: true, ownershipObserved: false }],
+    ["unprovisioned replay with recovered ownership", { recordProvisioned: false, ownershipObserved: true }],
+  ])("AC4 refuses %s through the terminalize command", (label, input) => {
+    const { result, written, output } = terminalize(label.replaceAll(" ", "-"), input);
+    expect(result.status).toBe(1);
+    expect(result.stderr.trim()).toBe("terminal_ownership_conflict");
+    expect(written).toBe(false);
+    expect(output).toBe("");
+  });
+
+  it.each([
+    ["provisioned", { recordProvisioned: true, ownershipObserved: true }],
+    ["unprovisioned", { recordProvisioned: false, ownershipObserved: false }],
+  ])("AC4 replays a matching %s terminal without writing another", (label, input) => {
+    const { result, written, output } = terminalize(`matching-${label}`, input);
+    expect(result.status, result.stderr).toBe(0);
+    expect(written).toBe(false);
+    expect(output).toContain("action=replay");
+    expect(output).toContain("event_written=false");
+  });
 });
 
 describe("candidate publication byte contract", () => {

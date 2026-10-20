@@ -52,6 +52,17 @@ const PLATFORM_PR_WORKFLOW_PATH = ".github/workflows/platform-pr.yml";
 // (enabledAt), not at merge.
 export const MERGE_QUALIFICATION_MAX_ENABLEMENT_DAYS = 30;
 
+// The scheduled observer revisits only attempts created inside this window:
+// long enough for next-day replay to still clean, well inside the 30-day
+// retention of the evidence it reads. An attempt that ages out without a
+// terminal stays an explicit unknown instead of a permanent inventory refusal.
+export const MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS = 48;
+// GitHub returns at most 1,000 runs for a created-filtered runs query.
+const RUN_SEARCH_RESULT_CEILING = 1_000;
+// The enabled Platform PR producer dispatch is the only route that starts an
+// advisory attempt, so each producer attempt has at most one advisory run.
+const ADVISORY_RUN_TITLE = /^Merge Qualification producer ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/;
+
 // The six terminal advisory states. Every enabled merge-group candidate
 // resolves to exactly one; a disabled policy asserts none.
 export const MERGE_QUALIFICATION_TERMINAL_STATES = Object.freeze([
@@ -794,14 +805,12 @@ export function recoverMergeQualificationDecision({
   policyContent,
   classifierRecord = null,
 } = {}) {
-  const title = /^Merge Qualification (?:merge_group|producer) ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/.exec(
-    run?.display_title ?? "",
-  );
+  const title = ADVISORY_RUN_TITLE.exec(run?.display_title ?? "");
   if (
     !isCommitSha(policyRevision) ||
     policyRevision !== run?.head_sha ||
     parseTimezoneInstantMs(run?.run_started_at) === null ||
-    !["workflow_run", "workflow_dispatch"].includes(run?.event) ||
+    run?.event !== "workflow_dispatch" ||
     run?.path !== ".github/workflows/platform-merge-qualification.yml" ||
     parentRun?.path !== PLATFORM_PR_WORKFLOW_PATH ||
     parentRun?.event !== "merge_group" ||
@@ -1198,20 +1207,31 @@ export function resolveMergeQualificationTerminalReplay({ decision, records } = 
   return { action: event ? "replay" : "missing", event, errors: [] };
 }
 
-export async function inventoryMergeQualificationAttempts({ repository, requestJson, readPolicyContent } = {}) {
+export async function inventoryMergeQualificationAttempts({
+  repository,
+  requestJson,
+  readPolicyContent,
+  now = () => new Date(),
+} = {}) {
   const refused = (code) => ({ attempts: [], errors: [code] });
   if (!isRepositoryIdentity(repository)) return refused("attempt_repository_invalid");
+  // Whole seconds: the created filter and run timestamps carry no fractions.
+  const windowStartMs =
+    Math.floor((now().getTime() - MERGE_QUALIFICATION_INVENTORY_HORIZON_HOURS * 3_600_000) / 1_000) * 1_000;
+  if (!Number.isFinite(windowStartMs)) return refused("attempt_window_invalid");
+  const windowStart = new Date(windowStartMs).toISOString().replace(/\.000Z$/, "Z");
+  const lastPage = RUN_SEARCH_RESULT_CEILING / 100;
   const runs = [];
   let total;
   try {
-    for (let page = 1; page <= 100; page += 1) {
+    for (let page = 1; page <= lastPage; page += 1) {
       const payload = await requestJson(
-        `repos/${repository}/actions/workflows/platform-merge-qualification.yml/runs?per_page=100&page=${page}`,
+        `repos/${repository}/actions/workflows/platform-merge-qualification.yml/runs?created=%3E%3D${windowStart}&per_page=100&page=${page}`,
       );
       if (
         !Number.isSafeInteger(payload?.total_count) ||
         payload.total_count < 0 ||
-        payload.total_count > 10_000 ||
+        payload.total_count >= RUN_SEARCH_RESULT_CEILING ||
         (total !== undefined && total !== payload.total_count) ||
         !Array.isArray(payload.workflow_runs) ||
         payload.workflow_runs.length > 100
@@ -1220,7 +1240,7 @@ export async function inventoryMergeQualificationAttempts({ repository, requestJ
       total = payload.total_count;
       runs.push(...payload.workflow_runs);
       if (runs.length === total) break;
-      if (runs.length > total || payload.workflow_runs.length !== 100 || page === 100) {
+      if (runs.length > total || payload.workflow_runs.length !== 100 || page === lastPage) {
         return refused("attempt_inventory_incomplete");
       }
     }
@@ -1241,6 +1261,9 @@ export async function inventoryMergeQualificationAttempts({ repository, requestJ
       ) {
         return refused("attempt_identity_invalid");
       }
+      // A run outside the requested window means the filter was not honored.
+      const createdMs = parseTimezoneInstantMs(run.created_at);
+      if (createdMs === null || createdMs < windowStartMs) return refused("attempt_window_invalid");
       identities.add(`${id}/${attempt}`);
       if (!latest.has(id) || BigInt(attempt) > BigInt(latest.get(id).run_attempt)) latest.set(id, run);
     }
@@ -1249,10 +1272,8 @@ export async function inventoryMergeQualificationAttempts({ repository, requestJ
     for (const run of latest.values()) {
       if (
         run.status !== "completed" ||
-        !["workflow_run", "workflow_dispatch"].includes(run.event) ||
-        !/^Merge Qualification (?:merge_group|producer) [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(
-          run.display_title ?? "",
-        )
+        run.event !== "workflow_dispatch" ||
+        !ADVISORY_RUN_TITLE.test(run.display_title ?? "")
       )
         continue;
       if (!policies.has(run.head_sha)) policies.set(run.head_sha, await readPolicyContent(run.head_sha));
@@ -1269,7 +1290,8 @@ export async function inventoryMergeQualificationAttempts({ repository, requestJ
         conclusion: run.conclusion,
       });
     }
-    // GitHub matrices cap at 256. Never silently drop a tail to fit the worker.
+    // GitHub matrices cap at 256. Never silently drop a tail to fit the worker;
+    // an over-capacity window clears as the window advances.
     if (attempts.length > 256) return refused("attempt_worker_capacity_exceeded");
     return { attempts, errors: [] };
   } catch {
@@ -1421,12 +1443,8 @@ export function resolveRunTerminalization({
   queueDisposition = "unknown",
   observation = null,
 } = {}) {
-  if (!["workflow_run", "workflow_dispatch"].includes(runEvent))
-    return { action: "skip", reason: "not_advisory_workflow_run" };
-  if (
-    runDisplayTitle &&
-    !/^Merge Qualification (?:merge_group|producer) [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(runDisplayTitle)
-  ) {
+  if (runEvent !== "workflow_dispatch") return { action: "skip", reason: "not_advisory_workflow_run" };
+  if (runDisplayTitle && !ADVISORY_RUN_TITLE.test(runDisplayTitle)) {
     return { action: "skip", reason: "not_merge_group_advisory" };
   }
   const jobNamed = (pattern) => jobs.find((job) => pattern.test(String(job?.name ?? "")));
@@ -1954,6 +1972,7 @@ async function main(argv, env = process.env) {
   if (command === "inventory") {
     const result = await inventoryMergeQualificationAttempts({
       repository: readOption(argv, "--repository") ?? env.GITHUB_REPOSITORY,
+      now,
       requestJson: async (endpoint) =>
         JSON.parse(
           execFileSync("gh", ["api", endpoint], {
@@ -2372,9 +2391,7 @@ async function main(argv, env = process.env) {
         })
       : [];
     collectionErrors.push(...provisioningErrors);
-    const titleParent = String(run?.display_title ?? "").match(
-      /^Merge Qualification (?:merge_group|producer) ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/,
-    );
+    const titleParent = String(run?.display_title ?? "").match(ADVISORY_RUN_TITLE);
     if (
       !titleParent ||
       normalize(parentRun?.repository?.full_name) !== repository ||
@@ -2545,7 +2562,7 @@ async function main(argv, env = process.env) {
         parentRunAttempt: String(parentRun?.run_attempt ?? ""),
         // Decision-less cancellation is real evidence about an exact causal
         // attempt, but it has no candidate identity. Never substitute the
-        // workflow_run/default-branch head SHA.
+        // advisory run's default-branch head SHA.
         candidateSha: decisionBound?.candidateSha ?? ownershipObservation?.candidateSha ?? null,
         candidateTreeSha: decisionBound?.candidateTreeSha ?? ownershipObservation?.candidateTreeSha ?? null,
         imageDigest: null,

@@ -1,10 +1,12 @@
 name: Platform Merge Qualification Advisory
-run-name: Merge Qualification ${{ github.event_name == 'workflow_dispatch' && format('producer {0}-{1}', inputs.producer_run_id, inputs.producer_run_attempt) || format('{0} {1}-{2}', github.event.workflow_run.event, github.event.workflow_run.id, github.event.workflow_run.run_attempt) }}
+run-name: Merge Qualification producer ${{ inputs.producer_run_id }}-${{ inputs.producer_run_attempt }}
 
-# Separately triggered advisory evaluation. Qualification outcomes can make
-# this advisory run red, but can never change the completed Platform PR run or
-# its required rollup. The checked-in policy remains default-off; #5881 owns
-# any later operator activation.
+# Separately dispatched advisory evaluation. Only the enabled Platform PR
+# merge-group producer dispatches it, so each producer attempt starts at most
+# one advisory attempt and a disabled policy starts none. Qualification
+# outcomes can make this advisory run red, but can never change the completed
+# Platform PR run or its required rollup. The checked-in policy remains
+# default-off; #5881 owns any later operator activation.
 on:
   workflow_dispatch:
     inputs:
@@ -23,9 +25,6 @@ on:
       base_sha:
         required: true
         type: string
-  workflow_run:
-    workflows: ["Platform PR"]
-    types: [completed]
 
 permissions:
   contents: read
@@ -33,13 +32,13 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: platform-merge-qualification-${{ inputs.producer_run_id || github.event.workflow_run.id }}-${{ inputs.producer_run_attempt || github.event.workflow_run.run_attempt }}
+  group: platform-merge-qualification-${{ inputs.producer_run_id }}-${{ inputs.producer_run_attempt }}
   cancel-in-progress: false
 
 jobs:
   plan:
     name: Merge Qualification Plan
-    if: (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'merge_group') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -96,9 +95,9 @@ jobs:
         if: steps.policy.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          PARENT_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.producer_run_id || github.event.workflow_run.id }}
-          PARENT_RUN_ATTEMPT: ${{ github.event_name == 'workflow_dispatch' && inputs.producer_run_attempt || github.event.workflow_run.run_attempt }}
-          DISPATCH_CANDIDATE_SHA: ${{ inputs.candidate_sha || '' }}
+          PARENT_RUN_ID: ${{ inputs.producer_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.producer_run_attempt }}
+          DISPATCH_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/merge-qualification
@@ -111,7 +110,7 @@ jobs:
             echo "Parent workflow repository/path/run/attempt/event binding failed." >&2
             exit 1
           fi
-          if [ -n "$DISPATCH_CANDIDATE_SHA" ] && [ "$(jq -r '.head_sha' <<<"$parent_json")" != "$DISPATCH_CANDIDATE_SHA" ]; then
+          if [ "$(jq -r '.head_sha' <<<"$parent_json")" != "$DISPATCH_CANDIDATE_SHA" ]; then
             echo "Dispatch candidate SHA does not match the producer run." >&2
             exit 1
           fi
@@ -185,6 +184,8 @@ jobs:
         if: always() && steps.policy.outputs.enabled == 'true' && steps.parent.outcome == 'success'
         env:
           CANDIDATE_RECORD: ${{ steps.parent.outputs.candidate_record }}
+          PARENT_RUN_ID: ${{ inputs.producer_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.producer_run_attempt }}
         run: |
           set -euo pipefail
           candidate_args=()
@@ -199,8 +200,8 @@ jobs:
             --run-attempt "${{ github.run_attempt }}" \
             --parent-workflow-id "${{ steps.parent.outputs.parent_workflow_id }}" \
             --parent-workflow-path "${{ steps.parent.outputs.parent_workflow_path }}" \
-            --parent-run-id "${{ inputs.producer_run_id || github.event.workflow_run.id }}" \
-            --parent-run-attempt "${{ inputs.producer_run_attempt || github.event.workflow_run.run_attempt }}" \
+            --parent-run-id "$PARENT_RUN_ID" \
+            --parent-run-attempt "$PARENT_RUN_ATTEMPT" \
             --policy-enabled "${{ steps.policy.outputs.enabled }}" \
             --policy-revision "${{ github.workflow_sha }}" \
             --observed-at "${{ steps.self.outputs.started_at }}" \
@@ -232,8 +233,8 @@ jobs:
     with:
       candidate_ref: ${{ needs.plan.outputs.candidate_sha }}
       image_digest: ${{ needs.plan.outputs.built_image_digest }}
-      qualification_parent_run_id: ${{ inputs.producer_run_id || github.event.workflow_run.id }}
-      qualification_parent_run_attempt: ${{ inputs.producer_run_attempt || github.event.workflow_run.run_attempt }}
+      qualification_parent_run_id: ${{ inputs.producer_run_id }}
+      qualification_parent_run_attempt: ${{ inputs.producer_run_attempt }}
 
   publish:
     name: Merge Qualification (advisory)

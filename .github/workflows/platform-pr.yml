@@ -842,7 +842,7 @@ jobs:
             -f producer_run_id="${{ github.run_id }}" \
             -f producer_run_attempt="${{ github.run_attempt }}" \
             -f candidate_sha="${{ github.event.merge_group.head_sha }}" \
-          -f candidate_tree="$(git -C "$GITHUB_WORKSPACE" rev-parse 'HEAD^{tree}')" \
+            -f candidate_tree="$(git rev-parse 'HEAD^{tree}')" \
             -f base_sha="${{ github.event.merge_group.base_sha }}"
 
       - name: Report skipped merge-group image push

@@ -3,7 +3,8 @@ name: Platform Merge Qualification Observer
 # Trusted observer for the separately triggered advisory workflow. It binds
 # the exact repository/workflow/run/attempt, terminalizes missing evidence
 # deterministically, and performs event-driven cleanup after every terminal
-# advisory run. Both event and scheduled deliveries reconcile complete inventory.
+# advisory run. Both event and scheduled deliveries reconcile the complete
+# inventory of attempts inside the bounded recent window.
 on:
   workflow_run:
     workflows: ["Platform PR", "Platform Merge Qualification Advisory"]
@@ -72,8 +73,8 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/merge-qualification
           gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}" > artifacts/merge-qualification/run.json
-          parent_run_id="$(jq -r '.display_title | capture("^Merge Qualification (?:merge_group|producer) (?<run>[1-9][0-9]{0,15})-(?<attempt>[1-9][0-9]{0,15})$").run' artifacts/merge-qualification/run.json)"
-          parent_run_attempt="$(jq -r '.display_title | capture("^Merge Qualification (?:merge_group|producer) (?<run>[1-9][0-9]{0,15})-(?<attempt>[1-9][0-9]{0,15})$").attempt' artifacts/merge-qualification/run.json)"
+          parent_run_id="$(jq -r '.display_title | capture("^Merge Qualification producer (?<run>[1-9][0-9]{0,15})-(?<attempt>[1-9][0-9]{0,15})$").run' artifacts/merge-qualification/run.json)"
+          parent_run_attempt="$(jq -r '.display_title | capture("^Merge Qualification producer (?<run>[1-9][0-9]{0,15})-(?<attempt>[1-9][0-9]{0,15})$").attempt' artifacts/merge-qualification/run.json)"
           gh api "repos/${{ github.repository }}/actions/runs/${parent_run_id}/attempts/${parent_run_attempt}" > artifacts/merge-qualification/parent-run.json
           if [ "$(jq -r '.repository.full_name' artifacts/merge-qualification/parent-run.json)" != "${{ github.repository }}" ] || \
              [ "$(jq -r '.path' artifacts/merge-qualification/parent-run.json)" != ".github/workflows/platform-pr.yml" ] || \
@@ -191,10 +192,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Each matrix leg fails only on its own attempt's evidence: an aggregate
+  # matrix result fails when any one leg fails, so it never gates another attempt.
   cleanup:
     name: Cleanup Merge Qualification Resources
     needs: [reconcile, inspect]
-    if: always() && needs.inspect.result == 'success'
+    if: always() && needs.reconcile.outputs.pending == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.reconcile.outputs.matrix) }}
@@ -348,10 +351,29 @@ jobs:
         if: always() && steps.target.outputs.cleanup_status == 'absent'
         run: echo "No exact gate namespace exists; success/failure cleanup or early cancellation already left no resource."
 
+      - name: Record exact cleanup completion
+        env:
+          RUN_ID: ${{ matrix.run_id }}
+          RUN_ATTEMPT: ${{ matrix.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-qualification-cleanup/complete
+          jq -n --arg runId "$RUN_ID" --arg runAttempt "$RUN_ATTEMPT" \
+            '{runId: $runId, runAttempt: $runAttempt, cleanup: "complete"}' \
+            > artifacts/merge-qualification-cleanup/complete/cleanup-complete.json
+
+      - name: Upload exact cleanup completion
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-cleanup-complete-${{ matrix.run_id }}-${{ matrix.run_attempt }}
+          path: artifacts/merge-qualification-cleanup/complete/cleanup-complete.json
+          if-no-files-found: error
+          retention-days: 30
+
   terminalize:
     name: Terminalize After Cleanup
     needs: [reconcile, inspect, cleanup]
-    if: always() && needs.inspect.result == 'success' && (needs.cleanup.result == 'success' || needs.cleanup.result == 'skipped')
+    if: always() && needs.reconcile.outputs.pending == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.reconcile.outputs.matrix) }}
@@ -367,6 +389,20 @@ jobs:
         with:
           name: merge-qualification-inspection-${{ matrix.run_id }}-${{ matrix.run_attempt }}
           path: artifacts/merge-qualification
+      - name: Download exact cleanup completion
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: merge-qualification-cleanup-complete-${{ matrix.run_id }}-${{ matrix.run_attempt }}
+          path: artifacts/merge-qualification-cleanup-complete
+      - name: Verify exact cleanup completion
+        env:
+          RUN_ID: ${{ matrix.run_id }}
+          RUN_ATTEMPT: ${{ matrix.run_attempt }}
+        run: |
+          set -euo pipefail
+          jq -e --arg runId "$RUN_ID" --arg runAttempt "$RUN_ATTEMPT" \
+            '. == {runId: $runId, runAttempt: $runAttempt, cleanup: "complete"}' \
+            artifacts/merge-qualification-cleanup-complete/cleanup-complete.json > /dev/null
       - name: Read durable observer terminals after cleanup
         env:
           GH_TOKEN: ${{ github.token }}

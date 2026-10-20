@@ -600,7 +600,7 @@ describe("independent idempotent run terminalization (cancellation/eviction back
     observedAt: "2026-07-21T10:00:00.000Z",
   }).decision;
   const base = {
-    runEvent: "workflow_run",
+    runEvent: "workflow_dispatch",
     runConclusion: "success",
     runId: "4242",
     runAttempt: "2",
@@ -658,6 +658,20 @@ describe("independent idempotent run terminalization (cancellation/eviction back
         decision: null,
       }),
     ).toEqual({ action: "skip", reason: "not_merge_group_advisory" });
+  });
+
+  it("terminalizes only the producer-dispatched advisory route", () => {
+    expect(resolveRunTerminalization({ ...base, runEvent: "workflow_run" })).toEqual({
+      action: "skip",
+      reason: "not_advisory_workflow_run",
+    });
+    expect(resolveRunTerminalization({ ...base, runDisplayTitle: "Merge Qualification merge_group 4000-1" })).toEqual({
+      action: "skip",
+      reason: "not_merge_group_advisory",
+    });
+    expect(resolveRunTerminalization({ ...base, runDisplayTitle: "Merge Qualification producer 4000-1" }).action).toBe(
+      "terminalize",
+    );
   });
 
   it("never treats an artifact name as validated terminal contents", () => {
@@ -795,8 +809,8 @@ describe("terminalize CLI determinism (byte-identical events across observer re-
       JSON.stringify({
         id: 4242,
         run_attempt: 2,
-        event: "workflow_run",
-        display_title: "Merge Qualification merge_group 4000-1",
+        event: "workflow_dispatch",
+        display_title: "Merge Qualification producer 4000-1",
         conclusion: "cancelled",
         workflow_id: 77,
         path: ".github/workflows/platform-merge-qualification.yml",

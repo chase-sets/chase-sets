@@ -36,17 +36,22 @@ describe("genuinely advisory workflow topology", () => {
     expect(platformPr).not.toContain("merge-qualification-gate:");
   });
 
-  it("isolates pass/fail/cancel outcomes in a workflow_run-triggered advisory workflow", () => {
-    expect(advisory).toContain('workflows: ["Platform PR"]');
-    expect(advisory).toContain("types: [completed]");
+  it("starts one advisory attempt per producer attempt, only from the enabled producer dispatch", () => {
+    const triggers = advisory.slice(advisory.indexOf("\non:\n"), advisory.indexOf("\npermissions:\n"));
+    expect(triggers.match(/^ {2}[a-z_]+:/gmu)).toEqual(["  workflow_dispatch:"]);
+    expect(advisory).not.toContain("workflow_run");
+    expect(advisory).toContain(
+      "run-name: Merge Qualification producer ${{ inputs.producer_run_id }}-${{ inputs.producer_run_attempt }}",
+    );
+    expect(advisory).toContain(
+      "group: platform-merge-qualification-${{ inputs.producer_run_id }}-${{ inputs.producer_run_attempt }}",
+    );
+    expect(platformPr.match(/gh workflow run platform-merge-qualification\.yml/gu)).toHaveLength(1);
+    expect(step(platformPr, "Dispatch merge qualification producer")).toContain(
+      "steps.qualification_policy.outputs.enabled == 'true'",
+    );
     expect(advisory).toContain("uses: ./.github/workflows/platform-merge-gate-verification.yml");
     expect(advisory).toContain("name: Merge Qualification (advisory)");
-    for (const conclusion of ["success", "failure", "cancelled"]) {
-      const simulatedPlatformConclusion = "success";
-      const advisoryConclusion = conclusion;
-      expect(simulatedPlatformConclusion).toBe("success");
-      expect(advisoryConclusion).toBe(conclusion);
-    }
   });
 
   it("keeps required and post-merge persistent paths independent", () => {
@@ -145,6 +150,23 @@ describe("continuation acceptance boundaries", () => {
     expect(step(platformPr, "Upload exact merge qualification candidate image")).toContain(
       "steps.candidate_record.outcome == 'success'",
     );
+  });
+
+  it("AC2 binds the candidate to the workspace checkout and writes it where the upload reads", () => {
+    const record = step(platformPr, "Record exact merge qualification candidate image");
+    const upload = step(platformPr, "Upload exact merge qualification candidate image");
+    const candidatePath = "artifacts/merge-qualification-candidate/candidate.json";
+    expect(record).toContain("working-directory: .qualification-authority");
+    // Every git read must see the merge-group workspace, never the trusted default-ref checkout.
+    const gitReads = record.match(/\bgit\b[^\n]*/gu);
+    expect(gitReads).toEqual([
+      'git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"',
+      'git -C "$GITHUB_WORKSPACE" rev-parse \'HEAD^{tree}\')"',
+    ]);
+    expect(record).toContain('test "$candidate_sha" = "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"');
+    expect(record).toContain(`test "$candidate_tree" = "$(git -C "$GITHUB_WORKSPACE" rev-parse 'HEAD^{tree}')"`);
+    expect(record.match(/--out [^\n]*/gu)).toEqual([`--out "$GITHUB_WORKSPACE/${candidatePath}"`]);
+    expect(upload).toContain(`path: ${candidatePath}`);
   });
 
   it("AC2 evaluates child policy before candidate discovery and writes no disabled decision", () => {
@@ -261,9 +283,6 @@ describe("event-driven exact cleanup", () => {
       "--cleanup-ownership-out",
     );
     expect(job(observer, "terminalize")).toContain("needs: [reconcile, inspect, cleanup]");
-    expect(job(observer, "terminalize")).toContain(
-      "needs.cleanup.result == 'success' || needs.cleanup.result == 'skipped'",
-    );
     expect(job(observer, "inspect")).not.toContain("merge-qualification-terminal-");
     expect(advisory).not.toContain("merge-qualification-events-");
     expect(advisory).toContain("merge-qualification-observation-");
@@ -309,11 +328,56 @@ describe("event-driven exact cleanup", () => {
     expect(previewCleanup).toContain("provider-webhook-lifecycle.mjs delete");
   });
 
-  it("keeps default-off and pre-gate advisory runs provider-inert", () => {
-    expect(cleanup.indexOf("if: always() && needs.inspect.result == 'success'")).toBeGreaterThan(-1);
-    expect(cleanup.indexOf("if: always() && needs.inspect.result == 'success'")).toBeLessThan(
-      cleanup.indexOf("environment: merge-gate"),
+  it("AC1 isolates every matrix attempt so one failing leg cannot skip another attempt's cleanup or terminal", () => {
+    const pending = "if: always() && needs.reconcile.outputs.pending == 'true'";
+    for (const id of ["reconcile", "inspect", "cleanup", "terminalize"]) {
+      // A matrix job's aggregate result fails when any one leg fails.
+      expect(job(observer, id)).not.toMatch(/needs\.(?:inspect|cleanup|terminalize)\.result/u);
+    }
+    expect(cleanup).toContain(pending);
+    expect(cleanup.indexOf(pending)).toBeLessThan(cleanup.indexOf("environment: merge-gate"));
+    const terminalize = job(observer, "terminalize");
+    expect(terminalize).toContain(pending);
+
+    const marker = "merge-qualification-cleanup-complete-${{ matrix.run_id }}-${{ matrix.run_attempt }}";
+    const ownBlock = (name) => step(observer, name).split("\n\n")[0];
+    const record = ownBlock("Record exact cleanup completion");
+    expect(record).not.toContain("if:");
+    expect(record).toContain('{runId: $runId, runAttempt: $runAttempt, cleanup: "complete"}');
+    const upload = ownBlock("Upload exact cleanup completion");
+    expect(upload).toContain(`name: ${marker}`);
+    expect(upload).toContain("if-no-files-found: error");
+    expect(upload).not.toContain("if: ");
+    // Completion is recorded only after every cleanup step, and only when none failed.
+    for (const name of [
+      "Delete exact gate provider webhooks",
+      "Persist cancelled post-identity attempt",
+      "Delete exact gate Kubernetes namespace",
+      "Report cleanup no-op",
+    ]) {
+      expect(cleanup.indexOf(`- name: ${name}`)).toBeLessThan(
+        cleanup.indexOf("- name: Record exact cleanup completion"),
+      );
+    }
+    expect(cleanup.indexOf("- name: Record exact cleanup completion")).toBeLessThan(
+      cleanup.indexOf("- name: Upload exact cleanup completion"),
     );
+
+    const download = step(observer, "Download exact cleanup completion");
+    expect(download).toContain(`name: ${marker}`);
+    const verify = step(observer, "Verify exact cleanup completion");
+    expect(verify).toContain('. == {runId: $runId, runAttempt: $runAttempt, cleanup: "complete"}');
+    expect(verify).toContain("RUN_ID: ${{ matrix.run_id }}");
+    expect(verify).toContain("RUN_ATTEMPT: ${{ matrix.run_attempt }}");
+    expect(terminalize.indexOf("- name: Download exact cleanup completion")).toBeLessThan(
+      terminalize.indexOf("- name: Verify exact cleanup completion"),
+    );
+    expect(terminalize.indexOf("- name: Verify exact cleanup completion")).toBeLessThan(
+      terminalize.indexOf("- name: Read durable observer terminals after cleanup"),
+    );
+  });
+
+  it("keeps default-off and pre-gate advisory runs provider-inert", () => {
     expect(job(observer, "terminalize")).not.toContain("DIGITALOCEAN_ACCESS_TOKEN");
     expect(job(observer, "terminalize")).not.toContain("STRIPE_SECRET_KEY");
     for (const name of [
