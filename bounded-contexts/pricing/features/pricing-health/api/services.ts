@@ -228,8 +228,6 @@ async function readAllTraces(
   }
 }
 
-export type PricingHealthServices = Omit<ReturnType<typeof createPricingHealthServices>, "compare"> &
-  Partial<Pick<ReturnType<typeof createPricingHealthServices>, "compare">>;
 export type PricingHealthData = Readonly<{
   policies: readonly { policyId: string; name: string }[];
   target: { policyId: string; name: string } | null;
@@ -243,3 +241,10 @@ export type PricingHealthData = Readonly<{
   branch?: "comparison" | "advanced-editor" | "create-editor";
   canCompute?: boolean;
 }>;
+type PricingHealthServiceImplementation = ReturnType<typeof createPricingHealthServices>;
+export type PricingHealthServices = Omit<PricingHealthServiceImplementation, "getHealth" | "compare"> & {
+  getHealth: (
+    ...args: Parameters<PricingHealthServiceImplementation["getHealth"]>
+  ) => Promise<PricingHealthData | null>;
+  compare?: PricingHealthServiceImplementation["compare"];
+};
