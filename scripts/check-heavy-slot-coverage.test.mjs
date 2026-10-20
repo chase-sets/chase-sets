@@ -70,6 +70,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
   const expectedEntrypoints = [
     "contracts/market-estimate-display/vitest.config.ts",
     "contracts/order-groups/vitest.config.ts",
+    "contracts/inventory-draft-listing/vitest.config.ts",
     "contracts/tcgplayer-market-observations/vitest.config.ts",
     "deployables/platform-api/vitest.config.ts",
     "deployables/tcgplayer-operator-extension/vitest.config.ts",
@@ -92,7 +93,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 85);
+  assert.equal(result.entrypoints.length, 86);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
