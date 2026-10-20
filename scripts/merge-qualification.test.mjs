@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -581,6 +581,7 @@ describe("merge-qualification-event/v1 fixtures", () => {
 
 describe("independent idempotent run terminalization (cancellation/eviction backstop)", () => {
   const decision = buildMergeQualificationDecision({
+    policyRevision: "a".repeat(40),
     repository: "chase-sets/chase-sets",
     workflowId: "77",
     workflowPath: ".github/workflows/platform-merge-qualification.yml",
@@ -605,10 +606,11 @@ describe("independent idempotent run terminalization (cancellation/eviction back
     runAttempt: "2",
     jobs: [],
     artifactNames: [],
+    queueDisposition: "queued",
     decision,
   };
 
-  it("evaluates cancellation before a skipped publisher or disabled decision", () => {
+  it("keeps an original disabled decision inert even when cancelled", () => {
     const disabled = {
       ...decision,
       policyEnabled: false,
@@ -623,14 +625,13 @@ describe("independent idempotent run terminalization (cancellation/eviction back
         decision: disabled,
         jobs: [{ name: "Merge Qualification (advisory)", conclusion: "skipped" }],
       }),
-    ).toMatchObject({ action: "terminalize", terminalState: "cancelled_evicted" });
+    ).toMatchObject({ action: "skip", reason: "policy_disabled" });
   });
 
   it("requires run-attempt-scoped decision proof before classifying disabled", () => {
     expect(resolveRunTerminalization({ ...base, decision: null })).toMatchObject({
-      action: "terminalize",
-      terminalState: "infrastructure_error",
-      reasonCodes: ["policy_decision_evidence_missing"],
+      action: "unknown",
+      reason: "policy_decision_evidence_missing",
     });
     const disabled = {
       ...decision,
@@ -659,11 +660,10 @@ describe("independent idempotent run terminalization (cancellation/eviction back
     ).toEqual({ action: "skip", reason: "not_merge_group_advisory" });
   });
 
-  it("matches idempotency only to the exact run and attempt artifact", () => {
-    expect(resolveRunTerminalization({ ...base, artifactNames: ["merge-qualification-events-4242-2"] })).toEqual({
-      action: "skip",
-      reason: "already_terminalized",
-    });
+  it("never treats an artifact name as validated terminal contents", () => {
+    expect(resolveRunTerminalization({ ...base, artifactNames: ["merge-qualification-events-4242-2"] }).action).toBe(
+      "terminalize",
+    );
     expect(resolveRunTerminalization({ ...base, artifactNames: ["merge-qualification-events-4242-1"] }).action).toBe(
       "terminalize",
     );
@@ -770,6 +770,7 @@ describe("terminalize CLI determinism (byte-identical events across observer re-
       path.join(workDir, "decision.json"),
       JSON.stringify(
         buildMergeQualificationDecision({
+          policyRevision: "0123456789abcdef0123456789abcdef01234567",
           repository: "chase-sets/chase-sets",
           workflowId: "77",
           workflowPath: ".github/workflows/platform-merge-qualification.yml",
@@ -859,15 +860,8 @@ describe("terminalize CLI determinism (byte-identical events across observer re-
       runAttempt: "2",
       imageDigest: null,
     });
-    invoke("event-decisionless.json", false);
-    expect(JSON.parse(readFileSync(path.join(workDir, "event-decisionless.json"), "utf8"))).toMatchObject({
-      terminalState: "cancelled_evicted",
-      candidateSha: null,
-      candidateTreeSha: null,
-      imageDigest: null,
-      identityAvailable: false,
-      provisioned: false,
-    });
+    expect(() => invoke("event-decisionless.json", false)).toThrow();
+    expect(existsSync(path.join(workDir, "event-decisionless.json"))).toBe(false);
   });
 });
 
@@ -911,6 +905,7 @@ describe("classifier registration for the enablement policy", () => {
     for (const [classifierClass, reasonCodes] of Object.entries(RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS)) {
       for (const reasonCode of reasonCodes) {
         const built = buildMergeQualificationDecision({
+          policyRevision: "a".repeat(40),
           repository: "chase-sets/chase-sets",
           workflowId: "77",
           workflowPath: ".github/workflows/platform-merge-qualification.yml",

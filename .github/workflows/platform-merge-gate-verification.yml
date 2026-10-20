@@ -22,6 +22,16 @@ name: Platform Merge Gate Verification
 on:
   workflow_call:
     inputs:
+      qualification_parent_run_id:
+        description: Exact advisory producer run, empty for the existing manual gate.
+        required: false
+        default: ""
+        type: string
+      qualification_parent_run_attempt:
+        description: Exact advisory producer attempt.
+        required: false
+        default: ""
+        type: string
       image_digest:
         description: Exact immutable sha256 digest emitted by the candidate image push.
         required: true
@@ -77,6 +87,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 
 # Dedicated merge-gate concurrency, separate from the preview, staging, and
 # production groups. Duplicate qualifications of the same digest serialize;
@@ -275,7 +286,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-          ref: ${{ inputs.candidate_ref || github.sha }}
+          ref: ${{ inputs.qualification_parent_run_id != '' && github.sha || inputs.candidate_ref || github.sha }}
 
       - name: Resolve owning workflow identity
         id: owner
@@ -297,10 +308,19 @@ jobs:
 
       - name: Resolve gate candidate
         id: candidate
+        env:
+          ADVISORY_PARENT: ${{ inputs.qualification_parent_run_id }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
         run: |
           set -euo pipefail
-          candidate_sha="$(git rev-parse HEAD)"
-          candidate_tree="$(git rev-parse 'HEAD^{tree}')"
+          candidate_ref=HEAD
+          if [ -n "$ADVISORY_PARENT" ]; then
+            [[ "$CANDIDATE_REF" =~ ^[0-9a-f]{40}$ ]] || exit 1
+            git fetch --no-tags origin "$CANDIDATE_REF"
+            candidate_ref="$CANDIDATE_REF"
+          fi
+          candidate_sha="$(git rev-parse "$candidate_ref")"
+          candidate_tree="$(git rev-parse "${candidate_ref}^{tree}")"
           {
             echo "candidate_sha=${candidate_sha}"
             echo "candidate_tree=${candidate_tree}"
@@ -374,6 +394,29 @@ jobs:
           KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
 
+      - name: Recheck exact advisory queue disposition before provisioning
+        if: inputs.qualification_parent_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.qualification_parent_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.qualification_parent_run_attempt }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.candidate_sha }}
+          CANDIDATE_TREE: ${{ steps.candidate.outputs.candidate_tree }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$PARENT_RUN_ID" =~ ^[1-9][0-9]{0,15}$ ]] || exit 1
+          [[ "$PARENT_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,15}$ ]] || exit 1
+          gh run download "$PARENT_RUN_ID" \
+            --name "merge-qualification-candidate-${PARENT_RUN_ID}-${PARENT_RUN_ATTEMPT}" \
+            --dir artifacts/merge-gate/candidate
+          node ./scripts/merge-qualification.mjs queue-disposition \
+            --candidate-record artifacts/merge-gate/candidate/candidate.json \
+            --repository "${{ github.repository }}" \
+            --parent-run-id "$PARENT_RUN_ID" --parent-run-attempt "$PARENT_RUN_ATTEMPT" \
+            --candidate-sha "$CANDIDATE_SHA" --candidate-tree "$CANDIDATE_TREE" \
+            --built-image-digest "$IMAGE_DIGEST"
+
       # Namespace, labels, and annotations are ONE atomic create: the
       # label-scoped gate sweeper has no create-then-label gap to leak
       # through, and `kubectl create` refuses to reuse an existing namespace.
@@ -420,6 +463,10 @@ jobs:
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase namespace-created
           handed_off=true
           trap - EXIT
+
+      - name: Wait for managed registry authority
+        timeout-minutes: 3
+        run: node ./scripts/managed-registry-readiness.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --timeout-seconds 120
 
       - name: Upload gate namespace creation observation
         id: provisioning-upload
@@ -493,22 +540,6 @@ jobs:
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase secrets-applied
 
-      - name: Apply gate Kubernetes registry pull secret
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          REGISTRY_NAME: ${{ steps.image.outputs.registry_name }}
-        run: |
-          set -euo pipefail
-          registry_pull_secret_name="registry-${REGISTRY_NAME}"
-          docker_config="$(mktemp)"
-          trap 'rm -f "$docker_config"' EXIT
-          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
-          kubectl create secret generic "$registry_pull_secret_name" \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --from-file=.dockerconfigjson="$docker_config" \
-            --type=kubernetes.io/dockerconfigjson --dry-run=client -o yaml | kubectl apply -f -
-          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
-
       - name: Deploy gate Kubernetes release
         id: deploy
         env:
@@ -519,7 +550,7 @@ jobs:
           marketplace_domain="${GATE_SLUG}-marketplace.preview.chasesets.com"
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
-            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=preview" \
             --runtime-env "PREVIEW_IDENTIFIER=${GATE_SLUG}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \

@@ -151,8 +151,11 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 70, scannedSurfaces: 34, totalSurfaces: 34 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 72, scannedSurfaces: 40, totalSurfaces: 40 });
     expect(current.findings).toHaveLength(21);
+    expect(
+      current.findings.filter((finding) => /platform-merge-qualification(?:-observer)?\.yml/.test(finding.message)),
+    ).toEqual([]);
     const idleDraftRecord = {
       workflowFile: ".github/workflows/platform-preview-cleanup.yml",
       outPath: "artifacts/release-health/platform-preview-idle-drafts.json",

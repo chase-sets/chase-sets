@@ -134,7 +134,7 @@ describe("run-attempt decision and terminal evidence", () => {
   });
 
   it("paginates jobs/artifacts, verifies totals, and binds repository/path/id/run/attempt", () => {
-    expect(job(observer, "terminalize")).toContain(
+    expect(job(observer, "inspect")).toContain(
       "startsWith(github.event.workflow_run.display_title, 'Merge Qualification ')",
     );
     const inspect = step(observer, "Inspect complete advisory run evidence");
@@ -153,7 +153,8 @@ describe("run-attempt decision and terminal evidence", () => {
     const inspect = step(observer, "Inspect complete advisory run evidence");
     expect(inspect).toContain("parent-run.json");
     expect(inspect).toContain("merge-gate-provisioning-${RUN_ID}-${RUN_ATTEMPT}");
-    expect(inspect).not.toContain("head_sha");
+    expect(inspect).toContain("recover-decision");
+    expect(inspect).not.toContain('--candidate-sha "$revision"');
     expect(observer).not.toContain("git/commits/${HEAD_SHA}");
   });
 
@@ -170,10 +171,19 @@ describe("event-driven exact cleanup", () => {
 
   it("observes every completed advisory run and activates cleanup only from a durable provisioning observation", () => {
     expect(observer).toContain('workflows: ["Platform PR", "Platform Merge Qualification Advisory"]');
-    expect(job(observer, "terminalize")).toContain("provisioned: ${{ steps.terminalize.outputs.provisioned }}");
-    expect(cleanup).toContain("needs: terminalize");
-    expect(cleanup).toContain("if: always() && needs.terminalize.outputs.provisioned == 'true'");
-    expect(step(observer, "Emit exact missing terminal result")).toContain("--cleanup-ownership-out");
+    expect(job(observer, "inspect")).toContain("provisioned: ${{ steps.prepare.outputs.provisioned }}");
+    expect(cleanup).toContain("needs: inspect");
+    expect(cleanup).toContain("needs.inspect.outputs.provisioned == 'true'");
+    expect(step(observer, "Recover exact cleanup ownership before terminalization")).toContain(
+      "--cleanup-ownership-out",
+    );
+    expect(job(observer, "terminalize")).toContain("needs: [inspect, cleanup]");
+    expect(job(observer, "terminalize")).toContain(
+      "needs.cleanup.result == 'success' || needs.cleanup.result == 'skipped'",
+    );
+    expect(job(observer, "inspect")).not.toContain("merge-qualification-terminal-");
+    expect(advisory).not.toContain("merge-qualification-events-");
+    expect(advisory).toContain("merge-qualification-observation-");
     expect(step(observer, "Upload exact cleanup ownership")).toContain(
       "merge-qualification-cleanup-ownership-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}",
     );
@@ -219,11 +229,30 @@ describe("event-driven exact cleanup", () => {
   });
 
   it("keeps default-off and pre-gate advisory runs provider-inert", () => {
-    expect(cleanup.indexOf("if: always() && needs.terminalize.outputs.provisioned == 'true'")).toBeLessThan(
+    expect(cleanup.indexOf("if: always() && needs.inspect.result == 'success'")).toBeGreaterThan(-1);
+    expect(cleanup.indexOf("if: always() && needs.inspect.result == 'success'")).toBeLessThan(
       cleanup.indexOf("environment: merge-gate"),
     );
     expect(job(observer, "terminalize")).not.toContain("DIGITALOCEAN_ACCESS_TOKEN");
     expect(job(observer, "terminalize")).not.toContain("STRIPE_SECRET_KEY");
+  });
+});
+
+describe("queue and managed-registry boundaries", () => {
+  it("checks current exact-head disposition before any namespace creation", () => {
+    const recheck = step(gate, "Recheck exact advisory queue disposition before provisioning");
+    expect(recheck).toContain("merge-qualification.mjs queue-disposition");
+    expect(recheck).toContain('--candidate-sha "$CANDIDATE_SHA" --candidate-tree "$CANDIDATE_TREE"');
+    expect(recheck).toContain('--built-image-digest "$IMAGE_DIGEST"');
+    expect(gate.indexOf("Recheck exact advisory queue disposition")).toBeLessThan(
+      gate.indexOf("- name: Create gate namespace"),
+    );
+    expect(step(observer, "Emit exact missing terminal result")).toContain("--candidate-record");
+  });
+  it("retains managed registry readiness and never generates pull credentials", () => {
+    expect(step(gate, "Wait for managed registry authority")).toContain("managed-registry-readiness.mjs");
+    expect(step(gate, "Deploy gate Kubernetes release")).toContain("--image-pull-secret chase-sets");
+    expect(gate).not.toContain("doctl registry docker-config");
   });
 });
 

@@ -16,8 +16,8 @@
 //   3. The advisory qualification event (`merge-qualification-event/v1`) fed
 //      to the canonical delivery-health readers.
 //
-// Provider posture: this module is provider-inert. It reads git metadata and
-// JSON files only and threads NO provider credential; the only provider-
+// Provider posture: this module reads git metadata, JSON evidence and the
+// GitHub queue with a read-only token. It threads NO commerce-provider credential; the only provider-
 // touching surface in the advisory chain is the reused merge-gate workflow
 // (.github/workflows/platform-merge-gate-verification.yml), whose own
 // fail-before-mutation credential matrix governs that boundary. Enablement,
@@ -25,6 +25,7 @@
 // enablement issue; this module ships with the policy disabled.
 
 import { appendFileSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -86,6 +87,7 @@ const TERMINAL_REASON_CODES = Object.freeze({
     "plan_cancelled",
     "publisher_cancelled",
     "run_force_cancelled",
+    "candidate_evicted",
   ]),
   infrastructure_error: new Set([
     "advisory_result_missing",
@@ -106,6 +108,7 @@ const TERMINAL_REASON_CODES = Object.freeze({
     "plan_failed",
     "policy_decision_evidence_missing",
     "publisher_skipped_enabled",
+    "queue_disposition_unknown",
   ]),
 });
 
@@ -660,9 +663,10 @@ export function buildMergeQualificationDecision(input) {
     parentWorkflowPath: normalize(input.parentWorkflowPath),
     parentRunId: normalize(input.parentRunId),
     parentRunAttempt: normalize(input.parentRunAttempt),
-    candidateSha: lowerTrim(input.candidateSha),
-    candidateTreeSha: lowerTrim(input.candidateTreeSha),
+    candidateSha: input.candidateSha == null ? null : lowerTrim(input.candidateSha),
+    candidateTreeSha: input.candidateTreeSha == null ? null : lowerTrim(input.candidateTreeSha),
     builtImageDigest: input.builtImageDigest ? lowerTrim(input.builtImageDigest) : null,
+    policyRevision: lowerTrim(input.policyRevision),
     policyEnabled: input.policyEnabled === true,
     policyReasonCode: input.policyReasonCode || null,
     classifierClass: input.classifierClass || null,
@@ -687,6 +691,7 @@ export function validateMergeQualificationDecision(decision) {
     "candidateSha",
     "candidateTreeSha",
     "builtImageDigest",
+    "policyRevision",
     "policyEnabled",
     "policyReasonCode",
     "classifierClass",
@@ -722,6 +727,7 @@ export function validateMergeQualificationDecision(decision) {
     errors.push("decision builtImageDigest is invalid.");
   }
   if (typeof decision.policyEnabled !== "boolean") errors.push("decision policyEnabled must be boolean.");
+  if (!isCommitSha(decision.policyRevision)) errors.push("decision policyRevision must be an exact commit SHA.");
   if (
     decision.policyReasonCode !== null &&
     (typeof decision.policyReasonCode !== "string" ||
@@ -732,6 +738,7 @@ export function validateMergeQualificationDecision(decision) {
   }
   if (
     decision.policyEnabled &&
+    decision.classifierClass !== null &&
     !["isolated", "not_applicable", "persistent_required"].includes(decision.classifierClass)
   ) {
     errors.push("enabled decision requires an exact classifierClass.");
@@ -739,7 +746,10 @@ export function validateMergeQualificationDecision(decision) {
   if (decision.policyEnabled && decision.policyReasonCode !== null) {
     errors.push("enabled decision cannot carry a disabled-policy reason code.");
   }
-  if (decision.policyEnabled && (!isCommitSha(decision.candidateSha) || !isCommitSha(decision.candidateTreeSha))) {
+  if (
+    decision.classifierClass !== null &&
+    (!isCommitSha(decision.candidateSha) || !isCommitSha(decision.candidateTreeSha))
+  ) {
     errors.push("enabled decision requires independently observed candidate SHA/tree evidence.");
   }
   if (!decision.policyEnabled) {
@@ -757,7 +767,7 @@ export function validateMergeQualificationDecision(decision) {
     )
   ) {
     errors.push("decision classifierReasonCodes is invalid.");
-  } else if (decision.policyEnabled) {
+  } else if (decision.policyEnabled && decision.classifierClass !== null) {
     const allowed = RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS[decision.classifierClass];
     if (
       decision.classifierReasonCodes.length === 0 ||
@@ -767,10 +777,178 @@ export function validateMergeQualificationDecision(decision) {
       errors.push("enabled decision classifier reasons must belong to its exact classifier state.");
     }
   } else if (decision.classifierReasonCodes.length !== 0) {
-    errors.push("disabled decision cannot carry classifier reason codes.");
+    errors.push("disabled or unclassified decision cannot carry classifier reason codes.");
   }
   if (parseTimezoneInstantMs(decision.observedAt) === null) errors.push("decision observedAt is invalid.");
   return errors;
+}
+
+export function recoverMergeQualificationDecision({
+  run,
+  parentRun,
+  candidate = null,
+  policyRevision,
+  policyContent,
+  classifierRecord = null,
+} = {}) {
+  const title = /^Merge Qualification (?:merge_group|producer) ([1-9][0-9]{0,15})-([1-9][0-9]{0,15})$/.exec(
+    run?.display_title ?? "",
+  );
+  if (
+    !isCommitSha(policyRevision) ||
+    policyRevision !== run?.head_sha ||
+    parseTimezoneInstantMs(run?.run_started_at) === null ||
+    !["workflow_run", "workflow_dispatch"].includes(run?.event) ||
+    run?.path !== ".github/workflows/platform-merge-qualification.yml" ||
+    parentRun?.path !== PLATFORM_PR_WORKFLOW_PATH ||
+    parentRun?.event !== "merge_group" ||
+    parentRun?.repository?.full_name !== run?.repository?.full_name ||
+    title?.[1] !== String(parentRun?.id) ||
+    title?.[2] !== String(parentRun?.run_attempt)
+  ) {
+    return { decision: null, errors: ["original policy revision or run-attempt binding is unavailable."] };
+  }
+  const policy = evaluateMergeQualificationPolicy(policyContent, { now: () => new Date(run.run_started_at) });
+  if (
+    policy.enabled &&
+    candidate !== null &&
+    (validateMergeQualificationCandidate(candidate).length > 0 ||
+      candidate.repository !== parentRun.repository.full_name ||
+      candidate.runId !== String(parentRun.id) ||
+      candidate.runAttempt !== String(parentRun.run_attempt) ||
+      candidate.workflowId !== String(parentRun.workflow_id) ||
+      candidate.candidateSha !== parentRun.head_sha)
+  ) {
+    return { decision: null, errors: ["original enabled decision requires exact producer candidate evidence."] };
+  }
+  if (
+    policy.enabled &&
+    classifierRecord !== null &&
+    (!candidate ||
+      classifierRecord.schemaVersion !== "release-qualification-scope/v1" ||
+      classifierRecord.candidate?.sha !== candidate.candidateSha ||
+      classifierRecord.candidate?.treeSha !== candidate.candidateTreeSha)
+  ) {
+    return { decision: null, errors: ["original classifier observation does not bind the candidate SHA/tree."] };
+  }
+  return buildMergeQualificationDecision({
+    repository: run.repository.full_name,
+    workflowId: String(run.workflow_id),
+    workflowPath: run.path,
+    runId: String(run.id),
+    runAttempt: String(run.run_attempt),
+    parentWorkflowId: String(parentRun.workflow_id),
+    parentWorkflowPath: parentRun.path,
+    parentRunId: String(parentRun.id),
+    parentRunAttempt: String(parentRun.run_attempt),
+    policyRevision,
+    policyEnabled: policy.enabled,
+    policyReasonCode: policy.reasonCode,
+    candidateSha: policy.enabled ? candidate?.candidateSha : null,
+    candidateTreeSha: policy.enabled ? candidate?.candidateTreeSha : null,
+    builtImageDigest: policy.enabled ? candidate?.builtImageDigest : null,
+    classifierClass: policy.enabled ? classifierRecord?.class : null,
+    classifierReasonCodes: policy.enabled ? classifierRecord?.reasonCodes : [],
+    observedAt: run.run_started_at,
+  });
+}
+
+export function resolveMergeQualificationQueueDisposition({ candidate, snapshot } = {}) {
+  if (validateMergeQualificationCandidate(candidate).length > 0 || snapshot?.errors?.length) return "unknown";
+  const repository = snapshot?.data?.repository;
+  const entries = repository?.mergeQueue?.entries;
+  if (
+    repository?.nameWithOwner !== candidate.repository ||
+    !Array.isArray(entries?.nodes) ||
+    !Number.isSafeInteger(entries.totalCount) ||
+    entries.totalCount < 0 ||
+    entries.totalCount > 100 ||
+    entries.totalCount !== entries.nodes.length ||
+    entries.nodes.some(
+      (node) =>
+        !isCommitSha(node?.headCommit?.oid) ||
+        !isCommitSha(node?.baseCommit?.oid) ||
+        !Number.isSafeInteger(node?.pullRequest?.number) ||
+        !isCommitSha(node?.pullRequest?.headRefOid),
+    )
+  )
+    return "unknown";
+  const pulls = candidate.pullRequests.map(({ number }) => repository[`pr${number}`]);
+  if (
+    pulls.some(
+      (pull, i) =>
+        pull?.number !== candidate.pullRequests[i].number ||
+        !isCommitSha(pull?.headRefOid) ||
+        typeof pull?.merged !== "boolean" ||
+        !["OPEN", "CLOSED", "MERGED"].includes(pull?.state),
+    )
+  )
+    return "unknown";
+  const matches = entries.nodes.filter((node) => node.headCommit.oid === candidate.candidateSha);
+  if (matches.length > 0) {
+    return matches.length === candidate.pullRequests.length &&
+      new Set(matches.map((node) => node.pullRequest.number)).size === matches.length &&
+      matches.every(
+        (node) =>
+          PRE_MERGE_QUEUE_ENTRY_STATES.includes(node.state) &&
+          node.baseCommit.oid === candidate.queueBaseSha &&
+          candidate.pullRequests.some(
+            (pull) => pull.number === node.pullRequest.number && pull.headSha === node.pullRequest.headRefOid,
+          ),
+      ) &&
+      pulls.every(
+        (pull, i) => pull.state === "OPEN" && !pull.merged && pull.headRefOid === candidate.pullRequests[i].headSha,
+      )
+      ? "queued"
+      : "unknown";
+  }
+  if (
+    pulls.every(
+      (pull, i) =>
+        pull.merged &&
+        pull.state === "MERGED" &&
+        pull.mergeCommit?.oid === candidate.candidateSha &&
+        pull.headRefOid === candidate.pullRequests[i].headSha,
+    )
+  )
+    return "merged";
+  if (
+    pulls.some(
+      (pull, i) => !pull.merged && (pull.state === "CLOSED" || pull.headRefOid !== candidate.pullRequests[i].headSha),
+    )
+  )
+    return "evicted";
+  return "unknown";
+}
+
+export async function observeMergeQualificationQueueDisposition(
+  candidate,
+  { token, fetchImpl = fetch, branch = "main" } = {},
+) {
+  if (validateMergeQualificationCandidate(candidate).length > 0 || !token) return "unknown";
+  const [owner, name] = candidate.repository.split("/");
+  const query = `query($owner:String!,$name:String!,$branch:String!) { repository(owner:$owner,name:$name) {
+    nameWithOwner mergeQueue(branch:$branch) { entries(first:100) { totalCount nodes {
+      state headCommit { oid } baseCommit { oid } pullRequest { number headRefOid }
+    } } } ${candidate.pullRequests
+      .map(
+        ({ number }) => `pr${number}:pullRequest(number:${number}) {
+      number headRefOid state merged mergeCommit { oid }
+    }`,
+      )
+      .join(" ")} } }`;
+  try {
+    const response = await fetchImpl("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ query, variables: { owner, name, branch } }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) return "unknown";
+    return resolveMergeQualificationQueueDisposition({ candidate, snapshot: await response.json() });
+  } catch {
+    return "unknown";
+  }
 }
 
 export function readMergeQualificationPolicyContent(policyPath, { readFile = defaultReadFile } = {}) {
@@ -927,54 +1105,49 @@ function bothPresentAndDiffer(left, right) {
   return normalizedLeft !== "" && normalizedRight !== "" && normalizedLeft !== normalizedRight;
 }
 
-// ---------------------------------------------------------------------------
-// Independent idempotent run terminalization (cancellation/eviction backstop).
-//
-// The primary publisher runs `if: always()`, but GitHub only re-evaluates
-// cancellation conditions for jobs that are already queued or running, and
-// force cancellation bypasses `always()` entirely — so a merge-group run can
-// end with NO terminal advisory result. The workflow_run observer
-// (.github/workflows/platform-merge-qualification-observer.yml) calls
-// this resolver after the primary run completes and emits the missing
-// terminal event exactly once:
-//   - idempotent: a run that already carries a merge-qualification-events
-//     artifact is never terminalized again, and the emitted event is built
-//     from run-derived data only, so a re-run observer rebuilds a
-//     byte-identical event that dedupes instead of conflicting.
-//   - stage-aware: cancelled plan, Docker image, gate, and publisher jobs
-//     each carry a distinct reason code; a force-cancelled run with no
-//     per-job cancellation lands as run_force_cancelled.
-//   - fail-closed: a disabled policy never terminalizes (no records while
-//     disabled), and a definitively-disabled run (publisher skipped) is
-//     recognized from the run's own job data.
-// ---------------------------------------------------------------------------
+// The observer resolves the attempt only after owned-resource cleanup.
+// Artifact names are not terminal authority. Missing original eligibility
+// stays unknown; cancellation and proven eviction override child success.
 
 export function resolveRunTerminalization({
   runEvent = "",
   runConclusion = "",
   runDisplayTitle = "",
-  runId = "",
-  runAttempt = "",
   jobs = [],
-  artifactNames = [],
   decision = null,
   provisioningObserved = false,
+  queueDisposition = "unknown",
+  observation = null,
 } = {}) {
-  if (runEvent !== "workflow_run") return { action: "skip", reason: "not_advisory_workflow_run" };
-  if (runDisplayTitle && !/^Merge Qualification merge_group [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(runDisplayTitle)) {
+  if (!["workflow_run", "workflow_dispatch"].includes(runEvent))
+    return { action: "skip", reason: "not_advisory_workflow_run" };
+  if (
+    runDisplayTitle &&
+    !/^Merge Qualification (?:merge_group|producer) [1-9][0-9]{0,15}-[1-9][0-9]{0,15}$/.test(runDisplayTitle)
+  ) {
     return { action: "skip", reason: "not_merge_group_advisory" };
   }
   const jobNamed = (pattern) => jobs.find((job) => pattern.test(String(job?.name ?? "")));
   const publisher = jobNamed(/^Merge Qualification \(advisory\)$/);
-  const exactEventArtifact = `merge-qualification-events-${runId}-${runAttempt}`;
-  if (artifactNames.includes(exactEventArtifact)) {
-    return { action: "skip", reason: "already_terminalized" };
-  }
   // Called-workflow jobs surface in the caller run as "Merge Qualification
   // Gate / <job>"; a skipped call surfaces as one "Merge Qualification Gate"
   // entry.
   const gateJobs = jobs.filter((job) => /^Merge Qualification Gate/.test(String(job?.name ?? "")));
   const gateCancelled = gateJobs.some((job) => job?.conclusion === "cancelled");
+  if (validateMergeQualificationDecision(decision).length > 0) {
+    return { action: "unknown", reason: "policy_decision_evidence_missing" };
+  }
+  if (!decision.policyEnabled) {
+    return { action: "skip", reason: decision.policyReasonCode };
+  }
+  if (queueDisposition === "evicted") {
+    return {
+      action: "terminalize",
+      terminalState: "cancelled_evicted",
+      reasonCodes: ["candidate_evicted"],
+      provisioned: provisioningObserved === true,
+    };
+  }
   if (runConclusion === "cancelled") {
     // Attribute the cancellation to the EARLIEST cancelled stage — that is
     // where the pipeline actually died; later jobs are collateral.
@@ -993,17 +1166,37 @@ export function resolveRunTerminalization({
       provisioned: provisioningObserved === true,
     };
   }
-  const decisionErrors = validateMergeQualificationDecision(decision);
-  if (decisionErrors.length > 0) {
+  if (!["queued", "merged"].includes(queueDisposition)) {
     return {
       action: "terminalize",
       terminalState: "infrastructure_error",
-      reasonCodes: ["policy_decision_evidence_missing"],
+      reasonCodes: ["queue_disposition_unknown"],
       provisioned: provisioningObserved === true,
     };
   }
-  if (decision.policyEnabled !== true) {
-    return { action: "skip", reason: decision.policyReasonCode ?? "policy_disabled" };
+  if (decision.classifierClass === null) {
+    return {
+      action: "terminalize",
+      terminalState: "infrastructure_error",
+      reasonCodes: ["classifier_output_missing"],
+      provisioned: provisioningObserved === true,
+    };
+  }
+  if (observation && validateMergeQualificationEvent(observation).length === 0) {
+    return {
+      action: "terminalize",
+      terminalState: observation.terminalState,
+      reasonCodes: observation.reasonCodes,
+      provisioned: provisioningObserved === true,
+    };
+  }
+  if (["not_applicable", "persistent_required"].includes(decision.classifierClass)) {
+    return {
+      action: "terminalize",
+      terminalState: decision.classifierClass,
+      reasonCodes: decision.classifierReasonCodes,
+      provisioned: false,
+    };
   }
   if (publisher?.conclusion === "skipped") {
     return {
@@ -1403,6 +1596,76 @@ async function main(argv, env = process.env) {
   const nowIso = readOption(argv, "--now");
   const now = nowIso ? () => new Date(nowIso) : () => new Date();
 
+  if (command === "queue-disposition") {
+    const candidate = readJsonFileOrNull(readOption(argv, "--candidate-record"));
+    for (const [flag, field] of [
+      ["--candidate-sha", "candidateSha"],
+      ["--candidate-tree", "candidateTreeSha"],
+      ["--built-image-digest", "builtImageDigest"],
+      ["--repository", "repository"],
+      ["--parent-run-id", "runId"],
+      ["--parent-run-attempt", "runAttempt"],
+    ]) {
+      if (readOption(argv, flag) && readOption(argv, flag) !== candidate?.[field]) {
+        console.error("queue candidate does not match the independently resolved gate identity.");
+        return 1;
+      }
+    }
+    const snapshotPath = readOption(argv, "--queue-snapshot");
+    const disposition = snapshotPath
+      ? resolveMergeQualificationQueueDisposition({ candidate, snapshot: readJsonFileOrNull(snapshotPath) })
+      : await observeMergeQualificationQueueDisposition(candidate, {
+          token: env.GH_TOKEN,
+          branch: readOption(argv, "--branch") ?? "main",
+        });
+    appendOutputs(readOption(argv, "--github-output"), [["disposition", disposition]]);
+    console.log(JSON.stringify({ disposition }));
+    return disposition === "queued" ? 0 : 1;
+  }
+
+  if (command === "recover-decision") {
+    const run = readJsonFileOrNull(readOption(argv, "--run"));
+    const parentRun = readJsonFileOrNull(readOption(argv, "--parent-run"));
+    const candidate = readJsonFileOrNull(readOption(argv, "--candidate-record"));
+    const policyRevision = run?.head_sha;
+    if (!isCommitSha(policyRevision) || parseTimezoneInstantMs(run?.run_started_at) === null) {
+      console.error("original policy revision or attempt time is unavailable.");
+      return 1;
+    }
+    let policyContent;
+    try {
+      const git = (args) =>
+        execFileSync("git", args, {
+          encoding: "utf8",
+          timeout: 30_000,
+          maxBuffer: 65_536,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      git(["cat-file", "-e", `${policyRevision}^{commit}`]);
+      const exists = git(["ls-tree", "--name-only", policyRevision, "--", MERGE_QUALIFICATION_POLICY_PATH]).trim();
+      policyContent = exists ? git(["show", `${policyRevision}:${MERGE_QUALIFICATION_POLICY_PATH}`]) : null;
+    } catch {
+      console.error("original policy revision is unavailable; current policy was not substituted.");
+      return 1;
+    }
+    const policy = evaluateMergeQualificationPolicy(policyContent, { now: () => new Date(run.run_started_at) });
+    const classifierRecord = policy.enabled ? readJsonFileOrNull(readOption(argv, "--classifier-record")) : null;
+    const built = recoverMergeQualificationDecision({
+      run,
+      parentRun,
+      candidate,
+      policyContent,
+      policyRevision,
+      classifierRecord,
+    });
+    if (built.errors.length) {
+      console.error(built.errors.join("\n"));
+      return 1;
+    }
+    await writeJsonRecord(readOption(argv, "--out"), built.decision);
+    return 0;
+  }
+
   if (command === "policy") {
     const policyPath = readOption(argv, "--policy") ?? MERGE_QUALIFICATION_POLICY_PATH;
     const decision = evaluateMergeQualificationPolicy(readMergeQualificationPolicyContent(policyPath), { now });
@@ -1498,6 +1761,7 @@ async function main(argv, env = process.env) {
       candidateSha: candidateRecord?.candidateSha ?? readOption(argv, "--candidate-sha") ?? null,
       candidateTreeSha: candidateRecord?.candidateTreeSha ?? readOption(argv, "--candidate-tree") ?? null,
       builtImageDigest: candidateRecord?.builtImageDigest ?? readOption(argv, "--built-image-digest") ?? null,
+      policyRevision: readOption(argv, "--policy-revision"),
       policyEnabled: readOption(argv, "--policy-enabled") === "true",
       policyReasonCode: readOption(argv, "--policy-reason-code") || null,
       classifierClass: readOption(argv, "--classifier-class") || null,
@@ -1532,7 +1796,7 @@ async function main(argv, env = process.env) {
     return 0;
   }
 
-  if (command === "publish") {
+  if (command === "observe") {
     const decisionRecordPath = readOption(argv, "--decision");
     const decisionRecord = decisionRecordPath ? readJsonFileOrNull(decisionRecordPath) : null;
     if (decisionRecordPath && validateMergeQualificationDecision(decisionRecord).length > 0) {
@@ -1637,7 +1901,7 @@ async function main(argv, env = process.env) {
       errors.push(...built.errors);
       const outPath = readOption(argv, "--out");
       if (outPath && errors.length === 0) {
-        await writeJsonRecord(outPath, event);
+        await writeJsonRecord(outPath, { ...event, schemaVersion: "merge-qualification-observation/v1" });
       }
     }
     appendSummary(readOption(argv, "--github-summary"), renderMergeQualificationSummary({ decision, outcome, event }));
@@ -1655,7 +1919,7 @@ async function main(argv, env = process.env) {
     return 0;
   }
 
-  if (command === "terminalize") {
+  if (command === "terminalize" || command === "prepare-cleanup") {
     const run = readJsonFileOrNull(readOption(argv, "--run"));
     const parentRun = readJsonFileOrNull(readOption(argv, "--parent-run"));
     const jobsPayload = readJsonFileOrNull(readOption(argv, "--jobs"));
@@ -1727,7 +1991,8 @@ async function main(argv, env = process.env) {
       decision.parentWorkflowId === String(parentRun?.workflow_id ?? "") &&
       decision.parentWorkflowPath === parentRun?.path &&
       decision.parentRunId === String(parentRun?.id ?? "") &&
-      decision.parentRunAttempt === String(parentRun?.run_attempt ?? "")
+      decision.parentRunAttempt === String(parentRun?.run_attempt ?? "") &&
+      decision.policyRevision === run?.head_sha
         ? decision
         : null;
     if (
@@ -1750,16 +2015,66 @@ async function main(argv, env = process.env) {
     const ownershipObservation = recoveredProvisioning.observation;
     const ownershipOut = readOption(argv, "--cleanup-ownership-out");
     if (ownershipOut && ownershipObservation) await writeJsonRecord(ownershipOut, ownershipObservation);
+    if (command === "prepare-cleanup") {
+      appendOutputs(readOption(argv, "--github-output"), [
+        ["provisioned", ownershipObservation !== null ? "true" : "false"],
+      ]);
+      return 0;
+    }
+    const candidate = readJsonFileOrNull(readOption(argv, "--candidate-record"));
+    const queueDisposition = decisionBound?.policyEnabled
+      ? await observeMergeQualificationQueueDisposition(
+          candidate?.candidateSha === decisionBound.candidateSha &&
+            candidate?.candidateTreeSha === decisionBound.candidateTreeSha &&
+            candidate?.repository === decisionBound.repository &&
+            candidate?.workflowId === decisionBound.parentWorkflowId &&
+            candidate?.workflowPath === decisionBound.parentWorkflowPath &&
+            candidate?.runId === decisionBound.parentRunId &&
+            candidate?.runAttempt === decisionBound.parentRunAttempt
+            ? candidate
+            : null,
+          { token: env.GH_TOKEN },
+        )
+      : "unknown";
+    const observationPayload = readJsonFileOrNull(readOption(argv, "--observation"));
+    const observation =
+      observationPayload?.schemaVersion === "merge-qualification-observation/v1"
+        ? { ...observationPayload, schemaVersion: MERGE_QUALIFICATION_EVENT_SCHEMA_VERSION }
+        : null;
+    if (
+      observationPayload &&
+      (validateMergeQualificationEvent(observation).length > 0 ||
+        !decisionBound ||
+        [
+          "repository",
+          "workflowId",
+          "workflowPath",
+          "runId",
+          "runAttempt",
+          "parentRunId",
+          "parentRunAttempt",
+          "parentWorkflowId",
+          "parentWorkflowPath",
+          "candidateSha",
+          "candidateTreeSha",
+        ].some((key) => observation[key] !== decisionBound[key]) ||
+        observation.classifierClass !== decisionBound.classifierClass ||
+        (["passed", "failed"].includes(observation.terminalState) &&
+          observation.builtImageDigest !== decisionBound.builtImageDigest) ||
+        observation.provisioned !== (ownershipObservation !== null))
+    ) {
+      console.error("advisory observation does not bind the exact decision and observed resource ownership.");
+      return 1;
+    }
     const resolution = resolveRunTerminalization({
       runEvent: run?.event ?? "",
       runConclusion: run?.conclusion ?? "",
       runDisplayTitle: run?.display_title ?? "",
-      runId: String(run?.id ?? ""),
-      runAttempt: String(run?.run_attempt ?? ""),
       jobs: jobsPayload?.jobs ?? [],
-      artifactNames: (artifactsPayload?.artifacts ?? []).map((artifact) => artifact?.name),
       decision: decisionBound,
       provisioningObserved: ownershipObservation !== null,
+      queueDisposition,
+      observation,
     });
     let event = null;
     const errors = [];
@@ -1784,7 +2099,7 @@ async function main(argv, env = process.env) {
         candidateSha: decisionBound?.candidateSha ?? ownershipObservation?.candidateSha ?? null,
         candidateTreeSha: decisionBound?.candidateTreeSha ?? ownershipObservation?.candidateTreeSha ?? null,
         imageDigest: null,
-        classifierClass: null,
+        classifierClass: decisionBound?.classifierClass ?? null,
         terminalState: resolution.terminalState,
         reasonCodes: resolution.reasonCodes,
         provisioned: resolution.provisioned === true,
@@ -1797,8 +2112,13 @@ async function main(argv, env = process.env) {
         ],
         providerHeadroom: null,
       });
-      event = built.event;
-      errors.push(...built.errors);
+      event =
+        observation &&
+        resolution.terminalState === observation.terminalState &&
+        JSON.stringify(resolution.reasonCodes) === JSON.stringify(observation.reasonCodes)
+          ? observation
+          : built.event;
+      errors.push(...validateMergeQualificationEvent(event));
       const outPath = readOption(argv, "--out");
       if (outPath && errors.length === 0) {
         await writeJsonRecord(outPath, event);
@@ -1823,6 +2143,10 @@ async function main(argv, env = process.env) {
       ["provisioned", ownershipObservation !== null ? "true" : "false"],
     ]);
     console.log(JSON.stringify({ decision, resolution, event, errors }, null, 2));
+    if (resolution.action === "unknown") {
+      console.error(resolution.reason);
+      return 1;
+    }
     if (errors.length > 0) {
       // A terminalization that cannot produce a valid event must fail loudly:
       // the candidate stays visible as an orphan in delivery health.
@@ -1833,7 +2157,7 @@ async function main(argv, env = process.env) {
   }
 
   console.error(
-    "usage: merge-qualification.mjs <policy|route|candidate-evidence|decision|publish|terminalize> [options]",
+    "usage: merge-qualification.mjs <policy|route|candidate-evidence|decision|recover-decision|queue-disposition|observe|prepare-cleanup|terminalize> [options]",
   );
   return 1;
 }

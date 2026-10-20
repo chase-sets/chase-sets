@@ -16,7 +16,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: merge-qualification-observer-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  group: merge-qualification-observer
   cancel-in-progress: false
 
 jobs:
@@ -41,8 +41,8 @@ jobs:
             > artifacts/merge-qualification-reconcile/producer-runs.json
           echo "Reconcile inventory captured; workflow_run delivery remains the terminalization authority."
 
-  terminalize:
-    name: Terminalize Merge Qualification
+  inspect:
+    name: Inspect Merge Qualification
     if: github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.display_title, 'Merge Qualification ')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -50,9 +50,11 @@ jobs:
       contents: read
       actions: read
     outputs:
-      provisioned: ${{ steps.terminalize.outputs.provisioned }}
+      provisioned: ${{ steps.prepare.outputs.provisioned }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
 
       - name: Inspect complete advisory run evidence
         id: inspect
@@ -89,13 +91,36 @@ jobs:
               exit 1
             fi
           done
+          candidate_name="merge-qualification-candidate-${parent_run_id}-${parent_run_attempt}"
+          gh run download "$parent_run_id" --name "$candidate_name" --dir artifacts/merge-qualification/candidate || true
+          observation_name="merge-qualification-observation-${RUN_ID}-${RUN_ATTEMPT}"
+          observation_count="$(jq -r --arg name "$observation_name" '[.artifacts[] | select(.name == $name and .expired == false)] | length' artifacts/merge-qualification/run-artifacts.json)"
+          if [ "$observation_count" -gt 1 ]; then exit 1; fi
+          if [ "$observation_count" = "1" ]; then
+            gh run download "$RUN_ID" --name "$observation_name" --dir artifacts/merge-qualification/observation
+          fi
           decision_name="merge-qualification-decision-${RUN_ID}-${RUN_ATTEMPT}"
           if jq -e --arg name "$decision_name" '.artifacts[] | select(.name == $name and .expired == false)' \
             artifacts/merge-qualification/run-artifacts.json >/dev/null; then
             gh run download "$RUN_ID" --name "$decision_name" --dir artifacts/merge-qualification/decision
             echo "decision=artifacts/merge-qualification/decision/decision.json" >> "$GITHUB_OUTPUT"
           else
-            echo "decision=" >> "$GITHUB_OUTPUT"
+            revision="$(jq -r '.head_sha' artifacts/merge-qualification/run.json)"
+            [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 1
+            git fetch --no-tags origin "$revision"
+            scope_name="merge-qualification-scope-${RUN_ID}-${RUN_ATTEMPT}"
+            scope_count="$(jq -r --arg name "$scope_name" '[.artifacts[] | select(.name == $name and .expired == false)] | length' artifacts/merge-qualification/run-artifacts.json)"
+            if [ "$scope_count" -gt 1 ]; then exit 1; fi
+            if [ "$scope_count" = "1" ]; then
+              gh run download "$RUN_ID" --name "$scope_name" --dir artifacts/merge-qualification/scope
+            fi
+            node ./scripts/merge-qualification.mjs recover-decision \
+              --run artifacts/merge-qualification/run.json \
+              --parent-run artifacts/merge-qualification/parent-run.json \
+              --candidate-record artifacts/merge-qualification/candidate/candidate.json \
+              --classifier-record artifacts/merge-qualification/scope/scope.json \
+              --out artifacts/merge-qualification/decision/decision.json
+            echo "decision=artifacts/merge-qualification/decision/decision.json" >> "$GITHUB_OUTPUT"
           fi
           provision_name="merge-gate-provisioning-${RUN_ID}-${RUN_ATTEMPT}"
           provision_count="$(jq -r --arg name "$provision_name" '[.artifacts[] | select(.name == $name and .expired == false)] | length' artifacts/merge-qualification/run-artifacts.json)"
@@ -109,8 +134,8 @@ jobs:
             echo "provisioning_observation=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Emit exact missing terminal result
-        id: terminalize
+      - name: Recover exact cleanup ownership before terminalization
+        id: prepare
         env:
           DECISION_PATH: ${{ steps.inspect.outputs.decision }}
           PROVISIONING_PATH: ${{ steps.inspect.outputs.provisioning_observation }}
@@ -120,7 +145,7 @@ jobs:
           if [ -n "$DECISION_PATH" ]; then decision_args=(--decision "$DECISION_PATH"); fi
           provisioning_args=()
           if [ -n "$PROVISIONING_PATH" ]; then provisioning_args=(--provisioning-observation "$PROVISIONING_PATH"); fi
-          node ./scripts/merge-qualification.mjs terminalize \
+          node ./scripts/merge-qualification.mjs prepare-cleanup \
             --run artifacts/merge-qualification/run.json \
             --parent-run artifacts/merge-qualification/parent-run.json \
             --jobs artifacts/merge-qualification/jobs.json \
@@ -128,22 +153,28 @@ jobs:
             "${decision_args[@]}" \
             "${provisioning_args[@]}" \
             --repository "${{ github.repository }}" \
-            --out artifacts/merge-qualification/event.json \
             --cleanup-ownership-out artifacts/merge-qualification/cleanup-ownership.json \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload deterministic terminal event
-        if: steps.terminalize.outputs.event_written == 'true'
+      - name: Upload inspected run evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: merge-qualification-terminal-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
-          path: artifacts/merge-qualification/event.json
+          name: merge-qualification-inspection-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: |
+            artifacts/merge-qualification/run.json
+            artifacts/merge-qualification/parent-run.json
+            artifacts/merge-qualification/jobs.json
+            artifacts/merge-qualification/run-artifacts.json
+            artifacts/merge-qualification/decision/decision.json
+            artifacts/merge-qualification/candidate/candidate.json
+            artifacts/merge-qualification/observation/observation.json
+            artifacts/merge-qualification/provisioning/provisioning-observation.json
           if-no-files-found: error
           retention-days: 30
 
       - name: Upload exact cleanup ownership
-        if: steps.terminalize.outputs.provisioned == 'true'
+        if: steps.prepare.outputs.provisioned == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: merge-qualification-cleanup-ownership-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
@@ -153,8 +184,8 @@ jobs:
 
   cleanup:
     name: Cleanup Merge Qualification Resources
-    needs: terminalize
-    if: always() && needs.terminalize.outputs.provisioned == 'true'
+    needs: inspect
+    if: always() && needs.inspect.result == 'success' && needs.inspect.outputs.provisioned == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: merge-gate
@@ -294,3 +325,51 @@ jobs:
       - name: Report cleanup no-op
         if: always() && steps.target.outputs.cleanup_status == 'absent'
         run: echo "No exact gate namespace exists; success/failure cleanup or early cancellation already left no resource."
+
+  terminalize:
+    name: Terminalize After Cleanup
+    needs: [inspect, cleanup]
+    if: always() && needs.inspect.result == 'success' && (needs.cleanup.result == 'success' || needs.cleanup.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: merge-qualification-inspection-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: artifacts/merge-qualification
+      - name: Emit exact missing terminal result
+        id: terminalize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          provisioning_args=()
+          if [ -f artifacts/merge-qualification/provisioning/provisioning-observation.json ]; then
+            provisioning_args=(--provisioning-observation artifacts/merge-qualification/provisioning/provisioning-observation.json)
+          fi
+          node ./scripts/merge-qualification.mjs terminalize \
+            --run artifacts/merge-qualification/run.json \
+            --parent-run artifacts/merge-qualification/parent-run.json \
+            --jobs artifacts/merge-qualification/jobs.json \
+            --run-artifacts artifacts/merge-qualification/run-artifacts.json \
+            --decision artifacts/merge-qualification/decision/decision.json \
+            --candidate-record artifacts/merge-qualification/candidate/candidate.json \
+            --observation artifacts/merge-qualification/observation/observation.json \
+            "${provisioning_args[@]}" \
+            --repository "${{ github.repository }}" \
+            --out artifacts/merge-qualification/event.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Upload deterministic terminal event
+        if: steps.terminalize.outputs.event_written == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-terminal-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: artifacts/merge-qualification/event.json
+          if-no-files-found: error
+          retention-days: 30

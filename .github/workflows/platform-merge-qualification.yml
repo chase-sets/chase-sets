@@ -30,6 +30,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 
 concurrency:
   group: platform-merge-qualification-${{ inputs.producer_run_id || github.event.workflow_run.id }}-${{ inputs.producer_run_attempt || github.event.workflow_run.run_attempt }}
@@ -123,6 +124,7 @@ jobs:
             echo "parent_workflow_path=$(printf '%s' "$parent_json" | jq -r '.path')"
             echo "workflow_id=$(printf '%s' "$own_json" | jq -r '.workflow_id')"
             echo "workflow_path=$(printf '%s' "$own_json" | jq -r '.path')"
+            echo "started_at=$(printf '%s' "$own_json" | jq -r '.run_started_at')"
           } >> "$GITHUB_OUTPUT"
 
       - name: Evaluate original run-attempt policy decision
@@ -131,6 +133,7 @@ jobs:
           set -euo pipefail
           node ./scripts/merge-qualification.mjs policy \
             --policy scripts/merge-qualification-policy.json \
+            --now "${{ steps.parent.outputs.started_at }}" \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
@@ -146,6 +149,15 @@ jobs:
           node ./scripts/release-qualification-scope.mjs classify \
             --candidate "${{ steps.parent.outputs.candidate_sha }}" \
             --out artifacts/merge-qualification/scope.json
+
+      - name: Upload original classifier observation
+        if: steps.policy.outputs.enabled == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-scope-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification/scope.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Resolve enabled route
         id: route
@@ -177,6 +189,8 @@ jobs:
             --parent-run-id "${{ inputs.producer_run_id || github.event.workflow_run.id }}" \
             --parent-run-attempt "${{ inputs.producer_run_attempt || github.event.workflow_run.run_attempt }}" \
             --policy-enabled "${{ steps.policy.outputs.enabled }}" \
+            --policy-revision "${{ github.sha }}" \
+            --observed-at "${{ steps.parent.outputs.started_at }}" \
             --policy-reason-code "${{ steps.policy.outputs.reason_code }}" \
             --classifier-class "${{ steps.route.outputs.classifier_class }}" \
             --classifier-reason-codes "${{ steps.route.outputs.classifier_reason_codes }}" \
@@ -204,6 +218,8 @@ jobs:
     with:
       candidate_ref: ${{ needs.plan.outputs.candidate_sha }}
       image_digest: ${{ needs.plan.outputs.built_image_digest }}
+      qualification_parent_run_id: ${{ inputs.producer_run_id || github.event.workflow_run.id }}
+      qualification_parent_run_attempt: ${{ inputs.producer_run_attempt || github.event.workflow_run.run_attempt }}
 
   publish:
     name: Merge Qualification (advisory)
@@ -230,7 +246,7 @@ jobs:
           name: merge-gate-provisioning-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/merge-qualification/provisioning
 
-      - name: Publish terminal advisory result
+      - name: Record advisory observation
         id: publish
         env:
           GATE_RESULT: ${{ needs.gate.result }}
@@ -244,7 +260,7 @@ jobs:
           if [ "${{ needs.gate.outputs.provisioned }}" = "true" ]; then
             provisioning_args=(--provisioning-observation artifacts/merge-qualification/provisioning/provisioning-observation.json)
           fi
-          node ./scripts/merge-qualification.mjs publish \
+          node ./scripts/merge-qualification.mjs observe \
             --decision artifacts/merge-qualification/decision.json \
             --plan-result "${{ needs.plan.result }}" \
             --classifier-class "${{ needs.plan.outputs.classifier_class }}" \
@@ -263,15 +279,15 @@ jobs:
             --workflow-id "${{ needs.plan.outputs.workflow_id }}" \
             --workflow-path "${{ needs.plan.outputs.workflow_path }}" \
             "${provisioning_args[@]}" \
-            --out artifacts/merge-qualification/event.json \
+            --out artifacts/merge-qualification/observation.json \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload merge qualification advisory event
+      - name: Upload merge qualification advisory observation
         if: steps.publish.outputs.record_written == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: merge-qualification-events-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/merge-qualification/event.json
+          name: merge-qualification-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification/observation.json
           if-no-files-found: error
           retention-days: 30
