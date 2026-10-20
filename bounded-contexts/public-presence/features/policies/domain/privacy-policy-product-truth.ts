@@ -197,8 +197,9 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
       "bounded-contexts/auth/support/request-support/cookies.ts:3",
       "bounded-contexts/checkout/support/request-support/guest-checkout.ts:5",
       "bounded-contexts/checkout/support/request-support/guest-checkout.ts:88",
+      "contracts/auth-context/index.ts:4",
     ],
-    "Checkout sets and Auth clears a first-party cookie named chase_sets_guest_checkout carrying the guest-checkout token, with its Max-Age tracking the token's expiry. Two tracked constants declare the same shipped name.",
+    "Checkout sets and Auth clears a first-party cookie named chase_sets_guest_checkout carrying the guest-checkout token, with its Max-Age tracking the token's expiry. Three tracked constants declare the same shipped name.",
   ),
   cookieBinding(
     "cookie-anonymous-cart",
