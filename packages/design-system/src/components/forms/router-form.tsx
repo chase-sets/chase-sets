@@ -1,5 +1,5 @@
-import { forwardRef, useCallback, type ComponentPropsWithoutRef, type ReactNode } from "react";
-import { Form as ReactRouterForm, Link as ReactRouterLink, useLocation, useNavigate } from "react-router";
+import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentPropsWithoutRef, type FormEvent, type ReactNode } from "react";
+import { Form as ReactRouterForm, Link as ReactRouterLink, useLocation, useNavigate, useNavigation } from "react-router";
 import { cx } from "../../utils/cx";
 import type { LinkAdapterProps, LinkComponent } from "../../theme/link-adapter";
 import { FormProvider, type FormContextValue, type FormStatus } from "./form";
@@ -9,6 +9,7 @@ export interface RouterFormProps extends Omit<ComponentPropsWithoutRef<typeof Re
   errorAnnouncement?: FormContextValue["errorAnnouncement"];
   disabled?: boolean;
   submitting?: boolean;
+  pendingAnnouncement?: string;
   status?: FormStatus;
   validationSummaryId?: string;
   spacing?: "none" | "sm" | "md" | "lg";
@@ -26,40 +27,82 @@ export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function 
     children,
     errorAnnouncement,
     disabled = false,
-    submitting = false,
+    submitting,
+    pendingAnnouncement,
     status = submitting ? "submitting" : "idle",
     validationSummaryId,
     spacing = "md",
     className,
     id,
     "aria-describedby": ariaDescribedBy,
+    onSubmit,
     ...rest
   },
   ref,
 ) {
-  const controlsDisabled = disabled || submitting;
+  const formRef = useRef<HTMLFormElement>(null);
+  const sawNavigation = useRef(false);
+  const navigation = useNavigation();
+  const [pendingSubmitter, setPendingSubmitter] = useState<HTMLButtonElement | HTMLInputElement | null>(null);
+  const derivedPending = submitting === undefined && pendingSubmitter !== null;
+  const effectiveSubmitting = submitting ?? derivedPending;
+  const effectiveStatus = status ?? (effectiveSubmitting ? "submitting" : "idle");
+  const controlsDisabled = disabled || submitting === true;
   const describedBy = [ariaDescribedBy, validationSummaryId].filter(Boolean).join(" ") || undefined;
+
+  useEffect(() => {
+    if (!pendingSubmitter) return;
+    if (navigation.state !== "idle") {
+      sawNavigation.current = true;
+    } else if (sawNavigation.current) {
+      sawNavigation.current = false;
+      setPendingSubmitter(null);
+    }
+  }, [navigation, pendingSubmitter]);
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    if (derivedPending) {
+      event.preventDefault();
+      return;
+    }
+    onSubmit?.(event);
+    if (event.defaultPrevented || submitting !== undefined) return;
+    const method = event.currentTarget.method.toLowerCase() || "get";
+    if (method === "get") return;
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    if (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) {
+      setPendingSubmitter(submitter);
+    }
+  };
 
   return (
     <FormProvider
       errorAnnouncement={errorAnnouncement}
       disabled={disabled}
-      submitting={submitting}
-      status={status}
+      submitting={effectiveSubmitting}
+      pendingSubmitter={pendingSubmitter}
+      pendingAnnouncement={pendingAnnouncement}
+      status={effectiveStatus}
       formId={id}
       validationSummaryId={validationSummaryId}
     >
       <ReactRouterForm
         {...rest}
-        ref={ref}
+        ref={(node) => {
+          formRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) ref.current = node;
+        }}
         id={id}
-        aria-busy={submitting || undefined}
+        onSubmit={handleSubmit}
+        aria-busy={effectiveSubmitting || undefined}
         aria-describedby={describedBy}
         aria-disabled={disabled || undefined}
-        data-form-status={status}
-        data-submitting={submitting || undefined}
+        data-form-status={effectiveStatus}
+        data-submitting={effectiveSubmitting || undefined}
         className={cx(spacingClasses[spacing], className)}
       >
+        {pendingAnnouncement ? <div aria-live="polite" className="sr-only">{derivedPending ? pendingAnnouncement : ""}</div> : null}
         {controlsDisabled ? (
           <fieldset disabled={controlsDisabled} className="contents">
             {children}
