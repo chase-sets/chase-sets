@@ -5,7 +5,7 @@ name: Platform Staging Evidence Window
 # admission key's install to its revocation. Inputs are closed and nonsecret; no
 # command, credential or ref reaches the job through them. Stripe is read with GET
 # only. The cleanup observer (platform-staging-evidence-window-cleanup.yml) is armed
-# before open and takes over at run end or D-5 min.
+# before any credential is installed and takes over at run end or D-5 min.
 
 on:
   workflow_dispatch:

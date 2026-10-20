@@ -1331,6 +1331,62 @@ describe("cleanup observer and next-preflight takeover", () => {
     expect(staging.state.annotations).not.toHaveProperty(ANNOTATION_KEY);
   });
 
+  it.each([
+    ["after install and restart, before the login exists", false, "not-needed"],
+    ["while the login is being created", true, "proven"],
+  ])(
+    "is armed before any credential, so a force cancel %s still has a cleanup owner",
+    async (_label, loginCreated, loginPart) => {
+      const staging = fakeStaging();
+      const env = runEnv();
+      await runSteps(env, staging.deps, ["inputs", "preflight"]);
+      const install = staging.deps.runtime.apply;
+      staging.deps.runtime.apply = async (manifest) => {
+        staging.state.calls.push("apply");
+        return install(manifest);
+      };
+      // The runner is lost inside provision: no later step, not even an always() close or revoke, runs.
+      const lost = new Promise((resolve) => {
+        staging.deps.journal.provision = async (principal) => {
+          if (loginCreated) staging.state.principals.add(principal.name);
+          resolve();
+          return new Promise(() => undefined);
+        };
+      });
+      const provisioning = main(["provision"], env, staging.deps);
+      await Promise.race([
+        lost,
+        provisioning.then((code) => {
+          throw new Error(`provision ended with ${code} before the runner was lost`);
+        }),
+      ]);
+      expect(staging.state.calls).toEqual(["dispatch", "apply", "restart"]);
+      expect(staging.state.dispatched).toEqual({ ref: "main", inputs: { run_id: "7001", run_attempt: "1" } });
+      expect(staging.state.data).toHaveProperty(ADMISSION_SECRET_KEY);
+      expect(staging.state.loaded).toBe(plantedSecret);
+
+      staging.state.runs.set("7001/1", "completed");
+      expect(await main(["observe"], observerEnv(env), staging.deps)).toBe(0);
+      expect(observerReceipt(env).cleanup).toMatchObject({
+        by: "observer",
+        verdict: "proven",
+        parts: {
+          "window-closed": "not-needed",
+          "key-removed": "proven",
+          "runtimes-restarted": "proven",
+          "old-secret-rejected": "proven",
+          "sessions-ended": loginPart,
+          "principal-dropped": loginPart,
+          "annotation-released": "proven",
+        },
+      });
+      expect(staging.state.data).not.toHaveProperty(ADMISSION_SECRET_KEY);
+      expect(staging.state.annotations).not.toHaveProperty(ANNOTATION_KEY);
+      expect(staging.state.loaded).toBeNull();
+      expect(staging.state.principals.size).toBe(0);
+    },
+  );
+
   it("takes over at D-5 min when the run's terminal notification is delayed", async () => {
     const staging = fakeStaging();
     const env = runEnv();

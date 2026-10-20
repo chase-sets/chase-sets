@@ -2,7 +2,8 @@ name: Platform Staging Evidence Window Cleanup
 run-name: Evidence window cleanup ${{ inputs.run_id || github.event.workflow_run.id }} attempt ${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
 
 # The staging evidence window's cleanup observer. The window job dispatches it
-# before open; a window run's completion starts it again, and a host can re-drive it.
+# before it installs any credential; a window run's completion starts it again, and a
+# host can re-drive it.
 # It waits outside the deploy lock, takes over at the earlier of the run's end and
 # D-5 min, closes the run's window through the shipped route with the key read from the
 # runtime Secret, revokes the key and the run-named journal login, and scans the run's

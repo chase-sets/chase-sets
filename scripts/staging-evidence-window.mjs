@@ -6,8 +6,8 @@
 //
 //   inputs     validate the closed inputs and derive the run-bound identity
 //   preflight  take over a finished run's residue; bind the owning deploy generation
-//   provision  install the admission key, restart both runtimes, create the journal
-//              login, arm the cleanup observer and capture the provisioning binding
+//   provision  arm the cleanup observer, then install the admission key, restart both
+//              runtimes, create the journal login and capture the provisioning binding
 //   attest     read-only Stripe attestation for every consumer's declared fixtures
 //   open       recapture the binding, then open exactly one 3600 s window
 //   consume    run one reviewed consumer with step-local credentials until D-10 min
@@ -1548,6 +1548,15 @@ export const commands = {
     const endpoints = await stripe.list("/v1/webhook_endpoints", {});
     state.endpointBeforeRestart = selectPaymentsWebhookEndpoint(endpoints.items, endpoints);
 
+    // The observer is armed before any credential exists: a force cancel or a lost runner
+    // skips every always() step, and from here on the observer still owns the cleanup.
+    const dispatchedAt = iso(ctx.clock() - 5_000);
+    await ctx.github.dispatchObserver(env.GITHUB_REF_NAME, {
+      run_id: state.identity.runId,
+      run_attempt: String(state.identity.attempt),
+    });
+    state.observer = await confirmObserver(ctx, state.identity, dispatchedAt);
+
     const admissionSecret = (ctx.generateSecret ?? generateAdmissionSecret)();
     mask(admissionSecret, ctx.log);
     await ctx.runtime.apply(
@@ -1591,13 +1600,6 @@ export const commands = {
     const validUntil = iso(Date.parse(state.jobStartedAt) + JOB_TIMEOUT_MINUTES * 60_000);
     await ctx.journal.provision(principal, password, validUntil);
     state.principal = { name: principal.name, validUntil };
-
-    const dispatchedAt = iso(ctx.clock() - 5_000);
-    await ctx.github.dispatchObserver(env.GITHUB_REF_NAME, {
-      run_id: state.identity.runId,
-      run_attempt: String(state.identity.attempt),
-    });
-    state.observer = await confirmObserver(ctx, state.identity, dispatchedAt);
 
     state.bindings = [
       evaluateBinding(
