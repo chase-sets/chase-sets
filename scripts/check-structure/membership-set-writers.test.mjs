@@ -41,7 +41,10 @@ test("Membership writer census partitions every source and rejects the different
     "reconcileRepresentativeMembership",
     "provisionAdminQaActorFixture",
   ])
-    assert.ok(result.rows.some((row) => row.owner === owner), owner);
+    assert.ok(
+      result.rows.some((row) => row.owner === owner),
+      owner,
+    );
 });
 
 test("source omission cannot turn the census green", () => {
