@@ -942,6 +942,83 @@ describe("form system", () => {
     expect(document.activeElement).toBe(missingLink);
   });
 
+  it("cancels a summary link Enter keydown only when it focuses the target", () => {
+    render(
+      <>
+        <TextInput id="cancel-email" label="Email" />
+        <input id="cancel-disabled" aria-label="Disabled" disabled />
+        <ValidationSummary
+          errors={[
+            { fieldId: "cancel-email", message: "Fix email." },
+            { fieldId: "cancel-disabled", message: "Fix disabled." },
+            { fieldId: "cancel-absent", message: "Missing target." },
+          ]}
+        />
+      </>,
+    );
+    const email = screen.getByLabelText("Email", { exact: true });
+    const emailLink = screen.getByRole("link", { name: "Fix email." });
+
+    emailLink.focus();
+    expect(fireEvent.keyDown(emailLink, { key: "a" })).toBe(true);
+    expect(document.activeElement).toBe(emailLink);
+    expect(fireEvent.keyDown(emailLink, { key: "Enter" })).toBe(false);
+    expect(document.activeElement).toBe(email);
+    emailLink.focus();
+    expect(fireEvent.keyDown(emailLink, { key: "Enter", shiftKey: true })).toBe(false);
+    expect(document.activeElement).toBe(email);
+
+    for (const message of ["Fix disabled.", "Missing target."]) {
+      const link = screen.getByRole("link", { name: message });
+      link.focus();
+      expect(fireEvent.keyDown(link, { key: "Enter" })).toBe(true);
+      expect(document.activeElement).toBe(link);
+    }
+  });
+
+  it("summary link Enter inside a form focuses the field without submitting", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault());
+    const keyDowns: { target: EventTarget; key: string; defaultPrevented: boolean }[] = [];
+    render(
+      <form
+        aria-label="Shipping address"
+        onSubmit={onSubmit}
+        onKeyDown={(event) =>
+          keyDowns.push({ target: event.target, key: event.key, defaultPrevented: event.nativeEvent.defaultPrevented })
+        }
+      >
+        <ValidationSummary
+          errors={[
+            { fieldId: "form-street", message: "Enter a street." },
+            { fieldId: "form-absent", message: "Missing target." },
+          ]}
+        />
+        <TextInput id="form-street" label="Street" />
+        <button type="submit">Save address</button>
+      </form>,
+    );
+    const street = screen.getByLabelText("Street", { exact: true });
+    const streetLink = screen.getByRole("link", { name: "Enter a street." });
+
+    streetLink.focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(street);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(keyDowns).toEqual([{ target: streetLink, key: "Enter", defaultPrevented: true }]);
+
+    const missingLink = screen.getByRole("link", { name: "Missing target." });
+    missingLink.focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(missingLink);
+    expect(keyDowns.at(-1)).toEqual({ target: missingLink, key: "Enter", defaultPrevented: false });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    street.focus();
+    await user.keyboard("{Enter}");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves summary consumer behavior without a ref across error and empty rerenders", () => {
     const view = (errors: { message: string }[]) => (
       <>
