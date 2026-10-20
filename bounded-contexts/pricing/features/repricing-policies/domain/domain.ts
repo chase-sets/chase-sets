@@ -2,7 +2,9 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import { compareMoneyAmounts } from "@chase-sets/primitives/money";
 import type { AccountId, RepricingPolicyId } from "@chase-sets/primitives/typed-ids";
 import { worstCaseRepricingFloorAmount } from "./floor-resolution";
+import { cashTargetGoal } from "./goals/cash-target";
 import { fixedPercentileGoal } from "./goals/fixed-percentile";
+import { holdValueGoal } from "./goals/hold-value";
 import { targetHorizonGoal } from "./goals/target-horizon";
 import { profitPerDayGoal } from "./goals/profit-per-day";
 import { createPricingGoalRegistry, validateParameters } from "./goals/registry";
@@ -24,7 +26,13 @@ export class RepricingPolicyValidationError extends Error {}
 
 export type { RepricingGuardrail } from "./guardrails/registry";
 
-const pricingGoals = createPricingGoalRegistry([fixedPercentileGoal, targetHorizonGoal, profitPerDayGoal]);
+const pricingGoals = createPricingGoalRegistry([
+  fixedPercentileGoal,
+  targetHorizonGoal,
+  profitPerDayGoal,
+  holdValueGoal,
+  cashTargetGoal,
+]);
 export const pricingGoalDefinitions = () => pricingGoals.definitions();
 /** Null when the authored goal version is no longer registered (retired). */
 export const resolvePricingGoal = (goalId: string, goalVersion: number) => pricingGoals.resolve(goalId, goalVersion);

@@ -7,6 +7,8 @@ import { CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX } from "../domain/domain";
 import { providerScopeMappingRoutes } from "./route";
 import type { ProviderScopeMappingServices } from "./runtime";
 import type { UnmappedScopeInboxReadModel, ScopeCoverageMatrix } from "./scope-coverage-admin-contracts";
+import { buildScopeCoverageMatrix, mapProviderScopeMappingCandidate } from "./scope-coverage-admin-contracts";
+import type { ProviderScopeMappingRow } from "../read-model/queries";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as TenantId,
@@ -112,6 +114,83 @@ describe("Provider Scope Mapping review route", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(matrix);
+  });
+
+  it("serializes every accepted unit mapping from the real builder", async () => {
+    const mappingRows: ProviderScopeMappingRow[] = ["set", "sealed", "card"].map((unit, index) => ({
+      mapping_id: `map_${unit}`,
+      scope_record_id: "ref_expansion_paldean_fates",
+      provider_key: "scrydex",
+      unit_key: unit,
+      product_line_id: `pokemon-${unit}`,
+      series_id: `series-${unit}`,
+      set_id: `set-${unit}`,
+      set_name: `Paldean Fates ${unit}`,
+      language_coordinates: { languageCode: "en", providerLocale: `en-${unit}` },
+      confidence: "exact",
+      review_status: index === 0 ? "auto-accepted" : "accepted",
+      provenance: { source: "option-sync", sourceId: `source-${unit}` },
+      evidence: { unit },
+      last_actor: "usr_reviewer",
+      last_reason: null,
+      policy_version: "provider-scope-mapping-v1",
+      proposed_at: "2026-07-01T00:00:00.000Z",
+      reviewed_at: "2026-07-02T00:00:00.000Z",
+      updated_at: `2026-07-0${index + 3}T00:00:00.000Z`,
+    }));
+    const commandHandler = commandHandlerStub("accepted");
+    const getScopeCoverageMatrix: ProviderScopeMappingServices["getScopeCoverageMatrix"] = (scopeRecordId) =>
+      buildScopeCoverageMatrix({
+        generatedAt: "2026-07-13T00:00:00.000Z",
+        scope: {
+          scope_record_id: scopeRecordId,
+          product_domain: "pokemon",
+          scope_kind: "expansion",
+          name: "Paldean Fates",
+          official_set_code: "PAF",
+          release_date: "2024-01-26",
+          lifecycle_status: "active",
+        },
+        mappingRows,
+        loadSyncStatus: async () => ({ totalObservations: 7, promotedObservations: 2 }),
+      });
+    const app = buildApp(servicesStub({ getScopeCoverageMatrix, commandHandler }), viewOnlyActor);
+    const fetch = vi.fn().mockRejectedValue(new Error("Provider fetch denied in coverage tests."));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      const response = await app.request("/provider-scope-mappings/coverage/ref_expansion_paldean_fates");
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        ...emptyMatrix("ref_expansion_paldean_fates"),
+        providers: [
+          {
+            providerKey: "scrydex",
+            state: "settled",
+            mapping: mapProviderScopeMappingCandidate(mappingRows[0]),
+            acceptedMappings: [mappingRows[2], mappingRows[1], mappingRows[0]].map(mapProviderScopeMappingCandidate),
+            syncedObservations: 7,
+            promotedObservations: 2,
+          },
+        ],
+      });
+      expect(fetch).not.toHaveBeenCalled();
+      expect(commandHandler).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("refuses coverage reads for an actor without catalog.view", async () => {
+    const getScopeCoverageMatrix = vi.fn().mockResolvedValue(emptyMatrix("ref_expansion_paldean_fates"));
+    const commandHandler = commandHandlerStub("accepted");
+    const app = buildApp(servicesStub({ getScopeCoverageMatrix, commandHandler }), { permissions: [] });
+
+    const response = await app.request("/provider-scope-mappings/coverage/ref_expansion_paldean_fates");
+
+    expect(response.status).toBe(403);
+    expect(getScopeCoverageMatrix).not.toHaveBeenCalled();
+    expect(commandHandler).not.toHaveBeenCalled();
   });
 
   it("dispatches AcceptProviderScopeMapping per mapping id and returns the committed snapshot", async () => {

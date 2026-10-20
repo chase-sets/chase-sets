@@ -3,11 +3,16 @@
     "catalogItemId": "charizard-base-4",
     "languageCode": "en",
     "title": "Charizard",
+    "naturalKey": { "setCode": "bs", "cardNumber": "4" },
     "subtitle": "Base Set BS 4/102",
     "description": "Winged Kanto final evolution famous for scorching attacks.",
     "aliases": ["Lizardon"],
     "categories": ["Pokemon Cards"],
-    "tags": ["vintage", "holographic"]
+    "tags": ["vintage", "holographic"],
+    "variants": [
+      { "finish": "nonfoil", "price": "2.00", "quantity": 3 },
+      { "finish": "foil", "price": "20.00", "quantity": 1 }
+    ]
   },
   {
     "catalogItemId": "charizard-ex-ja-066",

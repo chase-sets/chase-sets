@@ -99,7 +99,7 @@ export function deriveFloor(root) {
   }
 }
 
-function containsFloor(root, floor, revision) {
+export function containsFloor(root, floor, revision) {
   try {
     git(root, "merge-base", "--is-ancestor", floor, revision);
     return true;

@@ -519,6 +519,9 @@
       "@chase-sets/inventory": [
         "./bounded-contexts/inventory/index.ts"
       ],
+      "@chase-sets/inventory-draft-listing": [
+        "./contracts/inventory-draft-listing/index.ts"
+      ],
       "@chase-sets/inventory/context": [
         "./bounded-contexts/inventory/context.json"
       ],
