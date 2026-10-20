@@ -156,7 +156,7 @@
     "bounded-contexts/checkout/features/sell-list/api/runtime.ts",
     "bounded-contexts/checkout/features/sell-list/read-model/projection.ts",
     "bounded-contexts/checkout/features/sell-list/read-model/queries.ts",
-    "bounded-contexts/checkout/features/sessions/api/runtime.ts",
+    "bounded-contexts/checkout/features/sessions/api/session-entry.ts",
     "bounded-contexts/checkout/features/sessions/integrations/payments/payment-affordance-projection.ts",
     "bounded-contexts/checkout/features/sessions/integrations/payments/payment-affordance-queries.ts",
     "bounded-contexts/checkout/features/sessions/integrations/payments/payment-confirmation-queries.ts",
