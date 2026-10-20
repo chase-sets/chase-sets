@@ -731,6 +731,8 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         const secondStreamAttempted = deferred();
         const releaseFirstStream = deferred();
         const startedRuntimes: Runtime[] = [];
+        let firstBarrierOpened = false;
+        let secondBarrierOpened = false;
         const secondRuntime: Runtime = firstRuntime === "primary" ? "replica" : "primary";
         const streamId = streamIdFor(command.attemptId);
 
@@ -743,8 +745,8 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
             if (statement.runtime === firstRuntime) {
               await run();
               firstStreamReady.resolve();
-              await bounded(secondStreamAttempted.promise);
-              await bounded(releaseFirstStream.promise);
+              firstBarrierOpened = await bounded(secondStreamAttempted.promise);
+              secondBarrierOpened = await bounded(releaseFirstStream.promise);
               return;
             }
             secondStreamAttempted.resolve();
@@ -787,6 +789,8 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
           expect.objectContaining({ instrument_id: "sci_SYNTHETIC_B", is_default: true }),
           expect.objectContaining({ instrument_id: "sci_SYNTHETIC_B", is_default: true }),
         ]);
+        expect(firstBarrierOpened).toBe(true);
+        expect(secondBarrierOpened).toBe(true);
         expect(startedRuntimes).toEqual([firstRuntime, secondRuntime]);
         expect(writes.filter(isDefaultWrite)).toHaveLength(1);
         expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
@@ -806,6 +810,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       const releaseDuplicate = deferred();
       let firstHeld = false;
       let duplicateHeld = false;
+      let duplicateBarrierOpened = false;
       // The duplicate is admitted, then held before its attempt lock until its first copy and a
       // later distinct default have both completed. The barrier is bounded so a red head settles.
       intercept = async (statement, run) => {
@@ -813,7 +818,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         if (statement.runtime === "replica" && step && !duplicateHeld) {
           duplicateHeld = true;
           duplicateAdmitted.resolve();
-          await bounded(releaseDuplicate.promise);
+          duplicateBarrierOpened = await bounded(releaseDuplicate.promise);
         }
         if (statement.runtime === "primary" && isDefaultWrite(statement.sql) && !firstHeld) {
           firstHeld = true;
@@ -838,6 +843,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
 
       await expect(duplicate).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: false });
       expect(duplicateHeld).toBe(true);
+      expect(duplicateBarrierOpened).toBe(true);
       expect(await defaults()).toEqual(["sci_SYNTHETIC_A"]);
       expect(writes.filter(isDefaultWrite)).toHaveLength(2);
       expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
