@@ -166,7 +166,14 @@ export type MarketplaceListingPriceTarget =
   | Readonly<{ kind: "channel-connection"; connectionId: string }>;
 export type MarketplaceListingPriceDecision =
   | Readonly<{ kind: "seller-reference" }>
-  | Readonly<{ kind: "pricing-evaluation"; evaluationId: string; evaluationRevision: string; basePriceRevision: number; standingAuthorizationId: string; standingAuthorizationRevision: string }>;
+  | Readonly<{
+      kind: "pricing-evaluation";
+      evaluationId: string;
+      evaluationRevision: string;
+      basePriceRevision: number;
+      standingAuthorizationId: string;
+      standingAuthorizationRevision: string;
+    }>;
 export type AcceptedListingTargetPriceV1 = Readonly<{
   schemaVersion: 1;
   accountId: string;
@@ -180,7 +187,12 @@ export type AcceptedListingTargetPriceV1 = Readonly<{
   acceptedAt: string;
   sourceEventId: string;
   decision: MarketplaceListingPriceDecision;
-  connectionAuthority: Readonly<{ connectionId: string; providerKey: string; environment: "sandbox" | "production"; identityRevision: number }> | null;
+  connectionAuthority: Readonly<{
+    connectionId: string;
+    providerKey: string;
+    environment: "sandbox" | "production";
+    identityRevision: number;
+  }> | null;
 }>;
 
 export type MarketplaceListingCreatedPayload = Readonly<{
@@ -229,8 +241,15 @@ export type MarketplaceListingPriceUpdatedPayload = Readonly<{
   acceptedTargetPrice?: AcceptedListingTargetPriceV1;
 }>;
 
-export type MarketplaceListingTargetPriceAcceptedPayload = Readonly<{ schemaVersion: 1; acceptedTargetPrice: AcceptedListingTargetPriceV1 }>;
-export type MarketplaceListingChannelActivatedPayload = Readonly<{ connectionId: string; targetPriceRevision: number; allocationRevision: number }>;
+export type MarketplaceListingTargetPriceAcceptedPayload = Readonly<{
+  schemaVersion: 1;
+  acceptedTargetPrice: AcceptedListingTargetPriceV1;
+}>;
+export type MarketplaceListingChannelActivatedPayload = Readonly<{
+  connectionId: string;
+  targetPriceRevision: number;
+  allocationRevision: number;
+}>;
 
 export type MarketplaceListingQuantityCapUpdatedPayload = MarketplaceListingPriceUpdatedPayload &
   Readonly<{

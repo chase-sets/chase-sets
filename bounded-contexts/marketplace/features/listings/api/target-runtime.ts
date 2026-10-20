@@ -2,25 +2,47 @@ import { createId, type EventId } from "@chase-sets/primitives/typed-ids";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { decideMarketplaceListing, type MarketplaceListingCommand, type MarketplaceListingEvent, type MarketplaceListingState } from "../domain/domain";
-import { listingPriceTargetKey, normalizeAcceptedListingPrice, type AcceptedListingTargetPriceV1 } from "../domain/target-price";
+import {
+  decideMarketplaceListing,
+  type MarketplaceListingCommand,
+  type MarketplaceListingEvent,
+  type MarketplaceListingState,
+} from "../domain/domain";
+import {
+  listingPriceTargetKey,
+  normalizeAcceptedListingPrice,
+  type AcceptedListingTargetPriceV1,
+} from "../domain/target-price";
 import { acceptListingTargetPriceSchema, activateListingForChannelSchema } from "./target-validation";
-import type { AcceptListingTargetPriceInput, ActivateListingForChannelInput, ListingTargetAuthority, ListingTargetPriceAcceptanceResult, ListingTargetServices } from "./target-contracts";
+import type {
+  AcceptListingTargetPriceInput,
+  ActivateListingForChannelInput,
+  ListingTargetAuthority,
+  ListingTargetPriceAcceptanceResult,
+  ListingTargetServices,
+} from "./target-contracts";
 import { createListingRequestExecutor } from "./listing-request";
 
-function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
 
-export function createListingTargetRuntime(deps: Readonly<{
-  eventStore: EventStore;
-  authority?: ListingTargetAuthority;
-  load(listingId: string): Promise<Readonly<{ state: MarketplaceListingState; version: number }>>;
-}>): ListingTargetServices {
+export function createListingTargetRuntime(
+  deps: Readonly<{
+    eventStore: EventStore;
+    authority?: ListingTargetAuthority;
+    load(listingId: string): Promise<Readonly<{ state: MarketplaceListingState; version: number }>>;
+  }>,
+): ListingTargetServices {
   const execute = createListingRequestExecutor(deps.eventStore);
   const codec = createPassthroughDomainEventCodec<MarketplaceListingEvent>();
 
   async function owned(input: Readonly<{ listingId: string; accountId: string }>) {
     const loaded = await deps.load(input.listingId);
-    assert(loaded.state.listingId === input.listingId && loaded.state.accountId === input.accountId, "Listing not found.");
+    assert(
+      loaded.state.listingId === input.listingId && loaded.state.accountId === input.accountId,
+      "Listing not found.",
+    );
     return loaded;
   }
   async function manage(input: Readonly<{ accountId: string }>, context: EventStoreContext) {
@@ -34,7 +56,10 @@ export function createListingTargetRuntime(deps: Readonly<{
     const input = acceptListingTargetPriceSchema.parse(raw) as AcceptListingTargetPriceInput;
     const reservations = await manage(input, context);
     const pair = normalizeAcceptedListingPrice(input.priceAmount, input.priceCurrencyCode);
-    assert(input.decision.kind !== "pricing-evaluation" || deps.authority?.verifyDecision, "Pricing decision authority is unavailable.");
+    assert(
+      input.decision.kind !== "pricing-evaluation" || deps.authority?.verifyDecision,
+      "Pricing decision authority is unavailable.",
+    );
     return execute({
       accountId: input.accountId,
       idempotencyKey: input.idempotencyKey,
@@ -49,11 +74,18 @@ export function createListingTargetRuntime(deps: Readonly<{
           assert(verified.value && verified.reservations.length > 0, "Current Pricing decision authority is required.");
           grants.push(...verified.reservations);
         }
-        const resolved = input.target.kind === "channel-connection"
-          ? await deps.authority!.resolveConnection({ accountId: input.accountId, connectionId: input.target.connectionId })
-          : null;
+        const resolved =
+          input.target.kind === "channel-connection"
+            ? await deps.authority!.resolveConnection({
+                accountId: input.accountId,
+                connectionId: input.target.connectionId,
+              })
+            : null;
         if (input.target.kind === "channel-connection") {
-          assert(resolved?.value && resolved.reservations.length > 0, "Owned current connection authority is required.");
+          assert(
+            resolved?.value && resolved.reservations.length > 0,
+            "Owned current connection authority is required.",
+          );
           grants.push(...resolved.reservations);
         }
         const accepted: AcceptedListingTargetPriceV1 = {
@@ -62,7 +94,9 @@ export function createListingTargetRuntime(deps: Readonly<{
           listingId: input.listingId,
           target: input.target,
           ...pair,
-          targetPriceRevision: (loaded.state.acceptedTargetPrices[listingPriceTargetKey(input.target)]?.targetPriceRevision ?? loaded.state.nativePriceRevision) + 1,
+          targetPriceRevision:
+            (loaded.state.acceptedTargetPrices[listingPriceTargetKey(input.target)]?.targetPriceRevision ??
+              loaded.state.nativePriceRevision) + 1,
           listingRevision: loaded.version + 1,
           acceptedByUserId: String(context.audit.performedByUserId),
           acceptedAt: new Date().toISOString(),
@@ -70,12 +104,30 @@ export function createListingTargetRuntime(deps: Readonly<{
           decision: input.decision,
           connectionAuthority: resolved?.value ?? null,
         };
-        const events = decideMarketplaceListing(loaded.state, { type: "AcceptListingTargetPrice", acceptedTargetPrice: accepted, expectedTargetPriceRevision: input.expectedTargetPriceRevision });
+        const events = decideMarketplaceListing(loaded.state, {
+          type: "AcceptListingTargetPrice",
+          acceptedTargetPrice: accepted,
+          expectedTargetPriceRevision: input.expectedTargetPriceRevision,
+        });
         return {
-          result: { listingId: input.listingId, version: loaded.version + events.length, acceptedTargetPrice: accepted },
+          result: {
+            listingId: input.listingId,
+            version: loaded.version + events.length,
+            acceptedTargetPrice: accepted,
+          },
           appends: [
-            ...grants.map((grant) => ({ streamId: grant.streamId, expectedVersion: grant.expectedVersion, context, events: [] })),
-            { streamId: `marketplace.listing-${input.listingId}`, expectedVersion: loaded.version, context, events: events.map((event) => ({ ...codec.encode(event), eventId: accepted.sourceEventId as EventId })) },
+            ...grants.map((grant) => ({
+              streamId: grant.streamId,
+              expectedVersion: grant.expectedVersion,
+              context,
+              events: [],
+            })),
+            {
+              streamId: `marketplace.listing-${input.listingId}`,
+              expectedVersion: loaded.version,
+              context,
+              events: events.map((event) => ({ ...codec.encode(event), eventId: accepted.sourceEventId as EventId })),
+            },
           ],
         };
       },
@@ -92,18 +144,59 @@ export function createListingTargetRuntime(deps: Readonly<{
       prepare: async () => {
         const loaded = await owned(input);
         assert(loaded.version === input.expectedListingVersion, "Listing revision changed.");
-        const allocation = await deps.authority!.resolveAllocation({ accountId: input.accountId, inventoryItemId: loaded.state.inventoryItemId!, productId: loaded.state.productId!, connectionId: input.connectionId, allocationRevision: input.allocationRevision });
+        const allocation = await deps.authority!.resolveAllocation({
+          accountId: input.accountId,
+          inventoryItemId: loaded.state.inventoryItemId!,
+          productId: loaded.state.productId!,
+          connectionId: input.connectionId,
+          allocationRevision: input.allocationRevision,
+        });
         assert(allocation.value && allocation.reservations.length > 0, "Current Inventory allocation is required.");
-        const events = decideMarketplaceListing(loaded.state, { type: "ActivateListingForChannel", connectionId: input.connectionId, expectedTargetPriceRevision: input.expectedTargetPriceRevision, allocationRevision: input.allocationRevision });
+        const events = decideMarketplaceListing(loaded.state, {
+          type: "ActivateListingForChannel",
+          connectionId: input.connectionId,
+          expectedTargetPriceRevision: input.expectedTargetPriceRevision,
+          allocationRevision: input.allocationRevision,
+        });
         return {
           result: { listingId: input.listingId, version: loaded.version + events.length },
           appends: [
-            ...[...reservations, ...allocation.reservations].map((grant) => ({ streamId: grant.streamId, expectedVersion: grant.expectedVersion, context, events: [] })),
-            { streamId: `marketplace.listing-${input.listingId}`, expectedVersion: loaded.version, context, events: events.map(codec.encode) },
+            ...[...reservations, ...allocation.reservations].map((grant) => ({
+              streamId: grant.streamId,
+              expectedVersion: grant.expectedVersion,
+              context,
+              events: [],
+            })),
+            {
+              streamId: `marketplace.listing-${input.listingId}`,
+              expectedVersion: loaded.version,
+              context,
+              events: events.map(codec.encode),
+            },
           ],
         };
       },
     });
   };
-  return { acceptListingTargetPrice, activateListingForChannel, readAcceptedListingTargetPrices: async ({ accountId, targets }) => Promise.all(targets.map(async ({ listingId, target }) => { const loaded = await owned({ listingId, accountId }); const acceptedTargetPrice = loaded.state.acceptedTargetPrices[listingPriceTargetKey(target)] ?? null; return { listingId, target, acceptedTargetPrice, activationRevision: target.kind === "channel-connection" ? loaded.state.channelActivations[target.connectionId]?.revision ?? null : null, listingRevision: loaded.version }; })) };
+  return {
+    acceptListingTargetPrice,
+    activateListingForChannel,
+    readAcceptedListingTargetPrices: async ({ accountId, targets }) =>
+      Promise.all(
+        targets.map(async ({ listingId, target }) => {
+          const loaded = await owned({ listingId, accountId });
+          const acceptedTargetPrice = loaded.state.acceptedTargetPrices[listingPriceTargetKey(target)] ?? null;
+          return {
+            listingId,
+            target,
+            acceptedTargetPrice,
+            activationRevision:
+              target.kind === "channel-connection"
+                ? (loaded.state.channelActivations[target.connectionId]?.revision ?? null)
+                : null,
+            listingRevision: loaded.version,
+          };
+        }),
+      ),
+  };
 }

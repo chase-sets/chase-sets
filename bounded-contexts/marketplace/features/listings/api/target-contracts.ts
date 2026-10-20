@@ -13,27 +13,61 @@ export type ListingMutationInput = Readonly<{
   expectedListingVersion: number;
   idempotencyKey: string;
 }>;
-export type AcceptListingTargetPriceInput = ListingMutationInput & Readonly<{
-  target: MarketplaceListingPriceTarget;
-  priceAmount: string;
-  priceCurrencyCode: string;
-  expectedTargetPriceRevision: number;
-  decision: MarketplaceListingPriceDecision;
-}>;
-export type ActivateListingForChannelInput = ListingMutationInput & Readonly<{
-  connectionId: string;
-  expectedTargetPriceRevision: number;
-  allocationRevision: number;
-}>;
+export type AcceptListingTargetPriceInput = ListingMutationInput &
+  Readonly<{
+    target: MarketplaceListingPriceTarget;
+    priceAmount: string;
+    priceCurrencyCode: string;
+    expectedTargetPriceRevision: number;
+    decision: MarketplaceListingPriceDecision;
+  }>;
+export type ActivateListingForChannelInput = ListingMutationInput &
+  Readonly<{
+    connectionId: string;
+    expectedTargetPriceRevision: number;
+    allocationRevision: number;
+  }>;
 export type ListingMutationResult = Readonly<{ listingId: string; version: number }>;
-export type ListingTargetPriceAcceptanceResult = ListingMutationResult & Readonly<{ acceptedTargetPrice: AcceptedListingTargetPriceV1 }>;
+export type ListingTargetPriceAcceptanceResult = ListingMutationResult &
+  Readonly<{ acceptedTargetPrice: AcceptedListingTargetPriceV1 }>;
 
-export type ListingAuthorityResult<T> = Readonly<{ value: T; reservations: readonly Readonly<{ streamId: string; expectedVersion: number }>[] }>;
+export type ListingAuthorityResult<T> = Readonly<{
+  value: T;
+  reservations: readonly Readonly<{ streamId: string; expectedVersion: number }>[];
+}>;
 export type ListingTargetAuthority = Readonly<{
-  authorizeManage(input: Readonly<{ accountId: string }>, context: EventStoreContext): Promise<ListingAuthorityResult<boolean>>;
-  resolveConnection(input: Readonly<{ accountId: string; connectionId: string }>): Promise<ListingAuthorityResult<(NonNullable<AcceptedListingTargetPriceV1["connectionAuthority"]> & Readonly<{ accountId: string }>) | null>>;
-  resolveAllocation(input: Readonly<{ accountId: string; inventoryItemId: string; productId: string; connectionId: string; allocationRevision: number }>): Promise<ListingAuthorityResult<Readonly<{ accountId: string; inventoryItemId: string; productId: string; allocationRevision: number; eligibleQuantity: number }> | null>>;
-  verifyDecision?(input: AcceptListingTargetPriceInput, context: EventStoreContext): Promise<ListingAuthorityResult<boolean>>;
+  authorizeManage(
+    input: Readonly<{ accountId: string }>,
+    context: EventStoreContext,
+  ): Promise<ListingAuthorityResult<boolean>>;
+  resolveConnection(
+    input: Readonly<{ accountId: string; connectionId: string }>,
+  ): Promise<
+    ListingAuthorityResult<
+      (NonNullable<AcceptedListingTargetPriceV1["connectionAuthority"]> & Readonly<{ accountId: string }>) | null
+    >
+  >;
+  resolveAllocation(
+    input: Readonly<{
+      accountId: string;
+      inventoryItemId: string;
+      productId: string;
+      connectionId: string;
+      allocationRevision: number;
+    }>,
+  ): Promise<
+    ListingAuthorityResult<Readonly<{
+      accountId: string;
+      inventoryItemId: string;
+      productId: string;
+      allocationRevision: number;
+      eligibleQuantity: number;
+    }> | null>
+  >;
+  verifyDecision?(
+    input: AcceptListingTargetPriceInput,
+    context: EventStoreContext,
+  ): Promise<ListingAuthorityResult<boolean>>;
 }>;
 
 export type AcceptedListingTargetPriceRead = Readonly<{
@@ -45,7 +79,18 @@ export type AcceptedListingTargetPriceRead = Readonly<{
 }>;
 
 export type ListingTargetServices = Readonly<{
-  acceptListingTargetPrice(input: AcceptListingTargetPriceInput, context: EventStoreContext): Promise<ListingTargetPriceAcceptanceResult>;
-  activateListingForChannel(input: ActivateListingForChannelInput, context: EventStoreContext): Promise<ListingMutationResult>;
-  readAcceptedListingTargetPrices(input: Readonly<{ accountId: string; targets: readonly Readonly<{ listingId: string; target: MarketplaceListingPriceTarget }>[] }>): Promise<readonly AcceptedListingTargetPriceRead[]>;
+  acceptListingTargetPrice(
+    input: AcceptListingTargetPriceInput,
+    context: EventStoreContext,
+  ): Promise<ListingTargetPriceAcceptanceResult>;
+  activateListingForChannel(
+    input: ActivateListingForChannelInput,
+    context: EventStoreContext,
+  ): Promise<ListingMutationResult>;
+  readAcceptedListingTargetPrices(
+    input: Readonly<{
+      accountId: string;
+      targets: readonly Readonly<{ listingId: string; target: MarketplaceListingPriceTarget }>[];
+    }>,
+  ): Promise<readonly AcceptedListingTargetPriceRead[]>;
 }>;

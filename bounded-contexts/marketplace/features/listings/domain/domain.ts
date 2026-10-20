@@ -828,28 +828,72 @@ export const decideMarketplaceListing: AggregateDecider<
       const accepted = command.acceptedTargetPrice;
       assert(accepted.listingId === state.listingId && accepted.accountId === state.accountId, "Price owner mismatch.");
       const key = listingPriceTargetKey(accepted.target);
-      const currentRevision = accepted.target.kind === "native-marketplace"
-        ? state.nativePriceRevision
-        : (state.acceptedTargetPrices[key]?.targetPriceRevision ?? 0);
+      const currentRevision =
+        accepted.target.kind === "native-marketplace"
+          ? state.nativePriceRevision
+          : (state.acceptedTargetPrices[key]?.targetPriceRevision ?? 0);
       assert(currentRevision === command.expectedTargetPriceRevision, "Accepted target price revision changed.");
       assert(accepted.targetPriceRevision > currentRevision, "Accepted target price revision must advance.");
       assert(accepted.listingRevision > 0, "Listing revision is required.");
       const pair = normalizeAcceptedListingPrice(accepted.priceAmount, accepted.priceCurrencyCode);
-      assert(pair.priceAmount === accepted.priceAmount && pair.priceCurrencyCode === accepted.priceCurrencyCode, "Price pair must be normalized.");
+      assert(
+        pair.priceAmount === accepted.priceAmount && pair.priceCurrencyCode === accepted.priceCurrencyCode,
+        "Price pair must be normalized.",
+      );
       if (accepted.target.kind === "channel-connection") {
-        assert(accepted.connectionAuthority?.connectionId === accepted.target.connectionId, "Connection authority mismatch.");
-        return [{ type: "marketplace.listing.target-price-accepted", data: { schemaVersion: 1, acceptedTargetPrice: accepted } }];
+        assert(
+          accepted.connectionAuthority?.connectionId === accepted.target.connectionId,
+          "Connection authority mismatch.",
+        );
+        return [
+          {
+            type: "marketplace.listing.target-price-accepted",
+            data: { schemaVersion: 1, acceptedTargetPrice: accepted },
+          },
+        ];
       }
       assert(accepted.connectionAuthority === null, "Native prices cannot carry connection authority.");
-      const feeLocks = state.feeLocks.map((lock) => ({ ...lock, marketplaceSalesFeeUnitAmount: lock.marketplaceSalesFeeUnitAmount, sellerNetUnitAmount: lock.sellerNetUnitAmount }));
-      return [{ type: "marketplace.listing.price-updated", data: { priceAmount: pair.priceAmount, priceCurrencyCode: pair.priceCurrencyCode, ...feeLockProjectionFields(feeLocks), acceptedTargetPrice: accepted } as never }];
+      const feeLocks = state.feeLocks.map((lock) => ({
+        ...lock,
+        marketplaceSalesFeeUnitAmount: lock.marketplaceSalesFeeUnitAmount,
+        sellerNetUnitAmount: lock.sellerNetUnitAmount,
+      }));
+      return [
+        {
+          type: "marketplace.listing.price-updated",
+          data: {
+            priceAmount: pair.priceAmount,
+            priceCurrencyCode: pair.priceCurrencyCode,
+            ...feeLockProjectionFields(feeLocks),
+            acceptedTargetPrice: accepted,
+          } as never,
+        },
+      ];
     }
     case "ActivateListingForChannel": {
       assert(state.listingId !== null && state.status !== "withdrawn", "Listing cannot be activated.");
-      const accepted = state.acceptedTargetPrices[listingPriceTargetKey({ kind: "channel-connection", connectionId: command.connectionId })];
-      assert(accepted && accepted.targetPriceRevision === command.expectedTargetPriceRevision, "Current accepted target price is required.");
-      assert(Number.isSafeInteger(command.allocationRevision) && command.allocationRevision > 0, "Current Inventory allocation is required.");
-      return [{ type: "marketplace.listing.channel-activated", data: { connectionId: command.connectionId, targetPriceRevision: command.expectedTargetPriceRevision, allocationRevision: command.allocationRevision } }];
+      const accepted =
+        state.acceptedTargetPrices[
+          listingPriceTargetKey({ kind: "channel-connection", connectionId: command.connectionId })
+        ];
+      assert(
+        accepted && accepted.targetPriceRevision === command.expectedTargetPriceRevision,
+        "Current accepted target price is required.",
+      );
+      assert(
+        Number.isSafeInteger(command.allocationRevision) && command.allocationRevision > 0,
+        "Current Inventory allocation is required.",
+      );
+      return [
+        {
+          type: "marketplace.listing.channel-activated",
+          data: {
+            connectionId: command.connectionId,
+            targetPriceRevision: command.expectedTargetPriceRevision,
+            allocationRevision: command.allocationRevision,
+          },
+        },
+      ];
     }
     case "UpdateListingPrice": {
       assert(state.listingId !== null, "Listing must be created first.");
@@ -1157,7 +1201,10 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         ...state,
         nativePriceRevision: event.data.acceptedTargetPrice?.targetPriceRevision ?? state.nativePriceRevision + 1,
         acceptedTargetPrices: event.data.acceptedTargetPrice
-          ? { ...state.acceptedTargetPrices, [listingPriceTargetKey(event.data.acceptedTargetPrice.target)]: event.data.acceptedTargetPrice }
+          ? {
+              ...state.acceptedTargetPrices,
+              [listingPriceTargetKey(event.data.acceptedTargetPrice.target)]: event.data.acceptedTargetPrice,
+            }
           : state.acceptedTargetPrices,
         priceAmount: event.data.priceAmount,
         priceCurrencyCode: event.data.priceCurrencyCode ?? null,
