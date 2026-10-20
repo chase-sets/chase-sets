@@ -12,6 +12,7 @@ import {
   validateJsonImportAttributes,
 } from "./json-import-attributes.mjs";
 import { findContextRootExportViolation, isApprovedCrossContextTypeContractImport } from "./run.mjs";
+import { workspaceRoots } from "../lib/repo.mjs";
 
 function withFixture(files, callback) {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "json-import-attributes-"));
@@ -710,6 +711,8 @@ describe("real repository execution membership", () => {
           gitSubprocesses: work.gitSubprocesses,
           wholeTreeScans: work.wholeTreeScans,
           indexCandidates: work.indexCandidates.length,
+          discoveredWorkspaces: work.discoveredWorkspaces.length,
+          enrolledWorkspaces: work.enrolledWorkspaces.length,
           distinctReads: new Set(work.fileReads).size,
           repeatedReads: work.fileReads.length - new Set(work.fileReads).size,
           fullParses: work.fullParses.length,
@@ -745,6 +748,16 @@ describe("real repository execution membership", () => {
     expect(
       work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
     ).toBe(true);
+    const workspacePackageJson = new RegExp(`^(?:${workspaceRoots.join("|")})/[^/]+/package\\.json$`);
+    const indexedWorkspaces = execFileSync("git", ["ls-files", "--", "*/package.json"], {
+      encoding: "utf8",
+      timeout: 10_000,
+    })
+      .trim()
+      .split(/\r?\n/)
+      .filter((file) => workspacePackageJson.test(file))
+      .sort();
+    expect([...work.enrolledWorkspaces].sort()).toEqual(indexedWorkspaces);
   });
 
   it("retains cyclic value paths without promoting type-only edges or parsing irrelevant branches", () => {
@@ -812,6 +825,54 @@ describe("real repository execution membership", () => {
         expect(git("status", "--porcelain", "--ignored")).toContain("?? untracked.ts");
         expect(after).toEqual(before);
         console.info(JSON.stringify({ ignoredOutputDigest: { before: before.digest, after: after.digest } }));
+      },
+    );
+  });
+
+  it.each([
+    ["an untracked manifest for a tracked workspace", "bounded-contexts/draft/context.json", { contextName: "draft" }],
+    [
+      "an untracked workspace resolving a tracked importer",
+      "bounded-contexts/rogue/package.json",
+      { name: "@chase-sets/rogue", exports: { ".": "../example/extra.ts" } },
+    ],
+  ])("keeps the Git-index partition unchanged after %s", (_case, untrackedFile, untrackedJson) => {
+    withFixture(
+      contextFiles(
+        'export { default as contextManifest } from "./context.json" with { type: "json" };\n' +
+          'import draft from "@chase-sets/draft/context" with { type: "json" };',
+        {
+          "deployables/platform-api/src/generated/api-context-registry.ts":
+            'import "@chase-sets/example";\nimport "@chase-sets/rogue";\n',
+          "bounded-contexts/example/extra.ts": 'import manifest from "./context.json" with { type: "json" };',
+          "bounded-contexts/draft/package.json": JSON.stringify({
+            name: "@chase-sets/draft",
+            exports: { "./context": "./context.json" },
+          }),
+        },
+      ),
+      ({ rootDir }) => {
+        const git = (...args) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", timeout: 10_000 });
+        git("init", "--quiet");
+        git("add", ".");
+        const inspect = () => {
+          const { declarations, partition, discoveryViolations, work } = inspectJsonImportAttributes({ rootDir });
+          const records = declarations.map(({ relativeFile, specifier, resolved, disposition }) => ({
+            relativeFile,
+            specifier,
+            resolved,
+            disposition,
+          }));
+          return { census: { records, partition, discoveryViolations }, work };
+        };
+        const before = inspect();
+        expect(before.census.partition).toMatchObject({ "node-enforced": 1, indeterminate: 1 });
+        mkdirSync(path.dirname(path.join(rootDir, untrackedFile)), { recursive: true });
+        writeFileSync(path.join(rootDir, untrackedFile), JSON.stringify(untrackedJson));
+        const after = inspect();
+        expect(git("status", "--porcelain")).toContain(`?? ${path.posix.dirname(untrackedFile)}/`);
+        expect(after.census).toEqual(before.census);
+        expect(after.work.enrolledWorkspaces).toEqual(before.work.enrolledWorkspaces);
       },
     );
   });

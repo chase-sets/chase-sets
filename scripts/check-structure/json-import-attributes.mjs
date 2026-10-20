@@ -270,6 +270,10 @@ function moduleClosure({
   return closure;
 }
 
+function workspacePackageJsonPath(workspace) {
+  return normalizePath(path.posix.join(workspace.root, workspace.dirName, "package.json"));
+}
+
 function implementedContexts(packages, rootDir) {
   return packages.flatMap((workspace) => {
     if (workspace.root !== "bounded-contexts") return [];
@@ -293,11 +297,10 @@ function implementedContexts(packages, rootDir) {
   });
 }
 
-function readContextManifests(contexts, paths, readContent) {
+function readContextManifests(contexts, readContent) {
   const manifests = new Map();
   const violations = [];
   for (const context of contexts) {
-    if (!paths.has(context.manifestPath)) continue;
     try {
       const manifest = JSON.parse(readContent(context.manifestPath));
       if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
@@ -583,15 +586,21 @@ export function inspectJsonImportAttributes(options = {}) {
   const work = { gitSubprocesses: 0, wholeTreeScans: 0, fileReads: [], fullParses: [], configParses: [], closures: [] };
   let paths = options.paths ?? trackedPaths(rootDir, work);
   paths = new Set([...paths].map(normalizePath));
-  const packages = listWorkspacePackages({ repoRoot: rootDir });
+  // Unfiltered filesystem discovery only witnesses an index collapse below.
+  // Resolution and context enrollment use Git-index members, so untracked
+  // workspace metadata cannot move the partition.
+  const discoveredPackages = listWorkspacePackages({ repoRoot: rootDir });
+  const packages = discoveredPackages.filter((workspace) => paths.has(workspacePackageJsonPath(workspace)));
+  work.discoveredWorkspaces = discoveredPackages.map(workspacePackageJsonPath);
+  work.enrolledWorkspaces = packages.map(workspacePackageJsonPath);
   work.indexCandidates = [...paths].filter((file) => sourceExtensionSet.has(path.posix.extname(file))).sort();
   const readContent = createContentReader(rootDir, paths, work);
   const readSource = createSourceReader(readContent, work);
   const readImports = createImportReader(readContent);
   const readRecords = createRecordReader(readSource);
-  const contexts = implementedContexts(packages, rootDir);
+  const contexts = implementedContexts(packages, rootDir).filter(({ manifestPath }) => paths.has(manifestPath));
   const contextByManifest = new Map(contexts.map((context) => [context.manifestPath, context]));
-  const contextManifestResult = readContextManifests(contexts, paths, readContent);
+  const contextManifestResult = readContextManifests(contexts, readContent);
   const manifestSpecifiers = contextManifestSpecifiers(packages);
   const candidates = possibleManifestPaths({
     rootDir,
@@ -663,9 +672,10 @@ export function inspectJsonImportAttributes(options = {}) {
     ]),
   );
   const discoveryViolations = [...contextManifestResult.violations];
-  if (contexts.length > 0 && declarations.length === 0) {
+  const witnessContexts = implementedContexts(discoveredPackages, rootDir);
+  if (witnessContexts.length > 0 && declarations.length === 0) {
     discoveryViolations.push(
-      `JSON import-attribute discovery collapsed despite ${contexts.length} implemented context manifest(s)`,
+      `JSON import-attribute discovery collapsed despite ${witnessContexts.length} implemented context manifest(s)`,
     );
   }
   const appsWithoutRegistryEntries = vite.apps.filter((app) => app.activeManifests.size === 0);
