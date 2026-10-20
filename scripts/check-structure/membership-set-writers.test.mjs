@@ -87,3 +87,31 @@ test("a marker-free append cannot hide behind an existing read-only store factor
     ),
   );
 });
+
+test("a differently shaped import writer outside Identity cannot escape through string construction", () => {
+  const candidate = sources();
+  const file = "scripts/synthetic-new-import.mjs";
+  candidate.set(
+    file,
+    "export function different(store, id, input) { const source = ['identity', 'membership-' + id].join('.'); const { appendToStreams: emit } = store; return emit([{ streamId: source, ...input }]); }",
+  );
+  assert.ok(
+    scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) =>
+      line.includes("unclassified Membership writer (appendToStreams, different)"),
+    ),
+  );
+});
+
+test("a sibling cannot borrow a writer name from another owning file", () => {
+  const candidate = sources();
+  const file = "bounded-contexts/identity/api.ts";
+  candidate.set(
+    file,
+    "export function reconcile(store, id) { return store.appendToStream({streamId: 'identity.membership-' + id, events: []}); }",
+  );
+  assert.ok(
+    scanMembershipSetWriters(candidate, [...paths, file]).violations.some((line) =>
+      line.includes("unclassified Membership writer (appendToStream, reconcile)"),
+    ),
+  );
+});

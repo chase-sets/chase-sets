@@ -31,24 +31,24 @@ const appendNames = new Set([
   "commandHandler",
   "createAggregateCommandHandler",
 ]);
-const allowedOwners = new Set([
-  "appendPersonalIdentityRegistration",
-  "grantGuestAccountForAuth",
-  "acceptInvitationForUserFromAuth",
-  "readInvitationAcceptanceAuthority",
-  "acceptInvitationOperation",
-  "membershipRoutes",
-  "createMembershipRuntime",
-  "createIdentityMutationPersistence",
-  "provisionAdminQaActorFixture",
-  "bootstrapPlatformAdminIdentity",
-  "membershipReconciler",
-  "reconcileRepresentativeMembership",
-  "transaction",
-  "append",
-  "submit",
-  "save",
-  "reconcile",
+const allowedOwners = new Map([
+  ["appendPersonalIdentityRegistration", `${identity}api.ts`],
+  ["grantGuestAccountForAuth", `${identity}api.ts`],
+  ["acceptInvitationForUserFromAuth", `${identity}api.ts`],
+  ["readInvitationAcceptanceAuthority", `${identity}features/invitations/api/acceptance-operation.ts`],
+  ["acceptInvitationOperation", `${identity}features/invitations/api/acceptance-operation.ts`],
+  ["membershipRoutes", `${identity}features/memberships/api/route.ts`],
+  ["createMembershipRuntime", `${identity}features/memberships/api/runtime.ts`],
+  ["createIdentityMutationPersistence", transaction],
+  ["provisionAdminQaActorFixture", `${identity}support/runtime-support/admin-qa-actor-fixtures.ts`],
+  ["bootstrapPlatformAdminIdentity", `${identity}support/runtime-support/production-bootstrap.ts`],
+  ["membershipReconciler", `${identity}support/runtime-support/seed.ts`],
+  ["reconcileRepresentativeMembership", `${identity}support/runtime-support/seed.ts`],
+  ["transaction", transaction],
+  ["append", transaction],
+  ["submit", `${identity}features/account-management/api/runtime.ts`],
+  ["save", cutover],
+  ["reconcile", cutover],
 ]);
 const readOnlyFactories = new Set([
   `${identity}features/consents/api/terms-acceptance-resolver.ts`,
@@ -129,7 +129,7 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
         ts.isTemplateTail(node)
       ) {
         if (
-          /^(?:identity\.membership[.-]|GrantMembership$|ChangeMembershipRole$|RevokeMembership$|ReinstateMembership$)/.test(
+          /^(?:identity\.(?:membership[.-]|user-membership-set[.-])|GrantMembership$|ChangeMembershipRole$|RevokeMembership$|ReinstateMembership$)/.test(
             node.text,
           )
         )
@@ -137,7 +137,7 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
       }
       if (ts.isIdentifier(node)) {
         if (
-          /^(?:MembershipCommand|MembershipEvent|MembershipServices|decideMembership|createMembershipRuntime)$/.test(
+          /^(?:MembershipCommand|MembershipEvent|MembershipServices|decideMembership|createMembershipRuntime|planMembershipSetAppends|MEMBERSHIP_SOURCE_PREFIX|MEMBERSHIP_SET_PREFIX|MEMBERSHIP_SET_EVENT)$/.test(
             name(node) ?? "",
           )
         )
@@ -146,11 +146,33 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
         if (value && typeof value !== "string" && membership(value, seen)) return true;
       }
       if (file.startsWith(identity) && property(node) === "memberships") return true;
+      const partial = partialString(node);
+      if (partial && /^identity\.(?:membership[.-]|user-membership-set[.-])/.test(partial)) return true;
       let found = false;
       ts.forEachChild(node, (child) => {
         if (!found && membership(child, seen)) found = true;
       });
       return found;
+    }
+    function partialString(node, seen = new Set()) {
+      if (!node || seen.has(node)) return "";
+      seen.add(node);
+      if (ts.isStringLiteralLike(node)) return node.text;
+      if (ts.isIdentifier(node)) {
+        const value = binding(node);
+        return value && typeof value !== "string" ? partialString(value, seen) : "";
+      }
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken)
+        return partialString(node.left, seen) + partialString(node.right, seen);
+      if (
+        ts.isCallExpression(node) &&
+        property(node.expression) === "join" &&
+        ts.isArrayLiteralExpression(node.expression.expression)
+      )
+        return node.expression.expression.elements
+          .map((element) => partialString(element, new Set(seen)))
+          .join(node.arguments.length ? partialString(node.arguments[0]) : ",");
+      return "";
     }
     visit(ast, (node) => {
       if (!ts.isCallExpression(node)) return;
@@ -199,7 +221,7 @@ export function scanMembershipSetWriters(sources, expectedFiles) {
       )
         return;
       const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
-      const approved = allowedWriterFiles.has(file) && allowedOwners.has(ownerName);
+      const approved = allowedWriterFiles.has(file) && allowedOwners.get(ownerName) === file;
       rows.push({
         file,
         line,
