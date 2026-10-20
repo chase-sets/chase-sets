@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentAttentionValues, recommendGoalChange, type CandidateMetrics } from "../api/goal-comparison";
-import type { RepricingDryRunTrace } from "../../repricing-engine/api/dry-run";
+import { recommendGoalChange, type CandidateMetrics } from "../api/goal-comparison";
 
 const current = {
   profitPerDay: { value: 2 },
@@ -18,7 +17,7 @@ const candidate: CandidateMetrics = {
   completedAt: "2026-10-20T00:00:01Z",
   bodyHash: "synthetic",
   targetPolicyId: "rpp_synthetic",
-  scopeLabel: "Entire selected policy candidate scope",
+  targetRevision: 1,
   listingCount: 3,
   raised: 1,
   lowered: 1,
@@ -28,71 +27,49 @@ const candidate: CandidateMetrics = {
   p90WaitDays: { USD: 7 },
   coverage: { USD: 1 },
   profitPerDay: { USD: 3 },
-  economicsListingIds: ["a", "b"],
-  affectedListedValue: 0,
+  economicsSet: { digest: "synthetic-a-b", size: 2 },
+  capitalTurn: { USD: 0.1 },
+  boundStatusCount: { USD: 0 },
+  heldReasons: {},
   flags: {},
 };
 const input = {
   currentHealth: { currencies: { USD: current } },
-  currentEconomicsListingIds: ["a", "b"],
+  currentEconomicsSet: { digest: "synthetic-a-b", size: 2 },
   candidates: [candidate],
   haltEngaged: false,
 };
 
 describe("Pricing Health S12 recommendation", () => {
   it("ranks current attention by quantity-weighted listed value and the specified tie order", () => {
-    const trace: RepricingDryRunTrace = {
-      listingId: "a",
-      currentPriceAmount: "10.00",
-      targetPriceAmount: "12.00",
-      ruleIndex: 0,
-      anchor: null,
-      exhaustedAnchors: [],
-      clamps: { floor: true, ceiling: false, maxMove: false },
-      flags: [],
-      outcome: "changed",
-      skipReason: null,
-      health: {
-        listingId: "a",
-        quantity: 3,
-        currentPriceAmount: "10.00",
-        effectivePriceAmount: "12.00",
-        currencyCode: "USD",
-        modeled: {
-          medianDays: 5,
-          curveVersion: 1,
-          builtAt: "2026-10-20",
-          policyRevisionId: "synthetic",
-          forecastStatus: "interpolated",
-        },
-        modeledReason: null,
-        economics: null,
-        economicsReason: "inventory-item-missing",
-        risk: "slow",
-      },
-    };
-    expect(currentAttentionValues([trace])).toEqual({
-      economics: 3000,
-      "value-at-risk": 3000,
-      "floor-binding": 3000,
-      "stale-curve": 0,
-    });
     const candidates = [{ ...candidate, profitPerDay: { USD: 2 } }];
-    const tied = { economics: 3000, "value-at-risk": 3000, "floor-binding": 3000, "stale-curve": 3000 };
+    const scores = { economics: 30, "value-at-risk": 30, "floor-binding": 30, "stale-curve": 30 };
+    const values = (changes: Partial<typeof scores> = {}) => {
+      const amounts = { ...scores, ...changes };
+      return {
+        USD: {
+          economics: { value: amounts.economics, count: 1 },
+          "value-at-risk": { value: amounts["value-at-risk"], count: 1 },
+          "floor-binding": { value: amounts["floor-binding"], count: 1 },
+          "stale-curve": { value: amounts["stale-curve"], count: 1 },
+        },
+      };
+    };
+    const tied = values();
     expect(recommendGoalChange({ ...input, candidates, attentionValues: tied })).toMatchObject({
       kind: "attention",
       reason: "economics",
     });
-    expect(recommendGoalChange({ ...input, candidates, attentionValues: { ...tied, economics: 0 } }).reason).toBe(
+    expect(recommendGoalChange({ ...input, candidates, attentionValues: values({ economics: 0 }) }).reason).toBe(
       "value-at-risk",
     );
     expect(
-      recommendGoalChange({ ...input, candidates, attentionValues: { ...tied, economics: 0, "value-at-risk": 0 } })
+      recommendGoalChange({ ...input, candidates, attentionValues: values({ economics: 0, "value-at-risk": 0 }) })
         .reason,
     ).toBe("floor-binding");
-    expect(
-      recommendGoalChange({ ...input, candidates, attentionValues: { ...tied, "stale-curve": 3001 } }).reason,
-    ).toBe("stale-curve");
+    expect(recommendGoalChange({ ...input, candidates, attentionValues: values({ "stale-curve": 31 }) }).reason).toBe(
+      "stale-curve",
+    );
     expect(recommendGoalChange({ ...input, attentionValues: tied }).kind).toBe("switch");
     expect(recommendGoalChange({ ...input, candidates: [], attentionValues: tied }).kind).toBe("attention");
   });
@@ -101,7 +78,15 @@ describe("Pricing Health S12 recommendation", () => {
     expect(recommendGoalChange({ ...input, haltEngaged: true }).kind).toBe("halted");
   });
   it("requires equal Economics listing sets, not merely equal counts", () => {
-    expect(recommendGoalChange({ ...input, currentEconomicsListingIds: ["a", "c"] }).kind).toBe("refresh");
+    expect(recommendGoalChange({ ...input, currentEconomicsSet: { digest: "synthetic-a-c", size: 2 } }).kind).toBe(
+      "refresh",
+    );
+  });
+  it("breaks an otherwise equal goal tie by version ascending", () => {
+    expect(recommendGoalChange({ ...input, candidates: [{ ...candidate, goalVersion: 2 }, candidate] })).toMatchObject({
+      kind: "switch",
+      goalVersion: 1,
+    });
   });
   it("refuses a switch when the current basis has multiple currencies", () => {
     expect(
@@ -137,7 +122,7 @@ describe("Pricing Health S12 recommendation", () => {
     expect(
       recommendGoalChange({
         ...input,
-        candidates: [{ ...candidate, profitPerDay: { USD: 2 }, affectedListedValue: 100 }],
+        candidates: [{ ...candidate, profitPerDay: { USD: 2 }, raised: 100 }],
       }).kind,
     ).toBe("no-change");
   });

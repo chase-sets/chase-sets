@@ -58,7 +58,7 @@ export function PricingHealthPage({
               <Banner
                 tone="info"
                 title={copy("noPolicy")}
-                actions={<LinkButton href="/account/desk/repricing">{copy("create")}</LinkButton>}
+                actions={<LinkButton href="/account/desk/repricing?create=1">{copy("create")}</LinkButton>}
               />
             ) : (
               <>
@@ -80,7 +80,9 @@ export function PricingHealthPage({
                       <GoalComparison
                         branch={(data.branch ?? "comparison") as "comparison" | "advanced-editor" | "create-editor"}
                         candidates={data.comparison ?? []}
-                        recommendation={data.recommendation ?? { kind: "compare-goals", text: copy("goals.compare") }}
+                        goals={data.goals ?? []}
+                        targetPolicyId={data.target.policyId}
+                        recommendation={data.recommendation ?? { kind: "compare-goals" }}
                       />
                     </PageSection>
                     <PageSection title={copy("grades.title")} description={copy("grades.platform")}>

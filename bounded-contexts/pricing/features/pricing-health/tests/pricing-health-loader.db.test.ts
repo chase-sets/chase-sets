@@ -60,6 +60,7 @@ describeDb("Pricing Health real loader and grade queries", () => {
         db: pools.pricing,
         policies: createPolicyRuntime({ eventStore, db: pools.pricing }),
         repricingEngine: worker,
+        forecastLedger: { listGoalAdoptions: async () => [] },
         repricingPolicies: createRepricingPolicyRuntime({
           eventStore,
           db: pools.pricing,

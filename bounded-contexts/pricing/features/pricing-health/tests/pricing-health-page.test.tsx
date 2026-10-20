@@ -41,7 +41,7 @@ const health = summarizeHealth(
 );
 const data: PricingHealthData = {
   policies: [{ policyId: "pol_synthetic", name: "Synthetic policy" }],
-  target: { policyId: "pol_synthetic", name: "Synthetic policy" },
+  target: { policyId: "pol_synthetic", name: "Synthetic policy", version: 1 },
   health,
   run: {
     dryRunId: "dry_synthetic",

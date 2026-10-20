@@ -58,6 +58,7 @@ export type PolicyEditorSubmission = Readonly<{ body: PolicyEditorBody; dryRunId
 
 export function PolicyEditorDrawer({
   initialBody,
+  initialTier,
   policyId,
   api = pricingApi,
   saving = false,
@@ -66,6 +67,7 @@ export function PolicyEditorDrawer({
   onClose,
 }: {
   initialBody?: PolicyEditorBody;
+  initialTier?: "structured" | "advanced";
   policyId?: string;
   api?: EditorApi;
   saving?: boolean;
@@ -86,7 +88,7 @@ export function PolicyEditorDrawer({
   const [scope, setScope] = useState<RepricingPolicyScope>(initialBody?.scope ?? { kind: "all-listings" });
   const [body, setBody] = useState<PolicyEditorBody | null>(initialBody ?? null);
   const [tier, setTier] = useState<"preset" | "structured" | "advanced">(
-    initialBody ? openRepricingPreset(initialBody).tier : "preset",
+    initialBody ? (initialTier ?? openRepricingPreset(initialBody).tier) : "preset",
   );
   const [errors, setErrors] = useState<readonly string[]>([]);
   const [previewing, setPreviewing] = useState(false);

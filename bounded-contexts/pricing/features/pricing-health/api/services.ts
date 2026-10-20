@@ -2,19 +2,17 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { RepricingEngineServices } from "../../repricing-engine/api/runtime";
 import type { RepricingPolicyServices } from "../../repricing-policies/api/runtime";
-import { hashRepricingDryRunBody, type RepricingDryRunTrace } from "../../repricing-engine/api/dry-run";
+import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { listAccountRepricingPolicies } from "../../repricing-policies/read-model/queries";
 import { forecastLedgerPolicy } from "../../forecast-ledger/domain/policy";
+import type { ForecastLedgerServices } from "../../forecast-ledger/api/runtime";
 import { gradingRulesVersion } from "../../forecast-ledger/domain/grade-ledger";
 import { listForecastGrades } from "../../forecast-ledger/read-model/queries";
 import { discloseForecastGrade, type PricingHealthGrade } from "./grades";
-import { readPricingHealthRun } from "../read-model/queries";
+import { readCandidateComparison, readComparisonFacts, readPricingHealthRun } from "../read-model/queries";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
-import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
 import {
   buildCandidateBody,
-  candidateMetrics,
-  currentAttentionValues,
   isOneRuleUnconditional,
   recommendGoalChange,
   selectableGoalChoices,
@@ -22,6 +20,12 @@ import {
   type GoalChoice,
   type Recommendation,
 } from "./goal-comparison";
+
+export class PricingHealthCandidateRefusedError extends Error {
+  constructor() {
+    super("pricing_health_candidate_enqueue_refused");
+  }
+}
 
 export function createPricingHealthServices({
   db,
@@ -32,11 +36,9 @@ export function createPricingHealthServices({
 }: Readonly<{
   db: PgQueryable;
   policies: Pick<PolicyRuntime, "resolvePolicy">;
-  repricingEngine: Pick<RepricingEngineServices, "enqueueDryRun"> &
-    Partial<Pick<RepricingEngineServices, "listDryRuns" | "listDryRunTraces">>;
-  repricingPolicies: Pick<RepricingPolicyServices, "loadOwnedRepricingPolicy"> &
-    Partial<Pick<RepricingPolicyServices, "getHalt">>;
-  forecastLedger?: Readonly<{ listGoalAdoptions: () => Promise<readonly GoalAdoption[]> }>;
+  repricingEngine: Pick<RepricingEngineServices, "enqueueDryRun" | "getDryRun">;
+  repricingPolicies: Pick<RepricingPolicyServices, "loadOwnedRepricingPolicy" | "getHalt">;
+  forecastLedger: Pick<ForecastLedgerServices, "listGoalAdoptions">;
 }>) {
   const currentTarget = async (accountId: string, policyId: string) => {
     const loaded = await repricingPolicies.loadOwnedRepricingPolicy(policyId, accountId);
@@ -45,6 +47,8 @@ export function createPricingHealthServices({
       return null;
     return {
       policyId,
+      version: loaded.version,
+      updatedAt: state.updatedAt,
       name: state.name,
       scope: state.scope,
       rules: state.rules,
@@ -59,7 +63,7 @@ export function createPricingHealthServices({
     };
   };
   const choices = async (): Promise<readonly GoalChoice[]> => {
-    const adoptions = forecastLedger?.listGoalAdoptions ? await forecastLedger.listGoalAdoptions() : [];
+    const adoptions = await forecastLedger.listGoalAdoptions();
     return selectableGoalChoices(pricingGoalDefinitions(), adoptions);
   };
   return {
@@ -98,7 +102,7 @@ export function createPricingHealthServices({
       if (!isOneRuleUnconditional(target.rules))
         return {
           policies: activeChoices,
-          target: { policyId: target.policyId, name: target.name },
+          target: { policyId: target.policyId, name: target.name, version: target.version },
           ...stored,
           grades: [],
           goals: [],
@@ -128,31 +132,47 @@ export function createPricingHealthServices({
         );
       }
       const goalChoices = await choices();
-      const comparison = await readComparisons(accountId, target, goalChoices, repricingEngine);
-      const currentTraces =
-        stored.run && repricingEngine.listDryRunTraces
-          ? await readAllTraces(repricingEngine.listDryRunTraces, accountId, stored.run.dryRunId)
-          : [];
-      const currentEconomicsListingIds = currentTraces
-        .filter((trace) => trace.health?.economics)
-        .map((trace) => trace.listingId)
-        .sort();
+      const currentFacts = stored.run
+        ? await readComparisonFacts(db, { accountId, dryRunId: stored.run.dryRunId, now })
+        : null;
+      const currentHealth =
+        currentFacts?.evidenceCurrent &&
+        (!target.updatedAt || Date.parse(stored.run!.requestedAt) >= Date.parse(target.updatedAt))
+          ? stored.health
+          : null;
+      const comparison: CandidateMetrics[] = [];
+      for (const choice of goalChoices) {
+        const candidate = await readCandidateComparison(db, repricingEngine, {
+          accountId,
+          policyId: target.policyId,
+          targetRevision: target.version,
+          targetUpdatedAt: target.updatedAt,
+          body: target.body,
+          choice,
+          now,
+          basisCapturedAt: currentHealth?.capturedAt,
+          basisFacts: stored.run && currentFacts ? { dryRunId: stored.run.dryRunId, facts: currentFacts } : undefined,
+        });
+        if (candidate) comparison.push(candidate);
+      }
       const recommendation = recommendGoalChange({
-        currentHealth: stored.health,
-        currentEconomicsListingIds,
+        currentHealth,
+        currentEconomicsSet: currentFacts?.economicsSet ?? null,
         candidates: comparison,
         expectedCandidateCount: goalChoices.length,
-        attentionValues: currentAttentionValues(currentTraces),
-        haltEngaged: repricingPolicies.getHalt ? (await repricingPolicies.getHalt(accountId)).engaged : false,
+        attentionValues: currentFacts?.attentionValues,
+        haltEngaged: (await repricingPolicies.getHalt(accountId)).engaged,
       });
       return {
         policies: activeChoices,
-        target: { policyId: target.policyId, name: target.name },
+        target: { policyId: target.policyId, name: target.name, version: target.version },
         goals: goalChoices,
         comparison,
         recommendation,
         branch: "comparison",
         ...stored,
+        health: currentHealth,
+        run: currentHealth ? stored.run : null,
         computing: stored.computing || comparison.some(({ status }) => status === "queued" || status === "running"),
         grades,
       };
@@ -184,65 +204,17 @@ export function createPricingHealthServices({
           { sellerAccountId: accountId, replacingPolicyId: target.policyId, body },
           context,
         );
-        if (run) runs.push({ goalId: choice.goalId, goalVersion: choice.goalVersion, dryRunId: run.dryRunId });
+        if (!run) throw new PricingHealthCandidateRefusedError();
+        runs.push({ goalId: choice.goalId, goalVersion: choice.goalVersion, dryRunId: run.dryRunId });
       }
       return runs;
     },
   };
 }
 
-async function readComparisons(
-  accountId: string,
-  target: Readonly<{ policyId: string; body: Parameters<typeof buildCandidateBody>[0] }>,
-  choices: readonly GoalChoice[],
-  repricingEngine: Partial<Pick<RepricingEngineServices, "listDryRuns" | "listDryRunTraces">>,
-): Promise<readonly CandidateMetrics[]> {
-  if (!isOneRuleUnconditional(target.body.rules) || !repricingEngine.listDryRuns || !repricingEngine.listDryRunTraces)
-    return [];
-  const runs = await repricingEngine.listDryRuns(accountId, 100);
-  const byGoal = new Map(choices.map((choice) => [`${choice.goalId}@${choice.goalVersion}`, choice]));
-  const results: CandidateMetrics[] = [];
-  const seen = new Set<string>();
-  for (const run of [...runs].sort(
-    (a, b) => b.requestedAt.localeCompare(a.requestedAt) || b.dryRunId.localeCompare(a.dryRunId),
-  )) {
-    if (run.replacingPolicyId !== target.policyId) continue;
-    const anchor = run.body.rules[0]?.directive.anchorChain[0];
-    if (!anchor || anchor.source !== "curve-objective") continue;
-    const choice = byGoal.get(`${anchor.goalId}@${anchor.goalVersion}`);
-    if (!choice) continue;
-    const key = `${choice.goalId}@${choice.goalVersion}`;
-    if (
-      seen.has(key) ||
-      run.bodyHash !== hashRepricingDryRunBody(run.body) ||
-      run.bodyHash !== hashRepricingDryRunBody(buildCandidateBody(target.body, choice))
-    )
-      continue;
-    seen.add(key);
-    const traces = await readAllTraces(repricingEngine.listDryRunTraces, accountId, run.dryRunId);
-    results.push(candidateMetrics(choice, run, traces));
-  }
-  return results.sort((a, b) => a.goalId.localeCompare(b.goalId) || a.goalVersion - b.goalVersion);
-}
-
-async function readAllTraces(
-  listDryRunTraces: RepricingEngineServices["listDryRunTraces"],
-  accountId: string,
-  dryRunId: string,
-) {
-  const all: RepricingDryRunTrace[] = [];
-  let after: string | undefined;
-  while (true) {
-    const page = await listDryRunTraces(accountId, dryRunId, { after, limit: 100 });
-    all.push(...page);
-    if (page.length < 100) return all;
-    after = page.at(-1)?.listingId;
-  }
-}
-
 export type PricingHealthData = Readonly<{
   policies: readonly { policyId: string; name: string }[];
-  target: { policyId: string; name: string } | null;
+  target: { policyId: string; name: string; version: number } | null;
   health: Awaited<ReturnType<typeof readPricingHealthRun>>["health"];
   run: Awaited<ReturnType<typeof readPricingHealthRun>>["run"];
   grades: readonly PricingHealthGrade[];
@@ -253,10 +225,4 @@ export type PricingHealthData = Readonly<{
   branch?: "comparison" | "advanced-editor" | "create-editor";
   canCompute?: boolean;
 }>;
-type PricingHealthServiceImplementation = ReturnType<typeof createPricingHealthServices>;
-export type PricingHealthServices = Omit<PricingHealthServiceImplementation, "getHealth" | "compare"> & {
-  getHealth: (
-    ...args: Parameters<PricingHealthServiceImplementation["getHealth"]>
-  ) => Promise<PricingHealthData | null>;
-  compare?: PricingHealthServiceImplementation["compare"];
-};
+export type PricingHealthServices = ReturnType<typeof createPricingHealthServices>;

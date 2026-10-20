@@ -23,6 +23,7 @@ const adoption = {
 const choice = selectableGoalChoices(pricingGoalDefinitions(), [adoption])[0]!;
 
 function setup(rules = dryRunBody.rules, hasPolicy = true) {
+  let latestRun: RepricingDryRun | null = null;
   const state = {
     ...initialRepricingPolicyState,
     ...dryRunBody,
@@ -51,15 +52,17 @@ function setup(rules = dryRunBody.rules, hasPolicy = true) {
               updated_at: now,
             },
           ]
-        : []) as Row[],
+        : sql.includes("ORDER BY requested_at DESC") && latestRun
+          ? [{ dryRunId: latestRun.dryRunId }]
+          : []) as Row[],
     }),
   };
   const loadOwnedRepricingPolicy = vi
     .fn<RepricingPolicyServices["loadOwnedRepricingPolicy"]>()
     .mockResolvedValue(hasPolicy ? ({ state, version: 7 } as never) : null);
   const enqueueDryRun = vi.fn<RepricingEngineServices["enqueueDryRun"]>().mockResolvedValue(null);
-  const listDryRuns = vi.fn<RepricingEngineServices["listDryRuns"]>().mockResolvedValue([]);
-  const listDryRunTraces = vi.fn<RepricingEngineServices["listDryRunTraces"]>().mockResolvedValue([]);
+  const getDryRun = vi.fn<RepricingEngineServices["getDryRun"]>().mockImplementation(async () => latestRun);
+  const getHalt = vi.fn<RepricingPolicyServices["getHalt"]>().mockResolvedValue({ engaged: false } as never);
   const resolvePolicy: PolicyRuntime["resolvePolicy"] = async (definition) => ({
     policyKey: definition.policyKey,
     value: definition.defaultValue,
@@ -72,11 +75,19 @@ function setup(rules = dryRunBody.rules, hasPolicy = true) {
   const services = createPricingHealthServices({
     db,
     policies: { resolvePolicy },
-    repricingPolicies: { loadOwnedRepricingPolicy },
-    repricingEngine: { enqueueDryRun, listDryRuns, listDryRunTraces },
+    repricingPolicies: { loadOwnedRepricingPolicy, getHalt },
+    repricingEngine: { enqueueDryRun, getDryRun },
     forecastLedger: { listGoalAdoptions: async () => [adoption] },
   });
-  return { state, services, enqueueDryRun, listDryRuns, listDryRunTraces };
+  return {
+    state,
+    services,
+    enqueueDryRun,
+    getDryRun,
+    setLatestRun: (run: RepricingDryRun) => {
+      latestRun = run;
+    },
+  };
 }
 
 function run(id: string, body = buildCandidateBody(dryRunBody, choice)): RepricingDryRun {
@@ -119,16 +130,18 @@ describe("Pricing Health candidate orchestration", () => {
   });
 
   it("rejects a candidate for a stale body and a corrupted hash before reading traces", async () => {
-    const { services, listDryRuns, listDryRunTraces } = setup();
+    const { services, getDryRun, setLatestRun } = setup();
     const stale = run("stale", { ...buildCandidateBody(dryRunBody, choice), maxChangesPerDay: 99 });
-    listDryRuns.mockResolvedValue([stale, { ...run("corrupt"), bodyHash: "wrong" }]);
+    setLatestRun(stale);
     expect((await services.getHealth("acc_owned", "rpp_owned", now))?.comparison).toEqual([]);
-    expect(listDryRunTraces).not.toHaveBeenCalled();
+    setLatestRun({ ...run("corrupt"), bodyHash: "wrong" });
+    expect((await services.getHealth("acc_owned", "rpp_owned", now))?.comparison).toEqual([]);
+    expect(getDryRun).toHaveBeenCalledTimes(2);
   });
 
   it("selects only the newest run per goal and keeps pending comparison visibly computing", async () => {
-    const { services, listDryRuns } = setup();
-    listDryRuns.mockResolvedValue([run("new"), { ...run("old"), requestedAt: "2026-10-19T00:00:00.000Z" }]);
+    const { services, setLatestRun } = setup();
+    setLatestRun(run("new"));
     const result = await services.getHealth("acc_owned", "rpp_owned", now);
     expect(result?.comparison?.map((candidate) => candidate.dryRunId)).toEqual(["new"]);
     expect(result?.computing).toBe(true);
@@ -136,6 +149,7 @@ describe("Pricing Health candidate orchestration", () => {
 
   it("enqueues the exact body-preserving candidate against the selected target without changing it", async () => {
     const { services, state, enqueueDryRun } = setup();
+    enqueueDryRun.mockResolvedValue(run("accepted"));
     const before = structuredClone(state);
     await services.compare("acc_owned", "rpp_owned", dryRunContext);
     expect(enqueueDryRun).toHaveBeenCalledExactlyOnceWith(
@@ -147,5 +161,13 @@ describe("Pricing Health candidate orchestration", () => {
       dryRunContext,
     );
     expect(state).toEqual(before);
+  });
+
+  it("fails the request visibly when a candidate enqueue is refused", async () => {
+    const { services, enqueueDryRun } = setup();
+    await expect(services.compare("acc_owned", "rpp_owned", dryRunContext)).rejects.toThrow(
+      "candidate_enqueue_refused",
+    );
+    expect(enqueueDryRun).toHaveBeenCalledTimes(1);
   });
 });

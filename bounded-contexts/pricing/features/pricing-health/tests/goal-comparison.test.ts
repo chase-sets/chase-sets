@@ -84,7 +84,7 @@ describe("Pricing Health goal comparison", () => {
     };
     const recommendation = recommendGoalChange({
       currentHealth: health,
-      currentEconomicsListingIds: ["a"],
+      currentEconomicsSet: { digest: "synthetic-a", size: 1 },
       haltEngaged: false,
       candidates: [
         {
@@ -96,7 +96,7 @@ describe("Pricing Health goal comparison", () => {
           completedAt: "now",
           bodyHash: "hash",
           targetPolicyId: "rpp",
-          scopeLabel: "Entire selected policy candidate scope",
+          targetRevision: 1,
           listingCount: 1,
           raised: 1,
           lowered: 0,
@@ -106,16 +106,22 @@ describe("Pricing Health goal comparison", () => {
           p90WaitDays: { USD: 4 },
           coverage: { USD: 1 },
           profitPerDay: { USD: 3 },
-          economicsListingIds: ["a"],
-          affectedListedValue: 100,
+          economicsSet: { digest: "synthetic-a", size: 1 },
+          capitalTurn: { USD: 0.1 },
+          boundStatusCount: { USD: 0 },
+          heldReasons: {},
           flags: {},
         },
       ],
     });
     expect(recommendation.kind).toBe("switch");
     expect(
-      recommendGoalChange({ currentHealth: health, currentEconomicsListingIds: [], haltEngaged: false, candidates: [] })
-        .kind,
+      recommendGoalChange({
+        currentHealth: health,
+        currentEconomicsSet: { digest: "synthetic-empty", size: 0 },
+        haltEngaged: false,
+        candidates: [],
+      }).kind,
     ).toBe("compare-goals");
   });
 });

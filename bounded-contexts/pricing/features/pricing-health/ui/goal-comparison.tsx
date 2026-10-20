@@ -4,12 +4,13 @@ import {
   DataTable,
   Fieldset,
   KeyValueList,
+  LinkButton,
   ProgressiveDisclosure,
   Stack,
   Text,
 } from "@chase-sets/design-system";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
-import { healthCopy as copy } from "./copy";
+import { goalExplanation, goalLabel, healthCopy as copy, healthReasonLabel, recommendationCopy } from "./copy";
 
 export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>) {
   return (
@@ -24,8 +25,8 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
         ) : (
           <Stack gap={3}>
             {goals.map((goal) => (
-              <Fieldset key={`${goal.goalId}@${goal.goalVersion}`} legend={goal.label}>
-                <Text size="sm">{goal.explanation}</Text>
+              <Fieldset key={`${goal.goalId}@${goal.goalVersion}`} legend={goalLabel(goal)}>
+                <Text size="sm">{goalExplanation(goal)}</Text>
                 <ProgressiveDisclosure title={copy("goals.advanced")}>
                   <KeyValueList
                     items={Object.entries(goal.parameterSchema).map(([parameter, bounds]) => ({
@@ -34,7 +35,7 @@ export function GoalPicker({ goals }: Readonly<{ goals: readonly GoalChoice[] }>
                     }))}
                   />
                   <Text size="sm">
-                    {goal.economics.required ? copy("goals.economics.required") : copy("goals.economics.default")}
+                    {goal.requiresEconomics ? copy("goals.economics.required") : copy("goals.economics.default")}
                   </Text>
                 </ProgressiveDisclosure>
               </Fieldset>
@@ -50,18 +51,43 @@ export function GoalComparison({
   branch,
   candidates,
   recommendation,
+  goals = [],
+  targetPolicyId,
 }: Readonly<{
   branch: "comparison" | "advanced-editor" | "create-editor";
   candidates: readonly CandidateMetrics[];
   recommendation: Recommendation;
+  goals?: readonly GoalChoice[];
+  targetPolicyId?: string;
 }>) {
   if (branch === "advanced-editor")
-    return <Banner tone="info" title={copy("goals.advancedEditor")} description={copy("goals.noComparison")} />;
+    return (
+      <Banner
+        tone="info"
+        title={copy("goals.advancedEditor")}
+        description={copy("goals.noComparison")}
+        actions={
+          <LinkButton href={`/account/desk/repricing/${encodeURIComponent(targetPolicyId ?? "")}?edit=1`}>
+            {copy("goals.advancedEditor")}
+          </LinkButton>
+        }
+      />
+    );
   if (branch === "create-editor")
-    return <Banner tone="info" title={copy("goals.createEditor")} description={copy("goals.noComparison")} />;
+    return (
+      <Banner
+        tone="info"
+        title={copy("goals.createEditor")}
+        description={copy("goals.noComparison")}
+        actions={<LinkButton href="/account/desk/repricing?create=1">{copy("create")}</LinkButton>}
+      />
+    );
   return (
     <Stack gap={4} data-testid="pricing-health-goal-comparison">
-      <Banner tone={recommendation.kind === "switch" ? "success" : "info"} title={recommendation.text} />
+      <Banner
+        tone={recommendation.kind === "switch" ? "success" : "info"}
+        title={recommendationCopy(recommendation, goals)}
+      />
       <DataTable
         rows={[...candidates]}
         getRowId={(row) => `${row.goalId}@${row.goalVersion}`}
@@ -69,8 +95,33 @@ export function GoalComparison({
         mobileMode="stack"
         emptyTitle={copy("goals.compareEmpty")}
         columns={[
-          { key: "goal", header: copy("goals.goal"), cell: (row) => `${row.goalId} v${row.goalVersion}` },
-          { key: "scope", header: copy("goals.scope"), cell: (row) => row.scopeLabel },
+          {
+            key: "goal",
+            header: copy("goals.goal"),
+            cell: (row) => {
+              const goal = goals.find((goal) => goal.goalId === row.goalId && goal.goalVersion === row.goalVersion);
+              return goal ? goalLabel(goal) : copy("goals.label.generic");
+            },
+          },
+          { key: "scope", header: copy("goals.scope"), cell: () => copy("goals.entireScope") },
+          { key: "listings", header: copy("goals.listings"), cell: (row) => row.listingCount ?? copy("unavailable") },
+          {
+            key: "target",
+            header: copy("goals.targetRevision"),
+            cell: (row) => (
+              <Text as="span" size="sm" wrap="anywhere">{`${row.targetPolicyId} / ${row.targetRevision}`}</Text>
+            ),
+          },
+          { key: "requestedAt", header: copy("goals.requestedAt"), cell: (row) => row.requestedAt },
+          {
+            key: "hash",
+            header: copy("goals.bodyHash"),
+            cell: (row) => (
+              <Text as="span" size="sm" wrap="anywhere">
+                {row.bodyHash}
+              </Text>
+            ),
+          },
           { key: "status", header: copy("goals.status"), cell: (row) => row.status },
           {
             key: "value",
@@ -97,10 +148,42 @@ export function GoalComparison({
                 .join(", ") || copy("unavailable"),
           },
           {
+            key: "p90",
+            header: copy("goals.p90"),
+            cell: (row) =>
+              Object.entries(row.p90WaitDays ?? {})
+                .map(([currency, value]) => `${currency} ${value ?? copy("unavailable")}`)
+                .join(", ") || copy("unavailable"),
+          },
+          {
+            key: "bounds",
+            header: copy("goals.bounds"),
+            cell: (row) =>
+              Object.entries(row.boundStatusCount ?? {})
+                .map(([currency, value]) => `${currency} ${value}`)
+                .join(", ") || copy("unavailable"),
+          },
+          {
+            key: "profit",
+            header: copy("goals.profit"),
+            cell: (row) =>
+              Object.entries(row.profitPerDay ?? {})
+                .map(([currency, value]) => `${currency} ${value ?? copy("unavailable")}`)
+                .join(", ") || copy("unavailable"),
+          },
+          {
             key: "movement",
             header: copy("goals.movement"),
             cell: (row) =>
               `${copy("goals.raised")}: ${row.raised ?? "—"}; ${copy("goals.lowered")}: ${row.lowered ?? "—"}; ${copy("goals.held")}: ${row.held ?? "—"}`,
+          },
+          {
+            key: "reasons",
+            header: copy("goals.heldReasons"),
+            cell: (row) =>
+              Object.entries(row.heldReasons)
+                .map(([reason, count]) => `${healthReasonLabel(reason)}: ${count}`)
+                .join(", "),
           },
         ]}
       />
