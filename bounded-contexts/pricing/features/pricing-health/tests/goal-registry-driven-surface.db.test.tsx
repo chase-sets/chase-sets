@@ -21,10 +21,12 @@ import {
   createComparisonPolicy,
 } from "./goal-comparison-db-fixture";
 
-const registryCapture = vi.hoisted(() => ({ registries: [] as Array<{
-  registerPricingGoal: (goal: PricingGoalDefinition) => void;
-  definitions: () => readonly PricingGoalDefinition[];
-}> }));
+const registryCapture = vi.hoisted(() => ({
+  registries: [] as Array<{
+    registerPricingGoal: (goal: PricingGoalDefinition) => void;
+    definitions: () => readonly PricingGoalDefinition[];
+  }>,
+}));
 vi.mock("../../repricing-policies/domain/goals/registry", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../repricing-policies/domain/goals/registry")>();
   return {
@@ -76,21 +78,18 @@ describeDb("Pricing Health real-composition registry surface", () => {
   it("drives the real Adoption Gate and registry, then carries a non-default value into compare readback", async () => {
     const data = await services.health.getHealth(comparisonAccountId, comparisonPolicyId, comparisonNow);
     expect(data?.goals?.map(({ goalId, goalVersion }) => `${goalId}@${goalVersion}`)).toEqual([
-        "fixed-percentile@1",
-        "target-horizon@1",
-        "profit-per-day@1",
-        "hold-value@1",
-        "cash-target@1",
-      ]);
+      "fixed-percentile@1",
+      "target-horizon@1",
+      "profit-per-day@1",
+      "hold-value@1",
+      "cash-target@1",
+    ]);
     expect(data?.goals?.every((goal) => goal.lifecycle === "selectable")).toBe(true);
     expect(registryCapture.registries).toHaveLength(1);
     const registered = registryCapture.registries[0]!.definitions();
-    expect(registered.filter((goal) => goal.id === "fixed-percentile").map((goal) => `${goal.id}@${goal.version}`)).toEqual([
-      "fixed-percentile@1",
-      "fixed-percentile@2",
-      "fixed-percentile@3",
-      "fixed-percentile@4",
-    ]);
+    expect(
+      registered.filter((goal) => goal.id === "fixed-percentile").map((goal) => `${goal.id}@${goal.version}`),
+    ).toEqual(["fixed-percentile@1", "fixed-percentile@2", "fixed-percentile@3", "fixed-percentile@4"]);
     const adoptions = await services.forecastLedger.listGoalAdoptions();
     expect(adoptions.find((entry) => entry.goalId === "fixed-percentile" && entry.goalVersion === 3)).toMatchObject({
       selectable: false,

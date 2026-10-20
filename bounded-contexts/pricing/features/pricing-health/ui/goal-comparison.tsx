@@ -1,12 +1,4 @@
-import {
-  Banner,
-  Card,
-  DataTable,
-  Fieldset,
-  LinkButton,
-  Stack,
-  Text,
-} from "@chase-sets/design-system";
+import { Banner, Card, DataTable, Fieldset, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
 import {
   goalExplanation,

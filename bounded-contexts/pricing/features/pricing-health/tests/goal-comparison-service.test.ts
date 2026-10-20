@@ -170,5 +170,4 @@ describe("Pricing Health candidate orchestration", () => {
     );
     expect(enqueueDryRun).toHaveBeenCalledTimes(1);
   });
-
 });

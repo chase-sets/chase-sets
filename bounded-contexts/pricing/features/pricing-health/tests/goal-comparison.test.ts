@@ -124,5 +124,4 @@ describe("Pricing Health goal comparison", () => {
       }).kind,
     ).toBe("compare-goals");
   });
-
 });

@@ -139,9 +139,7 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     await expect(compare).toBeFocused();
     await page.keyboard.press("Enter");
     const read = async () =>
-      (await (
-        await page.request.get(`${healthApi}?policyId=${created!.policyId}`)
-      ).json()) as PricingHealthResponse;
+      (await (await page.request.get(`${healthApi}?policyId=${created!.policyId}`)).json()) as PricingHealthResponse;
     const first = await read();
     // 45 s setup + <=75 s candidates (5 × 12 s) + 30 s UI/axe/responsive + 20 s drain = 170 s < 180 s.
     const candidateDeadline = Date.now() + Math.min(75_000, Math.max(45_000, first.goals.length * 12_000));

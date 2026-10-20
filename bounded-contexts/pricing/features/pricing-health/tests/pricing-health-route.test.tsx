@@ -38,7 +38,10 @@ describe("Pricing Health route", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: { code: "candidate_enqueue_refused" } });
   });
-  it.each([["non-empty body", JSON.stringify({})], ["text body", "compare"]] as const)("rejects closed compare schema: %s", async (_, body) => {
+  it.each([
+    ["non-empty body", JSON.stringify({})],
+    ["text body", "compare"],
+  ] as const)("rejects closed compare schema: %s", async (_, body) => {
     const { app, services } = setup();
     const response = await app.request("/health/rpp_owned/compare", {
       method: "POST",
