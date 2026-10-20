@@ -1,0 +1,24 @@
+[
+  {
+    "id": "exception-3a3ec8fd2ade3c02",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_order_refund_timeline_pages",
+      "digest": "a7ffef81a65c1383921dfe0e92ea7c4123d677b795aea8dbbb454565ae3125f4"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:66 directly synchronizes ordering_order_refund_timeline_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-bd830dbc74a64ceb",
+    "binding": {
+      "module": "bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts",
+      "kind": "UPDATE",
+      "table": "ordering_order_refund_timeline_pages",
+      "digest": "5cb687e4f8990f1be0df50322151e49d97794120ddb19282e21292b95eae9c6f"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/ordering/features/orders/integrations/money-timeline/money-timeline-projection.ts:79 directly synchronizes ordering_order_refund_timeline_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]
