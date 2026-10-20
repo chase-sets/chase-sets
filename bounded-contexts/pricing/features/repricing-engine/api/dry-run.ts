@@ -186,14 +186,18 @@ export function createRepricingDryRunServices(
     input: { outcome?: RepricingPolicyListingTrace["outcome"]; after?: string; limit?: number } = {},
   ): Promise<readonly RepricingPolicyListingTrace[]> =>
     (
-      await db.query<{ trace: RepricingPolicyListingTrace }>(
-        `SELECT item.trace FROM pricing_repricing_dry_run_traces AS item
+      await db.query<{ trace: RepricingPolicyListingTrace; health: unknown }>(
+        `SELECT item.trace, item.health FROM pricing_repricing_dry_run_traces AS item
        WHERE item.seller_account_id = $1 AND item.dry_run_id = $2
          AND ($3::text IS NULL OR item.outcome = $3) AND ($4::text IS NULL OR item.listing_id > $4)
        ORDER BY item.listing_id LIMIT $5`,
         [sellerAccountId, dryRunId, input.outcome ?? null, input.after ?? null, boundedLimit(input.limit ?? 100)],
       )
-    ).rows.map((row) => row.trace);
+    ).rows.map((row) =>
+      row.health === null || row.health === undefined
+        ? row.trace
+        : ({ ...row.trace, health: row.health } as RepricingPolicyListingTrace),
+    );
 
   const listDryRunEvents = async (sellerAccountId: string, dryRunId: string, afterSequence = 0) =>
     (

@@ -29,5 +29,13 @@ export function createPricingHealthRoutes(services: PricingHealthServices) {
     const run = await services.compute(c.get("actor")!.accountId, c.req.param("policyId"), context);
     return run ? c.json(run, 202) : c.json({ error: { code: "not_found" } }, 404);
   });
+  app.post("/:policyId/compare", async (c) => {
+    const context = c.get("context");
+    if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
+    const runs = services.compare
+      ? await services.compare(c.get("actor")!.accountId, c.req.param("policyId"), context)
+      : null;
+    return runs ? c.json({ runs }, 202) : c.json({ error: { code: "not_found" } }, 404);
+  });
   return app;
 }

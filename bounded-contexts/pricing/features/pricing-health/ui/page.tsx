@@ -4,6 +4,7 @@ import type { PricingHealthData } from "../api/services";
 import { HealthSummary } from "./health-summary";
 import { ForecastGradePanel } from "./forecast-grade-panel";
 import { healthCopy as copy } from "./copy";
+import { GoalComparison, GoalPicker } from "./goal-comparison";
 
 export function PricingHealthPage({
   data,
@@ -11,12 +12,14 @@ export function PricingHealthPage({
   error,
   policySelector,
   computeAction,
+  compareAction,
 }: Readonly<{
   data: PricingHealthData | null;
   loading?: boolean;
   error?: string;
   policySelector?: ReactNode;
   computeAction?: ReactNode;
+  compareAction?: ReactNode;
 }>) {
   return (
     <Page>
@@ -71,6 +74,14 @@ export function PricingHealthPage({
                       ) : (
                         <Banner tone="info" title={copy("noVerdict")} description={copy("noVerdict.description")} />
                       )}
+                    </PageSection>
+                    <GoalPicker goals={data.goals ?? []} />
+                    <PageSection title={copy("goals.comparison")} actions={compareAction}>
+                      <GoalComparison
+                        branch={(data.branch ?? "comparison") as "comparison" | "advanced-editor" | "create-editor"}
+                        candidates={data.comparison ?? []}
+                        recommendation={data.recommendation ?? { kind: "compare-goals", text: copy("goals.compare") }}
+                      />
                     </PageSection>
                     <PageSection title={copy("grades.title")} description={copy("grades.platform")}>
                       <ForecastGradePanel grades={data.grades} />

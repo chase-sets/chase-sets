@@ -135,6 +135,16 @@ export function createPricingApiClient({
         }),
       );
     },
+    async comparePricingHealth(
+      policyId: string,
+    ): Promise<{ runs: readonly { goalId: string; goalVersion: number; dryRunId: string }[] }> {
+      return parseJsonResponse(
+        await client.account["pricing-health"][":policyId"].compare.$post({
+          param: { policyId },
+          header: headers,
+        }),
+      );
+    },
     async listAccountRecommendations(query = ""): Promise<ListResponse<AccountRecommendationListItem>> {
       return parseJsonResponse(
         await client.account.recommendations.$get({
