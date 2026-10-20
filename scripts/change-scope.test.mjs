@@ -250,6 +250,7 @@ const schedulerVocabularyLookalikePaths = [
 // Accepted dependency delta: #7274 declares Notifications' owner-builder imports,
 // adding Notifications to the Ordering and Pricing cases' affected sets.
 // Accepted inventory delta: #9919 adds @chase-sets/tcgplayer-market-observations.
+// Accepted inventory delta adds @chase-sets/inventory-draft-listing.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-marketplace-web",
@@ -284,6 +285,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/identity",
   "@chase-sets/identity-seed",
   "@chase-sets/inventory",
+  "@chase-sets/inventory-draft-listing",
   "@chase-sets/local-email-capture",
   "@chase-sets/localization",
   "@chase-sets/market-estimate-display",
