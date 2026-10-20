@@ -161,11 +161,37 @@ export function sanitizeInventoryImportLegacyText(value: unknown): string {
   }
 }
 
+function isValueKey(key: string) {
+  return valueKeys.has(key) || /^option:[A-Za-z0-9_-]+$/.test(key);
+}
+
+function isSafeStoredText(value: unknown) {
+  return typeof value === "string" && sanitizeInventoryImportLegacyText(value) === value;
+}
+
+/**
+ * A retained raw row already in the snapshot's safe value shape, including one a
+ * previous migration redacted. Re-normalizing it through its source adapter would
+ * only lose adapter-derived values, so it is left as stored.
+ */
+export function isInventoryImportSafeRawRow(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.entries(value).every(([key, text]) =>
+    key === "legacyMigrationWarnings"
+      ? Array.isArray(text) &&
+        text.every(
+          (warning) =>
+            warning && typeof warning === "object" && !Array.isArray(warning) && Object.values(warning).every(isSafeStoredText),
+        )
+      : isValueKey(key) && isSafeStoredText(text),
+  );
+}
+
 function safeValues(value: unknown): Readonly<Record<string, string>> {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalid();
   const result: Record<string, string> = {};
   for (const [key, text] of Object.entries(value)) {
-    if (!valueKeys.has(key) && !/^option:[A-Za-z0-9_-]+$/.test(key)) invalid();
+    if (!isValueKey(key)) invalid();
     result[key] = safeText(text);
   }
   return result;
@@ -174,7 +200,7 @@ function safeValues(value: unknown): Readonly<Record<string, string>> {
 function safeRow(row: NormalizedInventoryImportRow): NormalizedInventoryImportRow {
   const values = Object.fromEntries(
     Object.entries({ ...row.rawRow, ...row.values })
-      .filter(([key]) => valueKeys.has(key) || /^option:[A-Za-z0-9_-]+$/.test(key))
+      .filter(([key]) => isValueKey(key))
       .map(([key, text]) => [key, safeText(text)]),
   );
   const externalReferences = row.externalReferences.map((reference) => ({
