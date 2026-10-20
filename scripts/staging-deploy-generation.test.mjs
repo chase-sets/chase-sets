@@ -280,8 +280,21 @@ describe("selectStagingDeployGeneration", () => {
 
     // The held job is still the authority when its completion equals the
     // rerun's lower bound. A strict `>` bound would incorrectly lose it.
-    const equal = await verify(capturedWorld());
-    expect(equal.requests.some(({ url }) => url.includes("created=2026-09-14T12:56:22Z"))).toBe(true);
+    const equalWorld = addApplied(emptyWorld(), {
+      runId: 9_000_000_400,
+      jobId: 9_100_000_400,
+      number: 6400,
+      createdAt: "2026-10-19T12:56:22Z",
+      at: "2026-10-19T12:56:22Z",
+    });
+    const equalGeneration = {
+      runId: "9000000400",
+      runAttempt: 1,
+      jobId: "9100000400",
+      jobCompletedAt: "2026-10-19T12:56:22Z",
+      deployedHead: syntheticHead,
+    };
+    expect((await verify(equalWorld, equalGeneration)).result).toEqual({ verdict: "current" });
 
     const changed = [
       ["runId", "39252891661"],
@@ -338,8 +351,15 @@ describe("selectStagingDeployGeneration", () => {
     // A consumer reruns the fence immediately before each mutation. Once the
     // first mutation advances staging, the second phase must refuse.
     const phases = capturedWorld();
-    const first = await verify(phases);
+    let mutationCount = 0;
+    const runPhase = async () => {
+      const outcome = await verify(phases);
+      if (outcome.result.verdict === "current") mutationCount++;
+      return outcome;
+    };
+    const first = await runPhase();
     expect(first.result).toEqual({ verdict: "current" });
+    expect(mutationCount).toBe(1);
     phases.runs = phases.runs.filter(({ id }) => id !== 39252891660);
     phases.jobs = Object.fromEntries(Object.entries(phases.jobs).filter(([key]) => !key.startsWith("39252891660/")));
     addApplied(phases, {
@@ -349,7 +369,8 @@ describe("selectStagingDeployGeneration", () => {
       createdAt: "2026-10-19T12:57:00Z",
       at: "2026-10-19T12:57:22Z",
     });
-    expect((await verify(phases)).result).toEqual({ verdict: "deploy-generation-advanced" });
+    expect((await runPhase()).result).toEqual({ verdict: "deploy-generation-advanced" });
+    expect(mutationCount).toBe(1);
   });
 
   it("skips coalesced and unexecuted jobs", async () => {
