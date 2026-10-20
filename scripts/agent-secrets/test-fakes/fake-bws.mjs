@@ -85,18 +85,19 @@ if (verb === "secret" && noun === "list") {
     const shell = argv[4];
     const command = argv[argv.length - 1];
     const shellArgs = ["-c", command];
-    const result = process.platform === "win32"
-      ? spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", shell, "-c", command], {
-          env: process.env,
-          encoding: "buffer",
-          windowsHide: true,
-        })
-      : spawnSync(shell, shellArgs, {
-          env: process.env,
-          encoding: "buffer",
-          shell: false,
-          windowsHide: true,
-        });
+    const result =
+      process.platform === "win32"
+        ? spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", shell, "-c", command], {
+            env: process.env,
+            encoding: "buffer",
+            windowsHide: true,
+          })
+        : spawnSync(shell, shellArgs, {
+            env: process.env,
+            encoding: "buffer",
+            shell: false,
+            windowsHide: true,
+          });
     if (result.error) {
       process.stderr.write(String(result.error.message));
       process.exitCode = 1;

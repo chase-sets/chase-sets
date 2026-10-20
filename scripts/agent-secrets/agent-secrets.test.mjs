@@ -83,7 +83,12 @@ function createSeat({
     mkdirSync(path.join(repo, ".github"));
     writeFileSync(path.join(repo, ".github", "credential-inventory.json"), inventory);
   }
-  for (const name of ["with-secrets.ps1", "set-bitwarden-agent-token.ps1", "profile-free-shell.cmd", "profile-free-shell.sh"]) {
+  for (const name of [
+    "with-secrets.ps1",
+    "set-bitwarden-agent-token.ps1",
+    "profile-free-shell.cmd",
+    "profile-free-shell.sh",
+  ]) {
     copyFileSync(path.join(here, name), path.join(root, name));
   }
   copyFileSync(
@@ -138,17 +143,26 @@ function powershellHome() {
 function writeRuntimeProfile(profile, content) {
   const encoded = Buffer.from(content, "utf8").toString("base64");
   const result = runPwsh(
-    ["-Command", `$bytes = [Convert]::FromBase64String('${encoded}'); [IO.File]::WriteAllBytes('${profile.replaceAll("'", "''")}', $bytes)`],
+    [
+      "-Command",
+      `$bytes = [Convert]::FromBase64String('${encoded}'); [IO.File]::WriteAllBytes('${profile.replaceAll("'", "''")}', $bytes)`,
+    ],
     { cwd: os.tmpdir(), env: helperEnvironment() },
   );
   expect(result.status).toBe(0);
 }
 
 function removeRuntimeProfile(profile) {
-  const result = runPwsh(["-Command", `if (Test-Path -LiteralPath '${profile.replaceAll("'", "''")}') { Remove-Item -LiteralPath '${profile.replaceAll("'", "''")}' -Force }`], {
-    cwd: os.tmpdir(),
-    env: helperEnvironment(),
-  });
+  const result = runPwsh(
+    [
+      "-Command",
+      `if (Test-Path -LiteralPath '${profile.replaceAll("'", "''")}') { Remove-Item -LiteralPath '${profile.replaceAll("'", "''")}' -Force }`,
+    ],
+    {
+      cwd: os.tmpdir(),
+      env: helperEnvironment(),
+    },
+  );
   expect(result.status).toBe(0);
 }
 
@@ -324,7 +338,10 @@ describe("with-secrets.ps1 -Command", { timeout: helperLaunchTimeoutMs }, () => 
 
   it("executes the bws shell boundary with unchanged output and exit status", () => {
     const seat = createSeat({ bws: { executeShell: true } });
-    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output 'boundary'; [Console]::Error.Write('err'); exit 7"]);
+    const result = runSeat(seat, "with-secrets.ps1", [
+      "-Command",
+      "Write-Output 'boundary'; [Console]::Error.Write('err'); exit 7",
+    ]);
 
     expect(result.status).toBe(7);
     expect(result.stdout).toBe("boundary\r\n");
