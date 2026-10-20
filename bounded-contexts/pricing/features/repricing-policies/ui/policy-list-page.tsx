@@ -202,6 +202,9 @@ export function PricingRepricingPolicyListPage({
         description={t("pricing.features.repricingPolicies.ui.policyList.description")}
         actions={
           <>
+            <LinkButton href="/account/desk/pricing-health" tone="secondary">
+              {t("pricing.features.pricingHealth.title")}
+            </LinkButton>
             <LinkButton href="/account/repricing" tone="secondary">
               {t("pricing.features.recommendations.ui.recommendationListPage.recommendations")}
             </LinkButton>
