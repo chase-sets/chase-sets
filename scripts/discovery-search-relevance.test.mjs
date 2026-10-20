@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -150,7 +151,7 @@ describe("Discovery search relevance runner", () => {
       generatedAt: "2026-01-01T00:00:00.000Z",
       rankedInputs,
     };
-    const tempDir = await mkdtemp(path.join(root, "artifacts/discovery-search-relevance-test-"));
+    const tempDir = await mkdtemp(path.join(tmpdir(), "chase-sets-discovery-search-relevance-"));
     try {
       const rankedInputPath = path.join(tempDir, "ranked-input.json");
       await writeFile(rankedInputPath, `${JSON.stringify(rankedInput)}\n`, "utf8");
@@ -174,14 +175,19 @@ describe("Discovery search relevance runner", () => {
       gatedFailureInput.rankedInputs["lexical-only"]["exact-01"] = [];
       const gatedFailurePath = path.join(tempDir, "gated-failure.json");
       await writeFile(gatedFailurePath, `${JSON.stringify(gatedFailureInput)}\n`, "utf8");
+      const gatedFailureJson = path.join(tempDir, "gated-failure.json.out");
+      const gatedFailureMarkdown = path.join(tempDir, "gated-failure.md");
       await expect(
         runRankedInputEvaluation({
           rankedInput: gatedFailurePath,
-          jsonOut: path.join(tempDir, "gated-failure.json.out"),
-          markdownOut: path.join(tempDir, "gated-failure.md"),
+          jsonOut: gatedFailureJson,
+          markdownOut: gatedFailureMarkdown,
           enforceGate: true,
         }),
       ).rejects.toThrow(/Discovery relevance gate failed/);
+      const gatedFailureReport = JSON.parse(await readFile(gatedFailureJson, "utf8"));
+      expect(gatedFailureReport.comparison.passed).toBe(false);
+      await expect(readFile(gatedFailureMarkdown, "utf8")).resolves.toContain("## Rollout gate");
       const reportOnly = await runRankedInputEvaluation({
         rankedInput: gatedFailurePath,
         jsonOut: path.join(tempDir, "report-only.json"),
