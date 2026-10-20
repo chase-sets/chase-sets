@@ -1,0 +1,158 @@
+{
+ "desktop/react": {
+  "n": 10,
+  "ttfb": {
+   "med": 35.7,
+   "p90": 78.7
+  },
+  "fcp": {
+   "med": 192,
+   "p90": 240
+  },
+  "lcp": {
+   "med": 192,
+   "p90": 240
+  },
+  "load": {
+   "med": 177.9,
+   "p90": 224
+  },
+  "hydratedAt": {
+   "med": 277.4,
+   "p90": 318.1
+  },
+  "tbtToHydration": {
+   "med": 43.5,
+   "p90": 50
+  },
+  "actionMs": {
+   "med": 319.8,
+   "p90": 406
+  },
+  "clientNavMs": {
+   "med": 53.1,
+   "p90": 59.7
+  },
+  "jsHeapUsedMB": {
+   "med": 2.9,
+   "p90": 3
+  }
+ },
+ "desktop/leptos": {
+  "n": 10,
+  "ttfb": {
+   "med": 15.3,
+   "p90": 22.1
+  },
+  "fcp": {
+   "med": 164,
+   "p90": 240
+  },
+  "lcp": {
+   "med": 164,
+   "p90": 240
+  },
+  "load": {
+   "med": 154.4,
+   "p90": 224.8
+  },
+  "hydratedAt": {
+   "med": 206.4,
+   "p90": 275.1
+  },
+  "tbtToHydration": {
+   "med": 45.5,
+   "p90": 50
+  },
+  "actionMs": {
+   "med": 251.3,
+   "p90": 378.7
+  },
+  "clientNavMs": {
+   "med": 44.3,
+   "p90": 48.1
+  },
+  "jsHeapUsedMB": {
+   "med": 2.1,
+   "p90": 2.1
+  }
+ },
+ "mobile/react": {
+  "n": 10,
+  "ttfb": {
+   "med": 35,
+   "p90": 47.8
+  },
+  "fcp": {
+   "med": 1114,
+   "p90": 1212
+  },
+  "lcp": {
+   "med": 1114,
+   "p90": 1212
+  },
+  "load": {
+   "med": 1201.7,
+   "p90": 1313.5
+  },
+  "hydratedAt": {
+   "med": 2129.3,
+   "p90": 2350.2
+  },
+  "tbtToHydration": {
+   "med": 875.5,
+   "p90": 1033
+  },
+  "actionMs": {
+   "med": 944.4,
+   "p90": 1111.1
+  },
+  "clientNavMs": {
+   "med": 509.5,
+   "p90": 614.2
+  },
+  "jsHeapUsedMB": {
+   "med": 2.9,
+   "p90": 3
+  }
+ },
+ "mobile/leptos": {
+  "n": 10,
+  "ttfb": {
+   "med": 13.8,
+   "p90": 28.5
+  },
+  "fcp": {
+   "med": 1156,
+   "p90": 1256
+  },
+  "lcp": {
+   "med": 1156,
+   "p90": 1256
+  },
+  "load": {
+   "med": 1204.2,
+   "p90": 1283.2
+  },
+  "hydratedAt": {
+   "med": 2297.3,
+   "p90": 2338.1
+  },
+  "tbtToHydration": {
+   "med": 1117.5,
+   "p90": 1201
+  },
+  "actionMs": {
+   "med": 816,
+   "p90": 960.6
+  },
+  "clientNavMs": {
+   "med": 488.6,
+   "p90": 550.6
+  },
+  "jsHeapUsedMB": {
+   "med": 2.1,
+   "p90": 2.1
+  }
+ }
+}

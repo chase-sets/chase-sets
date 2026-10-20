@@ -1,0 +1,170 @@
+{
+ "react": {
+  "startup": {
+   "firstOkMsFromDockerRun": 9388,
+   "idleMem": "27.82MiB / 1GiB"
+  },
+  "fixed": {
+   "k6": {
+    "rps": 64.2,
+    "p50": 2591.9,
+    "p95": 57524.9,
+    "p99": 59940.5,
+    "failed": 0.06667944050584403,
+    "checks": "4871/5219"
+   },
+   "stats": {
+    "fsw-react": {
+     "samples": 120,
+     "cpuAvgPct": 103,
+     "cpuMaxPct": 116.23,
+     "memAvgMiB": 126.3,
+     "memMaxMiB": 130.6
+    },
+    "rb-rust": {
+     "samples": 120,
+     "cpuAvgPct": 5.1,
+     "cpuMaxPct": 12.92,
+     "memAvgMiB": 16.5,
+     "memMaxMiB": 18
+    }
+   }
+  },
+  "sat64": {
+   "k6": {
+    "rps": 71,
+    "p50": 870.1,
+    "p95": 1138.7,
+    "p99": 1223.3,
+    "failed": 0,
+    "checks": "4335/4335"
+   },
+   "stats": {
+    "fsw-react": {
+     "samples": 116,
+     "cpuAvgPct": 102,
+     "cpuMaxPct": 107.5,
+     "memAvgMiB": 127.5,
+     "memMaxMiB": 130
+    },
+    "rb-rust": {
+     "samples": 116,
+     "cpuAvgPct": 3.8,
+     "cpuMaxPct": 12.5,
+     "memAvgMiB": 17.5,
+     "memMaxMiB": 18.6
+    }
+   }
+  },
+  "sat256": {
+   "k6": {
+    "rps": 73.8,
+    "p50": 1614,
+    "p95": 2714,
+    "p99": 59825.9,
+    "failed": 0.017880505887483647,
+    "checks": "4504/4586"
+   },
+   "stats": {
+    "fsw-react": {
+     "samples": 117,
+     "cpuAvgPct": 102.3,
+     "cpuMaxPct": 110.43,
+     "memAvgMiB": 131.5,
+     "memMaxMiB": 136.6
+    },
+    "rb-rust": {
+     "samples": 117,
+     "cpuAvgPct": 3.5,
+     "cpuMaxPct": 8.85,
+     "memAvgMiB": 17.9,
+     "memMaxMiB": 19
+    }
+   }
+  }
+ },
+ "leptos": {
+  "startup": {
+   "firstOkMsFromDockerRun": 2992,
+   "idleMem": "2.5MiB / 1GiB"
+  },
+  "fixed": {
+   "k6": {
+    "rps": 150,
+    "p50": 52.9,
+    "p95": 292.2,
+    "p99": 337.5,
+    "failed": 0,
+    "checks": "9001/9001"
+   },
+   "stats": {
+    "fsw-leptos": {
+     "samples": 97,
+     "cpuAvgPct": 96.7,
+     "cpuMaxPct": 106.41,
+     "memAvgMiB": 16.4,
+     "memMaxMiB": 18.2
+    },
+    "rb-rust": {
+     "samples": 97,
+     "cpuAvgPct": 6.3,
+     "cpuMaxPct": 11.16,
+     "memAvgMiB": 18.2,
+     "memMaxMiB": 18.9
+    }
+   }
+  },
+  "sat64": {
+   "k6": {
+    "rps": 170.1,
+    "p50": 373.4,
+    "p95": 510.2,
+    "p99": 542.9,
+    "failed": 0,
+    "checks": "10261/10261"
+   },
+   "stats": {
+    "fsw-leptos": {
+     "samples": 119,
+     "cpuAvgPct": 104.2,
+     "cpuMaxPct": 124.65,
+     "memAvgMiB": 17.3,
+     "memMaxMiB": 18.1
+    },
+    "rb-rust": {
+     "samples": 119,
+     "cpuAvgPct": 7.9,
+     "cpuMaxPct": 14.94,
+     "memAvgMiB": 18.2,
+     "memMaxMiB": 19
+    }
+   }
+  },
+  "sat256": {
+   "k6": {
+    "rps": 137.7,
+    "p50": 1860.8,
+    "p95": 2504.2,
+    "p99": 2800.4,
+    "failed": 0,
+    "checks": "8464/8464"
+   },
+   "stats": {
+    "fsw-leptos": {
+     "samples": 120,
+     "cpuAvgPct": 103.6,
+     "cpuMaxPct": 114.19,
+     "memAvgMiB": 56.1,
+     "memMaxMiB": 58.5
+    },
+    "rb-rust": {
+     "samples": 120,
+     "cpuAvgPct": 9.2,
+     "cpuMaxPct": 27.75,
+     "memAvgMiB": 23.1,
+     "memMaxMiB": 24
+    }
+   }
+  }
+ }
+}

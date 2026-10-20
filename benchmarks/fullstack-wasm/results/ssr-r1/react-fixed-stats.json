@@ -1,0 +1,16 @@
+{
+ "fsw-react": {
+  "samples": 120,
+  "cpuAvgPct": 103,
+  "cpuMaxPct": 116.23,
+  "memAvgMiB": 126.3,
+  "memMaxMiB": 130.6
+ },
+ "rb-rust": {
+  "samples": 120,
+  "cpuAvgPct": 5.1,
+  "cpuMaxPct": 12.92,
+  "memAvgMiB": 16.5,
+  "memMaxMiB": 18
+ }
+}
