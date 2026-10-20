@@ -79,7 +79,7 @@ function slice(number, milestone, state, labels, created_at = OLD, overrides = {
 }
 
 function epic(number, total, overrides = {}) {
-  return slice(number, null, "open", ["kind:epic"], OLD, {
+  return slice(number, null, "open", [], OLD, {
     issueTypeName: "Epic",
     sub_issues_summary: { total },
     ...overrides,
@@ -992,7 +992,7 @@ describe("roadmap publication authority", () => {
 });
 
 describe("roadmap status classification and preserved rollups", () => {
-  it("preserves every non-forecast cell and row order on a fixed tagged fixture", () => {
+  it("preserves every non-forecast cell and row order with native and closed untyped Epics", () => {
     const first = { ...WAVE_1, description: outcomeDescription("commerce", 100) };
     const later = { ...WAVE_2, description: outcomeDescription("commerce", 300) };
     const candidate = {
@@ -1009,6 +1009,7 @@ describe("roadmap status classification and preserved rollups", () => {
       slice(5, candidate, "open", ["kind:product"]),
       slice(6, later, "open", ["priority:p1", "area:ops", "kind:ops"], OLD, { hasParent: true }),
       epic(10, 1),
+      slice(11, null, "closed", ["kind:epic"], OLD, { issueTypeName: null }),
     ];
     const growth = knownGrowth(issues);
     growth.delete(6);
@@ -1111,7 +1112,7 @@ describe("roadmap status classification and preserved rollups", () => {
   });
 
   it("identifies epics and delegates classification to the shared predicate", () => {
-    expect(isEpic(slice(1, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: null }))).toBe(true);
+    expect(isEpic(slice(1, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: null }))).toBe(false);
     expect(isEpic(slice(2, WAVE_1, "open", ["kind:product"]))).toBe(false);
     expect(isEpic(slice(6, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: "Slice" }))).toBe(false);
 

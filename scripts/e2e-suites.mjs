@@ -123,7 +123,13 @@ export const e2eSuites = Object.freeze([
     grep: "@tcgplayer-connector-extension-authority",
     command: ["--filter", "@chase-sets/app-tcgplayer-connector-extension", "run", "test:chromium"],
     requiresDisplay: true,
-    estimatedDurationSeconds: 180,
+    // Measured suite phase, not whole job: solo runs 39190003901 and 39197730983
+    // reported 194 passed in 16.6m and 16.7m. Their whole jobs, with checkout,
+    // install and evidence steps, took 17.38m and 17.77m, about 7m inside the
+    // 25m job limit. Paired with marketplace_account (8.0m) it exceeded that
+    // limit in runs 39233257411 and 39236645773, so it always runs alone.
+    estimatedDurationSeconds: 1002,
+    unpaired: true,
   },
   {
     id: "tcgplayer_operator_extension",
@@ -591,8 +597,11 @@ export function orderE2eSuiteIds(suiteIds) {
   return [...new Set(suiteIds)].sort((left, right) => (suiteOrder.get(left) ?? 999) - (suiteOrder.get(right) ?? 999));
 }
 
+// A suite declared unpaired gets its own batch; the rest keep duration balancing.
 export function batchE2eSuiteIds(suiteIds, batchSize = defaultSuiteBatchSize) {
-  const orderedSuiteIds = orderE2eSuiteIds(suiteIds);
+  const selectedSuiteIds = orderE2eSuiteIds(suiteIds);
+  const unpairedSuiteIds = selectedSuiteIds.filter((suiteId) => e2eSuiteById(suiteId)?.unpaired === true);
+  const orderedSuiteIds = selectedSuiteIds.filter((suiteId) => !unpairedSuiteIds.includes(suiteId));
   const safeBatchSize = Math.max(1, batchSize);
   const batchCount = Math.ceil(orderedSuiteIds.length / safeBatchSize);
   const batches = Array.from({ length: batchCount }, (_entry, index) => ({
@@ -620,7 +629,7 @@ export function batchE2eSuiteIds(suiteIds, batchSize = defaultSuiteBatchSize) {
     targetBatch.estimatedDurationSeconds += estimatedE2eSuiteDurationSeconds(suiteId);
   }
 
-  return batches.map((batch) => orderE2eSuiteIds(batch.suiteIds).join(","));
+  return [...batches.map((batch) => orderE2eSuiteIds(batch.suiteIds).join(",")), ...unpairedSuiteIds];
 }
 
 export function e2eSuiteById(suiteId) {
