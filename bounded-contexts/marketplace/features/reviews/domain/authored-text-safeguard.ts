@@ -35,7 +35,7 @@ export class AuthoredTextRejectedError extends Error {
 const CONTROL_CHARACTER = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u;
 // Embeddings, overrides, and isolates reorder how text displays. Direction
 // marks (LRM, RLM, ALM) do not and stay accepted for right-to-left writing.
-const DIRECTION_OVERRIDE = /[‪-‮⁦-⁩]/u;
+const DIRECTION_OVERRIDE = /[\u202A-\u202E\u2066-\u2069]/u;
 // Invisible format characters (zero-width joiners, soft hyphens, tags) are
 // accepted in text but removed before link inspection so they cannot split a
 // scheme name.

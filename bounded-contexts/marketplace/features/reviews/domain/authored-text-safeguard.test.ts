@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   assertSafeAuthoredText,
   AuthoredTextRejectedError,
@@ -13,9 +13,12 @@ const acceptedText: readonly (readonly [string, string])[] = [
   ["plain prose", "Great seller, fast shipping!"],
   ["line breaks and tabs", "Line one\nLine two\r\n\tIndented line"],
   ["non-Latin scripts, symbols and emoji", "Envío rápido 🚀 素晴らしい売り手 — 5/5 ★ Отлично"],
-  ["emoji joiner sequences", "Family 👨‍👩‍👧 and flag 🏴󠁧󠁢󠁥󠁮󠁧󠁿"],
-  ["zero-width non-joiner inside a word", "می‌خواهم"],
-  ["right-to-left text with direction marks", "שלום‏ עולם مرحبا‎"],
+  [
+    "emoji joiner sequences",
+    "Family 👨\u200D👩\u200D👧 and flag 🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}",
+  ],
+  ["zero-width non-joiner inside a word", "می\u200Cخواهم"],
+  ["right-to-left text with direction marks", "שלום\u200F עולם مرحبا\u200E"],
   ["one https link", "Photos at https://example.com/cards/1."],
   ["two distinct https links", "https://a.example/x and https://b.example/y"],
   ["same host with different paths", "https://a.example/one https://a.example/two"],
@@ -33,14 +36,14 @@ const rejectedText: readonly (readonly [string, string, string])[] = [
   ["terminal escape sequence", "\u001b[31mred", "text_control_character"],
   ["delete", "Fine\u007f", "text_control_character"],
   ["C1 next line", "Fine\u0085seller", "text_control_character"],
-  ["right-to-left override", "Great ‮evil", "text_direction_override"],
-  ["left-to-right embedding", "‪embedded‬", "text_direction_override"],
-  ["direction isolates", "⁦isolate⁩", "text_direction_override"],
+  ["right-to-left override", "Great \u202Eevil", "text_direction_override"],
+  ["left-to-right embedding", "\u202Aembedded\u202C", "text_direction_override"],
+  ["direction isolates", "\u2066isolate\u2069", "text_direction_override"],
   ["javascript scheme", "javascript:alert(1)", "text_unsafe_link"],
   ["mixed-case javascript scheme", "Click JaVaScRiPt:alert(1)", "text_unsafe_link"],
   ["fullwidth javascript scheme", "ｊａｖａｓｃｒｉｐｔ：alert(1)", "text_unsafe_link"],
-  ["zero-width split javascript scheme", "java​script:alert(1)", "text_unsafe_link"],
-  ["soft-hyphen split javascript scheme", "java­script:alert(1)", "text_unsafe_link"],
+  ["zero-width split javascript scheme", "java\u200Bscript:alert(1)", "text_unsafe_link"],
+  ["soft-hyphen split javascript scheme", "java\u00ADscript:alert(1)", "text_unsafe_link"],
   ["bracketed javascript scheme", "<javascript:alert(1)>", "text_unsafe_link"],
   ["data scheme", "data:text/html;base64,PHNjcmlwdD4=", "text_unsafe_link"],
   ["vbscript scheme", "vbscript:msgbox(1)", "text_unsafe_link"],
@@ -89,10 +92,10 @@ describe("issue-5258-marketplace-ac2 authored text safeguard matrix", () => {
   });
 
   it("reports the first failing check in a fixed order", () => {
-    expect(findAuthoredTextRejection("\u0000 ‮ javascript:x https://a.example https://a.example")).toBe(
+    expect(findAuthoredTextRejection("\u0000 \u202E javascript:x https://a.example https://a.example")).toBe(
       "text_control_character",
     );
-    expect(findAuthoredTextRejection("‮ javascript:x https://a.example https://a.example")).toBe(
+    expect(findAuthoredTextRejection("\u202E javascript:x https://a.example https://a.example")).toBe(
       "text_direction_override",
     );
     expect(findAuthoredTextRejection("https://a.example https://a.example javascript:x")).toBe("text_unsafe_link");
@@ -105,7 +108,7 @@ describe("issue-5258-marketplace-ac2 authored text safeguard matrix", () => {
   });
 
   it("does not re-judge a value carried forward unchanged from the stored value", () => {
-    const legacy = "Legacy ‮text";
+    const legacy = "Legacy \u202Etext";
     expect(() => assertSafeAuthoredText("listing-evidence-alt-text", legacy, legacy)).not.toThrow();
     expect(() => assertSafeAuthoredText("listing-evidence-alt-text", legacy, "Another stored value")).toThrow(
       AuthoredTextRejectedError,
@@ -128,11 +131,31 @@ describe("issue-5258-marketplace-ac2 authored text safeguard matrix", () => {
     expect(JSON.stringify({ ...rejection, message: rejection.message })).not.toContain(SECRET_MARKER);
   });
 
-  it("scans one whitespace-free run of many distinct links in linear time", () => {
+  it("parses each link of one whitespace-free run of many distinct links once", () => {
     const adversarial = Array.from({ length: 20_000 }, (_, index) => `,https://h${index}.example`).join("");
-    const startedAt = performance.now();
-    expect(findAuthoredTextRejection(adversarial)).toBeNull();
-    expect(performance.now() - startedAt).toBeLessThan(2_000);
+    const NativeURL = URL;
+    let parses = 0;
+    let parsedCharacters = 0;
+    vi.stubGlobal(
+      "URL",
+      class CountingURL extends NativeURL {
+        public constructor(input: string | URL, base?: string | URL) {
+          parses += 1;
+          parsedCharacters += String(input).length;
+          super(input, base);
+        }
+      },
+    );
+    try {
+      expect(findAuthoredTextRejection(adversarial)).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    // A link ends where the next scheme starts, so the parser reads each input
+    // character at most once; a span running to the end of the run would not.
+    expect(parses).toBe(20_000);
+    expect(parsedCharacters).toBeLessThanOrEqual(adversarial.length);
   });
 });
 

@@ -101,7 +101,7 @@ async function errorBody(response: Response) {
 
 const rejectedFeedback: readonly (readonly [string, string])[] = [
   [`${SECRET_MARKER} \u0000`, "text_control_character"],
-  [`${SECRET_MARKER} ‮evil`, "text_direction_override"],
+  [`${SECRET_MARKER} \u202Eevil`, "text_direction_override"],
   [`${SECRET_MARKER} javascript:alert(1)`, "text_unsafe_link"],
   [`${SECRET_MARKER} https://spam.example https://spam.example`, "text_duplicate_link"],
 ];
@@ -161,7 +161,7 @@ describe("issue-5258-marketplace-ac2 Review HTTP route safeguard", () => {
       },
     });
     fixture.actAs("acc_seller");
-    const reply = await fixture.post(`/${submitted.id}/reply`, { feedback: "Thanks ⁦hidden⁩" });
+    const reply = await fixture.post(`/${submitted.id}/reply`, { feedback: "Thanks \u2066hidden\u2069" });
     expect(reply.status).toBe(400);
     expect((await errorBody(reply)).error).toEqual({
       code: "text_direction_override",

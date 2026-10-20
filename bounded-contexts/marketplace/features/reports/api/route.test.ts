@@ -9,7 +9,7 @@ import { createMarketplaceReportRuntime } from "./runtime";
 // Report details are private reporter evidence for human review. The public
 // authored-text safeguard deliberately does not judge them, and they must
 // never reach a response body or a log line in any outcome.
-const SECRET_DETAILS = "SECRET-MARKER-7281 password=hunter2 javascript:alert(1) ‮reversed";
+const SECRET_DETAILS = "SECRET-MARKER-7281 password=hunter2 javascript:alert(1) \u202Ereversed";
 
 function actor(accountId: string): NonNullable<MarketplaceApiEnv["Variables"]["actor"]> {
   return {

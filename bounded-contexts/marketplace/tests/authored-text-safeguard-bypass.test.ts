@@ -21,7 +21,7 @@ const context = {
 
 const candidateRejectedText = [
   "Nice\u0000seller",
-  "Great ‮evil",
+  "Great \u202Eevil",
   "ｊａｖａｓｃｒｉｐｔ：alert(1)",
   "https://spam.example/buy https://spam.example/buy",
 ];
