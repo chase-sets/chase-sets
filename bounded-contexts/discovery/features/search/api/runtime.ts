@@ -190,7 +190,7 @@ function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string)
 }
 
 function filterState(params: DiscoverySearchParams): string {
-  const hasCategories = (params.categories ?? []).some((category) => category.trim().length > 0);
+  const hasCategories = normalizeCategorySet(params.categories).length > 0;
   const filters = [
     hasCategories ? "category" : params.category && "category",
     params.tag && "tag",

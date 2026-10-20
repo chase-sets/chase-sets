@@ -229,8 +229,8 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
 
     const rows = [
       ["set_a", "A-only", ["A"], "12.00", "USD"],
-      ["set_b", "B-only", ["B"], "12.00", "EUR"],
-      ["set_ab", "A+B", ["A", "B"], null, null],
+      ["set_b", "Z B-only", ["B"], "12.00", "EUR"],
+      ["set_ab", "Combined A+B", ["A", "B"], null, null],
       ["set_neither", "Neither", ["C"], "12.00", "USD"],
       ["set_unknown", "Unknown", ["unknown"], "12.00", "USD"],
     ] as const;
@@ -255,6 +255,37 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
         [id, `Page A ${String(index).padStart(2, "0")}`],
       );
     }
+    await categoryPool.query(`INSERT INTO discovery_market_accounts (account_id) VALUES ('category-seller')`);
+    for (const [id, currencies] of [
+      ["set_a", ["USD"]],
+      ["set_b", ["EUR"]],
+      ["set_ab", ["USD", "EUR"]],
+      ["set_neither", ["USD"]],
+      ["set_unknown", ["USD"]],
+    ] as const) {
+      for (const currency of currencies) {
+        await categoryPool.query(
+          `INSERT INTO discovery_market_listings
+             (listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id,
+              price_amount, price_currency_code, listing_stream_version, quantity_cap, status,
+              product_measure_snapshot, selected_options)
+           VALUES ($1, 'category-seller', $1, $2, $1, 12.00, $3, 1, 1, 'active', '{}',
+                   '[{"dimensionId":"finish","optionId":"foil"}]'::jsonb)`,
+          [`${id}_${currency}`, id, currency],
+        );
+      }
+    }
+    await categoryPool.query(
+      `UPDATE discovery_search_items AS item SET
+         lowest_price_amount = market.lowest_price_amount,
+         lowest_price_currency_code = market.lowest_price_currency_code
+       FROM (
+         SELECT catalog_catalog_item_id,
+           CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount) ELSE NULL END AS lowest_price_amount,
+           CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code
+         FROM discovery_market_listings GROUP BY catalog_catalog_item_id
+       ) AS market WHERE market.catalog_catalog_item_id = item.catalog_item_id`,
+    );
   }, 120_000);
 
   afterAll(async () => {
@@ -284,9 +315,19 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
       expect.arrayContaining(["set_neither", "set_unknown"]),
     );
 
-    const walked = await walkAllPages({ categories: ["A", "B"] }, 20, categoryPool);
-    expect(walked).toContain("set_b");
-    expect(new Set(walked).size).toBe(walked.length);
+    const pageIds = Array.from({ length: 21 }, (_, index) => `page_a_${String(index).padStart(2, "0")}`);
+    const expected = ["set_a", "set_ab", ...pageIds, "set_b"];
+    const firstPage = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], sort: "title_asc", limit: 20 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+    expect(firstPage.items.map((item) => item.catalog_item_id)).toEqual(expected.slice(0, 20));
+    expect(firstPage.nextCursor).not.toBeNull();
+    const cursors: string[] = [];
+    const walked = await walkAllPages({ categories: ["A", "B"], sort: "title_asc" }, 20, categoryPool, cursors);
+    expect(walked).toEqual(expected);
+    expect(cursors).toHaveLength(1);
   });
 
   it("applies native-currency minimums without dropping foreign or mixed rows", async () => {
@@ -295,17 +336,20 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
       { categories: ["A", "B"], priceCurrency: "EUR", priceMin: "10.00", limit: 100 },
       { loadFacets: false, loadMarketSummaries: false },
     );
-    expect(all.items.map((item) => item.catalog_item_id)).toEqual(expect.arrayContaining(["set_a", "set_b", "set_ab"]));
+    const expected = [
+      "set_a",
+      "set_b",
+      "set_ab",
+      ...Array.from({ length: 21 }, (_, index) => `page_a_${String(index).padStart(2, "0")}`),
+    ];
+    expect(all.items.map((item) => item.catalog_item_id).sort()).toEqual(expected.sort());
 
     const bounded = await searchDiscoveryItems(
       categoryPool,
       { categories: ["A", "B"], priceCurrency: "EUR", priceMin: "13.00", limit: 100 },
       { loadFacets: false, loadMarketSummaries: false },
     );
-    const ids = bounded.items.map((item) => item.catalog_item_id);
-    expect(ids).toContain("set_a");
-    expect(ids).toContain("set_ab");
-    expect(ids).not.toContain("set_b");
+    expect(bounded.items.map((item) => item.catalog_item_id).sort()).toEqual(expected.filter((id) => id !== "set_b"));
   });
 
   it("uses the same category predicate for dimension facet counts", async () => {
@@ -319,6 +363,25 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
     expect(result.category_counts).toEqual([
       { slug: "A", count: 23 },
       { slug: "B", count: 2 },
+      { slug: "C", count: 1 },
+      { slug: "unknown", count: 1 },
+    ]);
+  });
+
+  it.each([
+    { priceMin: "10.00", foilCount: 3, aCount: 23, bCount: 2 },
+    { priceMin: "13.00", foilCount: 2, aCount: 23, bCount: 1 },
+  ])("uses native-currency bounds for category and dimension facet counts at $priceMin", async (expected) => {
+    const result = await searchDiscoveryItems(
+      categoryPool,
+      { categories: ["A", "B"], priceCurrency: "EUR", priceMin: expected.priceMin, limit: 100 },
+      { loadMarketSummaries: false },
+    );
+    const finish = result.facets.find((facet) => facet.kind === "dimension" && facet.id === "finish");
+    expect(finish?.values).toEqual([{ id: "foil", label: "Foil", count: expected.foilCount, selected: false }]);
+    expect(result.category_counts).toEqual([
+      { slug: "A", count: expected.aCount },
+      { slug: "B", count: expected.bCount },
       { slug: "C", count: 1 },
       { slug: "unknown", count: 1 },
     ]);

@@ -1819,7 +1819,7 @@ async function loadDimensionFacetValues(
     const lowestPriceCurrencyColumn =
       priceCurrencyParamIndex === null
         ? ""
-        : "CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,";
+        : "\n         CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,";
     const result = await db.query<{
       option_id: string;
       label: string;
@@ -1859,8 +1859,7 @@ async function loadDimensionFacetValues(
        SELECT catalog_catalog_item_id, option_id,
          COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NOT NULL)::integer AS listing_count,
          COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NULL)::integer AS offer_count,
-         CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount) ELSE NULL END AS lowest_price_amount,
-         ${lowestPriceCurrencyColumn}
+         CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount) ELSE NULL END AS lowest_price_amount,${lowestPriceCurrencyColumn}
          SUM(visible_quantity) AS visible_quantity
        FROM option_activity GROUP BY catalog_catalog_item_id, option_id
      ), market_counts AS (
