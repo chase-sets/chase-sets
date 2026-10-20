@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 import { classified } from "./backlog-classify.mjs";
 import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registry.mjs";
 import { isExecutableOutcome, readOutcomePolicy } from "./milestone-policy.mjs";
@@ -78,6 +80,9 @@ const BOT_LOGIN = "github-actions[bot]";
 const MAX_PAGES = 100;
 const MAX_ITEMS = 10_000;
 const MAX_DEPENDENCIES = 200;
+const COMMENT_CONVERGENCE_MAX_READS = 11;
+const COMMENT_CONVERGENCE_INTERVAL_MS = 1_000;
+const COMMENT_CONVERGENCE_BOUND_MS = 10_000;
 const NO_RESPONSE = "_no response_";
 const NON_RUNNABLE_LABELS = new Set(
   canonicalLabelNames("status").filter((label) => /status:(?:needs-replan|tracking-only)$/.test(label)),
@@ -1479,8 +1484,12 @@ async function mutateComment({ repository, number, token, client, method, path, 
     headers: { ...responseHeaders(token), "content-type": "application/json" },
     body: JSON.stringify({ body }),
   });
-  await readJson(response, "COMMENT_WRITE_FAILED");
-  return method === "POST" ? "created" : "updated";
+  const written = projectComment(await readJson(response, "COMMENT_WRITE_FAILED"));
+  return { commentAction: method === "POST" ? "created" : "updated", targetUpdatedAt: written.updatedAt };
+}
+
+function withoutWrite(commentAction) {
+  return { commentAction, targetUpdatedAt: null };
 }
 
 export async function upsertIssueReadinessComment({
@@ -1492,13 +1501,13 @@ export async function upsertIssueReadinessComment({
   comments,
   commentsComplete,
 }) {
-  if (!commentsComplete) return "skipped-comment-authority-unknown";
+  if (!commentsComplete) return withoutWrite("skipped-comment-authority-unknown");
   const stable = stableBotComments(comments);
-  if (stable.length > 1) return "skipped-duplicate-stable-comments";
+  if (stable.length > 1) return withoutWrite("skipped-duplicate-stable-comments");
   const existing = stable[0] ?? null;
   const previousVerifiedReceipt = existing ? extractReceipt(existing.body) : null;
   if (receipt.status === "unknown" && existing && previousVerifiedReceipt === null) {
-    return "skipped-last-verified-unreadable";
+    return withoutWrite("skipped-last-verified-unreadable");
   }
   if (
     existing &&
@@ -1507,10 +1516,10 @@ export async function upsertIssueReadinessComment({
     existing.updatedAt === receipt.subject.updatedAt &&
     sameStructuralClaim(previousVerifiedReceipt, receipt)
   ) {
-    return "unchanged";
+    return withoutWrite("unchanged");
   }
   const body = renderIssueReadinessComment(receipt, previousVerifiedReceipt);
-  if (existing?.body === body) return "unchanged";
+  if (existing?.body === body) return withoutWrite("unchanged");
   if (existing) {
     return mutateComment({
       repository,
@@ -1531,6 +1540,94 @@ export async function upsertIssueReadinessComment({
     path: `/issues/${number}/comments`,
     body,
   });
+}
+
+// Issue timestamps are whole seconds and later legitimate movement can pass the
+// write instant, so a revision includes the write when it is at or after it.
+function revisionIncludesWrite(updatedAt, targetUpdatedAt) {
+  return Date.parse(updatedAt) >= Date.parse(targetUpdatedAt);
+}
+
+// GitHub does not guarantee read-your-own-write for issue updated_at. Wait for
+// the issue revision to reach the write's own updated_at with at most 11 reads,
+// one second apart, within ten seconds; any read failure ends the wait at once.
+async function awaitCommentRevision({ repository, number, token, client, targetUpdatedAt, sleep, monotonicNow }) {
+  const startedAt = monotonicNow();
+  for (let read = 1; read <= COMMENT_CONVERGENCE_MAX_READS; read += 1) {
+    if (read > 1) {
+      await sleep(COMMENT_CONVERGENCE_INTERVAL_MS);
+      if (monotonicNow() - startedAt > COMMENT_CONVERGENCE_BOUND_MS) break;
+    }
+    const issue = await readIssue({ repository, number, token, client });
+    if (revisionIncludesWrite(issue.updatedAt, targetUpdatedAt)) return;
+  }
+  fail("COMMENT_REVISION_NOT_CONVERGED");
+}
+
+function withheldAuthority(authority, reasonCode) {
+  return {
+    ...authority,
+    complete: false,
+    coverage: { ...authority.coverage, authorityComplete: false },
+    reasonCodes: [...new Set([...authority.reasonCodes, reasonCode])].sort(),
+  };
+}
+
+// The comment is history; the workflow artifact is the dispatch authority. A
+// create or update moves the issue revision, so the artifact may bind only a
+// complete re-collection at a revision that includes that write. Otherwise the
+// rebound authority is withheld, which makes the artifact unknown.
+async function publishIssueReadinessComment({
+  repository,
+  number,
+  token,
+  client,
+  authority,
+  receipt,
+  sleep,
+  monotonicNow,
+}) {
+  let publication;
+  try {
+    publication = await upsertIssueReadinessComment({
+      repository,
+      number,
+      token,
+      client,
+      receipt,
+      comments: authority.comments,
+      commentsComplete: authority.coverage.comments.complete,
+    });
+  } catch (error) {
+    return {
+      commentAction: "write-unconfirmed",
+      reboundAuthority: withheldAuthority(
+        authority,
+        error instanceof IssueReadinessBoundaryError ? error.code : "INTERNAL_FAILURE",
+      ),
+    };
+  }
+  const { commentAction, targetUpdatedAt } = publication;
+  if (targetUpdatedAt === null) return { commentAction, reboundAuthority: null };
+  try {
+    await awaitCommentRevision({ repository, number, token, client, targetUpdatedAt, sleep, monotonicNow });
+  } catch (error) {
+    return {
+      commentAction,
+      reboundAuthority: withheldAuthority(
+        authority,
+        error instanceof IssueReadinessBoundaryError ? error.code : "INTERNAL_FAILURE",
+      ),
+    };
+  }
+  const rebound = await collectIssueAuthority({ repository, number, token, client });
+  return {
+    commentAction,
+    reboundAuthority:
+      rebound.issue && !revisionIncludesWrite(rebound.issue.updatedAt, targetUpdatedAt)
+        ? withheldAuthority(rebound, "COMMENT_REVISION_NOT_CONVERGED")
+        : rebound,
+  };
 }
 
 export function sameMilestoneRevision(receiptMilestone, currentMilestone) {
@@ -1636,6 +1733,8 @@ export async function main({
   client = globalThis.fetch,
   logger = console,
   now = () => new Date(),
+  sleep = (milliseconds) => delay(milliseconds),
+  monotonicNow = () => performance.now(),
   argv = process.argv.slice(2),
   readTextFile = (file) => readFile(file, "utf8"),
 } = {}) {
@@ -1699,26 +1798,22 @@ export async function main({
   });
   let commentAction = "disabled";
   if (env.ISSUE_READINESS_PUBLISH === "true") {
-    commentAction = await upsertIssueReadinessComment({
+    const publication = await publishIssueReadinessComment({
       repository,
       number,
       token: env.GITHUB_TOKEN,
       client,
+      authority,
       receipt,
-      comments: authority.comments,
-      commentsComplete: authority.coverage.comments.complete,
+      sleep,
+      monotonicNow,
     });
+    commentAction = publication.commentAction;
     // Creating or updating the stable comment changes the issue's provider
-    // revision. Re-collect after that known mutation and publish the rebound
-    // read-only receipt as the workflow artifact; otherwise every successful
-    // comment write would make its own artifact stale immediately.
-    if (commentAction === "created" || commentAction === "updated") {
-      authority = await collectIssueAuthority({
-        repository,
-        number,
-        token: env.GITHUB_TOKEN,
-        client,
-      });
+    // revision; publish the rebound read-only receipt as the workflow artifact
+    // so a successful comment write never makes its own artifact stale.
+    if (publication.reboundAuthority) {
+      authority = publication.reboundAuthority;
       authority.repository = repository;
       authority.number = number;
       receipt = evaluateStructuralReadiness(authority, {
