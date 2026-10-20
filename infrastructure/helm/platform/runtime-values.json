@@ -659,6 +659,12 @@
           "secretKey": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         },
         {
+          "name": "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          "secret": true,
+          "secretKey": "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          "optional": true
+        },
+        {
           "name": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
           "secret": true,
           "secretKey": "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
@@ -1219,6 +1225,12 @@
           "name": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
           "secret": true,
           "secretKey": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+        },
+        {
+          "name": "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          "secret": true,
+          "secretKey": "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          "optional": true
         },
         {
           "name": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",

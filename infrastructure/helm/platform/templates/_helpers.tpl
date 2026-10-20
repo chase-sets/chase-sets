@@ -110,6 +110,9 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
     secretKeyRef:
       name: {{ default $root.Values.global.existingSecretName .secretName | quote }}
       key: {{ default .name .secretKey | quote }}
+      {{- if .optional }}
+      optional: true
+      {{- end }}
   {{- else if hasKey $componentEnvOverrides .name }}
   value: {{ index $componentEnvOverrides .name | quote }}
   {{- else if hasKey $envOverrides .name }}

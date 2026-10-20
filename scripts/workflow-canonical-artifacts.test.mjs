@@ -151,7 +151,7 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 71, scannedSurfaces: 35, totalSurfaces: 35 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 73, scannedSurfaces: 35, totalSurfaces: 35 });
     expect(current.findings).toHaveLength(21);
     const idleDraftRecord = {
       workflowFile: ".github/workflows/platform-preview-cleanup.yml",
