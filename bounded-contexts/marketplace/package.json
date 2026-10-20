@@ -49,7 +49,7 @@
     "@chase-sets/review-eligibility": "workspace:*",
     "@chase-sets/seller-desk": "workspace:*",
     "hono": "^4.13.13",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
