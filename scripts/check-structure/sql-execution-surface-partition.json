@@ -504,6 +504,7 @@
     "infrastructure/platform-runtime/control-plane.ts",
     "infrastructure/platform-runtime/durable-job-store.ts",
     "infrastructure/platform-runtime/durable-job-work-units.ts",
+    "infrastructure/platform-runtime/evidence-window-journal-principal.ts",
     "infrastructure/platform-runtime/evidence-window-provider-write.ts",
     "infrastructure/platform-runtime/evidence-window-registration.ts",
     "infrastructure/platform-runtime/mcp-audit-log.ts",

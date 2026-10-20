@@ -1,0 +1,222 @@
+name: Platform Staging Evidence Window
+
+# One governed staging TEST-MODE evidence window: this job generates, uses and
+# revokes every credential the window needs, holding the staging deploy lock from the
+# admission key's install to its revocation. Inputs are closed and nonsecret; no
+# command, credential or ref reaches the job through them. Stripe is read with GET
+# only. The cleanup observer (platform-staging-evidence-window-cleanup.yml) is armed
+# before any credential is installed and takes over at run end or D-5 min.
+
+on:
+  workflow_dispatch:
+    inputs:
+      consumers:
+        description: Reviewed consumer run in the window. Only rehearsal exists, and it sends nothing.
+        required: true
+        default: rehearsal
+        type: choice
+        options:
+          - rehearsal
+      fault:
+        description: Closed rehearsal fault.
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - fail
+          - hang
+          - runner-loss
+      confirm:
+        description: Type "open staging evidence window" to confirm one staging TEST-MODE window.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Evidence Window
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'open staging evidence window'
+    steps:
+      - name: Refuse unconfirmed evidence window
+        run: |
+          echo 'Confirmation text did not match exactly; expected "open staging evidence window".' >&2
+          exit 1
+
+  staging-evidence-window:
+    name: Staging Evidence Window
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    environment: staging
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Validate window inputs
+        id: inputs
+        env:
+          CONSUMERS: ${{ inputs.consumers }}
+          FAULT: ${{ inputs.fault }}
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs inputs
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Export staging control database authority and TLS trust
+        uses: ./.github/actions/export-managed-postgres-authority
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          environment: staging
+          contexts: control
+          connection-mode: direct
+
+      - name: Configure staging Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-staging-evidence-window.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure staging Kubernetes context." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Staging Kubernetes kubeconfig has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured staging Kubernetes context: ${current_context}"
+
+      - name: Take over prior residue and bind the deploy generation
+        id: preflight
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs preflight
+
+      - name: Install admission, restart runtimes, create the journal login and arm the observer
+        id: provision
+        timeout-minutes: 30
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs provision
+
+      - name: Attest the Stripe test account, fixtures and webhook delivery
+        id: attest
+        timeout-minutes: 15
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STAGING_EVIDENCE_WINDOW_REHEARSAL_CUSTOMER: ${{ vars.STAGING_EVIDENCE_WINDOW_REHEARSAL_CUSTOMER || '' }}
+          STAGING_EVIDENCE_WINDOW_REHEARSAL_PAYMENT_METHOD: ${{ vars.STAGING_EVIDENCE_WINDOW_REHEARSAL_PAYMENT_METHOD || '' }}
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs attest
+
+      - name: Recapture the binding and open one window
+        id: open
+        timeout-minutes: 10
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs open
+
+      - name: Run the reviewed consumer until D-10 min
+        id: consume
+        timeout-minutes: 55
+        env:
+          CONSUMER: ${{ inputs.consumers }}
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs consume "$CONSUMER"
+
+      - name: Close the window by D-5 min
+        id: close
+        if: always()
+        timeout-minutes: 20
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs close
+
+      - name: Revoke admission and the journal login
+        id: revoke
+        if: always()
+        timeout-minutes: 30
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs revoke
+
+      - name: Write the value-free receipt
+        id: receipt
+        if: always()
+        timeout-minutes: 5
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs receipt
+
+      - name: Remove managed Postgres CA
+        id: remove-ca
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${PGSSLROOTCERT:-}" ]; then
+            rm -f -- "$PGSSLROOTCERT"
+          fi
+
+      - name: Upload the evidence window receipt
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-evidence-window-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/staging-evidence-window/artifact
+          if-no-files-found: error
+          retention-days: 30

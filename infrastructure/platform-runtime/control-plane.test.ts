@@ -4,10 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
+  platformControlPlaneSchemaMigrationSql,
+  platformControlPlaneSchemaMigrations,
   platformControlPlaneSchemaSql,
   readWorkerQuiesceCohort,
   recordWorkerQuiesce,
 } from "./control-plane";
+import { EVIDENCE_WINDOW_JOURNAL_PRINCIPAL_PATTERN } from "./evidence-window-journal-principal";
 import { createRuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 describe("platform control plane", () => {
@@ -53,6 +56,49 @@ describe("platform control plane", () => {
     expect(reapStatement).toContain("state IN ('running', 'cancel_requested')");
     expect(reapStatement).toContain("claimed_until IS NULL");
     expect(reapStatement).toContain("FOR UPDATE SKIP LOCKED");
+  });
+
+  it("records the journal-principal write refusal as a ledgered migration, never boot SQL", async () => {
+    const statements: string[] = [];
+    await bootstrapPlatformControlPlane({
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+    });
+
+    expect(platformControlPlaneSchemaSql).not.toContain("evidence_window_refuse_journal_principal_write");
+    expect(platformControlPlaneSchemaMigrations.map(({ migrationId }) => migrationId)).toEqual([
+      "20261020_evidence_window_journal_principal_write_refusal",
+    ]);
+    const [migration] = platformControlPlaneSchemaMigrations;
+    expect(statements[1]).toBe(platformControlPlaneSchemaMigrationSql(migration!));
+    expect(statements[1]).toContain("pg_advisory_xact_lock(hashtextextended('platform-control-schema-migrations', 0))");
+    expect(statements[1]).toContain(
+      "IF NOT EXISTS (SELECT 1 FROM bounded_context_schema_migrations WHERE migration_id = '20261020_evidence_window_journal_principal_write_refusal')",
+    );
+    expect(statements[1]).toContain(
+      "INSERT INTO bounded_context_schema_migrations (migration_id, description, applied_at)",
+    );
+    expect(statements[1]).toContain(`current_user ~ '${EVIDENCE_WINDOW_JOURNAL_PRINCIPAL_PATTERN}'`);
+    expect(statements[1]).toContain("BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON evidence_window");
+    expect(statements[1]).toContain(
+      "FOR EACH STATEMENT EXECUTE FUNCTION evidence_window_refuse_journal_principal_write()",
+    );
+    expect(statements[1]).toContain("USING ERRCODE = '42501'");
+  });
+
+  it("refuses a migration id or statement it cannot quote", () => {
+    expect(() =>
+      platformControlPlaneSchemaMigrationSql({ migrationId: "bad id", description: "x", statements: [] }),
+    ).toThrow("is invalid");
+    expect(() =>
+      platformControlPlaneSchemaMigrationSql({
+        migrationId: "20261020_x",
+        description: "x",
+        statements: ["SELECT $statement$"],
+      }),
+    ).toThrow("unquotable");
   });
 
   it("defines the evidence-window registration as one constrained table with database-enforced single-open admission", () => {

@@ -1,0 +1,53 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    }
+  ]
+}
