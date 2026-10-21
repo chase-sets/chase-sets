@@ -497,7 +497,10 @@ function normalizeNamespaceList(value) {
   if (Array.isArray(value)) {
     return value;
   }
-  return Array.isArray(value?.items) ? value.items : [];
+  if (Array.isArray(value?.items)) {
+    return value.items;
+  }
+  throw new Error("kubectl namespace listing returned no items array.");
 }
 
 function countPreviewDnsZoneRecords(records, zone) {
@@ -783,8 +786,9 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
     if (namespacesResult.error) {
       throw namespacesResult.error;
     }
-    phases[3].count = normalizeNamespaceList(namespacesResult.value).length;
-    record.namespaceCandidates = selectPreviewNamespaceTargets(namespacesResult.value);
+    const namespaces = normalizeNamespaceList(namespacesResult.value);
+    phases[3].count = namespaces.length;
+    record.namespaceCandidates = selectPreviewNamespaceTargets(namespaces);
   } catch (error) {
     phases[3].count = null;
     phases[3].error = error.code === "DISCOVERY_BUDGET" ? "budget-exhausted" : describeError(error);
