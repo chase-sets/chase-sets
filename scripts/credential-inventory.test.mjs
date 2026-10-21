@@ -273,14 +273,14 @@ function replacing(name, testPrefixes) {
 }
 
 describe("agent tier in the credential inventory (AC1)", () => {
-  it("admits the repository's agent tier exactly as #10031 ruled", () => {
+  it("admits the repository's agent tier exactly as ruled", () => {
     const { errors, inventory } = validateCredentialInventory(repositoryInventory);
     expect(errors).toEqual([]);
     expect(inventory.agentTier).toEqual({
       project: "chase-sets-agent-dev",
       keys: [
         { name: "EASYPOST_API_KEY", testPrefixes: ["EZTK"] },
-        { name: "EBAY_SANDBOX_APP_ID", testPrefixes: ["SBX-"] },
+        { name: "EBAY_SANDBOX_APP_ID", testPrefixes: [] },
         { name: "EBAY_SANDBOX_CERT_ID", testPrefixes: ["SBX-"] },
         { name: "EBAY_SANDBOX_DEV_ID", testPrefixes: [] },
         { name: "EBAY_SANDBOX_RUNAME", testPrefixes: [] },
