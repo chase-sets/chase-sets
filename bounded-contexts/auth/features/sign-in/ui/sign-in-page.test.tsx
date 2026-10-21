@@ -519,6 +519,87 @@ describe("sign-in page magic link recovery", () => {
   });
 });
 
+describe("marketplace pending submission contracts", () => {
+  it("each auth form busies only itself", async () => {
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+    continueWithIdentifier("+13125550100");
+    const send = screen.getByRole("button", { name: "Send Phone Code" });
+    const requestForm = send.closest("form")!;
+    const consumeForm = screen.getByLabelText("Phone Code").closest("form")!;
+    fireEvent.click(send);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    expect(requestForm.getAttribute("aria-busy")).toBe("true");
+    expect(consumeForm.getAttribute("aria-busy")).toBeNull();
+    await route.settle(safeFailure("phone-code-request"));
+    expect(requestForm.getAttribute("aria-busy")).toBeNull();
+  });
+
+  it("sibling sign-in forms sharing one action stay independent", async () => {
+    function MagicLinkRoute() {
+      return <SignInPage submissionMode="router" allowManualMagicLinkTokenEntry />;
+    }
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MagicLinkRoute }, "/sign-in");
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.click(screen.getByRole("radio", { name: "Email me a sign-in link" }));
+    const forms = screen
+      .getAllByRole("button", { name: /Email me a sign-in link|Continue With Token/ })
+      .map((button) => button.closest("form")!);
+    expect(forms).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Email me a sign-in link" }));
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    expect(forms[0].getAttribute("aria-busy")).toBe("true");
+    expect(forms[1].getAttribute("aria-busy")).toBeNull();
+    await route.settle(safeFailure("magic-link-request"));
+  });
+
+  it("passkey re-entry submits complete form data", async () => {
+    vi.mocked(getPasskeyCredential).mockResolvedValue(successfulPasskey);
+    mockNativeRequestSubmit();
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+    continueWithIdentifier("buyer@example.com");
+    const form = screen.getByRole("button", { name: "Use Passkey" }).closest("form")!;
+    fireEvent.submit(form);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    expect(route.submittedFields[0]).toMatchObject({
+      intent: "passkey-sign-in",
+      email: "buyer@example.com",
+      challengeId: successfulPasskey.challengeId,
+    });
+    await route.settle(safeFailure("passkey-sign-in"));
+  });
+
+  it("re-enables after back-to-back failures and after an aborted submission", async () => {
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    const form = screen.getByRole("button", { name: "Sign In" }).closest("form")!;
+    for (const attempt of [1, 2]) {
+      fireEvent.submit(form);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(attempt));
+      await route.settle(safeFailure("password"));
+      expect(form.getAttribute("aria-busy")).toBeNull();
+    }
+    await act(async () => {
+      await route.router.navigate("/done");
+      await route.router.navigate("/sign-in");
+    });
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it("admin sign-in mount keeps its current transport", async () => {
+    const route = await renderAuthRoute(
+      { path: "/access/sign-in", Component: AccessAdminSignInRoute },
+      "/access/sign-in?signInIdentifier=buyer%40example.com&signInMethod=password",
+    );
+    const form = screen.getByRole("button", { name: "Sign In" }).closest("form")!;
+    expect(form.getAttribute("data-discover")).toBeNull();
+    fireEvent.submit(form);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    expect(form.getAttribute("aria-busy")).toBeNull();
+    await route.settle(safeFailure("password"));
+  });
+});
+
 describe("routed sign-in errors", () => {
   it.each([
     ["marketplace", "/sign-in", MarketplaceSignInRoute, loader],

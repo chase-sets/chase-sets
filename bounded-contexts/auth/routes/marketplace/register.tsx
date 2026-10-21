@@ -34,7 +34,6 @@ export default function MarketplaceRegisterRoute() {
     <Container width="narrow" paddingX={0}>
       <RegisterPage
         submissionPending={submissionPending}
-        submissionMode="router"
         actionError={actionData && "error" in actionData ? actionData : null}
         socialError={data.socialLoginError}
         socialOccurrence={location.key}
