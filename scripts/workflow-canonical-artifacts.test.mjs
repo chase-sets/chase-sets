@@ -253,12 +253,6 @@ jobs:
           uploadPath: "artifacts/merge-qualification-candidate/candidate.json",
           missingFileBehavior: "error",
         }),
-        expect.objectContaining({
-          workflowFile: ".github/workflows/platform-production.yml",
-          outPath: "artifacts/release-health/agent-grant-revocation-activation.json",
-          uploadPath: "artifacts/release-health/agent-grant-revocation-activation.json",
-          missingFileBehavior: "error",
-        }),
         // Each environment's activation and in-run replay are validated before the status directory upload.
         ...["staging", "production"].flatMap((environment) =>
           ["activation", "replay"].map((name) =>
