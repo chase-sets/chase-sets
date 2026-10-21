@@ -240,4 +240,120 @@ describe("return-intake MCP source-call contract coverage", () => {
       }),
     );
   });
+
+  it.each([
+    "fulfillment.complete-return-intake",
+    "fulfillment.correct-return-intake",
+    "fulfillment.record-unidentified-return-package",
+    "fulfillment.reconcile-unidentified-return-package",
+  ])("rejects %s without return-intake.manage", async (toolName) => {
+    const fake = services();
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers[toolName]?.(request({}, { ...operator, permissions: ["return-intake.view"] })),
+    ).rejects.toThrow("Missing required permission: return-intake.manage.");
+    expect(fake.resolveForIntake).not.toHaveBeenCalled();
+    expect(fake.verifyEvidence).not.toHaveBeenCalled();
+    expect(fake.completeFacilityIntake).not.toHaveBeenCalled();
+    expect(fake.commandHandler).not.toHaveBeenCalled();
+    expect(fake.unidentifiedPackageCommandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects a null actor before any write service call", async () => {
+    const fake = services();
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(handlers.toolHandlers["fulfillment.complete-return-intake"]?.(request({}, null))).rejects.toThrow(
+      "An authenticated operator is required.",
+    );
+    expect(fake.resolveForIntake).not.toHaveBeenCalled();
+    expect(fake.verifyEvidence).not.toHaveBeenCalled();
+    expect(fake.completeFacilityIntake).not.toHaveBeenCalled();
+  });
+
+  it("returns an unresolved resolve result without reading its version", async () => {
+    const fake = services({ resolveForIntake: vi.fn(async () => ({ outcome: "not-found" as const })) });
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.resolve-return-intake"]?.(
+        request({ facilityId: "fac_east", identifier: "rsh_01" }),
+      ),
+    ).resolves.toEqual({ outcome: "not-found" });
+    expect(fake.getReturnShipmentVersion).not.toHaveBeenCalled();
+  });
+
+  it("rejects complete for a shipment not expected at the facility before effects", async () => {
+    const fake = services({ resolveForIntake: vi.fn(async () => ({ outcome: "not-found" as const })) });
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.complete-return-intake"]?.(
+        request({ facilityId: "fac_east", returnShipmentId: "rsh_01" }),
+      ),
+    ).rejects.toThrow("Return shipment is not expected at this facility.");
+    expect(fake.verifyEvidence).not.toHaveBeenCalled();
+    expect(fake.completeFacilityIntake).not.toHaveBeenCalled();
+  });
+
+  it("does not complete intake when evidence verification fails", async () => {
+    const fake = services({
+      verifyEvidence: vi.fn(async () => {
+        throw new Error("evidence failed");
+      }),
+    });
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.complete-return-intake"]?.(
+        request({ facilityId: "fac_east", returnShipmentId: "rsh_01", evidence: [] }),
+      ),
+    ).rejects.toThrow("evidence failed");
+    expect(fake.completeFacilityIntake).not.toHaveBeenCalled();
+  });
+
+  it("rejects correction for an unresolved shipment before its command", async () => {
+    const fake = services({ resolveForIntake: vi.fn(async () => ({ outcome: "not-found" as const })) });
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.correct-return-intake"]?.(
+        request({ facilityId: "fac_east", returnShipmentId: "rsh_01" }),
+      ),
+    ).rejects.toThrow("Return shipment was not found.");
+    expect(fake.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("does not record an unidentified package when evidence verification fails", async () => {
+    const fake = services({
+      verifyEvidence: vi.fn(async () => {
+        throw new Error("evidence failed");
+      }),
+    });
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.record-unidentified-return-package"]?.(
+        request({ facilityId: "fac_east", unidentifiedPackageId: "urp_01", evidence: [] }),
+      ),
+    ).rejects.toThrow("evidence failed");
+    expect(fake.unidentifiedPackageCommandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects reconciliation for an unknown unidentified package before resolution", async () => {
+    const fake = services({ getUnidentifiedPackage: vi.fn(async () => null) });
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.reconcile-unidentified-return-package"]?.(
+        request({ unidentifiedPackageId: "urp_01", returnShipmentId: "rsh_01" }),
+      ),
+    ).rejects.toThrow("Unidentified package was not found.");
+    expect(fake.resolveForIntake).not.toHaveBeenCalled();
+    expect(fake.unidentifiedPackageCommandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects reconciliation when the shipment is not expected at the package facility", async () => {
+    const fake = services({ resolveForIntake: vi.fn(async () => ({ outcome: "not-found" as const })) });
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.reconcile-unidentified-return-package"]?.(
+        request({ unidentifiedPackageId: "urp_01", returnShipmentId: "rsh_01" }),
+      ),
+    ).rejects.toThrow("Return shipment is not expected at this facility.");
+    expect(fake.unidentifiedPackageCommandHandler).not.toHaveBeenCalled();
+  });
 });
