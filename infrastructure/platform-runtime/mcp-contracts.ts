@@ -50,6 +50,7 @@ import { settlementService } from "@chase-sets/platform-runtime/mcp-contracts/ca
 import { reputationService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/reputation";
 import { insightsService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/insights";
 import { platformOperationsService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/platform-operations";
+import { projectionOperationsService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/projection-operations";
 import { stripePaymentsService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/stripe-payments";
 import { stripeConnectService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/stripe-connect";
 import { easypostPostageService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/easypost-postage";
@@ -93,6 +94,7 @@ export const mcpServiceCatalog = [
   reputationService,
   insightsService,
   platformOperationsService,
+  projectionOperationsService,
   stripePaymentsService,
   stripeConnectService,
   easypostPostageService,

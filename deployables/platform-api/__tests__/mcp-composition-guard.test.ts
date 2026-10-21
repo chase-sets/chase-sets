@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getApiHostEntries } from "@chase-sets/platform-runtime/api";
 import { buildMcpHandlersFromModules, type McpModuleHandlerComposition } from "@chase-sets/platform-runtime/mcp";
 import { flattenAvailableMcpResources, flattenAvailableMcpTools } from "@chase-sets/platform-runtime/mcp-contracts";
+import { createProjectionOperationsMcpHandlers } from "@chase-sets/platform-runtime/projection-operations-mcp";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 type MissingMcpHandlers = Readonly<{
@@ -30,12 +31,18 @@ function createServiceProxy(): unknown {
 }
 
 function buildPlatformApiMcpComposition(): McpModuleHandlerComposition {
-  return buildMcpHandlersFromModules(
+  const moduleComposition = buildMcpHandlersFromModules(
     getApiHostEntries(apiContextRegistry, "platform-api", "public").map((entry) => ({
       module: entry.module,
       services: createServiceProxy(),
     })),
   );
+  const projectionOperations = createProjectionOperationsMcpHandlers(createServiceProxy() as never);
+  return {
+    ...moduleComposition,
+    toolHandlers: { ...moduleComposition.toolHandlers, ...projectionOperations.toolHandlers },
+    resourceHandlers: { ...moduleComposition.resourceHandlers, ...projectionOperations.resourceHandlers },
+  };
 }
 
 function findMissingAvailableMcpHandlers(composition: McpModuleHandlerComposition): MissingMcpHandlers {
