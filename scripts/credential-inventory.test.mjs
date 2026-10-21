@@ -280,6 +280,11 @@ describe("agent tier in the credential inventory (AC1)", () => {
       project: "chase-sets-agent-dev",
       keys: [
         { name: "EASYPOST_API_KEY", testPrefixes: ["EZTK"] },
+        { name: "EBAY_SANDBOX_APP_ID", testPrefixes: ["SBX-"] },
+        { name: "EBAY_SANDBOX_CERT_ID", testPrefixes: ["SBX-"] },
+        { name: "EBAY_SANDBOX_DEV_ID", testPrefixes: [] },
+        { name: "EBAY_SANDBOX_RUNAME", testPrefixes: [] },
+        { name: "EBAY_SANDBOX_SELLER_A", testPrefixes: [] },
         { name: "SEED_PACKS_SPACES_ACCESS_ID", testPrefixes: [] },
         { name: "SEED_PACKS_SPACES_SECRET_KEY", testPrefixes: [] },
         { name: "STRIPE_PUBLISHABLE_KEY", testPrefixes: ["pk_test_"] },
@@ -501,8 +506,8 @@ describe("credential tiers CLI (AC2)", () => {
     const lines = result.stdout.split("\n").filter(Boolean);
     const headings = lines.filter((line) => !/^ {2}[A-Z_][A-Z0-9_]*$/.test(line));
     expect(headings).toEqual([
-      "Agent tier (Bitwarden project chase-sets-agent-dev), 5 names:",
-      `CI/deploy-only, ${repositoryInventory.secrets.length - 5} names:`,
+      "Agent tier (Bitwarden project chase-sets-agent-dev), 10 names:",
+      `CI/deploy-only, ${repositoryInventory.secrets.length - 10} names:`,
     ]);
     const printed = lines.filter((line) => !headings.includes(line)).map((line) => line.trim());
     const names = repositoryInventory.secrets.map((secret) => secret.name);
