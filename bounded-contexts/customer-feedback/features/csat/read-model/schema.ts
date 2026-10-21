@@ -1,6 +1,24 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 export const csatInvitationProjectionSchemaSql = `
+CREATE TABLE IF NOT EXISTS customer_feedback_csat_outcome_facts (
+  idempotency_key text PRIMARY KEY,
+  outcome_code text NOT NULL,
+  source_context text NOT NULL,
+  subject_account_id text NOT NULL,
+  subject_kind text NOT NULL,
+  subject_entity_type text NOT NULL,
+  subject_entity_id text NOT NULL,
+  outcome_occurred_at timestamptz NOT NULL,
+  source_event_id text NOT NULL,
+  performed_by_user_id text NOT NULL,
+  authentication_method text NULL,
+  reason_code text NULL
+);
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_outcome_facts_subject_idx
+  ON customer_feedback_csat_outcome_facts (subject_account_id, outcome_occurred_at DESC);
+
 CREATE TABLE IF NOT EXISTS customer_feedback_csat_invitations (
   invitation_id text PRIMARY KEY,
   stream_id text NOT NULL,

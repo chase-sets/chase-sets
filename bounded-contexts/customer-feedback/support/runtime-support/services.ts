@@ -8,6 +8,7 @@ import { createFeedbackAttentionDigestRunner } from "../../features/attention/ap
 import { createFeedbackNotificationDeliveryGuard } from "../../features/attention/integrations/notifications/delivery-authorization";
 import { createCustomerFeedbackPrivacyRuntime } from "../../features/privacy/api/runtime";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { buildCsatOutcomeFactProjectionHandlers } from "../../features/csat/read-model/outcome-fact-projection";
 
 /**
  * Runtime services for the Customer Feedback context.
@@ -53,7 +54,12 @@ export function createCustomerFeedbackServices(
     eventStore,
     privacy,
     policies,
-    projectors: [...invitations.projectors, ...cases.projectors, ...policies.projectors],
+    projectors: [
+      ...invitations.projectors,
+      ...cases.projectors,
+      ...policies.projectors,
+      { projectionName: "customer-feedback-csat-outcome-fact-projection", handlers: buildCsatOutcomeFactProjectionHandlers(), inlineApply: false, batchSize: 100, checkpointBatchSize: 100, eventTypes: ["auth.session.started", "identity.registration.completed", "identity.onboarding.completed", "discovery.search-session.started"] },
+    ],
     pool,
     db,
   };

@@ -1,6 +1,7 @@
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
+  buildEventSubscriptionsFromManifest,
   buildEventReactionsFromManifest,
   defineBoundedContextModule,
   type BcContextManifest,
@@ -21,6 +22,7 @@ import { buildFeedbackCaseOpeningReactionHandlers } from "./features/cases/integ
 import { buildNotificationDeliveryReactionHandlers } from "./features/cases/integrations/notifications/delivery-reaction";
 import { buildFeedbackCaseRedactionReactionHandlers } from "./features/cases/integrations/csat/redaction-reaction";
 import { buildCustomerFeedbackApi } from "./api";
+import { buildCsatOutcomeFactProjectionHandlers } from "./features/csat/read-model/outcome-fact-projection";
 
 const customerFeedbackContextManifest = contextManifest as BcContextManifest;
 
@@ -51,8 +53,17 @@ export const module = defineBoundedContextModule<
     },
   ],
   projectionHandlerSets: (services) => services.projectors,
-  buildSubscriptions: (services) =>
-    buildEventReactionsFromManifest({
+  buildSubscriptions: (services) => [
+    ...buildEventSubscriptionsFromManifest({
+      contextName: "customer-feedback",
+      manifest: customerFeedbackContextManifest,
+      handlers: {
+        "auth.customer-feedback-csat-outcome-fact-projection": () => buildCsatOutcomeFactProjectionHandlers(),
+        "identity.customer-feedback-csat-outcome-fact-projection": () => buildCsatOutcomeFactProjectionHandlers(),
+        "discovery.customer-feedback-csat-outcome-fact-projection": () => buildCsatOutcomeFactProjectionHandlers(),
+      },
+    }),
+    ...buildEventReactionsFromManifest({
       contextName: "customer-feedback",
       manifest: customerFeedbackContextManifest,
       handlers: {
@@ -64,4 +75,5 @@ export const module = defineBoundedContextModule<
           buildNotificationDeliveryReactionHandlers(services.cases.executeByCaseId, services.eventStore),
       },
     }),
+  ],
 });
