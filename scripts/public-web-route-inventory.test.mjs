@@ -1,5 +1,6 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -45,7 +46,11 @@ function committedFixture() {
 }
 
 function independentlyDerivePublicWebMembers() {
-  const manifests = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
+  const manifests = execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter((candidate) => /^bounded-contexts\/[^/]+\/context\.json$/.test(candidate));
   const routes = manifests.flatMap((manifestPath) =>

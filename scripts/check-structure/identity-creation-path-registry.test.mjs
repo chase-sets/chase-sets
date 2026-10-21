@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { compileFunction } from "node:vm";
@@ -212,6 +213,7 @@ describe("identity creation path registry", () => {
     const files = execFileSync("git", ["ls-files", "--", "bounded-contexts/auth"], {
       cwd: repoRoot,
       encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)
