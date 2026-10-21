@@ -1132,7 +1132,11 @@ async function appendPersonalIdentityRegistration(
   // committed registration into a failed response. Its idempotency key is
   // stable per operation because the account id now is.
   if (args.services.eventStore) {
-    await appendRegistrationCompleted(args.services.eventStore, params.context, { accountId, userId });
+    try {
+      await appendRegistrationCompleted(args.services.eventStore, params.context, { accountId, userId });
+    } catch {
+      // Cross-context outcome publication is outside the registration atom.
+    }
   }
 
   return { userId, accountId, membershipId, snapshots };

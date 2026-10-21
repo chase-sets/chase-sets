@@ -456,7 +456,6 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
           rolePermissions: AUTH_ROLE_PERMISSIONS[invitation.roleKey as keyof typeof AUTH_ROLE_PERMISSIONS] ?? [],
         },
       ],
-      publishAuthenticationOutcome: true,
     });
 
     return jsonWithMutationReceipts(

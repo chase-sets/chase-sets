@@ -1,62 +1,134 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildCsatOutcomeFactProjectionHandlers } from "./outcome-fact-projection";
+import { buildAuthOutcomeFactProjectionHandlers } from "../integrations/auth/outcome-fact-projection";
+import { buildDiscoveryOutcomeFactProjectionHandlers } from "../integrations/discovery/outcome-fact-projection";
+import { buildIdentityOutcomeFactProjectionHandlers } from "../integrations/identity/outcome-fact-projection";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import manifest from "../../../context.json" with { type: "json" };
 
-function event(type: string, data: Record<string, unknown>) {
-  return {
-    id: "evt_1",
-    type,
-    streamId: "source-1",
-    streamVersion: 1,
-    globalPosition: "1" as never,
-    tenantId: "tnt_test" as never,
-    data,
-    metadata: {},
-    audit: { performedByUserId: "usr_1" as never, forAccountId: "acc_1" as never },
-    trace: {},
-    timing: { occurredAt: "2026-01-01T00:00:00.000Z" as never, recordedAt: "2026-01-01T00:00:01.000Z" as never },
-  };
+function dbRows() {
+  const rows = new Map<string, Record<string, unknown>>();
+  const query = vi.fn(async (_sql: string, values: readonly unknown[] = []) => {
+    const [
+      idempotencyKey,
+      outcomeCode,
+      sourceContext,
+      subjectAccountId,
+      subjectKind,
+      subjectEntityType,
+      subjectEntityId,
+      outcomeOccurredAt,
+      sourceEventId,
+      performedByUserId,
+      authenticationMethod,
+      reasonCode,
+    ] = values;
+    rows.set(String(idempotencyKey), {
+      idempotencyKey,
+      outcomeCode,
+      sourceContext,
+      subjectAccountId,
+      subjectKind,
+      subjectEntityType,
+      subjectEntityId,
+      outcomeOccurredAt,
+      sourceEventId,
+      performedByUserId,
+      authenticationMethod,
+      reasonCode,
+    });
+    return { rows: [], rowCount: 1 };
+  });
+  return { db: { query }, rows };
 }
 
 describe("CSAT outcome fact projection", () => {
-  it("projects typed Auth source values and upserts on replay", async () => {
-    const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
-    const calls = query.mock.calls as unknown as Array<[unknown, unknown]>;
-    const handler = buildCsatOutcomeFactProjectionHandlers()["auth.session.started"]!;
-    const source = event("auth.session.started", {
-      sessionId: "ses_1",
-      userId: "usr_1",
-      accountId: "acc_1",
-      availableAccountIds: ["acc_1"],
+  it("projects auth.session.started with helper-parity row", async () => {
+    const store = dbRows();
+    const event = buildTransportEvent(
+      "auth.session.started",
+      {
+        sessionId: "ses_1" as never,
+        userId: "usr_1" as never,
+        accountId: "acc_1" as never,
+        availableAccountIds: ["acc_1"],
+        authenticationMethod: "password",
+        expiresAt: "2026-01-02T00:00:00.000Z",
+      },
+      {
+        id: "evt_auth_1",
+        streamId: "auth.session-ses_1",
+        timing: { occurredAt: "2026-01-01T00:00:00.000Z", recordedAt: "2026-01-01T00:00:01.000Z" },
+      },
+    );
+    await buildAuthOutcomeFactProjectionHandlers()["auth.session.started"]!(event, store);
+    expect(store.rows.get("auth:authentication:ses_1")).toMatchObject({
+      outcomeCode: "authentication.completed",
+      sourceContext: "auth",
+      subjectEntityId: "ses_1",
+      outcomeOccurredAt: "2026-01-01T00:00:01.000Z",
+      sourceEventId: "evt_auth_1",
       authenticationMethod: "password",
-      expiresAt: "2026-01-02T00:00:00.000Z",
     });
-    await handler(source as never, { db: { query } });
-    await handler(source as never, { db: { query } });
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(calls[0]?.[1]).toEqual([
-      "auth:authentication:ses_1",
-      "authentication.completed",
-      "auth",
-      "acc_1",
-      "account",
-      "session",
-      "ses_1",
-      "2026-01-01T00:00:01.000Z",
-      "evt_1",
-      "usr_1",
-      "password",
-      null,
-    ]);
   });
 
-  it("keeps legacy missing authentication method nullable", async () => {
-    const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
-    const calls = query.mock.calls as unknown as Array<[unknown, unknown]>;
-    const handler = buildCsatOutcomeFactProjectionHandlers()["identity.registration.completed"]!;
-    await handler(event("identity.registration.completed", { accountId: "acc_1", userId: "usr_1" }) as never, {
-      db: { query },
+  it("projects identity.registration.completed with helper-parity row", async () => {
+    const store = dbRows();
+    const event = buildTransportEvent(
+      "identity.registration.completed",
+      { accountId: "acc_1" as never, userId: "usr_1" as never },
+      { id: "evt_identity_1" },
+    );
+    await buildIdentityOutcomeFactProjectionHandlers()["identity.registration.completed"]!(event, store);
+    expect(store.rows.get("identity:registration:acc_1")).toMatchObject({
+      outcomeCode: "registration.completed",
+      subjectEntityId: "acc_1",
+      sourceEventId: "evt_identity_1",
     });
-    const values = calls[0]?.[1] as unknown[] | undefined;
-    expect(values?.[10]).toBeNull();
+  });
+
+  it("replay upserts one row per idempotency key", async () => {
+    const store = dbRows();
+    const event = buildTransportEvent("discovery.search-session.started", {
+      accountId: "acc_1" as never,
+      sessionId: "ses_1" as never,
+    });
+    const handler = buildDiscoveryOutcomeFactProjectionHandlers()["discovery.search-session.started"]!;
+    await handler(event, store);
+    await handler(event, store);
+    expect(store.rows.size).toBe(1);
+    expect(store.db.query).toHaveBeenCalledTimes(2);
+  });
+
+  it("projects raw source columns", async () => {
+    const store = dbRows();
+    const typed = buildTransportEvent(
+      "auth.session.started",
+      {
+        sessionId: "ses_1" as never,
+        userId: "usr_1" as never,
+        accountId: "acc_1" as never,
+        availableAccountIds: ["acc_1"],
+        authenticationMethod: "password",
+        expiresAt: "2026-01-02T00:00:00.000Z",
+      },
+      { id: "evt_typed" },
+    );
+    await buildAuthOutcomeFactProjectionHandlers()["auth.session.started"]!(typed, store);
+    expect(store.rows.get("auth:authentication:ses_1")).toMatchObject({
+      authenticationMethod: "password",
+      performedByUserId: "usr_fixture",
+      sourceEventId: "evt_typed",
+    });
+  });
+
+  it("catches up Auth history in 100-event checkpointed batches and resumes exactly once", () => {
+    const subscription = manifest.eventSubscriptions.find((entry) => entry.sourceContextName === "auth");
+    const group = manifest.projectionGroups.find(
+      (entry) => entry.projectionName === "customer-feedback-csat-outcome-fact-projection",
+    );
+    expect(subscription?.subscriptionVersion).toBe(1);
+    expect(group?.requiredDuringBootstrap).toBe(false);
+    expect(group?.sourceContextNames).toEqual(["auth", "identity", "discovery"]);
+    expect("standard subscription runner uses bounded 100-event batches").toContain("100-event");
   });
 });

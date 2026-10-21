@@ -449,7 +449,6 @@ async function startSessionForUser(
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
     membershipsOverride?: readonly AuthSessionMembership[];
-    publishAuthenticationOutcome?: boolean;
   }>,
 ): Promise<AuthSessionStartResult> {
   let memberships = params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
@@ -566,7 +565,6 @@ export async function startInteractiveAuth(
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
     membershipsOverride?: readonly AuthSessionMembership[];
-    publishAuthenticationOutcome?: boolean;
   }>,
 ): Promise<InteractiveAuthResult> {
   const sessionResult = await startSessionForUser(services, params);

@@ -22,7 +22,9 @@ import { buildFeedbackCaseOpeningReactionHandlers } from "./features/cases/integ
 import { buildNotificationDeliveryReactionHandlers } from "./features/cases/integrations/notifications/delivery-reaction";
 import { buildFeedbackCaseRedactionReactionHandlers } from "./features/cases/integrations/csat/redaction-reaction";
 import { buildCustomerFeedbackApi } from "./api";
-import { buildCsatOutcomeFactProjectionHandlers } from "./features/csat/read-model/outcome-fact-projection";
+import { buildAuthOutcomeFactProjectionHandlers } from "./features/csat/integrations/auth/outcome-fact-projection";
+import { buildDiscoveryOutcomeFactProjectionHandlers } from "./features/csat/integrations/discovery/outcome-fact-projection";
+import { buildIdentityOutcomeFactProjectionHandlers } from "./features/csat/integrations/identity/outcome-fact-projection";
 
 const customerFeedbackContextManifest = contextManifest as BcContextManifest;
 
@@ -58,9 +60,9 @@ export const module = defineBoundedContextModule<
       contextName: "customer-feedback",
       manifest: customerFeedbackContextManifest,
       handlers: {
-        "auth.customer-feedback-csat-outcome-fact-projection": () => buildCsatOutcomeFactProjectionHandlers(),
-        "identity.customer-feedback-csat-outcome-fact-projection": () => buildCsatOutcomeFactProjectionHandlers(),
-        "discovery.customer-feedback-csat-outcome-fact-projection": () => buildCsatOutcomeFactProjectionHandlers(),
+        "auth.customer-feedback-csat-outcome-fact-projection": () => buildAuthOutcomeFactProjectionHandlers(),
+        "identity.customer-feedback-csat-outcome-fact-projection": () => buildIdentityOutcomeFactProjectionHandlers(),
+        "discovery.customer-feedback-csat-outcome-fact-projection": () => buildDiscoveryOutcomeFactProjectionHandlers(),
       },
     }),
     ...buildEventReactionsFromManifest({
