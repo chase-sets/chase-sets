@@ -885,18 +885,9 @@ describe("read-after-write route inventory guard", () => {
       "nested type arguments",
       'return new Hono<{ Variables: { actor: ReturnType<typeof f> } }>().post("/payments", h);',
     ],
-    [
-      "multiline type arguments",
-      'return new Hono<{\n    Variables: { actor: Actor };\n  }>().post("/payments", h);',
-    ],
-    [
-      "middleware link",
-      'return new Hono<Env>()\n    .use("/payments", mw)\n    .post("/payments", h);',
-    ],
-    [
-      "app middleware link",
-      'const app = new Hono();\napp.use("/payments", mw).post("/payments", h);\nreturn app;',
-    ],
+    ["multiline type arguments", 'return new Hono<{\n    Variables: { actor: Actor };\n  }>().post("/payments", h);'],
+    ["middleware link", 'return new Hono<Env>()\n    .use("/payments", mw)\n    .post("/payments", h);'],
+    ["app middleware link", 'const app = new Hono();\napp.use("/payments", mw).post("/payments", h);\nreturn app;'],
   ])("discovers chained Hono mutation routes on a %s chain", async (_shape, source) => {
     const root = createTempRepo();
     writeFileSync(path.join(root, "bounded-contexts", "checkout", "api.ts"), "", "utf8");
@@ -962,10 +953,10 @@ describe("read-after-write route inventory guard", () => {
         "      return c.json({ id: create(body) });",
         "    })",
         '    .get("/checkout-sessions/:sessionId", async (c) => c.json(load(c.req.param("sessionId"))))',
-        '    .delete(',
+        "    .delete(",
         '      "/payments/:id",',
-        '      async (c) => c.json({}),',
-        '    );',
+        "      async (c) => c.json({}),",
+        "    );",
         "}",
         "",
       ].join("\n"),
