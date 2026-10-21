@@ -90,7 +90,9 @@ export type CatalogAliasServices = Readonly<{
     referenceRecordId: string,
     options?: Parameters<typeof listReferenceRecordAliases>[2],
   ) => ReturnType<typeof listReferenceRecordAliases>;
-  listReferenceRecordAliasesForTargets: (ids: readonly string[]) => ReturnType<typeof listReferenceRecordAliasesForTargets>;
+  listReferenceRecordAliasesForTargets: (
+    ids: readonly string[],
+  ) => ReturnType<typeof listReferenceRecordAliasesForTargets>;
   listPublishableReferenceRecordAliases: (
     referenceRecordId: string,
   ) => ReturnType<typeof listPublishableReferenceRecordAliases>;
