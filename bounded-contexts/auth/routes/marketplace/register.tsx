@@ -28,12 +28,13 @@ export function loader({ request }: LoaderFunctionArgs) {
 export default function MarketplaceRegisterRoute() {
   const actionData = useAuthFormActionData(useActionData<typeof action>());
   const data = useLoaderData<typeof loader>();
-  const submission = useAuthFormSubmission();
+  const { submissionPending } = useAuthFormSubmission();
   const location = useLocation();
   return (
     <Container width="narrow" paddingX={0}>
       <RegisterPage
-        {...submission}
+        submissionPending={submissionPending}
+        submissionMode="router"
         actionError={actionData && "error" in actionData ? actionData : null}
         socialError={data.socialLoginError}
         socialOccurrence={location.key}

@@ -20,7 +20,8 @@ import {
   type FormProps,
   type IconName,
 } from "@chase-sets/design-system";
-import type { FormEvent, ReactNode, Ref } from "react";
+import { RouterForm } from "@chase-sets/design-system/react-router";
+import { createElement, type FormEvent, type ReactNode, type Ref } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
@@ -75,6 +76,7 @@ type RegistrationDetails = Readonly<{
 type RegistrationPageProps = AuthFormFeedbackProps &
   Readonly<{
     action?: string;
+    submissionMode?: "document" | "router";
     hiddenFields?: readonly { name: string; value: string }[];
     contextMessage?: Readonly<{ title: string; description: string }> | null;
     returnTo?: string;
@@ -90,6 +92,7 @@ type RegistrationFormCardProps = Readonly<{
   method: RegistrationMethod;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
   errorAnnouncement?: FormProps["errorAnnouncement"];
+  submissionMode?: "document" | "router";
 }>;
 
 type IdentityFieldsProps = Readonly<{
@@ -144,25 +147,44 @@ function RegistrationFormCard({
   method,
   onSubmit,
   errorAnnouncement,
+  submissionMode = "document",
 }: RegistrationFormCardProps) {
+  const fields = (
+    <Stack gap={3}>
+      <HiddenFields fields={hiddenFields} />
+      <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
+      <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
+      <HiddenInput type="hidden" name="intent" value={intent} readOnly />
+      {children}
+    </Stack>
+  );
   return (
     <Card elevation="elevated" glow={glow}>
-      <Form
-        spacing="none"
-        ref={formRef}
-        action={action}
-        method="post"
-        onSubmit={onSubmit}
-        errorAnnouncement={errorAnnouncement}
-      >
-        <Stack gap={3}>
-          <HiddenFields fields={hiddenFields} />
-          <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
-          <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
-          <HiddenInput type="hidden" name="intent" value={intent} readOnly />
-          {children}
-        </Stack>
-      </Form>
+      {submissionMode === "router" ? (
+        <RouterForm
+          spacing="none"
+          ref={formRef}
+          action={action}
+          method="post"
+          onSubmit={onSubmit}
+          errorAnnouncement={errorAnnouncement}
+        >
+          {fields}
+        </RouterForm>
+      ) : (
+        createElement(
+          Form,
+          {
+            spacing: "none",
+            ref: formRef,
+            action,
+            method: "post",
+            onSubmit,
+            errorAnnouncement,
+          },
+          fields,
+        )
+      )}
     </Card>
   );
 }
@@ -192,6 +214,7 @@ function IdentityFields({ details, onChange }: IdentityFieldsProps) {
 }
 
 export function RegisterPage(props: RegistrationPageProps) {
+  const submissionMode = props.submissionMode ?? "document";
   const [method, setMethod] = useState<RegistrationMethod>(
     props.notice?.status === "phone-code-sent" ? "phone-code" : DEFAULT_REGISTRATION_METHOD,
   );
@@ -419,6 +442,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           hiddenFields={props.hiddenFields}
           intent="passkey-register"
           method="passkey"
+          submissionMode={submissionMode}
           onSubmit={handlePasskeySubmit}
         >
           <PasskeyHiddenFields payload={passkeyPayload} />
@@ -452,6 +476,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           hiddenFields={props.hiddenFields}
           intent="magic-link-register"
           method="magic-link"
+          submissionMode={submissionMode}
           onSubmit={(event) => handleCompleted("magic-link", event)}
         >
           <Text size="sm" tone="secondary">
@@ -471,6 +496,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             hiddenFields={props.hiddenFields}
             intent="phone-code-request"
             method="phone-code"
+            submissionMode={submissionMode}
             errorAnnouncement={
               phoneTarget?.intent === "phone-code-request" && summary.length > 0 ? "summary" : "inline"
             }
@@ -508,6 +534,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             hiddenFields={props.hiddenFields}
             intent="phone-code-consume"
             method="phone-code"
+            submissionMode={submissionMode}
             errorAnnouncement={
               phoneTarget?.intent === "phone-code-consume" && summary.length > 0 ? "summary" : "inline"
             }
@@ -557,6 +584,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           hiddenFields={props.hiddenFields}
           intent="password"
           method="password"
+          submissionMode={submissionMode}
           onSubmit={(event) => handleCompleted("password", event)}
         >
           <Text size="sm" tone="secondary">
