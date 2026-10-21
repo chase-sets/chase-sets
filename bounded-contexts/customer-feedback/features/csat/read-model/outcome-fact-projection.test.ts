@@ -54,6 +54,7 @@ describe("CSAT outcome fact projection", () => {
     await handler(event("identity.registration.completed", { accountId: "acc_1", userId: "usr_1" }) as never, {
       db: { query },
     });
-    expect(query.mock.calls[0]?.[1]?.at(-2)).toBeNull();
+    const values = query.mock.calls[0]?.[1] as unknown[] | undefined;
+    expect(values?.[10]).toBeNull();
   });
 });
