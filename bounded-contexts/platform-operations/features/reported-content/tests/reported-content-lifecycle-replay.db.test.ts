@@ -196,12 +196,45 @@ describeDb("reported-content-lifecycle-replay", () => {
     ]);
     expect(expected[1]).toMatchObject({ auto_unlisted_at: at(3), first_reported_at: at(1), updated_at: at(9) });
 
-    const orders = interleavings([marketplace, identity, operations]);
-    expect(orders).toHaveLength(1260);
-    for (const order of orders) {
+    // Facts for different targets write disjoint rows and commute, so each target's
+    // sources are interleaved on their own: every order of its report, automatic and
+    // operator facts must reach the state that canonical order reaches.
+    const earlyAction = actionRecorded("pEarly", 2, "listing", listing, "contact-seller");
+    const lateAuto = {
+      ...marketplace[1]!,
+      name: "mAutoLate",
+      recordedAt: at(5),
+      data: { ...marketplace[1]!.data, autoUnlistedAt: at(5) },
+    };
+    const scenarios = [
+      {
+        sources: [marketplace, [earlyAction, operations[0]!, operations[3]!]],
+        status: "seller-contact-requested",
+        orders: 20,
+      },
+      {
+        sources: [
+          [marketplace[0]!, lateAuto],
+          [earlyAction, operations[0]!],
+        ],
+        status: "auto-unlisted",
+        orders: 6,
+      },
+      { sources: [identity, [operations[1]!, operations[2]!]], status: "profile-display-name-redacted", orders: 6 },
+    ];
+    for (const scenario of scenarios) {
+      const facts = scenario.sources.flat();
       await truncate();
-      await deliver(order);
-      expect(await snapshot(), order.map((fact) => fact.name).join(",")).toEqual(expected);
+      await deliver([...facts].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt)));
+      const target = await snapshot();
+      expect(target.map((row) => row.status)).toEqual([scenario.status]);
+      const orders = interleavings(scenario.sources);
+      expect(orders).toHaveLength(scenario.orders);
+      for (const order of orders) {
+        await truncate();
+        await deliver(order);
+        expect(await snapshot(), order.map((fact) => fact.name).join(",")).toEqual(target);
+      }
     }
   });
 
