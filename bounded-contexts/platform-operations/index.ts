@@ -44,6 +44,8 @@ import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { riskAlertsSchemaMigrations } from "./features/risk-alerts/read-model/schema";
 import { sellerComplianceSalesSchemaMigrations } from "./features/seller-compliance-sales/read-model/schema";
+import { accountAppealSchemaMigrations } from "./features/account-appeals/read-model/schema";
+import { buildAccountAppealInterestProjectionHandlers } from "./features/account-appeals/read-model/projection";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectPlatformOperationsSeedState, seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
@@ -66,6 +68,7 @@ export const module = defineBoundedContextModule<
     ...riskAlertsSchemaMigrations,
     ...supportRequestSchemaMigrations,
     ...sellerComplianceSalesSchemaMigrations,
+    ...accountAppealSchemaMigrations,
   ],
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
@@ -139,6 +142,10 @@ export const module = defineBoundedContextModule<
           buildOrderingSellerComplianceSalesProjectionHandlers(services.db),
         "payments.seller-compliance-sales-projection": () =>
           buildPaymentsSellerComplianceSalesProjectionHandlers(services.db),
+        "identity.account-appeal-interest-projection": () =>
+          buildAccountAppealInterestProjectionHandlers(services.db, "identity"),
+        "marketplace.account-appeal-interest-projection": () =>
+          buildAccountAppealInterestProjectionHandlers(services.db, "marketplace"),
       },
     }),
     ...buildEventReactionsFromManifest({

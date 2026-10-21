@@ -378,6 +378,51 @@
       "order": 83
     },
     {
+      "subscriptionName": "platform-operations.account-appeal-interest-projection",
+      "handlerKind": "projection",
+      "projectionName": "account-appeal-interest-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "platform-operations",
+      "subscriptionVersion": 1,
+      "checkpointKey": "account-appeal-interest-projection:identity:v1",
+      "handlers": {
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["identity.account.suspended", "identity.account.reactivated", "identity.account.closed"],
+      "streamPrefixes": "<undefined>",
+      "order": 84
+    },
+    {
+      "subscriptionName": "platform-operations.account-appeal-interest-projection",
+      "handlerKind": "projection",
+      "projectionName": "account-appeal-interest-projection",
+      "sourceContextName": "marketplace",
+      "targetContextName": "platform-operations",
+      "subscriptionVersion": 1,
+      "checkpointKey": "account-appeal-interest-projection:marketplace:v1",
+      "handlers": {
+        "marketplace.listing.operator-unlisted": "<function>",
+        "marketplace.listing.auto-unlisted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["marketplace.listing.operator-unlisted", "marketplace.listing.auto-unlisted"],
+      "streamPrefixes": "<undefined>",
+      "order": 85
+    },
+    {
       "subscriptionName": "support.affected-line-amount-projection",
       "handlerKind": "projection",
       "projectionName": "support-affected-line-amount-projection",
@@ -919,6 +964,50 @@
       "projectionTransactionBudgetEscalationMs": "<undefined>",
       "projectionCascadeChunkSize": "<undefined>",
       "order": 83
+    },
+    {
+      "subscriptionName": "platform-operations.account-appeal-interest-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "identity",
+      "projectionName": "account-appeal-interest-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account.suspended": "<function>",
+        "identity.account.reactivated": "<function>",
+        "identity.account.closed": "<function>"
+      },
+      "eventTypes": ["identity.account.suspended", "identity.account.reactivated", "identity.account.closed"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 84
+    },
+    {
+      "subscriptionName": "platform-operations.account-appeal-interest-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "marketplace",
+      "sourceContextMount": "when-mounted",
+      "projectionName": "account-appeal-interest-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.listing.operator-unlisted": "<function>",
+        "marketplace.listing.auto-unlisted": "<function>"
+      },
+      "eventTypes": ["marketplace.listing.operator-unlisted", "marketplace.listing.auto-unlisted"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 85
     },
     {
       "subscriptionName": "support.affected-line-amount-projection",

@@ -23,7 +23,8 @@
     "legacy-evidence-inventory",
     "platform-remedy-policy",
     "remedy-approval",
-    "seller-compliance-sale"
+    "seller-compliance-sale",
+    "appealable-enforcement-action"
   ],
   "streamPrefix": "platform-operations.",
   "accountCapabilities": [
@@ -58,7 +59,8 @@
     "support-reference-lookup",
     "support-requests",
     "csat-dashboard",
-    "seller-compliance-sales"
+    "seller-compliance-sales",
+    "account-appeals"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
   "publicExports": [
@@ -251,6 +253,25 @@
       "eventTypes": ["payments.payment-captured", "payments.payment-refunded"],
       "order": 83,
       "projectionHandlerSetNames": ["seller-compliance-sales-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "account-appeal-interest-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.account-appeal-interest-projection",
+      "eventTypes": ["identity.account.suspended", "identity.account.reactivated", "identity.account.closed"],
+      "order": 84,
+      "projectionHandlerSetNames": ["account-appeal-interest-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "account-appeal-interest-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.account-appeal-interest-projection",
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["marketplace.listing.operator-unlisted", "marketplace.listing.auto-unlisted"],
+      "order": 85,
+      "projectionHandlerSetNames": ["account-appeal-interest-projection"]
     }
   ],
   "eventReactions": [
@@ -379,6 +400,14 @@
         "platform_operations_seller_compliance_order_facts",
         "platform_operations_seller_compliance_sales"
       ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "account-appeal-interest-projection",
+      "sourceContextNames": ["identity", "marketplace"],
+      "optionalSourceContextNames": ["marketplace"],
+      "ownedTables": ["platform_operations_account_appealable_actions"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }
@@ -1421,6 +1450,11 @@
     "seller-compliance-sales": {
       "classification": "slice",
       "purpose": "Own the neutral, replayable seller-compliance-sale facts: the platform-processed sale a Payments capture creates against an Ordering order, its authoritative seller, occurrence instant, gross money decomposition, recorded classification inputs, cancellation, and cumulative reversal state, plus the bounded seller and per-seller reads a later policy evaluator consumes. Records observations only -- it evaluates no threshold, publishes no event, and makes no legal-applicability claim.",
+      "expectedConsumers": ["Internal platform-operations module composition"]
+    },
+    "account-appeals": {
+      "classification": "slice",
+      "purpose": "Own the Appealable Enforcement Action registry: the owner-attributed, immutable tuple each Identity account enforcement or Marketplace listing enforcement fact records, its durable conflict state, and the typed lookup that returns an action only when its row is present, complete, non-conflicted, and owned by the caller's account.",
       "expectedConsumers": ["Internal platform-operations module composition"]
     }
   },
