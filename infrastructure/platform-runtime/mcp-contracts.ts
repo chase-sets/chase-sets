@@ -188,6 +188,7 @@ export function authorizeMcpToolInvocation(
     };
   }
 
+  // Account-scoped actor admission is checked before any confirmation or write guardrail.
   if (tool.permissionBoundary.accountScoped && !actor?.accountId) {
     return { allowed: false, reason: "An account-scoped actor is required." };
   }
@@ -227,6 +228,7 @@ export function authorizeMcpToolInvocation(
   const confirmationExpectedValue = getMcpToolConfirmationExpectedValue(tool);
   const matchInputField = tool.guardrails.confirmation.matchInputField;
 
+  // Account-scoped actor authorization remains the boundary for the following confirmation checks.
   if (confirmationExpectedValue && matchInputField) {
     const confirmationText = confirmation.text?.trim() ?? "";
     const inputConfirmationText = input?.[matchInputField];
