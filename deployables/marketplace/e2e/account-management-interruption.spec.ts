@@ -522,7 +522,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
 
   test("shipping field errors focus the submitted form @marketplace-account", async ({ page }, testInfo) => {
     await page.addInitScript(() => {
-      const events: { id: string; summary: boolean }[] = [];
+      const events: { id: string; summary: boolean; popup: boolean }[] = [];
       (window as unknown as { __shippingFocusins: typeof events }).__shippingFocusins = events;
       document.addEventListener("focusin", (event) => {
         const target = event.target;
@@ -530,6 +530,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
           events.push({
             id: target.id || target.tagName.toLowerCase(),
             summary: target.matches('section[role="alert"]'),
+            popup: target.getAttribute("role") === "dialog",
           });
       });
     });
@@ -561,7 +562,9 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     }
     async function focusEvents() {
       return page.evaluate(
-        () => (window as unknown as { __shippingFocusins: { id: string; summary: boolean }[] }).__shippingFocusins,
+        () =>
+          (window as unknown as { __shippingFocusins: { id: string; summary: boolean; popup: boolean }[] })
+            .__shippingFocusins,
       );
     }
     async function revalidate() {
@@ -573,10 +576,21 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       });
       expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
     }
-    async function captureEvidence(claimId: string) {
+    async function dropSummaryLinkFragment() {
       // Summary links are in-page anchors; drop their fragment so the claim's exact route holds.
       await page.evaluate(() => history.replaceState(history.state, "", location.pathname + location.search));
-      await captureResponsiveEvidence({ page, testInfo, claimId });
+    }
+    async function captureCreate360() {
+      await dropSummaryLinkFragment();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-create-360" });
+    }
+    async function captureUpdate390() {
+      await dropSummaryLinkFragment();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-update-390" });
+    }
+    async function captureRemovedRow1024() {
+      await dropSummaryLinkFragment();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-removed-row-1024" });
     }
     async function visibleBox(locator: Locator) {
       await expect(locator).toBeVisible();
@@ -613,8 +627,11 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await expect(summaries).toBeFocused();
       await visibleBox(summaries);
       const events = await focusEvents();
-      expect(events).toHaveLength(1);
-      expect(events[0].summary).toBe(true);
+      // While the submitting form's controls remount, Base UI restores focus to the open dialog's popup;
+      // the page itself focuses only the summary, once, last. Outside a dialog nothing else may take focus.
+      expect(events.filter((event) => !event.summary && !(dialog && event.popup))).toHaveLength(0);
+      expect(events.filter((event) => event.summary)).toHaveLength(1);
+      expect(events[events.length - 1].summary).toBe(true);
       expect(posts - before).toBe(1);
       await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(0);
       if (dialog) {
@@ -658,7 +675,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await fillCreate(`Synthetic ${size} first`, " ");
       await checkSummary(await submitOnce(create), size, "create");
       if (size === "360x800") {
-        await captureEvidence("shipping-field-errors-create-360");
+        await captureCreate360();
       }
       for (const suffix of ["first", "second"]) {
         const label = `Synthetic ${size} ${suffix}`;
@@ -676,7 +693,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await update.locator('input[name="city"]').fill(" ");
       await checkSummary(await submitOnce(update), size, "update", dialog);
       if (size === "390x844") {
-        await captureEvidence("shipping-field-errors-update-390");
+        await captureUpdate390();
       }
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
       await expect(summaries).toHaveCount(0);
@@ -723,7 +740,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
         expect(posts - before).toBe(1);
         transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
         if (size === "1024x768") {
-          await captureEvidence("shipping-field-errors-removed-row-1024");
+          await captureRemovedRow1024();
         }
         const firstLabel = `Synthetic ${size} first`;
         const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
