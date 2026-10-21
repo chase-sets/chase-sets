@@ -334,7 +334,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
-      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 307, "options.auth.db"],
+      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 350, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
       ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
@@ -444,7 +444,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     for (const [file, line, outcome] of expectations) {
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);
     }
-    expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 782)?.outcome).toBe("not-sql");
+    expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 825)?.outcome).toBe("not-sql");
     expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 44)?.outcome).toBe(
       "not-sql",
     );
