@@ -86,12 +86,9 @@ function jobsSelectedFor(document, journeyScope) {
   const context = { "inputs.journey_scope": journeyScope, "needs.admit-reviewed-sha.result": "success" };
   const resolves = conditionHolds(document.jobs["resolve-provider-uat-plan"].if, context);
   context["needs.resolve-provider-uat-plan.result"] = resolves ? "success" : "skipped";
-  return [
-    "resolve-provider-uat-plan",
-    "staging-provider-uat",
-    "scope-sync-count-lifecycle",
-    "scrydex-cache-capture",
-  ].filter((name) => conditionHolds(document.jobs[name].if, context));
+  return ["resolve-provider-uat-plan", "staging-provider-uat", "scope-sync-count-lifecycle"].filter((name) =>
+    conditionHolds(document.jobs[name].if, context),
+  );
 }
 
 function assertCaptureJobIsolated(document) {
