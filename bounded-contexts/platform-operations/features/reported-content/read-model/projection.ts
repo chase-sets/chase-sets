@@ -9,7 +9,6 @@ import {
 } from "@chase-sets/event-core";
 import { REPORTED_CONTENT_STATUS_BY_ACTION, type ReportedContentTargetType } from "../api/contracts";
 
-type ReasonCount = { reason: string; count: number };
 type ReportSummary = {
   reportId: string;
   reporterKind: string;
@@ -19,41 +18,6 @@ type ReportSummary = {
   details: string | null;
   submittedAt: string;
 };
-
-function incrementReasonCounts(existing: unknown, reason: string): ReasonCount[] {
-  const counts = new Map<string, number>();
-  if (Array.isArray(existing)) {
-    for (const entry of existing) {
-      if (entry && typeof entry === "object") {
-        const record = entry as Record<string, unknown>;
-        const key = String(record.reason ?? "").trim();
-        const count = Number(record.count ?? 0);
-        if (key) {
-          counts.set(key, Math.max(0, count));
-        }
-      }
-    }
-  }
-  counts.set(reason, (counts.get(reason) ?? 0) + 1);
-  return [...counts.entries()]
-    .map(([key, count]) => ({ reason: key, count }))
-    .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason));
-}
-
-function normalizeReports(existing: unknown): ReportSummary[] {
-  return Array.isArray(existing)
-    ? existing
-        .map((entry) => (entry && typeof entry === "object" ? (entry as ReportSummary) : null))
-        .filter((entry): entry is ReportSummary => Boolean(entry?.reportId))
-    : [];
-}
-
-function appendReport(existing: readonly ReportSummary[], report: ReportSummary): ReportSummary[] {
-  if (existing.some((entry) => entry.reportId === report.reportId)) {
-    return [...existing];
-  }
-  return [...existing, report].sort((left, right) => left.submittedAt.localeCompare(right.submittedAt));
-}
 
 /**
  * Queues one report against its target. Redelivery of a known report id changes nothing but
@@ -66,17 +30,6 @@ async function projectReport(
   report: ReportSummary,
   recordedAt: string,
 ) {
-  const existing = await db.query<{ reasons: unknown; reports: unknown }>(
-    `SELECT reasons, reports
-     FROM platform_operations_reported_content_queue_pages
-     WHERE target_type = $1 AND target_id = $2`,
-    [target.targetType, target.targetId],
-  );
-  const row = existing.rows[0];
-  const existingReports = normalizeReports(row?.reports);
-  const isNewReport = !existingReports.some((entry) => entry.reportId === report.reportId);
-  const reports = appendReport(existingReports, report);
-
   await db.query(
     `INSERT INTO platform_operations_reported_content_queue_pages (
        target_type,
@@ -89,12 +42,49 @@ async function projectReport(
        first_reported_at,
        last_reported_at,
        updated_at
-     ) VALUES ($1, $2, $3, 'needs-review', $4, $5::jsonb, $6::jsonb, $7, $7, $8)
+     ) VALUES ($1, $2, $3, 'needs-review', 1, $4::jsonb, $5::jsonb, $6, $6, $7)
      ON CONFLICT (target_type, target_id) DO UPDATE SET
        target_owner_account_id = COALESCE(EXCLUDED.target_owner_account_id, platform_operations_reported_content_queue_pages.target_owner_account_id),
-       report_count = EXCLUDED.report_count,
-       reasons = EXCLUDED.reasons,
-       reports = EXCLUDED.reports,
+       report_count = CASE
+         WHEN EXISTS (
+           SELECT 1
+           FROM jsonb_array_elements(platform_operations_reported_content_queue_pages.reports) AS existing_report
+           WHERE existing_report->>'reportId' = EXCLUDED.reports->0->>'reportId'
+         ) THEN platform_operations_reported_content_queue_pages.report_count
+         ELSE platform_operations_reported_content_queue_pages.report_count + 1
+       END,
+       reasons = CASE
+         WHEN EXISTS (
+           SELECT 1
+           FROM jsonb_array_elements(platform_operations_reported_content_queue_pages.reports) AS existing_report
+           WHERE existing_report->>'reportId' = EXCLUDED.reports->0->>'reportId'
+         ) THEN platform_operations_reported_content_queue_pages.reasons
+         ELSE (
+           SELECT jsonb_agg(jsonb_build_object('reason', merged.reason, 'count', merged.count) ORDER BY merged.count DESC, merged.reason)
+           FROM (
+             SELECT reason, SUM(count)::integer AS count
+             FROM (
+               SELECT entry->>'reason' AS reason, (entry->>'count')::integer AS count
+               FROM jsonb_array_elements(platform_operations_reported_content_queue_pages.reasons) AS existing_reason(entry)
+               UNION ALL
+               SELECT entry->>'reason' AS reason, (entry->>'count')::integer AS count
+               FROM jsonb_array_elements(EXCLUDED.reasons) AS incoming_reason(entry)
+             ) AS reason_counts
+             GROUP BY reason
+           ) AS merged
+         )
+       END,
+       reports = CASE
+         WHEN EXISTS (
+           SELECT 1
+           FROM jsonb_array_elements(platform_operations_reported_content_queue_pages.reports) AS existing_report
+           WHERE existing_report->>'reportId' = EXCLUDED.reports->0->>'reportId'
+         ) THEN platform_operations_reported_content_queue_pages.reports
+         ELSE (
+           SELECT jsonb_agg(entry ORDER BY entry->>'submittedAt')
+           FROM jsonb_array_elements(platform_operations_reported_content_queue_pages.reports || EXCLUDED.reports) AS report_entries(entry)
+         )
+       END,
        first_reported_at = CASE
          WHEN platform_operations_reported_content_queue_pages.report_count = 0 THEN EXCLUDED.first_reported_at
          ELSE platform_operations_reported_content_queue_pages.first_reported_at
@@ -108,9 +98,8 @@ async function projectReport(
       target.targetType,
       target.targetId,
       target.ownerAccountId,
-      reports.length,
-      JSON.stringify(isNewReport ? incrementReasonCounts(row?.reasons, report.reason) : (row?.reasons ?? [])),
-      JSON.stringify(reports),
+      JSON.stringify([{ reason: report.reason, count: 1 }]),
+      JSON.stringify([report]),
       report.submittedAt,
       recordedAt,
     ],

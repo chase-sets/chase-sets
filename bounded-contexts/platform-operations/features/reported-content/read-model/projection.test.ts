@@ -26,11 +26,6 @@ function createDb() {
   const rows = new Map<string, Record<string, unknown>>();
   const db = {
     query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
-      if (sql.includes("SELECT reasons, reports")) {
-        const row = rows.get(`${params[0]}:${params[1]}`);
-        return { rows: row ? [{ reasons: row.reasons, reports: row.reports }] : [] };
-      }
-
       if (sql.includes("INSERT INTO") && sql.includes("last_action_note")) {
         const key = `${params[0]}:${params[1]}`;
         const existing = rows.get(key);
@@ -75,18 +70,36 @@ function createDb() {
       if (sql.includes("INSERT INTO platform_operations_reported_content_queue_pages")) {
         const key = `${params[0]}:${params[1]}`;
         const existing = rows.get(key);
+        const incomingReasons = JSON.parse(String(params[3]));
+        const incomingReports = JSON.parse(String(params[4]));
+        const existingReports = Array.isArray(existing?.reports) ? existing.reports : [];
+        const existingReasons = Array.isArray(existing?.reasons) ? existing.reasons : [];
+        const incomingReport = incomingReports[0];
+        const isNewReport = !existingReports.some((entry) => entry?.reportId === incomingReport?.reportId);
         const reportless = existing?.report_count === 0;
+        const reports = isNewReport
+          ? [...existingReports, incomingReport].sort((left, right) =>
+              left.submittedAt.localeCompare(right.submittedAt),
+            )
+          : existingReports;
+        const reasonCounts = new Map<string, number>();
+        for (const entry of existingReasons) reasonCounts.set(entry.reason, entry.count);
+        if (isNewReport)
+          reasonCounts.set(incomingReasons[0].reason, (reasonCounts.get(incomingReasons[0].reason) ?? 0) + 1);
+        const reasons = [...reasonCounts.entries()]
+          .map(([reason, count]) => ({ reason, count }))
+          .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason));
         rows.set(key, {
           target_type: params[0],
           target_id: params[1],
           target_owner_account_id: params[2] ?? existing?.target_owner_account_id ?? null,
           status: existing?.status ?? "needs-review",
-          report_count: params[3],
-          reasons: JSON.parse(String(params[4])),
-          reports: JSON.parse(String(params[5])),
-          first_reported_at: !existing || reportless ? params[6] : existing.first_reported_at,
-          last_reported_at: !existing || reportless ? params[6] : latest(existing.last_reported_at, params[6]),
-          updated_at: latest(existing?.updated_at, params[7]),
+          report_count: (existing?.report_count ?? 0) + (isNewReport ? 1 : 0),
+          reasons,
+          reports,
+          first_reported_at: !existing || reportless ? params[5] : existing.first_reported_at,
+          last_reported_at: !existing || reportless ? params[5] : latest(existing.last_reported_at, params[5]),
+          updated_at: latest(existing?.updated_at, params[6]),
           auto_unlisted_at: existing?.auto_unlisted_at ?? null,
           auto_unlist_report_id: existing?.auto_unlist_report_id ?? null,
           auto_unlist_threshold: existing?.auto_unlist_threshold ?? null,

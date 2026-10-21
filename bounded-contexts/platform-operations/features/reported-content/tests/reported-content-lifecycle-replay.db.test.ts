@@ -49,7 +49,7 @@ type Fact = Readonly<{
   data: Record<string, unknown>;
 }>;
 
-function marketplaceReport(name: string, minute: number, reporterKey: string): Fact {
+function marketplaceReport(name: string, minute: number, reporterKey: string, reason = "counterfeit-concern"): Fact {
   return {
     name,
     type: "marketplace.report.submitted",
@@ -64,7 +64,7 @@ function marketplaceReport(name: string, minute: number, reporterKey: string): F
       reporterKey,
       reporterAccountId: null,
       reporterUserId: null,
-      reason: "counterfeit-concern",
+      reason,
       details: null,
       sourceRoutePath: `/listings/${listing}`,
       submittedAt: at(minute),
@@ -179,6 +179,23 @@ describeDb("reported-content-lifecycle-replay", () => {
       );
     }
   }
+  async function deliverConcurrently(facts: readonly Fact[]) {
+    const projection = handlers();
+    await Promise.all(
+      facts.map((fact, index) =>
+        projection[fact.type]!(
+          buildTransportEvent(fact.type, fact.data, {
+            id: `evt_${fact.name}`,
+            streamId: fact.streamId,
+            globalPosition: String(index + 1),
+            tenantId: "tnt_test",
+            audit: { performedByUserId: operator, forAccountId: profile },
+            timing: { occurredAt: fact.recordedAt, recordedAt: fact.recordedAt },
+          }),
+        ),
+      ),
+    );
+  }
   const snapshot = async () =>
     JSON.parse(
       JSON.stringify(
@@ -254,6 +271,45 @@ describeDb("reported-content-lifecycle-replay", () => {
     await truncate();
     await deliver(canonical);
     expect(await snapshot()).toEqual(expected);
+  });
+
+  it("atomically merges concurrent reports and deduplicates redelivery", async () => {
+    const first = marketplaceReport("concurrent-one", 11, "visitor:concurrent-one");
+    const second = marketplaceReport("concurrent-two", 12, "visitor:concurrent-two", "stolen-photos");
+
+    await deliverConcurrently([first, second]);
+    expect(await snapshot()).toEqual([
+      expect.objectContaining({
+        target_type: "listing",
+        target_id: listing,
+        report_count: 2,
+        reasons: [
+          { reason: "counterfeit-concern", count: 1 },
+          { reason: "stolen-photos", count: 1 },
+        ],
+        reports: expect.arrayContaining([
+          expect.objectContaining({ reportId: id("rpt", 11) }),
+          expect.objectContaining({ reportId: id("rpt", 12) }),
+        ]),
+      }),
+    ]);
+
+    await deliverConcurrently([first, second]);
+    expect(await snapshot()).toEqual([
+      expect.objectContaining({
+        target_type: "listing",
+        target_id: listing,
+        report_count: 2,
+        reasons: [
+          { reason: "counterfeit-concern", count: 1 },
+          { reason: "stolen-photos", count: 1 },
+        ],
+        reports: expect.arrayContaining([
+          expect.objectContaining({ reportId: id("rpt", 11) }),
+          expect.objectContaining({ reportId: id("rpt", 12) }),
+        ]),
+      }),
+    ]);
   });
 
   it("needs-review, auto-unlisted, a re-report and each disposition hold their status", async () => {
