@@ -23,6 +23,41 @@ const slotSelector = "[data-search-row-slot]";
 const paintedSelector = '[data-shell-header-box="painted"]';
 const reservedSelector = '[data-shell-header-box="reserved"]';
 const searchInputSelector = `${slotSelector} input[role='combobox']`;
+const searchHeaderSelector = "nav:has(form[role='search'])";
+const searchFormInputSelector = "nav form[role='search'] input";
+const searchFormTriggerSelector = "nav form[role='search'] button";
+const MAX_REVERSE_PRESSES = 8;
+
+type ReverseTraversalStop = {
+  press: number;
+  activeElement: string;
+  inHeader: boolean;
+  phase: string | null;
+  headerHeightPx: number;
+};
+
+type ReverseTraversalAuthority = {
+  trace: ReverseTraversalStop[];
+  firstHeaderStop: ReverseTraversalStop | null;
+  presses: number;
+};
+
+type FocusDiagnostics = {
+  selector: string;
+  tabIndex: number;
+  visibility: string;
+  inert: boolean;
+  axIgnored: boolean | undefined;
+  axIgnoredReasons: unknown[];
+  axFocusable: boolean | undefined;
+};
+
+type CollapsedInputMutant = "tabIndex" | "inert";
+
+type MutantHandle = {
+  read: () => Promise<{ applies: number; restores: number; diagnostics: string[] }>;
+  stop: () => Promise<void>;
+};
 
 type SearchRowObservationRecord = {
   startState: string | null;
@@ -106,6 +141,197 @@ async function resolvedHeaderHeightPx(page: Page) {
     const rootPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
     return match[2] === "rem" ? Number.parseFloat(match[1]!) * rootPx : Number.parseFloat(match[1]!);
   });
+}
+
+async function readReverseTraversalAuthority(
+  page: Page,
+  { navSelector, inputSelector, maxPresses }: { navSelector: string; inputSelector: string; maxPresses: number },
+): Promise<ReverseTraversalAuthority> {
+  const trace: ReverseTraversalStop[] = [];
+  let firstHeaderStop: ReverseTraversalStop | null = null;
+  for (
+    let press = 0;
+    press < maxPresses && (firstHeaderStop === null || trace.length <= trace.indexOf(firstHeaderStop) + 1);
+    press += 1
+  ) {
+    const before = await page.evaluate(
+      ({ nav }) => {
+        const active = document.activeElement;
+        const header = document.querySelector(nav);
+        return {
+          inHeader: Boolean(active && header?.contains(active)),
+          active: active?.tagName.toLowerCase() ?? "body",
+          phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state") ?? null,
+        };
+      },
+      { nav: navSelector },
+    );
+    if (!before.inHeader) {
+      expect(before.phase, "reverse traversal must begin each outside-header press collapsed").toBe("collapsed");
+    }
+    await page.keyboard.press("Shift+Tab");
+    const stop = await page.evaluate(
+      ({ nav, input }) => {
+        const active = document.activeElement;
+        const header = document.querySelector(nav);
+        const inHeader = Boolean(active && header?.contains(active));
+        const isInput = Boolean(active && active.matches(input));
+        const label =
+          active?.getAttribute("aria-label") ??
+          active?.getAttribute("href") ??
+          active?.getAttribute("value") ??
+          active?.getAttribute("id") ??
+          active?.textContent?.trim() ??
+          "";
+        return {
+          activeElement: `${active?.tagName.toLowerCase() ?? "body"}[${label}] input=${String(isInput)}`,
+          inHeader,
+          phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state") ?? null,
+        };
+      },
+      { nav: navSelector, input: inputSelector },
+    );
+    const recorded: ReverseTraversalStop = {
+      press: press + 1,
+      activeElement: stop.activeElement,
+      inHeader: stop.inHeader,
+      phase: stop.phase,
+      headerHeightPx: await resolvedHeaderHeightPx(page),
+    };
+    trace.push(recorded);
+    if (firstHeaderStop === null && recorded.inHeader) {
+      firstHeaderStop = recorded;
+    }
+  }
+  expect(
+    firstHeaderStop,
+    `reverse traversal exhausted ${maxPresses} presses without entering the header; trace=${JSON.stringify(trace)}`,
+  ).not.toBeNull();
+  return { trace, firstHeaderStop, presses: trace.length };
+}
+
+async function readFocusDiagnostics(page: Page, selector: string): Promise<FocusDiagnostics> {
+  const dom = await page.evaluate((query) => {
+    const matches = document.querySelectorAll(query);
+    if (matches.length !== 1)
+      throw new Error(`expected exactly one diagnostic target for ${query}, got ${matches.length}`);
+    const element = matches[0]!;
+    return {
+      tabIndex: (element as HTMLElement).tabIndex,
+      visibility: getComputedStyle(element).visibility,
+      inert: element.hasAttribute("inert"),
+    };
+  }, selector);
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send("Accessibility.enable");
+    const documentRoot = (await session.send("DOM.getDocument", { depth: -1 })) as { root: { nodeId: number } };
+    const node = (await session.send("DOM.querySelector", {
+      nodeId: documentRoot.root.nodeId,
+      selector,
+    })) as { nodeId: number };
+    if (!node.nodeId) throw new Error(`CDP selector did not resolve: ${selector}`);
+    const tree = (await session.send("Accessibility.getPartialAXTree", {
+      nodeId: node.nodeId,
+      fetchRelatives: false,
+    })) as {
+      nodes?: Array<{
+        ignored?: boolean;
+        ignoredReasons?: unknown[];
+        properties?: Array<{ name: string; value?: { value?: unknown } }>;
+      }>;
+    };
+    const ax = tree.nodes?.[0];
+    const focusable = ax?.properties?.find((property) => property.name === "focusable")?.value?.value;
+    return {
+      selector,
+      ...dom,
+      axIgnored: ax?.ignored,
+      axIgnoredReasons: ax?.ignoredReasons ?? [],
+      axFocusable: typeof focusable === "boolean" ? focusable : undefined,
+    };
+  } finally {
+    await session.detach();
+  }
+}
+
+async function installCollapsedInputMutant(page: Page, mutant: CollapsedInputMutant): Promise<MutantHandle> {
+  await page.evaluate(
+    ({ input, header, state, kind }) => {
+      const targets = [input, header, state, "nav form[role='search'] button"];
+      if (targets.some((selector) => document.querySelectorAll(selector).length !== 1)) {
+        throw new Error(`mutant selectors must resolve exactly once: ${targets.join(",")}`);
+      }
+      const governed = document.querySelector(input)!;
+      if (governed.hasAttribute("tabindex") || governed.hasAttribute("inert")) {
+        throw new Error("mutant target already carries a governed attribute");
+      }
+      const diagnostics: string[] = [];
+      let applies = 0;
+      let restores = 0;
+      let applied = false;
+      const update = (value: string | null) => {
+        const target = document.querySelectorAll(input);
+        if (target.length !== 1) {
+          diagnostics.push(`input-count:${target.length}`);
+          return;
+        }
+        const element = target[0]!;
+        if (value === "collapsed" && !applied) {
+          element.setAttribute(kind === "tabIndex" ? "tabindex" : "inert", kind === "tabIndex" ? "-1" : "");
+          applied = true;
+          applies += 1;
+        } else if (value !== "collapsed" && applied) {
+          element.removeAttribute(kind === "tabIndex" ? "tabindex" : "inert");
+          applied = false;
+          restores += 1;
+        }
+      };
+      const observer = new MutationObserver((entries) => {
+        const stateEntry = entries.find((entry) => entry.attributeName === "data-search-row-state");
+        if (stateEntry) update((stateEntry.target as Element).getAttribute("data-search-row-state"));
+      });
+      observer.observe(document.querySelector(state)!, {
+        attributes: true,
+        attributeFilter: ["data-search-row-state"],
+      });
+      (window as unknown as { __collapsedInputMutant?: unknown }).__collapsedInputMutant = {
+        observer,
+        update,
+        get applies() {
+          return applies;
+        },
+        get restores() {
+          return restores;
+        },
+        diagnostics,
+        element: governed,
+        kind,
+      };
+    },
+    { input: searchFormInputSelector, header: searchHeaderSelector, state: shellSelector, kind: mutant },
+  );
+  return {
+    read: () =>
+      page.evaluate(() => {
+        const handle = (
+          window as unknown as { __collapsedInputMutant?: { applies: number; restores: number; diagnostics: string[] } }
+        ).__collapsedInputMutant;
+        if (!handle) throw new Error("collapsed input mutant was not installed");
+        return { applies: handle.applies, restores: handle.restores, diagnostics: [...handle.diagnostics] };
+      }),
+    stop: () =>
+      page.evaluate(() => {
+        const windowState = window as unknown as {
+          __collapsedInputMutant?: { observer: MutationObserver; element: Element; kind: CollapsedInputMutant };
+        };
+        const handle = windowState.__collapsedInputMutant;
+        if (!handle) return;
+        handle.observer.disconnect();
+        handle.element.removeAttribute(handle.kind === "tabIndex" ? "tabindex" : "inert");
+        delete windowState.__collapsedInputMutant;
+      }),
+  };
 }
 
 // Criterion 8 instrumentation: records every data-search-row-state mutation and
@@ -267,6 +493,116 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     expect(shimObservation.mutations.length).toBeGreaterThan(0);
     expect(shimObservation.mutations.map((mutation) => mutation.value)).toContain("expanded");
     expect(shimObservation.scrollSamples.some((sample) => sample < COLLAPSE_FLOOR)).toBe(true);
+  });
+
+  test("proves the collapsed search input is a native reverse-traversal stop and then completes the reveal @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await openAtViewport(page, itemRoutePath, phoneViewport);
+    await waitForSearchRowPhase(page, "expanded");
+    await expect(page.locator(searchFormTriggerSelector)).toHaveAttribute("tabindex", "-1");
+
+    // Reuse #6838's entry path verbatim: start on the skip link, collapse while
+    // focus remains outside the header, then advance to main content before the
+    // native reverse traversal begins.
+    await page.keyboard.press("Tab");
+    await driveDownwardPastFloor(page);
+    await waitForSearchRowPhase(page, "collapsed");
+    await page.keyboard.press("Tab");
+    await waitForSearchRowPhase(page, "expanded");
+    await page.keyboard.press("Tab");
+    let reachedMain = false;
+    for (let press = 0; press < 40 && !reachedMain; press += 1) {
+      await page.keyboard.press("Tab");
+      reachedMain = await page.evaluate(() => document.activeElement?.closest("#main-content") !== null);
+    }
+    expect(reachedMain).toBe(true);
+    const beyond = await page.evaluate(() => window.scrollY + 200);
+    await scrollWindowTo(page, beyond + DIRECTION_DELTA + 8);
+    await waitForSearchRowPhase(page, "collapsed");
+    expect(await page.evaluate(() => document.activeElement?.closest(searchHeaderSelector) === null)).toBe(true);
+    expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(64, 0);
+
+    let step = 0;
+    const phaseACaptureIndex = ++step;
+    const inputDiagnostics = await readFocusDiagnostics(page, searchFormInputSelector);
+    const triggerDiagnostics = await readFocusDiagnostics(page, searchFormTriggerSelector);
+    const firstKeyPressIndex = ++step;
+    const authority = await readReverseTraversalAuthority(page, {
+      navSelector: searchHeaderSelector,
+      inputSelector: searchFormInputSelector,
+      maxPresses: MAX_REVERSE_PRESSES,
+    });
+    const restoreIndex = ++step;
+    const firstAssertionIndex = ++step;
+    await publishRecord(testInfo, "collapsed-reverse-authority", {
+      phaseACaptureIndex,
+      firstKeyPressIndex,
+      restoreIndex,
+      firstAssertionIndex,
+      maxPresses: MAX_REVERSE_PRESSES,
+      presses: authority.presses,
+      trace: authority.trace,
+      inputDiagnostics,
+      triggerDiagnostics,
+    });
+
+    expect(phaseACaptureIndex).toBeLessThan(firstKeyPressIndex);
+    expect(firstKeyPressIndex).toBeLessThan(restoreIndex);
+    expect(restoreIndex).toBeLessThan(firstAssertionIndex);
+    expect(inputDiagnostics.visibility).toBe("visible");
+    expect(inputDiagnostics.tabIndex).toBeGreaterThanOrEqual(0);
+    expect(triggerDiagnostics).toMatchObject({ visibility: "visible", tabIndex: -1, inert: false });
+    expect(authority.firstHeaderStop?.activeElement).toContain("input=true");
+    expect(authority.firstHeaderStop?.phase).toBe("expanded");
+    expect(authority.firstHeaderStop?.headerHeightPx).toBeCloseTo(124, 0);
+    expect(authority.trace.slice(1).some((stop) => stop.activeElement.includes("a[Chase Sets]"))).toBe(true);
+    expect(authority.trace.every((stop) => !stop.activeElement.includes("button["))).toBe(true);
+    expect(await page.locator(shellSelector).getAttribute("data-search-row-state")).toBe("expanded");
+    expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(124, 0);
+  });
+
+  test("fails the collapsed-time authority when the row never collapses @marketplace-browse", async ({ page }) => {
+    await openAtViewport(page, "/search?q=charizard", phoneViewport);
+    await waitForSearchRowPhase(page, "expanded");
+    await driveDownwardPastFloor(page);
+    await waitForSearchRowPhase(page, "expanded");
+    let failure: unknown;
+    try {
+      expect(await page.locator(shellSelector).getAttribute("data-search-row-state")).toBe("collapsed");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+  });
+
+  test("proves native traversal discriminates a sequential stop where the accessibility conjunction cannot @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await page.setContent(`
+      <nav id="header"><form role="search">
+        <input type="radio" name="choice" value="unchecked">
+        <input type="radio" name="choice" value="checked" checked>
+      </form></nav>
+      <button id="entry">Entry</button>
+    `);
+    await page.locator("#entry").click();
+    const unchecked = await readFocusDiagnostics(page, "#header input[value='unchecked']");
+    const checked = await readFocusDiagnostics(page, "#header input[value='checked']");
+    const authority = await readReverseTraversalAuthority(page, {
+      navSelector: "#header",
+      inputSelector: "#header input[value='checked']",
+      maxPresses: 2,
+    });
+    await publishRecord(testInfo, "native-radio-counterexample", { unchecked, checked, trace: authority.trace });
+    for (const diagnostic of [unchecked, checked]) {
+      expect(diagnostic.tabIndex).toBe(0);
+      expect(diagnostic.visibility).toBe("visible");
+      expect(diagnostic.axIgnored).not.toBe(true);
+      expect(diagnostic.axFocusable).toBe(true);
+    }
+    expect(authority.trace.some((stop) => stop.activeElement.includes("value=checked"))).toBe(true);
+    expect(authority.trace.some((stop) => stop.activeElement.includes("value=unchecked"))).toBe(false);
   });
 
   test("reveals the collapsed search row through sequential keyboard focus @marketplace-browse", async ({
