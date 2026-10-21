@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { readStagingDeployGeneration, selectStagingDeployGeneration } from "./staging-deploy-generation.mjs";
+import {
+  readStagingDeployGeneration,
+  selectStagingDeployGeneration,
+  verifyDeployGeneration,
+} from "./staging-deploy-generation.mjs";
 
 const fixture = (name) =>
   readFileSync(new URL(`./fixtures/staging-deploy-generation/${name}`, import.meta.url), "utf8");
@@ -235,6 +239,22 @@ async function select(world, options = {}, hooks = {}) {
 }
 const stopOf = async (world, options, hooks) => (await select(world, options, hooks)).result.stop;
 
+async function verify(world, generation = capturedGeneration, options = {}, hooks = {}) {
+  const requests = [];
+  const transport = vi.fn(async (url, init) => {
+    requests.push({ url, init });
+    return respond(world, url, hooks);
+  });
+  const result = await verifyDeployGeneration(generation, {
+    token,
+    transport,
+    requestTimeoutMs: 30_000,
+    now,
+    ...options,
+  });
+  return { result, requests };
+}
+
 describe("selectStagingDeployGeneration", () => {
   // AC-01: authority is the owning job's executed steps, never the run conclusion.
   it("binds the captured failure-concluded run's Deploy Staging", async () => {
@@ -254,7 +274,119 @@ describe("selectStagingDeployGeneration", () => {
       `${signedLogs}118064914233?sig=synthetic`,
     ]);
   });
+});
 
+describe("verifyDeployGeneration", () => {
+  it("rejects invalid input without requests", async () => {
+    const transport = vi.fn();
+    await expect(verifyDeployGeneration({}, { transport })).rejects.toThrow("staging-deploy-generation-input-invalid");
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("verifyDeployGeneration recomputes per phase and fails closed", async () => {
+    expect((await verify(capturedWorld())).result).toEqual({ verdict: "current" });
+
+    // The held job is still the authority when its completion equals the
+    // rerun's lower bound. A strict `>` bound would incorrectly lose it.
+    const equalWorld = addApplied(emptyWorld(), {
+      runId: 9_000_000_400,
+      jobId: 9_100_000_400,
+      number: 6400,
+      createdAt: "2026-10-19T12:56:22Z",
+      at: "2026-10-19T12:56:22Z",
+    });
+    const equalGeneration = {
+      runId: "9000000400",
+      runAttempt: 1,
+      jobId: "9100000400",
+      jobCompletedAt: "2026-10-19T12:56:22Z",
+      deployedHead: syntheticHead,
+    };
+    expect((await verify(equalWorld, equalGeneration)).result).toEqual({ verdict: "current" });
+
+    const changed = [
+      ["runId", "39252891661"],
+      ["runAttempt", 2],
+      ["jobId", "118064914234"],
+      ["jobCompletedAt", "2026-10-19T12:56:21Z"],
+      ["deployedHead", "0".repeat(40)],
+    ];
+    for (const [key, value] of changed)
+      expect((await verify(capturedWorld(), { ...capturedGeneration, [key]: value })).result).toEqual({
+        verdict: "deploy-generation-advanced",
+      });
+
+    const newer = addApplied(capturedWorld(), {
+      runId: 9_000_000_401,
+      jobId: 9_100_000_401,
+      number: 6401,
+      createdAt: "2026-10-19T12:57:00Z",
+      at: "2026-10-19T12:57:22Z",
+    });
+    expect((await verify(newer)).result).toEqual({ verdict: "deploy-generation-advanced" });
+
+    const indeterminate = addRun(capturedWorld(), {
+      id: 9_000_000_402,
+      createdAt: "2026-10-19T12:57:00Z",
+      attempts: [
+        [
+          deployJob({
+            id: 9_100_000_402,
+            at: "2026-10-19T12:57:22Z",
+            conclusion: "failure",
+            outcomes: ["success", "success", "skipped"],
+          }),
+        ],
+      ],
+    });
+    expect((await verify(indeterminate)).result).toEqual({ verdict: "deploy-generation-advanced" });
+
+    const inProgress = addRun(capturedWorld(), {
+      id: 9_000_000_403,
+      createdAt: "2026-10-19T12:57:00Z",
+      attempts: [[deployJob({ id: 9_100_000_403, at: "2026-10-19T12:57:22Z" })]],
+    });
+    inProgress.jobs["9000000403/1"].jobs[0].status = "in_progress";
+    expect((await verify(inProgress)).result).toEqual({ verdict: "deploy-generation-advanced" });
+
+    expect(
+      (await verify(capturedWorld(), capturedGeneration, {}, { runsPage: () => new Response(null, { status: 503 }) }))
+        .result,
+    ).toEqual({
+      verdict: "deploy-generation-unverifiable",
+    });
+
+    // A consumer reruns the fence immediately before each mutation. Once the
+    // first mutation advances staging, the second phase must refuse.
+    const phases = capturedWorld();
+    let mutationCount = 0;
+    const runPhase = async () => {
+      const outcome = await verify(phases);
+      const requestsAtVerification = outcome.requests.length;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(outcome.requests.length).toBe(requestsAtVerification);
+      expect(requestsAtVerification).toBeGreaterThan(0);
+      if (outcome.result.verdict === "current") mutationCount++;
+      return outcome;
+    };
+    const first = await runPhase();
+    expect(first.result).toEqual({ verdict: "current" });
+    expect(mutationCount).toBe(1);
+    phases.runs = phases.runs.filter(({ id }) => id !== 39252891660);
+    phases.jobs = Object.fromEntries(Object.entries(phases.jobs).filter(([key]) => !key.startsWith("39252891660/")));
+    addApplied(phases, {
+      runId: 9_000_000_404,
+      jobId: 9_100_000_404,
+      number: 6404,
+      createdAt: "2026-10-19T12:57:00Z",
+      at: "2026-10-19T12:57:22Z",
+    });
+    expect((await runPhase()).result).toEqual({ verdict: "deploy-generation-advanced" });
+    expect(mutationCount).toBe(1);
+  });
+});
+
+describe("selectStagingDeployGeneration", () => {
   it("skips coalesced and unexecuted jobs", async () => {
     // Captured run 39079933000: attempt 1 skipped Deploy Staging (zero steps,
     // placeholder times), attempt 2 coalesced (activation success, deploy and

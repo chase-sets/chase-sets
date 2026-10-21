@@ -7,6 +7,7 @@ export interface FormContextValue {
   errorAnnouncement: "inline" | "summary";
   disabled: boolean;
   submitting: boolean;
+  pendingSubmitter: HTMLButtonElement | HTMLInputElement | null;
   status: FormStatus;
   formId?: string;
   validationSummaryId?: string;
@@ -17,6 +18,7 @@ const defaultFormContext: FormContextValue = {
   disabled: false,
   submitting: false,
   status: "idle",
+  pendingSubmitter: null,
 };
 
 const FormContext = createContext<FormContextValue>(defaultFormContext);
@@ -34,6 +36,7 @@ export function FormProvider({
   errorAnnouncement = "inline",
   disabled = false,
   submitting = false,
+  pendingSubmitter = null,
   status = submitting ? "submitting" : "idle",
   formId,
   validationSummaryId,
@@ -42,6 +45,7 @@ export function FormProvider({
     errorAnnouncement,
     disabled,
     submitting,
+    pendingSubmitter,
     status,
     formId,
     validationSummaryId,

@@ -35,11 +35,11 @@ function assertImmutableProviderUatAdmission(document) {
   });
   expect(resolver.needs).toBe("admit-reviewed-sha");
   expect(resolver.if).toBe(
-    "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle'",
+    "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture'",
   );
   expect(worker.needs).toEqual(["admit-reviewed-sha", "resolve-provider-uat-plan"]);
   expect(worker.if).toBe(
-    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle'",
+    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture'",
   );
   expect(gate.steps.some((step) => /checkout|setup|playwright/i.test(step.uses ?? step.run ?? ""))).toBe(false);
   const sha = "a".repeat(40);
@@ -97,6 +97,7 @@ const deployConcurrencyWorkflowFiles = [
   ".github/workflows/platform-staging-admin-qa-actor-fixtures.yml",
   ".github/workflows/platform-staging-advisory-evidence.yml",
   ".github/workflows/platform-staging-bootstrap-hook-drill.yml",
+  ".github/workflows/platform-staging-evidence-window.yml",
   ".github/workflows/platform-staging-helm-recovery.yml",
   ".github/workflows/platform-staging-representative-commerce-state.yml",
   ".github/workflows/platform-staging-reset.yml",

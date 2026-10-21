@@ -305,6 +305,8 @@ describe("Terraform state database URL export", () => {
       "platform-postgres-slow-query-digest.yml",
       "platform-production.yml",
       "platform-staging-admin-qa-actor-fixtures.yml",
+      "platform-staging-evidence-window-cleanup.yml",
+      "platform-staging-evidence-window.yml",
       "platform-staging-representative-commerce-state.yml",
       "platform-staging-wake-drills.yml",
     ];

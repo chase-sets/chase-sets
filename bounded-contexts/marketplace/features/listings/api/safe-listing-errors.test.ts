@@ -16,6 +16,8 @@ import { MarketplaceEvidenceGovernanceError } from "../domain/evidence-governanc
 import { MarketplaceListingGatePolicyError } from "../domain/listing-gate-policy";
 import { MarketplaceListingRequestError } from "./listing-request-error";
 import { createListingGatePolicyRoutes } from "./listing-gate-policy-route";
+import { AuthoredTextRejectedError, authoredTextRejectionCodes } from "../../reviews/domain/authored-text-safeguard";
+import { authoredTextRecoveryMessage } from "../../reviews/ui/authored-text-recovery";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
 import {
   createMarketplaceListingRuntime,
@@ -535,5 +537,58 @@ describe("safe Listing errors", () => {
       expect(inspect([body, log.mock.calls], { depth: null })).not.toMatch(/password=secret|nested-secret-body/);
       expect(log).toHaveBeenCalled();
     }
+  });
+});
+
+describe("issue-5258-marketplace-ac2 Listing route closed description codes", () => {
+  function photoForm(field: "evidence" | "listingPhoto", fields: Readonly<Record<string, string>> = {}) {
+    const form = new FormData();
+    form.set(field, new File(["photo"], "photo.png", { type: "image/png" }));
+    form.set("listingPhotoAltText", "SECRET-MARKER-7281 javascript:alert(1)");
+    for (const [name, value] of Object.entries(fields)) form.set(name, value);
+    return { method: "POST", body: form } satisfies RequestInit;
+  }
+
+  const endpoints = [
+    [
+      "/account/listings",
+      "createListing",
+      () => photoForm("evidence", { ...createBody, inventoryItemId: "inv_1", quantityCap: "1" }),
+    ],
+    ["/account/listings/lst_1/photos", "addListingPhotos", () => photoForm("evidence")],
+    [
+      "/account/listings/lst_1/photos/lpho_1/classify",
+      "classifyListingPhoto",
+      () => jsonRequest({ altText: "SECRET-MARKER-7281 javascript:alert(1)" }),
+    ],
+    ["/account/listings/lst_1/photos/lpho_1/replace", "replaceListingPhoto", () => photoForm("listingPhoto")],
+  ] as const;
+
+  it.each(
+    endpoints.flatMap(([path, service, init]) =>
+      authoredTextRejectionCodes.map((code) => [path, service, code, init] as const),
+    ),
+  )("maps %s %s rejection to closed code %s with shared recovery copy", async (path, service, code, init) => {
+    const reject = vi.fn().mockRejectedValue(new AuthoredTextRejectedError("listing-evidence-alt-text", code));
+    const response = await buildApp({ [service]: reject }).request(path, init());
+    const body = await response.json();
+
+    expect(reject).toHaveBeenCalledOnce();
+    expect(response.status).toBe(400);
+    expect(body).toEqual({ error: { code, message: authoredTextRecoveryMessage(code) } });
+    expect(JSON.stringify(body)).not.toContain("SECRET-MARKER-7281");
+  });
+
+  it("keeps a description rejection closed on an endpoint that authors no description", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const reject = vi
+      .fn()
+      .mockRejectedValue(new AuthoredTextRejectedError("listing-evidence-alt-text", "text_unsafe_link"));
+    const response = await buildApp({ pauseListing: reject }).request("/account/listings/lst_1/pause", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(500);
+    expect((await response.json()).error.code).toBe("internal_error");
   });
 });
