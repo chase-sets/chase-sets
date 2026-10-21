@@ -97,7 +97,6 @@ export function WalletAdjustmentGuidedFlowForm({
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const explanationRequired = walletAdjustmentReasonCodeRequiresExplanation(reasonCode);
-  const submitting = navigation.state === "submitting";
   const canPreview = Boolean(amount) && (!explanationRequired || explanation.trim().length > 0);
   const previewMatchesForm =
     preview !== null &&
@@ -293,7 +292,7 @@ export function WalletAdjustmentGuidedFlowForm({
                   cancelLabel={t("settlement.features.wallets.ui.walletAdjustmentGuidedFlow.cancel")}
                   onConfirm={requestConfirm}
                   trigger={
-                    <Button tone={direction === "debit" ? "danger" : "primary"} disabled={submitting}>
+                    <Button tone={direction === "debit" ? "danger" : "primary"}>
                       {t("settlement.features.wallets.ui.walletAdjustmentGuidedFlow.confirm.and.submit")}
                     </Button>
                   }
