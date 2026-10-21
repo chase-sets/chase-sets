@@ -7,7 +7,7 @@ import { scrydexCacheCaptureUnits } from "../bounded-contexts/catalog/features/s
 import {
   buildScrydexOptionRefreshReceipt,
   classifyScrydexOptionRefreshRequest,
-  evaluateScrydexUsagePreflight,
+  evaluateScrydexOptionRefreshAdmission,
   providerPagesUpperBound,
   scrydexOptionRefreshArtifactPath,
   scrydexOptionRefreshDiagnosticArtifactPath,
@@ -52,6 +52,7 @@ export function selectRefreshRequests(profiles, unitKey) {
     scopes: [],
     profiles,
     cacheOnly: false,
+    limit: scrydexOptionRefreshPageSize,
   }).filter((request) => request.scope === "set-name" && request.parentScope === null && request.queryKind === "sets");
 }
 
@@ -88,18 +89,26 @@ export async function runScrydexOptionRefresh(input) {
     before = await input.selectDeployment();
     if (!before) throw refused("deployment-before");
     await input.signIn();
-    const overview = await input.read(
+    const overviewResponse = await input.read(
       "/api/catalog/source-observations/integration-control-plane/overview?audience=daily",
     );
+    const overview = overviewResponse?.body ?? overviewResponse;
     const provider = overview?.providerReadiness?.providers?.find((candidate) => candidate.providerKey === "scrydex");
-    const gate = evaluateScrydexUsagePreflight({
-      ...provider,
-      providerKey: provider?.providerKey,
-      providerReadiness: provider?.readiness,
+    const gate = evaluateScrydexOptionRefreshAdmission({
+      provider: {
+        ...provider,
+        providerKey: provider?.providerKey,
+        providerReadiness: provider?.readiness,
+      },
+      providerSendWindow: overview?.providerSendWindow,
+      rolloutControls: overview?.readiness?.rolloutControls,
+      unitKeys: units.map((unit) => unit.unitKey),
     });
     preflight = gate.preflight;
     if (!gate.admitted) throw refused(gate.reason);
-    const profiles = await input.read("/api/catalog/source-observations/provider-profiles");
+    const profileEnvelope = await input.read("/api/catalog/source-observations/provider-profiles");
+    const profiles = profileEnvelope?.body?.items ?? profileEnvelope?.items;
+    if (!Array.isArray(profiles)) throw refused("profiles-invalid");
     for (let index = 0; index < units.length; index += 1) {
       const unit = units[index];
       const requests = selectRefreshRequests(profiles, unit.unitKey);
@@ -264,7 +273,11 @@ export async function capture(env = process.env, workspace = process.cwd()) {
             cache: "no-store",
             headers: { accept: "application/json" },
           });
-          return { status: response.status, body: response.status === 200 ? await response.json() : null };
+          const bytes = await response.arrayBuffer();
+          if (bytes.byteLength > scrydexOptionRefreshMaxBytes)
+            return { status: response.status, body: null, overCap: true };
+          const text = new TextDecoder().decode(bytes);
+          return { status: response.status, body: response.status === 200 ? JSON.parse(text) : null, overCap: false };
         },
         path.startsWith("http") ? path : `${scrydexOptionRefreshOrigin}${path}`,
       );

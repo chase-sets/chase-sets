@@ -382,6 +382,8 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
+      - name: Install isolated Chromium
+        run: pnpm exec playwright install --with-deps chromium
       - name: Run bounded Scrydex force refresh
         id: refresh
         env:

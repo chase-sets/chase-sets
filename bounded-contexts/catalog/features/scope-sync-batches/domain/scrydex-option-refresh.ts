@@ -140,6 +140,58 @@ export function evaluateScrydexUsagePreflight(
   return reason ? { admitted: false, reason, preflight } : { admitted: true, preflight };
 }
 
+export function evaluateScrydexOptionRefreshAdmission(input: {
+  provider: unknown;
+  providerSendWindow: unknown;
+  rolloutControls: unknown;
+  unitKeys: readonly string[];
+}):
+  | { admitted: true; preflight: ScrydexOptionRefreshPreflight }
+  | { admitted: false; reason: string; preflight: ScrydexOptionRefreshPreflight } {
+  const usage = evaluateScrydexUsagePreflight(input.provider);
+  if (!usage.admitted) return usage;
+
+  const sendWindow = (input.providerSendWindow ?? {}) as Record<string, unknown>;
+  const sendState = sendWindow.state;
+  if (sendState !== "disabled" && sendState !== "unarmed") {
+    return {
+      admitted: false,
+      reason: `provider-send-window:${typeof sendState === "string" ? sendState : "missing"}`,
+      preflight: usage.preflight,
+    };
+  }
+
+  const controls = (input.rolloutControls ?? {}) as Record<string, unknown>;
+  if (!Array.isArray(controls.controls)) {
+    return { admitted: false, reason: "rollout-controls:missing", preflight: usage.preflight };
+  }
+  const declaredUnits = new Set(input.unitKeys);
+  const blockingControl = controls.controls.find((control) => {
+    if (!control || typeof control !== "object") return true;
+    const candidate = control as Record<string, unknown>;
+    if (candidate.status === "open") return false;
+    if (typeof candidate.status !== "string") return true;
+    const capabilities = Array.isArray(candidate.capabilities) ? candidate.capabilities : [];
+    const targetsOptionTransport = capabilities.some(
+      (capability) => capability === "provider-option-query" || capability === "provider-transport",
+    );
+    if (!targetsOptionTransport) return false;
+    const providerKeys = Array.isArray(candidate.providerKeys) ? candidate.providerKeys : [];
+    const unitKeys = Array.isArray(candidate.unitKeys) ? candidate.unitKeys : [];
+    return (
+      providerKeys.includes("all") ||
+      providerKeys.includes("scrydex") ||
+      unitKeys.includes("all") ||
+      unitKeys.some((unitKey) => declaredUnits.has(unitKey))
+    );
+  }) as Record<string, unknown> | undefined;
+  if (blockingControl) {
+    const controlId = typeof blockingControl.controlId === "string" ? blockingControl.controlId : "unknown";
+    return { admitted: false, reason: `rollout-control:${controlId}`, preflight: usage.preflight };
+  }
+  return usage;
+}
+
 export type ScrydexOptionRefreshRequest = Readonly<{ method: string; url: string; unitKey?: string | null }>;
 export function classifyScrydexOptionRefreshRequest(
   request: ScrydexOptionRefreshRequest,
@@ -204,10 +256,20 @@ export function validateScrydexOptionRefreshReceipt(value: unknown): readonly st
       r.requests.forced !== 5 ||
       r.requests.refusals !== 0 ||
       r.units.some((u) => u.status !== "bypass" && u.status !== "live") ||
+      r.units.some(
+        (u) =>
+          u.httpStatus !== 200 ||
+          u.cache === null ||
+          u.total === null ||
+          u.providerPagesUpperBound === null ||
+          u.completedAt === null,
+      ) ||
       r.deployment.beforeSha !== r.runner.sha ||
-      r.deployment.afterSha !== r.runner.sha)
+      r.deployment.afterSha !== r.runner.sha ||
+      r.deployment.beforeImageDigest === null ||
+      r.deployment.beforeImageDigest !== r.deployment.afterImageDigest)
   )
-    errors.push("complete: requires five live units, zero refusals and equal deployment binds");
+    errors.push("complete: requires five successful units and equal SHA/image deployment binds");
   if (r.outcome !== "complete" && r.reason === null) errors.push("reason: required for refused or stopped");
   for (const u of r.units) {
     const expected = u.total === null ? null : providerPagesUpperBound(u.total);
@@ -215,6 +277,28 @@ export function validateScrydexOptionRefreshReceipt(value: unknown): readonly st
       errors.push(`units.${u.unitKey}: page bound mismatch`);
     if ((u.status === "uncertain" || u.status === "not-attempted") && u.total !== null)
       errors.push(`units.${u.unitKey}: uncertain total must be null`);
+    if (
+      u.status === "not-attempted" &&
+      (u.httpStatus !== null || u.cache !== null || u.providerPagesUpperBound !== null || u.completedAt !== null)
+    )
+      errors.push(`units.${u.unitKey}: not-attempted evidence must be null`);
+    if (u.status === "uncertain" && (u.cache !== null || u.providerPagesUpperBound !== null))
+      errors.push(`units.${u.unitKey}: uncertain evidence must be null`);
+    if (
+      (u.status === "bypass" || u.status === "live") &&
+      (u.httpStatus !== 200 ||
+        u.cache === null ||
+        u.total === null ||
+        u.providerPagesUpperBound === null ||
+        u.completedAt === null)
+    )
+      errors.push(`units.${u.unitKey}: successful evidence is incomplete`);
+    if (u.cache !== null && u.cache.status !== u.status) errors.push(`units.${u.unitKey}: cache status mismatch`);
   }
+  const attemptedUnits = r.units.filter((u) => u.status !== "not-attempted");
+  if (r.requests.forced !== attemptedUnits.length) errors.push("requests.forced: must equal attempted unit count");
+  const attemptedBound = attemptedUnits.reduce((sum, u) => sum + (u.providerPagesUpperBound ?? 0), 0);
+  if (r.creditsSpentUpperBound !== attemptedBound + 1)
+    errors.push("creditsSpentUpperBound: must equal one usage read plus attempted unit bounds");
   return errors;
 }
