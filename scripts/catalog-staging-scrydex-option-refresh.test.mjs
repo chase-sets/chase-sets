@@ -1,12 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { scrydexCacheCaptureUnits } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-cache-capture.ts";
-import { runScrydexOptionRefresh } from "./catalog-staging-scrydex-option-refresh.mjs";
+import { runScrydexOptionRefresh, writeRefreshArtifact } from "./catalog-staging-scrydex-option-refresh.mjs";
 import {
   classifyScrydexOptionRefreshRequest,
   evaluateScrydexUsagePreflight,
   providerPagesUpperBound,
+  scrydexOptionRefreshArtifactPath,
+  scrydexOptionRefreshDiagnosticArtifactPath,
+  scrydexOptionRefreshMaxBytes,
   validateScrydexOptionRefreshReceipt,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-option-refresh.ts";
+
+const temporaryWorkspaces = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryWorkspaces.splice(0).map((workspace) => rm(workspace, { recursive: true, force: true })));
+});
 
 const sha = "a".repeat(40);
 const imageDigest = `sha256:${"b".repeat(64)}`;
@@ -107,6 +119,28 @@ function runnerInput(overrides = {}) {
   };
 }
 
+async function temporaryWorkspace() {
+  const workspace = await mkdtemp(join(tmpdir(), "scrydex-option-refresh-test-"));
+  temporaryWorkspaces.push(workspace);
+  return workspace;
+}
+
+async function completeReceipt() {
+  return runScrydexOptionRefresh(runnerInput());
+}
+
+async function stoppedReceipt() {
+  return runScrydexOptionRefresh(
+    runnerInput({
+      read: async (path) => {
+        if (path.includes("integration-control-plane")) return runnerInput().read(path);
+        if (path.includes("provider-profiles")) return { items: profiles(), total: 5, count: 5 };
+        return { status: 500, body: null };
+      },
+    }),
+  );
+}
+
 it("runs five injected route-shaped profile reads and five bounded option reads", async () => {
   const input = runnerInput();
   const receipt = await runScrydexOptionRefresh(input);
@@ -154,6 +188,66 @@ it("treats an over-cap response as uncertain without reading another unit", asyn
   expect(input.readCount).toBe(1);
   expect(receipt.units[0]).toMatchObject({ status: "uncertain", total: null, providerPagesUpperBound: null });
   expect(validateScrydexOptionRefreshReceipt(receipt)).toEqual([]);
+});
+
+describe("refresh artifact contract", () => {
+  it("writes a valid complete receipt to the complete artifact path", async () => {
+    const workspace = await temporaryWorkspace();
+    const receipt = await completeReceipt();
+    const artifact = await writeRefreshArtifact(receipt, {}, workspace);
+
+    expect(artifact.path).toBe(join(workspace, scrydexOptionRefreshArtifactPath));
+    expect(JSON.parse(await readFile(artifact.path, "utf8"))).toEqual(receipt);
+  });
+
+  it("writes a valid stopped receipt to the diagnostic artifact path", async () => {
+    const workspace = await temporaryWorkspace();
+    const receipt = await stoppedReceipt();
+    const artifact = await writeRefreshArtifact(receipt, {}, workspace);
+
+    expect(artifact.path).toBe(join(workspace, scrydexOptionRefreshDiagnosticArtifactPath));
+    expect(JSON.parse(await readFile(artifact.path, "utf8"))).toEqual(receipt);
+  });
+
+  it("rejects invalid evidence and injected credential values", async () => {
+    const workspace = await temporaryWorkspace();
+    const receipt = await completeReceipt();
+    const invalidReceipt = { ...receipt, requests: { ...receipt.requests, forced: 4 } };
+
+    await expect(writeRefreshArtifact(invalidReceipt, {}, workspace)).rejects.toThrow(
+      "scrydex-option-refresh-refused:receipt-invalid",
+    );
+
+    const credentialReceipt = { ...receipt, assumptions: [...receipt.assumptions, "synthetic-secret"] };
+    await expect(writeRefreshArtifact(credentialReceipt, { GH_TOKEN: "synthetic-secret" }, workspace)).rejects.toThrow(
+      "scrydex-option-refresh-refused:receipt-invalid",
+    );
+  });
+
+  it("rejects a serialized receipt over the byte cap", async () => {
+    const workspace = await temporaryWorkspace();
+    const receipt = await completeReceipt();
+    Object.defineProperty(receipt, "toJSON", {
+      value: () => "x".repeat(scrydexOptionRefreshMaxBytes + 1),
+      enumerable: false,
+    });
+
+    await expect(writeRefreshArtifact(receipt, {}, workspace)).rejects.toThrow(
+      "scrydex-option-refresh-refused:receipt-invalid",
+    );
+  });
+
+  it("refuses a non-empty target artifact directory", async () => {
+    const workspace = await temporaryWorkspace();
+    const receipt = await completeReceipt();
+    const targetDirectory = join(workspace, "artifacts/catalog-scrydex-option-refresh");
+    await mkdir(targetDirectory, { recursive: true });
+    await writeFile(join(targetDirectory, "placeholder"), "not the artifact");
+
+    await expect(writeRefreshArtifact(receipt, {}, workspace)).rejects.toThrow(
+      "scrydex-option-refresh-refused:artifact-directory-not-empty",
+    );
+  });
 });
 
 describe("hosted Scrydex option refresh contract", () => {
