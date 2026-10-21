@@ -477,7 +477,7 @@ describe("staging evidence authority live wiring", () => {
     ).toBe(true);
     expect(
       requests
-        .filter(({ url }) => url.startsWith("https://marketplace.staging"))
+        .filter(({ url }) => new URL(url).origin === "https://marketplace.staging.chasesets.com")
         .every(
           ({ headers }) =>
             (!headers.authorization && !headers.cookie) || headers["content-type"] === "application/json",
