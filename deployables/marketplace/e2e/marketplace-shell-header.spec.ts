@@ -61,7 +61,7 @@ type MutantHandle = {
 };
 
 // Mutant runs N2, N3 and N5 change only this line; the committed value is null.
-const COLLAPSED_INPUT_MUTANT = null as CollapsedInputMutant | null;
+const COLLAPSED_INPUT_MUTANT = "inert" as CollapsedInputMutant | null;
 
 type FocusFamily = "visibility" | "tabIndex" | "inert-or-disabled" | "none";
 
