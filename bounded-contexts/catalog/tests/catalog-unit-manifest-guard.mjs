@@ -1,28 +1,15 @@
-import { readFile, readdir } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-const TEST_ROOTS = ["features", "routes", "support", "tests"];
 const TEST_FILE_PATTERN = /\.test\.tsx?$/u;
 const DB_FILE_PATTERN = /\.db\.test\.tsx?$/u;
 const DB_SCRIPT_PATTERN = /^test:db:/u;
 
 function normalize(value) {
   return value.replaceAll("\\", "/");
-}
-
-async function testFiles(root, relative = "") {
-  const directory = path.join(root, relative);
-  const entries = await readdir(directory, { withFileTypes: true });
-  const nested = await Promise.all(
-    entries.map(async (entry) => {
-      const child = path.join(relative, entry.name);
-      if (entry.isDirectory()) return testFiles(root, child);
-      return TEST_FILE_PATTERN.test(entry.name) ? [normalize(child)] : [];
-    }),
-  );
-  return nested.flat();
 }
 
 function scriptPaths(script) {
@@ -33,13 +20,29 @@ function excludedPaths(script) {
   return [...script.matchAll(/(?:^|\s)--exclude\s+([^\s]+)/gu)].map((match) => normalize(match[1]));
 }
 
+function vitestFiles(catalogRoot, excludes = []) {
+  const pnpm = process.platform === "win32" ? "pnpm.exe" : "pnpm";
+  const args = ["exec", "vitest", "list", "--filesOnly", "--config", "./tests/vitest.config.mjs"];
+  for (const exclude of excludes) args.push("--exclude", exclude);
+  const output = execFileSync(pnpm, args, {
+    cwd: catalogRoot,
+    encoding: "utf8",
+    timeout: 120_000,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return output
+    .split(/\r?\n/u)
+    .map((line) => normalize(line.trim()))
+    .filter((line) => TEST_FILE_PATTERN.test(line));
+}
+
 export async function inspectCatalogUnitManifest(catalogRoot, packagePath = path.join(catalogRoot, "package.json")) {
   const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
   const scripts = packageJson.scripts ?? {};
   const unitScript = scripts["test:unit"];
   if (typeof unitScript !== "string") throw new Error("Catalog test:unit script is missing.");
 
-  const files = (await Promise.all(TEST_ROOTS.map((root) => testFiles(catalogRoot, root)))).flat().sort();
+  const files = vitestFiles(catalogRoot).sort();
   const fileSet = new Set(files);
   const excluded = excludedPaths(unitScript);
   const excludedSet = new Set(excluded);
@@ -52,7 +55,7 @@ export async function inspectCatalogUnitManifest(catalogRoot, packagePath = path
   const dbCounts = new Map(dbFiles.map((file) => [file, dbScriptEntries.filter((entry) => entry === file).length]));
   const dbNotExcluded = dbFiles.filter((file) => !excludedSet.has(file));
   const dbNotEnrolled = dbFiles.filter((file) => dbCounts.get(file) !== 1);
-  const selected = files.filter((file) => !excludedSet.has(file));
+  const selected = vitestFiles(catalogRoot, excluded).sort();
 
   const errors = [];
   if (duplicateExcludes.length > 0) errors.push(`duplicate exclusions: ${[...new Set(duplicateExcludes)].join(", ")}`);
