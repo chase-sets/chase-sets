@@ -23,10 +23,11 @@ import {
   type DiscoverySearchParams,
 } from "../read-model/queries";
 import { buildDiscoverySearchItemProjectionHandlers, rebuildDiscoverySearchIndex } from "../read-model/projection";
-import { publishDiscoveryCsatOutcomeFact } from "../../../support/request-support/csat-outcome-facts";
+import { appendSearchSessionStarted } from "../../../support/request-support/lifecycle-events";
 import type { DiscoverySearchSuggestion } from "../../../support/client-support/contracts";
 import { suggestDiscoveryItems } from "../read-model/suggestions";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AccountId, SessionId } from "@chase-sets/primitives/typed-ids";
 
 export type DiscoverySearchQuerySignal = Readonly<{
   queryHash: string;
@@ -144,13 +145,7 @@ export function createDiscoveryItemSearchRuntime(
     previewBulkAdd: (params = {}) => previewBulkAddSearchResults(deps.db, params),
     rebuildSearchIndex: (db) => rebuildDiscoverySearchIndex(db),
     publishSearchOutcome: async ({ accountId, sessionId, context }) => {
-      await publishDiscoveryCsatOutcomeFact(deps.eventStore, context, {
-        outcomeCode: "discovery.search-completed",
-        subjectAccountId: accountId,
-        subjectKind: "account",
-        subject: { entityType: "session", entityId: sessionId },
-        idempotencyKey: `discovery:search-session:${sessionId}`,
-      });
+      await appendSearchSessionStarted(deps.eventStore, context, { accountId: accountId as AccountId, sessionId: sessionId as SessionId });
     },
     projectors: [
       createProjectionHandlerSet({

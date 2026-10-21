@@ -1,5 +1,5 @@
 // Identity-owned public event payloads.
-import type { AccountId, EnforcementActionId, SupportRequestId } from "../../primitives/typed-ids";
+import type { AccountId, EnforcementActionId, SupportRequestId, UserId } from "../../primitives/typed-ids";
 import type { EmptyEventPayload } from "./event-core";
 
 /** Closed provenance for suspension/closure; `operator-other` means a manual action with no more-specific cause. */
@@ -59,12 +59,26 @@ export type IdentityFounderNumberClaimedPayload = Readonly<{
   claimedAt: string;
 }>;
 
+export type IdentityRegistrationCompletedPayload = Readonly<{
+  accountId: AccountId;
+  userId: UserId;
+}>;
+
+export type IdentityOnboardingCompletedPayload = Readonly<{
+  accountId: AccountId;
+  userId: UserId;
+  onboardingPath: "guest-account" | "invitation";
+  invitationId?: string;
+}>;
+
 export type IdentityAccountBadgeAssignedPayload = Readonly<{
   badgeKey: string;
   founderNumber?: number;
 }>;
 
 export type IdentityEventPayloads = Readonly<{
+  "identity.registration.completed": IdentityRegistrationCompletedPayload;
+  "identity.onboarding.completed": IdentityOnboardingCompletedPayload;
   "identity.account.suspended": IdentityAccountSuspendedPayload;
   "identity.account.reactivated": IdentityAccountReactivatedPayload;
   "identity.account.closed": IdentityAccountClosedPayload;

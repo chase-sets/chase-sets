@@ -14,6 +14,14 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
+### Registration
+
+**Registration** is the atomic creation of an Account, User, Membership, and declared consent bundle.
+
+### Onboarding
+
+**Onboarding** is the completion of a guest-account or invitation membership journey.
+
 ### Account Management Mutation Attempt
 
 An **Account Management Mutation Attempt** binds one explicit account-management
