@@ -43,6 +43,7 @@ export default function MarketplaceSignInRoute() {
         contextMessage={data.contextMessage}
         notice={actionData && "status" in actionData ? actionData : null}
         action={data.formAction}
+        submissionMode="router"
         initialIdentifier={data.initialIdentifier}
         initialMethod={actionError?.method ?? data.initialMethod}
         returnTo={data.returnTo}

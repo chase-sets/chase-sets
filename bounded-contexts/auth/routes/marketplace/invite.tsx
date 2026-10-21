@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
+import { useActionData, useLoaderData, useNavigation } from "react-router";
 import { Container } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -105,7 +105,6 @@ export default function MarketplaceInviteRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useAuthFormActionData(useActionData<typeof action>());
   const navigation = useNavigation();
-  const submit = useSubmit();
   return (
     <Container width="narrow" paddingX={0}>
       <InvitationAcceptancePage
@@ -116,11 +115,6 @@ export default function MarketplaceInviteRoute() {
         submissionPending={navigation.state !== "idle" && navigation.formMethod?.toLowerCase() === "post"}
         attemptsActive={data.attemptsActive}
         invitationId={data.invitationId}
-        submit={(form) => {
-          const formData = new FormData(form);
-          formData.set("token", data.token);
-          void submit(formData, { method: "post" });
-        }}
         attemptId={actionData && "attemptId" in actionData ? actionData.attemptId : null}
         phase={
           data.attemptsActive && navigation.state === "submitting"

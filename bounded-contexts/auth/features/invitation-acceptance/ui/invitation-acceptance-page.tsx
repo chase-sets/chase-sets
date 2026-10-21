@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Form,
+  RouterForm,
   HiddenInput,
   LinkButton,
   PasswordInput,
@@ -241,7 +242,7 @@ export function InvitationAcceptancePage(props: Props) {
   const commonFields = (
     <>
       <HiddenInput type="hidden" name="invitationId" value={invitation.invitationId} readOnly />
-      {!submit ? <HiddenInput type="hidden" name="token" value={token} readOnly /> : null}
+      <HiddenInput type="hidden" name="token" value={token} readOnly />
       {attemptsActive ? <HiddenInput type="hidden" name="attemptId" defaultValue={submissionId.current} /> : null}
     </>
   );
@@ -302,7 +303,7 @@ export function InvitationAcceptancePage(props: Props) {
       />
       {method === "passkey" ? (
         <Card key="passkey" elevation="elevated" glow>
-          <Form ref={passkeyForm} action={action} method="post" onSubmit={acceptWithPasskey}>
+          <RouterForm ref={passkeyForm} action={action} method="post" onSubmit={acceptWithPasskey}>
             <Stack gap={3}>
               {commonFields}
               <HiddenInput type="hidden" name="credentialMethod" value="passkey" readOnly />
@@ -324,11 +325,11 @@ export function InvitationAcceptancePage(props: Props) {
                 {t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.accept.passkey")}
               </Button>
             </Stack>
-          </Form>
+          </RouterForm>
         </Card>
       ) : (
         <Card key="password" elevation="elevated">
-          <Form action={action} method="post" onSubmit={submitOnce}>
+          <RouterForm action={action} method="post" onSubmit={submitOnce}>
             <Stack gap={3}>
               {commonFields}
               <HiddenInput type="hidden" name="credentialMethod" value="password" readOnly />
@@ -341,7 +342,7 @@ export function InvitationAcceptancePage(props: Props) {
                 {t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.accept.password")}
               </Button>
             </Stack>
-          </Form>
+          </RouterForm>
         </Card>
       )}
     </Stack>

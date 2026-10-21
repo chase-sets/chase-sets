@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
+  RouterForm,
   Banner,
   Badge,
   Button,
@@ -147,7 +148,7 @@ function RegistrationFormCard({
 }: RegistrationFormCardProps) {
   return (
     <Card elevation="elevated" glow={glow}>
-      <Form
+      <RouterForm
         spacing="none"
         ref={formRef}
         action={action}
@@ -162,7 +163,7 @@ function RegistrationFormCard({
           <HiddenInput type="hidden" name="intent" value={intent} readOnly />
           {children}
         </Stack>
-      </Form>
+      </RouterForm>
     </Card>
   );
 }

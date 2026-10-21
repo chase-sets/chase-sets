@@ -1,5 +1,6 @@
 export { type FieldChromeProps } from "./shared";
 export { Form, type FormContextValue, type FormProps, type FormStatus, useFormContext } from "./form";
+export { RouterForm, type RouterFormProps } from "./router-form";
 export {
   clearFieldError,
   firstFieldError,
