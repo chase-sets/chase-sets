@@ -209,6 +209,9 @@ export async function writeRefreshArtifact(receipt, env, workspace = process.cwd
 
 export async function capture(env = process.env, workspace = process.cwd()) {
   const runner = refreshRunnerIdentity(env);
+  let browser;
+  let page;
+  let phase = "sign-in";
   const receipt = await runScrydexOptionRefresh({
     runner,
     now: () => new Date().toISOString(),
@@ -228,23 +231,46 @@ export async function capture(env = process.env, workspace = process.cwd()) {
     },
     signIn: async () => {
       const { chromium } = await import("@playwright/test");
-      const browser = await chromium.launch();
-      const page = await browser.newPage();
+      browser = await chromium.launch();
+      const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false });
+      await context.route("**/*", async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        if (url.origin !== scrydexOptionRefreshOrigin || /tcgplayer/i.test(url.href))
+          return route.abort("blockedbyclient");
+        if (phase === "refresh") {
+          const verdict = classifyScrydexOptionRefreshRequest({ method: request.method(), url: request.url() });
+          if (!verdict.allowed && !url.pathname.startsWith("/api/catalog/source-observations/"))
+            return route.abort("blockedbyclient");
+        }
+        return route.continue();
+      });
+      page = await context.newPage();
       await page.goto(`${scrydexOptionRefreshOrigin}/access/sign-in?returnTo=%2Fcatalog%2Fintegrations`);
       await page.getByRole("textbox", { name: /email|phone/i }).fill(env.CATALOG_ADMIN_E2E_EMAIL);
       await page.getByRole("button", { name: /continue/i }).click();
       await page.locator('input[name="password"], input[type="password"]').first().fill(env.CATALOG_ADMIN_E2E_PASSWORD);
       await page.getByRole("button", { name: /sign in/i }).click();
-      await browser.close();
+      phase = "refresh";
     },
     read: async (path) => {
-      const response = await fetch(path.startsWith("http") ? path : `${scrydexOptionRefreshOrigin}${path}`, {
-        headers: { accept: "application/json" },
-        redirect: "error",
-      });
-      return { status: response.status, body: response.status === 200 ? await response.json() : null };
+      if (!page) throw refused("page-missing");
+      return page.evaluate(
+        async (target) => {
+          const response = await fetch(target, {
+            method: "GET",
+            credentials: "same-origin",
+            redirect: "error",
+            cache: "no-store",
+            headers: { accept: "application/json" },
+          });
+          return { status: response.status, body: response.status === 200 ? await response.json() : null };
+        },
+        path.startsWith("http") ? path : `${scrydexOptionRefreshOrigin}${path}`,
+      );
     },
   });
+  await browser?.close();
   await writeRefreshArtifact(receipt, env, workspace);
 }
 
