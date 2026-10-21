@@ -6,6 +6,7 @@ import {
   type S3ObjectStorageOptions,
 } from "@chase-sets/object-storage";
 import { S3Client } from "@aws-sdk/client-s3";
+import { getObservabilityRuntime } from "@chase-sets/observability";
 import {
   openSupportEvidenceCanonicalizer,
   createSupportEvidenceCanonicalizationQueue,
@@ -61,5 +62,12 @@ function privateStoreClient(config: S3ObjectStorageOptions) {
 }
 
 export async function openPlatformSupportEvidenceCanonicalizer(productionLike: boolean) {
-  return createSupportEvidenceCanonicalizationQueue(await openSupportEvidenceCanonicalizer({ productionLike }));
+  const canonicalizer = await openSupportEvidenceCanonicalizer({ productionLike });
+  if (productionLike && canonicalizer.status !== "certified") {
+    getObservabilityRuntime().logger.warn("Support evidence canonicalizer is unavailable.", {
+      status: canonicalizer.status,
+      fingerprint: canonicalizer.fingerprint,
+    });
+  }
+  return createSupportEvidenceCanonicalizationQueue(canonicalizer);
 }

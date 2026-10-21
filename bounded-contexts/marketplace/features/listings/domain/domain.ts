@@ -1,4 +1,5 @@
 import { MarketplaceListingDomainError } from "./listing-error";
+import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
 import {
   parseMarketplaceListingAutoUnlistedPayload,
   parseMarketplaceListingEnforcementData,
@@ -750,7 +751,7 @@ export const decideMarketplaceListing: AggregateDecider<
             quantityCap,
             purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
             evidenceRequirements: command.evidenceRequirements,
-            evidence: normalizeListingPhotos(command.evidence ?? []),
+            evidence: assertSafeNewPhotoAltTexts(normalizeListingPhotos(command.evidence ?? [])),
           },
         },
       ];
@@ -826,7 +827,10 @@ export const decideMarketplaceListing: AggregateDecider<
         {
           type: "marketplace.listing.photos-added",
           data: {
-            evidence: mergeListingPhotos(state.evidence, normalizeListingPhotos(command.photos)),
+            evidence: mergeListingPhotos(
+              state.evidence,
+              assertSafeNewPhotoAltTexts(normalizeListingPhotos(command.photos)),
+            ),
           },
         },
       ];
@@ -837,6 +841,8 @@ export const decideMarketplaceListing: AggregateDecider<
       assert(target, "Listing evidence entry was not found.");
       const slotId = normalizeSlotToken(command.slotId, "Listing evidence slot");
       const viewKind = normalizeSlotToken(command.viewKind, "Listing evidence view kind");
+      const altText = command.altText === undefined ? target.altText : normalizeOptionalText(command.altText);
+      assertSafeAuthoredText("listing-evidence-alt-text", altText, target.altText);
       return [
         {
           type: "marketplace.listing.photo-classified",
@@ -844,7 +850,7 @@ export const decideMarketplaceListing: AggregateDecider<
             photoId: target.photoId,
             slotId,
             viewKind,
-            altText: command.altText === undefined ? target.altText : normalizeOptionalText(command.altText),
+            altText,
             capturedAt:
               command.capturedAt === undefined ? target.capturedAt : normalizeOptionalText(command.capturedAt),
           },
@@ -869,6 +875,7 @@ export const decideMarketplaceListing: AggregateDecider<
         },
       ]);
       assert(replacement, "Replacement listing evidence entry is required.");
+      assertSafeAuthoredText("listing-evidence-alt-text", replacement.altText, target.altText);
       assert(replacement.photoId !== target.photoId, "Replacement listing evidence must use a new evidence id.");
       assert(
         !state.evidence.some((photo) => photo.photoId === replacement.photoId),
@@ -1240,7 +1247,7 @@ function normalizePurchaseLimitValue(
   return value;
 }
 
-function normalizePurchaseLimits(
+export function normalizePurchaseLimits(
   limits: Partial<MarketplaceListingPurchaseLimits> | null | undefined,
   quantityCapInput: number,
 ): MarketplaceListingPurchaseLimits {
@@ -1329,6 +1336,14 @@ function normalizeListingPhotos(photos: readonly MarketplaceListingPhotoDraft[])
       assetSet,
     };
   });
+}
+
+/** Every description on newly uploaded evidence is new public text and must pass the safeguard. */
+function assertSafeNewPhotoAltTexts(photos: MarketplaceListingPhoto[]): MarketplaceListingPhoto[] {
+  for (const photo of photos) {
+    assertSafeAuthoredText("listing-evidence-alt-text", photo.altText);
+  }
+  return photos;
 }
 
 /**

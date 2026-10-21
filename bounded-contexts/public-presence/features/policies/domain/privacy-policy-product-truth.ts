@@ -296,9 +296,9 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "chase-sets:review-draft:*",
     evidenceRefs: [
-      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:101",
-      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:127",
-      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:161-164",
+      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:108",
+      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:134",
+      "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:168-171",
     ],
     factualSummary:
       "The review submission page reads, writes, and removes sessionStorage entries in the order-scoped chase-sets:review-draft: key family holding an unfinished review's rating, feedback text, and problem categories.",

@@ -4,12 +4,14 @@ import {
   roundRational,
   signedMoneyToCents,
   tryMoneyToCents,
+  type MoneyAmount,
 } from "@chase-sets/primitives/money";
 import type { EconomicsForPricingGoal } from "../../economics/domain/resolution";
 import type { CurvePoint } from "../../market-estimates/domain/demand-curve/curve";
 import {
   resolvePricingGoal,
   resolveRepricingGuardrail,
+  type RepricingAnchor,
   type RepricingRule,
   type RepricingRuleCondition,
   type RepricingRuleDirective,
@@ -22,7 +24,16 @@ import {
   type GoalCurveViews,
   type GoalForecast,
 } from "../../repricing-policies/domain/goals/curve-math";
-import type { GoalCurveFeature } from "../../repricing-policies/domain/goals/registry";
+import type {
+  GoalCurve,
+  GoalCurveFeature,
+  PricingGoalDefinition,
+} from "../../repricing-policies/domain/goals/registry";
+import {
+  sha256,
+  type PortfolioConstraint,
+  type PortfolioListingResult,
+} from "../../repricing-policies/domain/portfolio/portfolio";
 import type {
   GuardrailContext,
   GuardrailCurveSummary,
@@ -136,18 +147,40 @@ export type RepricingListingEvaluation = Readonly<{
     | "currency-input-incomplete-or-mismatched"
     | "hopeless-forecast-hold"
     | null;
+  /** The round's Portfolio Plan this listing belongs to, whether the plan priced or held it. */
+  portfolioPlanId?: string;
+}>;
+
+/** A listing's share of a round's Portfolio Plan: the plan, the anchor it governs, and the listing's result. */
+export type RepricingPortfolioAssignment = Readonly<{
+  planId: string;
+  anchorIndex: number;
+  result: PortfolioListingResult;
 }>;
 
 /**
  * The single evaluation path used by both live product rounds and dry-run
  * previews. It is intentionally pure: a product round captures inputs once,
  * calls this function for every assigned listing, then decides whether live
- * command emission is enabled.
+ * command emission is enabled. A round's Portfolio Plan, when the listing
+ * belongs to one, supplies the anchor at the plan's anchor index; without one
+ * a portfolio goal decides the listing as a one-listing portfolio.
  */
 export function evaluateRepricingListing(
   listing: RepricingListingEvaluationInput,
   snapshot: RepricingMarketInputSnapshot,
   shadowAnchorIndex?: number,
+  portfolio?: RepricingPortfolioAssignment,
+): RepricingListingEvaluation {
+  const evaluation = evaluateMatchedListing(listing, snapshot, shadowAnchorIndex, portfolio);
+  return portfolio === undefined ? evaluation : { ...evaluation, portfolioPlanId: portfolio.planId };
+}
+
+function evaluateMatchedListing(
+  listing: RepricingListingEvaluationInput,
+  snapshot: RepricingMarketInputSnapshot,
+  shadowAnchorIndex: number | undefined,
+  portfolio: RepricingPortfolioAssignment | undefined,
 ): RepricingListingEvaluation {
   const match = matchRepricingRule(listing, snapshot);
   if (!match) {
@@ -159,15 +192,11 @@ export function evaluateRepricingListing(
     rule.directive,
     snapshot,
     competingHardAsks,
-    compatibleListing.currentPriceCurrencyCode,
-    listing.sellerAccountId,
+    compatibleListing,
     shadowAnchorIndex,
+    portfolio,
   );
-  if (
-    resolved.exhaustedAnchors.some(
-      (anchor) => anchor.state === "currency-incomplete" || anchor.state === "currency-mismatch",
-    )
-  ) {
+  if (resolved.exhaustedAnchors.some(isCurrencyExhaustion)) {
     return noReprice(compatibleListing, ruleIndex, rule.directive, resolved.exhaustedAnchors);
   }
   if (!resolved.anchor) {
@@ -236,6 +265,96 @@ export function matchRepricingRule(
     throw new Error("Repricing policy must include an unconditional default rule.");
   }
   return { listing: compatibleListing, ruleIndex: matchedRuleIndex, rule, competingHardAsks };
+}
+
+/** Where a listing's matched chain reaches a portfolio goal, with what a round's plan needs to price it there. */
+export type RepricingPortfolioReach = Readonly<{
+  anchorIndex: number;
+  goal: PricingGoalDefinition;
+  parameters: Readonly<Record<string, number>>;
+  currencyCode: string;
+  currentPriceAmount: MoneyAmount;
+  /** The Demand Curve when its evidence is present, else null and the plan holds the listing. */
+  curve: GoalCurve | null;
+  /** Prices the listing at the anchor through every stage after it, so a plan sums the prices the round lists. */
+  constraint: PortfolioConstraint;
+}>;
+
+/**
+ * The first selectable portfolio goal anchor in the listing's matched chain,
+ * when every anchor before it is exhausted, so that a plan is what anchors the
+ * listing; null otherwise. Pure over the same captured inputs as the
+ * evaluation, and identifies the constraint by everything its stages read
+ * except the capture instant.
+ */
+export function reachPortfolioAnchor(
+  listing: RepricingListingEvaluationInput,
+  snapshot: RepricingMarketInputSnapshot,
+): RepricingPortfolioReach | null {
+  // Rules without a portfolio goal never pay for a second rule match.
+  if (!listing.rules.some((rule) => rule.directive.anchorChain.some(isPortfolioAnchor))) return null;
+  const match = matchRepricingRule(listing, snapshot);
+  if (!match) return null;
+  const { listing: compatibleListing, ruleIndex, rule, competingHardAsks } = match;
+  const { anchorChain } = rule.directive;
+  const anchorIndex = anchorChain.findIndex(isPortfolioAnchor);
+  if (anchorIndex < 0) return null;
+  const earlier = resolveAnchor(
+    { ...rule.directive, anchorChain: anchorChain.slice(0, anchorIndex) },
+    snapshot,
+    competingHardAsks,
+    compatibleListing,
+  );
+  if (earlier.anchor !== null || earlier.exhaustedAnchors.some(isCurrencyExhaustion)) return null;
+  const candidate = anchorChain[anchorIndex] as Extract<RepricingAnchor, { source: "curve-objective" }>;
+  const currencyCode = compatibleListing.currentPriceCurrencyCode;
+  const currentCents = moneyToCents(compatibleListing.currentPriceAmount);
+  const currentPriceAmount = centsToMoneyAmount(currentCents);
+  const curve = snapshot.demandCurve;
+  return {
+    anchorIndex,
+    goal: resolvePricingGoal(candidate.goalId, candidate.goalVersion)!,
+    parameters: candidate.parameters,
+    currencyCode,
+    currentPriceAmount,
+    curve:
+      curve !== null && evidenceState(curve, currencyCode, snapshot.capturedAt) === "present"
+        ? { currencyCode: curve.currencyCode!, version: curve.version, points: curve.points }
+        : null,
+    constraint: {
+      identity: sha256({
+        ruleIndex,
+        directive: rule.directive,
+        currentPriceAmount,
+        costBasisAmount: compatibleListing.costBasisAmount,
+        costBasisCurrencyCode: compatibleListing.costBasisCurrencyCode,
+        guardrailEvidence: rule.directive.guardrails?.length
+          ? captureGuardrailEvidence(compatibleListing, snapshot, currentCents, candidate.source)
+          : null,
+      }),
+      apply: (amount) => {
+        const anchored = evaluateTarget(compatibleListing, ruleIndex, rule.directive, snapshot, {
+          anchor: { source: candidate.source, amount, stratum: "curve-objective", contributingListingCount: 0 },
+          exhaustedAnchors: earlier.exhaustedAnchors,
+          baseAmount: amount,
+        });
+        return anchored.action === "update-price"
+          ? centsToMoneyAmount(moneyToCents(anchored.targetPriceAmount!))
+          : currentPriceAmount;
+      },
+    },
+  };
+}
+
+/** A curve-objective anchor whose goal is selectable and resolves a Portfolio Plan. */
+function isPortfolioAnchor(anchor: RepricingAnchor): boolean {
+  if (anchor.source !== "curve-objective") return false;
+  const goal = resolvePricingGoal(anchor.goalId, anchor.goalVersion);
+  return goal?.lifecycle === "selectable" && goal.solvePortfolio !== undefined;
+}
+
+function isCurrencyExhaustion(anchor: RepricingExhaustedAnchor): boolean {
+  return anchor.state === "currency-incomplete" || anchor.state === "currency-mismatch";
 }
 
 function noReprice(
@@ -313,14 +432,17 @@ type ResolvedAnchor = Readonly<{
   goal?: ResolvedGoal;
 }>;
 
+type CompatibleListing = RepricingListingEvaluationInput & Readonly<{ currentPriceCurrencyCode: string }>;
+
 function resolveAnchor(
   directive: RepricingRuleDirective,
   snapshot: RepricingMarketInputSnapshot,
   hardAsks: readonly RepricingMarketInputSnapshot["competingAsks"][number][],
-  targetCurrencyCode: string,
-  sellerAccountId: string,
+  listing: CompatibleListing,
   shadowAnchorIndex?: number,
+  portfolio?: RepricingPortfolioAssignment,
 ): ResolvedAnchor {
+  const { currentPriceCurrencyCode: targetCurrencyCode, sellerAccountId } = listing;
   const exhaustedAnchors: RepricingExhaustedAnchor[] = [];
 
   for (const [anchorIndex, candidate] of directive.anchorChain.entries()) {
@@ -482,16 +604,21 @@ function resolveAnchor(
           break;
         }
         const economics = snapshot.economics?.availability === "resolved" ? snapshot.economics : null;
-        const decision = goal.solve({
-          curve: { currencyCode: curve.currencyCode!, version: curve.version, points: curve.points },
-          economics,
-          parameters: candidate.parameters,
-        });
+        const planned = portfolio?.anchorIndex === anchorIndex ? portfolio.result : null;
+        const decision =
+          planned === null
+            ? goal.solve({
+                curve: { currencyCode: curve.currencyCode!, version: curve.version, points: curve.points },
+                economics,
+                parameters: candidate.parameters,
+                currentPriceAmount: centsToMoneyAmount(moneyToCents(listing.currentPriceAmount)),
+              })
+            : (planned.decision ?? { kind: "unavailable" as const, reason: planned.heldReason! });
         if (decision.kind === "unavailable") {
           exhaustedAnchors.push(
             decision.reason === "economics-currency-mismatch"
               ? { source: candidate.source, state: "currency-mismatch" }
-              : decision.reason === "curve-empty"
+              : decision.reason === "curve-empty" || decision.reason === "current-price-missing"
                 ? { source: candidate.source, state: "absent" }
                 : { source: candidate.source, state: "absent", reason: decision.reason },
           );
@@ -500,7 +627,8 @@ function resolveAnchor(
         return {
           anchor: {
             source: candidate.source,
-            amount: decision.selectedPriceAmount,
+            // The unconstrained price: the stages below constrain it, so a plan's constrained price is never constrained twice.
+            amount: decision.unconstrainedPriceAmount,
             stratum: "curve-objective",
             contributingListingCount: 0,
           },

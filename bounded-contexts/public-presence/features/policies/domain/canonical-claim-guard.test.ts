@@ -834,8 +834,8 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // stored search restoration, and #9721 byte-identical citation relocations; only C1-C7 digits remain normalized.
   [citationFencePaths.privacyPolicy]: "458b04e7594d16a9ffcbc0eacf38bb0d0db92a99f9701d0739824d2819ed6fc0",
   [citationFencePaths.authenticityTest]: "373914b5510020641186b833c170ccd3e9ed072d541573ade9306e1216124873",
-  // #10066 repin after the causal scoped-step surface edit.
-  [citationFencePaths.staticSurfaces]: "25e7deb769dcca7a4e48d0235cdd6cad07dfbb378386cc8b046e39271e238f1a",
+  // #10176 repin after the JSON import census evidence-citation update.
+  [citationFencePaths.staticSurfaces]: "91ec9ed71392f151fa951bc745c66b2452cdc2b5a846819ae716670d8ee934df",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

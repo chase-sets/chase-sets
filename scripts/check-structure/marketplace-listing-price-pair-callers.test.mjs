@@ -22,6 +22,10 @@ const registeredCallers = new Map([
     ["priceCurrencyCode: readRequiredPriceCurrencyCode(args)"],
   ],
   [
+    "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
+    ["priceAmount: snapshot.priceAmount", "priceCurrencyCode: snapshot.priceCurrencyCode"],
+  ],
+  [
     "bounded-contexts/marketplace/features/listings/api/route.ts",
     ["assertPriceCurrencyInput(body.priceCurrencyCode)", "assertPriceCurrencyInput(priceCurrencyCode)"],
   ],

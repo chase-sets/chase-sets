@@ -219,16 +219,16 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives twenty-seven green grammar instances across twenty-five live locations without a registry", () => {
+  it("derives twenty-eight green grammar instances across twenty-six live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(27);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(25);
+    expect(green).toHaveLength(28);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(26);
     expect(green).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
-          line: 168,
+          line: 169,
         }),
         expect.objectContaining({
           category: "member-declaration",
@@ -254,6 +254,11 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
           category: "member-declaration",
           file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
           line: 71,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
+          line: 247,
         }),
       ]),
     );

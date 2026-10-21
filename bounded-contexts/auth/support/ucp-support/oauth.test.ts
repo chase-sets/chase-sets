@@ -981,13 +981,22 @@ describe("UCP OAuth routes", () => {
     const verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
     const challenge = pkceChallenge(verifier);
 
-    const wrongRedirect = await app.request(
-      authorizeUrl({
-        clientId: registrationBody.client_id,
-        redirectUri: "https://evil.example/callback",
-        scope: "dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read",
-        challenge,
-      }),
+    const wrongRedirects = await Promise.all(
+      [
+        "https://evil.example/callback",
+        "https://agent.example/callbackX",
+        "https://agent.example/other",
+        "https://agent.example/callback?x=1",
+      ].map((redirectUri) =>
+        app.request(
+          authorizeUrl({
+            clientId: registrationBody.client_id,
+            redirectUri,
+            scope: "dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read",
+            challenge,
+          }),
+        ),
+      ),
     );
     const wrongScope = await app.request(
       authorizeUrl({
@@ -1010,8 +1019,10 @@ describe("UCP OAuth routes", () => {
     const redirect = new URL(authorize.headers.get("location") ?? "");
     const code = redirect.searchParams.get("code") ?? "";
 
-    expect(wrongRedirect.status).toBe(400);
-    await expect(wrongRedirect.json()).resolves.toMatchObject({ error: "invalid_request" });
+    for (const wrongRedirect of wrongRedirects) {
+      expect(wrongRedirect.status).toBe(400);
+      await expect(wrongRedirect.json()).resolves.toMatchObject({ error: "invalid_request" });
+    }
     expect(wrongScope.status).toBe(400);
     await expect(wrongScope.json()).resolves.toMatchObject({ error: "invalid_scope" });
     expect(authorize.status).toBe(302);
@@ -1035,6 +1046,19 @@ describe("UCP OAuth routes", () => {
 
     expect(token.status).toBe(200);
     expect(tokenBody.scope).toBe("dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read");
+
+    const replay = await app.request("/ucp/oauth/token", {
+      method: "POST",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "https://agent.example/callback",
+        code_verifier: verifier,
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    expect(replay.status).toBe(400);
+    await expect(replay.json()).resolves.toMatchObject({ error: "invalid_grant" });
 
     const introspection = await app.request("/ucp/oauth/introspect", {
       method: "POST",
@@ -1129,6 +1153,53 @@ describe("UCP OAuth routes", () => {
     expect(correctVerifierExchange.status).toBe(200);
     const tokenBody = (await correctVerifierExchange.json()) as { access_token: string };
     expect(tokenBody.access_token).toMatch(/^ucp_at_/);
+  });
+
+  it("rejects an unknown opaque client before creating consent or authorization code state", async () => {
+    const db = createAuthorizationCodeDb();
+    const base = createOAuthOptions();
+    const options = createOAuthOptions({ auth: { ...base.auth, db } });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "ocl_never_registered",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("synthetic-verifier"),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(response.headers.get("location")).toBeNull();
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+  });
+
+  it("rejects a Client ID Metadata Document that cannot be fetched before creating consent or authorization code state", async () => {
+    const db = createAuthorizationCodeDb();
+    const base = createOAuthOptions();
+    const options = createOAuthOptions({
+      auth: { ...base.auth, db },
+      fetchClientIdMetadata: async () => null,
+    });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "https://agent.example/missing-client.json",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("synthetic-verifier"),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(response.headers.get("location")).toBeNull();
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
   });
 
   it("supports HTTPS Client ID Metadata Documents for public agent clients", async () => {
