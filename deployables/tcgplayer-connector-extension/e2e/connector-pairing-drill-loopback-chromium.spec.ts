@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { build } from "vite";
-import { expect, test } from "@playwright/test";
+import { expect, test, type BrowserContext } from "@playwright/test";
 import { createSyntheticPairingCode, loopbackPlatform, synthetic } from "./loopback-platform";
 import { scanRetainedArtifacts } from "./retained-artifacts";
 import { runPairingDrill } from "./pairing-drill";
@@ -172,7 +172,7 @@ test("connector-pairing-drill-fail-closed-mutants", async () => {
     platformOrigin: platform.origin,
     clientId: synthetic.clientId,
     artifactDigest: digestDist(),
-    signIn: async (context) => {
+    signIn: async (context: BrowserContext) => {
       await context.addCookies([
         {
           name: synthetic.cookieName,
