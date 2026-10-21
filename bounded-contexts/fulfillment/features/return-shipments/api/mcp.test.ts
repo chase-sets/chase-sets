@@ -1,14 +1,10 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { validateMcpModuleRegistrations } from "@chase-sets/platform-runtime/mcp";
 import { flattenAvailableMcpTools, mcpServiceCatalog } from "@chase-sets/platform-runtime/mcp-contracts";
+import { contextManifest } from "../../../index";
 import { createFulfillmentReturnIntakeMcpHandlers } from "./mcp";
 import type { FulfillmentReturnShipmentServices } from "./runtime";
-
-const contextManifest = JSON.parse(readFileSync(new URL("../../../context.json", import.meta.url), "utf8")) as {
-  agentCoverage: Readonly<Record<string, { tools?: readonly string[] }>>;
-};
 
 const names = [
   "fulfillment.complete-return-intake",
@@ -146,6 +142,100 @@ describe("return-intake MCP source-call contract coverage", () => {
       expect.objectContaining({
         context: expect.objectContaining({
           audit: { performedByUserId: "usr_operator", forAccountId: "acc_platform" },
+        }),
+      }),
+    );
+  });
+
+  it("corrects intake through the resolved shipment command with facility and operator attribution", async () => {
+    const fake = services();
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.correct-return-intake"]?.(
+        request({
+          facilityId: "fac_east",
+          returnShipmentId: "rsh_01",
+          correctionId: "cor_01",
+          reason: "Re-label package",
+          owner: "ops",
+          nextAction: "Reprint label",
+          custodyIdentifier: "cust_1",
+        }),
+      ),
+    ).resolves.toMatchObject({ returnShipmentId: "rsh_01", version: 4 });
+    expect(fake.resolveForIntake).toHaveBeenCalledWith("rsh_01", "fac_east");
+    expect(fake.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: "fulfillment.return-shipment-rsh_01",
+        context: expect.objectContaining({
+          audit: { performedByUserId: "usr_operator", forAccountId: "acc_platform" },
+        }),
+        command: expect.objectContaining({
+          type: "CorrectReturnShipmentFacilityIntake",
+          correction: expect.objectContaining({ correctionId: "cor_01" }),
+        }),
+      }),
+    );
+  });
+
+  it("records an unidentified package through evidence verification and the attributed command", async () => {
+    const fake = services();
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.record-unidentified-return-package"]?.(
+        request({
+          facilityId: "fac_east",
+          unidentifiedPackageId: "urp_01",
+          stationId: "station_1",
+          receivedAt: "2026-10-16T12:00:00.000Z",
+          packageCondition: "intact",
+          sealCondition: "intact",
+          evidence: [],
+          custodyIdentifier: "cust_1",
+          owner: "ops",
+          nextAction: "Identify package",
+        }),
+      ),
+    ).resolves.toMatchObject({ unidentifiedPackageId: "urp_01", version: 2 });
+    expect(fake.verifyEvidence).toHaveBeenCalledWith("fac_east", []);
+    expect(fake.unidentifiedPackageCommandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: "fulfillment.unidentified-return-package-urp_01",
+        context: expect.objectContaining({
+          audit: { performedByUserId: "usr_operator", forAccountId: "acc_platform" },
+        }),
+        command: expect.objectContaining({
+          type: "RecordUnidentifiedReturnPackage",
+          facilityId: "fac_east",
+          unidentifiedPackageId: "urp_01",
+        }),
+      }),
+    );
+  });
+
+  it("reconciles an unidentified package through facility-bound resolution and attribution", async () => {
+    const fake = services();
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["fulfillment.reconcile-unidentified-return-package"]?.(
+        request({
+          unidentifiedPackageId: "urp_01",
+          returnShipmentId: "rsh_01",
+          reason: "Matched to return shipment",
+        }),
+      ),
+    ).resolves.toMatchObject({ unidentifiedPackageId: "urp_01", returnShipmentId: "rsh_01", version: 2 });
+    expect(fake.getUnidentifiedPackage).toHaveBeenCalledWith("urp_01");
+    expect(fake.resolveForIntake).toHaveBeenCalledWith("rsh_01", "fac_east");
+    expect(fake.unidentifiedPackageCommandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: "fulfillment.unidentified-return-package-urp_01",
+        context: expect.objectContaining({
+          audit: { performedByUserId: "usr_operator", forAccountId: "acc_platform" },
+        }),
+        command: expect.objectContaining({
+          type: "ReconcileUnidentifiedReturnPackage",
+          returnShipmentId: "rsh_01",
         }),
       }),
     );
