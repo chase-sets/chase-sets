@@ -312,7 +312,7 @@
       "handlerKind": "projection",
       "sourceContextNames": ["identity", "marketplace"],
       "optionalSourceContextNames": ["marketplace"],
-      "ownedTables": ["platform_operations_account_appealable_actions", "platform_operations_account_appeals"],
+      "ownedTables": ["platform_operations_account_appealable_actions"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
