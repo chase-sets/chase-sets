@@ -1,10 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, UserId, TenantId } from "@chase-sets/primitives/typed-ids";
-import {
-  IDENTITY_BOOTSTRAP_ACCOUNT_ID,
-  IDENTITY_BOOTSTRAP_TENANT_ID,
-  IDENTITY_BOOTSTRAP_USER_ID,
-} from "../../features/memberships/read-model/constants";
+import { IDENTITY_BOOTSTRAP_ACCOUNT_ID, IDENTITY_BOOTSTRAP_TENANT_ID, IDENTITY_BOOTSTRAP_USER_ID } from "./common";
 
 export function createIdentityBootstrapContext(): EventStoreContext {
   return {
