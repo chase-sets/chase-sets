@@ -268,6 +268,20 @@ describe("platform ephemeral verification workflow", () => {
     }
   });
 
+  it("threads every required preview provider secret into the runtime apply step", () => {
+    const runtimeSecrets = step(verification, "Apply verification Kubernetes runtime secrets");
+    for (const environmentName of [
+      "SCRYDEX_API_KEY",
+      "SCRYDEX_TEAM_ID",
+      "SES_AWS_ACCESS_KEY_ID",
+      "SES_AWS_SECRET_ACCESS_KEY",
+      "SES_SOURCE_ARN",
+    ]) {
+      expect(runtimeSecrets).toContain(`${environmentName}: \${{ secrets.${environmentName} || '' }}`);
+      expect(runtimeSecrets).toContain(`export ${environmentName}="\${${environmentName}:-}"`);
+    }
+  });
+
   it("backstops verification namespaces and provider webhooks through independent authorities", () => {
     const namespaceDiscovery = job(cleanup, "discover-stale-verification");
     const namespaceDestroy = job(cleanup, "destroy-stale-verification");
