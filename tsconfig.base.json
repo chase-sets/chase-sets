@@ -816,6 +816,9 @@
       "@chase-sets/platform-runtime/projection-interest-index": [
         "./infrastructure/platform-runtime/projection-interest-index.ts"
       ],
+      "@chase-sets/platform-runtime/projection-operations-mcp": [
+        "./infrastructure/platform-runtime/projection-operations-mcp.ts"
+      ],
       "@chase-sets/platform-runtime/projection-operations-routes": [
         "./infrastructure/platform-runtime/projection-operations-routes.ts"
       ],

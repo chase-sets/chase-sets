@@ -8,7 +8,7 @@ const actor = {
   accountId: "acc_operator",
   roleKey: "platform-admin",
   permissions: ["projection-operations.view", "projection-operations.operate", "projection-operations.rebuild"],
-} as McpToolHandlerInput["actor"];
+} as unknown as McpToolHandlerInput["actor"];
 
 function input(name: string, arguments_: Record<string, unknown>): McpToolHandlerInput {
   return {
