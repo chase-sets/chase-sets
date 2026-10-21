@@ -1348,6 +1348,8 @@
       "proof": {
         "authoritativeResponse": "The scope-home action delegates to the existing permission-guarded Catalog dispatcher; dismiss/defer/restore and alias accept/reject/revoke return committed command outcomes, and the route revalidates against the same Catalog read endpoints after submission.",
         "tests": [
+          "bounded-contexts/catalog/tests/admin-scope-landing-route-action.test.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/scope-landing/scope-landing-page.test.tsx",
           "bounded-contexts/catalog/support/route-support/admin-scope-landing/scope-landing-loader.test.ts",
           "bounded-contexts/catalog/support/route-support/admin-integrations/attention-queue-command-handler.test.ts",
           "bounded-contexts/catalog/tests/admin-integrations-route-governance.test.tsx",

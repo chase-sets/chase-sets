@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { assembleCatalogAttentionQueue, type CatalogAttentionQueueSources } from "../api/contracts";
 import type { CatalogAliasCandidateRow } from "../../alias-equivalence/read-model/queries";
@@ -43,6 +44,7 @@ function oneOfEachKindSources(): CatalogAttentionQueueSources {
     mergeCandidates: [
       {
         candidate_id: "c1",
+        scope_record_id: "s-merge",
         identity_fingerprint: "fp",
         sync_run_ids_json: [],
         status: "has-conflicts",
@@ -214,5 +216,33 @@ describe("CatalogAttentionQueuePanel", () => {
     );
     render(<CatalogAttentionQueuePanel readModel={readModel} actionHref="/admin/integrations" />);
     expect(screen.getByText(/running itself/i)).toBeTruthy();
+  });
+
+  it("opens every drawer and exposes its exact destination or unavailable state", async () => {
+    const user = userEvent.setup();
+    const readModel = assembleCatalogAttentionQueue(oneOfEachKindSources(), {
+      generatedAt: GENERATED_AT,
+      dismissedItemKeys: new Set(),
+    });
+    render(<CatalogAttentionQueuePanel readModel={readModel} actionHref="/catalog/scopes" />);
+
+    const cases = [
+      ["Review mapping", "/catalog/scopes/s1"],
+      ["Resolve conflict", "/catalog/scopes/s-merge"],
+      ["Review health", "/catalog/providers/tcgplayer?unitKey=u"],
+      ["Review job", "/catalog/providers/tcgplayer?jobId=j1"],
+      ["Review scope", "/catalog/scopes/s-stale"],
+    ] as const;
+    for (const [label, href] of cases) {
+      const triggers = screen.getAllByRole("button", { name: label });
+      await user.click(triggers[triggers.length - 1]!);
+      const destination = document.querySelector('[data-attention-destination="true"]') as HTMLAnchorElement | null;
+      expect(destination?.getAttribute("href")).toBe(href);
+      await user.click(screen.getByRole("button", { name: "Close" }));
+    }
+
+    const aliasTriggers = screen.getAllByRole("button", { name: "Accept" });
+    await user.click(aliasTriggers[aliasTriggers.length - 1]!);
+    expect(document.querySelector('[data-attention-destination="unavailable"]')).toBeTruthy();
   });
 });

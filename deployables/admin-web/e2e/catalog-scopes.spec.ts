@@ -25,6 +25,12 @@ test.describe.serial("catalog admin scopes", () => {
 
     await expectAdminPageReady(page, { heading: "Scopes" });
 
+    const allScopesAliasDisclosure = page.getByRole("button", { name: /All scopes/i });
+    await expect(allScopesAliasDisclosure).toBeVisible();
+    await allScopesAliasDisclosure.click();
+    await expect(allScopesAliasDisclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator('[data-catalog-scope-home-review] [role="region"]')).toBeVisible();
+
     // Primary filters render inline; the extra product-domain and language
     // facets live behind the overflow panel like other catalog list surfaces.
     await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();

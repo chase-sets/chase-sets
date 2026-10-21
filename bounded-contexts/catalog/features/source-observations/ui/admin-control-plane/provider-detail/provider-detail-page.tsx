@@ -318,7 +318,13 @@ function ProviderRecentJobs({
 }>) {
   const jobs = providerKey ? readModel.importJobs.jobs.filter((job) => job.providerKey === providerKey) : [];
   const lastJob = jobs[0] ?? null;
-  const inspectable = providerKey === operatorSessionProviderKey;
+  // A requested retained job is inspectable on its destination provider even
+  // when that provider does not expose the TCGplayer operator-session panel.
+  // Without a requested job, preserve the compact rendering for non-TCGplayer
+  // providers.
+  const inspectable =
+    providerKey === operatorSessionProviderKey ||
+    Boolean(selectedJobId && jobs.some((job) => job.jobId === selectedJobId));
   const [openJobs, setOpenJobs] = useState<OpenProviderJobs | null>(() =>
     providerKey && selectedJobId && jobs.some((job) => job.jobId === selectedJobId)
       ? { providerKey, jobIds: [selectedJobId] }

@@ -50,6 +50,13 @@ describe("collectUnmappedScopeItems", () => {
     expect(items[0]!.severity).toBe("warning");
     expect(items[0]!.resolution.mode).toBe("drawer");
   });
+
+  it("carries the exact scope destination identity", () => {
+    const item = collectUnmappedScopeItems([scopeMapping({ mapping_id: "mapped-1", scope_record_id: "scope/one" })])[0]!;
+    expect(item.itemKey).toBe("unmapped-scope:mapped-1");
+    expect(item.resolution.fields).toMatchObject({ mappingId: "mapped-1", scopeRecordId: "scope/one" });
+    expect(item.resolution.href).toBe("/catalog/scopes/scope%2Fone");
+  });
 });
 
 function mergeCandidate(overrides: Partial<CatalogMergeCandidateListRow>): CatalogMergeCandidateListRow {
@@ -149,6 +156,15 @@ describe("collectProviderHealthItems", () => {
     expect(items.map((entry) => entry.detailParams.blocker)).toEqual(["credential", "transport", "diagnostic"]);
     expect(items.every((entry) => entry.severity === "critical")).toBe(true);
   });
+
+  it("carries the provider and unit destination", () => {
+    const item = collectProviderHealthItems(
+      [unitReadiness({ providerKey: "tcgdex", unitKey: "tcgdex:card", credentialReadiness: "blocked" })],
+      { generatedAt: "2026-07-09T00:00:00.000Z" },
+    )[0]!;
+    expect(item.itemKey).toBe("provider-health:tcgdex:tcgdex:card");
+    expect(item.resolution.href).toBe("/catalog/providers/tcgdex?unitKey=tcgdex%3Acard");
+  });
 });
 
 function unitActivity(
@@ -193,6 +209,14 @@ describe("collectImportJobItems", () => {
       "import-job:j-partial:warning",
       "import-job:j-stale:warning",
     ]);
+  });
+
+  it("carries the selected job destination identity", () => {
+    const item = collectImportJobItems([
+      unitActivity({ jobId: "job/failed", providerKey: "tcgdex", unitKey: "tcgdex:card" }),
+    ])[0]!;
+    expect(item.resolution.fields).toMatchObject({ jobId: "job/failed", providerKey: "tcgdex", unitKey: "tcgdex:card" });
+    expect(item.resolution.href).toBe("/catalog/providers/tcgdex?jobId=job%2Ffailed");
   });
 });
 
@@ -239,6 +263,7 @@ describe("collectAliasCandidateItems", () => {
     const item = collectAliasCandidateItems([aliasCandidate({ alias_hash: "h1" })])[0]!;
     expect(item.resolution.intent).toBe("alias.accept");
     expect(item.secondaryResolutions[0]!.intent).toBe("alias.reject");
+    expect(item.resolution.fields).toEqual({ aliasHashes: "h1" });
   });
 });
 
@@ -278,5 +303,42 @@ describe("collectStaleScopeSyncItems", () => {
     );
     expect(items.map((entry) => entry.itemKey)).toEqual(["stale-scope-sync:s-old"]);
     expect(items[0]!.severity).toBe("warning");
+    expect(items[0]!.resolution.href).toBe("/catalog/scopes/s-old");
+  });
+});
+
+describe("attention destination matrix", () => {
+  it("defines one exact destination or explicit unavailable state for every source kind", () => {
+    const unmapped = collectUnmappedScopeItems([scopeMapping({ mapping_id: "m", scope_record_id: "s" })])[0]!;
+    const mappedConflict = collectMergeConflictItems([mergeCandidate({ candidate_id: "c", scope_record_id: "s" })])[0]!;
+    const unavailableConflict = collectMergeConflictItems([mergeCandidate({ candidate_id: "missing" })])[0]!;
+    const health = collectProviderHealthItems(
+      [unitReadiness({ providerKey: "tcgdex", unitKey: "unit", transportReadiness: "blocked" })],
+      { generatedAt: "2026-07-09T00:00:00.000Z" },
+    )[0]!;
+    const job = collectImportJobItems([unitActivity({ jobId: "job", providerKey: "tcgdex" })])[0]!;
+    const alias = collectAliasCandidateItems([aliasCandidate({ alias_hash: "alias" })])[0]!;
+    const stale = collectStaleScopeSyncItems(
+      [scopeRecord({ scope_record_id: "stale", updated_at: "2026-06-01T00:00:00.000Z" })],
+      { now: "2026-07-09T00:00:00.000Z", stalenessThresholdMs: 7 * 24 * 60 * 60 * 1000 },
+    )[0]!;
+
+    expect([
+      unmapped.resolution.href,
+      mappedConflict.resolution.href,
+      health.resolution.href,
+      job.resolution.href,
+      stale.resolution.href,
+    ]).toEqual([
+      "/catalog/scopes/s",
+      "/catalog/scopes/s",
+      "/catalog/providers/tcgdex?unitKey=unit",
+      "/catalog/providers/tcgdex?jobId=job",
+      "/catalog/scopes/stale",
+    ]);
+    expect(unavailableConflict.resolution).toMatchObject({ unavailable: true });
+    expect(unavailableConflict.resolution.href).toBeUndefined();
+    expect(alias.resolution.intent).toBe("alias.accept");
+    expect(alias.secondaryResolutions[0]!.intent).toBe("alias.reject");
   });
 });

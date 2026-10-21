@@ -265,10 +265,11 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
     jobs: readonly CatalogIntegrationRecentJobSummary[],
     providerKey = "tcgplayer",
     overviewOverrides: Parameters<typeof controlPlaneOverview>[0] = {},
+    routeQuery = "",
   ) {
     const overview = controlPlaneOverview(overviewOverrides);
     return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl: `https://admin.example/catalog/providers/${providerKey}?providerKey=${providerKey}`,
+      requestUrl: `https://admin.example/catalog/providers/${providerKey}?providerKey=${providerKey}${routeQuery}`,
       scopes: { items: [sourceObservationScope({ provider_key: providerKey })], total: 1, count: 1 },
       profileReviews: {
         items: [profileReview({ providerKey, active: true, lifecycle: "active" })],
@@ -298,7 +299,10 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
   // DataTable renders every row twice (phone card, then desktop table); both
   // disclosure triggers must report the same controlled state.
   function jobTriggers(jobId: string): HTMLElement[] {
-    const triggers = within(recentJobs()).getAllByRole("button", { name: new RegExp(`^${jobId}Import ${jobId}$`) });
+    const disclosures = within(recentJobs()).getAllByRole("group").filter(
+      (group) => group.getAttribute("data-catalog-provider-job-disclosure") === jobId,
+    );
+    const triggers = disclosures.map((group) => within(group).getByRole("button"));
     expect(triggers).toHaveLength(2);
     return triggers;
   }
@@ -408,6 +412,38 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
     expect(section.querySelector("[aria-expanded]")).toBeNull();
     expect(section.querySelector("[data-catalog-provider-job-disclosure]")).toBeNull();
     expect(within(section).queryByText("Observed observations")).toBeNull();
+  });
+
+  it("marks a matching unit selection and opens a retained non-TCGplayer job requested by the route", () => {
+    const unitKey = "tcgdex:pokemon:card:import";
+    const job = integrationJobSummary({
+      jobId: "tcgdex-job",
+      providerKey: "tcgdex",
+      unitKey,
+      operatorStatus: "completed",
+      phase: "completed",
+      result: jobResult(),
+    });
+    render(
+      <CatalogProviderDetailPage
+        readModel={providerJobsReadModel([job], "tcgdex", {}, `&unitKey=${encodeURIComponent(unitKey)}&jobId=tcgdex-job`)}
+      />,
+    );
+
+    expect(document.querySelector(`[data-provider-unit-selected="true"]`)).toBeTruthy();
+    const selectedDisclosures = document.querySelectorAll('[data-provider-job-selected="true"]');
+    expect(selectedDisclosures).toHaveLength(2);
+    expectJobOpen("tcgdex-job", true);
+  });
+
+  it("keeps an explicit missing selected job unavailable", () => {
+    render(
+      <CatalogProviderDetailPage
+        readModel={providerJobsReadModel([], "tcgdex", {}, "&jobId=missing-job")}
+      />,
+    );
+    expect(screen.getAllByText(/Resolution unavailable/i).length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-provider-job-selected="true"]')).toBeNull();
   });
 
   const unavailableFacts = {
