@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { copyFile, mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
