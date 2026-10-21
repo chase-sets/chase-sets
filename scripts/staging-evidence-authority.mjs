@@ -369,7 +369,7 @@ export async function runStagingEvidenceAuthority(options = {}) {
       parseInputs(options.argv ?? process.argv.slice(2), options.env ?? process.env, options.cwd ?? process.cwd());
   } catch (error) {
     const finishedAt = new Date(clock()).toISOString();
-    const detail = { input: OPTION_NAMES.has(error.input) ? error.input : null };
+    const detail = { input: OPTION_NAMES.has(error?.input) ? error.input : null };
     const parseStop = typeof error?.stop === "string" ? error.stop : "unexpected-internal-error";
     const parseOutcome = typeof error?.stop === "string" ? "refused" : "failed";
     let value = resultFor(parseOutcome, parseStop, startedAt, finishedAt, detail);
@@ -396,8 +396,6 @@ export async function runStagingEvidenceAuthority(options = {}) {
     }
   };
   const secrets = [input.githubToken, input.email, input.password];
-  const withinBudget = () => clock() - startedMs <= input.totalBudgetMs;
-  const budgetStop = (step) => stopResult("probe-budget-exhausted", "failed", { step });
   const stopResult = async (stopCode, outcome = "failed", detail = {}) => {
     const finishedAt = new Date(clock()).toISOString();
     log(detail.step ?? "authority", outcome, detail.httpStatus);
@@ -407,6 +405,8 @@ export async function runStagingEvidenceAuthority(options = {}) {
     }
     return { value, exitCode: value.result === "refused" ? 2 : 1, stdout: `${JSON.stringify(value)}\n` };
   };
+  const withinBudget = () => clock() - startedMs <= input.totalBudgetMs;
+  const budgetStop = (step) => stopResult("probe-budget-exhausted", "failed", { step });
   try {
     if (!withinBudget()) return await stopResult("probe-budget-exhausted", "refused", { step: "authority" });
     const common = {
@@ -537,4 +537,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   return run;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const run = await main();
+  process.exit(run.exitCode);
+}

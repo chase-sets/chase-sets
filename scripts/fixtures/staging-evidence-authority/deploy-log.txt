@@ -1,7 +1,0 @@
-2026-10-20T00:00:00Z {
-2026-10-20T00:00:00Z  "schemaVersion": "platform-kubernetes-deployment/v1",
-2026-10-20T00:00:00Z  "action": "deploy",
-2026-10-20T00:00:00Z  "namespace": "chase-sets-platform",
-2026-10-20T00:00:00Z  "image": "registry.example.test/platform:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-2026-10-20T00:00:00Z  "result": "success"
-2026-10-20T00:00:00Z}

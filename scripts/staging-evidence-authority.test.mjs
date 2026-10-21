@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { afterEach, describe, expect, it } from "vitest";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -28,6 +28,10 @@ const baseEnv = (root) => ({
 });
 
 const inputFor = (root) => parseInputs([], baseEnv(root), root);
+const temporaryRoots = [];
+afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 const validExecuted = (root) => ({
   outcome: "ok",
   executedBytes: {
@@ -133,6 +137,7 @@ const composeFakes = (root, overrides = {}) => ({
 describe("staging evidence authority inputs", () => {
   it("AC-01 resolves every input without defaults and refuses unknown or credential argv", () => {
     const root = mkdtempSync(join(tmpdir(), "authority-input-"));
+    temporaryRoots.push(root);
     const env = baseEnv(root);
     expect(parseInputs(["--head", "b".repeat(40), "--governed-path", "scripts/bar.mjs"], env).head).toBe(
       "b".repeat(40),
@@ -151,6 +156,7 @@ describe("staging evidence authority inputs", () => {
 describe("staging evidence authority composition", () => {
   it("AC-02 issues mode first and sign-in last", async () => {
     const root = mkdtempSync(join(tmpdir(), "authority-order-"));
+    temporaryRoots.push(root);
     const env = baseEnv(root);
     const calls = [];
     const run = await runStagingEvidenceAuthority({
@@ -205,6 +211,7 @@ describe("staging evidence authority composition", () => {
 
   it("AC-02 stops before later product requests", async () => {
     const root = mkdtempSync(join(tmpdir(), "authority-stop-order-"));
+    temporaryRoots.push(root);
     const input = inputFor(root);
     const calls = [];
     const run = await runStagingEvidenceAuthority({
@@ -226,6 +233,7 @@ describe("staging evidence authority composition", () => {
 
   it("AC-03 emits one closed result and persists only ok", async () => {
     const root = mkdtempSync(join(tmpdir(), "authority-result-"));
+    temporaryRoots.push(root);
     const run = await runStagingEvidenceAuthority(composeFakes(root));
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toBe(readFileSync(join(root, "receipt.json"), "utf8") + "\n");
@@ -244,6 +252,7 @@ describe("staging evidence authority composition", () => {
 
   it("AC-04 keeps planted secrets out of every output", async () => {
     const root = mkdtempSync(join(tmpdir(), "authority-redaction-"));
+    temporaryRoots.push(root);
     const success = await runStagingEvidenceAuthority(composeFakes(root));
     expect(success.stdout).not.toMatch(/session_|github-token-marker|password-marker|probe@example\.test/i);
     expect(readFileSync(join(root, "authority.ndjson"), "utf8")).not.toMatch(
@@ -270,6 +279,7 @@ describe("staging evidence authority composition", () => {
 
   it("AC-05 maps every stop to one result and exit", async () => {
     const root = mkdtempSync(join(tmpdir(), "authority-stops-"));
+    temporaryRoots.push(root);
     const input = inputFor(root);
     const rows = [
       ["input-missing", 2, "refused", async () => runStagingEvidenceAuthority({ argv: [], env: {} })],
@@ -362,8 +372,54 @@ describe("staging evidence authority composition", () => {
 });
 
 describe("staging evidence authority live wiring", () => {
+  it("AC-06 launches the package command and refuses an empty environment", async () => {
+    const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
+    const command = packageJson.scripts["uat:staging-evidence-authority"];
+    const tokens = command.split(/\s+/);
+    expect(tokens[0]).toBe("node");
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, tokens.slice(1), {
+        cwd: process.cwd(),
+        env: Object.fromEntries(
+          ["PATH", "SystemRoot"].filter((name) => process.env[name]).map((name) => [name, process.env[name]]),
+        ),
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      const timer = setTimeout(() => child.kill(), 60_000);
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.once("error", reject);
+      child.once("close", (status, signal) => {
+        clearTimeout(timer);
+        resolve({ status, signal, stdout, stderr });
+      });
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe("");
+    const lines = result.stdout.trimEnd().split("\n");
+    expect(lines).toHaveLength(1);
+    const value = JSON.parse(lines[0]);
+    expect(value).toMatchObject({
+      version: "staging-evidence-authority/v1",
+      result: "refused",
+      ready: false,
+      stop: "input-missing",
+      detail: { input: "base-url", path: null, httpStatus: null, degradedCheckNames: [] },
+    });
+    expect(Object.keys(value).sort()).toEqual(
+      ["detail", "finishedAt", "ready", "result", "startedAt", "stop", "version"].sort(),
+    );
+  });
+
   it("AC-06 runs captured shapes through the real composition", async () => {
     const root = mkdtempSync(join(tmpdir(), "authority-real-"));
+    temporaryRoots.push(root);
     mkdirSync(join(root, "scripts"));
     const source = readFileSync(new URL("./staging-evidence-authority.mjs", import.meta.url), "utf8");
     writeFileSync(join(root, "scripts", "staging-evidence-authority.mjs"), source);
@@ -386,36 +442,36 @@ describe("staging evidence authority live wiring", () => {
     const platform = JSON.parse(
       readFileSync(new URL("./fixtures/staging-deploy-generation/captured-platform-deploy.json", import.meta.url)),
     );
-    const capturedRun = platform.runs[0];
+    const capturedRun = platform.runs.find((candidate) => candidate.id === 39252891660);
     const capturedJob = platform.jobs[`${capturedRun.id}/${capturedRun.run_attempt}`].jobs.find(
       (candidate) => candidate.name === "Deploy Staging",
     );
     const runId = 9000000301;
     const jobId = 9100000301;
-    const run = { ...capturedRun, id: runId, created_at: "2026-10-19T12:32:46Z", updated_at: "2026-10-19T12:56:57Z" };
-    const job = {
-      ...capturedJob,
-      id: jobId,
-      run_id: runId,
-      head_sha: deployedHead,
-      created_at: "2026-10-20T00:00:00Z",
-      started_at: "2026-10-20T00:00:00Z",
-      completed_at: "2026-10-20T00:00:10Z",
-      steps: capturedJob.steps.map((step) => ({
-        ...step,
-        status: "completed",
-        conclusion: "success",
-        started_at: "2026-10-20T00:00:00Z",
-        completed_at: "2026-10-20T00:00:10Z",
-      })),
-    };
     const capturedLog = readFileSync(
-      new URL("./fixtures/staging-evidence-authority/deploy-log.txt", import.meta.url),
+      new URL("./fixtures/staging-deploy-generation/deploy-staging-118064914233-log.txt", import.meta.url),
       "utf8",
     );
-    const log = capturedLog.replaceAll("a".repeat(40), deployedHead);
+    const log = capturedLog.replaceAll("175d48ba08d9cc5de352b0505bb586eca4c1f902", deployedHead);
     const readiness = JSON.parse(
-      readFileSync(new URL("./fixtures/staging-evidence-authority/product-readiness.json", import.meta.url)),
+      readFileSync(new URL("./fixtures/staging-product-observations/captured-readiness.json", import.meta.url)),
+    );
+    const providerMode = JSON.parse(
+      readFileSync(new URL("./fixtures/staging-evidence-authority/provider-mode.json", import.meta.url)),
+    );
+    const signIn = JSON.parse(
+      readFileSync(new URL("./fixtures/staging-evidence-authority/sign-in.json", import.meta.url)),
+    );
+    const run = JSON.parse(
+      JSON.stringify(capturedRun)
+        .replaceAll(String(capturedRun.id), String(runId))
+        .replaceAll("175d48ba08d9cc5de352b0505bb586eca4c1f902", deployedHead),
+    );
+    const job = JSON.parse(
+      JSON.stringify(capturedJob)
+        .replaceAll(String(capturedJob.id), String(jobId))
+        .replaceAll(String(capturedRun.id), String(runId))
+        .replaceAll("175d48ba08d9cc5de352b0505bb586eca4c1f902", deployedHead),
     );
     const api = "https://api.github.com/repos/chase-sets/chase-sets";
     const now = Date.parse("2026-10-20T03:00:00Z");
@@ -434,21 +490,13 @@ describe("staging evidence authority live wiring", () => {
       if (url === "https://synthetic.blob.core.windows.net/log") return new Response(log, { status: 200 });
       const parsed = new URL(url);
       if (parsed.pathname === "/api/marketplace/payment-provider-mode")
-        return Response.json({
-          mode: "test",
-          paymentProcessorKind: "stripe",
-          moneyMovementKind: "stripe",
-          deploymentEnvironment: "staging",
-          observedAt: "2026-10-20T03:00:00Z",
-        });
+        return new Response(JSON.stringify(providerMode), { headers: { "content-type": "application/json" } });
       if (parsed.pathname === "/health/ready")
-        return Response.json({
-          ...readiness.webReadiness,
-          checkedAt: "2026-10-20T03:00:00Z",
-          origin: "https://marketplace.staging.chasesets.com",
-        });
-      if (parsed.pathname === "/api/health/ready") return Response.json(readiness.backendReadiness);
-      if (parsed.pathname === "/api/auth/password-sign-in") return Response.json(readiness.signIn);
+        return new Response(readiness.web.body, { headers: { "content-type": "application/json" } });
+      if (parsed.pathname === "/api/health/ready")
+        return new Response(readiness.backend.body, { headers: { "content-type": "application/json" } });
+      if (parsed.pathname === "/api/auth/password-sign-in")
+        return new Response(JSON.stringify(signIn), { headers: { "content-type": "application/json" } });
       return new Response(null, { status: 404 });
     };
     const ioRoot = mkdtempSync(join(tmpdir(), "authority-real-io-"));
@@ -467,6 +515,16 @@ describe("staging evidence authority live wiring", () => {
       relation: "deployed-is-ancestor",
     });
     expect(requests[0].url).toContain("/api/marketplace/payment-provider-mode");
+    expect(requests.map(({ url, method }) => `${method} ${new URL(url).origin}${new URL(url).pathname}`)).toEqual([
+      "GET https://marketplace.staging.chasesets.com/api/marketplace/payment-provider-mode",
+      "GET https://api.github.com/repos/chase-sets/chase-sets/actions/workflows/platform-production.yml/runs",
+      "GET https://api.github.com/repos/chase-sets/chase-sets/actions/runs/9000000301/attempts/1/jobs",
+      "GET https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/9100000301/logs",
+      "GET https://synthetic.blob.core.windows.net/log",
+      "GET https://marketplace.staging.chasesets.com/health/ready",
+      "GET https://marketplace.staging.chasesets.com/api/health/ready",
+      "POST https://marketplace.staging.chasesets.com/api/auth/password-sign-in",
+    ]);
     expect(requests.at(-1)).toMatchObject({
       method: "POST",
       url: "https://marketplace.staging.chasesets.com/api/auth/password-sign-in",

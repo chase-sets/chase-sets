@@ -55,7 +55,7 @@
     "marketplace:provider-proof-status": "node ./scripts/marketplace-provider-proof-status.mjs",
     "guest-buy-now:freshness-probe": "node ./scripts/guest-buy-now-freshness-probe.mjs",
     "wake:drills": "node ./scripts/staging-wake-drills.mjs",
-    "uat:staging-evidence-authority": "node ./scripts/staging-evidence-authority.mjs",
+    "uat:staging-evidence-authority": "node --import tsx ./scripts/staging-evidence-authority.mjs",
     "wake:mixed-version-drill": "node ./scripts/staging-mixed-version-wake-drill.mjs",
     "emergency-recovery:guide": "node ./scripts/emergency-recovery-guide.mjs",
     "rollback:readiness": "node ./scripts/rollback-readiness.mjs",
