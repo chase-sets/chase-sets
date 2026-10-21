@@ -1,10 +1,14 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { validateMcpModuleRegistrations } from "@chase-sets/platform-runtime/mcp";
 import { flattenAvailableMcpTools, mcpServiceCatalog } from "@chase-sets/platform-runtime/mcp-contracts";
-import contextManifest from "../../../context.json" with { type: "json" };
 import { createFulfillmentReturnIntakeMcpHandlers } from "./mcp";
 import type { FulfillmentReturnShipmentServices } from "./runtime";
+
+const contextManifest = JSON.parse(readFileSync(new URL("../../../context.json", import.meta.url), "utf8")) as {
+  agentCoverage: Readonly<Record<string, { tools?: readonly string[] }>>;
+};
 
 const names = [
   "fulfillment.complete-return-intake",
@@ -64,7 +68,7 @@ describe("return-intake MCP source-call contract coverage", () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual(names);
-    expect(contextManifest.agentCoverage["return-intake"].tools).toEqual(names);
+    expect(contextManifest.agentCoverage["return-intake"]?.tools).toEqual(names);
     expect(Object.keys(handlers.toolHandlers).sort()).toEqual(names);
 
     const registration = {
