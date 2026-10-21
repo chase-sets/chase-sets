@@ -25,12 +25,22 @@ export class ReputationApiError extends Error {
     public readonly status: number,
     public readonly body: unknown,
   ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
+    super(reputationApiErrorMessage(status, body));
   }
+}
+
+// Route errors arrive as `{ error: { code, message } }`; stringifying the
+// object would show "[object Object]" to the person whose draft was rejected.
+function reputationApiErrorMessage(status: number, body: unknown) {
+  if (typeof body !== "object" || body === null || !("error" in body)) {
+    return `API error ${status}`;
+  }
+  const error = (body as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null) {
+    return String(error);
+  }
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" && message.trim() ? message : `API error ${status}`;
 }
 
 export interface ReputationApiClientOptions {
