@@ -135,7 +135,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
             aria-invalid={!!error || undefined}
             autoComplete="off"
             disabled={disabled}
-            className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-0 outline-none"
+            className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-0 outline-none in-data-[search-row-state=collapsed]:invisible"
           />
           <ComboboxPrimitive.Trigger
             disabled={disabled}
