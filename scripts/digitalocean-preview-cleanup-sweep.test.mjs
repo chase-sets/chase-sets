@@ -546,21 +546,18 @@ describe("digitalocean-preview-cleanup-sweep", () => {
   });
 
   it("unwraps Kubernetes List items before closed-preview namespace selection", async () => {
-    const result = await discoverPreviewCleanupTargets(
-      discoveryOptions(),
-      {
-        awsJson: async () => ({ Contents: [] }),
-        listDatabaseClusters: async () => [],
-        listDomains: async () => [{ name: "chasesets.com" }],
-        listDomainRecords: async () => [],
-        listNamespaces: async () => ({
-          apiVersion: "v1",
-          kind: "List",
-          items: [{ metadata: { name: "chase-sets-pr-4736" } }],
-        }),
-        fetchPullRequest: async () => ({ state: "closed", merged: true }),
-      },
-    );
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [{ name: "chasesets.com" }],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => ({
+        apiVersion: "v1",
+        kind: "List",
+        items: [{ metadata: { name: "chase-sets-pr-4736" } }],
+      }),
+      fetchPullRequest: async () => ({ state: "closed", merged: true }),
+    });
 
     expect(result.record.namespaceCandidates).toEqual([
       { prNumber: 4736, namespace: "chase-sets-pr-4736", creationTimestamp: null },
