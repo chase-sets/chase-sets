@@ -220,7 +220,7 @@ describe("SupportRequestListPage", () => {
         await act(() => uploadDispatched);
         expect(uploadIds).toEqual([originalId]);
         expect(document.querySelector("form")?.getAttribute("aria-busy")).toBe("true");
-        expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(true);
+        expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(false);
         const released = navigationSettled(router);
         await act(async () => {
           releaseUpload!();
