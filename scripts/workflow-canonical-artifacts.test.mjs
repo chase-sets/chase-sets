@@ -211,7 +211,7 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 75, scannedSurfaces: 41, totalSurfaces: 41 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 75, scannedSurfaces: 44, totalSurfaces: 44 });
     expect(current.findings).toHaveLength(21);
     expect(
       current.findings.filter((finding) => /platform-merge-qualification(?:-observer)?\.yml/.test(finding.message)),
@@ -259,6 +259,18 @@ jobs:
           uploadPath: "artifacts/release-health/agent-grant-revocation-activation.json",
           missingFileBehavior: "error",
         }),
+        // Each environment's activation and in-run replay are validated before the status directory upload.
+        ...["staging", "production"].flatMap((environment) =>
+          ["activation", "replay"].map((name) =>
+            expect.objectContaining({
+              workflowFile: ".github/workflows/platform-production.yml",
+              outPath: `artifacts/agent-grant-revocation/${environment}/${name}.json`,
+              uploadPath: `artifacts/agent-grant-revocation/${environment}`,
+              missingFileBehavior: "error",
+              explicitlyValidated: true,
+            }),
+          ),
+        ),
         expect.objectContaining({
           workflowFile: ".github/workflows/backlog-roadmap-status.yml",
           outPath: "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json",
