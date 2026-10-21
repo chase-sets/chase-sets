@@ -153,12 +153,8 @@ const expectClosedStop = (run, exitCode, result, stop) => {
   expect(Object.keys(run.value.detail).sort()).toEqual(DETAIL_KEYS);
   expect(run.stdout).toBe(`${JSON.stringify(run.value)}\n`);
 };
-// The brief's stop for an absent session token is `auth-session-token-absent`, but the
-// stop text itself matches the `session-` redaction marker, so the head reports
-// `redaction-scan-finding`. Both fail closed: failed/1 and no receipt.
 const expectTokenAbsent = (run) => {
-  expect(["auth-session-token-absent", "redaction-scan-finding"]).toContain(run.value.stop);
-  expectClosedStop(run, 1, "failed", run.value.stop);
+  expectClosedStop(run, 1, "failed", "auth-session-token-absent");
 };
 const parseRefusal = (argv, env) => {
   try {

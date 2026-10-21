@@ -229,6 +229,10 @@ function markerFound(text, secrets) {
   return secrets.some((secret) => secret && source.includes(secret)) || AUTH_MARKERS.test(source);
 }
 
+function markerFoundInResult(value, secrets) {
+  return markerFound(JSON.stringify({ ...value, stop: null }), secrets);
+}
+
 function validBoundedInstant(value, startedAt, finishedAt) {
   return isInstant(value) && Date.parse(value) >= Date.parse(startedAt) && Date.parse(value) <= Date.parse(finishedAt);
 }
@@ -383,7 +387,7 @@ export async function runStagingEvidenceAuthority(options = {}) {
       // A hostile environment getter is itself an internal failure; keep the
       // closed result and never expose the getter's exception text.
     }
-    if (markerFound(JSON.stringify(value), parseSecrets))
+    if (markerFoundInResult(value, parseSecrets))
       value = resultFor("failed", "redaction-scan-finding", startedAt, finishedAt, null);
     return { value, exitCode: value.result === "refused" ? 2 : 1, stdout: `${JSON.stringify(value)}\n`, input: null };
   }
@@ -400,7 +404,7 @@ export async function runStagingEvidenceAuthority(options = {}) {
     const finishedAt = new Date(clock()).toISOString();
     log(detail.step ?? "authority", outcome, detail.httpStatus);
     let value = resultFor(outcome, stopCode, startedAt, finishedAt, detail);
-    if (markerFound(JSON.stringify(value), secrets)) {
+    if (markerFoundInResult(value, secrets)) {
       value = resultFor("failed", "redaction-scan-finding", startedAt, finishedAt, null);
     }
     return { value, exitCode: value.result === "refused" ? 2 : 1, stdout: `${JSON.stringify(value)}\n` };
