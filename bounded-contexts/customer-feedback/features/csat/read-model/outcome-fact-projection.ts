@@ -6,75 +6,77 @@ import type {
 } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-const outcomeFactHandlers = defineProjectorHandlers<AuthEventPayloads & IdentityEventPayloads & DiscoveryEventPayloads>({
-  "auth.session.started": async (event, context) => {
-    await upsert((context?.db ?? failDb()) as unknown as PgQueryable, {
-      idempotencyKey: `auth:authentication:${event.data.sessionId}`,
-      outcomeCode: "authentication.completed",
-      sourceContext: "auth",
-      subjectAccountId: event.data.accountId,
-      subjectKind: "account",
-      subjectEntityType: "session",
-      subjectEntityId: event.data.sessionId,
-      outcomeOccurredAt: event.timing.recordedAt,
-      sourceEventId: event.id,
-      performedByUserId: event.audit.performedByUserId,
-      authenticationMethod: event.data.authenticationMethod,
-      reasonCode: null,
-    });
+const outcomeFactHandlers = defineProjectorHandlers<AuthEventPayloads & IdentityEventPayloads & DiscoveryEventPayloads>(
+  {
+    "auth.session.started": async (event, context) => {
+      await upsert((context?.db ?? failDb()) as unknown as PgQueryable, {
+        idempotencyKey: `auth:authentication:${event.data.sessionId}`,
+        outcomeCode: "authentication.completed",
+        sourceContext: "auth",
+        subjectAccountId: event.data.accountId,
+        subjectKind: "account",
+        subjectEntityType: "session",
+        subjectEntityId: event.data.sessionId,
+        outcomeOccurredAt: event.timing.recordedAt,
+        sourceEventId: event.id,
+        performedByUserId: event.audit.performedByUserId,
+        authenticationMethod: event.data.authenticationMethod,
+        reasonCode: null,
+      });
+    },
+    "identity.registration.completed": async (event, context) => {
+      await upsert((context?.db ?? failDb()) as unknown as PgQueryable, {
+        idempotencyKey: `identity:registration:${event.data.accountId}`,
+        outcomeCode: "registration.completed",
+        sourceContext: "identity",
+        subjectAccountId: event.data.accountId,
+        subjectKind: "account",
+        subjectEntityType: "account",
+        subjectEntityId: event.data.accountId,
+        outcomeOccurredAt: event.timing.recordedAt,
+        sourceEventId: event.id,
+        performedByUserId: event.audit.performedByUserId,
+        authenticationMethod: null,
+        reasonCode: null,
+      });
+    },
+    "identity.onboarding.completed": async (event, context) => {
+      await upsert((context?.db ?? failDb()) as unknown as PgQueryable, {
+        idempotencyKey:
+          event.data.onboardingPath === "invitation"
+            ? `identity:onboarding:invitation:${event.data.invitationId}:${event.data.userId}`
+            : `identity:onboarding:guest-account:${event.data.accountId}:${event.data.userId}`,
+        outcomeCode: "onboarding.completed",
+        sourceContext: "identity",
+        subjectAccountId: event.data.accountId,
+        subjectKind: "account",
+        subjectEntityType: event.data.onboardingPath === "invitation" ? "invitation" : "account",
+        subjectEntityId: event.data.invitationId ?? event.data.accountId,
+        outcomeOccurredAt: event.timing.recordedAt,
+        sourceEventId: event.id,
+        performedByUserId: event.audit.performedByUserId,
+        authenticationMethod: null,
+        reasonCode: null,
+      });
+    },
+    "discovery.search-session.started": async (event, context) => {
+      await upsert((context?.db ?? failDb()) as unknown as PgQueryable, {
+        idempotencyKey: `discovery:search-session:${event.data.sessionId}`,
+        outcomeCode: "discovery.search-completed",
+        sourceContext: "discovery",
+        subjectAccountId: event.data.accountId,
+        subjectKind: "account",
+        subjectEntityType: "session",
+        subjectEntityId: event.data.sessionId,
+        outcomeOccurredAt: event.timing.recordedAt,
+        sourceEventId: event.id,
+        performedByUserId: event.audit.performedByUserId,
+        authenticationMethod: null,
+        reasonCode: null,
+      });
+    },
   },
-  "identity.registration.completed": async (event, context) => {
-    await upsert((context?.db ?? failDb()) as unknown as PgQueryable, {
-      idempotencyKey: `identity:registration:${event.data.accountId}`,
-      outcomeCode: "registration.completed",
-      sourceContext: "identity",
-      subjectAccountId: event.data.accountId,
-      subjectKind: "account",
-      subjectEntityType: "account",
-      subjectEntityId: event.data.accountId,
-      outcomeOccurredAt: event.timing.recordedAt,
-      sourceEventId: event.id,
-      performedByUserId: event.audit.performedByUserId,
-      authenticationMethod: null,
-      reasonCode: null,
-    });
-  },
-  "identity.onboarding.completed": async (event, context) => {
-    await upsert((context?.db ?? failDb()) as unknown as PgQueryable, {
-      idempotencyKey:
-        event.data.onboardingPath === "invitation"
-          ? `identity:onboarding:invitation:${event.data.invitationId}:${event.data.userId}`
-          : `identity:onboarding:guest-account:${event.data.accountId}:${event.data.userId}`,
-      outcomeCode: "onboarding.completed",
-      sourceContext: "identity",
-      subjectAccountId: event.data.accountId,
-      subjectKind: "account",
-      subjectEntityType: event.data.onboardingPath === "invitation" ? "invitation" : "account",
-      subjectEntityId: event.data.invitationId ?? event.data.accountId,
-      outcomeOccurredAt: event.timing.recordedAt,
-      sourceEventId: event.id,
-      performedByUserId: event.audit.performedByUserId,
-      authenticationMethod: null,
-      reasonCode: null,
-    });
-  },
-  "discovery.search-session.started": async (event, context) => {
-    await upsert((context?.db ?? failDb()) as unknown as PgQueryable, {
-      idempotencyKey: `discovery:search-session:${event.data.sessionId}`,
-      outcomeCode: "discovery.search-completed",
-      sourceContext: "discovery",
-      subjectAccountId: event.data.accountId,
-      subjectKind: "account",
-      subjectEntityType: "session",
-      subjectEntityId: event.data.sessionId,
-      outcomeOccurredAt: event.timing.recordedAt,
-      sourceEventId: event.id,
-      performedByUserId: event.audit.performedByUserId,
-      authenticationMethod: null,
-      reasonCode: null,
-    });
-  },
-});
+);
 
 export function buildCsatOutcomeFactProjectionHandlers(): ProjectorHandlerMap {
   return outcomeFactHandlers;

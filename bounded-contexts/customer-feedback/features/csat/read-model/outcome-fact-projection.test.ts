@@ -51,7 +51,9 @@ describe("CSAT outcome fact projection", () => {
   it("keeps legacy missing authentication method nullable", async () => {
     const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
     const handler = buildCsatOutcomeFactProjectionHandlers()["identity.registration.completed"]!;
-    await handler(event("identity.registration.completed", { accountId: "acc_1", userId: "usr_1" }) as never, { db: { query } });
+    await handler(event("identity.registration.completed", { accountId: "acc_1", userId: "usr_1" }) as never, {
+      db: { query },
+    });
     expect(query.mock.calls[0]?.[1]?.at(-2)).toBeNull();
   });
 });

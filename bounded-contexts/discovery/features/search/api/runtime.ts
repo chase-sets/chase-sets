@@ -145,7 +145,10 @@ export function createDiscoveryItemSearchRuntime(
     previewBulkAdd: (params = {}) => previewBulkAddSearchResults(deps.db, params),
     rebuildSearchIndex: (db) => rebuildDiscoverySearchIndex(db),
     publishSearchOutcome: async ({ accountId, sessionId, context }) => {
-      await appendSearchSessionStarted(deps.eventStore, context, { accountId: accountId as AccountId, sessionId: sessionId as SessionId });
+      await appendSearchSessionStarted(deps.eventStore, context, {
+        accountId: accountId as AccountId,
+        sessionId: sessionId as SessionId,
+      });
     },
     projectors: [
       createProjectionHandlerSet({

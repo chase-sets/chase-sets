@@ -3,7 +3,10 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { appendSessionStarted } from "./test-lifecycle";
 
-const context = { tenantId: "tnt_test", audit: { performedByUserId: "usr_system", forAccountId: "acc_system" } } as EventStoreContext;
+const context = {
+  tenantId: "tnt_test",
+  audit: { performedByUserId: "usr_system", forAccountId: "acc_system" },
+} as EventStoreContext;
 describe("auth lifecycle event", () => {
   it("emits auth session start with stable identity", async () => {
     const { eventStore } = createInMemoryEventStore();
