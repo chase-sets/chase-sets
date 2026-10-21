@@ -61,7 +61,7 @@ type MutantHandle = {
 };
 
 // Mutant runs N2, N3 and N5 change only this line; the committed value is null.
-const COLLAPSED_INPUT_MUTANT = null as CollapsedInputMutant | null;
+const COLLAPSED_INPUT_MUTANT = "tabIndex" as CollapsedInputMutant | null;
 
 type FocusFamily = "visibility" | "tabIndex" | "inert-or-disabled" | "none";
 
@@ -638,6 +638,19 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       evidence.trace = authority.trace;
       evidence.presses = authority.presses;
 
+      // Criterion 1 authority block, kept contiguous because N5 moves it as one unit.
+      expect(authority.firstHeaderStop?.activeElement, evidenceContext()).toMatch(/^input\[.*\] input=true$/);
+      expect(authority.firstHeaderStop?.phase, evidenceContext()).toBe("expanded");
+      expect(authority.firstHeaderStop?.headerHeightPx, evidenceContext()).toBeCloseTo(124, 0);
+      expect(
+        authority.trace.slice(1).some((stop) => stop.activeElement.includes("a[Chase Sets]")),
+        evidenceContext(),
+      ).toBe(true);
+      expect(
+        authority.trace.every((stop) => !stop.activeElement.includes("button[")),
+        evidenceContext(),
+      ).toBe(true);
+
       evidence.postExpandReadback = await page.evaluate((input) => {
         const element = document.querySelector(input);
         if (!element) throw new Error(`post-expand input selector did not resolve: ${input}`);
@@ -675,18 +688,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
         hasTabIndex: false,
         hasInert: false,
       });
-      // Criterion 1 authority block, kept contiguous because N5 moves it as one unit.
-      expect(authority.firstHeaderStop?.activeElement, evidenceContext()).toMatch(/^input\[.*\] input=true$/);
-      expect(authority.firstHeaderStop?.phase, evidenceContext()).toBe("expanded");
-      expect(authority.firstHeaderStop?.headerHeightPx, evidenceContext()).toBeCloseTo(124, 0);
-      expect(
-        authority.trace.slice(1).some((stop) => stop.activeElement.includes("a[Chase Sets]")),
-        evidenceContext(),
-      ).toBe(true);
-      expect(
-        authority.trace.every((stop) => !stop.activeElement.includes("button[")),
-        evidenceContext(),
-      ).toBe(true);
       expect(evidence.triggerDiagnostics, evidenceContext()).toMatchObject({
         visibility: "visible",
         tabIndex: -1,
