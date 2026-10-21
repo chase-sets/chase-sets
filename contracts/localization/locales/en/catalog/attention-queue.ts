@@ -55,6 +55,7 @@ export const catalogAttentionQueueEnglishTranslations = {
   "catalog.features.attentionQueue.action.reviewScopeSync": "Review scope",
   "catalog.features.attentionQueue.action.dismiss": "Dismiss",
   "catalog.features.attentionQueue.action.defer": "Defer 24h",
+  "catalog.features.attentionQueue.action.restore": "Restore",
   "catalog.features.attentionQueue.park.reason": "Reason",
   "catalog.features.attentionQueue.drawer.description":
     "Review the item's evidence and park it (dismiss or defer) without leaving this surface.",
