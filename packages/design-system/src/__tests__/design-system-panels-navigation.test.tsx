@@ -1964,6 +1964,21 @@ describe("marketplace shell search-row collapse (#5709)", () => {
     armedView.unmount();
   });
 
+  it("keeps collapsed search focusability owned by native traversal, not hiding attributes", () => {
+    usePhoneViewport();
+    setWindowMetric("scrollY", 2000);
+    const view = render(shellFixture({ collapseSearchOnScroll: true, routeIdentity: itemIdentity }));
+    const input = view.container.querySelector("input[aria-label='Marketplace search fixture']");
+    const row = view.container.querySelector("[data-search-row-slot]");
+    expect(input).not.toBeNull();
+    expect(row).not.toBeNull();
+    expect(input!.className).not.toMatch(/\binvisible\b|\bhidden\b/);
+    expect(row!.className).not.toMatch(/\binvisible\b/);
+    expect(input!.getAttribute("tabindex")).toBeNull();
+    expect(input!.hasAttribute("inert")).toBe(false);
+    view.unmount();
+  });
+
   it("keeps the search-row phase hook off the design-system export surface", () => {
     expect(Object.keys(DesignSystem)).not.toContain("useSearchRowPhase");
     expect(Object.keys(DesignSystem)).not.toContain("searchRowReducer");
