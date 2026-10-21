@@ -470,7 +470,9 @@ const HOST_ACTIONS = {
 function unknownFrom(target, blocked) {
   return {
     status: "unknown",
-    missingAuthority: blocked.map(([source, reason, detail]) => `${SOURCE_LABELS[source]}: ${detail ?? reason}`).join("; "),
+    missingAuthority: blocked
+      .map(([source, reason, detail]) => `${SOURCE_LABELS[source]}: ${detail ?? reason}`)
+      .join("; "),
     hostAction: `${[...new Set(blocked.map(([, reason]) => HOST_ACTIONS[reason] ?? "inspect the failing read"))].join("; ")}, then re-dispatch the capture for ${target}`,
   };
 }
