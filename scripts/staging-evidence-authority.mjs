@@ -537,7 +537,4 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   return run;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const run = await main();
-  process.exit(run.exitCode);
-}
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

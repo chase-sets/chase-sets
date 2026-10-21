@@ -3,5 +3,5 @@
   "paymentProcessorKind": "stripe",
   "moneyMovementKind": "stripe",
   "deploymentEnvironment": "staging",
-  "observedAt": "2026-10-20T03:00:00Z"
+  "observedAt": "2026-10-19T13:00:00Z"
 }
