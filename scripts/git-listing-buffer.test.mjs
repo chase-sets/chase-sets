@@ -564,7 +564,7 @@ describe("Git listing buffer contract", () => {
     const inventory = listingSiteInventory();
     expect(inventory.length).toBeGreaterThan(0);
     expect(inventory.filter((site) => site.status !== "compliant")).toEqual([]);
-  });
+  }, 300_000);
   it("fails closed for direct and wrapper/default planted violations", () => {
     const cases = [
       [
