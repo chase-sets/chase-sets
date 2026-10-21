@@ -44,21 +44,32 @@ type ShippingAddressField = (typeof SHIPPING_ADDRESS_FIELDS)[number];
 const SHIPPING_ADDRESS_FIELD_SET = new Set<string>(SHIPPING_ADDRESS_FIELDS);
 
 function fieldLabel(field: ShippingAddressField) {
-  const keys = {
-    label: "identity.features.shippingAddresses.ui.shippingAddressPage.label",
-    name: "identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name",
-    company: "identity.features.shippingAddresses.ui.shippingAddressPage.company",
-    country: "identity.features.shippingAddresses.ui.shippingAddressPage.country",
-    line1: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line1",
-    line2: "identity.features.shippingAddresses.ui.shippingAddressPage.address.line2",
-    city: "identity.features.shippingAddresses.ui.shippingAddressPage.city",
-    state: "identity.features.shippingAddresses.ui.shippingAddressPage.state",
-    postalCode: "identity.features.shippingAddresses.ui.shippingAddressPage.postal.code",
-    phone: "identity.features.shippingAddresses.ui.shippingAddressPage.phone",
-    email: "identity.features.shippingAddresses.ui.shippingAddressPage.email",
-    makeDefault: "identity.features.shippingAddresses.ui.shippingAddressPage.default",
-  } satisfies Record<ShippingAddressField, Parameters<typeof t>[0]>;
-  return t(keys[field]);
+  switch (field) {
+    case "label":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.label");
+    case "name":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name");
+    case "company":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.company");
+    case "country":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.country");
+    case "line1":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line1");
+    case "line2":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line2");
+    case "city":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.city");
+    case "state":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.state");
+    case "postalCode":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.postal.code");
+    case "phone":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.phone");
+    case "email":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.email");
+    case "makeDefault":
+      return t("identity.features.shippingAddresses.ui.shippingAddressPage.default");
+  }
 }
 
 function addressLines(address: ShippingAddress) {
