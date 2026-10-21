@@ -1,7 +1,11 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import type { ReportedContentModerationAction } from "./contracts";
+import {
+  isReportedContentModerationAction,
+  ReportedContentActionRejectedError,
+  type ReportedContentActionRejectionCode,
+} from "./contracts";
 import type { ReportedContentServices } from "./runtime";
 
 type ExperienceApiEnv = AuthenticatedApiEnv;
@@ -44,20 +48,35 @@ function requireActor(
   return { actor, response: null };
 }
 
-function normalizeAction(value: unknown): ReportedContentModerationAction {
-  if (
-    value === "dismiss" ||
-    value === "contact-seller" ||
-    value === "unlist" ||
-    value === "escalate-account-suspension" ||
-    value === "withdraw-review" ||
-    value === "redact-review-feedback" ||
-    value === "withdraw-review-reply"
-  ) {
-    return value;
-  }
+const actionBodyKeys: readonly PropertyKey[] = ["action", "note"];
 
-  throw new Error("Reported content action is invalid.");
+/** Reads the closed action body `{ action, note? }`; the action vocabulary is the contract table's. */
+function parseActionBody(body: unknown) {
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Reflect.ownKeys(body).some((key) => !actionBodyKeys.includes(key))
+  ) {
+    throw new ReportedContentActionRejectedError("invalid-request");
+  }
+  const { action, note = null } = body as Readonly<Record<string, unknown>>;
+  if (typeof action !== "string" || (note !== null && typeof note !== "string")) {
+    throw new ReportedContentActionRejectedError("invalid-request");
+  }
+  if (!isReportedContentModerationAction(action)) {
+    throw new ReportedContentActionRejectedError("unknown-action");
+  }
+  return { action, note: note?.trim() || null };
+}
+
+function actionRejectedResponse(reason: ReportedContentActionRejectionCode) {
+  return new Response(
+    JSON.stringify({
+      error: { code: "validation_failed", reason, message: t("experience.api.reported.content.action.rejected") },
+    }),
+    { status: 400, headers: { "Content-Type": "application/json" } },
+  );
 }
 
 export function createReportedContentRoutes(services: ReportedContentServices) {
@@ -122,23 +141,23 @@ export function createReportedContentRoutes(services: ReportedContentServices) {
     }
 
     try {
-      const body = await c.req.json().catch(() => ({}));
+      const body = parseActionBody(await c.req.json().catch(() => null));
       const result = await services.recordModerationAction(
         {
           targetType: c.req.param("targetType"),
           targetId: c.req.param("targetId"),
-          action: normalizeAction(body.action),
-          note: typeof body.note === "string" && body.note.trim() ? body.note.trim() : null,
+          action: body.action,
+          note: body.note,
           operatorUserId: access.actor.userId,
         },
         context,
       );
       return c.json({ id: result.actionId, recordedAt: result.recordedAt });
     } catch (error) {
-      return c.json(
-        { error: { code: "validation_failed", message: error instanceof Error ? error.message : String(error) } },
-        400,
-      );
+      if (error instanceof ReportedContentActionRejectedError) {
+        return actionRejectedResponse(error.code);
+      }
+      throw error;
     }
   });
 
