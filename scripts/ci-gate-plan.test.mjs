@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -438,7 +439,9 @@ describe("shared CI gate plan", () => {
     expect(families).toEqual(
       selectionFixture.families.map(({ family, pattern, suites }) => ({ family, pattern, suites })),
     );
-    const tracked = new Set(execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0"));
+    const tracked = new Set(
+      execFileSync("git", ["ls-files", "-z"], { encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER }).split("\0"),
+    );
     for (const family of selectionFixture.families) {
       const pattern = new RegExp(family.pattern.slice(1, -1));
       expect(pattern.test(family.path), family.family).toBe(true);
