@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 // A route must not be able to render an unresolved public policy value
 // without the machine-readable degraded-state markers. Nothing stops that
@@ -202,6 +203,7 @@ function defaultExecGit(args, repoRoot) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
   });
 }
 
