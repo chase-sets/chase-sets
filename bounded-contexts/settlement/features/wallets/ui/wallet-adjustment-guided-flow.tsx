@@ -67,10 +67,9 @@ function guidedFlowSteps(hasPreview: boolean, hasSubmitted: boolean): PageSteppe
  * The guided credit/debit preview -> confirmation -> submission flow. Two
  * independent `RouterForm`s intentionally share the same field
  * values: the visible "Preview" form the operator edits, and a hidden
- * "Confirm & submit" form whose confirmation lives inside an `AlertDialog`
- * so a bare Enter keypress can never post the high-risk command -- only an
- * explicit dialog confirmation can (`requestSubmit()` fires the hidden form on
- * `onConfirm`).
+ * "Confirm & submit" form whose confirmation lives inside an `AlertDialog`.
+ * The dialog confirmation calls `requestSubmit()` on the hidden form, so a
+ * bare Enter keypress can never post the high-risk command.
  */
 export function WalletAdjustmentGuidedFlowForm({
   targetAccountId,
@@ -88,6 +87,7 @@ export function WalletAdjustmentGuidedFlowForm({
   defaultValues?: WalletAdjustmentGuidedFlowValues;
 }) {
   const navigation = useNavigation();
+  const submitting = navigation.state === "submitting";
   const requestFormRef = useRef<HTMLFormElement | null>(null);
   const [direction, setDirection] = useState<"credit" | "debit">(defaultValues.direction);
   const [amount, setAmount] = useState<string | null>(defaultValues.amount || null);
@@ -292,7 +292,7 @@ export function WalletAdjustmentGuidedFlowForm({
                   cancelLabel={t("settlement.features.wallets.ui.walletAdjustmentGuidedFlow.cancel")}
                   onConfirm={requestConfirm}
                   trigger={
-                    <Button tone={direction === "debit" ? "danger" : "primary"}>
+                    <Button disabled={submitting} tone={direction === "debit" ? "danger" : "primary"}>
                       {t("settlement.features.wallets.ui.walletAdjustmentGuidedFlow.confirm.and.submit")}
                     </Button>
                   }

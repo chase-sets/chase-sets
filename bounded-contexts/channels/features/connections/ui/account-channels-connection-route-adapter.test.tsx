@@ -57,8 +57,16 @@ describe("ingest-receipt-action-data", () => {
     const submit = await screen.findByRole("button", { name: "Ingest Live export" });
     const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(fileInput).not.toBeNull();
+    const file = new NodeFile(["header\nrow"], "live.csv", { type: "text/csv" });
+    const files = {
+      0: file,
+      length: 1,
+      item(index: number) {
+        return index === 0 ? file : null;
+      },
+    } as unknown as FileList;
     fireEvent.change(fileInput!, {
-      target: { files: [new NodeFile(["header\nrow"], "live.csv", { type: "text/csv" })] },
+      target: { files },
     });
     await waitFor(() => expect(submit.matches(":disabled")).toBe(false));
     submitExport(submit);

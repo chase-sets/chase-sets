@@ -97,12 +97,17 @@ describe("account payment passkey pending", () => {
       ],
       { initialEntries: ["/account/payments/pay_pending"] },
     );
+    // Match the established guest-claim route harness: initialize the data
+    // router before rendering the route component so the claim surface, not
+    // the router's hydration fallback, is the evidence under test.
+    await router.initialize();
     render(
       <ChaseRoot>
         <RouterProvider router={router} />
       </ChaseRoot>,
     );
     const user = userEvent.setup();
+    expect(await screen.findByText("Save this order")).toBeTruthy();
     const submit = await screen.findByRole("button", { name: "Save with passkey" });
     await user.click(submit);
     await waitFor(() => expect(posts).toBe(1));
