@@ -1,9 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lookup as lookupDns } from "node:dns/promises";
-import type { LookupAddress } from "node:dns";
-import type { IncomingMessage } from "node:http";
-import { request as httpsRequest } from "node:https";
-import { BlockList, isIP } from "node:net";
 import type {
   AgentGrantRevocations,
   LinkedPlatformAuthorizationRow,
@@ -118,7 +113,6 @@ export type UcpOAuthRoutesOptions = Readonly<{
   agentGrantRevocations?: AgentGrantRevocations;
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
   fetchClientIdMetadata?: (url: string) => Promise<unknown>;
-  /** Test-only seams for the production pinned HTTPS transport. Never wire these in a deployable. */
   lookupClientIdMetadata?: (hostname: string) => Promise<readonly LookupAddress[]>;
   requestClientIdMetadata?: CimdRequest;
   // Per-grant spending mandates (agent consent state). Surfaced in introspection and the
@@ -132,9 +126,9 @@ export type UcpOAuthRoutesOptions = Readonly<{
   agentWebhookOutbox?: AgentWebhookOutbox;
 }>;
 
-export const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
-export const CIMD_FETCH_DEADLINE_MS = 5_000;
-export const CIMD_RESPONSE_MAX_BYTES = 32_768;
+export const MAX_CLIENT_METADATA_URL_LENGTH = 2048,
+  CIMD_FETCH_DEADLINE_MS = 5_000,
+  CIMD_RESPONSE_MAX_BYTES = 32_768;
 const MAX_CLIENT_NAME_LENGTH = 120;
 const MAX_REDIRECT_URIS = 10;
 
@@ -156,39 +150,6 @@ const UCP_OAUTH_DEFAULT_SCOPES = [
 // Advertised lists only: registration and authorize also recognize the unadvertised operator scopes.
 export const UCP_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_COMMERCE_SCOPES;
 export const UCP_OAUTH_SCOPE_FAMILIES = AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES;
-
-type CimdRequest = (...args: Parameters<typeof httpsRequest>) => ReturnType<typeof httpsRequest>;
-
-const cimdSpecialUse = new BlockList();
-for (const [address, prefix] of [
-  ["0.0.0.0", 8],
-  ["10.0.0.0", 8],
-  ["100.64.0.0", 10],
-  ["127.0.0.0", 8],
-  ["169.254.0.0", 16],
-  ["172.16.0.0", 12],
-  ["192.0.0.0", 24],
-  ["192.0.2.0", 24],
-  ["192.168.0.0", 16],
-  ["198.18.0.0", 15],
-  ["198.51.100.0", 24],
-  ["203.0.113.0", 24],
-  ["224.0.0.0", 4],
-  ["240.0.0.0", 4],
-] as const) {
-  cimdSpecialUse.addSubnet(address, prefix, "ipv4");
-}
-for (const [address, prefix] of [
-  ["::", 128],
-  ["::1", 128],
-  ["fc00::", 7],
-  ["fe80::", 10],
-  ["ff00::", 8],
-] as const) {
-  cimdSpecialUse.addSubnet(address, prefix, "ipv6");
-}
-const cimdGlobalV6 = new BlockList();
-cimdGlobalV6.addSubnet("2000::", 3, "ipv6");
 
 type AuthorizationCodeRow = Readonly<{
   code_id: string;
@@ -310,7 +271,6 @@ export function createUcpOAuthMetadataRoutes() {
 
   return app;
 }
-
 export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   const app = new Hono();
 
@@ -340,12 +300,9 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!webhookResult.ok) {
       return c.json({ error: "invalid_client_metadata", error_description: webhookResult.error }, 400);
     }
-
     const clientId = createId("ocl");
     const issuedAt = new Date();
     const metadata = { ...metadataResult.metadata, clientId };
-    // The signing secret is returned exactly once, here, and is otherwise only
-    // ever read by the delivery dispatcher — never echoed in list/detail reads.
     const signingSecret = webhookResult.registration ? generateAgentWebhookSigningSecret() : null;
     await options.auth.db.query(
       `INSERT INTO identity_ucp_oauth_clients (
@@ -810,7 +767,6 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
-
     if (!options.agentGrantActivity) {
       return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
     }
@@ -821,6 +777,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
     }
 
+    // Keep pagination reads on the existing bounded activity path.
     const limit = readPositiveIntOrDefault(c.req.query("limit"), 50);
     const offset = readPositiveIntOrDefault(c.req.query("offset"), 0);
     const page = await options.agentGrantActivity.listForGrant({
@@ -1507,6 +1464,45 @@ async function readClientIdMetadataDocument(
   }
   return { ...parsed.metadata, clientId };
 }
+
+import { lookup as lookupDns } from "node:dns/promises";
+import type { LookupAddress } from "node:dns";
+import type { IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { BlockList, isIP } from "node:net";
+
+type CimdRequest = (...args: Parameters<typeof httpsRequest>) => ReturnType<typeof httpsRequest>;
+
+const cimdSpecialUse = new BlockList();
+for (const [address, prefix] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+] as const) {
+  cimdSpecialUse.addSubnet(address, prefix, "ipv4");
+}
+for (const [address, prefix] of [
+  ["::", 128],
+  ["::1", 128],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+] as const) {
+  cimdSpecialUse.addSubnet(address, prefix, "ipv6");
+}
+const cimdGlobalV6 = new BlockList();
+cimdGlobalV6.addSubnet("2000::", 3, "ipv6");
 
 function isClientIdMetadataUrl(value: string, allowInjectedLoopback: boolean) {
   if (Buffer.byteLength(value, "utf8") > MAX_CLIENT_METADATA_URL_LENGTH) return false;
