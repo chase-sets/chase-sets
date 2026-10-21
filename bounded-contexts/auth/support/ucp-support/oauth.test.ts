@@ -1297,10 +1297,25 @@ describe("UCP OAuth routes", () => {
     ["https://127.0.0.1/oauth-client.json", undefined],
     ["https://[::1]/oauth-client.json", undefined],
     ["http://localhost/oauth-client.json", undefined],
+    ["https://localhost/oauth-client.json", undefined],
+    ["https://agent.localhost/oauth-client.json", undefined],
     ["https://private.example/oauth-client.json", [{ address: "10.0.0.8", family: 4 }]],
     ["https://link-local.example/oauth-client.json", [{ address: "169.254.10.8", family: 4 }]],
     ["https://multicast.example/oauth-client.json", [{ address: "224.0.0.8", family: 4 }]],
     ["https://unspecified.example/oauth-client.json", [{ address: "0.0.0.0", family: 4 }]],
+    ["https://unique-local-v6.example/oauth-client.json", [{ address: "fc00::1", family: 6 }]],
+    ["https://link-local-v6.example/oauth-client.json", [{ address: "fe80::1", family: 6 }]],
+    ["https://multicast-v6.example/oauth-client.json", [{ address: "ff02::1", family: 6 }]],
+    ["https://unspecified-v6.example/oauth-client.json", [{ address: "::", family: 6 }]],
+    ["https://mapped-private-v6.example/oauth-client.json", [{ address: "::ffff:10.0.0.1", family: 6 }]],
+    ["https://nat64-private-v6.example/oauth-client.json", [{ address: "64:ff9b::a00:1", family: 6 }]],
+    [
+      "https://mixed-answers.example/oauth-client.json",
+      [
+        { address: "8.8.8.8", family: 4 },
+        { address: "10.0.0.1", family: 4 },
+      ],
+    ],
   ] as const)("refuses a non-public CIMD destination before connecting: %s", async (clientId, answers) => {
     const lookupClientIdMetadata = vi.fn(async () => answers ?? []);
     const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(() => {
@@ -1486,23 +1501,7 @@ describe("UCP OAuth routes", () => {
   });
 
   it("derives and accepts the 27,303-byte largest-valid CIMD, then refuses cap+1", async () => {
-    const paddedUrl = (suffix: string) => {
-      const prefix = "https://a.example/";
-      return `${prefix}${"x".repeat(2048 - prefix.length - suffix.length)}${suffix}`;
-    };
-    const clientId = paddedUrl("client-id");
-    const redirectUris = Array.from({ length: 10 }, (_, index) => paddedUrl(`redirect-${index}`));
-    const body = {
-      client_id: clientId,
-      client_name: "x".repeat(120),
-      client_uri: paddedUrl("client-uri"),
-      platform_profile_url: paddedUrl("profile-url"),
-      redirect_uris: redirectUris,
-      scope: [...UCP_OAUTH_SUPPORTED_SCOPES, "operations:read", "operations:write"].join(" "),
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "none",
-    };
+    const { clientId, redirectUris, body } = largestValidClientIdMetadata();
     expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBe(27_303);
     const capPlusOnePadding = 32_769 - Buffer.byteLength(JSON.stringify({ ...body, padding: "" }), "utf8");
     const capPlusOne = { ...body, padding: " ".repeat(capPlusOnePadding) };
@@ -1531,6 +1530,68 @@ describe("UCP OAuth routes", () => {
     await expect(refused.response.json()).resolves.toMatchObject({ error: "invalid_client" });
     expect(refused.db.consents.size).toBe(0);
     expect(refused.db.codes.size).toBe(0);
+  });
+
+  it("enforces the response cap on the production CIMD byte stream", async () => {
+    const { clientId, redirectUris, body } = largestValidClientIdMetadata();
+    const document = Buffer.from(JSON.stringify(body), "utf8");
+    const paddedTo = (total: number) => Buffer.concat([document, Buffer.alloc(total - document.byteLength, " ")]);
+    function* inChunks(bytes: Buffer) {
+      for (let offset = 0; offset < bytes.byteLength; offset += 1024) yield bytes.subarray(offset, offset + 1024);
+    }
+    const run = async (chunks: () => Iterable<Buffer>) => {
+      const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(
+        (_url, _requestOptions, callback) => {
+          const client = new EventEmitter() as ReturnType<typeof request>;
+          client.destroy = vi.fn(() => client);
+          client.end = vi.fn(() => {
+            const response = Readable.from(chunks(), { highWaterMark: 1 });
+            callback?.(Object.assign(response, { statusCode: 200, headers: {} }) as never);
+            return client;
+          });
+          return client;
+        },
+      );
+      const options = createOAuthOptions({
+        lookupClientIdMetadata: async () => [{ address: "8.8.8.8", family: 4 }],
+        requestClientIdMetadata,
+      });
+      const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+      const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+      const response = await app.request(
+        authorizeUrl({
+          clientId,
+          redirectUri: redirectUris[0]!,
+          scope: "catalog:read",
+          challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+        }),
+      );
+      return { response, db };
+    };
+
+    const accepted = await run(() => inChunks(paddedTo(CIMD_RESPONSE_MAX_BYTES)));
+    expect(accepted.response.status).toBe(302);
+    expect(accepted.db.consents.size).toBe(1);
+
+    const refused = await run(() => inChunks(paddedTo(CIMD_RESPONSE_MAX_BYTES + 1)));
+    expect(refused.response.status).toBe(400);
+    await expect(refused.response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(refused.db.consents.size).toBe(0);
+    expect(refused.db.codes.size).toBe(0);
+
+    // The stream stops at 64 times the cap only so a missing cap fails here instead of exhausting the worker.
+    let pulled = 0;
+    const endless = await run(function* () {
+      while (pulled < CIMD_RESPONSE_MAX_BYTES * 64) {
+        pulled += 1024;
+        yield Buffer.alloc(1024, " ");
+      }
+    });
+    expect(endless.response.status).toBe(400);
+    await expect(endless.response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(endless.db.consents.size).toBe(0);
+    expect(endless.db.codes.size).toBe(0);
+    expect(pulled).toBeLessThanOrEqual(CIMD_RESPONSE_MAX_BYTES + 2 * 1024);
   });
 
   it.each(["delayed headers", "never-ending body"] as const)(
@@ -1577,7 +1638,13 @@ describe("UCP OAuth routes", () => {
             challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
           }),
         );
-        await vi.advanceTimersByTimeAsync(5_000);
+        let settled = false;
+        void Promise.resolve(pending).then(() => {
+          settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(4_999);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
         const response = await pending;
         expect(response.status).toBe(400);
         await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
@@ -2351,6 +2418,27 @@ function createLinkedStore() {
 
 function pkceChallenge(verifier: string) {
   return createHash("sha256").update(verifier).digest("base64url");
+}
+
+function largestValidClientIdMetadata() {
+  const paddedUrl = (suffix: string) => {
+    const prefix = "https://a.example/";
+    return `${prefix}${"x".repeat(2048 - prefix.length - suffix.length)}${suffix}`;
+  };
+  const clientId = paddedUrl("client-id");
+  const redirectUris = Array.from({ length: 10 }, (_, index) => paddedUrl(`redirect-${index}`));
+  const body = {
+    client_id: clientId,
+    client_name: "x".repeat(120),
+    client_uri: paddedUrl("client-uri"),
+    platform_profile_url: paddedUrl("profile-url"),
+    redirect_uris: redirectUris,
+    scope: [...UCP_OAUTH_SUPPORTED_SCOPES, "operations:read", "operations:write"].join(" "),
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  };
+  return { clientId, redirectUris, body };
 }
 
 async function consentFixture(redirectUri = "https://agent.example/callback") {
