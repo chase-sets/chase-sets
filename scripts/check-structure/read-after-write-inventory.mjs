@@ -2028,4 +2028,3 @@ export function writeReadAfterWriteRouteInventoryReport(options) {
 
   writeFileSync(absoluteOutputPath, `${lines.join("\n")}\n`, "utf8");
 }
-
