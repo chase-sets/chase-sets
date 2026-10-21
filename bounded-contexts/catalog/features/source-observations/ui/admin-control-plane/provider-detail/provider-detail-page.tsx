@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Badge,
   BadgeCluster,
+  Box,
   Button,
   DataTable,
   DenseAdminWorkbench,
@@ -261,7 +262,7 @@ function ProviderParticipatingUnit({
   const none = t("catalog.features.sourceObservations.ui.primaryWorkbench.none");
 
   return (
-    <WorkbenchStack element="div" gap="none" data-provider-unit-selected={selected ? "true" : undefined}>
+    <Box element="div" gap={0} data-provider-unit-selected={selected ? "true" : undefined}>
       <KeyValueList
         density="compact"
         variant="surface"
@@ -295,7 +296,7 @@ function ProviderParticipatingUnit({
           },
         ]}
       />
-    </WorkbenchStack>
+    </Box>
   );
 }
 
