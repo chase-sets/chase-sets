@@ -1,10 +1,12 @@
-import { formatDateTime } from "@chase-sets/localization";
+import { formatDateTime, formatMoney } from "@chase-sets/localization";
 import { Banner, Card, DataTable, Fieldset, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
 import {
   goalExplanation,
   goalLabel,
   healthCopy as copy,
+  healthNumber,
+  healthPercent,
   healthReasonLabel,
   localizedGoalStatus,
   recommendationCopy,
@@ -118,7 +120,7 @@ export function GoalComparison({
               header: copy("goals.value"),
               cell: (row) =>
                 Object.entries(row.value ?? {})
-                  .map(([k, v]) => `${k} ${v}`)
+                  .map(([currency, value]) => formatMoney(value, currency))
                   .join(", ") || copy("unavailable"),
             },
             {
@@ -126,7 +128,7 @@ export function GoalComparison({
               header: copy("goals.wait"),
               cell: (row) =>
                 Object.entries(row.medianWaitDays ?? {})
-                  .map(([k, v]) => `${k} ${v ?? copy("unavailable")}`)
+                  .map(([currency, value]) => `${currency} ${healthNumber(value)}`)
                   .join(", ") || copy("unavailable"),
             },
             {
@@ -134,7 +136,7 @@ export function GoalComparison({
               header: copy("goals.coverage"),
               cell: (row) =>
                 Object.entries(row.coverage ?? {})
-                  .map(([k, v]) => `${k} ${Math.round(v * 100)}%`)
+                  .map(([currency, value]) => `${currency} ${healthPercent(value)}`)
                   .join(", ") || copy("unavailable"),
             },
             {
@@ -142,7 +144,7 @@ export function GoalComparison({
               header: copy("goals.p90"),
               cell: (row) =>
                 Object.entries(row.p90WaitDays ?? {})
-                  .map(([currency, value]) => `${currency} ${value ?? copy("unavailable")}`)
+                  .map(([currency, value]) => `${currency} ${healthNumber(value)}`)
                   .join(", ") || copy("unavailable"),
             },
             {
@@ -150,7 +152,7 @@ export function GoalComparison({
               header: copy("goals.bounds"),
               cell: (row) =>
                 Object.entries(row.boundStatusCount ?? {})
-                  .map(([currency, value]) => `${currency} ${value}`)
+                  .map(([currency, value]) => `${currency} ${healthNumber(value)}`)
                   .join(", ") || copy("unavailable"),
             },
             {
@@ -158,7 +160,7 @@ export function GoalComparison({
               header: copy("goals.profit"),
               cell: (row) =>
                 Object.entries(row.profitPerDay ?? {})
-                  .map(([currency, value]) => `${currency} ${value ?? copy("unavailable")}`)
+                  .map(([currency, value]) => `${currency} ${healthNumber(value)}`)
                   .join(", ") || copy("unavailable"),
             },
             {

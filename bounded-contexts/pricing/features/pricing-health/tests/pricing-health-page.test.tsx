@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { formatDateTime } from "@chase-sets/localization";
+import { formatDateTime, formatMoney } from "@chase-sets/localization";
 import { PricingHealthPage } from "../ui/page";
 import { summarizeHealth } from "../../repricing-engine/api/health-summary";
 import type { PricingHealthData } from "../api/services";
+import { healthNumber } from "../ui/copy";
 
 const health = summarizeHealth(
   [
@@ -106,12 +107,12 @@ describe("Pricing Health page states", () => {
               lowered: 0,
               held: 0,
               heldReasons: {},
-              value: { USD: "12.00" },
-              medianWaitDays: { USD: 2 },
+              value: { USD: "7525.00" },
+              medianWaitDays: { USD: 40 / 3 },
               p90WaitDays: { USD: 4 },
               boundStatusCount: { USD: 0 },
               coverage: { USD: 1 },
-              profitPerDay: { USD: 1 },
+              profitPerDay: { USD: 5.5 / 11.7 },
               capitalTurn: { USD: 0.1 },
               economicsSet: { digest: "synthetic", size: 1 },
               flags: {},
@@ -122,6 +123,10 @@ describe("Pricing Health page states", () => {
       />,
     );
     expect(html).toContain(formatDateTime(requestedAt));
+    expect(html).toContain(formatMoney("7525.00", "USD"));
+    expect(html).toContain(healthNumber(5.5 / 11.7));
+    expect(html).not.toContain("0.47008547008547014");
+    expect(html).not.toContain("USD 7525.00");
     expect(html).not.toContain(requestedAt);
   });
 

@@ -262,4 +262,34 @@ describeDb("Pricing Health real loader and grade queries", () => {
       expect.objectContaining({ forecastKind: "curve", model: "synthetic-other-model", closedOn: "2026-10-18" }),
     );
   });
+
+  it("retains forecast grades when a policy opens the advanced editor", async () => {
+    const body = await policy();
+    await seedSyntheticPricingHealthInputs(pools.pricing, { accountId: "acc_7910", listingId, now });
+    const { health } = services();
+    expect((await health.getHealth("acc_7910", undefined, now))?.grades).toHaveLength(1);
+    const runtime = createRepricingPolicyRuntime({
+      eventStore: createPostgresEventStore({ pool: pools.pricing }),
+      db: pools.pricing,
+      goalAdoptions: async () => [],
+    });
+    await runtime.executeOwnedRepricingPolicy({
+      policyId: "rpp_synthetic_health",
+      accountId: "acc_7910",
+      context: dryRunContext,
+      command: {
+        ...body,
+        rules: [...body.rules, { ...body.rules[0]!, conditions: [{ type: "quantity-at-least", quantity: 2 }] }],
+        type: "ReviseRepricingPolicy",
+        name: "Synthetic health policy",
+        maxChangesPerDay: 101,
+        revisedAt: now,
+      },
+    });
+    const advanced = (await health.getHealth("acc_7910", undefined, now))!;
+    expect(advanced.branch).toBe("advanced-editor");
+    expect(advanced.grades).toEqual(
+      expect.arrayContaining([expect.objectContaining({ goalId: "fixed-percentile", goalVersion: 1 })]),
+    );
+  });
 });

@@ -104,14 +104,13 @@ describeDb("S12 over stored synthetic A1 runs through the real composition", () 
     expect(data?.recommendation?.kind).toBe("compare-goals");
   });
 
-  it.each([
-    ["S9", [0.1, 0.3, 0.2, 0.4, 0.5], [3, 3, 3, 3, 3]],
-    ["S5", [0.1, 0.1, 0.1, 0.1, 0.1], [4, 3, 1, 2, 5]],
-    ["goal id", [0.1, 0.1, 0.1, 0.1, 0.1], [3, 3, 3, 3, 3]],
-  ] as const)("breaks equal S8 ties by %s", async (tieBreak, capital, wait) => {
+  it.each(["S9", "S5", "goal id"] as const)("breaks equal S8 ties by %s", async (tieBreak) => {
     await createComparisonPolicy(pools.pricing, services);
     await basis();
     const goals = await choices();
+    const capital =
+      tieBreak === "S9" ? goals.map((_, index) => 0.1 + 0.1 * ((index + 1) % goals.length)) : goals.map(() => 0.1);
+    const wait = tieBreak === "S5" ? goals.map((_, index) => goals.length - index) : goals.map(() => 3);
     for (let index = 0; index < goals.length; index++) await candidate(index, 3, capital[index], wait[index]);
     const expectedGoalId =
       tieBreak === "S9"

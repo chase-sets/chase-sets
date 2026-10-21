@@ -99,16 +99,6 @@ export function createPricingHealthServices({
         policyId: target.policyId,
         bodyHash: hashRepricingDryRunBody(target),
       });
-      if (!isOneRuleUnconditional(target.rules))
-        return {
-          policies: activeChoices,
-          target: { policyId: target.policyId, name: target.name, version: target.version },
-          ...stored,
-          grades: [],
-          goals: [],
-          comparison: [],
-          branch: target.rules.length === 0 ? "create-editor" : "advanced-editor",
-        };
       const policy = (await policies.resolvePolicy(forecastLedgerPolicy, { at: now })).value;
       const goals = new Map<string, { goalId: string; goalVersion: number }>();
       for (const rule of target.rules)
@@ -131,6 +121,16 @@ export function createPricingHealthServices({
           ...rows.map((row) => ({ ...goal, ...discloseForecastGrade(row, policy.gradeDisclosureMinimumCount) })),
         );
       }
+      if (!isOneRuleUnconditional(target.rules))
+        return {
+          policies: activeChoices,
+          target: { policyId: target.policyId, name: target.name, version: target.version },
+          ...stored,
+          grades,
+          goals: [],
+          comparison: [],
+          branch: target.rules.length === 0 ? "create-editor" : "advanced-editor",
+        };
       const goalChoices = await choices();
       const currentFacts = stored.run
         ? await readComparisonFacts(db, { accountId, dryRunId: stored.run.dryRunId, now })
