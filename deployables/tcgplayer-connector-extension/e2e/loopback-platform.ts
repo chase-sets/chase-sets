@@ -59,7 +59,7 @@ export async function loopbackPlatform(
       reply
         .writeHead(200, {
           "Content-Type": "text/plain",
-          "Set-Cookie": "synthetic=forbidden",
+          "Set-Cookie": "synthetic_connector_session=forbidden",
           "Content-Encoding": "identity",
           "Content-Length": "7",
         })

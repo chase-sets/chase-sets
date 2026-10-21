@@ -137,7 +137,7 @@ async function forwardWorkerRequest(route: Route, platformOrigin: string, input:
   const response = await fetch(request.url(), {
     method: request.method(),
     headers: input.forwardCookieHeaders
-      ? { ...request.headers(), cookie: "synthetic=forwarded-cookie" }
+      ? { ...request.headers(), cookie: "synthetic_connector_session=forwarded-cookie" }
       : safeHeaders(request.headers()),
     body: ["GET", "HEAD"].includes(request.method()) ? undefined : (request.postData() ?? undefined),
     redirect: "manual",
