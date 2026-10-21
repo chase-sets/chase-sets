@@ -74,107 +74,110 @@ export function GoalComparison({
         tone={recommendation.kind === "switch" ? "success" : "info"}
         title={recommendationCopy(recommendation, goals)}
       />
-      <DataTable
-        rows={[...candidates]}
-        getRowId={(row) => `${row.goalId}@${row.goalVersion}`}
-        caption={copy("goals.comparison")}
-        mobileMode="scroll"
-        emptyTitle={copy("goals.compareEmpty")}
-        columns={[
-          {
-            key: "goal",
-            header: copy("goals.goal"),
-            cell: (row) => {
-              const goal = goals.find((goal) => goal.goalId === row.goalId && goal.goalVersion === row.goalVersion);
-              return goal ? goalLabel(goal) : copy("goals.label.generic");
+      <div className="min-w-0">
+        <DataTable
+          rows={[...candidates]}
+          getRowId={(row) => `${row.goalId}@${row.goalVersion}`}
+          caption={copy("goals.comparison")}
+          mobileMode="scroll"
+          emptyTitle={copy("goals.compareEmpty")}
+          columns={[
+            {
+              key: "goal",
+              header: copy("goals.goal"),
+              cell: (row) => {
+                const goal = goals.find((goal) => goal.goalId === row.goalId && goal.goalVersion === row.goalVersion);
+                return goal ? goalLabel(goal) : copy("goals.label.generic");
+              },
             },
-          },
-          { key: "scope", header: copy("goals.scope"), cell: () => copy("goals.entireScope") },
-          { key: "listings", header: copy("goals.listings"), cell: (row) => row.listingCount ?? copy("unavailable") },
-          {
-            key: "target",
-            header: copy("goals.targetRevision"),
-            cell: (row) => (
-              <Text as="span" size="sm" wrap="anywhere">
-                {copy("goals.targetRevision.value", { policy: row.targetPolicyId, revision: row.targetRevision })}
-              </Text>
-            ),
-          },
-          { key: "requestedAt", header: copy("goals.requestedAt"), cell: (row) => row.requestedAt },
-          {
-            key: "hash",
-            header: copy("goals.bodyHash"),
-            cell: (row) => (
-              <Text as="span" size="sm" wrap="anywhere">
-                {row.bodyHash}
-              </Text>
-            ),
-          },
-          { key: "status", header: copy("goals.status"), cell: (row) => localizedGoalStatus(row.status) },
-          {
-            key: "value",
-            header: copy("goals.value"),
-            cell: (row) =>
-              Object.entries(row.value ?? {})
-                .map(([k, v]) => `${k} ${v}`)
-                .join(", ") || copy("unavailable"),
-          },
-          {
-            key: "wait",
-            header: copy("goals.wait"),
-            cell: (row) =>
-              Object.entries(row.medianWaitDays ?? {})
-                .map(([k, v]) => `${k} ${v ?? copy("unavailable")}`)
-                .join(", ") || copy("unavailable"),
-          },
-          {
-            key: "coverage",
-            header: copy("goals.coverage"),
-            cell: (row) =>
-              Object.entries(row.coverage ?? {})
-                .map(([k, v]) => `${k} ${Math.round(v * 100)}%`)
-                .join(", ") || copy("unavailable"),
-          },
-          {
-            key: "p90",
-            header: copy("goals.p90"),
-            cell: (row) =>
-              Object.entries(row.p90WaitDays ?? {})
-                .map(([currency, value]) => `${currency} ${value ?? copy("unavailable")}`)
-                .join(", ") || copy("unavailable"),
-          },
-          {
-            key: "bounds",
-            header: copy("goals.bounds"),
-            cell: (row) =>
-              Object.entries(row.boundStatusCount ?? {})
-                .map(([currency, value]) => `${currency} ${value}`)
-                .join(", ") || copy("unavailable"),
-          },
-          {
-            key: "profit",
-            header: copy("goals.profit"),
-            cell: (row) =>
-              Object.entries(row.profitPerDay ?? {})
-                .map(([currency, value]) => `${currency} ${value ?? copy("unavailable")}`)
-                .join(", ") || copy("unavailable"),
-          },
-          {
-            key: "movement",
-            header: copy("goals.movement"),
-            cell: (row) =>
-              `${copy("goals.raised")}: ${row.raised ?? "—"}; ${copy("goals.lowered")}: ${row.lowered ?? "—"}; ${copy("goals.held")}: ${row.held ?? "—"}`,
-          },
-          {
-            key: "reasons",
-            header: copy("goals.heldReasons"),
-            cell: (row) =>
-              Object.entries(row.heldReasons)
-                .map(([reason, count]) => `${healthReasonLabel(reason)}: ${count}`)
-                .join(", "),
-          },
-        ]}
-      />
+            { key: "scope", header: copy("goals.scope"), cell: () => copy("goals.entireScope") },
+            { key: "listings", header: copy("goals.listings"), cell: (row) => row.listingCount ?? copy("unavailable") },
+            {
+              key: "target",
+              header: copy("goals.targetRevision"),
+              cell: (row) => (
+                <Text as="span" size="sm" wrap="anywhere">
+                  {copy("goals.targetRevision.value", { policy: row.targetPolicyId, revision: row.targetRevision })}
+                </Text>
+              ),
+            },
+            { key: "requestedAt", header: copy("goals.requestedAt"), cell: (row) => row.requestedAt },
+            {
+              key: "hash",
+              header: copy("goals.bodyHash"),
+              cell: (row) => (
+                <Text as="span" size="sm" wrap="anywhere">
+                  {row.bodyHash}
+                </Text>
+              ),
+            },
+            { key: "status", header: copy("goals.status"), cell: (row) => localizedGoalStatus(row.status) },
+            {
+              key: "value",
+              header: copy("goals.value"),
+              cell: (row) =>
+                Object.entries(row.value ?? {})
+                  .map(([k, v]) => `${k} ${v}`)
+                  .join(", ") || copy("unavailable"),
+            },
+            {
+              key: "wait",
+              header: copy("goals.wait"),
+              cell: (row) =>
+                Object.entries(row.medianWaitDays ?? {})
+                  .map(([k, v]) => `${k} ${v ?? copy("unavailable")}`)
+                  .join(", ") || copy("unavailable"),
+            },
+            {
+              key: "coverage",
+              header: copy("goals.coverage"),
+              cell: (row) =>
+                Object.entries(row.coverage ?? {})
+                  .map(([k, v]) => `${k} ${Math.round(v * 100)}%`)
+                  .join(", ") || copy("unavailable"),
+            },
+            {
+              key: "p90",
+              header: copy("goals.p90"),
+              cell: (row) =>
+                Object.entries(row.p90WaitDays ?? {})
+                  .map(([currency, value]) => `${currency} ${value ?? copy("unavailable")}`)
+                  .join(", ") || copy("unavailable"),
+            },
+            {
+              key: "bounds",
+              header: copy("goals.bounds"),
+              cell: (row) =>
+                Object.entries(row.boundStatusCount ?? {})
+                  .map(([currency, value]) => `${currency} ${value}`)
+                  .join(", ") || copy("unavailable"),
+            },
+            {
+              key: "profit",
+              header: copy("goals.profit"),
+              cell: (row) =>
+                Object.entries(row.profitPerDay ?? {})
+                  .map(([currency, value]) => `${currency} ${value ?? copy("unavailable")}`)
+                  .join(", ") || copy("unavailable"),
+            },
+            {
+              key: "movement",
+              header: copy("goals.movement"),
+              cell: (row) =>
+                `${copy("goals.raised")}: ${row.raised ?? "—"}; ${copy("goals.lowered")}: ${row.lowered ?? "—"}; ${copy("goals.held")}: ${row.held ?? "—"}`,
+            },
+            {
+              key: "reasons",
+              header: copy("goals.heldReasons"),
+              cell: (row) =>
+                Object.entries(row.heldReasons)
+                  .map(([reason, count]) => `${healthReasonLabel(reason)}: ${count}`)
+                  .join(", "),
+            },
+          ]}
+          tabIndex={0}
+        />
+      </div>
     </Stack>
   );
 }
