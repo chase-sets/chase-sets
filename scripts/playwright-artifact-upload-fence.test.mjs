@@ -60,9 +60,9 @@ describe("raw Playwright artifact upload fence (#6895)", () => {
     expect(result.status).toBe("pass");
     expect(result.findings).toEqual([]);
     expect(result.discovery).toMatchObject({
-      trackedFiles: 69,
-      parsedFiles: 69,
-      workflowFiles: 65,
+      trackedFiles: 73,
+      parsedFiles: 73,
+      workflowFiles: 69,
       compositeActionFiles: 4,
     });
     expect(result.discovery.uploadSteps).toBeGreaterThan(0);
@@ -211,6 +211,8 @@ runs:
       ["artifacts/catalog-scale-probe/preview.json"],
       ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
       ["artifacts/catalog-count-lifecycle/receipt.json"],
+      ["artifacts/catalog-scrydex-cache-capture/capture.json"],
+      ["artifacts/catalog-scrydex-cache-capture/capture.json"],
     ]);
   });
 

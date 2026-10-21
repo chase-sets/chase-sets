@@ -7,6 +7,162 @@ import type { DiscoveryItemDetailRow } from "../../features/item-detail/read-mod
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 
+export type UcpCurrency = Readonly<{ code: string; exponent: number }>;
+
+export type UcpCatalogListing = Pick<
+  DiscoveryItemDetailRow["market_listings"][number],
+  "listing_id" | "price_amount" | "price_currency_code"
+>;
+
+export type UcpPresentment<L extends UcpCatalogListing = UcpCatalogListing> = Readonly<{
+  currency: string;
+  listings: readonly L[];
+  priceRange: Readonly<{ min: number; max: number }>;
+  omittedListings: boolean;
+}>;
+
+export type UcpPresentmentBound = Readonly<{
+  min?: number;
+  max?: number;
+  currency?: string | UcpCurrency | null;
+}>;
+
+export const PRICE_FILTER_IGNORED_CONTENT =
+  "Price filter was not applied where its currency was absent or unsupported, or where a product is not priced only in that currency.";
+
+export const LISTINGS_OMITTED_CONTENT =
+  "Some listings for this product were omitted because their price could not be presented in this product's currency.";
+
+const supportedUcpCurrencies = new Set(Intl.supportedValuesOf("currency"));
+
+export function resolveUcpCurrency(value: unknown): UcpCurrency | null {
+  if (typeof value !== "string") return null;
+  const code = value.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code) || !supportedUcpCurrencies.has(code)) return null;
+  const exponent = new Intl.NumberFormat("en-US", { style: "currency", currency: code }).resolvedOptions()
+    .maximumFractionDigits;
+  return typeof exponent === "number" ? { code, exponent } : null;
+}
+
+export function toUcpMinorUnits(
+  amount: unknown,
+  currencyCode: unknown,
+): Readonly<{ currency: string; minor: number }> | null {
+  const currency = resolveUcpCurrency(currencyCode);
+  if (!currency || typeof amount !== "string") return null;
+  const normalized = amount.trim();
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) return null;
+  const [whole, fraction = ""] = normalized.split(".");
+  const excess = fraction.slice(currency.exponent);
+  if (excess.length > 0 && /[^0]/.test(excess)) return null;
+  const minorText = `${whole}${fraction.slice(0, currency.exponent).padEnd(currency.exponent, "0")}`;
+  try {
+    const minor = BigInt(minorText);
+    if (minor > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    return { currency: currency.code, minor: Number(minor) };
+  } catch {
+    return null;
+  }
+}
+
+export function minorBoundToDecimal(bound: number, currency: string | UcpCurrency): string | null {
+  const resolved = typeof currency === "string" ? resolveUcpCurrency(currency) : currency;
+  if (!resolved || !Number.isSafeInteger(bound) || bound < 0) return null;
+  const digits = String(bound).padStart(resolved.exponent + 1, "0");
+  if (resolved.exponent === 0) return digits;
+  const split = digits.length - resolved.exponent;
+  return `${digits.slice(0, split)}.${digits.slice(split)}`;
+}
+
+function listingCurrency(listing: UcpCatalogListing) {
+  return listing.price_currency_code;
+}
+
+function listingAmount(listing: UcpCatalogListing) {
+  return listing.price_amount;
+}
+
+function eligibleListing<L extends UcpCatalogListing>(listing: L) {
+  const converted = toUcpMinorUnits(listingAmount(listing), listingCurrency(listing));
+  return converted ? { listing, ...converted } : null;
+}
+
+export function selectPresentment<L extends UcpCatalogListing>(
+  listings: readonly L[],
+  requestCurrency: unknown,
+): UcpPresentment<L> | null {
+  const eligible = listings.map(eligibleListing).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  if (eligible.length === 0) return null;
+  const requested = resolveUcpCurrency(requestCurrency)?.code;
+  const counts = new Map<string, number>();
+  for (const entry of eligible) counts.set(entry.currency, (counts.get(entry.currency) ?? 0) + 1);
+  const selectedCurrency =
+    requested && counts.has(requested)
+      ? requested
+      : [...counts.entries()].sort(([leftCode, leftCount], [rightCode, rightCount]) => {
+          if (leftCount !== rightCount) return rightCount - leftCount;
+          return leftCode < rightCode ? -1 : leftCode > rightCode ? 1 : 0;
+        })[0]![0];
+  const selected = eligible.filter((entry) => entry.currency === selectedCurrency);
+  const selectedListings = selected.map((entry) => entry.listing);
+  return {
+    currency: selectedCurrency,
+    listings: selectedListings,
+    priceRange: {
+      min: Math.min(...selected.map((entry) => entry.minor)),
+      max: Math.max(...selected.map((entry) => entry.minor)),
+    },
+    omittedListings: listings.some((listing) => {
+      const amount = listingAmount(listing);
+      return typeof amount === "string" && amount.trim().length > 0 && !selectedListings.includes(listing);
+    }),
+  };
+}
+
+function boundCurrencyCode(value: UcpPresentmentBound["currency"]) {
+  return typeof value === "string" ? (resolveUcpCurrency(value)?.code ?? null) : (value?.code ?? null);
+}
+
+export function boundPresentment<L extends UcpCatalogListing>(
+  presentment: UcpPresentment<L>,
+  bound: UcpPresentmentBound,
+): (UcpPresentment<L> & Readonly<{ ignored: boolean }>) | null {
+  const hasBounds = bound.min !== undefined || bound.max !== undefined;
+  if (!hasBounds) return { ...presentment, ignored: false };
+  if (boundCurrencyCode(bound.currency) !== presentment.currency) return { ...presentment, ignored: true };
+  const filtered = presentment.listings.filter((listing) => {
+    const converted = eligibleListing(listing);
+    return (
+      converted !== null &&
+      (bound.min === undefined || converted.minor >= bound.min) &&
+      (bound.max === undefined || converted.minor <= bound.max)
+    );
+  });
+  if (filtered.length === 0) return null;
+  const minors = filtered.map((listing) => eligibleListing(listing)!.minor);
+  return {
+    ...presentment,
+    listings: filtered,
+    priceRange: { min: Math.min(...minors), max: Math.max(...minors) },
+    ignored: false,
+  };
+}
+
+export function lookupInputs(
+  pairs: readonly Readonly<{ requestedId: string; productId: string | null }>[],
+): readonly Readonly<{ id: string; inputs: readonly Readonly<{ id: string; match: "featured" }>[] }>[] {
+  const products = new Map<string, { id: string; inputs: Readonly<{ id: string; match: "featured" }>[] }>();
+  for (const pair of pairs) {
+    if (!pair.productId) continue;
+    const product = products.get(pair.productId) ?? { id: pair.productId, inputs: [] };
+    if (!product.inputs.some((input) => input.id === pair.requestedId)) {
+      product.inputs.push({ id: pair.requestedId, match: "featured" });
+    }
+    products.set(pair.productId, product);
+  }
+  return [...products.values()];
+}
+
 export type DiscoveryUcpHandlers = Readonly<{
   restHandlers: Readonly<Record<string, UcpHandler>>;
   mcpToolHandlers: Readonly<Record<string, UcpHandler>>;

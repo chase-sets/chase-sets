@@ -706,22 +706,23 @@ function printHumanReceipt(receipt) {
   for (const error of receipt.errors) console.error(`${error.code}: ${error.message}`);
 }
 
-function main() {
+export function main(argv, { acquire = acquireHeavySlot, run = runCiLocalVerification } = {}) {
   let options;
   let receipt;
-  const jsonRequested = process.argv.slice(2).includes("--json");
+  const jsonRequested = argv.includes("--json");
   try {
-    options = parseCiLocalArgs(process.argv.slice(2));
-    receipt = runCiLocalVerification(options);
+    options = parseCiLocalArgs(argv);
+    // A dry run executes only the classifier; every gate-executing run holds the host-wide slot first.
+    if (!options.dryRun) acquire("script-battery");
+    receipt = run(options);
   } catch (error) {
     receipt = createFailClosedReceipt({ error });
   }
   if (options?.json || jsonRequested) console.log(JSON.stringify(receipt, null, 2));
   else printHumanReceipt(receipt);
-  process.exitCode = receipt.disposition === "FAIL" ? 1 : receipt.disposition === "FAIL_CLOSED" ? 2 : 0;
+  return receipt.disposition === "FAIL" ? 1 : receipt.disposition === "FAIL_CLOSED" ? 2 : 0;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  acquireHeavySlot("script-battery");
-  main();
+  process.exitCode = main(process.argv.slice(2));
 }

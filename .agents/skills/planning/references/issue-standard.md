@@ -11,6 +11,11 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   codebase is the main token sink and the main source of wrong-guess rework.
 - **Scope fence.** What is in; what is explicitly out. Non-goals prevent scope
   creep and anti-ratchet violations.
+- **Supersedes (optional).** When this issue replaces an open predecessor,
+  declare one predecessor per item using exactly `- #<n> full` or
+  `- #<n> partial: <dropped criteria>`. `full` means the successor set carries
+  every accepted criterion; `partial` names the criteria removed from the old
+  issue. An absent section means that no predecessor is superseded.
 - **Decisions already made.** Settled rulings with links (ADR, epic comment,
   decision issue). A worker never re-litigates a settled decision; a worker who
   hits an UNsettled one stops and escalates (see the delivery skill).
@@ -35,10 +40,8 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
 - **Verification plan.** The scoped commands that prove the change
   (`pnpm --filter <workspace> run test`, guards, e2e batch if UI). For database
   changes, name the normal final-head hosted `DB Profile Tests` job as the DB
-  proof. While [#8159](https://github.com/chase-sets/chase-sets/issues/8159) is
-  open, never make a full local `verify:test-db` a prerequisite. Hosted CI on
-  the pushed head is the proof for every product attempt
-  ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)): never make local E2E or another local full or
+  proof. Hosted CI on the pushed head is the proof for every product attempt:
+  never make local E2E or another local full or
   harness run a gate, a prerequisite, or a PARK or stop condition.
 - **Review packet seed (full path).** Name the invariants and likely failure
   modes the independent reviewer must attack, plus the evidence artifact that
@@ -52,7 +55,7 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   collision checks.
   A probe, diagnostic or test-infrastructure issue is never a blocking
   dependency of a product issue unless the product change cannot be written
-  without its output ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)); run it in parallel instead.
+  without its output; run it in parallel instead.
   When the change adds validation or invariants to a handler that seed,
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top
@@ -83,6 +86,16 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   records `not applicable — fast path`.
 - **Tier + routing hint.** Fast or full path (blast radius), and
   presentation-vs-system for lane assignment.
+
+The optional declaration is a `### Supersedes` section containing one item per
+predecessor:
+
+```markdown
+### Supersedes
+
+- #1234 full
+- #5678 partial: dropped acceptance criteria
+```
 
 ## Quality-surface declarations
 
@@ -170,8 +183,7 @@ Stable rule IDs map to the checklist:
    reported, not gating: when a capability owns the slice's acceptance, attach
    it as that Epic's native sub-issue. A future parent-or-standalone gate
    (including any `status:standalone` label) would require a new fixed-scope
-   change; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
-   records that it is not current controller behavior. The delivery board's
+   change. The delivery board's
    Status is derived from these same facts, never hand-written: a native
    **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
    projects to `Tracking`, both non-executable

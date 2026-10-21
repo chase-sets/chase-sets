@@ -9,8 +9,25 @@ GitHub-hosted `ubuntu-24.04` VM, as its actual sudo-capable runner principal.
 Root and host runner processes are trusted administrators; Chromium and its
 descendants are not. The AppArmor profile grants namespace construction, not a
 firewall. The installed native launcher owns the network/root/handle boundary.
+Setup archives native inputs only from an exact commit byte-identical to the
+checkout: the candidate or, for a pull request that never changed them, its
+merge ref's base tip contained in `refs/remotes/origin/main`, as
+`provider-boundary-native-source:<head|base>:<sha>` records.
 
 ## Protocol
+
+When the installed Chromium launch rejects, the `sandboxed-chromium` mediation
+record appends a bounded `launch` envelope. It recognizes only whole,
+PID-bound Playwright message lines (`<launched>`, `[pid][out]`, `[pid][err]`,
+and the exact process-exit line), deduplicates identical lines, and emits only
+the closed class, window, exit code/signal vocabulary, and a `nativeRefusal`
+stage when the refusal bytes are bound to the same PID and status 78. Unknown,
+partial, conflicting, multi-PID, ANSI, and format-drift evidence remains
+`unknown`/`null`; no message, stderr, argv, path, or trace text is retained.
+The hosted `B3-launch-refusal-class` control runs the installed launcher with
+the shared Chromium options and a wrong 64-hex digest, requiring the exact
+`exited`/`from-launch`/78/`source-identity` envelope and failing closed on
+Playwright format drift.
 
 The launcher stays non-dumpable. Each outer or nested seed closes inherited
 descriptors and installs an x86-64-only seccomp allowlist before becoming

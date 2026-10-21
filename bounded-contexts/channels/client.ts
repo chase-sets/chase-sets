@@ -43,6 +43,40 @@ export {
   type TcgplayerLiveExportAuthority,
 } from "./features/connector-client/domain/live-export-authority";
 export { createConnectorRetentionStore } from "./features/connector-client/domain/connector-retention-store";
+export {
+  decodeTcgplayerStagedImportFieldClassification,
+  tcgplayerStagedImportCandidateClassification,
+} from "./features/connector-client/domain/tcgplayer-staged-import-classification";
+export type {
+  TcgplayerStagedImportFieldClass,
+  TcgplayerStagedImportField,
+  TcgplayerStagedImportFieldClassification,
+} from "./features/connector-client/domain/tcgplayer-staged-import-classification";
+export { buildTcgplayerStagedImportEnvelope } from "./features/connector-client/domain/tcgplayer-staged-import-envelope";
+export type {
+  TcgplayerStagedImportContinuation,
+  TcgplayerStagedImportEnvelope,
+} from "./features/connector-client/domain/tcgplayer-staged-import-envelope";
+export { createTcgplayerStagedImportReleaseGate } from "./features/connector-client/domain/tcgplayer-staged-import-release-gate";
+export type {
+  TcgplayerStagedImportPhase,
+  TcgplayerStagedImportReleaseRequest,
+} from "./features/connector-client/domain/tcgplayer-staged-import-release-gate";
+export {
+  decodeTcgplayerStagedImportReadback,
+  parseTcgplayerStagedImportReadback,
+  preflightTcgplayerStagedImport,
+  deriveTcgplayerStagedImportReadbackVerdict,
+  tcgplayerStagedImportReadbackLimits,
+} from "./features/connector-client/domain/tcgplayer-staged-import-readback-verdict";
+export type {
+  TcgplayerStagedImportReadbackRow,
+  TcgplayerStagedImportReadback,
+  TcgplayerStagedImportReadbackAuthority,
+  TcgplayerStagedImportReadbackMember,
+  TcgplayerStagedImportReadbackVerdict,
+  TcgplayerStagedImportPreflight,
+} from "./features/connector-client/domain/tcgplayer-staged-import-readback-verdict";
 export type {
   ConnectorStatus,
   ConnectorCommand,

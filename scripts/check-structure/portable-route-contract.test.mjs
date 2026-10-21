@@ -257,8 +257,9 @@ describe("portable route manifest contract", () => {
     }
 
     expect(violations).toEqual([]);
+    expect(routeModules.map(({ route }) => route.routeId)).toContain("account-desk-pricing-health");
     expect({ routeCount, portableCount, webResourceOnlyCount }).toEqual({
-      routeCount: 87,
+      routeCount: 88,
       portableCount: 3,
       webResourceOnlyCount: 2,
     });

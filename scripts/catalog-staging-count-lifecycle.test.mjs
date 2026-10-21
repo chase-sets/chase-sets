@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import { z } from "../bounded-contexts/catalog/node_modules/zod/index.js";
 import {
+  countCaptureCompleteInputSchema,
   countCaptureFreezeInputSchema,
   countCapturePlannerInputSchema,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-lifecycle";
@@ -14,6 +15,7 @@ import {
   captureExitCode,
   capture,
   captureActionDeadlineMs,
+  captureActionPaths,
   captureResponseByteCap,
   addCookieMarkers,
   watchSessionMarkers,
@@ -25,7 +27,10 @@ import {
   completeStopReceipt,
   validateCaptureUpload,
 } from "./catalog-staging-count-lifecycle.mjs";
-import { runCountCaptureJourney } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-runner.ts";
+import {
+  countCaptureBoundaryWaitMs,
+  runCountCaptureJourney,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-runner.ts";
 import { writeCountCaptureArtifact } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-artifact.ts";
 import {
   syntheticCountCaptureAuthority,
@@ -177,21 +182,25 @@ describe("capture receipt contracts", () => {
     expect(module.captureExitCode({ classification: { verdict: "INCOMPLETE" } })).toBe(1);
     expect(module.captureExitCode({ classification: { verdict: "FAILED" } })).toBe(1);
   });
-  it("leaves explicit headroom over the largest valid freeze receipt", () => {
+  it("leaves explicit headroom over the largest valid completion receipt", () => {
     expect(captureResponseByteCap).toBeGreaterThan(128_000 + JSON.stringify({ receipt: null }).length);
     expect(captureActionDeadlineMs).toBeGreaterThan(0);
   });
-  it("dry-validates all ten request bodies against the deployed route schemas without sending them", async () => {
+  it("dry-validates all eleven request bodies against the deployed route schemas without sending them", async () => {
     const authority = syntheticCountCaptureAuthority();
     const fields = {
       scopeRecordId: "synthetic-scope",
       quoteId: "00000000-0000-4000-8000-000000000001",
       countFingerprint: "a".repeat(64),
       planFingerprint: "b".repeat(64),
+      dispatchId: authority.dispatchId,
+      runId: "00000000-0000-4000-8000-0000000000aa",
       collection: JSON.stringify(authority.collection),
     };
     const requests = [];
-    const fetchImpl = vi.fn(async (_url, options) => {
+    const paths = [];
+    const fetchImpl = vi.fn(async (url, options) => {
+      paths.push(String(url).replace("/api/catalog/scope-sync-batches", ""));
       requests.push(JSON.parse(options.body));
       return new Response(JSON.stringify({}), { headers: { "cache-control": "no-store" } });
     });
@@ -206,6 +215,7 @@ describe("capture receipt contracts", () => {
       "preview",
       "pre-confirm-planner-read",
       "capture-freeze",
+      "capture-complete",
     ])
       await captureActionInPage({
         apiPath: "/api/catalog/scope-sync-batches",
@@ -218,7 +228,9 @@ describe("capture receipt contracts", () => {
         byteCap: captureResponseByteCap,
         fetchImpl,
       });
-    expect(requests).toHaveLength(10);
+    expect(requests).toHaveLength(11);
+    // Every body the runner can send goes to an allowlisted route, and only those.
+    expect(new Set(paths)).toEqual(captureActionPaths);
     const empty = z.object({}).strict();
     const schemas = [
       z.object({ scopeRecordId: z.string().min(1), authority: z.unknown() }).strict(),
@@ -231,12 +243,31 @@ describe("capture receipt contracts", () => {
       countCapturePlannerInputSchema,
       countCapturePlannerInputSchema.extend({ planFingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
       countCaptureFreezeInputSchema,
+      countCaptureCompleteInputSchema,
     ];
     schemas.forEach((schema, index) => expect(schema.safeParse(requests[index]).success).toBe(true));
+    // The seal carries no collection; the superseded seal-and-assemble body is refused.
+    expect(requests[9]).toEqual({ dispatchId: authority.dispatchId, runnerRunId: "123", runnerRunAttempt: 1 });
+    expect(countCaptureFreezeInputSchema.safeParse({ ...requests[9], collection: authority.collection }).success).toBe(
+      false,
+    );
+    expect(requests[10]).toEqual({
+      runId: fields.runId,
+      dispatchId: authority.dispatchId,
+      runnerRunId: "123",
+      runnerRunAttempt: 1,
+      collection: authority.collection,
+    });
+    const { collection: _omitted, ...withoutCollection } = requests[10];
+    expect(countCaptureCompleteInputSchema.safeParse(withoutCollection).success).toBe(false);
   });
-  const freezeArgs = (fetchImpl, deadlineMs = 1_000) => ({
+  it("bounds the runner's boundary wait by the per-action deadline", () => {
+    expect(countCaptureBoundaryWaitMs).toBe(captureActionDeadlineMs);
+  });
+  // The completion returns the receipt, so it carries the largest response.
+  const completeArgs = (fetchImpl, deadlineMs = 1_000) => ({
     apiPath: "/api/catalog/scope-sync-batches",
-    intent: "capture-freeze",
+    intent: "capture-complete",
     fields: { collection: "{}" },
     authority: null,
     runId: "123",
@@ -260,19 +291,19 @@ describe("capture receipt contracts", () => {
       return { ok: true, headers: new Headers({ "cache-control": "no-store" }), body };
     };
   const wrapped = (n) => `{"receipt":"${"x".repeat(n)}"}`;
-  it("accepts the largest valid freeze response", async () => {
+  it("accepts the largest valid completion response", async () => {
     const text = wrapped(captureResponseByteCap - 14);
     expect(Buffer.byteLength(text)).toBe(captureResponseByteCap);
-    await expect(captureActionInPage(freezeArgs(streamed(text)))).resolves.toEqual(JSON.parse(text));
+    await expect(captureActionInPage(completeArgs(streamed(text)))).resolves.toEqual(JSON.parse(text));
   });
   it("refuses a response one byte over the cap", async () => {
     const text = wrapped(captureResponseByteCap + 1 - 14);
     expect(Buffer.byteLength(text)).toBe(captureResponseByteCap + 1);
-    await expect(captureActionInPage(freezeArgs(streamed(text)))).rejects.toThrow("capture-stopped");
+    await expect(captureActionInPage(completeArgs(streamed(text)))).rejects.toThrow("capture-stopped");
   });
   it("stops headers followed by an endless body within the deadline", async () => {
     const outcome = await Promise.race([
-      captureActionInPage(freezeArgs(streamed('{"receipt":', { endless: true }), 50)).then(
+      captureActionInPage(completeArgs(streamed('{"receipt":', { endless: true }), 50)).then(
         () => "resolved",
         () => "rejected",
       ),

@@ -2374,8 +2374,12 @@ describe("DigitalOcean platform configuration", () => {
       '2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)',
     );
     expect(productionClassificationStep).toContain("artifacts/release-health/production-terraform-diagnostics.txt");
-    expect(productionClassificationStep).toContain("--phase production-deploy");
-    expect(productionClassificationStep).not.toContain("--phase production-verification");
+    // Only an Agent Grant revocation activation failure changes the default production-deploy phase.
+    expect(productionClassificationStep).toContain('--phase "$DEPLOY_ROOT_CAUSE_PHASE"');
+    expect(productionClassificationStep).toContain(
+      "DEPLOY_ROOT_CAUSE_PHASE: ${{ steps.agent_grant_revocation_activation.outcome == 'failure' && 'agent-grant-revocation-activation' || 'production-deploy' }}",
+    );
+    expect(productionClassificationStep).not.toContain("production-verification");
 
     expect(stagingCaptureStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(stagingCaptureStep).toContain("id: capture_staging_terraform_errored_state");

@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 import { classified } from "./backlog-classify.mjs";
 import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registry.mjs";
 import { isExecutableOutcome, readOutcomePolicy } from "./milestone-policy.mjs";
@@ -25,12 +27,62 @@ export const ISSUE_READINESS_RULES = Object.freeze([
   Object.freeze({ id: "ready-09-review-packet", standardItem: 9 }),
 ]);
 
+// Controller-tree paths belong to chase-sets/chase-sets-controller: an issue
+// whose footprint changes them is filed there (docs/contributing/backlog-model.md,
+// Repository routing). These mirror that repository's tracked roots and its
+// force-added top-level .orchestrator source files; every other .orchestrator
+// path is machine-local output and stays allowed.
+export const CONTROLLER_TREE_PATHS = Object.freeze({
+  directories: Object.freeze([
+    ".orchestrator/contracts/",
+    ".orchestrator/controller-skills/",
+    ".orchestrator/fixtures/",
+  ]),
+  topLevelSuffixes: Object.freeze([
+    ".ps1",
+    ".psm1",
+    ".psd1",
+    ".mjs",
+    ".cjs",
+    ".js",
+    ".cs",
+    ".py",
+    ".sh",
+    ".vbs",
+    ".schema.json",
+    ".fixture.json",
+  ]),
+  topLevelExclusions: Object.freeze(["with-secrets.ps1"]),
+  rootFiles: Object.freeze(["bootstrap-container.ps1", "UPDATE_MAIN_FROM_ORIGIN.ps1"]),
+});
+
+function isControllerTreePath(candidate) {
+  const path = candidate.replace(/^\.\//, "");
+  if (CONTROLLER_TREE_PATHS.rootFiles.includes(path)) return true;
+  if (CONTROLLER_TREE_PATHS.directories.some((directory) => path.startsWith(directory))) return true;
+  const topLevel = /^\.orchestrator\/([^/]+)$/.exec(path);
+  return (
+    topLevel !== null &&
+    !CONTROLLER_TREE_PATHS.topLevelExclusions.includes(topLevel[1]) &&
+    CONTROLLER_TREE_PATHS.topLevelSuffixes.some((suffix) => topLevel[1].endsWith(suffix))
+  );
+}
+
+export function controllerTreeFootprintPaths(footprint) {
+  const withoutCallers = footprint.replace(/\bCallers?\s*:[^\n]*/gi, "");
+  const tokens = withoutCallers.split(/[\s,;()]+/).map((token) => token.replace(/^[`'"]+|[`'".:]+$/g, ""));
+  return [...new Set(tokens.filter((token) => token !== "" && isControllerTreePath(token)))].sort();
+}
+
 const API_ORIGIN = "https://api.github.com";
 const API_VERSION = "2022-11-28";
 const BOT_LOGIN = "github-actions[bot]";
 const MAX_PAGES = 100;
 const MAX_ITEMS = 10_000;
 const MAX_DEPENDENCIES = 200;
+const COMMENT_CONVERGENCE_MAX_READS = 11;
+const COMMENT_CONVERGENCE_INTERVAL_MS = 1_000;
+const COMMENT_CONVERGENCE_BOUND_MS = 10_000;
 const NO_RESPONSE = "_no response_";
 const NON_RUNNABLE_LABELS = new Set(
   canonicalLabelNames("status").filter((label) => /status:(?:needs-replan|tracking-only)$/.test(label)),
@@ -374,7 +426,7 @@ function projectDependency(raw) {
   };
 }
 
-function projectComment(raw) {
+export function projectComment(raw) {
   if (
     !raw ||
     !nonNegativeInteger(raw.id) ||
@@ -472,7 +524,7 @@ export async function collectIssueAuthority({ repository, number, token, client 
     coverage.issue.initialRead = true;
     graph = await readGraphAuthority({ repository, number, token, client });
     assertInitialIdentity(issue, graph);
-    if (issue.commentsTotal !== graph.commentsTotal || issue.dependenciesTotal !== graph.dependenciesTotal) {
+    if (issue.dependenciesTotal !== graph.dependenciesTotal) {
       fail("INDEPENDENT_TOTAL_MISMATCH");
     }
   } catch (error) {
@@ -539,6 +591,7 @@ export async function collectIssueAuthority({ repository, number, token, client 
   try {
     const finalIssue = await readIssue({ repository, number, token, client });
     coverage.issue.finalRead = true;
+    const finalGraph = await readGraphAuthority({ repository, number, token, client });
     coverage.issue.revisionStable =
       finalIssue.nodeId === issue.nodeId &&
       finalIssue.updatedAt === issue.updatedAt &&
@@ -552,9 +605,18 @@ export async function collectIssueAuthority({ repository, number, token, client 
       finalIssue.milestone?.title === issue.milestone?.title &&
       finalIssue.milestone?.description === issue.milestone?.description &&
       finalIssue.milestone?.state === issue.milestone?.state &&
-      finalIssue.commentsTotal === issue.commentsTotal &&
       finalIssue.dependenciesTotal === issue.dependenciesTotal &&
-      finalIssue.openDependenciesTotal === issue.openDependenciesTotal;
+      finalIssue.openDependenciesTotal === issue.openDependenciesTotal &&
+      finalGraph.nodeId === graph.nodeId &&
+      finalGraph.number === graph.number &&
+      finalGraph.state === graph.state &&
+      finalGraph.updatedAt === graph.updatedAt &&
+      finalGraph.issueType?.nodeId === graph.issueType?.nodeId &&
+      finalGraph.issueType?.name === graph.issueType?.name &&
+      finalGraph.issueType?.isEnabled === graph.issueType?.isEnabled &&
+      finalGraph.labelsTotal === graph.labelsTotal &&
+      finalGraph.dependenciesTotal === graph.dependenciesTotal &&
+      finalGraph.commentsTotal === graph.commentsTotal;
     if (!coverage.issue.revisionStable) reasonCodes.push("ISSUE_REVISION_MOVED");
   } catch (error) {
     reasonCodes.push(error instanceof IssueReadinessBoundaryError ? error.code : "INTERNAL_FAILURE");
@@ -953,6 +1015,12 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     );
   const footprint = fields["Footprint & chain"];
   const operatorActions = fields["Operator actions"];
+  const footprintDeclared =
+    evidencePointers(footprint).size > 0 &&
+    /\bCallers?\s*:\s*\S+/i.test(footprint) &&
+    operatorActions.length > 0 &&
+    (exactNone(operatorActions) || operatorActions.length >= 8);
+  const controllerFootprintPaths = controllerTreeFootprintPaths(footprint);
   const decisions = fields["Decisions already made"];
   const decisionsUnresolved = /\b(?:TBD|unresolved|undecided|decision needed|open question)\b/i.test(decisions);
   const decisionsComplete =
@@ -986,11 +1054,11 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     rule("ready-04-runnable-verification", verificationCommands.length > 0, ["VERIFICATION_COMMAND_NOT_RUNNABLE"]),
     rule(
       "ready-05-footprint-operators",
-      evidencePointers(footprint).size > 0 &&
-        /\bCallers?\s*:\s*\S+/i.test(footprint) &&
-        operatorActions.length > 0 &&
-        (exactNone(operatorActions) || operatorActions.length >= 8),
-      ["FOOTPRINT_OR_OPERATOR_DECLARATION_MISSING"],
+      footprintDeclared && controllerFootprintPaths.length === 0,
+      [
+        ...(footprintDeclared ? [] : ["FOOTPRINT_OR_OPERATOR_DECLARATION_MISSING"]),
+        ...(controllerFootprintPaths.length === 0 ? [] : ["FOOTPRINT_IN_CONTROLLER_REPOSITORY"]),
+      ].sort(),
     ),
     rule("ready-06-decisions-resolved", decisionsComplete, [
       decisionsUnresolved ? "UNRESOLVED_DECISION_DECLARED" : "DECISION_RESOLUTION_UNPROVEN",
@@ -1336,7 +1404,7 @@ export function validateIssueReadinessReceipt(receipt) {
   return [...new Set(errors)];
 }
 
-function extractReceipt(commentBody) {
+export function extractReceipt(commentBody) {
   if (typeof commentBody !== "string") return null;
   const start = commentBody.indexOf(RECEIPT_START_MARKER);
   const end = commentBody.indexOf(RECEIPT_END_MARKER);
@@ -1395,7 +1463,7 @@ export function renderIssueReadinessComment(receipt, previousVerifiedReceipt = n
   ].join("\n");
 }
 
-function stableBotComments(comments) {
+export function stableBotComments(comments) {
   return comments.filter(
     (comment) =>
       comment.author.login === BOT_LOGIN && comment.author.type === "Bot" && comment.body.includes(COMMENT_MARKER),
@@ -1426,8 +1494,12 @@ async function mutateComment({ repository, number, token, client, method, path, 
     headers: { ...responseHeaders(token), "content-type": "application/json" },
     body: JSON.stringify({ body }),
   });
-  await readJson(response, "COMMENT_WRITE_FAILED");
-  return method === "POST" ? "created" : "updated";
+  const written = projectComment(await readJson(response, "COMMENT_WRITE_FAILED"));
+  return { commentAction: method === "POST" ? "created" : "updated", targetUpdatedAt: written.updatedAt };
+}
+
+function withoutWrite(commentAction) {
+  return { commentAction, targetUpdatedAt: null };
 }
 
 export async function upsertIssueReadinessComment({
@@ -1439,13 +1511,13 @@ export async function upsertIssueReadinessComment({
   comments,
   commentsComplete,
 }) {
-  if (!commentsComplete) return "skipped-comment-authority-unknown";
+  if (!commentsComplete) return withoutWrite("skipped-comment-authority-unknown");
   const stable = stableBotComments(comments);
-  if (stable.length > 1) return "skipped-duplicate-stable-comments";
+  if (stable.length > 1) return withoutWrite("skipped-duplicate-stable-comments");
   const existing = stable[0] ?? null;
   const previousVerifiedReceipt = existing ? extractReceipt(existing.body) : null;
   if (receipt.status === "unknown" && existing && previousVerifiedReceipt === null) {
-    return "skipped-last-verified-unreadable";
+    return withoutWrite("skipped-last-verified-unreadable");
   }
   if (
     existing &&
@@ -1454,10 +1526,10 @@ export async function upsertIssueReadinessComment({
     existing.updatedAt === receipt.subject.updatedAt &&
     sameStructuralClaim(previousVerifiedReceipt, receipt)
   ) {
-    return "unchanged";
+    return withoutWrite("unchanged");
   }
   const body = renderIssueReadinessComment(receipt, previousVerifiedReceipt);
-  if (existing?.body === body) return "unchanged";
+  if (existing?.body === body) return withoutWrite("unchanged");
   if (existing) {
     return mutateComment({
       repository,
@@ -1480,7 +1552,95 @@ export async function upsertIssueReadinessComment({
   });
 }
 
-function sameMilestoneRevision(receiptMilestone, currentMilestone) {
+// Issue timestamps are whole seconds and later legitimate movement can pass the
+// write instant, so a revision includes the write when it is at or after it.
+function revisionIncludesWrite(updatedAt, targetUpdatedAt) {
+  return Date.parse(updatedAt) >= Date.parse(targetUpdatedAt);
+}
+
+// GitHub does not guarantee read-your-own-write for issue updated_at. Wait for
+// the issue revision to reach the write's own updated_at with at most 11 reads,
+// one second apart, within ten seconds; any read failure ends the wait at once.
+async function awaitCommentRevision({ repository, number, token, client, targetUpdatedAt, sleep, monotonicNow }) {
+  const startedAt = monotonicNow();
+  for (let read = 1; read <= COMMENT_CONVERGENCE_MAX_READS; read += 1) {
+    if (read > 1) {
+      await sleep(COMMENT_CONVERGENCE_INTERVAL_MS);
+      if (monotonicNow() - startedAt > COMMENT_CONVERGENCE_BOUND_MS) break;
+    }
+    const issue = await readIssue({ repository, number, token, client });
+    if (revisionIncludesWrite(issue.updatedAt, targetUpdatedAt)) return;
+  }
+  fail("COMMENT_REVISION_NOT_CONVERGED");
+}
+
+function withheldAuthority(authority, reasonCode) {
+  return {
+    ...authority,
+    complete: false,
+    coverage: { ...authority.coverage, authorityComplete: false },
+    reasonCodes: [...new Set([...authority.reasonCodes, reasonCode])].sort(),
+  };
+}
+
+// The comment is history; the workflow artifact is the dispatch authority. A
+// create or update moves the issue revision, so the artifact may bind only a
+// complete re-collection at a revision that includes that write. Otherwise the
+// rebound authority is withheld, which makes the artifact unknown.
+async function publishIssueReadinessComment({
+  repository,
+  number,
+  token,
+  client,
+  authority,
+  receipt,
+  sleep,
+  monotonicNow,
+}) {
+  let publication;
+  try {
+    publication = await upsertIssueReadinessComment({
+      repository,
+      number,
+      token,
+      client,
+      receipt,
+      comments: authority.comments,
+      commentsComplete: authority.coverage.comments.complete,
+    });
+  } catch (error) {
+    return {
+      commentAction: "write-unconfirmed",
+      reboundAuthority: withheldAuthority(
+        authority,
+        error instanceof IssueReadinessBoundaryError ? error.code : "INTERNAL_FAILURE",
+      ),
+    };
+  }
+  const { commentAction, targetUpdatedAt } = publication;
+  if (targetUpdatedAt === null) return { commentAction, reboundAuthority: null };
+  try {
+    await awaitCommentRevision({ repository, number, token, client, targetUpdatedAt, sleep, monotonicNow });
+  } catch (error) {
+    return {
+      commentAction,
+      reboundAuthority: withheldAuthority(
+        authority,
+        error instanceof IssueReadinessBoundaryError ? error.code : "INTERNAL_FAILURE",
+      ),
+    };
+  }
+  const rebound = await collectIssueAuthority({ repository, number, token, client });
+  return {
+    commentAction,
+    reboundAuthority:
+      rebound.issue && !revisionIncludesWrite(rebound.issue.updatedAt, targetUpdatedAt)
+        ? withheldAuthority(rebound, "COMMENT_REVISION_NOT_CONVERGED")
+        : rebound,
+  };
+}
+
+export function sameMilestoneRevision(receiptMilestone, currentMilestone) {
   if (receiptMilestone === null || currentMilestone === null) return receiptMilestone === currentMilestone;
   return (
     currentMilestone !== undefined &&
@@ -1583,6 +1743,8 @@ export async function main({
   client = globalThis.fetch,
   logger = console,
   now = () => new Date(),
+  sleep = (milliseconds) => delay(milliseconds),
+  monotonicNow = () => performance.now(),
   argv = process.argv.slice(2),
   readTextFile = (file) => readFile(file, "utf8"),
 } = {}) {
@@ -1646,26 +1808,22 @@ export async function main({
   });
   let commentAction = "disabled";
   if (env.ISSUE_READINESS_PUBLISH === "true") {
-    commentAction = await upsertIssueReadinessComment({
+    const publication = await publishIssueReadinessComment({
       repository,
       number,
       token: env.GITHUB_TOKEN,
       client,
+      authority,
       receipt,
-      comments: authority.comments,
-      commentsComplete: authority.coverage.comments.complete,
+      sleep,
+      monotonicNow,
     });
+    commentAction = publication.commentAction;
     // Creating or updating the stable comment changes the issue's provider
-    // revision. Re-collect after that known mutation and publish the rebound
-    // read-only receipt as the workflow artifact; otherwise every successful
-    // comment write would make its own artifact stale immediately.
-    if (commentAction === "created" || commentAction === "updated") {
-      authority = await collectIssueAuthority({
-        repository,
-        number,
-        token: env.GITHUB_TOKEN,
-        client,
-      });
+    // revision; publish the rebound read-only receipt as the workflow artifact
+    // so a successful comment write never makes its own artifact stale.
+    if (publication.reboundAuthority) {
+      authority = publication.reboundAuthority;
       authority.repository = repository;
       authority.number = number;
       receipt = evaluateStructuralReadiness(authority, {

@@ -17,6 +17,9 @@ export const DERIVED_STATUSES = Object.freeze(["Backlog", "Refined", "Blocked", 
 export const TERMINAL_STATUSES = Object.freeze(["Landed", "Canceled"]);
 export const NON_EXECUTABLE_MILESTONES = Object.freeze(["Deferred / Incubation", "Operations"]);
 export const REQUIRED_STATUS_OPTIONS = Object.freeze([...DERIVED_STATUSES, ...TERMINAL_STATUSES]);
+// The board also carries controller-repository issues. Outcome order ranks only
+// this repository's committed outcomes; next-work.mjs scopes the same one.
+export const PRODUCT_REPOSITORY = "chase-sets/chase-sets";
 
 export class ProjectStatusSyncConfigurationError extends Error {
   constructor(variable, detail) {
@@ -130,10 +133,8 @@ function normalizedStateReason(issue) {
 }
 
 // Total over every open issue: closed terminal -> Epic -> Tracking -> Blocked ->
-// Refined/Backlog. The form of the work outranks its continuity marker, so a
-// pathological untyped legacy epic also carrying `status:tracking-only` is an
-// `Epic`. Native type outranks the legacy `kind:epic` label inside
-// backlog-classify.mjs, which owns that decision.
+// Refined/Backlog. The native issue type is the sole authority for Epic; the
+// form of the work outranks its continuity marker.
 export function deriveStatus(issue) {
   const input = toBacklogInput(issue);
   if (input.state === "closed") {
@@ -184,13 +185,29 @@ export function planDateUpdates(items) {
   return updates;
 }
 
+// A missing identity is a collection defect, never a foreign row: defaulting it
+// to foreign would silently clear a product rank.
+function issueRepository(issue) {
+  if (typeof issue.repository !== "string" || issue.repository.trim() === "") {
+    throw new ProjectStatusSyncIssueError(issue.number, "repository identity is absent or invalid");
+  }
+  return issue.repository;
+}
+
+function issueReference({ number, repository }) {
+  return repository === PRODUCT_REPOSITORY ? `#${number}` : `${repository}#${number}`;
+}
+
 // Project order projects the same cross-track outcome order next-work ranks
-// by. It is never a second editable priority authority.
+// by. It is never a second editable priority authority. Milestone numbers are
+// per repository, and controller outcomes are committed independently, so
+// foreign rows are excluded before ranking and their stale ranks are cleared.
 export function planOutcomeOrderUpdates(items) {
+  const isProduct = (issue) => issueRepository(issue) === PRODUCT_REPOSITORY;
   const milestones = new Map();
   for (const { issue } of items) {
     const milestone = issue.milestone;
-    if (!milestone) continue;
+    if (!isProduct(issue) || !milestone) continue;
     const prior = milestones.get(milestone.number);
     if (prior && JSON.stringify(prior) !== JSON.stringify(milestone)) {
       throw new ProjectStatusSyncIssueError(issue.number, "milestone description changed during collection");
@@ -202,7 +219,7 @@ export function planOutcomeOrderUpdates(items) {
   return items.flatMap((item) => {
     const input = toBacklogInput(item.issue);
     const next =
-      input.state === "open" && !classifiedEpic(input) && !isTrackingOnly(input)
+      isProduct(item.issue) && input.state === "open" && !classifiedEpic(input) && !isTrackingOnly(input)
         ? (ranks.get(item.issue.milestone?.number) ?? null)
         : null;
     const previous = item.outcomeOrder ?? null;
@@ -213,6 +230,7 @@ export function planOutcomeOrderUpdates(items) {
             type: next === null ? "clear" : "set",
             itemId: item.itemId,
             number: item.issue.number,
+            repository: item.issue.repository,
             from: previous,
             to: next,
           },
@@ -287,6 +305,7 @@ query($project:ID!, $after:String) {
             ... on Issue {
               id
               number
+              repository { nameWithOwner }
               state
               stateReason
               issueType { name }
@@ -443,6 +462,10 @@ async function collectLabels(node, { request, token }) {
 
 export function projectItemFromNode(node, completeLabels) {
   if (!node.content?.number) return null;
+  const repository = issueRepository({
+    number: node.content.number,
+    repository: node.content.repository?.nameWithOwner,
+  });
   const labels =
     completeLabels ??
     node.content.labels?.nodes?.map((label) => {
@@ -455,6 +478,7 @@ export function projectItemFromNode(node, completeLabels) {
     outcomeOrder: node.outcomeOrder?.number ?? null,
     issue: {
       number: node.content.number,
+      repository,
       state: typeof node.content.state === "string" ? node.content.state.toLowerCase() : node.content.state,
       stateReason:
         typeof node.content.stateReason === "string"
@@ -548,7 +572,9 @@ export async function main({ env = process.env, request = graphql, logger = cons
         token,
       );
     }
-    logger.log(`  outcome-order:${update.type} #${update.number}: ${display(update.from)} -> ${display(update.to)}`);
+    logger.log(
+      `  outcome-order:${update.type} ${issueReference(update)}: ${display(update.from)} -> ${display(update.to)}`,
+    );
   }
   return { totalCount, issueCount: items.length, statusUpdates, dateUpdates, outcomeOrderUpdates, dryRun };
 }

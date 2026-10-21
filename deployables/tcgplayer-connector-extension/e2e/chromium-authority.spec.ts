@@ -37,6 +37,7 @@ test.beforeAll(async () => {
     root: packageRoot,
     configFile: resolve(packageRoot, "vite.config.ts"),
     configLoader: "runner",
+    mode: "connector-local",
     logLevel: "warn",
   });
   firstBuild = snapshot();
@@ -44,6 +45,7 @@ test.beforeAll(async () => {
     root: packageRoot,
     configFile: resolve(packageRoot, "vite.config.ts"),
     configLoader: "runner",
+    mode: "connector-local",
     logLevel: "warn",
   });
   expect(snapshot()).toEqual(firstBuild);

@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
+import { pricingGoalDefinitions, resolvePricingGoal } from "../../repricing-policies/domain/domain";
 import { fixedPercentileGoal } from "../../repricing-policies/domain/goals/fixed-percentile";
 import { profitPerDayGoal } from "../../repricing-policies/domain/goals/profit-per-day";
 import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
@@ -31,6 +33,22 @@ const goals = [
   { goalId: "target-horizon", parameters: { horizonDays: 30 }, economics: null },
   { goalId: "profit-per-day", parameters: {}, economics: { dailyReturnHurdle: 0.01, feeTerms: "typical" } },
 ] as const;
+
+/** Portfolio goals decide a lone listing as a one-listing portfolio at its current price. */
+const portfolioGoals = [
+  { goalId: "hold-value", parameters: {} },
+  { goalId: "cash-target", parameters: { amount: 100, days: 30 } },
+] as const;
+
+/** The pinned app's one-listing value-matched plan on the parity curve at 10.00: an expectation independent of the engine. */
+const recordedOneListingHold = (
+  JSON.parse(
+    readFileSync(
+      new URL("../../repricing-policies/tests/fixtures/app-recorded-portfolio-oracle.json", import.meta.url),
+      "utf8",
+    ),
+  ) as { scenarios: { "one-listing": { decisions: Readonly<Record<string, number>> } } }
+).scenarios["one-listing"].decisions.lst_portfolio_01!.toFixed(2);
 
 const economicsFor = (recorded: (typeof goals)[number]["economics"]) =>
   recorded === null ? null : resolvedGoalEconomics(typicalFeeTerms, recorded.dailyReturnHurdle);
@@ -223,8 +241,47 @@ describe("curve-objective anchor evaluation", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("covers every registered Pricing Goal", () => {
-    expect(goals.map(({ goalId }) => goalId).sort()).toEqual(pricingGoalDefinitions().map(({ id }) => id));
+    expect([...goals, ...portfolioGoals].map(({ goalId }) => goalId).sort()).toEqual(
+      pricingGoalDefinitions().map(({ id }) => id),
+    );
   });
+
+  it("holds a lone listing's value under hold-value at the app's one-listing plan price", () => {
+    expect(
+      evaluateRepricingListing(
+        goalListing(goalDirective({ anchorChain: [goalAnchor("hold-value", {})] })),
+        goalSnapshot(),
+      ),
+    ).toMatchObject({
+      currentPriceAmount: "10.00",
+      targetPriceAmount: recordedOneListingHold,
+      anchor: { source: "curve-objective", amount: recordedOneListingHold, goal: { goalId: "hold-value" } },
+      action: "hold",
+      skipReason: "within-tolerance",
+    });
+  });
+
+  it.each(portfolioGoals)(
+    "anchors a lone listing under $goalId at its one-listing plan, never a portfolio's",
+    ({ goalId, parameters }) => {
+      const goal = resolvePricingGoal(goalId, 1)!;
+      const [sole] = goal.solvePortfolio!({
+        currencyCode: "USD",
+        listings: [{ listingId: "lst_goal", currentPriceAmount: normalizeMoneyAmount("10.00"), curve: parityCurve }],
+        parameters,
+      }).listings;
+      const result = evaluateRepricingListing(
+        goalListing(goalDirective({ anchorChain: [goalAnchor(goalId, parameters)] })),
+        goalSnapshot(),
+      );
+      expect(result.anchor).toMatchObject({
+        source: "curve-objective",
+        amount: sole!.decision!.unconstrainedPriceAmount,
+        goal: { goalId, goalVersion: 1, curveVersion: 1 },
+      });
+      expect(result).not.toHaveProperty("portfolioPlanId");
+    },
+  );
 
   it.each(goals)(
     "prices $goalId on the parity curve and traces goal, version, curve version and forecast",

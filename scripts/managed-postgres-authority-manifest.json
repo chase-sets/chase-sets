@@ -150,6 +150,48 @@
     },
     {
       "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-cache-capture",
+      "stepAnchor": "name:Capture Scrydex option cache without refresh#4",
+      "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-cache-capture",
+      "stepAnchor": "name:Capture Scrydex option cache without refresh#4",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-cache-capture",
+      "stepAnchor": "name:Capture Scrydex option cache without refresh#4",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-cache-capture",
+      "stepAnchor": "name:Validate exact runner-sealed capture#5",
+      "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-cache-capture",
+      "stepAnchor": "name:Validate exact runner-sealed capture#5",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scrydex-cache-capture",
+      "stepAnchor": "name:Validate exact runner-sealed capture#5",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
       "jobId": "staging-provider-uat",
       "stepAnchor": "job",
       "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
@@ -186,6 +228,83 @@
     {
       "file": ".github/workflows/checkout-order-readiness-trace.yml",
       "jobId": "staging-order-readiness-trace",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/collections-anonymous-owner-redaction.yml",
+      "jobId": "cutover",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/collections-anonymous-owner-redaction.yml",
+      "jobId": "cutover",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/collections-anonymous-owner-redaction.yml",
+      "jobId": "cutover",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Capture Collections cutover authority#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Capture Collections cutover authority#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure Kubernetes context#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure Kubernetes context#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure Kubernetes context#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/collections-cutover-authority-capture.yml",
+      "jobId": "capture",
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "managed-postgres-boundary"
@@ -4685,6 +4804,76 @@
       "purpose": "digitalocean-ops"
     },
     {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "name:Configure staging Kubernetes context (read-only)#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "name:Configure staging Kubernetes context (read-only)#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "name:Configure staging Kubernetes context (read-only)#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-preview-pool-census.yml",
+      "jobId": "census",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
       "file": ".github/workflows/platform-preview-wildcard-tls.yml",
       "jobId": "restore-preview-wildcard-tls",
       "stepAnchor": "name:Configure staging Kubernetes context#5",
@@ -5450,21 +5639,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Classify production deployment failure#59",
+      "stepAnchor": "name:Classify production deployment failure#61",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Classify production deployment failure#59",
+      "stepAnchor": "name:Classify production deployment failure#61",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Classify production deployment failure#59",
+      "stepAnchor": "name:Classify production deployment failure#61",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -5968,63 +6157,63 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve CI retry metadata#58",
+      "stepAnchor": "name:Resolve CI retry metadata#60",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve CI retry metadata#58",
+      "stepAnchor": "name:Resolve CI retry metadata#60",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve CI retry metadata#58",
+      "stepAnchor": "name:Resolve CI retry metadata#60",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve release health metadata#57",
+      "stepAnchor": "name:Resolve release health metadata#59",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve release health metadata#57",
+      "stepAnchor": "name:Resolve release health metadata#59",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve release health metadata#57",
+      "stepAnchor": "name:Resolve release health metadata#59",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve terminal release state#56",
+      "stepAnchor": "name:Resolve terminal release state#58",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve terminal release state#56",
+      "stepAnchor": "name:Resolve terminal release state#58",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Resolve terminal release state#56",
+      "stepAnchor": "name:Resolve terminal release state#58",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -6437,21 +6626,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write release health summary#60",
+      "stepAnchor": "name:Write release health summary#62",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write release health summary#60",
+      "stepAnchor": "name:Write release health summary#62",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "name:Write release health summary#60",
+      "stepAnchor": "name:Write release health summary#62",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -6689,21 +6878,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#6",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#7",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#6",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#7",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
-      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#6",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#7",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -7165,21 +7354,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Classify staging deployment failure#54",
+      "stepAnchor": "name:Classify staging deployment failure#56",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Classify staging deployment failure#54",
+      "stepAnchor": "name:Classify staging deployment failure#56",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Classify staging deployment failure#54",
+      "stepAnchor": "name:Classify staging deployment failure#56",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -7431,21 +7620,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Mark staging applied#56",
+      "stepAnchor": "name:Mark staging applied#58",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Mark staging applied#56",
+      "stepAnchor": "name:Mark staging applied#58",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Mark staging applied#56",
+      "stepAnchor": "name:Mark staging applied#58",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -7494,21 +7683,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Record staging completion#57",
+      "stepAnchor": "name:Record staging completion#59",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Record staging completion#57",
+      "stepAnchor": "name:Record staging completion#59",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "name:Record staging completion#57",
+      "stepAnchor": "name:Record staging completion#59",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -8376,21 +8565,21 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#8",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#9",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#8",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#9",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
-      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#8",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#9",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -9399,6 +9588,125 @@
       "file": ".github/workflows/platform-staging-cluster-addons.yml",
       "jobId": "apply-staging-cluster-addons",
       "stepAnchor": "name:Scan evidence for the DigitalOcean token#13",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window-cleanup.yml",
+      "jobId": "evidence-window-cleanup",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "name:Attest the Stripe test account, fixtures and webhook delivery#10",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "name:Configure staging Kubernetes context#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "name:Configure staging Kubernetes context#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "name:Configure staging Kubernetes context#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "name:Install admission, restart runtimes, create the journal login and arm the observer#9",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "name:Recapture the binding and open one window#11",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-staging-evidence-window.yml",
+      "jobId": "staging-evidence-window",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },

@@ -1,0 +1,167 @@
+[
+  {
+    "id": "exception-b6d2c519720f281d",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_operator_pages",
+      "digest": "8bcb682f2bb9188c677a8f86b534b7887c3049ec0fbb6e7734bb95f9739c7fb2"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:53 directly synchronizes fulfillment_return_shipment_operator_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-66889d33ebf5c429",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_customer_pages",
+      "digest": "25c56cc12b53b0bcad47e96f1f3e623057c82eebde1d0df5e3bedfccf546ce0d"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:64 directly synchronizes fulfillment_return_shipment_customer_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ed4ad5cde0eda8a9",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_operator_pages",
+      "digest": "c1e6c1c573f8dbcc05a8d5c4dd3efa1a34bc32ef7fa821217d813db3fec89282"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:168 directly synchronizes fulfillment_return_shipment_operator_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-32d1cd0b7c662174",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_customer_pages",
+      "digest": "e3e286fe04f33e7bb7dd68768da61fd1d6c626e4a0455d2da64de83e91a0f2c2"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:194 directly synchronizes fulfillment_return_shipment_customer_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-897ab038bb989332",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_operator_pages",
+      "digest": "68c15b77ef177b1ecc61c406890ecce0670af8a63e150f517339cccde95d2145"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:204 directly synchronizes fulfillment_return_shipment_operator_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-43a6e031eb742c8c",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_customer_pages",
+      "digest": "517e395c28d7ca686de94c2ad529caccd205b63d69a0b0bc1f4d9a12a49612c1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:211 directly synchronizes fulfillment_return_shipment_customer_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-2454608fe6995389",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_operator_pages",
+      "digest": "dac4d7e9cd50609f998ca224bf60554493d7557caf1f8e0c2697b65056be25fc"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:220 directly synchronizes fulfillment_return_shipment_operator_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-6b342f2b2a948d75",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_customer_pages",
+      "digest": "ef54c3c398836cf97b372ccef2ed219440a51a2b0fd943ee99e4a77e82cb9ac7"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:227 directly synchronizes fulfillment_return_shipment_customer_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-898d6a226a6f3d47",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_operator_pages",
+      "digest": "33a5de5cc2c5f09a8b6b4bb95dac2701c90cc80929e12433ffa929655afd69e1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:262 directly synchronizes fulfillment_return_shipment_operator_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-265db0c64cc08f92",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_customer_pages",
+      "digest": "33b2b65f4cdeee1637f12b5b10eae11c075d5538e7024dd079a1242efdd3b418"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:276 directly synchronizes fulfillment_return_shipment_customer_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0a0a386941cc5e66",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_operator_pages",
+      "digest": "2bffbae77acbdf61dc5d84fae265b9de7617a7fc2218dc02cec32980b1a524ae"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:285 directly synchronizes fulfillment_return_shipment_operator_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-234fd0842964848d",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_operator_pages",
+      "digest": "8d1e25873fdce05f3857f1637d4efc8a0155205de94c13335dcee55349e0f413"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:314 directly synchronizes fulfillment_return_shipment_operator_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9d522cc1d8126e02",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_operator_pages",
+      "digest": "2d193d7c1832049bf6ac5e7d61b0492d436b75609ecad8136d092de4308981dc"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:346 directly synchronizes fulfillment_return_shipment_operator_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-a598d13b273aec41",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_return_shipment_customer_pages",
+      "digest": "22dc0e194ae9f123e359094dec75334cbef37d8cc97ccd209c54e173b9ababc1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:359 directly synchronizes fulfillment_return_shipment_customer_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-d46903e56e928333",
+    "binding": {
+      "module": "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "fulfillment_unidentified_return_package_pages",
+      "digest": "33cdd804615bfcd9eb7fb9746a4520e741ea5bc70db7d59a8de6f35295f2d1ee"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts:407 directly synchronizes fulfillment_unidentified_return_package_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

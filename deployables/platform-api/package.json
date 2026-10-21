@@ -66,14 +66,14 @@
     "@chase-sets/stripe-config": "workspace:*",
     "@chase-sets/stripe-payments": "workspace:*",
     "@chase-sets/typescript-compiler-api": "workspace:*",
-    "@hono/node-server": "^1.19.13",
-    "hono": "^4.12.12",
+    "@hono/node-server": "^1.19.17",
+    "hono": "^4.13.13",
     "pg": "^8.20.0",
     "redis": "^5.12.1",
     "tsx": "^4.21.0"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/pg": "^8.20.0",
     "vitest": "^4.1.4"
   }

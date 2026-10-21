@@ -64,6 +64,49 @@ After a recovered retry, `verify-deployment-transition --deploy-attempts` checks
 
 If both attempts fail with this transient, or the transient retry was refused, the incident is classified `doks-admission-webhook-unreachable`. The classifier reads the last attempt's recorded code, not its line, because the 500-character line can end before `No agent available`. A retry that fails with any other error, or that succeeds, does not get this classification. The workflow rollback restores the captured source as for any production failure. Confirm that the cert-manager webhook answers the same server dry-run from the production context, then rerun the failed Platform Deploy run. Never raise the timeout or bypass `--atomic` to get past this failure.
 
+### Agent Grant Revocation Activation (#10235)
+
+Agent Grant revocation support ships dormant. The Platform Deploy input `agent_grant_revocation_activation` selects which deploy job activates it:
+
+- `none` (default): both jobs deploy normally.
+- `staging`: staging activates after its release passes every staging gate. Production then deploys normally, or fails at its release lock.
+- `production`: production activates after the production marker and promoted handoff. Staging only prepares.
+
+Activation needs a deploy. When the target commit is already serving, dispatch with `force_deploy=true` and `emergency_release=false`. Never use `emergency_release` for an activation. `resolve-release` refuses with `revocation_activation_not_deployed` when the deploy scope is empty. An automatic release that would be coalesced refuses with the same code.
+
+Every staging and production deploy runs `agent-grant-revocation-release.mjs prepare` before its Helm upgrade. While the environment is dormant, `prepare` changes nothing except to remove a fence left by an unfinished activation. After activation it appends the new image digest to the admission floor, and it refuses any release that does not descend from the floor's minimum commit. Production also runs `check-rollback` before the admission retry, the Argo abort and the workflow rollback. Staging has no captured rollback commit. Its Argo abort and Helm `--atomic` rollback therefore rely on the admission floor alone, and the floor admits only its listed digests. The operator rollback workflows also skip `check-rollback`: the staging rollback drill, staging Helm recovery and production stale-Helm recovery. After activation, give them a target revision that was deployed after activation, because the floor denies the pods of an older one.
+
+The activation step runs `activate` twice at the same commit and digest:
+
+1. The first call freezes admission, captures every serving API and worker pod, and appends the activation once.
+2. The second call is an in-run replay. It writes `{"replay": true}` and reinstalls the unfrozen floor, and it appends no event.
+
+A refusal prints one `revocation_*` code and fails the run. It never aborts or rolls back the healthy release. The incident is classified `agent-grant-revocation-activation-refused`. A real deploy failure before activation keeps the floor-checked abort and rollback.
+
+Each `prepare` and `activate` writes a post-command status record. The deploy job uploads the records as the `agent-grant-revocation-status-<environment>` artifact. When activation ran, the artifact also holds `activation.json` and `replay.json`. Each record contains:
+
+- the refusal code, if any;
+- the floor's minimum commit, its image digests and its frozen flag;
+- Identity's state, the activation event's identity and version, and the nonterminal count and oldest age;
+- a summary of the last 5 minutes of API and worker logs, read with `kubectl logs --since=5m --tail=200` for each pod. The summary keeps line counts, truncation, error counts, and the first and last `auth.agent-grant-revocation-recovery` cycle. It never keeps raw log lines.
+
+Identity reads its status in a read-only transaction and never calls `pending()`. The oldest age runs from the admission of the lowest-position nonterminal operation. When recovery has not adopted that operation yet, it runs from activation instead. A lease rewrite of `next_attempt_at` never resets it. Any section that cannot be read is recorded as `state: unknown` with a code. An unknown section, a truncated log, or an unobserved recovery cycle is never a pass.
+
+For the day-after check, read `prepare-status.json` from the first routine deploy at least 24 hours after activation. It passes only when all of these hold:
+
+- the nonterminal count is zero, or the oldest age is within one observed recovery cycle;
+- the log summary is complete;
+- the logs show no repeated recovery failures.
+
+Recovery:
+
+- **Refusal.** `revocation_membership_changed` means the serving set changed during capture. Dispatch again once, at a quiet moment. For any other code, report the code with the status artifact and do not retry until it is resolved.
+- **Frozen fence.** If an activation lost its reply after Identity committed, the fence stays frozen and denies every runtime pod change while Identity reports `activated`. The next deploy's `prepare`, or a replay at the same release, reinstalls the unfrozen floor. If Identity reports `dormant`, `prepare`, `check-rollback` or the failed activation itself removes the fence.
+- **Floor loss.** If the admission policy is deleted, `prepare` rebuilds it from Identity's activation proof, and `check-rollback` checks against the same rebuilt floor. The rebuilt floor keeps only the activation digest and the new digest, not intermediate digests (N18). An abort or rollback to an intermediate release can therefore be denied, so redeploy forward instead.
+- **Ancestry.** `git merge-base --is-ancestor <floor minimum commit> <commit>` exits nonzero for any commit older than the activation commit. That commit is not a compatible rollback target.
+
+The staging activation is the live rehearsal. Production activation is a separate host-run dispatch after the production release lock lifts. Passing tests are not evidence of a live activation.
+
 ## Managed Registry Pull Authority
 
 DigitalOcean's DOKS/DOCR integration is the sole owner of platform image-pull credentials. It owns the source Secret in `kube-system`, reconciles a namespace-local Secret named `chase-sets`, and adds that name to each namespace's default ServiceAccount. GitHub Actions and the platform chart select the stable name `chase-sets`; they never generate, refresh, or select a parallel Docker-config Secret. DigitalOcean owns credential refresh and distribution timing. If that contract stops reconciling, fail closed and escalate to DigitalOcean support instead of creating a fallback credential or extending a credential TTL.
@@ -94,6 +137,12 @@ kubectl --namespace chase-sets-platform get certificate,certificaterequest,chall
 ```
 
 Diagnostic `doks.*` DNS names may confirm load-balancer reachability, but they are not release gates and are not present in the platform Ingress certificate. Smoke the live apex, `www`, `admin`, and an approved marketplace host.
+
+### Preview-pool census (read-only)
+
+Dispatch `.github/workflows/platform-preview-pool-census.yml` in the `preview` environment. Use `snapshot` for one bounded inventory or `sample` for a lifecycle window; `sample` accepts 1-60 minutes and a 5-60 second interval (the default is 45 minutes at 10 seconds). The workflow writes a `preview-pool-census/v1` artifact containing preview-node allocatable CPU and memory, non-preview requests, preview namespace kind and creation time, each container's request/limit, node, phase, termination/eviction reason, sampled maximum working set, sample count and first/last seen, deduplicated scheduling/eviction events, autoscaler status, sizing arithmetic, thin-sample warnings and any read errors. The seven expected workload components are `public-web`, `marketplace`, `admin-web`, `platform-api`, `platform-worker`, `preview-postgres`, and `platform-bootstrap`.
+
+The census is strictly read-only: its script permits only `kubectl get` and kubelet `get --raw .../stats/summary`; it never writes pod specs, secrets, environment values or logs. A failed read produces `result: partial`, not a pass. A sampled peak is a lower bound and the artifact records the interval; containers observed fewer than three times are listed in `thinSamples`.
 
 ## Rollback
 
