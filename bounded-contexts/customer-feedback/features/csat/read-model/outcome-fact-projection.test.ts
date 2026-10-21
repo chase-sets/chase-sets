@@ -20,6 +20,7 @@ function event(type: string, data: Record<string, unknown>) {
 describe("CSAT outcome fact projection", () => {
   it("projects typed Auth source values and upserts on replay", async () => {
     const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
+    const calls = query.mock.calls as unknown as Array<[unknown, unknown]>;
     const handler = buildCsatOutcomeFactProjectionHandlers()["auth.session.started"]!;
     const source = event("auth.session.started", {
       sessionId: "ses_1",
@@ -32,7 +33,7 @@ describe("CSAT outcome fact projection", () => {
     await handler(source as never, { db: { query } });
     await handler(source as never, { db: { query } });
     expect(query).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls[0]?.[1]).toEqual([
+    expect(calls[0]?.[1]).toEqual([
       "auth:authentication:ses_1",
       "authentication.completed",
       "auth",
@@ -50,11 +51,12 @@ describe("CSAT outcome fact projection", () => {
 
   it("keeps legacy missing authentication method nullable", async () => {
     const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
+    const calls = query.mock.calls as unknown as Array<[unknown, unknown]>;
     const handler = buildCsatOutcomeFactProjectionHandlers()["identity.registration.completed"]!;
     await handler(event("identity.registration.completed", { accountId: "acc_1", userId: "usr_1" }) as never, {
       db: { query },
     });
-    const values = query.mock.calls[0]?.[1] as unknown[] | undefined;
+    const values = calls[0]?.[1] as unknown[] | undefined;
     expect(values?.[10]).toBeNull();
   });
 });
