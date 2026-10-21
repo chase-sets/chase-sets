@@ -6,6 +6,7 @@ import {
   EmptyState,
   HiddenInput,
   KeyValueList,
+  LinkButton,
   MetricStrip,
   SideSheet,
   TextInput,
@@ -188,8 +189,13 @@ function ResolutionCommandButton({
 }) {
   const label = t(resolution.labelKey);
   return (
-    <WorkbenchForm variant="button" method="post" action={actionHref} data-attention-resolution={resolution.intent}>
-      <HiddenInput name="_intent" value={resolution.intent} />
+    <WorkbenchForm
+      variant="button"
+      method="post"
+      action={actionHref}
+      data-attention-resolution={legacyResolutionDataAttribute(resolution.intent)}
+    >
+      <HiddenInput name="_intent" value={submittedResolutionIntent(resolution.intent)} />
       {Object.entries(resolution.fields).map(([name, value]) => (
         <HiddenInput key={name} name={name} value={value} />
       ))}
@@ -237,6 +243,16 @@ function AttentionItemDrawer({
     >
       <WorkbenchStack>
         <KeyValueList items={evidence} />
+
+        {item.resolution.href ? (
+          <LinkButton href={item.resolution.href} size="sm" tone="secondary" data-attention-destination="true">
+            {t("catalog.features.attentionQueue.action.openDestination")}
+          </LinkButton>
+        ) : (
+          <WorkbenchText size="sm" tone="secondary" data-attention-destination="unavailable">
+            {t("catalog.features.attentionQueue.resolution.unavailable")}
+          </WorkbenchText>
+        )}
 
         <WorkbenchForm variant="inline" method="post" action={actionHref} data-attention-park="dismiss">
           <HiddenInput name="_intent" value={CATALOG_ATTENTION_DISMISS_INTENT} />
@@ -320,4 +336,14 @@ function kindLabel(kind: CatalogAttentionItem["kind"]): string {
     case "stale-scope-sync":
       return t("catalog.features.attentionQueue.kind.staleScopeSync");
   }
+}
+
+function legacyResolutionDataAttribute(intent: string): string {
+  // Keep the existing DOM telemetry selector stable while the submitted
+  // command vocabulary moves to the entity-scoped alias ids.
+  return intent === "alias.accept" ? "accept" : intent === "alias.reject" ? "reject" : intent;
+}
+
+function submittedResolutionIntent(intent: string): string {
+  return intent === "accept" ? "alias.accept" : intent === "reject" ? "alias.reject" : intent;
 }

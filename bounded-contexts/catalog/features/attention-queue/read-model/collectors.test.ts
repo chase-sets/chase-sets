@@ -95,6 +95,16 @@ describe("collectMergeConflictItems", () => {
     expect(items[1]!.severity).toBe("warning");
     expect(items[1]!.observedAt).toBe("2026-07-03T00:00:00.000Z");
   });
+
+  it("carries the scope destination and marks a conflict without scope identity unavailable", () => {
+    const [mapped, unavailable] = collectMergeConflictItems([
+      mergeCandidate({ candidate_id: "mapped", scope_record_id: "scope-1" }),
+      mergeCandidate({ candidate_id: "missing" }),
+    ]);
+    expect(mapped!.resolution.href).toBe("/catalog/scopes/scope-1");
+    expect(unavailable!.resolution.unavailable).toBe(true);
+    expect(unavailable!.resolution.href).toBeUndefined();
+  });
 });
 
 function unitReadiness(
@@ -223,6 +233,12 @@ describe("collectAliasCandidateItems", () => {
     expect(items[0]!.resolution.intent).toBe("accept");
     expect(items[0]!.secondaryResolutions[0]!.intent).toBe("reject");
     expect(items[0]!.secondaryResolutions[0]!.requiresReason).toBe(true);
+  });
+
+  it("keeps alias metadata compatible while the mounted form submits entity-scoped ids", () => {
+    const item = collectAliasCandidateItems([aliasCandidate({ alias_hash: "h1" })])[0]!;
+    expect(item.resolution.intent).toBe("accept");
+    expect(item.secondaryResolutions[0]!.intent).toBe("reject");
   });
 });
 

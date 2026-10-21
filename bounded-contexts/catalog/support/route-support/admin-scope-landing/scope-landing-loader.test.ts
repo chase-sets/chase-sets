@@ -92,4 +92,40 @@ describe("Catalog scope-landing route loader", () => {
     expect(routeData.readModel.counts.total).toBe(0);
     expect(routeData.error).toBeTruthy();
   });
+
+  it("reads the queue and general aliases once without changing scope pagination", async () => {
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: [scopeRow()], total: 1, count: 1 });
+    const getCatalogAttentionQueueReadModel = vi.fn().mockResolvedValue({ malformed: true });
+    const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue({ malformed: true });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listCatalogScopeRecords,
+      getCatalogAttentionQueueReadModel,
+      getCatalogAliasReviewReadModel,
+    });
+
+    const routeData = await runLoader("https://admin.example/catalog/scopes?page=2");
+
+    expect(listCatalogScopeRecords).toHaveBeenCalledOnce();
+    expect(getCatalogAttentionQueueReadModel).toHaveBeenCalledOnce();
+    expect(getCatalogAliasReviewReadModel).toHaveBeenCalledOnce();
+    expect(routeData.readModel.rows).toHaveLength(1);
+    expect(routeData.attentionQueue.status).toBe("unavailable");
+    expect(routeData.generalAliasReview).toBeNull();
+    expect(routeData.generalAliasReviewFailed).toBe(true);
+  });
+
+  it("keeps scopes when the supplementary alias read fails", async () => {
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: [scopeRow()], total: 1, count: 1 });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listCatalogScopeRecords,
+      getCatalogAttentionQueueReadModel: vi.fn().mockResolvedValue({ malformed: true }),
+      getCatalogAliasReviewReadModel: vi.fn().mockRejectedValue(new CatalogApiError(503, { error: { code: "boom" } })),
+    });
+
+    const routeData = await runLoader("https://admin.example/catalog/scopes");
+
+    expect(routeData.readModel.rows).toHaveLength(1);
+    expect(routeData.generalAliasReview).toBeNull();
+    expect(routeData.generalAliasReviewFailed).toBe(true);
+  });
 });

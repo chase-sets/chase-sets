@@ -1,3 +1,4 @@
+import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { LoaderFunctionArgs } from "react-router";
 import {
@@ -9,6 +10,12 @@ import {
   buildCatalogScopeLandingReadModel,
   type CatalogScopeLandingReadModel,
 } from "../../../features/source-observations/ui/admin-control-plane/scope-landing/scope-landing-read-model";
+import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
+import type { CatalogDeferredAttentionQueueResult } from "../../../features/attention-queue/api/contracts";
+import {
+  CATALOG_ATTENTION_QUEUE_UNAVAILABLE,
+  resolveCatalogAttentionQueueResult,
+} from "../admin-integrations/attention-queue-result";
 import { readCatalogListQuery, type CatalogListQuery } from "../../shell-support/list-query-state";
 
 // Scope-first landing route loader (`/catalog/scopes`). Loads the canonical
@@ -25,6 +32,10 @@ export type CatalogScopeLandingRouteData = Readonly<{
   query: CatalogListQuery;
   productDomain: string;
   error: string | null;
+  canManage: boolean;
+  attentionQueue: CatalogDeferredAttentionQueueResult;
+  generalAliasReview: CatalogAliasReviewReadModel | null;
+  generalAliasReviewFailed: boolean;
 }>;
 
 export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogScopeLandingRouteData> {
@@ -33,7 +44,12 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
   const generatedAt = new Date().toISOString();
   const api = createCatalogRequestApiClient(request);
 
-  const result = await loadScopeRecords(api, query, productDomain);
+  const [result, attentionQueue, generalAliasReview, actor] = await Promise.all([
+    loadScopeRecords(api, query, productDomain),
+    loadAttentionQueue(api),
+    loadGeneralAliasReview(api),
+    resolveActor(request).catch(() => null),
+  ]);
 
   return {
     readModel: buildCatalogScopeLandingReadModel({
@@ -49,7 +65,54 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
     query,
     productDomain,
     error: result.error,
+    canManage: actor?.permissions.includes("catalog.manage") ?? false,
+    attentionQueue,
+    generalAliasReview: generalAliasReview.readModel,
+    generalAliasReviewFailed: generalAliasReview.failed,
   };
+}
+
+async function loadAttentionQueue(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+): Promise<CatalogDeferredAttentionQueueResult> {
+  if (typeof api.getCatalogAttentionQueueReadModel !== "function") return CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
+  try {
+    return resolveCatalogAttentionQueueResult(await api.getCatalogAttentionQueueReadModel<unknown>());
+  } catch {
+    return CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
+  }
+}
+
+async function loadGeneralAliasReview(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+): Promise<Readonly<{ readModel: CatalogAliasReviewReadModel | null; failed: boolean }>> {
+  if (typeof api.getCatalogAliasReviewReadModel !== "function") return { readModel: null, failed: false };
+  try {
+    const value = await api.getCatalogAliasReviewReadModel<unknown>("limit=200");
+    return isAliasReviewReadModel(value) ? { readModel: value, failed: false } : { readModel: null, failed: true };
+  } catch (error) {
+    if (error instanceof CatalogApiError) return { readModel: null, failed: true };
+    throw error;
+  }
+}
+
+function isAliasReviewReadModel(value: unknown): value is CatalogAliasReviewReadModel {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<CatalogAliasReviewReadModel>;
+  return (
+    candidate.schemaVersion === "catalog-alias-review-v1" &&
+    typeof candidate.generatedAt === "string" &&
+    Array.isArray(candidate.candidates) &&
+    Array.isArray(candidate.groups) &&
+    typeof candidate.counts === "object" &&
+    candidate.counts !== null &&
+    typeof candidate.coverage === "object" &&
+    candidate.coverage !== null
+  );
+}
+
+async function resolveActor(request: Request) {
+  return resolveActorFromAuthApi({ request });
 }
 
 async function loadScopeRecords(

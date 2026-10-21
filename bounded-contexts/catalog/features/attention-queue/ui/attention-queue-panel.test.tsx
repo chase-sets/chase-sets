@@ -188,6 +188,8 @@ describe("CatalogAttentionQueuePanel", () => {
     const rejectForm = document.querySelector('[data-attention-resolution="reject"]');
     expect(acceptForm?.getAttribute("action")).toBe("/admin/integrations");
     expect(rejectForm).not.toBeNull();
+    expect((acceptForm?.querySelector('input[name="_intent"]') as HTMLInputElement)?.value).toBe("alias.accept");
+    expect((rejectForm?.querySelector('input[name="_intent"]') as HTMLInputElement)?.value).toBe("alias.reject");
 
     // Every item exposes an inline drawer trigger (evidence + park), so each is
     // resolvable without leaving the home surface.
