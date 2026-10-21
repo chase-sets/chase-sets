@@ -55,6 +55,12 @@ describe("ingest-receipt-action-data", () => {
     vi.stubGlobal("fetch", api.fetch);
     renderRoute();
     const submit = await screen.findByRole("button", { name: "Ingest Live export" });
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+    fireEvent.change(fileInput!, {
+      target: { files: [new NodeFile(["header\nrow"], "live.csv", { type: "text/csv" })] },
+    });
+    await waitFor(() => expect(submit.matches(":disabled")).toBe(false));
     submitExport(submit);
 
     await waitFor(() => {

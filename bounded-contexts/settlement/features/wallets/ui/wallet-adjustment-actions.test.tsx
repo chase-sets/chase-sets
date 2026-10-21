@@ -137,7 +137,9 @@ describe("wallet adjustment action forms", () => {
     render(<RouterProvider router={router} />);
     await user.click(screen.getByRole("button", { name: "Request preview" }));
     await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
-    expect((screen.getByRole("button", { name: "Confirm & submit" }) as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Confirm & submit" }) as HTMLButtonElement).disabled).toBe(true),
+    );
     await user.click(screen.getByRole("button", { name: "Confirm & submit" }));
     expect(submissions.map((entry) => entry.get("intent"))).toEqual(["preview-adjustment"]);
     actionResult.resolve(null);
