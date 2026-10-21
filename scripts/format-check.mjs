@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getFileInfo } from "prettier";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 export const FORMAT_CHECK_SCOPE_ENV = "FORMAT_CHECK_SCOPE";
 export const FULL_TREE_SCOPE = "full";
@@ -43,6 +44,7 @@ function defaultExecGit(args, repoRoot) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
   });
 }
 

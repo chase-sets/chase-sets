@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { copyFile, mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -558,7 +559,7 @@ async function materializeImmutableMigrationInput(original) {
   const { stdout } = await execFileAsync(
     "git",
     ["ls-tree", "-r", "--name-only", migrationBase, "--", ".github/workflows", AUTHORITY_ROOT],
-    { cwd: repositoryRoot, encoding: "utf8" },
+    { cwd: repositoryRoot, encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER },
   );
   for (const path of stdout.split("\n").filter(Boolean)) {
     const file = await execFileAsync("git", ["show", `${migrationBase}:${path}`], {
