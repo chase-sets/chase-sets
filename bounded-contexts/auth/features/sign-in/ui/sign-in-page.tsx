@@ -259,6 +259,7 @@ export function SignInPage(
       : feedback.notice?.status === "phone-code-sent"
         ? t("auth.features.signIn.ui.signInPage.phone.code.ready.check.your.phone")
         : null;
+  const phoneCodeTokenId = props.notice?.status === "phone-code-sent" ? props.notice.tokenId : "";
 
   return (
     <Stack gap={4}>
@@ -467,12 +468,7 @@ export function SignInPage(
                 <Stack gap={3}>
                   <HiddenFields fields={props.hiddenFields} />
                   <HiddenInput type="hidden" name="intent" value="phone-code-consume" readOnly />
-                  <HiddenInput
-                    type="hidden"
-                    name="tokenId"
-                    value={props.notice?.status === "phone-code-sent" ? props.notice.tokenId : ""}
-                    readOnly
-                  />
+                  <HiddenInput type="hidden" name="tokenId" value={phoneCodeTokenId} readOnly />
                   <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
                   <TextInput
                     id={codeId}
@@ -492,12 +488,7 @@ export function SignInPage(
                 <Stack gap={3}>
                   <HiddenFields fields={props.hiddenFields} />
                   <HiddenInput type="hidden" name="intent" value="phone-code-consume" readOnly />
-                  <HiddenInput
-                    type="hidden"
-                    name="tokenId"
-                    value={props.notice?.status === "phone-code-sent" ? props.notice.tokenId : ""}
-                    readOnly
-                  />
+                  <HiddenInput type="hidden" name="tokenId" value={phoneCodeTokenId} readOnly />
                   <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
                   <TextInput
                     id={codeId}
