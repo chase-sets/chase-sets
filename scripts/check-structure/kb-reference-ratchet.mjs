@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 export const KB_REFERENCE_RATCHET_MODE = "warn";
 
@@ -33,7 +34,10 @@ export function evaluateKbReferenceRatchet({ changedFiles, body, mode = KB_REFER
 
 function gitFiles(args) {
   try {
-    return execFileSync("git", args, { encoding: "utf8" })
+    return execFileSync("git", args, {
+      encoding: "utf8",
+      ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
+    })
       .split(/\r?\n/)
       .map((file) => file.trim())
       .filter(Boolean);

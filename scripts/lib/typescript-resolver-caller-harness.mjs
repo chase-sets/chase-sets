@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { GIT_LISTING_MAX_BUFFER } from "./git-listing.mjs";
 const execFileAsync = promisify(execFile);
 const PINNED_EXTENSION_LOADER_SOURCE = `import { extname } from "node:path";
 export async function resolve(specifier, context, nextResolve) {
@@ -98,7 +99,11 @@ export async function discoverDirectCallers(repositoryRoot) {
     "reg",
     'ister("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url)',
   ].join("");
-  const tracked = execFileSync("git", ["ls-files", "*.mjs"], { cwd: repositoryRoot, encoding: "utf8" })
+  const tracked = execFileSync("git", ["ls-files", "*.mjs"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split(/\r?\n/u)
     .filter(Boolean);
   const matches = [];

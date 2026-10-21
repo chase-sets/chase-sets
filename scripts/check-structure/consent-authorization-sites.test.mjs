@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   ConsentAuthorizationGuardError,
@@ -166,6 +167,7 @@ function trackedRepositoryFiles() {
     cwd: repoRoot,
     encoding: "buffer",
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   })
     .toString("utf8")
     .split("\0")

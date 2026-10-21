@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { repoRoot } from "../lib/repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 export const guardCandidateProvenanceSchemaVersion = "guard-candidate-provenance/v1";
 export const guardCandidateProvenanceSchemaPath = "scripts/check-structure/guard-candidate-provenance-v1.schema.json";
@@ -35,6 +36,7 @@ function defaultExecGit(args) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
   });
 }
 

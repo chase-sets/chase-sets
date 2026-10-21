@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { classifyChanges, listChangedFiles, toGithubOutputMap, toOutputMap } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { selectVerifyStaticGuardTests } from "./verify-static-scoped.mjs";
@@ -21,6 +22,7 @@ describe("rendered-copy real-provider selection corpus", () => {
         encoding: "utf8",
         timeout: 30_000,
         stdio: ["ignore", "pipe", "pipe"],
+        ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
       }).trim();
     const priorSource = execFileSync("git", ["show", `${fixture.baseSha}:scripts/e2e-suites.mjs`], {
       encoding: "utf8",

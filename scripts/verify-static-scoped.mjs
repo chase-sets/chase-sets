@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyChanges } from "./change-scope.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { listWorkspacePackages, repoRoot as defaultRepoRoot } from "./lib/repo.mjs";
 import {
   ALWAYS_RUN,
@@ -28,6 +29,7 @@ function defaultExecGit(args, repoRoot) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
   });
 }
 

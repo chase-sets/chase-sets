@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 const defaultCheckedPaths = [
   "contracts/localization/locales/en.ts",
@@ -81,6 +82,7 @@ function listCandidateFiles(rootDir) {
   const gitFiles = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
     cwd: rootDir,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   })
     .trim()
     .split(/\r?\n/)

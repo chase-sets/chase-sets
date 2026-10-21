@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 export const provenanceFixtureRoot = "scripts/check-structure/fixtures/guard-candidate-provenance";
 let exportedMutationEvidenceCases = [];
@@ -168,6 +169,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       cwd: rootDir,
       encoding: "buffer",
       stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     }),
   controls = {},
 } = {}) {
@@ -450,7 +452,12 @@ export function deriveConsentAuthorizationEvidenceInventory({
   /* -------------------------------------------------------------------------- */
 
   function runGit(cwd, args) {
-    return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
+    });
   }
 
   function scratchExecGit(scratch) {
