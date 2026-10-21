@@ -15,6 +15,10 @@ import contextManifest from "../../context.json";
 import { marketplaceApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { submitReviewReport } from "../../support/route-support/review-report-action";
 import type { ReviewReportResult } from "../../features/reviews/ui/review-report-action";
+import {
+  authoredTextRecoveryFromApiError,
+  type AuthoredTextRecovery,
+} from "../../features/reviews/ui/authored-text-recovery";
 
 const ACCOUNT_REVIEW_POST_WRITE_TELEMETRY = {
   boundedContextName: "marketplace",
@@ -26,6 +30,7 @@ const ACCOUNT_REVIEW_POST_WRITE_TELEMETRY = {
 type ReviewReplyActionData = Readonly<{
   error: string;
   values: Readonly<{ feedback: string }>;
+  recovery?: AuthoredTextRecovery;
 }>;
 
 function replyErrorMessage(error: unknown): string {
@@ -84,9 +89,11 @@ export const action = defineFormAction({
       throw new Response(t("reputation.routes.marketplace.accountReview.review.not.found"), { status: 404 });
     }
     const feedbackEntry = formData.get("feedback");
+    const recovery = error instanceof ReputationApiError ? authoredTextRecoveryFromApiError(error.body) : null;
     return {
-      error: replyErrorMessage(error),
+      error: recovery?.message ?? replyErrorMessage(error),
       values: { feedback: typeof feedbackEntry === "string" ? feedbackEntry : "" },
+      ...(recovery ? { recovery } : {}),
     } satisfies ReviewReplyActionData;
   },
 });
@@ -125,6 +132,7 @@ export default function MarketplaceAccountReviewRoute() {
       review={review}
       viewerAccountId={data.viewerAccountId}
       replyErrorMessage={replyResult?.error ?? null}
+      replyRecovery={replyResult?.recovery ?? null}
       isSubmittingReply={navigation.state === "submitting" && submittingIntent !== "report-review"}
       defaultReplyFeedback={replyResult?.values?.feedback ?? ""}
       reportResult={reportResult}

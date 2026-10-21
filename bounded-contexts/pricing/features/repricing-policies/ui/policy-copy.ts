@@ -119,6 +119,10 @@ export function repricingGoalLabel(anchor: Extract<RepricingAnchor, { source: "c
       return t(`${prefix}targetHorizon`, { days: anchor.parameters.horizonDays! });
     case "profit-per-day":
       return t(`${prefix}profitPerDay`);
+    case "hold-value":
+      return t(`${prefix}holdValue`);
+    case "cash-target":
+      return t(`${prefix}cashTarget`, { amount: anchor.parameters.amount!, days: anchor.parameters.days! });
     default:
       return anchor.goalId;
   }

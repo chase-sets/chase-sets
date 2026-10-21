@@ -1,0 +1,90 @@
+[
+  {
+    "id": "exception-efbfdf819f21d153",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_blueprints",
+      "digest": "d6a37327d964bc81dfd4a4d30412e624c46c3796d725037574f949d45817994e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/blueprints/read-model/projection.ts:47 directly synchronizes catalog_blueprints from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-b636e1dc599aed9d",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_blueprints",
+      "digest": "fb1382307375bdd5194b38d37f46720837e49b1c38a84977ca7a38e3ac723ad0"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/blueprints/read-model/projection.ts:67 directly synchronizes catalog_blueprints from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-44d9c2fd91dd94ee",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_blueprints",
+      "digest": "d6b8eeff9f068cccc6e4eeb18bd051d4db9fa8aee89effb9067112c6184d7b19"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/blueprints/read-model/projection.ts:94 directly synchronizes catalog_blueprints from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-75fa7883a1a08f1c",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_blueprints",
+      "digest": "c1ca0f8a1c15c973e9074ab289405e912b0b7798748d173baf5a76c1fb588c18"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/blueprints/read-model/projection.ts:105 directly synchronizes catalog_blueprints from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-6db35d075de01f80",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_blueprints",
+      "digest": "6f5eecf9e41afd245e8d4f1d1eb7f71c9a62e80be445cb913e62f9dc222762dc"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/blueprints/read-model/projection.ts:117 directly synchronizes catalog_blueprints from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-b5e3ab3602098e95",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_blueprints",
+      "digest": "fa8e01c9e0aad58237f585262c9a7415a03892ff74c2e72e059acc6c5d85d801"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/blueprints/read-model/projection.ts:125 directly synchronizes catalog_blueprints from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9b40ff7627790385",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_blueprints",
+      "digest": "99a82a91fed8127dbead807a4e16e79c45f2ff1d54d1e2a60307b05ccda4376b"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/blueprints/read-model/projection.ts:134 directly synchronizes catalog_blueprints from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-1d1ff9cb77ba3f6b",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/blueprints/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_blueprints",
+      "digest": "ecd647116e9ae41ed85a2b87688dfb79fa5788a0602cfe1c27ced9635a3261df"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/blueprints/read-model/projection.ts:143 directly synchronizes catalog_blueprints from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

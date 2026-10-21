@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-6adb8ddc58b952b1",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/item-detail/read-model/projection.ts",
+      "kind": "DELETE",
+      "table": "discovery_item_detail_pages",
+      "digest": "58f3ab951f16b0a809c0df9dd36cbf6039c4993b2b095ad2804c0fc166136860"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/discovery/features/item-detail/read-model/projection.ts:492 directly synchronizes discovery_item_detail_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-ad8f12a53aa48fd6",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/item-detail/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "discovery_item_detail_catalog_items",
+      "digest": "438d8ba6bcc74c730cef7d4d93438ee2e2d198a1e3110b53c2d6618aad41c1ff"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/discovery/features/item-detail/read-model/projection.ts:740 directly synchronizes discovery_item_detail_catalog_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-83909c65499e3db1",
+    "binding": {
+      "module": "bounded-contexts/discovery/features/item-detail/read-model/projection.ts",
+      "kind": "DELETE",
+      "table": "discovery_item_detail_product_contents",
+      "digest": "4212e1dc8cd8a33df28354656276674638afb57ae8ec33052591f6e0ff0221f5"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/discovery/features/item-detail/read-model/projection.ts:779 directly synchronizes discovery_item_detail_product_contents from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

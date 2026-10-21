@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceListingDetailPage } from "./listing-detail-page";
 import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
 import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
+import { authoredTextRecoveryMessage } from "../../reviews/ui/authored-text-recovery";
 
 const listing: MarketplaceListingDetail = {
   listing_id: "lst_1",
@@ -436,5 +437,69 @@ describe("MarketplaceListingDetailPage", () => {
     expect(screen.getByRole("button", { name: "Publish listing" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Complete the required evidence actions above before publishing.")).toBeTruthy();
     expect(container.querySelector('input[type="file"][capture="environment"]')).toBeTruthy();
+  });
+});
+
+describe("issue-5258-marketplace-ac4 Listing publish standards and description recovery", () => {
+  const draftWithPhoto = {
+    ...listing,
+    status: "draft",
+    product_measure_snapshot: {} as never,
+    evidence: [
+      {
+        photoId: "lpho_1",
+        originalFilename: "front.png",
+        altText: "Stored description",
+        slotId: null,
+        viewKind: null,
+        status: "active",
+        sortOrder: 0,
+      },
+    ],
+  } as unknown as MarketplaceListingDetail;
+
+  function expectStandardsLinksBefore(control: Element) {
+    const guidelines = screen.getAllByRole("link", { name: "Community guidelines" });
+    const support = screen.getAllByRole("link", { name: "Contact support" });
+    expect(new Set(guidelines.map((link) => link.getAttribute("href")))).toEqual(
+      new Set(["/help/buying/community-guidelines-and-enforcement"]),
+    );
+    expect(new Set(support.map((link) => link.getAttribute("href")))).toEqual(new Set(["/contact"]));
+    expect(guidelines[0]!.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(support[0]!.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+
+  it("links the canonical community guidelines and support before publishing and before saving a description", () => {
+    render(<MarketplaceListingDetailPage listing={draftWithPhoto} feeHistory={[]} />);
+
+    expectStandardsLinksBefore(screen.getByRole("button", { name: "Publish listing" }));
+    expectStandardsLinksBefore(screen.getByRole("button", { name: "Save view" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the rejected description and links its field from an accessible summary", () => {
+    const message = authoredTextRecoveryMessage("text_duplicate_link")!;
+    render(
+      <MarketplaceListingDetailPage
+        listing={draftWithPhoto}
+        feeHistory={[]}
+        evidenceAltTextRecovery={{
+          photoId: "lpho_1",
+          altText: "Front https://x.example https://x.example",
+          recovery: { code: "text_duplicate_link", message, fieldLevel: true },
+        }}
+      />,
+    );
+
+    const summary = screen.getByRole("alert");
+    expect(summary.textContent).toContain("Your text was not posted");
+    const fieldLink = within(summary).getByRole("link", { name: `Image description: ${message}` });
+    const description = screen.getByRole("textbox", { name: "Image description" }) as HTMLInputElement;
+    expect(fieldLink.getAttribute("href")).toBe(`#${description.id}`);
+    expect(description.value).toBe("Front https://x.example https://x.example");
+    expect(description.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.keyDown(fieldLink, { key: "Enter" });
+    expect(document.activeElement).toBe(description);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 });

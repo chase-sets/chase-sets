@@ -175,6 +175,15 @@ const finalNoticeSchema = z
   })
   .strict();
 const receiptSchema = z.union([countLifecycleReceiptSchema, countLifecycleStopReceiptSchema]);
+// The runner that sealed a run and the status it sealed from. Only that runner's
+// one completion of that exact run may retain its receipt.
+export const countCaptureSealSchema = z
+  .object({
+    from: z.enum(["open", "stopped"]),
+    runnerRunId: z.string().regex(/^[1-9]\d{0,19}$/),
+    runnerRunAttempt: z.number().int().min(1).max(1000),
+  })
+  .strict();
 
 const runSchema = z
   .object({
@@ -206,6 +215,7 @@ const runSchema = z
       .max(6)
       .default([]),
     frozenAt: instant.nullable().default(null),
+    seal: countCaptureSealSchema.nullable().default(null),
     receipt: receiptSchema.nullable().default(null),
   })
   .strict()
@@ -226,6 +236,9 @@ export type CountCaptureBaseline = z.infer<typeof baselineSchema>;
 export type CountCaptureEffects = z.infer<typeof effectsSchema>;
 export type CountCaptureNotice = z.infer<typeof noticeSchema>;
 export type CountCaptureUsage = z.infer<typeof usageSchema>;
+export type CountCaptureSealInput = Readonly<
+  { dispatchId: string } & Omit<z.infer<typeof countCaptureSealSchema>, "from">
+>;
 export type CountCaptureStore = ReturnType<typeof createCountCaptureStore>;
 
 function phaseOrder(phase: CountCapturePhase) {
@@ -693,7 +706,9 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           throw new CountCaptureStopped();
         run.reads.push(parsed);
       }),
-    seal: (ownerHash: string) =>
+    // Seals the owner's latest run, only for its own dispatch. The server clock fixes
+    // frozenAt once; no later step moves it, reopens the run or admits a send.
+    seal: (ownerHash: string, input: CountCaptureSealInput) =>
       withPgTransaction(pool, async (db) => {
         await lock(db);
         const result = await db.query<{ payload: unknown }>(
@@ -701,18 +716,41 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           [ownerHash],
         );
         const run = parseRun(result.rows[0]?.payload);
-        if (run.ownerHash !== ownerHash || run.status === "frozen") throw new CountCaptureStopped();
-        const sealed = { ...run, status: "frozen" as const, frozenAt: now() };
+        if (run.ownerHash !== ownerHash || run.status === "frozen" || run.host.dispatchId !== input.dispatchId)
+          throw new CountCaptureStopped();
+        const sealed = parseRun({
+          ...run,
+          status: "frozen",
+          frozenAt: now(),
+          seal: { from: run.status, runnerRunId: input.runnerRunId, runnerRunAttempt: input.runnerRunAttempt },
+        });
         await append(db, sealed);
-        return { ...sealed, stopped: run.status === "stopped" };
+        return sealed;
       }),
-    retainReceipt: (runId: string, receipt: z.infer<typeof receiptSchema>) =>
+    // Appends the one terminal receipt of the exact sealed run it was derived from.
+    // A replaced, unsealed or already-completed run, or a receipt naming another
+    // boundary or runner, refuses without any append.
+    retainReceipt: (sealed: CountCaptureRun, receipt: z.infer<typeof receiptSchema>) =>
       withPgTransaction(pool, async (db) => {
         await lock(db);
-        const run = await latest(db, runId);
-        if (run.status !== "frozen" || run.receipt) throw new CountCaptureStopped();
-        await append(db, { ...run, receipt: receiptSchema.parse(receipt) });
-        return (await latest(db, runId)).receipt!;
+        const run = await latest(db, sealed.runId);
+        const parsed = receiptSchema.parse(receipt);
+        const boundary = "frozenAt" in parsed ? parsed.frozenAt : parsed.evidence.frozenAt;
+        if (
+          run.status !== "frozen" ||
+          run.receipt ||
+          !run.seal ||
+          !sealed.seal ||
+          run.ownerHash !== sealed.ownerHash ||
+          run.frozenAt !== sealed.frozenAt ||
+          countFingerprint(run.seal) !== countFingerprint(sealed.seal) ||
+          boundary !== run.frozenAt ||
+          parsed.attribution.runnerRunId !== run.seal.runnerRunId ||
+          parsed.attribution.runnerRunAttempt !== run.seal.runnerRunAttempt
+        )
+          throw new CountCaptureStopped();
+        await append(db, { ...run, receipt: parsed });
+        return (await latest(db, sealed.runId)).receipt!;
       }),
     finish: (binding: CountCaptureBinding) =>
       mutate(binding.runId, (run) => {

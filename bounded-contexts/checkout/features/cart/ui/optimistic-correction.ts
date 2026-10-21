@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher } from "react-router";
+import {
+  mintCheckoutCommandAttemptId,
+  type CheckoutCommandAttemptResolvedState,
+} from "../../command-attempts/api/contracts";
+
+/** An unredirected cart submission's attempt state, as the account cart action returns it. */
+export type CartAttemptState = Readonly<{
+  state: Exclude<CheckoutCommandAttemptResolvedState, "succeeded">;
+  intent: string;
+  attemptId: string;
+  message: string | null;
+  terminalLines: readonly Readonly<{ lineId: string | null; outcome: "conflict" | "error"; message: string | null }>[];
+}>;
 
 export type OptimisticCorrectionSource = "loader-revalidation" | "typed-snapshot" | "realtime-reload-fallback";
 
@@ -224,6 +237,17 @@ export interface OptimisticCartMutationController<TLine extends OptimisticCartMu
   setQuantity: (line: TLine, quantity: number) => void;
   removeLine: (line: TLine) => void;
   lockPreferredListing: (line: TLine) => void;
+  /** The last unredirected submission's attempt state, if any. */
+  attemptState: CartAttemptState | null;
+  /**
+   * True while the last attempt is ambiguous, including while its explicit
+   * resend is in flight: no new cart change is sent until the owner answers.
+   */
+  actionsDisabled: boolean;
+  /** True while the explicit resend of an ambiguous attempt is in flight. */
+  resending: boolean;
+  /** Explicitly resends the ambiguous submission under the same attempt id; never automatic. */
+  resend: () => void;
 }
 
 export interface OptimisticCartMutationOptions<TLine extends OptimisticCartMutationLine> {
@@ -433,7 +457,7 @@ function sourceMaps<TLine extends OptimisticCartMutationLine>(lines: readonly TL
 export function useOptimisticCartMutationConsistency<TLine extends OptimisticCartMutationLine>({
   sourceCartLineGroups,
 }: OptimisticCartMutationOptions<TLine>): OptimisticCartMutationController<TLine> {
-  const fetcher = useFetcher<{ error?: string }>();
+  const fetcher = useFetcher<{ error?: string; attempt?: CartAttemptState }>();
   const [optimisticByResource, setOptimisticByResource] = useState<Record<string, OptimisticCartLinePatch>>({});
   const sequenceRef = useRef(0);
   const inFlightRef = useRef<CartMutation | null>(null);
@@ -443,14 +467,36 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
   const source = useMemo(() => sourceMaps(sourceCartLineGroups), [sourceCartLineGroups]);
   const sourceByResourceRef = useRef(source.byResource);
   const submitting = fetcher.state !== "idle";
-  const errorMessage = typeof fetcher.data?.error === "string" ? fetcher.data.error : null;
+  // A redirecting answer leaves the fetcher's previous data in place, so data
+  // that predates the latest submission is not its answer once it settles:
+  // a committed resend must clear the ambiguous state it resolved.
+  const latestDataRef = useRef(fetcher.data);
+  const dataBeforeSubmitRef = useRef(fetcher.data);
+  latestDataRef.current = fetcher.data;
+  const answer = submitting || fetcher.data !== dataBeforeSubmitRef.current ? fetcher.data : undefined;
+  const errorMessage = typeof answer?.error === "string" ? answer.error : null;
+  const attemptState = answer?.attempt ?? null;
+  // Anything but a redirect to the fresh cart rejects the optimistic
+  // projection: the owner's answer, not the local guess, decides what shows.
+  const rejection = errorMessage ?? attemptState?.state ?? null;
+  const actionsDisabled = attemptState?.state === "ambiguous";
+  const resending = actionsDisabled && submitting;
+  const actionsDisabledRef = useRef(actionsDisabled);
+  const lastSubmissionRef = useRef<FormData | null>(null);
+  actionsDisabledRef.current = actionsDisabled;
 
   sourceByResourceRef.current = source.byResource;
 
   const submitMutation = useCallback(
     (mutation: CartMutation) => {
       inFlightRef.current = mutation;
-      fetcher.submit(buildCartMutationFormData(mutation), { method: "post", action: "/account/cart" });
+      // One new attempt per deliberate submission, minted here at submit --
+      // never per render and never while the change waits in the queue.
+      const formData = buildCartMutationFormData(mutation);
+      formData.set("attemptId", mintCheckoutCommandAttemptId());
+      lastSubmissionRef.current = formData;
+      dataBeforeSubmitRef.current = latestDataRef.current;
+      fetcher.submit(formData, { method: "post", action: "/account/cart" });
     },
     [fetcher],
   );
@@ -471,6 +517,9 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
 
   const applyMutation = useCallback(
     (mutation: CartMutation) => {
+      if (actionsDisabledRef.current) {
+        return;
+      }
       setOptimisticByResource((current) => ({
         ...current,
         [mutation.resourceKey]: applyMutationToPatch(current[mutation.resourceKey], mutation),
@@ -532,14 +581,25 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
   );
 
   useEffect(() => {
-    if (!errorMessage) {
+    if (!rejection) {
       return;
     }
 
     inFlightRef.current = null;
     queuedRef.current = [];
-    setOptimisticByResource({});
-  }, [errorMessage]);
+    // Each new answer re-runs this, even one repeating the last rejection; an
+    // already-empty projection keeps its identity so no render loop follows.
+    setOptimisticByResource((current) => (Object.keys(current).length === 0 ? current : {}));
+  }, [rejection, answer]);
+
+  const resend = useCallback(() => {
+    const submission = lastSubmissionRef.current;
+    if (!submission || attemptState?.state !== "ambiguous" || submitting) {
+      return;
+    }
+    dataBeforeSubmitRef.current = latestDataRef.current;
+    fetcher.submit(submission, { method: "post", action: "/account/cart" });
+  }, [attemptState?.state, fetcher, submitting]);
 
   useEffect(() => {
     const previousSignatures = previousSourceSignaturesRef.current;
@@ -601,13 +661,13 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
     const completed = previousSubmittingRef.current && !submitting;
     previousSubmittingRef.current = submitting;
 
-    if (!completed || errorMessage) {
+    if (!completed || rejection) {
       return;
     }
 
     inFlightRef.current = null;
     flushNextQueued();
-  }, [errorMessage, flushNextQueued, submitting]);
+  }, [rejection, flushNextQueued, submitting]);
 
   const cartLineGroups = useMemo(() => {
     const projected: TLine[] = [];
@@ -634,5 +694,9 @@ export function useOptimisticCartMutationConsistency<TLine extends OptimisticCar
     setQuantity,
     removeLine,
     lockPreferredListing,
+    attemptState,
+    actionsDisabled,
+    resending,
+    resend,
   };
 }

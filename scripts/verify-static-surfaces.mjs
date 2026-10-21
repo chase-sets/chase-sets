@@ -148,6 +148,25 @@ export const VERIFY_STATIC_SCOPED_EXCLUSIONS = Object.freeze({
 // Repository-wide reads cannot be narrowed to the paths in historical failures.
 // These rules describe scan inputs, not the tests' static import graphs.
 export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
+  "scripts/check-structure/lost-update-write-guard.test.mjs": {
+    rule: "owner-local lost-update metadata and every source admitted by the unchanged guard discovery predicate",
+    evidence: ["scripts/check-structure/lost-update-write-guard.mjs:1-40"],
+    include: [
+      ...exact(
+        "scripts/check-structure/lost-update-write-guard.mjs",
+        "scripts/check-structure/lost-update-write-guard.test.mjs",
+        "scripts/verify-static-surfaces.mjs",
+        "pnpm-lock.yaml",
+      ),
+      ...prefix("packages/typescript-compiler-api"),
+      ...regex(
+        "^bounded-contexts/.+\\.lost-update-exceptions\\.json$",
+        "^bounded-contexts/.+/read-model/.+\\.(?:ts|tsx|js|jsx|mjs|cjs)$",
+        "^bounded-contexts/.+(?:projection|queue)\\.(?:ts|tsx|js|jsx|mjs|cjs)$",
+      ),
+      ...exact("bounded-contexts/channels/features/credentials/api/runtime.ts"),
+    ],
+  },
   "scripts/check-structure/sql-execution-surface.test.mjs": {
     rule: "repository-wide tracked TypeScript inventory and module-resolution file inventory",
     evidence: [
@@ -188,8 +207,8 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
   "scripts/check-structure/json-import-attributes.test.mjs": {
     rule: "repository-wide tracked JSON-import census (tracked TypeScript inventory, git grep, workspace vite/vitest partition), script analyzers and registry-builder helpers, plus the live Channels context-root contract",
     evidence: [
-      "scripts/check-structure/json-import-attributes.test.mjs:1-13,137-138,487-495,697-723,822-829",
-      "scripts/check-structure/json-import-attributes.mjs:44-78,494-530",
+      "scripts/check-structure/json-import-attributes.test.mjs:1-15,139-140,489-497,700-760,880-906,1020-1027",
+      "scripts/check-structure/json-import-attributes.mjs:44-82,584-645",
     ],
     include: [{ kind: "any" }],
   },

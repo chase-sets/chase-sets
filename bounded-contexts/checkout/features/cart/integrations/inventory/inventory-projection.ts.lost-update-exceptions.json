@@ -1,0 +1,70 @@
+[
+  {
+    "id": "exception-9c95c5c23a522557",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_supply_holds",
+      "digest": "1b342371f92a5fdeee3da85ef985ecc0c519c8c2418c0cef3b9a4d15b6556b75"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:48 directly synchronizes checkout_supply_holds from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-472350b9f80a9b54",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_supply_locations",
+      "digest": "ac92b186b75922c46d3c02cf15140aa7eca5c617994384dac73aff62c25b40ca"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:121 directly synchronizes checkout_supply_locations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-f3b563c54ffbdab7",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_supply_locations",
+      "digest": "e376f1fba6fe81f2ce4289f622dd1b7be9c1bc454b738a7b4d035056abedff46"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:140 directly synchronizes checkout_supply_locations from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-e5971348c424dd08",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_supply_items",
+      "digest": "8e95c4b2a3846b78946e694ce26bd605b24ee16069a3d9424815cfab31389667"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:206 directly synchronizes checkout_supply_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-77eca4fa93d9d24c",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_supply_holds",
+      "digest": "1517cbba1effafb29ac2251aaa88047eda2598876432a9a0144ae3ca626437e2",
+      "boundary": "\"inventory.hold.converted\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:253 directly synchronizes checkout_supply_holds from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-038b4b36fe65b52d",
+    "binding": {
+      "module": "bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts",
+      "kind": "UPDATE",
+      "table": "checkout_supply_holds",
+      "digest": "1517cbba1effafb29ac2251aaa88047eda2598876432a9a0144ae3ca626437e2",
+      "boundary": "\"inventory.hold.extended\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts:267 directly synchronizes checkout_supply_holds from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

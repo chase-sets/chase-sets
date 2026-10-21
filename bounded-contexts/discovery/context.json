@@ -971,6 +971,12 @@
         "route-action:bounded-contexts/discovery/routes/search.tsx",
         "fetcher-submit:bounded-contexts/discovery/routes/search.tsx:H291fe7ad6435#1"
       ],
+      "commandAttempt": {
+        "writes": [{ "surface": "route-action:search commit-bulk-add", "kind": "cart.add-lines", "target": "cart" }],
+        "stream": "Checkout checkout.command-attempt-v1-<fingerprint> beside the buyer cart stream",
+        "lookup": "Checkout GET /account|/guest/command-attempts/:attemptId, issued once on a possible-send loss",
+        "replay": "The browser mints one attempt id per deliberate bulk commit; Send the same add again resubmits that id and Checkout returns the first vector with zero appends."
+      },
       "visibleDestination": {
         "routeId": "search",
         "description": "Search bulk add stays on the browse page and renders command-owned Checkout snapshots. Client-side request keys suppress stale snapshots when the visible Result Set changes before the POST resolves."
@@ -1043,6 +1049,13 @@
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#2",
         "route-action:bounded-contexts/discovery/support/route-support/item-detail/action.ts"
       ],
+      "entryAttempt": {
+        "writes": [
+          { "surface": "route-action:item-detail buy-this-listing", "kind": "checkout-entry", "target": "session" }
+        ],
+        "key": "The item-detail loader mints one entryAttemptKey per page view. EntryAttemptKeyScope, keyed by catalog_item_id above the realtime-keyed view, holds it with each form's quantity and the page's market selection, so a view remount restores them; every renderBuy form (signed-in and guest) sends it as hidden entryAttemptKey and gets a fresh key only when its listing, product, options or quantity change.",
+        "replay": "The action forwards only the form key: to createCheckoutSession when signed in, in the body a guest 307 reposts to Checkout start. A missing or malformed key, or 409 checkout_attempt_conflict, answers the changed copy with a fresh key the scope adopts; any other error keeps the key and returns the submitted quantity and market selection, so an explicit re-click replays the same submission."
+      },
       "visibleDestination": {
         "routeIds": [
           "item-detail",
@@ -1058,6 +1071,7 @@
         "tests": [
           "bounded-contexts/discovery/tests/item-detail-buy-now-checkout.test.ts",
           "bounded-contexts/discovery/tests/item-detail-buy-now-validation.test.ts",
+          "bounded-contexts/discovery/tests/item-detail-entry-key.test.tsx",
           "bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.test.tsx",
           "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts"
         ]
@@ -1069,8 +1083,18 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:Hd8587c34fa67#1"
+        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:Hd8587c34fa67#1",
+        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:He499123e61ef#1"
       ],
+      "commandAttempt": {
+        "writes": [
+          { "surface": "route-action:item-detail add-to-cart", "kind": "cart.add-line", "target": "cart" },
+          { "surface": "route-action:item-detail buy-best-match", "kind": "cart.add-line", "target": "cart" }
+        ],
+        "stream": "Checkout checkout.command-attempt-v1-<fingerprint> beside the buyer cart stream",
+        "lookup": "Checkout GET /account|/guest/command-attempts/:attemptId, issued once on a possible-send loss",
+        "replay": "The browser mints one attempt id per deliberate add; Send the same add again resubmits that id and Checkout returns the first result with zero appends."
+      },
       "visibleDestination": {
         "routeId": "item-detail",
         "description": "The item-detail add-to-cart fetcher remains on the Detail Page and returns the committed Checkout cart-line id, version, status, item title, and quantity so the cart count and success notice do not depend on a stale cart projection. The success notice's View cart link carries the same Checkout command receipt as an afterWrite fresh-write token plus the Checkout-owned semantic add-line post-write handoff (viewCartHref), so /account/cart can treat signed-in or anonymous empty reads as pending only for this add-line intent while remove-to-empty or normal visits keep the ordinary empty-cart state."
@@ -1099,6 +1123,13 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": ["post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#1"],
+      "entryAttempt": {
+        "writes": [
+          { "surface": "post-form:public-listing Buy to /checkout/buy/readiness", "kind": "checkout-entry", "target": "session" }
+        ],
+        "key": "The public-listing loader mints one entryAttemptKey per page view. EntryAttemptKeyScope, keyed by listing_id above the updated_at-keyed realtime view, holds it; the Buy form sends it as hidden entryAttemptKey, and its inputs are fixed.",
+        "replay": "Checkout start forwards the form key unchanged, so a double submit, resubmit or re-click sends one key; Checkout start owns any stale-key recovery."
+      },
       "visibleDestination": {
         "routeId": "buy-checkout-session",
         "apiContextName": "checkout",

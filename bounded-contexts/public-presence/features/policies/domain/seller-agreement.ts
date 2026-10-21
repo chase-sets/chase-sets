@@ -97,8 +97,8 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.ts:478-588 (photo requirements for top raw conditions and graded listings; seller-trust price gating)",
           "bounded-contexts/marketplace/features/listings/domain/listing-evidence-readiness.test.ts (publication blocked until evidence/seller-trust requirements are satisfied)",
-          'bounded-contexts/marketplace/features/listings/api/runtime.ts:817,1414,1644 (assert(supply, "Inventory item not found.") — a listing requires an existing catalog-linked inventory row)',
-          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1296-1310 (catalog_catalog_item_id persisted per listing)",
+          'bounded-contexts/marketplace/features/listings/api/runtime.ts:818,1420,1651 (assert(supply, "Inventory item not found.") — a listing requires an existing catalog-linked inventory row)',
+          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1302-1316 (catalog_catalog_item_id persisted per listing)",
           "bounded-contexts/public-presence/features/help/domain/articles/condition-and-photo-standards.en.md",
         ],
         openQuestions: [],
@@ -106,7 +106,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           {
             assertion:
               "Listings can only be created against an existing catalog entry; there is no free-text or off-catalog listing path.",
-            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:817,1414,1644,1296-1310",
+            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:818,1420,1651,1302-1316",
           },
           {
             assertion:
@@ -161,7 +161,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts (commercial-terms.marketplace-sales-fee-schedule)",
           "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts (commercial-terms.checkout-processing-fee)",
           "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee; quotePayoutFee)",
-          "bounded-contexts/settlement/features/payouts/api/runtime.ts:2225-2260 (Settlement net payout and Payout Fee Ledger Entry posting)",
+          "bounded-contexts/settlement/features/payouts/api/payout-request-lifecycle.ts:883-918 (Settlement net payout and Payout Fee Ledger Entry posting)",
           "bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx (fee preview before confirmation)",
           "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts:34-52,105-181 (fee-lock snapshot, tranche preservation, resize)",
           "bounded-contexts/public-presence/features/help/domain/articles/sales-fees.en.md",
@@ -206,7 +206,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
           "bounded-contexts/public-presence/features/help/domain/articles/order-protection.en.md",
-          "bounded-contexts/settlement/features/payouts/api/runtime.ts:1498,1600 (payout requests blocked while readiness is not ready)",
+          "bounded-contexts/settlement/features/payouts/api/payout-request-lifecycle.ts:681-694 (payout requests blocked while readiness is not ready)",
           'bounded-contexts/settlement/features/payouts/api/runtime.test.ts:616 ("blocks payout requests until payout readiness is ready")',
           "bounded-contexts/settlement/GLOSSARY.md (Payout Release Hold; Connected Payout Account; Chargeback Clawback)",
           "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts (wallet-nature-custody-interest, adjustment-authority, setoff, negative-balances-and-restrictions, suspension-closure-and-holds subjects — cross-referenced, not restated)",
@@ -237,7 +237,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/settlement/features/payout-readiness/domain/setup-progress.ts:4-15,63-89,186 (identity-and-business/tax-id requirement group)",
           'bounded-contexts/settlement/features/payout-readiness/domain/domain.test.ts:8-16 (missingRequirements includes "tax-id")',
-          "bounded-contexts/settlement/features/payouts/api/runtime.ts:1600 (payout blocked while readiness is not ready)",
+          "bounded-contexts/settlement/features/payouts/api/payout-request-lifecycle.ts:681-694 (payout blocked while readiness is not ready)",
         ],
         openQuestions: [
           "Chase Sets' marketplace-facilitator tax posture by jurisdiction has not been determined and is reserved for counsel.",
