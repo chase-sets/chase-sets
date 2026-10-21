@@ -41,7 +41,13 @@ const context: EventStoreContext = {
   audit: { performedByUserId: operator as never, forAccountId: id("acc", "E1") as never },
 };
 
-type Fact = Readonly<{ name: string; type: string; streamId: string; recordedAt: string; data: object }>;
+type Fact = Readonly<{
+  name: string;
+  type: string;
+  streamId: string;
+  recordedAt: string;
+  data: Record<string, unknown>;
+}>;
 
 function marketplaceReport(name: string, minute: number, reporterKey: string): Fact {
   return {
