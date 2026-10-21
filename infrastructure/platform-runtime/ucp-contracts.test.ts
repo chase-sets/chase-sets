@@ -12,6 +12,7 @@ import {
   UCP_MCP_TOOLS,
   UCP_REST_ENDPOINT_PATH,
   UCP_VERSION,
+  ucpErrorSeverity,
 } from "./ucp";
 
 describe("UCP contract profile", () => {
@@ -141,5 +142,60 @@ describe("UCP envelopes", () => {
       ucp: { version: UCP_VERSION, status: "ok" },
       products: [],
     });
+  });
+});
+
+describe("UCP error severity", () => {
+  it("covers every emitted UCP error code", () => {
+    const emittedCodes = [
+      "agent_grant_rate_limited",
+      "authentication_required",
+      "authorization_forbidden",
+      "capabilities_incompatible",
+      "checkout_closed",
+      "context_required",
+      "idempotency_key_conflict",
+      "idempotency_key_in_progress",
+      "idempotency_key_mismatch",
+      "idempotency_key_required",
+      "invalid_profile_url",
+      "not_found",
+      "operation_not_wired",
+      "payment_confirmation_required",
+      "payment_required",
+      "product_not_found",
+      "checkout_expired",
+      "item_unavailable",
+      "profile_malformed",
+      "profile_mismatch",
+      "profile_unreachable",
+      "signed_request_required",
+      "tool_call_limited",
+      "validation_failed",
+      "version_unsupported",
+    ];
+    const recoverable = new Set([
+      "agent_grant_rate_limited",
+      "authentication_required",
+      "idempotency_key_conflict",
+      "idempotency_key_in_progress",
+      "idempotency_key_mismatch",
+      "idempotency_key_required",
+      "invalid_profile_url",
+      "profile_unreachable",
+      "signed_request_required",
+      "tool_call_limited",
+      "validation_failed",
+    ]);
+
+    for (const code of emittedCodes) {
+      expect(ucpErrorSeverity(code), code).toBe(recoverable.has(code) ? "recoverable" : "unrecoverable");
+    }
+    expect(ucpErrorSeverity("quantity_unit_mismatch")).toBe("recoverable");
+    expect(ucpErrorSeverity("invalid_future_code")).toBe("recoverable");
+    expect(ucpErrorSeverity("idempotency_key_future_code")).toBe("recoverable");
+    expect(ucpErrorSeverity("custom_limited")).toBe("recoverable");
+    expect(ucpErrorSeverity("custom_limited_suffix")).toBe("unrecoverable");
+    expect(ucpErrorSeverity("requires_buyer_input")).toBe("unrecoverable");
   });
 });
