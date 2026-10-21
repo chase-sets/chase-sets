@@ -23,6 +23,7 @@ type CandidateDiagnostic = Pick<
   "goalId" | "goalVersion" | "dryRunId" | "status" | "requestedAt" | "completedAt"
 >;
 type PricingHealthResponse = {
+  target: { policyId: string } | null;
   goals: readonly { goalId: string; goalVersion: number }[];
   comparison: readonly (CandidateDiagnostic & {
     targetPolicyId: string;
@@ -141,7 +142,7 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     const read = async () =>
       (await (await page.request.get(`${healthApi}?policyId=${created!.policyId}`)).json()) as PricingHealthResponse;
     const first = await read();
-    // 45 s setup + <=75 s candidates (5 × 12 s) + 30 s UI/axe/responsive + 20 s drain = 170 s < 180 s.
+    // 45 s setup + <=75 s candidates (5 × 12 s) + 30 s UI/axe/responsive + 20 s drain + canonical navigation = 170 s < 180 s.
     const candidateDeadline = Date.now() + Math.min(75_000, Math.max(45_000, first.goals.length * 12_000));
     let completed: PricingHealthResponse;
     while (Date.now() < candidateDeadline) {
@@ -187,9 +188,22 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
       movement += (row.raised ?? 0) + (row.lowered ?? 0);
     }
     expect(movement).toBeGreaterThan(0);
-    // The mounted route must observe worker completion without an explicit page reload.
-    await expect(page.getByTestId("pricing-health-goal-comparison")).toContainText("Completed");
+    // The mounted route must observe every worker completion without an explicit page reload.
+    const comparison = page.getByTestId("pricing-health-goal-comparison");
+    await expect(comparison.getByRole("cell", { name: "Completed", exact: true })).toHaveCount(completed.goals.length, {
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("button", { name: "Compute verdict", exact: true })).toBeEnabled({ timeout: 15_000 });
     expect(await (await page.request.get(`${policiesApi}/${created.policyId}`)).json()).toEqual(before);
+    const implicitTarget = await (await page.request.get(healthApi)).json();
+    expect(implicitTarget.target?.policyId, "The implicit target is not the created policy.").toBe(created.policyId);
+    await page.goto("/account/desk/pricing-health");
+    await expect(comparison.getByRole("cell", { name: "Completed", exact: true })).toHaveCount(completed.goals.length, {
+      timeout: 15_000,
+    });
+    const computeVerdict = page.getByRole("button", { name: "Compute verdict", exact: true });
+    await expect(computeVerdict).toBeEnabled();
+    await expect(computeVerdict).toHaveCSS("opacity", "1");
     const viewports = [
       { width: 360, height: 800 },
       { width: 390, height: 844 },
@@ -197,9 +211,33 @@ test("compare eligible Pricing Goals over the entire selected policy without mut
     ];
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
+      const overflow = await page.getByTestId("pricing-health-page").evaluate((node) => {
+        const page = node as HTMLElement;
+        const offenders = Array.from(page.querySelectorAll<HTMLElement>("*")).flatMap((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.right > page.clientWidth
+            ? [
+                {
+                  tag: element.tagName.toLowerCase(),
+                  testid: element.dataset.testid ?? null,
+                  role: element.getAttribute("role"),
+                  width: rect.width,
+                },
+              ]
+            : [];
+        });
+        return { scrollWidth: page.scrollWidth, clientWidth: page.clientWidth, offenders };
+      });
+      if (overflow.scrollWidth > overflow.clientWidth + 1) {
+        await testInfo.attach(`pricing-goal-comparison-overflow-${viewport.width}.json`, {
+          body: Buffer.from(JSON.stringify(overflow.offenders, null, 2)),
+          contentType: "application/json",
+        });
+      }
       expect(
-        await page.getByTestId("pricing-health-page").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
-      ).toBe(true);
+        overflow.scrollWidth,
+        `Pricing Health page horizontal overflow at ${viewport.width}px`,
+      ).toBeLessThanOrEqual(overflow.clientWidth + 1);
       await captureAccessibilityEvidence({ page, testInfo, surface: `Pricing Goal comparison ${viewport.width}` });
     }
     await page.setViewportSize({ width: 360, height: 800 });

@@ -1,3 +1,4 @@
+import { formatDateTime } from "@chase-sets/localization";
 import { Banner, Card, DataTable, Fieldset, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
 import {
@@ -74,7 +75,7 @@ export function GoalComparison({
         tone={recommendation.kind === "switch" ? "success" : "info"}
         title={recommendationCopy(recommendation, goals)}
       />
-      <div className="min-w-0">
+      <Stack gap={0} minWidth="0">
         <DataTable
           rows={[...candidates]}
           getRowId={(row) => `${row.goalId}@${row.goalVersion}`}
@@ -101,7 +102,7 @@ export function GoalComparison({
                 </Text>
               ),
             },
-            { key: "requestedAt", header: copy("goals.requestedAt"), cell: (row) => row.requestedAt },
+            { key: "requestedAt", header: copy("goals.requestedAt"), cell: (row) => formatDateTime(row.requestedAt) },
             {
               key: "hash",
               header: copy("goals.bodyHash"),
@@ -175,9 +176,8 @@ export function GoalComparison({
                   .join(", "),
             },
           ]}
-          tabIndex={0}
         />
-      </div>
+      </Stack>
     </Stack>
   );
 }

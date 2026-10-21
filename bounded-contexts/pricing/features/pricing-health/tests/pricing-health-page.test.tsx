@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { formatDateTime } from "@chase-sets/localization";
 import { PricingHealthPage } from "../ui/page";
 import { summarizeHealth } from "../../repricing-engine/api/health-summary";
 import type { PricingHealthData } from "../api/services";
@@ -80,6 +81,48 @@ describe("Pricing Health page states", () => {
     expect(html).toContain("Compute verdict");
     expect(html).not.toContain("S1 ");
     expect(html).not.toContain("$0.00");
+  });
+
+  it("formats comparison requested times for people instead of exposing raw timestamps", () => {
+    const requestedAt = "2026-10-20T01:02:03.000Z";
+    const html = renderToStaticMarkup(
+      <PricingHealthPage
+        data={{
+          ...data,
+          goals: [],
+          comparison: [
+            {
+              goalId: "fixed-percentile",
+              goalVersion: 1,
+              dryRunId: "dry_comparison",
+              status: "completed",
+              requestedAt,
+              completedAt: requestedAt,
+              bodyHash: "a".repeat(64),
+              targetPolicyId: "pol_synthetic",
+              targetRevision: 1,
+              listingCount: 1,
+              raised: 1,
+              lowered: 0,
+              held: 0,
+              heldReasons: {},
+              value: { USD: "12.00" },
+              medianWaitDays: { USD: 2 },
+              p90WaitDays: { USD: 4 },
+              boundStatusCount: { USD: 0 },
+              coverage: { USD: 1 },
+              profitPerDay: { USD: 1 },
+              capitalTurn: { USD: 0.1 },
+              economicsSet: { digest: "synthetic", size: 1 },
+              flags: {},
+            },
+          ],
+          recommendation: { kind: "compare-goals" },
+        }}
+      />,
+    );
+    expect(html).toContain(formatDateTime(requestedAt));
+    expect(html).not.toContain(requestedAt);
   });
 
   it("distinguishes no policy, explicit selection, loading, empty population, computing and source error", () => {
