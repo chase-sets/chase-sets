@@ -24,7 +24,8 @@ const paintedSelector = '[data-shell-header-box="painted"]';
 const reservedSelector = '[data-shell-header-box="reserved"]';
 const searchInputSelector = `${slotSelector} input[role='combobox']`;
 const searchHeaderSelector = "nav:has(form[role='search'])";
-const searchFormInputSelector = "nav form[role='search'] input";
+const searchFormInputSelector = "nav form[role='search'] input[role='combobox']";
+const broadSearchFormInputSelector = "nav form[role='search'] input";
 const searchFormTriggerSelector = "nav form[role='search'] button";
 const MAX_REVERSE_PRESSES = 8;
 
@@ -123,6 +124,22 @@ async function currentScrollY(page: Page) {
 async function driveDownwardPastFloor(page: Page) {
   await assertScrollableForCollapseDrive(page);
   await scrollWindowTo(page, COLLAPSE_FLOOR + 104);
+}
+
+async function assertCollapsedReverseTraversalPrecondition(page: Page, navSelector: string) {
+  const facts = await page.evaluate((nav) => {
+    const header = document.querySelector(nav);
+    const active = document.activeElement;
+    return {
+      phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state") ?? null,
+      activeOutsideHeader: !header?.contains(active),
+    };
+  }, navSelector);
+  expect(facts, "reverse traversal must begin collapsed and outside the header").toEqual({
+    phase: "collapsed",
+    activeOutsideHeader: true,
+  });
+  expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(64, 0);
 }
 
 async function resolvedHeaderHeightPx(page: Page) {
@@ -520,10 +537,7 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     const beyond = await page.evaluate(() => window.scrollY + 200);
     await scrollWindowTo(page, beyond + DIRECTION_DELTA + 8);
     await waitForSearchRowPhase(page, "collapsed");
-    expect(
-      await page.evaluate((header) => document.activeElement?.closest(header) === null, searchHeaderSelector),
-    ).toBe(true);
-    expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(64, 0);
+    await assertCollapsedReverseTraversalPrecondition(page, searchHeaderSelector);
 
     let step = 0;
     const phaseACaptureIndex = ++step;
@@ -533,6 +547,13 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
         activeOutsideHeader: !document.querySelector(header)?.contains(document.activeElement),
       }),
       searchHeaderSelector,
+    );
+    const searchFormInputCounts = await page.evaluate(
+      ({ broad, refined }) => ({
+        broad: document.querySelectorAll(broad).length,
+        refined: document.querySelectorAll(refined).length,
+      }),
+      { broad: broadSearchFormInputSelector, refined: searchFormInputSelector },
     );
     const inputDiagnostics = await readFocusDiagnostics(page, searchFormInputSelector);
     const triggerDiagnostics = await readFocusDiagnostics(page, searchFormTriggerSelector);
@@ -561,6 +582,7 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       maxPresses: MAX_REVERSE_PRESSES,
       presses: authority.presses,
       collapsedFacts,
+      searchFormInputCounts,
       trace: authority.trace,
       inputDiagnostics,
       triggerDiagnostics,
@@ -571,14 +593,23 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     expect(firstKeyPressIndex).toBeLessThan(restoreIndex);
     expect(restoreIndex).toBeLessThan(firstAssertionIndex);
     expect(collapsedFacts).toEqual({ phase: "collapsed", activeOutsideHeader: true });
-    expect(inputDiagnostics.visibility).toBe("visible");
-    expect(inputDiagnostics.tabIndex).toBeGreaterThanOrEqual(0);
-    expect(triggerDiagnostics).toMatchObject({ visibility: "visible", tabIndex: -1, inert: false });
-    expect(authority.firstHeaderStop?.activeElement).toContain("input=true");
-    expect(authority.firstHeaderStop?.phase).toBe("expanded");
-    expect(authority.firstHeaderStop?.headerHeightPx).toBeCloseTo(124, 0);
-    expect(authority.trace.slice(1).some((stop) => stop.activeElement.includes("a[Chase Sets]"))).toBe(true);
-    expect(authority.trace.every((stop) => !stop.activeElement.includes("button["))).toBe(true);
+    const authorityFailureContext = JSON.stringify({ inputDiagnostics, triggerDiagnostics, trace: authority.trace });
+    expect(authority.firstHeaderStop?.activeElement, authorityFailureContext).toMatch(/^input\[.*\] input=true$/);
+    expect(authority.firstHeaderStop?.phase, authorityFailureContext).toBe("expanded");
+    expect(authority.firstHeaderStop?.headerHeightPx, authorityFailureContext).toBeCloseTo(124, 0);
+    expect(
+      authority.trace.slice(1).some((stop) => stop.activeElement.includes("a[Chase Sets]")),
+      authorityFailureContext,
+    ).toBe(true);
+    expect(
+      authority.trace.every((stop) => !stop.activeElement.includes("button[")),
+      authorityFailureContext,
+    ).toBe(true);
+    expect(triggerDiagnostics, authorityFailureContext).toMatchObject({
+      visibility: "visible",
+      tabIndex: -1,
+      inert: false,
+    });
     expect(await page.locator(shellSelector).getAttribute("data-search-row-state")).toBe("expanded");
     expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(124, 0);
     expect(postExpandReadback).toEqual({ phase: "expanded", hasTabIndex: false, hasInert: false });
@@ -587,15 +618,17 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("fails the collapsed-time authority when the row never collapses @marketplace-browse", async ({ page }) => {
     await openAtViewport(page, "/search?q=charizard", phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
+    await page.keyboard.press("Tab");
     await driveDownwardPastFloor(page);
     await waitForSearchRowPhase(page, "expanded");
-    let failure: unknown;
-    try {
-      expect(await page.locator(shellSelector).getAttribute("data-search-row-state")).toBe("collapsed");
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(Error);
+    await expect(assertCollapsedReverseTraversalPrecondition(page, searchHeaderSelector)).rejects.toThrow(/collapsed/);
+    await expect(
+      readReverseTraversalAuthority(page, {
+        navSelector: searchHeaderSelector,
+        inputSelector: searchFormInputSelector,
+        maxPresses: MAX_REVERSE_PRESSES,
+      }),
+    ).rejects.toThrow(/must begin each outside-header press collapsed/);
   });
 
   test("proves native traversal discriminates a sequential stop where the accessibility conjunction cannot @marketplace-browse", async ({
@@ -623,8 +656,8 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       expect(diagnostic.axIgnored).not.toBe(true);
       expect(diagnostic.axFocusable).toBe(true);
     }
-    expect(authority.trace.some((stop) => stop.activeElement.includes("value=checked"))).toBe(true);
-    expect(authority.trace.some((stop) => stop.activeElement.includes("value=unchecked"))).toBe(false);
+    expect(authority.trace.some((stop) => stop.activeElement.startsWith("input[checked]"))).toBe(true);
+    expect(authority.trace.some((stop) => stop.activeElement.startsWith("input[unchecked]"))).toBe(false);
   });
 
   test("reveals the collapsed search row through sequential keyboard focus @marketplace-browse", async ({
