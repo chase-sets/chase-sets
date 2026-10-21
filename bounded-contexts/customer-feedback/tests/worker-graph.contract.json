@@ -2,7 +2,7 @@
   "contextName": "customer-feedback",
   "runners": [
     {
-      "subscriptionName": "customer-feedback.customer-feedback-csat-outcome-fact-projection",
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
       "handlerKind": "projection",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
       "sourceContextName": "auth",
@@ -21,7 +21,7 @@
       "order": 1
     },
     {
-      "subscriptionName": "customer-feedback.customer-feedback-csat-outcome-fact-projection",
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
       "handlerKind": "projection",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
       "sourceContextName": "identity",
@@ -40,7 +40,7 @@
       "order": 2
     },
     {
-      "subscriptionName": "customer-feedback.customer-feedback-csat-outcome-fact-projection",
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
       "handlerKind": "projection",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
       "sourceContextName": "discovery",
@@ -324,7 +324,7 @@
   ],
   "subscriptions": [
     {
-      "subscriptionName": "customer-feedback.customer-feedback-csat-outcome-fact-projection",
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
       "handlerKind": "projection",
       "sourceContextName": "auth",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
@@ -332,11 +332,17 @@
       "handlers": { "auth.session.started": "<function>" },
       "eventTypes": ["auth.session.started"],
       "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 1
     },
     {
-      "subscriptionName": "customer-feedback.customer-feedback-csat-outcome-fact-projection",
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
       "handlerKind": "projection",
       "sourceContextName": "identity",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
@@ -344,11 +350,17 @@
       "handlers": { "identity.registration.completed": "<function>", "identity.onboarding.completed": "<function>" },
       "eventTypes": ["identity.registration.completed", "identity.onboarding.completed"],
       "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 2
     },
     {
-      "subscriptionName": "customer-feedback.customer-feedback-csat-outcome-fact-projection",
+      "subscriptionName": "customer-feedback.csat-outcome-fact-projection",
       "handlerKind": "projection",
       "sourceContextName": "discovery",
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
@@ -356,6 +368,12 @@
       "handlers": { "discovery.search-session.started": "<function>" },
       "eventTypes": ["discovery.search-session.started"],
       "streamPrefixes": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 3
     },

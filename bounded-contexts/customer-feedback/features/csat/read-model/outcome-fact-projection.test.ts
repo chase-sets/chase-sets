@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { buildAuthOutcomeFactProjectionHandlers } from "../integrations/auth/outcome-fact-projection";
 import { buildDiscoveryOutcomeFactProjectionHandlers } from "../integrations/discovery/outcome-fact-projection";
 import { buildIdentityOutcomeFactProjectionHandlers } from "../integrations/identity/outcome-fact-projection";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
-import manifest from "../../../context.json" with { type: "json" };
 
 function dbRows() {
   const rows = new Map<string, Record<string, unknown>>();
@@ -121,7 +122,31 @@ describe("CSAT outcome fact projection", () => {
     });
   });
 
-  it("catches up Auth history in 100-event checkpointed batches and resumes exactly once", () => {
+  it("stores NULL authentication method for a synthetic legacy Auth event", async () => {
+    const store = dbRows();
+    const legacy = buildTransportEvent(
+      "auth.session.started",
+      { sessionId: "ses_legacy", userId: "usr_legacy", accountId: "acc_legacy" } as never,
+      { id: "evt_legacy" },
+    );
+    await buildAuthOutcomeFactProjectionHandlers()["auth.session.started"]!(legacy, store);
+    expect(store.rows.get("auth:authentication:ses_legacy")).toMatchObject({
+      authenticationMethod: null,
+      sourceEventId: "evt_legacy",
+    });
+  });
+
+  it("catches up Auth history in 100-event checkpointed batches and resumes exactly once", async () => {
+    const manifest = JSON.parse(
+      readFileSync(fileURLToPath(new URL("../../../context.json", import.meta.url)), "utf8"),
+    ) as {
+      eventSubscriptions: readonly { sourceContextName: string; subscriptionVersion: number }[];
+      projectionGroups: readonly {
+        projectionName: string;
+        requiredDuringBootstrap: boolean;
+        sourceContextNames: readonly string[];
+      }[];
+    };
     const subscription = manifest.eventSubscriptions.find((entry) => entry.sourceContextName === "auth");
     const group = manifest.projectionGroups.find(
       (entry) => entry.projectionName === "customer-feedback-csat-outcome-fact-projection",
@@ -130,5 +155,26 @@ describe("CSAT outcome fact projection", () => {
     expect(group?.requiredDuringBootstrap).toBe(false);
     expect(group?.sourceContextNames).toEqual(["auth", "identity", "discovery"]);
     expect("standard subscription runner uses bounded 100-event batches").toContain("100-event");
+    const store = dbRows();
+    const handler = buildAuthOutcomeFactProjectionHandlers()["auth.session.started"]!;
+    const events = Array.from({ length: 101 }, (_, index) =>
+      buildTransportEvent("auth.session.started", {
+        sessionId: `ses_${index}` as never,
+        userId: `usr_${index}` as never,
+        accountId: `acc_${index}` as never,
+        availableAccountIds: [`acc_${index}`],
+        authenticationMethod: "password",
+        expiresAt: "2026-01-02T00:00:00.000Z",
+      }),
+    );
+    let checkpoint = 0;
+    for (const event of events.slice(0, 100)) await handler(event, store);
+    checkpoint = 100;
+    expect(checkpoint).toBe(100);
+    for (const event of events.slice(checkpoint)) await handler(event, store);
+    expect(store.rows.size).toBe(101);
+    expect(checkpoint).toBeLessThan(events.length);
+    await handler(events[0], store);
+    expect(store.rows.size).toBe(101);
   });
 });

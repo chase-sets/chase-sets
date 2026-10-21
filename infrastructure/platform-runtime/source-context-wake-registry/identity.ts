@@ -24,6 +24,7 @@ export const identityWakeRegistryEntry = registryEntry({
     "auth:auth-identity-invitation-projection",
     "auth:auth-identity-membership-projection",
     "auth:auth-identity-user-projection",
+    "customer-feedback:customer-feedback-csat-outcome-fact-projection",
     "checkout:checkout-seller-accounts-projection",
     "commercial-terms:commercial-terms-account-projection",
     "commercial-terms:commercial-terms-founders-window-reaction",

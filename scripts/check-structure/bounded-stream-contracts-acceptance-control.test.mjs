@@ -225,7 +225,7 @@ describe("bounded-stream-contracts-acceptance-control", () => {
   it("rejects bound, result-binding, later-event, and whole-page consumption mutants", () => {
     const identityFile = "bounded-contexts/identity/api.ts";
     const identitySource = readSource(identityFile);
-    expect(errorCodes(mutatedInventory(identityFile, identitySource.replace(", limit: 1", "")))).toContain(
+    expect(errorCodes(mutatedInventory(identityFile, identitySource.replace("limit: 1,", "")))).toContain(
       "bounded-limit-not-one",
     );
 

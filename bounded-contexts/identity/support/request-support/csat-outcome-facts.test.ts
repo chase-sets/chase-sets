@@ -23,7 +23,7 @@ describe("identity lifecycle events", () => {
     expect(event.payload).toEqual({ accountId: "acc_1", userId: "usr_1" });
   });
 
-  it("keeps guest and invitation onboarding successful when projection fails", async () => {
+  it("keeps guest and both invitation onboarding sites successful when projection fails", async () => {
     const { eventStore } = createInMemoryEventStore();
     await expect(
       appendOnboardingCompleted(eventStore, context, {
@@ -40,6 +40,15 @@ describe("identity lifecycle events", () => {
         onboardingPath: "invitation",
         invitationId: "inv_3",
         idempotencyKey: "identity:onboarding:invitation:inv_3:usr_3",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      appendOnboardingCompleted(eventStore, context, {
+        accountId: "acc_4" as AccountId,
+        userId: "usr_4" as UserId,
+        onboardingPath: "invitation",
+        invitationId: "inv_4_second-site",
+        idempotencyKey: "identity:onboarding:invitation:inv_4_second-site:usr_4",
       }),
     ).resolves.toBeUndefined();
   });

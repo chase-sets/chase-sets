@@ -17,7 +17,7 @@ export function buildAuthOutcomeFactProjectionHandlers(): ProjectorHandlerMap {
         outcomeOccurredAt: event.timing.recordedAt,
         sourceEventId: event.id,
         performedByUserId: event.audit.performedByUserId,
-        authenticationMethod: event.data.authenticationMethod,
+        authenticationMethod: event.data.authenticationMethod ?? null,
         reasonCode: null,
       });
     },

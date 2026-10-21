@@ -61,7 +61,7 @@ Session/token security lifetimes -- values, env vars, bounds, and the env-tier-b
 
 ## Outgoing Integration Events
 
-- None. `auth.session.started`, `auth.session.account-switched`, `auth.session.revoked`, and `auth.session.expired` are consumed only by Auth's own session projection today.
+- None. `auth.session.started`, `auth.session.account-switched`, `auth.session.revoked`, and `auth.session.expired` are consumed by Auth's own session projection; `auth.session.started` is also consumed by Customer Feedback's `customer-feedback-csat-outcome-fact-projection`.
 
 ## Invariants
 
