@@ -296,8 +296,9 @@ function joinRoutePaths(prefix, routePath) {
 }
 
 const honoAppRootPattern = /(?<![\w$.])app\b/g;
-const honoNewRootPattern = /(?<![\w$.])new\s+Hono(?:\s*<[^>\r\n]*>)?\s*\(\s*\)/g;
+const honoNewRootPattern = /(?<![\w$.])new\s+Hono\b/g;
 const honoRouteMethods = new Set(["route", "get", "head", "post", "put", "patch", "delete"]);
+const honoPassThroughMethods = new Set(["use", "all", "on", "options", "onError", "notFound"]);
 
 function skipJavaScriptTrivia(content, start) {
   let index = start;
@@ -396,6 +397,28 @@ function findCallEnd(content, openParen) {
   return null;
 }
 
+function skipTypeArguments(content, start) {
+  if (content[start] !== "<") return start;
+  let depth = 0;
+  for (let index = start; index < content.length; index += 1) {
+    if (content[index] === "<") depth += 1;
+    if (content[index] === ">" && content[index - 1] !== "=") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return null;
+}
+
+function honoChainStart(content, rootMatch) {
+  const afterRoot = rootMatch.index + rootMatch[0].length;
+  if (!rootMatch[0].startsWith("new")) return afterRoot;
+  const afterTypeArguments = skipTypeArguments(content, skipJavaScriptTrivia(content, afterRoot));
+  if (afterTypeArguments === null) return null;
+  const openParen = skipJavaScriptTrivia(content, afterTypeArguments);
+  return content[openParen] === "(" ? findCallEnd(content, openParen) : null;
+}
+
 function collectHonoRouteCalls(content, { includeNewHono = true } = {}) {
   const calls = [];
   const rootMatches = [
@@ -403,23 +426,26 @@ function collectHonoRouteCalls(content, { includeNewHono = true } = {}) {
     ...(includeNewHono ? [...content.matchAll(honoNewRootPattern)] : []),
   ].sort((left, right) => left.index - right.index);
   for (const rootMatch of rootMatches) {
-    let cursor = rootMatch.index + rootMatch[0].length;
+    let cursor = honoChainStart(content, rootMatch);
+    if (cursor === null) continue;
     while (true) {
       cursor = skipJavaScriptTrivia(content, cursor);
       if (content[cursor] !== ".") break;
       const methodMatch = content.slice(cursor + 1).match(/^([A-Za-z_$][\w$]*)/);
-      if (!methodMatch || !honoRouteMethods.has(methodMatch[1])) break;
+      if (!methodMatch || !(honoRouteMethods.has(methodMatch[1]) || honoPassThroughMethods.has(methodMatch[1]))) break;
       const method = methodMatch[1];
       const methodStart = cursor;
       cursor += 1 + method.length;
       cursor = skipJavaScriptTrivia(content, cursor);
       if (content[cursor] !== "(") break;
       const openParen = cursor;
-      const pathStart = skipJavaScriptTrivia(content, openParen + 1);
-      const path = readJavaScriptString(content, pathStart);
+      if (honoRouteMethods.has(method)) {
+        const pathStart = skipJavaScriptTrivia(content, openParen + 1);
+        const path = readJavaScriptString(content, pathStart);
+        calls.push({ method, methodStart, path: path?.value ?? null });
+      }
       const end = findCallEnd(content, openParen);
       if (end === null) break;
-      calls.push({ method, methodStart, path: path?.value ?? null });
       cursor = end;
     }
   }
