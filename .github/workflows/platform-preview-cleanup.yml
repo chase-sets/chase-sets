@@ -645,21 +645,6 @@ jobs:
             exit 1
           fi
 
-      - name: Disable stateful destroy guard for approved preview cleanup
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
-        run: |
-          node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf || {
-            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
-            exit 1
-          }
-
       - name: Terraform init
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -692,6 +677,21 @@ jobs:
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
             exit 1
           fi
+
+      - name: Disable stateful destroy guard for approved preview cleanup
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
+        run: |
+          node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf || {
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          }
 
       - name: Import live preview database cluster into cleanup state
         env:

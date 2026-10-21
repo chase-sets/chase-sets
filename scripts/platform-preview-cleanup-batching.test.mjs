@@ -238,8 +238,8 @@ describe("scheduled preview cleanup batching", () => {
     expect(destroyBlock).toMatch(/^    timeout-minutes:\s*\d+\s*$/m);
     expect(32 * measuredWorstCloseEventSeconds + 30).toBeLessThanOrEqual(45 * 60);
     for (const name of [
-      "Disable stateful destroy guard for approved preview cleanup",
       "Terraform init",
+      "Disable stateful destroy guard for approved preview cleanup",
       "Import live preview database cluster into cleanup state",
       "Terraform destroy",
     ]) {
@@ -252,6 +252,10 @@ describe("scheduled preview cleanup batching", () => {
     );
     expect(step("destroy-preview", "Delete preview DNS records").if).toBe("always()");
     expect(step("destroy-preview", "Delete preview Kubernetes namespace").if).toBe("always()");
+    const steps = destroy.steps.map(({ name }) => name).filter(Boolean);
+    expect(steps.indexOf("Terraform init")).toBeLessThan(
+      steps.indexOf("Disable stateful destroy guard for approved preview cleanup"),
+    );
   });
 
   it("keeps all managed-postgres secret-ingress anchors aligned with the workflow", () => {
@@ -273,8 +277,8 @@ describe("scheduled preview cleanup batching", () => {
         "name:Install dependencies#6",
         "name:Configure preview Kubernetes context#11",
         "name:Delete preview Kubernetes namespace#12",
-        "name:Disable stateful destroy guard for approved preview cleanup#13",
-        "name:Terraform init#14",
+        "name:Terraform init#13",
+        "name:Disable stateful destroy guard for approved preview cleanup#14",
         "name:Import live preview database cluster into cleanup state#15",
         "name:Terraform destroy#16",
       ]),

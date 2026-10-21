@@ -248,42 +248,42 @@
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#14",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#13",
+      "stepAnchor": "name:Disable stateful destroy guard for approved preview cleanup#14",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
@@ -416,42 +416,42 @@
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#14",
+      "stepAnchor": "name:Terraform init#13",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#14",
+      "stepAnchor": "name:Terraform init#13",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#14",
+      "stepAnchor": "name:Terraform init#13",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#14",
+      "stepAnchor": "name:Terraform init#13",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#14",
+      "stepAnchor": "name:Terraform init#13",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-preview-cleanup.yml",
       "jobId": "destroy-preview",
-      "stepAnchor": "name:Terraform init#14",
+      "stepAnchor": "name:Terraform init#13",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
