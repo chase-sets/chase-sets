@@ -4,6 +4,8 @@
 // credential is generated, used and revoked here; none leaves the job. The closed
 // commands below are the workflow's steps:
 //
+//   admit      refuse, before the window job joins the staging deploy lock, unless no
+//              other member run holds or awaits it
 //   inputs     validate the closed inputs and derive the run-bound identity
 //   preflight  take over a finished run's residue; bind the owning deploy generation
 //   provision  arm the cleanup observer, then install the admission key, restart both
@@ -713,6 +715,198 @@ export function revocationDeadline({ runEndedAt = null, deadline = null }) {
 }
 
 // ---------------------------------------------------------------------------------
+// Admission. The staging deploy lock queues the default way: "any existing pending job
+// or workflow run in the same group is canceled and replaced" (GitHub, Control the
+// concurrency of workflows and jobs, `queue: single`). A window that waits on it is
+// displaced by the next member to join, as run 39493081143 was, so the window joins only
+// when no other member run holds or awaits the lock and otherwise refuses before any
+// credential or cleanup obligation exists.
+
+export const DEPLOY_LOCK_GROUP = "platform-deploy-staging";
+export const WINDOW_JOB_NAME = "Staging Evidence Window";
+/**
+ * Every member of the staging deploy lock at this head; the census test derives the same
+ * list from the workflows. A workflow-level member (`jobs: null`) holds or awaits the lock
+ * for its whole run. A job-level member does so until each named job is listed completed:
+ * GitHub lists a job only once its needs finish (run 39488701882 listed Deploy Staging 29
+ * minutes after the run began), so a job not yet listed is still to come.
+ */
+export const DEPLOY_LOCK_MEMBERS = Object.freeze(
+  [
+    ["platform-preview-wildcard-tls.yml", null],
+    ["platform-production.yml", ["Reconcile Managed Postgres CA (staging)", "Deploy Staging"]],
+    ["platform-staging-admin-qa-actor-fixtures.yml", ["Provision Admin QA Actor Fixtures"]],
+    ["platform-staging-advisory-evidence.yml", ["Staging Advisory Evidence"]],
+    ["platform-staging-bootstrap-hook-drill.yml", null],
+    ["platform-staging-evidence-window.yml", [WINDOW_JOB_NAME]],
+    ["platform-staging-helm-recovery.yml", null],
+    ["platform-staging-representative-commerce-state.yml", ["Refresh Representative Commerce State"]],
+    ["platform-staging-reset.yml", ["Reset Staging"]],
+    ["platform-staging-rollback-drill.yml", null],
+  ].map(([workflow, jobs]) => Object.freeze({ workflow, jobs: jobs && Object.freeze(jobs) })),
+);
+// Every status GitHub gives a workflow run that has not completed.
+export const ACTIVE_RUN_STATUSES = Object.freeze(["requested", "queued", "pending", "waiting", "in_progress"]);
+
+// A listing is complete only when its one page holds its whole total.
+function completeListing(listing, key) {
+  if (!isRecord(listing) || !Array.isArray(listing[key]) || listing.total_count !== listing[key].length) {
+    throw stop("deploy-lock-census-incomplete");
+  }
+  return listing[key];
+}
+
+function memberRun(run, member) {
+  if (
+    !isRecord(run) ||
+    !Number.isSafeInteger(run.id) ||
+    run.id < 1 ||
+    run.path !== `.github/workflows/${member.workflow}` ||
+    !(run.status === "completed" || ACTIVE_RUN_STATUSES.includes(run.status)) ||
+    !Number.isSafeInteger(run.run_attempt) ||
+    run.run_attempt < 1 ||
+    !isInstant(run.created_at)
+  ) {
+    throw stop("deploy-lock-census-malformed");
+  }
+  return { runId: String(run.id), attempt: run.run_attempt, status: run.status, createdAt: run.created_at };
+}
+
+/** The named jobs a job-level member run still has to hold the lock for; null is the whole run. */
+async function awaitedJobs(github, member, run) {
+  if (!member.jobs) return null;
+  const jobs = completeListing(await github.attemptJobs(run.runId, run.attempt), "jobs");
+  for (const job of jobs) {
+    if (
+      !isRecord(job) ||
+      String(job.run_id) !== run.runId ||
+      job.run_attempt !== run.attempt ||
+      typeof job.name !== "string" ||
+      typeof job.status !== "string"
+    ) {
+      throw stop("deploy-lock-census-malformed");
+    }
+  }
+  return member.jobs.filter((name) => {
+    const listed = jobs.filter((job) => job.name === name);
+    return listed.length === 0 || listed.some((job) => job.status !== "completed");
+  });
+}
+
+/**
+ * Reads every member's runs in every active status, then each active job-level run's jobs.
+ * `free` admits; `held` names each holder; any unreadable, incomplete or malformed read is
+ * `unknown`. Both of the latter refuse.
+ */
+async function censusDeployLock({ github, ownRunId, observedAt }) {
+  const census = { group: DEPLOY_LOCK_GROUP, observedAt, members: DEPLOY_LOCK_MEMBERS.length };
+  try {
+    const active = await Promise.all(
+      DEPLOY_LOCK_MEMBERS.map(async (member) => {
+        const listings = await Promise.all(
+          ACTIVE_RUN_STATUSES.map((status) => github.workflowRuns(member.workflow, status)),
+        );
+        const runs = new Map();
+        for (const run of listings.flatMap((listing) => completeListing(listing, "workflow_runs"))) {
+          const read = memberRun(run, member);
+          if (read.status !== "completed" && read.runId !== ownRunId) runs.set(read.runId, read);
+        }
+        return [...runs.values()].map((run) => ({ member, run }));
+      }),
+    );
+    const holders = (
+      await Promise.all(
+        active.flat().map(async ({ member, run }) => ({
+          workflow: member.workflow,
+          ...run,
+          jobs: await awaitedJobs(github, member, run),
+        })),
+      )
+    ).filter((holder) => holder.jobs === null || holder.jobs.length > 0);
+    return { ...census, verdict: holders.length === 0 ? "free" : "held", reason: null, holders };
+  } catch (error) {
+    const reason = error instanceof EvidenceWindowStop ? error.code : "deploy-lock-census-failed";
+    return { ...census, verdict: "unknown", reason, holders: [] };
+  }
+}
+
+function admissionLines(census) {
+  const lock = `staging deploy lock ${census.group}`;
+  if (census.verdict === "free") {
+    return [
+      `Evidence window admitted: no other run holds or awaits the ${lock} at ${census.observedAt} (${census.members} member workflows).`,
+    ];
+  }
+  if (census.verdict === "unknown") {
+    return [`Evidence window refused: the ${lock} census is unknown (${census.reason}) at ${census.observedAt}.`];
+  }
+  return [
+    `Evidence window refused: the ${lock} is held or awaited at ${census.observedAt}.`,
+    ...census.holders.map(
+      (holder) =>
+        `- ${holder.workflow} run ${holder.runId} attempt ${holder.attempt} (${holder.status}, created ${holder.createdAt}) awaits ${holder.jobs ? holder.jobs.join(", ") : "the lock for its whole run"}.`,
+    ),
+  ];
+}
+
+// ---------------------------------------------------------------------------------
+// Target jobs. GitHub stamps `started_at` on a job that never ran (equal to `created_at`
+// on cancelled job 118871022912 and skipped job 118871022858), so it is never evidence:
+// a job started when a runner was assigned or it has a step. A completed skipped or
+// cancelled job with neither never started, and has no log to read.
+
+const isOptionalInstant = (value) => value === null || isInstant(value);
+
+export function classifyTargetJob(job, identity) {
+  if (
+    !isRecord(job) ||
+    !Number.isSafeInteger(job.id) ||
+    job.id < 1 ||
+    !Number.isSafeInteger(job.run_id) ||
+    String(job.run_id) !== identity.runId ||
+    job.run_attempt !== identity.attempt ||
+    typeof job.name !== "string" ||
+    typeof job.status !== "string" ||
+    !(job.conclusion === null || typeof job.conclusion === "string") ||
+    !(job.runner_id === null || (Number.isSafeInteger(job.runner_id) && job.runner_id >= 0)) ||
+    !(job.runner_name === null || typeof job.runner_name === "string") ||
+    !Array.isArray(job.steps) ||
+    !job.steps.every(isRecord) ||
+    !isInstant(job.created_at) ||
+    !isOptionalInstant(job.started_at) ||
+    !isOptionalInstant(job.completed_at)
+  ) {
+    return "unknown";
+  }
+  if (job.runner_id > 0 || Boolean(job.runner_name) || job.steps.length > 0) return "started";
+  if (job.status === "completed" && (job.conclusion === "skipped" || job.conclusion === "cancelled")) {
+    return "never-started";
+  }
+  return "unknown";
+}
+
+// The attempt's log scan is its worst job: a leak, then an unreadable log, then an
+// unknown job, then a displaced window. Clean needs one scanned job; not-started none.
+const LOG_SCAN_ORDER = ["marker-found", "unreadable", "unknown", "displaced", "clean", "not-started"];
+
+function targetJobRecord(job, start, logScan) {
+  if (start === "unknown") return { id: Number.isSafeInteger(job?.id) ? String(job.id) : null, start, logScan };
+  return {
+    id: String(job.id),
+    name: job.name,
+    status: job.status,
+    conclusion: job.conclusion,
+    createdAt: job.created_at,
+    startedAt: job.started_at,
+    completedAt: job.completed_at,
+    runnerId: job.runner_id,
+    steps: job.steps.length,
+    start,
+    logScan,
+  };
+}
+
+// ---------------------------------------------------------------------------------
 // Receipt
 
 export function buildReceipt(state) {
@@ -1080,6 +1274,8 @@ export function createGitHub({ token, repository, fetchImpl = fetch }) {
     runAttempt: (runId, attempt) => json(`/actions/runs/${runId}/attempts/${attempt}`, "github-run-unreadable"),
     attemptJobs: (runId, attempt) =>
       json(`/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`, "github-jobs-unreadable"),
+    workflowRuns: (workflowFile, status) =>
+      json(`/actions/workflows/${workflowFile}/runs?status=${status}&per_page=100`, "deploy-lock-runs-unreadable"),
     jobLog: async (jobId) => {
       const response = await request(`/actions/jobs/${jobId}/logs`, { accept: "application/vnd.github+json" });
       if (response.status !== 200) throw stop("github-log-unreadable");
@@ -1462,6 +1658,25 @@ async function readAdmission(ctx, identity) {
 const apiTargetsOf = (ctx) => async () => apiPodTargets(await ctx.runtime.pods(API_COMPONENT));
 
 export const commands = {
+  // Runs in its own credential-free job, so it keeps no state: its record is its log and summary.
+  async admit(env, ctx) {
+    const identity = runIdentityFromEnv(env);
+    const census = await censusDeployLock({
+      github: ctx.github,
+      ownRunId: identity.runId,
+      observedAt: iso(ctx.clock()),
+    });
+    const lines = admissionLines(census);
+    for (const line of lines) ctx.log(line);
+    if (env.GITHUB_STEP_SUMMARY) {
+      const summary = ["### Staging evidence window admission", "", ...lines, ""].join("\n");
+      assertValueFree(summary, []);
+      appendFileSync(env.GITHUB_STEP_SUMMARY, summary);
+    }
+    if (census.verdict !== "free") throw stop("evidence-window-queue-unavailable");
+    return null;
+  },
+
   async inputs(env, ctx) {
     const identity = runIdentityFromEnv(env);
     const inputs = parseInputs(env);
@@ -1952,9 +2167,18 @@ export const commands = {
       if (run?.status === "completed") runEndedAt = run.updated_at ?? iso(ctx.clock());
       else await ctx.sleep(POLL_SECONDS * 1000);
     }
-    state.observer.logScan = runEndedAt ? await scanRunLogs(ctx.github, identity) : "run-not-ended";
+    if (runEndedAt) {
+      const { logScan, jobs } = await scanRunLogs(ctx.github, identity);
+      state.observer.logScan = logScan;
+      state.observer.jobs = jobs;
+    } else {
+      state.observer.logScan = "run-not-ended";
+    }
     if (state.cleanup.verdict !== "proven") state.pendingExit = `cleanup-${state.cleanup.verdict}`;
-    else if (state.observer.logScan !== "clean") state.pendingExit = `log-scan-${state.observer.logScan}`;
+    else if (state.observer.logScan === "displaced") state.pendingExit = "evidence-window-displaced";
+    else if (state.observer.logScan !== "clean" && state.observer.logScan !== "not-started") {
+      state.pendingExit = `log-scan-${state.observer.logScan}`;
+    }
     return state;
   },
 };
@@ -1971,17 +2195,40 @@ async function confirmObserver(ctx, identity, dispatchedAt) {
   throw stop("observer-unconfirmed");
 }
 
+// Every started job's log is scanned for markers; a never-started job has none to read,
+// and a cancelled never-started window job was displaced while waiting on the deploy lock.
 async function scanRunLogs(github, identity) {
+  let listing;
   try {
-    const jobs = await github.attemptJobs(identity.runId, identity.attempt);
-    if ((jobs?.jobs ?? []).length === 0 || jobs.total_count > (jobs.jobs ?? []).length) return "incomplete";
-    for (const job of jobs.jobs) {
-      if (credentialMarkersIn(await github.jobLog(job.id)).length > 0) return "marker-found";
-    }
-    return "clean";
+    listing = await github.attemptJobs(identity.runId, identity.attempt);
   } catch {
-    return "unreadable";
+    return { logScan: "unreadable", jobs: [] };
   }
+  const listed = isRecord(listing) && Array.isArray(listing.jobs) ? listing.jobs : [];
+  // An empty, short or repeating listing is not the attempt's inventory.
+  if (
+    listed.length === 0 ||
+    listing.total_count !== listed.length ||
+    new Set(listed.map((job) => job?.id)).size !== listed.length
+  ) {
+    return { logScan: "unknown", jobs: [] };
+  }
+  const jobs = [];
+  for (const job of listed) {
+    const start = classifyTargetJob(job, identity);
+    let logScan = "unknown";
+    if (start === "started") {
+      try {
+        logScan = credentialMarkersIn(await github.jobLog(job.id)).length > 0 ? "marker-found" : "clean";
+      } catch {
+        logScan = "unreadable";
+      }
+    } else if (start === "never-started") {
+      logScan = job.conclusion === "cancelled" && job.name === WINDOW_JOB_NAME ? "displaced" : "not-started";
+    }
+    jobs.push(targetJobRecord(job, start, logScan));
+  }
+  return { logScan: LOG_SCAN_ORDER.find((value) => jobs.some((job) => job.logScan === value)), jobs };
 }
 
 function scanDirectoryForMarkers(directory) {
@@ -2091,7 +2338,9 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
     ctx.log("::error::staging-evidence-window command-not-reviewed");
     return 2;
   }
-  let state = command === "inputs" || command === "observe" ? null : readState(env);
+  // inputs creates the state; admit and observe run in their own jobs and never read it.
+  const stateless = command === "admit" || command === "inputs" || command === "observe";
+  let state = stateless ? null : readState(env);
   if (!state && ["close", "revoke", "receipt"].includes(command)) {
     // Cleanup runs without registration evidence: the run identity alone names its residue.
     try {
@@ -2105,7 +2354,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
       state = null;
     }
   }
-  if (command !== "inputs" && command !== "observe" && !state) {
+  if (!stateless && !state) {
     ctx.log("::error::staging-evidence-window state-missing");
     return 1;
   }

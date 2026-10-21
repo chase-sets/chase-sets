@@ -6,6 +6,9 @@ name: Platform Staging Evidence Window
 # command, credential or ref reaches the job through them. Stripe is read with GET
 # only. The cleanup observer (platform-staging-evidence-window-cleanup.yml) is armed
 # before any credential is installed and takes over at run end or D-5 min.
+# A job waiting on the deploy lock is cancelled when the next member joins it, so the
+# credential-free admit job first refuses with evidence-window-queue-unavailable unless
+# no other member run holds or awaits the lock; only an admitted window joins it.
 
 on:
   workflow_dispatch:
@@ -46,13 +49,36 @@ jobs:
           echo 'Confirmation text did not match exactly; expected "open staging evidence window".' >&2
           exit 1
 
+  admit:
+    name: Admit Evidence Window
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: refuse-unconfirmed
+    if: ${{ !cancelled() && needs.refuse-unconfirmed.result == 'skipped' }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Refuse unless no other member run holds or awaits the staging deploy lock
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/staging-evidence-window.mjs admit
+
   staging-evidence-window:
     name: Staging Evidence Window
     runs-on: ubuntu-latest
     timeout-minutes: 150
     environment: staging
-    needs: refuse-unconfirmed
-    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    needs:
+      - refuse-unconfirmed
+      - admit
+    if: ${{ !cancelled() && needs.refuse-unconfirmed.result == 'skipped' && needs.admit.result == 'success' }}
     permissions:
       actions: write
       contents: read
