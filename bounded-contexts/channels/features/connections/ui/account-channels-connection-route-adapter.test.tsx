@@ -60,8 +60,10 @@ describe("ingest-receipt-action-data", () => {
     await waitFor(() => {
       const pending = screen.getByRole("button", { name: "Ingest Live export" });
       expect(pending.closest("form")?.getAttribute("aria-busy")).toBe("true");
-      expect(pending.closest("fieldset")?.disabled).toBe(true);
+      expect(pending.matches(":disabled")).toBe(false);
     });
+    submitExport(submit);
+    expect(api.posts()).toEqual(["/api/channels/connections/connection-a/manual-sync/ingest?surface=live"]);
     expect(screen.queryByTestId("manual-sync-ingest-receipt")).toBeNull();
     expect(api.panelReads()).toBe(1);
     respond(

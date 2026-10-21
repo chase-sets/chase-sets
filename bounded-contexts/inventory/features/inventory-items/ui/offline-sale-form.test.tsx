@@ -331,7 +331,7 @@ describe("OfflineSaleForm", () => {
     expect(screen.getByText("This token already records different sale details.")).toBeTruthy();
   });
 
-  it("relies on derived pending so a double submit reaches one logical sale without disabling the submitter", async () => {
+  it("offline sale relies on derived pending so a double submit reaches one logical sale without disabling the submitter", async () => {
     const user = userEvent.setup();
     const actionResult = deferred<unknown>();
     let calls = 0;

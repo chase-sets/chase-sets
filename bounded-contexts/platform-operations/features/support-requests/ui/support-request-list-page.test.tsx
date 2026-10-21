@@ -88,7 +88,7 @@ describe("SupportRequestListPage", () => {
   });
 
   for (const failure of ["ambiguous", "denied", "rejected", "conflict", "submit-conflict"] as const) {
-    it(`actual action-loader-form renders ${failure}, retains one batch and changes it only explicitly`, async () => {
+    it(`participant form busies only its own submission: ${failure} retains one batch and changes it only explicitly`, async () => {
       vi.stubGlobal("File", NodeFile);
       const user = userEvent.setup();
       const uploadIds: string[] = [];
@@ -221,6 +221,8 @@ describe("SupportRequestListPage", () => {
         expect(uploadIds).toEqual([originalId]);
         expect(document.querySelector("form")?.getAttribute("aria-busy")).toBe("true");
         expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(false);
+        fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
+        expect(uploadIds).toEqual([originalId]);
         const released = navigationSettled(router);
         await act(async () => {
           releaseUpload!();
