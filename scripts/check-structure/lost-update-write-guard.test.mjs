@@ -437,6 +437,10 @@ describe("owner-local lost-update exceptions", () => {
       .replace(
         '"@chase-sets/typescript-compiler-api"',
         JSON.stringify(import.meta.resolve("@chase-sets/typescript-compiler-api")),
+      )
+      .replace(
+        '"../lib/git-listing.mjs"',
+        JSON.stringify(new URL("../lib/git-listing.mjs", import.meta.url).href),
       );
     const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutantSource).toString("base64")}`);
     const bypassed = await mutant.validateLostUpdateWriteGuard({ repoRoot: root });
