@@ -616,7 +616,7 @@
       },
       "target": {
         "identity": "catalog-scope-card-list",
-        "selector": "main div[role='list']",
+        "selector": "main div[role='list']:not([data-catalog-attention-queue-list])",
         "populatedSelector": ":scope > [role='listitem']"
       },
       "measurements": [

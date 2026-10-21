@@ -165,6 +165,7 @@ export function CatalogAttentionQueuePanel({
           caption={t("catalog.features.attentionQueue.title")}
           getRowId={(row) => row.itemKey}
           density="compact"
+          data-catalog-attention-queue-list="true"
           emptyTitle={t("catalog.features.attentionQueue.empty.title")}
           emptyDescription={t("catalog.features.attentionQueue.empty.description")}
         />
