@@ -1027,11 +1027,12 @@ describe("managed Postgres authority source generator", () => {
       ],
       [
         "owner case mismatch",
-        async (root) =>
-          rename(
-            join(root, `${AUTHORITY_ROOT}/platform-production`),
-            join(root, `${AUTHORITY_ROOT}/Platform-Production`),
-          ),
+        async (root) => {
+          const source = join(root, `${AUTHORITY_ROOT}/platform-production`);
+          const intermediate = join(root, `${AUTHORITY_ROOT}/platform-production-renamed`);
+          await rename(source, intermediate);
+          await rename(intermediate, join(root, `${AUTHORITY_ROOT}/Platform-Production`));
+        },
         "case mismatch",
       ],
       [
