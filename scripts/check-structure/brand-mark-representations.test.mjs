@@ -695,45 +695,47 @@ describe("lockfile package-entry discipline", () => {
   const lock = yaml.parse(readFileSync(join(root, "pnpm-lock.yaml"), "utf8"));
   const packageKeys = Object.keys(lock.packages).sort();
 
-  it("keeps the Sharp family at exactly the twenty-six keys committed here", () => {
-    const sharpFamily = packageKeys.filter((k) => k === "sharp@0.34.5" || k.startsWith("@img/"));
+  it("keeps the Sharp family at exactly the twenty-eight keys committed here", () => {
+    const sharpFamily = packageKeys.filter((k) => k.startsWith("sharp@") || k.startsWith("@img/"));
     const committedSharpFamily = [
       "@img/colour@1.1.0",
-      "@img/sharp-darwin-arm64@0.34.5",
-      "@img/sharp-darwin-x64@0.34.5",
-      "@img/sharp-libvips-darwin-arm64@1.2.4",
-      "@img/sharp-libvips-darwin-x64@1.2.4",
-      "@img/sharp-libvips-linux-arm64@1.2.4",
-      "@img/sharp-libvips-linux-arm@1.2.4",
-      "@img/sharp-libvips-linux-ppc64@1.2.4",
-      "@img/sharp-libvips-linux-riscv64@1.2.4",
-      "@img/sharp-libvips-linux-s390x@1.2.4",
-      "@img/sharp-libvips-linux-x64@1.2.4",
-      "@img/sharp-libvips-linuxmusl-arm64@1.2.4",
-      "@img/sharp-libvips-linuxmusl-x64@1.2.4",
-      "@img/sharp-linux-arm64@0.34.5",
-      "@img/sharp-linux-arm@0.34.5",
-      "@img/sharp-linux-ppc64@0.34.5",
-      "@img/sharp-linux-riscv64@0.34.5",
-      "@img/sharp-linux-s390x@0.34.5",
-      "@img/sharp-linux-x64@0.34.5",
-      "@img/sharp-linuxmusl-arm64@0.34.5",
-      "@img/sharp-linuxmusl-x64@0.34.5",
-      "@img/sharp-wasm32@0.34.5",
-      "@img/sharp-win32-arm64@0.34.5",
-      "@img/sharp-win32-ia32@0.34.5",
-      "@img/sharp-win32-x64@0.34.5",
-      "sharp@0.34.5",
+      "@img/sharp-darwin-arm64@0.35.5",
+      "@img/sharp-darwin-x64@0.35.5",
+      "@img/sharp-freebsd-wasm32@0.35.5",
+      "@img/sharp-libvips-darwin-arm64@1.3.4",
+      "@img/sharp-libvips-darwin-x64@1.3.4",
+      "@img/sharp-libvips-linux-arm64@1.3.4",
+      "@img/sharp-libvips-linux-arm@1.3.4",
+      "@img/sharp-libvips-linux-ppc64@1.3.4",
+      "@img/sharp-libvips-linux-riscv64@1.3.4",
+      "@img/sharp-libvips-linux-s390x@1.3.4",
+      "@img/sharp-libvips-linux-x64@1.3.4",
+      "@img/sharp-libvips-linuxmusl-arm64@1.3.4",
+      "@img/sharp-libvips-linuxmusl-x64@1.3.4",
+      "@img/sharp-linux-arm64@0.35.5",
+      "@img/sharp-linux-arm@0.35.5",
+      "@img/sharp-linux-ppc64@0.35.5",
+      "@img/sharp-linux-riscv64@0.35.5",
+      "@img/sharp-linux-s390x@0.35.5",
+      "@img/sharp-linux-x64@0.35.5",
+      "@img/sharp-linuxmusl-arm64@0.35.5",
+      "@img/sharp-linuxmusl-x64@0.35.5",
+      "@img/sharp-wasm32@0.35.5",
+      "@img/sharp-webcontainers-wasm32@0.35.5",
+      "@img/sharp-win32-arm64@0.35.5",
+      "@img/sharp-win32-ia32@0.35.5",
+      "@img/sharp-win32-x64@0.35.5",
+      "sharp@0.35.5",
     ];
-    expect(sharpFamily.length).toBe(26);
+    expect(sharpFamily.length).toBe(28);
     expect(sharpFamily).toEqual(committedSharpFamily);
   });
 
   it("declares the root sharp importer at exactly the version the lockfile already resolves", () => {
     const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-    expect(rootPackage.devDependencies.sharp).toBe("^0.34.5");
-    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.34.5");
-    expect(packageKeys).toContain("sharp@0.34.5");
+    expect(rootPackage.devDependencies.sharp).toBe("^0.35.5");
+    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@25.6.2)");
+    expect(packageKeys).toContain("sharp@0.35.5");
   });
 
   it("accepts the real lockfile's exact brand font keys", () => {
