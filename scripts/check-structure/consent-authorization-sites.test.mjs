@@ -1263,6 +1263,7 @@ function footprintFiles() {
   const listed = runCountedChildProcess("git", args, {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   });
   directExecFileSyncSpawnEvidence = {
     args,
@@ -3249,7 +3250,7 @@ describe("Consent authorization sites", () => {
     );
   });
 
-  it("derives and fail-closes the complete 111-member governing-input inventory", () => {
+  it("derives and fail-closes the complete 112-member governing-input inventory", () => {
     const paths = liveMutationInventory.inventory.map(({ path: relativePath }) => relativePath);
     expect(liveMutationInventory.importClosure).toEqual([
       "packages/typescript-compiler-api/index.mjs",
@@ -3258,9 +3259,10 @@ describe("Consent authorization sites", () => {
       "scripts/check-structure/guard-candidate-provenance.mjs",
       "scripts/check-structure/identity-creation-path-registry.mjs",
       "scripts/check-structure/typescript-owner-context-derivation.mjs",
+      "scripts/lib/git-listing.mjs",
       "scripts/lib/repo.mjs",
     ]);
-    expect(liveMutationInventory.inventory).toHaveLength(111);
+    expect(liveMutationInventory.inventory).toHaveLength(112);
     expect(paths).not.toContain(suitePath);
     expect(liveMutationInventory.reconciliation).toEqual({
       derivedOutsideTracked: [],

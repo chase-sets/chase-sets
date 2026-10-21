@@ -426,11 +426,7 @@ describe("guard candidate provenance", () => {
     expect(source).toContain(repairedCondition);
     const priorEqualitySource = source
       .replace(repairedCondition, "    resolvedBaseRef !== roles.baseTipAtAnalysis.sha")
-      .replace('"../lib/repo.mjs"', JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts/lib/repo.mjs")).href))
-      .replace(
-        '"../lib/git-listing.mjs"',
-        JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts/lib/git-listing.mjs")).href),
-      );
+      .replace('"../lib/repo.mjs"', JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts/lib/repo.mjs")).href));
     const { deriveGuardCandidateProvenance: derivePriorEquality } = await import(
       `data:text/javascript;base64,${Buffer.from(priorEqualitySource).toString("base64")}`
     );

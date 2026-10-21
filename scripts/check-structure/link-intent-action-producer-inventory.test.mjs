@@ -313,6 +313,10 @@ it("unclassified-producer candidate-versus-bypass mutant", async () => {
     .replace(
       '"./generate-link-intents.mjs"',
       JSON.stringify(pathToFileURL(path.join(import.meta.dirname, "generate-link-intents.mjs")).href),
+    )
+    .replace(
+      '"../lib/git-listing.mjs"',
+      JSON.stringify(pathToFileURL(path.join(import.meta.dirname, "../lib/git-listing.mjs")).href),
     );
   const bypass = await import(`data:text/javascript;base64,${Buffer.from(bypassSource).toString("base64")}`);
   for (const sibling of [arbitrary, ...methodSiblings]) {

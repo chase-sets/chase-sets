@@ -1301,6 +1301,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       {
         cwd: repoRoot,
         encoding: "utf8",
+        maxBuffer: GIT_LISTING_MAX_BUFFER,
       },
     );
     return listed.split("\0").filter(Boolean).sort();
