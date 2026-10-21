@@ -279,7 +279,7 @@ describeDb("Pricing Health real loader and grade queries", () => {
       context: dryRunContext,
       command: {
         ...body,
-        rules: [...body.rules, { ...body.rules[0]!, conditions: [{ type: "quantity-at-least", quantity: 2 }] }],
+        rules: [{ ...body.rules[0]!, conditions: [{ type: "quantity-at-least", quantity: 2 }] }, ...body.rules],
         type: "ReviseRepricingPolicy",
         name: "Synthetic health policy",
         maxChangesPerDay: 101,
