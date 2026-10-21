@@ -370,12 +370,19 @@ export async function runStagingEvidenceAuthority(options = {}) {
   } catch (error) {
     const finishedAt = new Date(clock()).toISOString();
     const detail = { input: OPTION_NAMES.has(error.input) ? error.input : null };
-    let value = resultFor("refused", error.stop ?? "unexpected-internal-error", startedAt, finishedAt, detail);
-    const parseSecrets = [options.env ?? process.env].flatMap((source) =>
-      [source.GITHUB_TOKEN, source.MARKETPLACE_E2E_EMAIL, source.MARKETPLACE_E2E_PASSWORD].filter(
+    const parseStop = typeof error?.stop === "string" ? error.stop : "unexpected-internal-error";
+    const parseOutcome = typeof error?.stop === "string" ? "refused" : "failed";
+    let value = resultFor(parseOutcome, parseStop, startedAt, finishedAt, detail);
+    let parseSecrets = [];
+    try {
+      const source = options.env ?? process.env;
+      parseSecrets = [source.GITHUB_TOKEN, source.MARKETPLACE_E2E_EMAIL, source.MARKETPLACE_E2E_PASSWORD].filter(
         (secret) => typeof secret === "string",
-      ),
-    );
+      );
+    } catch {
+      // A hostile environment getter is itself an internal failure; keep the
+      // closed result and never expose the getter's exception text.
+    }
     if (markerFound(JSON.stringify(value), parseSecrets))
       value = resultFor("failed", "redaction-scan-finding", startedAt, finishedAt, null);
     return { value, exitCode: value.result === "refused" ? 2 : 1, stdout: `${JSON.stringify(value)}\n`, input: null };

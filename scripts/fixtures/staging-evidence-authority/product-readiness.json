@@ -16,5 +16,5 @@
     "status": "ok",
     "checks": [{ "name": "db", "status": "ok" }]
   },
-  "signIn": { "type": "session-started" }
+  "signIn": { "type": "session-started", "sessionToken": "SYNTHETIC_SESSION_TOKEN" }
 }
