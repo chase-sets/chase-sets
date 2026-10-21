@@ -60,6 +60,34 @@ type MutantHandle = {
   stop: () => Promise<void>;
 };
 
+// Mutant runs N2, N3 and N5 change only this line; the committed value is null.
+const COLLAPSED_INPUT_MUTANT = null as CollapsedInputMutant | null;
+
+type FocusFamily = "visibility" | "tabIndex" | "inert-or-disabled" | "none";
+
+type MutantReading = Awaited<ReturnType<MutantHandle["read"]>>;
+
+type CollapsedReverseEvidence = {
+  indices: {
+    install?: number;
+    phaseACapture?: number;
+    firstKeyPress?: number;
+    restore?: number;
+    firstAssertion?: number;
+  };
+  collapsedFacts: { phase: string | null | undefined; activeOutsideHeader: boolean } | null;
+  searchFormInputCounts: { broad: number; refined: number } | null;
+  inputDiagnostics: FocusDiagnostics | null;
+  triggerDiagnostics: FocusDiagnostics | null;
+  family: FocusFamily | null;
+  mutantAtPhaseA: MutantReading | null;
+  trace: ReverseTraversalStop[] | null;
+  presses: number | null;
+  maxPresses: number;
+  postExpandReadback: { phase: string | null | undefined; hasTabIndex: boolean; hasInert: boolean } | null;
+  mutantAfterReveal: MutantReading | null;
+};
+
 type SearchRowObservationRecord = {
   startState: string | null;
   endState: string | null;
@@ -126,7 +154,8 @@ async function driveDownwardPastFloor(page: Page) {
   await scrollWindowTo(page, COLLAPSE_FLOOR + 104);
 }
 
-async function assertCollapsedReverseTraversalPrecondition(page: Page, navSelector: string) {
+async function assertCollapsedReverseTraversalPrecondition(page: Page, navSelector: string, context?: () => string) {
+  const suffix = () => (context ? `; evidence=${context()}` : "");
   const facts = await page.evaluate((nav) => {
     const header = document.querySelector(nav);
     const active = document.activeElement;
@@ -135,11 +164,14 @@ async function assertCollapsedReverseTraversalPrecondition(page: Page, navSelect
       activeOutsideHeader: !header?.contains(active),
     };
   }, navSelector);
-  expect(facts, "reverse traversal must begin collapsed and outside the header").toEqual({
+  expect(facts, `reverse traversal must begin collapsed and outside the header${suffix()}`).toEqual({
     phase: "collapsed",
     activeOutsideHeader: true,
   });
-  expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(64, 0);
+  expect(
+    await resolvedHeaderHeightPx(page),
+    `reverse traversal must begin at the collapsed 64px header height${suffix()}`,
+  ).toBeCloseTo(64, 0);
 }
 
 async function resolvedHeaderHeightPx(page: Page) {
@@ -270,6 +302,14 @@ async function readFocusDiagnostics(page: Page, selector: string): Promise<Focus
   } finally {
     await session.detach();
   }
+}
+
+// Decision 3 attribution order; it names a red authority's family and never authorizes a pass.
+function attributeFamily(d: FocusDiagnostics): FocusFamily {
+  if (d.visibility !== "visible") return "visibility";
+  if (d.tabIndex < 0) return "tabIndex";
+  if (d.axIgnored === true || d.axFocusable !== true) return "inert-or-disabled";
+  return "none";
 }
 
 async function installCollapsedInputMutant(page: Page, mutant: CollapsedInputMutant): Promise<MutantHandle> {
@@ -418,6 +458,12 @@ async function publishRecord(testInfo: TestInfo, name: string, record: unknown) 
   });
 }
 
+// Hosted runs upload no passing-test attachments, so the record also goes to stdout on one line.
+async function publishEvidence(testInfo: TestInfo, name: string, record: unknown) {
+  await publishRecord(testInfo, name, record);
+  console.log(`[6899-evidence] ${name} ${JSON.stringify(record)}`);
+}
+
 test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("publishes the expanded search row before scrolling on the pinned item route @marketplace-browse", async ({
     page,
@@ -515,104 +561,144 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("proves the collapsed search input is a native reverse-traversal stop and then completes the reveal @marketplace-browse", async ({
     page,
   }, testInfo) => {
+    const evidence: CollapsedReverseEvidence = {
+      indices: {},
+      collapsedFacts: null,
+      searchFormInputCounts: null,
+      inputDiagnostics: null,
+      triggerDiagnostics: null,
+      family: null,
+      mutantAtPhaseA: null,
+      trace: null,
+      presses: null,
+      maxPresses: MAX_REVERSE_PRESSES,
+      postExpandReadback: null,
+      mutantAfterReveal: null,
+    };
+    const evidenceContext = () => JSON.stringify(evidence);
+    let step = 0;
     await openAtViewport(page, itemRoutePath, phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
     await expect(page.locator(searchFormTriggerSelector)).toHaveAttribute("tabindex", "-1");
 
-    // Reuse #6838's entry path verbatim: start on the skip link, collapse while
-    // focus remains outside the header, then advance to main content before the
-    // native reverse traversal begins.
-    await page.keyboard.press("Tab");
-    await driveDownwardPastFloor(page);
-    await waitForSearchRowPhase(page, "collapsed");
-    await page.keyboard.press("Tab");
-    await waitForSearchRowPhase(page, "expanded");
-    await page.keyboard.press("Tab");
-    let reachedMain = false;
-    for (let press = 0; press < 40 && !reachedMain; press += 1) {
-      await page.keyboard.press("Tab");
-      reachedMain = await page.evaluate(() => document.activeElement?.closest("#main-content") !== null);
+    let handle: MutantHandle | null = null;
+    if (COLLAPSED_INPUT_MUTANT !== null) {
+      handle = await installCollapsedInputMutant(page, COLLAPSED_INPUT_MUTANT);
+      evidence.indices.install = ++step;
     }
-    expect(reachedMain).toBe(true);
-    const beyond = await page.evaluate(() => window.scrollY + 200);
-    await scrollWindowTo(page, beyond + DIRECTION_DELTA + 8);
-    await waitForSearchRowPhase(page, "collapsed");
-    await assertCollapsedReverseTraversalPrecondition(page, searchHeaderSelector);
+    try {
+      // Reuse #6838's entry path verbatim: start on the skip link, collapse while
+      // focus remains outside the header, then advance to main content before the
+      // native reverse traversal begins.
+      await page.keyboard.press("Tab");
+      await driveDownwardPastFloor(page);
+      await waitForSearchRowPhase(page, "collapsed");
+      await page.keyboard.press("Tab");
+      await waitForSearchRowPhase(page, "expanded");
+      await page.keyboard.press("Tab");
+      let reachedMain = false;
+      for (let press = 0; press < 40 && !reachedMain; press += 1) {
+        await page.keyboard.press("Tab");
+        reachedMain = await page.evaluate(() => document.activeElement?.closest("#main-content") !== null);
+      }
+      expect(reachedMain).toBe(true);
+      const beyond = await page.evaluate(() => window.scrollY + 200);
+      await scrollWindowTo(page, beyond + DIRECTION_DELTA + 8);
+      await waitForSearchRowPhase(page, "collapsed");
 
-    let step = 0;
-    const phaseACaptureIndex = ++step;
-    const collapsedFacts = await page.evaluate(
-      (header) => ({
-        phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state"),
-        activeOutsideHeader: !document.querySelector(header)?.contains(document.activeElement),
-      }),
-      searchHeaderSelector,
-    );
-    const searchFormInputCounts = await page.evaluate(
-      ({ broad, refined }) => ({
-        broad: document.querySelectorAll(broad).length,
-        refined: document.querySelectorAll(refined).length,
-      }),
-      { broad: broadSearchFormInputSelector, refined: searchFormInputSelector },
-    );
-    const inputDiagnostics = await readFocusDiagnostics(page, searchFormInputSelector);
-    const triggerDiagnostics = await readFocusDiagnostics(page, searchFormTriggerSelector);
-    const firstKeyPressIndex = ++step;
-    const authority = await readReverseTraversalAuthority(page, {
-      navSelector: searchHeaderSelector,
-      inputSelector: searchFormInputSelector,
-      maxPresses: MAX_REVERSE_PRESSES,
-    });
-    const postExpandReadback = await page.evaluate((input) => {
-      const element = document.querySelector(input);
-      if (!element) throw new Error(`post-expand input selector did not resolve: ${input}`);
-      return {
-        phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state"),
-        hasTabIndex: element.hasAttribute("tabindex"),
-        hasInert: element.hasAttribute("inert"),
-      };
-    }, searchFormInputSelector);
-    const restoreIndex = ++step;
-    const firstAssertionIndex = ++step;
-    await publishRecord(testInfo, "collapsed-reverse-authority", {
-      phaseACaptureIndex,
-      firstKeyPressIndex,
-      restoreIndex,
-      firstAssertionIndex,
-      maxPresses: MAX_REVERSE_PRESSES,
-      presses: authority.presses,
-      collapsedFacts,
-      searchFormInputCounts,
-      trace: authority.trace,
-      inputDiagnostics,
-      triggerDiagnostics,
-      postExpandReadback,
-    });
+      // Phase A: capture before the first key press; only the entry precondition is asserted.
+      evidence.indices.phaseACapture = ++step;
+      await assertCollapsedReverseTraversalPrecondition(page, searchHeaderSelector, evidenceContext);
+      evidence.collapsedFacts = await page.evaluate(
+        (header) => ({
+          phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state"),
+          activeOutsideHeader: !document.querySelector(header)?.contains(document.activeElement),
+        }),
+        searchHeaderSelector,
+      );
+      evidence.searchFormInputCounts = await page.evaluate(
+        ({ broad, refined }) => ({
+          broad: document.querySelectorAll(broad).length,
+          refined: document.querySelectorAll(refined).length,
+        }),
+        { broad: broadSearchFormInputSelector, refined: searchFormInputSelector },
+      );
+      evidence.inputDiagnostics = await readFocusDiagnostics(page, searchFormInputSelector);
+      evidence.triggerDiagnostics = await readFocusDiagnostics(page, searchFormTriggerSelector);
+      evidence.family = attributeFamily(evidence.inputDiagnostics);
+      if (handle) evidence.mutantAtPhaseA = await handle.read();
 
-    expect(phaseACaptureIndex).toBeLessThan(firstKeyPressIndex);
-    expect(firstKeyPressIndex).toBeLessThan(restoreIndex);
-    expect(restoreIndex).toBeLessThan(firstAssertionIndex);
-    expect(collapsedFacts).toEqual({ phase: "collapsed", activeOutsideHeader: true });
-    const authorityFailureContext = JSON.stringify({ inputDiagnostics, triggerDiagnostics, trace: authority.trace });
-    expect(authority.firstHeaderStop?.activeElement, authorityFailureContext).toMatch(/^input\[.*\] input=true$/);
-    expect(authority.firstHeaderStop?.phase, authorityFailureContext).toBe("expanded");
-    expect(authority.firstHeaderStop?.headerHeightPx, authorityFailureContext).toBeCloseTo(124, 0);
-    expect(
-      authority.trace.slice(1).some((stop) => stop.activeElement.includes("a[Chase Sets]")),
-      authorityFailureContext,
-    ).toBe(true);
-    expect(
-      authority.trace.every((stop) => !stop.activeElement.includes("button[")),
-      authorityFailureContext,
-    ).toBe(true);
-    expect(triggerDiagnostics, authorityFailureContext).toMatchObject({
-      visibility: "visible",
-      tabIndex: -1,
-      inert: false,
-    });
-    expect(await page.locator(shellSelector).getAttribute("data-search-row-state")).toBe("expanded");
-    expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(124, 0);
-    expect(postExpandReadback).toEqual({ phase: "expanded", hasTabIndex: false, hasInert: false });
+      // Phase B: native traversal, then the reveal's restoration evidence and one published record.
+      evidence.indices.firstKeyPress = ++step;
+      const authority = await readReverseTraversalAuthority(page, {
+        navSelector: searchHeaderSelector,
+        inputSelector: searchFormInputSelector,
+        maxPresses: MAX_REVERSE_PRESSES,
+      });
+      evidence.trace = authority.trace;
+      evidence.presses = authority.presses;
+
+      evidence.postExpandReadback = await page.evaluate((input) => {
+        const element = document.querySelector(input);
+        if (!element) throw new Error(`post-expand input selector did not resolve: ${input}`);
+        return {
+          phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state"),
+          hasTabIndex: element.hasAttribute("tabindex"),
+          hasInert: element.hasAttribute("inert"),
+        };
+      }, searchFormInputSelector);
+      if (handle) evidence.mutantAfterReveal = await handle.read();
+      evidence.indices.restore = ++step;
+      await publishEvidence(testInfo, "collapsed-reverse-authority", evidence);
+
+      // Phase C: assert only after Phase B produced its restoration and readback evidence.
+      evidence.indices.firstAssertion = ++step;
+      const { indices } = evidence;
+      if (indices.install !== undefined) {
+        expect(indices.install, evidenceContext()).toBeLessThan(indices.phaseACapture!);
+      }
+      expect(indices.phaseACapture, evidenceContext()).toBeLessThan(indices.firstKeyPress!);
+      expect(indices.firstKeyPress, evidenceContext()).toBeLessThan(indices.restore!);
+      expect(indices.restore, evidenceContext()).toBeLessThan(indices.firstAssertion!);
+      expect(evidence.collapsedFacts, evidenceContext()).toEqual({ phase: "collapsed", activeOutsideHeader: true });
+      if (handle) {
+        const atPhaseA = evidence.mutantAtPhaseA!;
+        const afterReveal = evidence.mutantAfterReveal!;
+        expect(atPhaseA.applies, evidenceContext()).toBeGreaterThanOrEqual(1);
+        expect(afterReveal.applies, evidenceContext()).toBe(atPhaseA.applies);
+        expect(afterReveal.restores, evidenceContext()).toBe(atPhaseA.restores + 1);
+        expect(atPhaseA.diagnostics, evidenceContext()).toEqual([]);
+        expect(afterReveal.diagnostics, evidenceContext()).toEqual([]);
+      }
+      expect(evidence.postExpandReadback, evidenceContext()).toEqual({
+        phase: "expanded",
+        hasTabIndex: false,
+        hasInert: false,
+      });
+      // Criterion 1 authority block, kept contiguous because N5 moves it as one unit.
+      expect(authority.firstHeaderStop?.activeElement, evidenceContext()).toMatch(/^input\[.*\] input=true$/);
+      expect(authority.firstHeaderStop?.phase, evidenceContext()).toBe("expanded");
+      expect(authority.firstHeaderStop?.headerHeightPx, evidenceContext()).toBeCloseTo(124, 0);
+      expect(
+        authority.trace.slice(1).some((stop) => stop.activeElement.includes("a[Chase Sets]")),
+        evidenceContext(),
+      ).toBe(true);
+      expect(
+        authority.trace.every((stop) => !stop.activeElement.includes("button[")),
+        evidenceContext(),
+      ).toBe(true);
+      expect(evidence.triggerDiagnostics, evidenceContext()).toMatchObject({
+        visibility: "visible",
+        tabIndex: -1,
+        inert: false,
+      });
+      expect(await page.locator(shellSelector).getAttribute("data-search-row-state"), evidenceContext()).toBe(
+        "expanded",
+      );
+      expect(await resolvedHeaderHeightPx(page), evidenceContext()).toBeCloseTo(124, 0);
+    } finally {
+      await handle?.stop();
+    }
   });
 
   test("fails the collapsed-time authority when the row never collapses @marketplace-browse", async ({ page }) => {
@@ -649,7 +735,7 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       inputSelector: "#header input[value='checked']",
       maxPresses: 2,
     });
-    await publishRecord(testInfo, "native-radio-counterexample", { unchecked, checked, trace: authority.trace });
+    await publishEvidence(testInfo, "native-radio-counterexample", { unchecked, checked, trace: authority.trace });
     for (const diagnostic of [unchecked, checked]) {
       expect(diagnostic.tabIndex).toBe(0);
       expect(diagnostic.visibility).toBe("visible");

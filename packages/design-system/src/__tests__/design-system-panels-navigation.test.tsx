@@ -1968,6 +1968,7 @@ describe("marketplace shell search-row collapse (#5709)", () => {
     usePhoneViewport();
     setWindowMetric("scrollY", 2000);
     const view = render(shellFixture({ collapseSearchOnScroll: true, routeIdentity: itemIdentity }));
+    expect(shellStateAttribute(view.container)).toBe("collapsed");
     const input = view.container.querySelector("input[aria-label='Marketplace search fixture']");
     const row = view.container.querySelector("[data-search-row-slot]");
     expect(input).not.toBeNull();
@@ -1976,6 +1977,8 @@ describe("marketplace shell search-row collapse (#5709)", () => {
     expect(row!.className).not.toMatch(/\binvisible\b/);
     expect(input!.getAttribute("tabindex")).toBeNull();
     expect(input!.hasAttribute("inert")).toBe(false);
+    expect(row!.hasAttribute("inert")).toBe(false);
+    expect(Number(row!.getAttribute("tabindex") ?? 0)).toBeGreaterThanOrEqual(0);
     view.unmount();
   });
 
