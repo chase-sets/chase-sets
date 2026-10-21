@@ -58,7 +58,7 @@ export function ParticipantForm({ children, ...props }: ComponentProps<typeof Ro
     <RouterForm
       {...props}
       disabled={disabled || props.disabled}
-      submitting={busy || props.submitting}
+      submitting={props.submitting}
       onChange={(event) => {
         if (!busy && !disabled) {
           setAttemptId(crypto.randomUUID());

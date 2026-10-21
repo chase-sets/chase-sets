@@ -331,7 +331,7 @@ describe("OfflineSaleForm", () => {
     expect(screen.getByText("This token already records different sale details.")).toBeTruthy();
   });
 
-  it("disables a pending route-aware submission so a double submit reaches one logical sale", async () => {
+  it("relies on derived pending so a double submit reaches one logical sale without disabling the submitter", async () => {
     const user = userEvent.setup();
     const actionResult = deferred<unknown>();
     let calls = 0;
@@ -347,7 +347,7 @@ describe("OfflineSaleForm", () => {
     fireEvent.submit(form);
 
     await waitFor(() => expect(calls).toBe(1));
-    expect((screen.getByRole("button", { name: "Record sale" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Record sale" }) as HTMLButtonElement).disabled).toBe(false);
     actionResult.resolve({ error: "Retry this sale." });
     await screen.findByRole("alert");
   });
