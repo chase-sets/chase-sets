@@ -5,7 +5,12 @@ import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { build } from "vite";
 import { expect, test } from "@playwright/test";
-import { createSyntheticPairingCode, loopbackPlatform, synthetic } from "./loopback-platform";
+import {
+  createSyntheticPairingCode,
+  loopbackPlatform,
+  synthetic,
+  type SyntheticClaimResponse,
+} from "./loopback-platform";
 import { scanRetainedArtifacts } from "./retained-artifacts";
 import {
   digestConnectorDist,
@@ -14,6 +19,7 @@ import {
   providerEnvironmentPattern,
   runPairingDrill,
   type PairingDrillInput,
+  type PairingDrillLifecycleEnd,
   type PairingDrillReceipt,
   type PairingDrillRefusalCode,
 } from "./pairing-drill";
@@ -68,14 +74,17 @@ test.afterAll(() => {
   if (dist) rmSync(dist, { recursive: true, force: true });
 });
 
+/** The cleanup candidate's claims; every mutant varies one input against it. */
+const cleanupClaims: readonly SyntheticClaimResponse[] = ["invalid-credential"];
+
 /** A fresh fake server on the fixed port; the planted paths and their counters belong to this spec. */
-async function casePlatform() {
+async function casePlatform(claims = cleanupClaims) {
   let redirectTargetCount = 0;
   let headersServed = 0;
   const platform = await loopbackPlatform({
     port,
     requirePairingCode: true,
-    claims: ["reservation", "invalid-credential"],
+    claims,
     handle: async (request, reply) => {
       const path = new URL(request.url!, "http://127.0.0.1").pathname;
       if (path === redirectPath) {
@@ -105,7 +114,11 @@ async function casePlatform() {
   return { platform, observe };
 }
 
-function drillInput(platform: Awaited<ReturnType<typeof casePlatform>>, calls = { signIn: 0, revoke: 0 }) {
+function drillInput(
+  platform: Awaited<ReturnType<typeof casePlatform>>,
+  lifecycleEnd: PairingDrillLifecycleEnd = "revoked",
+) {
+  const calls = { signIn: 0, revoke: 0 };
   const input: PairingDrillInput = {
     dist,
     platformOrigin: platform.platform.origin,
@@ -125,10 +138,10 @@ function drillInput(platform: Awaited<ReturnType<typeof casePlatform>>, calls = 
     },
     preparePairing: () => createSyntheticPairingCode(platform.platform.origin),
     async revoke() {
-      // The served invalid-credential claim already revoked the connector; R-A only proves the call.
+      // The served claims already paused or revoked the connector; R-A only proves the call.
       calls.revoke++;
     },
-    fixture: { observe: platform.observe, redirectPath, headersPath },
+    fixture: { observe: platform.observe, redirectPath, headersPath, lifecycleEnd },
   };
   return { input, calls };
 }
@@ -235,11 +248,18 @@ test("connector-pairing-drill-active-trace-refuses-before-sign-in", async () => 
   }
 });
 
-test("connector-pairing-drill-loopback-chromium", async () => {
-  // The drill's bounded waits total at most 80 s; Chromium launch and the receipt fit in the rest.
-  test.setTimeout(120_000);
-  const platform = await casePlatform();
-  const { input, calls } = drillInput(platform);
+/**
+ * Runs one drill on a fresh fake server serving `claims`, retains its receipt alone in the case's own output
+ * directory, and asserts the forwarder, pairing and served-page records every case shares. The caller asserts
+ * the claim leg.
+ */
+async function drillCase(
+  name: string,
+  claims: readonly SyntheticClaimResponse[],
+  lifecycleEnd: PairingDrillLifecycleEnd,
+) {
+  const platform = await casePlatform(claims);
+  const { input, calls } = drillInput(platform, lifecycleEnd);
   let servedPairingId = "";
   try {
     const result = await runPairingDrill({
@@ -249,6 +269,7 @@ test("connector-pairing-drill-loopback-chromium", async () => {
       if (error instanceof PairingDrillRefusal)
         console.log(
           `CONNECTOR_DRILL_REFUSAL ${JSON.stringify({
+            case: name,
             code: error.code,
             evidence: error.evidence,
             server: platform.observe(),
@@ -257,13 +278,12 @@ test("connector-pairing-drill-loopback-chromium", async () => {
         );
       throw error;
     });
-    const output = test.info().outputPath("receipt");
+    const output = test.info().outputPath(`receipt-${name}`);
     mkdirSync(output, { recursive: true });
     writeFileSync(join(output, "receipt.json"), JSON.stringify(result.receipt, null, 2));
     const forbidden = [...platform.platform.forbidden(), ...receiptMarkers];
     expect(readdirSync(output)).toEqual(["receipt.json"]);
     expect(scanRetainedArtifacts(output, forbidden)).toBeGreaterThan(0);
-    candidate = { receipt: result.receipt, forbidden };
 
     expect(result.receipt).toMatchObject({
       fixture: "present",
@@ -273,15 +293,10 @@ test("connector-pairing-drill-loopback-chromium", async () => {
       pageStatus: 200,
       pairedState: "paired-idle",
       trace: "none",
-      reservation: "present",
-      claimCount: 2,
-      reservationClaimCount: 1,
-      invalidCredentialClaimCount: 1,
     });
-    const { lifecycle, requests } = result.receipt;
-    expect(lifecycle.indexOf("cleanup-pending")).toBeGreaterThanOrEqual(0);
-    expect(lifecycle.indexOf("cleanup-pending")).toBeLessThan(lifecycle.lastIndexOf("revoked"));
-    expect(requests).toContainEqual(expect.objectContaining({ origin: platform.platform.origin, source: "page" }));
+    expect(result.receipt.requests).toContainEqual(
+      expect.objectContaining({ origin: platform.platform.origin, source: "page" }),
+    );
     expect(platform.platform.observation()).toEqual({
       authorizeCount: 1,
       tokenCount: 1,
@@ -292,9 +307,6 @@ test("connector-pairing-drill-loopback-chromium", async () => {
     expect(platform.observe()).toMatchObject({
       pairingCodeCount: 1,
       tokenCookieArrived: false,
-      claimCount: 2,
-      reservationClaimCount: 1,
-      invalidCredentialClaimCount: 1,
       claimCookieArrived: false,
       channelPageServed: 1,
       pageStatus: 200,
@@ -311,13 +323,52 @@ test("connector-pairing-drill-loopback-chromium", async () => {
     expect(headers).toMatchObject({ action: "fulfill", status: 200 });
     for (const name of ["set-cookie", "content-encoding", "content-length"])
       expect(headers!.fulfilledHeaderNames).not.toContain(name);
-    expect(
-      result.forwards.filter((row) => row.path.endsWith("/connection_synthetic/claim")).map((row) => row.status),
-    ).toEqual([200, 401]);
     expect(calls).toEqual({ signIn: 1, revoke: 1 });
+    return {
+      receipt: result.receipt,
+      forbidden,
+      server: platform.observe(),
+      claimStatuses: result.forwards.filter((row) => row.path.endsWith("/claim")).map((row) => row.status),
+    };
   } finally {
     await platform.platform.close();
   }
+}
+
+test("connector-pairing-drill-loopback-chromium", async () => {
+  // Two drills, each with bounded waits totalling at most 80 s; Chromium launches and receipts fit in the rest.
+  test.setTimeout(240_000);
+  await test.step("invalid-credential cleanup candidate", async () => {
+    const cleanup = await drillCase("cleanup", cleanupClaims, "revoked");
+    expect(cleanup.receipt).toMatchObject({
+      reservation: "none",
+      claimCount: 1,
+      reservationClaimCount: 0,
+      invalidCredentialClaimCount: 1,
+    });
+    const { lifecycle } = cleanup.receipt;
+    expect(lifecycle.indexOf("cleanup-pending")).toBeGreaterThanOrEqual(0);
+    expect(lifecycle.indexOf("cleanup-pending")).toBeLessThan(lifecycle.lastIndexOf("revoked"));
+    expect(cleanup.server).toMatchObject({ invalidCredentialClaimCount: 1, reservationClaimCount: 0, reportCount: 0 });
+    expect(cleanup.claimStatuses).toEqual([401]);
+    candidate = { receipt: cleanup.receipt, forbidden: cleanup.forbidden };
+  });
+  await test.step("reservation pause", async () => {
+    const paused = await drillCase(
+      "reservation",
+      ["reservation", "invalid-credential"],
+      "paused:unsupported-operation",
+    );
+    expect(paused.receipt).toMatchObject({
+      reservation: "present",
+      claimCount: 1,
+      reservationClaimCount: 1,
+      invalidCredentialClaimCount: 0,
+    });
+    expect(paused.receipt.lifecycle.at(-1)).toBe("paused:unsupported-operation");
+    expect(paused.server).toMatchObject({ reportCount: 1, abandonedReportCount: 1 });
+    expect(paused.claimStatuses).toEqual([200]);
+  });
 });
 
 test("connector-pairing-drill-planted-token-scan", () => {

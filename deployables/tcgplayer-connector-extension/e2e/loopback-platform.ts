@@ -16,6 +16,20 @@ export type SyntheticClaimResponse = "reservation" | "invalid-credential" | "emp
 
 const connectorPath = "/channel-connector/oauth/connections/connection_synthetic";
 
+/** True when a report body carries outcomes and every one is `abandoned`. */
+function reportsAbandoned(raw: string) {
+  try {
+    const { outcomes } = JSON.parse(raw) as { outcomes?: unknown };
+    return (
+      Array.isArray(outcomes) &&
+      outcomes.length > 0 &&
+      outcomes.every((row: { outcome?: { kind?: unknown } } | null) => row?.outcome?.kind === "abandoned")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function loopbackPlatform(
   options: {
     port?: number;
@@ -48,6 +62,7 @@ export async function loopbackPlatform(
     invalidCredentialClaimCount: 0,
     claimCookieArrived: false,
     reportCount: 0,
+    abandonedReportCount: 0,
     channelPageServed: 0,
     pageStatus: null as number | null,
   };
@@ -164,7 +179,8 @@ export async function loopbackPlatform(
       const claim = url.pathname.endsWith("/claim");
       if (claim) drill.claimCount++;
       if (claim && request.headers.cookie) drill.claimCookieArrived = true;
-      for await (const chunk of request) void chunk;
+      let raw = "";
+      for await (const chunk of request) raw += chunk;
       const next =
         request.method !== "POST" || request.headers.authorization !== `Bearer ${synthetic.access}`
           ? "invalid-credential"
@@ -179,6 +195,7 @@ export async function loopbackPlatform(
       }
       if (next === "report") {
         drill.reportCount++;
+        if (reportsAbandoned(raw)) drill.abandonedReportCount++;
         reply.writeHead(200).end("{}");
         return;
       }

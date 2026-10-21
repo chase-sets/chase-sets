@@ -53,13 +53,17 @@ export type PairingDrillObservation = Readonly<{
   reservationClaimCount: number;
   invalidCredentialClaimCount: number;
   reportCount: number;
+  abandonedReportCount: number;
   tokenCookieArrived: boolean;
   claimCookieArrived: boolean;
 }>;
+/** The lifecycle entry the served claims must end in: a reservation the shipped dist abandons, or a 401. */
+export type PairingDrillLifecycleEnd = "paused:unsupported-operation" | "revoked";
 export type PairingDrillFixture = Readonly<{
   observe(): PairingDrillObservation;
   redirectPath: string;
   headersPath: string;
+  lifecycleEnd: PairingDrillLifecycleEnd;
 }>;
 export type PairingDrillInput = Readonly<{
   dist: string;
@@ -254,10 +258,15 @@ async function triggerAction(context: BrowserContext, page: Page) {
 }
 
 const actionTitle = (worker: Worker) => worker.evaluate(() => chrome.action.getTitle({}));
-const profileState = (worker: Worker) =>
+/** The stored profile as a lifecycle entry: `state`, or `state:pauseReason` while paused. */
+const profileEntry = (worker: Worker) =>
   worker.evaluate(
     (key) =>
-      chrome.storage.local.get([key]).then((row) => (row[key] as { state?: string } | undefined)?.state ?? "absent"),
+      chrome.storage.local.get([key]).then((row) => {
+        const profile = row[key] as { state?: string; pauseReason?: string | null } | undefined;
+        if (!profile?.state) return "absent";
+        return profile.pauseReason ? `${profile.state}:${profile.pauseReason}` : profile.state;
+      }),
     profileKey,
   );
 const readLifecycle = (worker: Worker) =>
@@ -419,12 +428,22 @@ export async function runPairingDrill(
         if (!settled || observe().invalidCredentialClaimCount > 0) break;
       }
     } else await fire();
-    const revoked = await waitFor(async () => (await profileState(connector)) === "revoked");
+    const lifecycleEnd = fixture?.lifecycleEnd ?? "revoked";
+    const ended = await waitFor(async () => (await profileEntry(connector)) === lifecycleEnd);
     lifecycle = await readLifecycle(connector);
-    const cleanupAt = lifecycle.indexOf("cleanup-pending");
-    if (!revoked || cleanupAt < 0 || cleanupAt > lifecycle.lastIndexOf("revoked"))
-      fail("connector-drill-lifecycle-refused");
     const settledObservation = observe?.();
+    const cleanupAt = lifecycle.indexOf("cleanup-pending");
+    // Each end must follow the served claim that causes it, not only a matching stored state.
+    const caused =
+      lifecycleEnd === "revoked"
+        ? cleanupAt >= 0 &&
+          cleanupAt < lifecycle.lastIndexOf("revoked") &&
+          (!settledObservation || settledObservation.invalidCredentialClaimCount > 0)
+        : !!settledObservation &&
+          settledObservation.reservationClaimCount > 0 &&
+          settledObservation.abandonedReportCount > 0 &&
+          lifecycle.at(-1) === lifecycleEnd;
+    if (!ended || !caused) fail("connector-drill-lifecycle-refused");
     if (settledObservation?.tokenCookieArrived || settledObservation?.claimCookieArrived)
       fail("connector-drill-forward-cookie");
     if (settledObservation && settledObservation.reservationClaimCount > 1) fail("connector-drill-reservation-replay");
