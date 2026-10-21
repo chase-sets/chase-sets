@@ -94,7 +94,7 @@ function createDb() {
           target_id: params[1],
           target_owner_account_id: params[2] ?? existing?.target_owner_account_id ?? null,
           status: existing?.status ?? "needs-review",
-          report_count: (existing?.report_count ?? 0) + (isNewReport ? 1 : 0),
+          report_count: Number(existing?.report_count ?? 0) + (isNewReport ? 1 : 0),
           reasons,
           reports,
           first_reported_at: !existing || reportless ? params[5] : existing.first_reported_at,
