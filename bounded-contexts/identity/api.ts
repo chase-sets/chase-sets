@@ -1588,9 +1588,10 @@ async function unlinkSocialLoginForAuth(
 ) {
   const now = new Date().toISOString();
   const normalizedSubject = normalizeLabel(params.providerSubject);
-  const operationId =
+  const requestedOperationId =
     params.operationId ??
     `social-login-unlink:${params.userId}:${params.providerName}:${createHash("sha256").update(normalizedSubject, "utf8").digest("hex")}`;
+  const operationId = createHash("sha256").update(requestedOperationId, "utf8").digest("hex");
   const operationStreamId = `identity.social-login-unlink-operation-${createHash("sha256").update(operationId, "utf8").digest("hex")}`;
   return services.mutationPersistence.transaction([`identity:social-login-unlink:${params.userId}`], async (tx) => {
     const streamId = `identity.user-${params.userId}`;
