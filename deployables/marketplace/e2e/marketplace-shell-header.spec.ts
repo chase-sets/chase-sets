@@ -525,6 +525,13 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
 
     let step = 0;
     const phaseACaptureIndex = ++step;
+    const collapsedFacts = await page.evaluate(
+      (header) => ({
+        phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state"),
+        activeOutsideHeader: !document.querySelector(header)?.contains(document.activeElement),
+      }),
+      searchHeaderSelector,
+    );
     const inputDiagnostics = await readFocusDiagnostics(page, searchFormInputSelector);
     const triggerDiagnostics = await readFocusDiagnostics(page, searchFormTriggerSelector);
     const firstKeyPressIndex = ++step;
@@ -533,6 +540,15 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       inputSelector: searchFormInputSelector,
       maxPresses: MAX_REVERSE_PRESSES,
     });
+    const postExpandReadback = await page.evaluate((input) => {
+      const element = document.querySelector(input);
+      if (!element) throw new Error(`post-expand input selector did not resolve: ${input}`);
+      return {
+        phase: document.querySelector("[data-search-row-state]")?.getAttribute("data-search-row-state"),
+        hasTabIndex: element.hasAttribute("tabindex"),
+        hasInert: element.hasAttribute("inert"),
+      };
+    }, searchFormInputSelector);
     const restoreIndex = ++step;
     const firstAssertionIndex = ++step;
     await publishRecord(testInfo, "collapsed-reverse-authority", {
@@ -542,14 +558,17 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       firstAssertionIndex,
       maxPresses: MAX_REVERSE_PRESSES,
       presses: authority.presses,
+      collapsedFacts,
       trace: authority.trace,
       inputDiagnostics,
       triggerDiagnostics,
+      postExpandReadback,
     });
 
     expect(phaseACaptureIndex).toBeLessThan(firstKeyPressIndex);
     expect(firstKeyPressIndex).toBeLessThan(restoreIndex);
     expect(restoreIndex).toBeLessThan(firstAssertionIndex);
+    expect(collapsedFacts).toEqual({ phase: "collapsed", activeOutsideHeader: true });
     expect(inputDiagnostics.visibility).toBe("visible");
     expect(inputDiagnostics.tabIndex).toBeGreaterThanOrEqual(0);
     expect(triggerDiagnostics).toMatchObject({ visibility: "visible", tabIndex: -1, inert: false });
@@ -560,6 +579,7 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     expect(authority.trace.every((stop) => !stop.activeElement.includes("button["))).toBe(true);
     expect(await page.locator(shellSelector).getAttribute("data-search-row-state")).toBe("expanded");
     expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(124, 0);
+    expect(postExpandReadback).toEqual({ phase: "expanded", hasTabIndex: false, hasInert: false });
   });
 
   test("fails the collapsed-time authority when the row never collapses @marketplace-browse", async ({ page }) => {
@@ -580,7 +600,7 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     page,
   }, testInfo) => {
     await page.setContent(`
-      <nav id="header"><form role="search">
+      <nav id="header" data-search-row-state="collapsed"><form role="search">
         <input type="radio" name="choice" value="unchecked">
         <input type="radio" name="choice" value="checked" checked>
       </form></nav>
