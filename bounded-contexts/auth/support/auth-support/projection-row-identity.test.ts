@@ -255,6 +255,7 @@ describeDb("auth projection row identity", () => {
             {
               providerName: "google",
               providerSubject: "google_sub_1",
+              linkKey: "c7999d01a1b2814b6d8d8c983a85aa5632765929f11cf568b30869215acf8436",
               email: " Social@Example.COM ",
               linkedAt: "2026-06-12T12:11:00.000Z",
             },
@@ -287,6 +288,8 @@ describeDb("auth projection row identity", () => {
           user_id: "usr_1",
           email: "social@example.com",
           linked_at: "2026-06-12T12:11:00.000Z",
+          state: "active",
+          revoked_at: null,
           updated_at: "2026-06-12T12:12:00.000Z",
         },
       ],

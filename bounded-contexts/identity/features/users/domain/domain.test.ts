@@ -73,4 +73,48 @@ describe("user domain", () => {
       }),
     ).toEqual([]);
   });
+
+  it("completes an authenticated unlink locally and makes replay inert", () => {
+    const created = decideUser(initialUserState, {
+      type: "CreateUser",
+      userId: "usr_unlink" as never,
+      displayName: "Unlink User",
+      primaryEmail: "unlink@example.com",
+    }).reduce(evolveUser, initialUserState);
+    const withPassword = decideUser(created, { type: "EnableAuthMethod", authMethod: "password" }).reduce(
+      evolveUser,
+      created,
+    );
+    const linked = decideUser(withPassword, {
+      type: "LinkSocialLogin",
+      providerName: "google",
+      providerSubject: "subject",
+      email: "unlink@example.com",
+      linkedAt: "2026-05-14T00:00:00.000Z",
+    }).reduce(evolveUser, withPassword);
+    const events = decideUser(linked, {
+      type: "UnlinkSocialLogin",
+      providerName: "google",
+      providerSubject: "subject",
+      authenticationMethod: "password",
+      authenticatedAt: "2026-05-14T00:00:00.000Z",
+      now: "2026-05-14T00:05:00.000Z",
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "identity.user.social-login-revocation-requested",
+      "identity.user.social-login-revoked",
+    ]);
+    const revoked = events.reduce(evolveUser, linked);
+    expect(revoked.socialLoginLinkStates["google:subject"]).toBe("revoked");
+    expect(
+      decideUser(revoked, {
+        type: "UnlinkSocialLogin",
+        providerName: "google",
+        providerSubject: "subject",
+        authenticationMethod: "password",
+        authenticatedAt: "2026-05-14T00:00:00.000Z",
+        now: "2026-05-14T00:05:00.000Z",
+      }),
+    ).toEqual([]);
+  });
 });

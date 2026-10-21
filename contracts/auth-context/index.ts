@@ -40,6 +40,8 @@ export type ResolvedActor = Readonly<{
    * this is missing rather than treat an unknown moment as recent.
    */
   authenticatedAt?: string | null;
+  /** The method used by the current Auth session, when session-backed. */
+  authenticationMethod?: string | null;
   /**
    * Current Capability Grants Identity holds for this actor's Account, as
    * projected by Auth when it resolved this Session-backed actor. Auth reads

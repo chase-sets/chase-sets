@@ -340,13 +340,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Beta access starts",
     [
       [
-        "bounded-contexts/identity/api.ts:869-881",
+        "bounded-contexts/identity/api.ts:870-882",
         /if \(params.foundersBetaAccessStartedAt\)/,
         /foundersWindowEndsAt.setUTCDate\(foundersWindowEndsAt.getUTCDate\(\) \+ 60\)/,
         /type: "OpenFoundersWindow"/,
       ],
       [
-        "bounded-contexts/identity/GLOSSARY.md:120-132",
+        "bounded-contexts/identity/GLOSSARY.md:128-140",
         /anchored to beta access, not badge claim/,
         /includes its start and excludes/,
       ],

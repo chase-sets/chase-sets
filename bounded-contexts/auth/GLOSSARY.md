@@ -2,6 +2,8 @@
 
 ## Authentication
 
+Social Login Link lifecycle and Link Revocation are Identity-owned facts. Auth owns the provider journey and refuses a revoked subject before sign-in, registration, or relinking.
+
 The process of proving who a user is so Chase Sets can create or continue a session.
 
 ## Authorization

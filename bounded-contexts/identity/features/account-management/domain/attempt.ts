@@ -59,6 +59,7 @@ const targetPrefixes: Record<MutationAction, string | null> = {
   archive: "adr",
   withdraw: "cns",
   "update-user": "usr",
+  "unlink-social-login": "usr",
   "create-api-key": null,
   "rotate-api-key": "key",
   "revoke-api-key": "key",

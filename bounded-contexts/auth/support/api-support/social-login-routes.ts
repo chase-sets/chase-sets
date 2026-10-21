@@ -334,6 +334,9 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       providerName,
       providerSubject: profile.providerSubject,
     });
+    if (linkedUser?.social_login_state === "revocation-requested" || linkedUser?.social_login_state === "revoked") {
+      return redirectToFallback("provider_already_linked", journey);
+    }
     const linkActor = journey === "link" ? c.var.actor : null;
     if (journey === "link" && !linkActor) {
       return redirectToFallback(

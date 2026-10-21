@@ -155,6 +155,13 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         providerSubject,
         email,
       }),
+    unlinkSocialLogin: ({ userId, providerName, providerSubject, authenticationMethod, authenticatedAt }) =>
+      postJson(`users/${userId}/social-login-unlink`, {
+        providerName,
+        providerSubject,
+        authenticationMethod,
+        authenticatedAt,
+      }),
     claimGuestAccount: ({ accountId, userId, roleKey }) =>
       postJson(`guest-accounts/${accountId}/claim`, {
         userId,

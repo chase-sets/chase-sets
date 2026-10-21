@@ -1461,7 +1461,8 @@
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/password-credential",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/sms-code",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/email-verification",
-        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/social-login-link"
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/social-login-link",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/social-login-unlink"
       ],
       "visibleDestination": {
         "description": "Internal Auth-facing Identity mutations return the committed User, Account, Membership, Invitation, Consent, or credential command snapshots in the same API response used by Auth registration, passkey, social-login, invitation, and guest-checkout flows; Auth can continue from those ids and versions without waiting on Identity projections."

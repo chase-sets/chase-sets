@@ -60,6 +60,9 @@ function createServices(
         if (sql.includes("identity_account_display_name_reservations")) {
           return { rows: [{ display_name_key: params[0] }] };
         }
+        if (sql.includes("INSERT INTO identity_user_social_login_links")) {
+          return { rows: [{ user_id: params[2] }] };
+        }
         if (sql.includes("FROM identity_api_key_secrets")) {
           return {
             rows: [
@@ -372,20 +375,26 @@ describe("Identity API mutation snapshots", () => {
     ]) {
       const credential = await requestJson(app, path, {
         method: "POST",
-        body: JSON.stringify({
-          credentialId: "crd_1",
-          providerName: "google",
-          providerSubject: "google-subject",
-          email: "owner@example.com",
-        }),
+        body: JSON.stringify(
+          path.endsWith("social-login-link")
+            ? { providerName: "google", providerSubject: "google-subject", email: "owner@example.com" }
+            : {
+                credentialId: "crd_1",
+                providerName: "google",
+                providerSubject: "google-subject",
+                email: "owner@example.com",
+              },
+        ),
       });
       expect(credential.response.status).toBe(200);
       expect(credential.body).toEqual(
-        expect.objectContaining({
-          ok: true,
-          userId: "usr_1",
-          snapshots: [expect.objectContaining({ aggregate: "user", id: "usr_1", version: 21, status: "active" })],
-        }),
+        path.endsWith("social-login-link")
+          ? expect.objectContaining({ ok: true, outcome: "committed", userId: "usr_1", state: "active", version: 21 })
+          : expect.objectContaining({
+              ok: true,
+              userId: "usr_1",
+              snapshots: [expect.objectContaining({ aggregate: "user", id: "usr_1", version: 21, status: "active" })],
+            }),
       );
     }
 

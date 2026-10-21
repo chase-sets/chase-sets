@@ -37,6 +37,7 @@ export const actionFields = {
   "create-api-key": ["userId", "name"],
   "rotate-api-key": [],
   "revoke-api-key": [],
+  "unlink-social-login": ["providerName"],
   "create-invitation": ["accountId", "email", "roleKey", "invitationId", "expiresAt"],
   "cancel-invitation": [],
   "change-role": ["roleKey"],
@@ -58,6 +59,7 @@ export const actionEventTypes: Record<MutationAction, readonly string[]> = {
   "create-api-key": ["identity.api-key.created", "identity.api-key.verifier-recorded"],
   "rotate-api-key": ["identity.api-key.rotated", "identity.api-key.verifier-recorded"],
   "revoke-api-key": ["identity.api-key.revoked"],
+  "unlink-social-login": ["identity.user.social-login-revocation-requested", "identity.user.social-login-revoked"],
   "create-invitation": ["identity.invitation.created"],
   "cancel-invitation": ["identity.invitation.cancelled"],
   "change-role": ["identity.membership.role-changed"],
@@ -94,7 +96,7 @@ export const routeActions = {
   "/account": ["update-profile"],
   "/account/shipping-addresses": ["create", "update", "default", "archive"],
   "/account/consents": ["withdraw"],
-  "/account/security": ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key"],
+  "/account/security": ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key", "unlink-social-login"],
   "/account/team": ["create-invitation", "cancel-invitation", "change-role", "revoke", "reinstate"],
 } as const;
 

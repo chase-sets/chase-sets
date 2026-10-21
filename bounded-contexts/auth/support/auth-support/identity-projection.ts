@@ -71,9 +71,16 @@ CREATE TABLE IF NOT EXISTS auth_identity_user_social_login_links (
   user_id text NOT NULL,
   email text NOT NULL,
   linked_at timestamptz NOT NULL,
+  state text NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'revocation-requested', 'revoked')),
+  revoked_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (provider_name, provider_subject)
 );
+
+ALTER TABLE auth_identity_user_social_login_links
+  ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active';
+ALTER TABLE auth_identity_user_social_login_links
+  ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS auth_identity_memberships (
   membership_id text PRIMARY KEY,
@@ -131,7 +138,28 @@ CREATE TABLE IF NOT EXISTS auth_identity_account_capabilities (
   status text NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, account_id, capability_key)
-);`;
+);
+
+ALTER TABLE auth_identity_user_social_login_links
+  DROP CONSTRAINT IF EXISTS auth_identity_user_social_login_links_state_check;
+ALTER TABLE auth_identity_user_social_login_links
+  ADD CONSTRAINT auth_identity_user_social_login_links_state_check CHECK (state IN ('active', 'revocation-requested', 'revoked')) NOT VALID;
+ALTER TABLE auth_identity_user_social_login_links
+  VALIDATE CONSTRAINT auth_identity_user_social_login_links_state_check;`;
+
+export const authIdentityProjectionSchemaMigrations = [
+  {
+    migrationId: "20261020_auth_social_login_lifecycle",
+    description: "Retain collision-safe social-login ownership lifecycle state.",
+    statements: [
+      "ALTER TABLE auth_identity_user_social_login_links ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active'",
+      "ALTER TABLE auth_identity_user_social_login_links ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL",
+      "ALTER TABLE auth_identity_user_social_login_links DROP CONSTRAINT IF EXISTS auth_identity_user_social_login_links_state_check",
+      "ALTER TABLE auth_identity_user_social_login_links ADD CONSTRAINT auth_identity_user_social_login_links_state_check CHECK (state IN ('active', 'revocation-requested', 'revoked')) NOT VALID",
+      "ALTER TABLE auth_identity_user_social_login_links VALIDATE CONSTRAINT auth_identity_user_social_login_links_state_check",
+    ],
+  },
+] as const;
 
 export type AuthIdentityUserRow = Readonly<{
   user_id: string;
@@ -146,6 +174,7 @@ export type AuthIdentityUserRow = Readonly<{
   passkey_credential_ids: readonly string[];
   social_login_links: readonly unknown[];
   updated_at: string;
+  social_login_state?: "active" | "revocation-requested" | "revoked";
 }>;
 
 export type AuthIdentityAccountRow = Readonly<{
@@ -220,6 +249,7 @@ type SocialLoginLinkRow = Readonly<{
   providerSubject: string;
   email: string;
   linkedAt: string;
+  state?: "active" | "revocation-requested" | "revoked";
 }>;
 
 type ContactMethodLookupRow = Readonly<{
@@ -773,26 +803,69 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
             { kind: "pathText", path: ["providerSubject"], value: link.providerSubject },
           ],
         },
-        element: link satisfies SocialLoginLinkRow,
+        element: { ...link, state: "active" } as SocialLoginLinkRow,
         orderBy: [
           { kind: "pathText", path: ["providerName"] },
           { kind: "pathText", path: ["providerSubject"] },
         ],
         updatedAt: { value: event.timing.recordedAt },
       });
-      await upsertRow(db, {
-        table: "auth_identity_user_social_login_links",
-        insertColumns: ["provider_name", "provider_subject", "user_id", "email", "linked_at", "updated_at"],
-        conflictColumns: ["provider_name", "provider_subject"],
-        values: {
-          provider_name: link.providerName,
-          provider_subject: link.providerSubject,
-          user_id: userId,
-          email: normalizeAuthEmail(link.email),
-          linked_at: link.linkedAt,
-          updated_at: event.timing.recordedAt,
-        },
-      });
+      await db.query(
+        `INSERT INTO auth_identity_user_social_login_links
+           (provider_name, provider_subject, user_id, email, linked_at, state, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'active', $6)
+         ON CONFLICT (provider_name, provider_subject) DO UPDATE
+         SET email = EXCLUDED.email, linked_at = EXCLUDED.linked_at, updated_at = EXCLUDED.updated_at
+         WHERE auth_identity_user_social_login_links.user_id = EXCLUDED.user_id`,
+        [
+          link.providerName,
+          link.providerSubject,
+          userId,
+          normalizeAuthEmail(link.email),
+          link.linkedAt,
+          event.timing.recordedAt,
+        ],
+      );
+      const owner = await db.query<{ user_id: string }>(
+        `SELECT user_id FROM auth_identity_user_social_login_links WHERE provider_name = $1 AND provider_subject = $2`,
+        [link.providerName, link.providerSubject],
+      );
+      if (owner.rows[0]?.user_id !== userId) throw new Error("Social login ownership conflict.");
+    },
+    "identity.user.social-login-revocation-requested": async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, "identity.user-");
+      const link = event.data as { providerName: string; providerSubject: string };
+      await db.query(
+        `UPDATE auth_identity_user_social_login_links SET state = 'revocation-requested', updated_at = $4
+         WHERE provider_name = $1 AND provider_subject = $2 AND user_id = $3 AND state = 'active'`,
+        [link.providerName, link.providerSubject, userId, event.timing.recordedAt],
+      );
+      await db.query(
+        `UPDATE auth_identity_users SET social_login_links = (
+           SELECT COALESCE(jsonb_agg(CASE WHEN value->>'providerName' = $2 AND value->>'providerSubject' = $3
+             THEN jsonb_set(value, '{state}', to_jsonb('revocation-requested'::text), true) ELSE value END), '[]'::jsonb)
+           FROM jsonb_array_elements(social_login_links) AS elements(value)
+         ), updated_at = $4 WHERE user_id = $1`,
+        [userId, link.providerName, link.providerSubject, event.timing.recordedAt],
+      );
+    },
+    "identity.user.social-login-revoked": async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, "identity.user-");
+      const link = event.data as { providerName: string; providerSubject: string };
+      await db.query(
+        `UPDATE auth_identity_user_social_login_links SET state = 'revoked', revoked_at = $4, updated_at = $4
+         WHERE provider_name = $1 AND provider_subject = $2 AND user_id = $3
+           AND state IN ('active', 'revocation-requested')`,
+        [link.providerName, link.providerSubject, userId, event.timing.recordedAt],
+      );
+      await db.query(
+        `UPDATE auth_identity_users SET social_login_links = (
+           SELECT COALESCE(jsonb_agg(CASE WHEN value->>'providerName' = $2 AND value->>'providerSubject' = $3
+             THEN jsonb_set(value, '{state}', to_jsonb('revoked'::text), true) ELSE value END), '[]'::jsonb)
+           FROM jsonb_array_elements(social_login_links) AS elements(value)
+         ), updated_at = $4 WHERE user_id = $1`,
+        [userId, link.providerName, link.providerSubject, event.timing.recordedAt],
+      );
     },
     "identity.user.suspended": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
@@ -1167,12 +1240,12 @@ export async function getAuthIdentityUserBySocialLogin(
   params: Readonly<{ providerName: string; providerSubject: string }>,
 ) {
   const result = await db.query<AuthIdentityUserRow>(
-    `SELECT users.*
+    `SELECT users.*, links.state AS social_login_state
      FROM auth_identity_user_social_login_links AS links
      INNER JOIN auth_identity_users AS users ON users.user_id = links.user_id
      WHERE links.provider_name = $1
        AND links.provider_subject = $2`,
-    [params.providerName, params.providerSubject],
+    [params.providerName, params.providerSubject.trim()],
   );
   return result.rows[0] ?? null;
 }

@@ -81,6 +81,15 @@ export type IdentityAuthMutationClient = Readonly<{
       email: string;
     }>,
   ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
+  unlinkSocialLogin: (
+    params: Readonly<{
+      userId: string;
+      providerName: "google" | "facebook";
+      providerSubject: string;
+      authenticationMethod: string;
+      authenticatedAt: string | null | undefined;
+    }>,
+  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
   claimGuestAccount: (
     params: Readonly<{
       accountId: string;

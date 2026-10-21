@@ -72,6 +72,14 @@ export const action = requireInterruptionSafeClient(
         );
         return accountMutationResponse(result, "/account/security", navigateAfterWrite(result, "/account/security"));
       },
+      "unlink-social-login": async ({ request, actor, formData }) => {
+        const result = await createIdentityRequestApiClient(request).unlinkSocialLogin<MutationResult>({
+          userId: actor!.userId,
+          providerName: String(formData.get("providerName") ?? "") as "google" | "facebook",
+          linkKey: String(formData.get("linkKey") ?? ""),
+        });
+        return accountMutationResponse(result, "/account/security", navigateAfterWrite(result, "/account/security"));
+      },
     },
     onUnknownIntent: () => ({ outcome: "not-recorded", code: "interruption-safe-client-required" }),
   }),

@@ -198,6 +198,8 @@
         "identity.user.password-credential-attached": "<function>",
         "identity.user.passkey-registered": "<function>",
         "identity.user.social-login-linked": "<function>",
+        "identity.user.social-login-revocation-requested": "<function>",
+        "identity.user.social-login-revoked": "<function>",
         "identity.user.suspended": "<function>",
         "identity.user.reactivated": "<function>"
       },
@@ -216,6 +218,8 @@
         "identity.user.password-credential-attached",
         "identity.user.passkey-registered",
         "identity.user.social-login-linked",
+        "identity.user.social-login-revocation-requested",
+        "identity.user.social-login-revoked",
         "identity.user.suspended",
         "identity.user.reactivated"
       ],
@@ -465,6 +469,8 @@
         "identity.user.password-credential-attached": "<function>",
         "identity.user.passkey-registered": "<function>",
         "identity.user.social-login-linked": "<function>",
+        "identity.user.social-login-revocation-requested": "<function>",
+        "identity.user.social-login-revoked": "<function>",
         "identity.user.suspended": "<function>",
         "identity.user.reactivated": "<function>"
       },
@@ -477,6 +483,8 @@
         "identity.user.password-credential-attached",
         "identity.user.passkey-registered",
         "identity.user.social-login-linked",
+        "identity.user.social-login-revocation-requested",
+        "identity.user.social-login-revoked",
         "identity.user.suspended",
         "identity.user.reactivated"
       ],
