@@ -49,7 +49,8 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
       return { module: literalValue(module), name: decl.propertyName?.text ?? decl.name.text, decl };
     }
     if (ts.isImportClause(decl)) return { module: literalValue(decl.parent.moduleSpecifier), name: "default", decl };
-    if (ts.isNamespaceImport(decl)) return { module: literalValue(decl.parent.parent.parent.moduleSpecifier), name: "*", decl };
+    if (ts.isNamespaceImport(decl))
+      return { module: literalValue(decl.parent.parent.parent.moduleSpecifier), name: "*", decl };
     return undefined;
   };
   walk(sf, (node) => {
@@ -66,10 +67,15 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
       const module = literalValue(node.moduleSpecifier);
       const clause = node.importClause;
       if (clause.name) imported.set(clause.name.text, { module, name: "default", decl: clause });
-      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) imported.set(clause.namedBindings.name.text, { module, name: "*", decl: clause.namedBindings });
+      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings))
+        imported.set(clause.namedBindings.name.text, { module, name: "*", decl: clause.namedBindings });
       if (clause.namedBindings && ts.isNamedImports(clause.namedBindings))
         for (const element of clause.namedBindings.elements)
-          imported.set(element.name.text, { module, name: element.propertyName?.text ?? element.name.text, decl: element });
+          imported.set(element.name.text, {
+            module,
+            name: element.propertyName?.text ?? element.name.text,
+            decl: element,
+          });
     }
   });
   const scopeOf = new Map();
@@ -77,7 +83,12 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     const scope = { parent, bindings: new Map() };
     const collect = (node) => {
       if (!node) return;
-      if ((ts.isFunctionDeclaration(node) && node !== body) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) return;
+      if (
+        (ts.isFunctionDeclaration(node) && node !== body) ||
+        ts.isFunctionExpression(node) ||
+        ts.isArrowFunction(node)
+      )
+        return;
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer)
         scope.bindings.set(node.name.text, { node: node.initializer, scope });
       if (ts.isFunctionDeclaration(node) && node.name) scope.bindings.set(node.name.text, { node, scope });
@@ -93,7 +104,8 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     return fnScopes.get(fn);
   };
   const binding = (id, scope) => {
-    for (let current = scope; current; current = current.parent) if (current.bindings.has(id.text)) return current.bindings.get(id.text);
+    for (let current = scope; current; current = current.parent)
+      if (current.bindings.has(id.text)) return current.bindings.get(id.text);
     const info = imported.get(id.text);
     return info ? { import: info, scope } : undefined;
   };
@@ -101,7 +113,11 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     if (!value) return { node: value, scope, depth, exceeded: false };
     if (depth > 6) return { node: value, scope, depth, exceeded: true };
     const node = ts.isParenthesizedExpression(value) ? value.expression : value;
-    if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || node.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+    if (
+      ts.isBinaryExpression(node) &&
+      (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+        node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+    ) {
       const left = resolve(node.left, scope, depth + 1);
       return left.node ? left : resolve(node.right, scope, depth + 1);
     }
@@ -128,7 +144,8 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     if (r.exceeded) return undefined;
     if (ts.isNumericLiteral(r.node)) return Number(r.node.text);
     if (ts.isBinaryExpression(r.node)) {
-      const a = numberValue(r.node.left, r.scope, depth + 1), b = numberValue(r.node.right, r.scope, depth + 1);
+      const a = numberValue(r.node.left, r.scope, depth + 1),
+        b = numberValue(r.node.right, r.scope, depth + 1);
       if (a === undefined || b === undefined) return undefined;
       if (r.node.operatorToken.kind === ts.SyntaxKind.AsteriskToken) return a * b;
       if (r.node.operatorToken.kind === ts.SyntaxKind.PlusToken) return a + b;
@@ -149,11 +166,16 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     if (text === "ls-files" || text === "ls-tree") return { found: true, nodes: [r.node] };
     if (ts.isArrayLiteralExpression(r.node)) {
       const found = r.node.elements.flatMap((e) => tokenValue(e, r.scope, depth + 1));
-      return { found: found.some((x) => x.found), depth: found.some((x) => x.depth), nodes: found.flatMap((x) => x.nodes ?? []) };
+      return {
+        found: found.some((x) => x.found),
+        depth: found.some((x) => x.depth),
+        nodes: found.flatMap((x) => x.nodes ?? []),
+      };
     }
     if (ts.isSpreadElement(r.node)) return tokenValue(r.node.expression, r.scope, depth + 1);
     if (ts.isConditionalExpression(r.node)) {
-      const a = tokenValue(r.node.whenTrue, r.scope, depth + 1), b = tokenValue(r.node.whenFalse, r.scope, depth + 1);
+      const a = tokenValue(r.node.whenTrue, r.scope, depth + 1),
+        b = tokenValue(r.node.whenFalse, r.scope, depth + 1);
       return { found: a.found || b.found, depth: a.depth || b.depth, nodes: [...(a.nodes ?? []), ...(b.nodes ?? [])] };
     }
     return { found: false, depth: false };
@@ -166,12 +188,18 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     const n = r.node;
     if (!n) return { status: "noncompliant", reason: "missing-options" };
     if (ts.isIdentifier(n) && n.text === "GIT_LISTING_MAX_BUFFER") return { status: "compliant", reason: "constant" };
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "gitListingOptions") return { status: "compliant", reason: "gitListingOptions" };
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "gitListingOptions")
+      return { status: "compliant", reason: "gitListingOptions" };
     if (ts.isConditionalExpression(n)) {
       const branches = [optionsStatus(n.whenTrue, r.scope, depth + 1), optionsStatus(n.whenFalse, r.scope, depth + 1)];
-      const conditionText = (x) => ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) && ["includes"].includes(x.name.text);
+      const conditionText = (x) =>
+        ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) && ["includes"].includes(x.name.text);
       const both = branches.every((x) => x.status === "compliant");
-      return both ? branches[0] : branches.some((x) => x.status === "noncompliant") ? { status: "noncompliant", reason: "missing-maxBuffer" } : { status: "ambiguous", reason: "unresolved-options" };
+      return both
+        ? branches[0]
+        : branches.some((x) => x.status === "noncompliant")
+          ? { status: "noncompliant", reason: "missing-maxBuffer" }
+          : { status: "ambiguous", reason: "unresolved-options" };
     }
     if (!ts.isObjectLiteralExpression(n)) return { status: "ambiguous", reason: "unresolved-options" };
     let found;
@@ -184,20 +212,25 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
           continue;
         }
         if (ts.isConditionalExpression(spread.node)) {
-          const branches = [spread.node.whenTrue, spread.node.whenFalse].map((x) => optionsStatus(x, spread.scope, depth + 1, listingArgument));
+          const branches = [spread.node.whenTrue, spread.node.whenFalse].map((x) =>
+            optionsStatus(x, spread.scope, depth + 1, listingArgument),
+          );
           const condition = spread.node.condition;
           const listingIncludes = (expr) =>
             ts.isBinaryExpression(expr) &&
             expr.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
-            [expr.left, expr.right].every((part) =>
-              ts.isCallExpression(part) &&
-              ts.isPropertyAccessExpression(part.expression) &&
-              part.expression.name.text === "includes" &&
-              literalValue(part.arguments[0])?.startsWith("ls-"),
+            [expr.left, expr.right].every(
+              (part) =>
+                ts.isCallExpression(part) &&
+                ts.isPropertyAccessExpression(part.expression) &&
+                part.expression.name.text === "includes" &&
+                literalValue(part.arguments[0])?.startsWith("ls-"),
             );
-          if (listingIncludes(condition) && branches[0].status === "compliant") found = { status: "compliant", reason: "conditional-listing-capacity" };
+          if (listingIncludes(condition) && branches[0].status === "compliant")
+            found = { status: "compliant", reason: "conditional-listing-capacity" };
           else if (branches.every((x) => x.status === "compliant")) found = branches[0];
-          else if (branches.some((x) => x.status === "noncompliant")) found = { status: "noncompliant", reason: "missing-maxBuffer" };
+          else if (branches.some((x) => x.status === "noncompliant"))
+            found = { status: "noncompliant", reason: "missing-maxBuffer" };
           else ambiguous = true;
         } else {
           const result = optionsStatus(spread.node, spread.scope, depth + 1, listingArgument);
@@ -207,18 +240,38 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
         }
         continue;
       }
-      const name = ts.isShorthandPropertyAssignment(p) ? p.name.text : ts.isPropertyAssignment(p) ? propertyName(p) : undefined;
+      const name = ts.isShorthandPropertyAssignment(p)
+        ? p.name.text
+        : ts.isPropertyAssignment(p)
+          ? propertyName(p)
+          : undefined;
       if (name !== "maxBuffer") continue;
       const initializer = ts.isShorthandPropertyAssignment(p) ? p.name : p.initializer;
       const v = resolve(initializer, r.scope, depth + 1);
-      if (ts.isIdentifier(v.node) && v.node.text === "GIT_LISTING_MAX_BUFFER") found = { status: "compliant", reason: "constant" };
-      else if (ts.isCallExpression(v.node) && ts.isIdentifier(v.node.expression) && v.node.expression.text === "gitListingOptions") found = { status: "compliant", reason: "gitListingOptions" };
+      if (ts.isIdentifier(v.node) && v.node.text === "GIT_LISTING_MAX_BUFFER")
+        found = { status: "compliant", reason: "constant" };
+      else if (
+        ts.isCallExpression(v.node) &&
+        ts.isIdentifier(v.node.expression) &&
+        v.node.expression.text === "gitListingOptions"
+      )
+        found = { status: "compliant", reason: "gitListingOptions" };
       else {
         const number = numberValue(v.node, v.scope, depth + 1);
-        found = number === undefined ? { status: "ambiguous", reason: "unresolved-options" } : number >= 8 * 1024 * 1024 ? { status: "compliant", reason: "numeric-capacity" } : { status: "noncompliant", reason: "small-capacity" };
+        found =
+          number === undefined
+            ? { status: "ambiguous", reason: "unresolved-options" }
+            : number >= 8 * 1024 * 1024
+              ? { status: "compliant", reason: "numeric-capacity" }
+              : { status: "noncompliant", reason: "small-capacity" };
       }
     }
-    return found ?? (ambiguous ? { status: "ambiguous", reason: "unresolved-options" } : { status: "noncompliant", reason: "missing-maxBuffer" });
+    return (
+      found ??
+      (ambiguous
+        ? { status: "ambiguous", reason: "unresolved-options" }
+        : { status: "noncompliant", reason: "missing-maxBuffer" })
+    );
   };
   const spawnerFor = (node, scope) => {
     if (ts.isIdentifier(node)) {
@@ -227,15 +280,31 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
       if (b?.spawner) return b.spawner;
       const r = resolve(node, scope);
       if (r.import && childProcessModule(r.import.module) && spawnerNames.has(r.import.name)) return r.import.name;
-      if (r.node && ts.isCallExpression(r.node) && ts.isPropertyAccessExpression(r.node.expression) && r.node.expression.name.text === "promisify") {
+      if (
+        r.node &&
+        ts.isCallExpression(r.node) &&
+        ts.isPropertyAccessExpression(r.node.expression) &&
+        r.node.expression.name.text === "promisify"
+      ) {
         const target = r.node.arguments[0];
         const targetBinding = ts.isIdentifier(target) ? binding(target, r.scope) : undefined;
-        if (targetBinding?.import && childProcessModule(targetBinding.import.module) && targetBinding.import.name === "execFile") return "execFile";
+        if (
+          targetBinding?.import &&
+          childProcessModule(targetBinding.import.module) &&
+          targetBinding.import.name === "execFile"
+        )
+          return "execFile";
       }
     }
     if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
       const b = binding(node.expression, scope);
-      if (b?.import && childProcessModule(b.import.module) && (b.import.name === "*" || b.import.name === "default") && spawnerNames.has(node.name.text)) return node.name.text;
+      if (
+        b?.import &&
+        childProcessModule(b.import.module) &&
+        (b.import.name === "*" || b.import.name === "default") &&
+        spawnerNames.has(node.name.text)
+      )
+        return node.name.text;
     }
     return undefined;
   };
@@ -251,16 +320,28 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     }
     const row = { file: relativePath, line: lineOf(sf, node), kind: rowKind, status: result.status, reason };
     const old = rows.get(key);
-    if (!old || statusRank[row.status] > statusRank[old.status] || (statusRank[row.status] === statusRank[old.status] && kind === "injected-default")) rows.set(key, row);
+    if (
+      !old ||
+      statusRank[row.status] > statusRank[old.status] ||
+      (statusRank[row.status] === statusRank[old.status] && kind === "injected-default")
+    )
+      rows.set(key, row);
   };
   const functionFor = (callee, scope) => {
     if (!ts.isIdentifier(callee)) return undefined;
     const r = resolve(callee, scope);
-    if (r.node && (ts.isFunctionDeclaration(r.node) || ts.isArrowFunction(r.node) || ts.isFunctionExpression(r.node))) return r.node;
+    if (r.node && (ts.isFunctionDeclaration(r.node) || ts.isArrowFunction(r.node) || ts.isFunctionExpression(r.node)))
+      return r.node;
     if (r.node && ts.isIdentifier(r.node)) {
       const d = declarations.get(r.node.text);
       if (d && ts.isFunctionDeclaration(d)) return d;
-      if (d && ts.isVariableDeclaration(d) && d.initializer && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))) return d.initializer;
+      if (
+        d &&
+        ts.isVariableDeclaration(d) &&
+        d.initializer &&
+        (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+      )
+        return d.initializer;
     }
     return undefined;
   };
@@ -268,13 +349,22 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     const next = { parent: calleeScope.parent, bindings: new Map(calleeScope.bindings) };
     fn.parameters.forEach((p, i) => {
       const arg = args[i];
-      if (ts.isIdentifier(p.name)) next.bindings.set(p.name.text, { node: arg ?? p.initializer, scope: arg ? callerScope : calleeScope });
-      else if (ts.isObjectBindingPattern(p.name)) for (const e of p.name.elements) if (ts.isBindingElement(e) && ts.isIdentifier(e.name)) {
-        const obj = arg ? resolve(arg, callerScope).node : undefined;
-        const key = e.propertyName?.text ?? e.name.text;
-        const prop = obj && ts.isObjectLiteralExpression(obj) ? obj.properties.find((x) => !ts.isSpreadAssignment(x) && propertyName(x) === key) : undefined;
-        next.bindings.set(e.name.text, { node: prop && ts.isPropertyAssignment(prop) ? prop.initializer : e.initializer, scope: prop ? callerScope : calleeScope });
-      }
+      if (ts.isIdentifier(p.name))
+        next.bindings.set(p.name.text, { node: arg ?? p.initializer, scope: arg ? callerScope : calleeScope });
+      else if (ts.isObjectBindingPattern(p.name))
+        for (const e of p.name.elements)
+          if (ts.isBindingElement(e) && ts.isIdentifier(e.name)) {
+            const obj = arg ? resolve(arg, callerScope).node : undefined;
+            const key = e.propertyName?.text ?? e.name.text;
+            const prop =
+              obj && ts.isObjectLiteralExpression(obj)
+                ? obj.properties.find((x) => !ts.isSpreadAssignment(x) && propertyName(x) === key)
+                : undefined;
+            next.bindings.set(e.name.text, {
+              node: prop && ts.isPropertyAssignment(prop) ? prop.initializer : e.initializer,
+              scope: prop ? callerScope : calleeScope,
+            });
+          }
     });
     return next;
   };
@@ -289,7 +379,9 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
         for (const token of tokens.nodes ?? []) accounted.add(token);
         addRow(node, kind, optionsStatus(node.arguments[2], scope, 0, node.arguments[1]));
       } else if (!spawner && !fn && ts.isIdentifier(node.expression)) {
-        const unresolvedTokens = [node.arguments[0], node.arguments[1], node.arguments[2]].flatMap((arg) => tokenValue(arg, scope).nodes ?? []);
+        const unresolvedTokens = [node.arguments[0], node.arguments[1], node.arguments[2]].flatMap(
+          (arg) => tokenValue(arg, scope).nodes ?? [],
+        );
         const calleeBinding = binding(node.expression, scope);
         if (unresolvedTokens.length && calleeBinding) {
           for (const token of unresolvedTokens) accounted.add(token);
@@ -301,21 +393,39 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
       if (fn && !active.has(fn)) {
         active.add(fn);
         const calleeScope = fnScope(fn, scope);
-        inspect(fn.body, buildParams(fn, [...node.arguments], scope, calleeScope), kind === "direct" ? "wrapper" : kind);
+        inspect(
+          fn.body,
+          buildParams(fn, [...node.arguments], scope, calleeScope),
+          kind === "direct" ? "wrapper" : kind,
+        );
         active.delete(fn);
       }
     }
     ts.forEachChild(node, (child) => inspect(child, scope, kind));
   };
   inspect(sf, globalScope, "direct");
-  for (const fn of functionNodes) if (!active.has(fn)) {
-    const scope = fnScope(fn, globalScope);
-    inspect(fn.body, buildParams(fn, [], scope, scope), fn.parameters.some((p) => p.initializer) ? "injected-default" : "direct");
-  }
+  for (const fn of functionNodes)
+    if (!active.has(fn)) {
+      const scope = fnScope(fn, globalScope);
+      inspect(
+        fn.body,
+        buildParams(fn, [], scope, scope),
+        fn.parameters.some((p) => p.initializer) ? "injected-default" : "direct",
+      );
+    }
   const exempt = (token) => {
     let parent = token.parent;
     while (parent) {
-      if (ts.isBinaryExpression(parent) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(parent.operatorToken.kind)) return true;
+      if (
+        ts.isBinaryExpression(parent) &&
+        [
+          ts.SyntaxKind.EqualsEqualsEqualsToken,
+          ts.SyntaxKind.ExclamationEqualsEqualsToken,
+          ts.SyntaxKind.EqualsEqualsToken,
+          ts.SyntaxKind.ExclamationEqualsToken,
+        ].includes(parent.operatorToken.kind)
+      )
+        return true;
       if (ts.isCaseClause(parent)) return true;
       if (ts.isCallExpression(parent)) {
         const callee = parent.expression;
@@ -323,20 +433,35 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
         if (ts.isPropertyAccessExpression(callee)) {
           let root = callee.expression;
           while (ts.isPropertyAccessExpression(root)) root = root.expression;
-          if (ts.isCallExpression(root) && ts.isIdentifier(root.expression) && root.expression.text === "expect") return true;
+          if (ts.isCallExpression(root) && ts.isIdentifier(root.expression) && root.expression.text === "expect")
+            return true;
           if (ts.isIdentifier(root) && root.text === "assert") return true;
         }
-        if (ts.isPropertyAccessExpression(callee) && ["startsWith", "endsWith", "includes", "indexOf"].includes(callee.name.text)) return true;
+        if (
+          ts.isPropertyAccessExpression(callee) &&
+          ["startsWith", "endsWith", "includes", "indexOf"].includes(callee.name.text)
+        )
+          return true;
         return false;
       }
       parent = parent.parent;
     }
     return false;
   };
-  for (const token of tokenNodes) if (!accounted.has(token) && !exempt(token)) addRow(token, "direct", { status: "ambiguous", reason: "unaccounted-token" });
-  if (relativePath === "scripts/check-structure/consent-authorization-sites.test.mjs" && ![...rows.values()].some((row) => row.line >= 1200)) {
+  for (const token of tokenNodes)
+    if (!accounted.has(token) && !exempt(token))
+      addRow(token, "direct", { status: "ambiguous", reason: "unaccounted-token" });
+  if (
+    relativePath === "scripts/check-structure/consent-authorization-sites.test.mjs" &&
+    ![...rows.values()].some((row) => row.line >= 1200)
+  ) {
     walk(sf, (node) => {
-      if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression) || node.expression.text !== "runCountedChildProcess") return;
+      if (
+        !ts.isCallExpression(node) ||
+        !ts.isIdentifier(node.expression) ||
+        node.expression.text !== "runCountedChildProcess"
+      )
+        return;
       const first = literal(node.arguments[0], globalScope);
       const tokens = tokenValue(node.arguments[1], globalScope);
       if (first.value === "git" && tokens.found) {
@@ -348,14 +473,27 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
   if (relativePath === "scripts/check-structure/consent-authorization-sites.test.mjs") {
     const text = sf.getFullText();
     const marker = 'runCountedChildProcess("git", args, {\n    cwd: repoRoot,\n    encoding: "utf8",\n    maxBuffer';
-    const status = text.includes(marker) ? { status: "compliant", reason: "constant" } : { status: "noncompliant", reason: "missing-maxBuffer" };
+    const status = text.includes(marker)
+      ? { status: "compliant", reason: "constant" }
+      : { status: "noncompliant", reason: "missing-maxBuffer" };
     const node = { getStart: () => 0 };
     rows.set(1263, { file: relativePath, line: 1263, kind: "wrapper", ...status });
   }
-  if (relativePath === "scripts/check-structure/doks-ingress-chart-version.mjs" && ![...rows.values()].some((row) => row.status !== "ambiguous")) {
-    const capacity = sf.getFullText().includes("maxBuffer: GIT_LISTING_MAX_BUFFER") ? { status: "compliant", reason: "constant" } : { status: "noncompliant", reason: "missing-maxBuffer" };
+  if (
+    relativePath === "scripts/check-structure/doks-ingress-chart-version.mjs" &&
+    ![...rows.values()].some((row) => row.status !== "ambiguous")
+  ) {
+    const capacity = sf.getFullText().includes("maxBuffer: GIT_LISTING_MAX_BUFFER")
+      ? { status: "compliant", reason: "constant" }
+      : { status: "noncompliant", reason: "missing-maxBuffer" };
     walk(sf, (node) => {
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "execFileSync" && literalValue(node.arguments[0]) === "git") addRow(node, "injected-default", capacity);
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "execFileSync" &&
+        literalValue(node.arguments[0]) === "git"
+      )
+        addRow(node, "injected-default", capacity);
     });
   }
   const knownCompliant = new Map([
@@ -379,7 +517,11 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
   ]);
   return [...rows.values()]
     .filter((row) => !ignoredFalsePositive.has(`${row.file}:${row.line}`))
-    .map((row) => knownCompliant.has(`${row.file}:${row.line}`) ? { ...row, status: "compliant", reason: knownCompliant.get(`${row.file}:${row.line}`).reason } : row);
+    .map((row) =>
+      knownCompliant.has(`${row.file}:${row.line}`)
+        ? { ...row, status: "compliant", reason: knownCompliant.get(`${row.file}:${row.line}`).reason }
+        : row,
+    );
 }
 
 export function listingSiteInventory({ root = repoRoot, sources } = {}) {
@@ -399,7 +541,10 @@ export function listingSiteInventory({ root = repoRoot, sources } = {}) {
     const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKind(file));
     if (sf.parseDiagnostics?.length)
       return [{ file: relativePath, line: 1, kind: "direct", status: "ambiguous", reason: "parse" }];
-    const program = ts.createProgram({ rootNames: [file], options: { allowJs: true, noResolve: true, noLib: true, noEmit: true, types: [] } });
+    const program = ts.createProgram({
+      rootNames: [file],
+      options: { allowJs: true, noResolve: true, noLib: true, noEmit: true, types: [] },
+    });
     const programSource = program.getSourceFile(file) ?? sf;
     return sourceRows(programSource, program.getTypeChecker(), relativePath, [file]);
   });
@@ -493,16 +638,72 @@ describe("Git listing buffer contract", () => {
       }
     }
     const failClosedPlants = [
-      ["same-name-arg", 'import { execFileSync } from "node:child_process"; function run(file, args, options) { return execFileSync(file, args, options); } function list() { const args = ["ls-files"]; return run("git", args, { encoding: "utf8" }); } list();', "wrapper", "noncompliant"],
-      ["const-name-collision", 'import { execFileSync } from "node:child_process"; function a() { const argv = ["ls-files"]; return execFileSync("git", argv, { encoding: "utf8" }); } function b() { const argv = ["status"]; return argv; } a(); b();', "direct", "noncompliant"],
-      ["default-import", 'import cp from "node:child_process"; cp.execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" });', "direct", "noncompliant"],
-      ["util-promisify", 'import util from "node:util"; import { execFile } from "node:child_process"; const run = util.promisify(execFile); await run("git", ["ls-files"], { encoding: "utf8" });', "direct", "noncompliant"],
-      ["imported-executor", 'import { git } from "./elsewhere.mjs"; git(["ls-files", "-z"]);', "direct", "ambiguous", "unresolved-executor"],
-      ["param-executor-no-caller", 'import { execFileSync } from "node:child_process"; export function list(exec) { return exec(["ls-files", "-z"]); }', "direct", "ambiguous", "unresolved-executor"],
-      ["method-executor", 'import { execFileSync } from "node:child_process"; const g = { run: (a) => execFileSync("git", a, { encoding: "utf8" }) }; g.run(["ls-files"]);', "direct", "ambiguous", "unaccounted-token"],
-      ["require-cjs", 'const { execFileSync } = require("node:child_process"); execFileSync("git", ["ls-files"], { encoding: "utf8" });', "direct", "ambiguous", "unaccounted-token"],
-      ["exported-args-const", 'export const LISTING_ARGS = ["ls-files", "-z"];', "direct", "ambiguous", "unaccounted-token"],
-      ["depth-7", 'import { execFileSync } from "node:child_process"; const a1 = ["ls-files"]; const a2 = a1; const a3 = a2; const a4 = a3; const a5 = a4; const a6 = a5; const a7 = a6; const a8 = a7; execFileSync("git", a8, { encoding: "utf8" });', "direct", "ambiguous", "depth"],
+      [
+        "same-name-arg",
+        'import { execFileSync } from "node:child_process"; function run(file, args, options) { return execFileSync(file, args, options); } function list() { const args = ["ls-files"]; return run("git", args, { encoding: "utf8" }); } list();',
+        "wrapper",
+        "noncompliant",
+      ],
+      [
+        "const-name-collision",
+        'import { execFileSync } from "node:child_process"; function a() { const argv = ["ls-files"]; return execFileSync("git", argv, { encoding: "utf8" }); } function b() { const argv = ["status"]; return argv; } a(); b();',
+        "direct",
+        "noncompliant",
+      ],
+      [
+        "default-import",
+        'import cp from "node:child_process"; cp.execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" });',
+        "direct",
+        "noncompliant",
+      ],
+      [
+        "util-promisify",
+        'import util from "node:util"; import { execFile } from "node:child_process"; const run = util.promisify(execFile); await run("git", ["ls-files"], { encoding: "utf8" });',
+        "direct",
+        "noncompliant",
+      ],
+      [
+        "imported-executor",
+        'import { git } from "./elsewhere.mjs"; git(["ls-files", "-z"]);',
+        "direct",
+        "ambiguous",
+        "unresolved-executor",
+      ],
+      [
+        "param-executor-no-caller",
+        'import { execFileSync } from "node:child_process"; export function list(exec) { return exec(["ls-files", "-z"]); }',
+        "direct",
+        "ambiguous",
+        "unresolved-executor",
+      ],
+      [
+        "method-executor",
+        'import { execFileSync } from "node:child_process"; const g = { run: (a) => execFileSync("git", a, { encoding: "utf8" }) }; g.run(["ls-files"]);',
+        "direct",
+        "ambiguous",
+        "unaccounted-token",
+      ],
+      [
+        "require-cjs",
+        'const { execFileSync } = require("node:child_process"); execFileSync("git", ["ls-files"], { encoding: "utf8" });',
+        "direct",
+        "ambiguous",
+        "unaccounted-token",
+      ],
+      [
+        "exported-args-const",
+        'export const LISTING_ARGS = ["ls-files", "-z"];',
+        "direct",
+        "ambiguous",
+        "unaccounted-token",
+      ],
+      [
+        "depth-7",
+        'import { execFileSync } from "node:child_process"; const a1 = ["ls-files"]; const a2 = a1; const a3 = a2; const a4 = a3; const a5 = a4; const a6 = a5; const a7 = a6; const a8 = a7; execFileSync("git", a8, { encoding: "utf8" });',
+        "direct",
+        "ambiguous",
+        "depth",
+      ],
     ];
     for (const [name, source, kind, status, reason] of failClosedPlants) {
       const { root, relative } = plant(name, source);
