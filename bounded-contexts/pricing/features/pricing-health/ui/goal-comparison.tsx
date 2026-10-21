@@ -78,7 +78,7 @@ export function GoalComparison({
         rows={[...candidates]}
         getRowId={(row) => `${row.goalId}@${row.goalVersion}`}
         caption={copy("goals.comparison")}
-        mobileMode="stack"
+        mobileMode="scroll"
         emptyTitle={copy("goals.compareEmpty")}
         columns={[
           {
