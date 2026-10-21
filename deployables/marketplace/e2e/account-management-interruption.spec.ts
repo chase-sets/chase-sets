@@ -573,14 +573,10 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       });
       expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
     }
-    async function captureCreate360() {
-      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-create-360" });
-    }
-    async function captureUpdate390() {
-      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-update-390" });
-    }
-    async function captureRemovedRow1024() {
-      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-removed-row-1024" });
+    async function captureEvidence(claimId: string) {
+      // Summary links are in-page anchors; drop their fragment so the claim's exact route holds.
+      await page.evaluate(() => history.replaceState(history.state, "", location.pathname + location.search));
+      await captureResponsiveEvidence({ page, testInfo, claimId });
     }
     async function visibleBox(locator: Locator) {
       await expect(locator).toBeVisible();
@@ -662,7 +658,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await fillCreate(`Synthetic ${size} first`, " ");
       await checkSummary(await submitOnce(create), size, "create");
       if (size === "360x800") {
-        await captureCreate360();
+        await captureEvidence("shipping-field-errors-create-360");
       }
       for (const suffix of ["first", "second"]) {
         const label = `Synthetic ${size} ${suffix}`;
@@ -680,7 +676,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await update.locator('input[name="city"]').fill(" ");
       await checkSummary(await submitOnce(update), size, "update", dialog);
       if (size === "390x844") {
-        await captureUpdate390();
+        await captureEvidence("shipping-field-errors-update-390");
       }
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
       await expect(summaries).toHaveCount(0);
@@ -727,7 +723,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
         expect(posts - before).toBe(1);
         transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
         if (size === "1024x768") {
-          await captureRemovedRow1024();
+          await captureEvidence("shipping-field-errors-removed-row-1024");
         }
         const firstLabel = `Synthetic ${size} first`;
         const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
