@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
+import type { request } from "node:https";
+import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import {
@@ -6,7 +9,9 @@ import {
   authUcpOAuthConsentSchemaMigrations,
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
+  CIMD_RESPONSE_MAX_BYTES,
   UCP_OAUTH_SUPPORTED_SCOPES,
+  type UcpOAuthRoutesOptions,
   resolveUcpScopedPermissions,
 } from "./oauth";
 import { authRetentionSweeps } from "../runtime-support/retention-policy";
@@ -1216,6 +1221,232 @@ describe("UCP OAuth routes", () => {
     expect(authorize.status).toBe(400);
     await expect(authorize.json()).resolves.toMatchObject({ error: "invalid_client" });
   });
+
+  it.each([
+    ["https://127.0.0.1/oauth-client.json", undefined],
+    ["https://[::1]/oauth-client.json", undefined],
+    ["http://localhost/oauth-client.json", undefined],
+    ["https://private.example/oauth-client.json", [{ address: "10.0.0.8", family: 4 }]],
+    ["https://link-local.example/oauth-client.json", [{ address: "169.254.10.8", family: 4 }]],
+    ["https://multicast.example/oauth-client.json", [{ address: "224.0.0.8", family: 4 }]],
+    ["https://unspecified.example/oauth-client.json", [{ address: "0.0.0.0", family: 4 }]],
+  ] as const)("refuses a non-public CIMD destination before connecting: %s", async (clientId, answers) => {
+    const lookupClientIdMetadata = vi.fn(async () => answers ?? []);
+    const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(() => {
+      throw new Error("the refused destination must not connect");
+    });
+    const options = createOAuthOptions({ lookupClientIdMetadata, requestClientIdMetadata });
+    const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId,
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(requestClientIdMetadata).not.toHaveBeenCalled();
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+    if (answers) expect(lookupClientIdMetadata).toHaveBeenCalledTimes(1);
+    else expect(lookupClientIdMetadata).not.toHaveBeenCalled();
+  });
+
+  it("pins the first public DNS answer and does not follow a rebinding answer", async () => {
+    const lookupClientIdMetadata = vi
+      .fn<NonNullable<UcpOAuthRoutesOptions["lookupClientIdMetadata"]>>()
+      .mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }])
+      .mockResolvedValueOnce([{ address: "10.0.0.8", family: 4 }]);
+    const contacted: string[] = [];
+    const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(
+      (url, requestOptions, callback) => {
+        expect(String(url)).toBe("https://agent.example/oauth-client.json");
+        expect(requestOptions.servername).toBe("agent.example");
+        expect(requestOptions.headers).toMatchObject({ Host: "agent.example" });
+        const client = new EventEmitter() as ReturnType<typeof request>;
+        client.destroy = vi.fn(() => client);
+        client.end = vi.fn(() => {
+          requestOptions.lookup?.("agent.example", { all: false }, (_error, address) => {
+            contacted.push(String(address));
+          });
+          const response = Readable.from([
+            Buffer.from(
+              JSON.stringify({
+                client_id: "https://agent.example/oauth-client.json",
+                client_name: "Pinned Metadata Client",
+                client_uri: "https://agent.example/.well-known/ucp",
+                redirect_uris: ["https://agent.example/callback"],
+                scope: "catalog:read",
+                grant_types: ["authorization_code", "refresh_token"],
+                response_types: ["code"],
+                token_endpoint_auth_method: "none",
+              }),
+            ),
+          ]);
+          callback?.(Object.assign(response, { statusCode: 200, headers: {} }) as never);
+          return client;
+        });
+        return client;
+      },
+    );
+    const options = createOAuthOptions({ lookupClientIdMetadata, requestClientIdMetadata });
+    const db = options.auth.db as unknown as { consents: Map<string, unknown> };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "https://agent.example/oauth-client.json",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      }),
+    );
+
+    expect(response.status).toBe(302);
+    expect(lookupClientIdMetadata).toHaveBeenCalledTimes(1);
+    expect(requestClientIdMetadata).toHaveBeenCalledTimes(1);
+    expect(contacted).toEqual(["8.8.8.8"]);
+    expect(db.consents.size).toBe(1);
+  });
+
+  it("enforces the response cap on injected CIMD fixtures without retaining a body", async () => {
+    const fetchClientIdMetadata = vi.fn(async (url: string) => ({
+      client_id: url,
+      client_name: "Synthetic Metadata Client",
+      client_uri: "https://agent.example/.well-known/ucp",
+      redirect_uris: ["https://agent.example/callback"],
+      scope: "catalog:read",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      harmless: "x".repeat(CIMD_RESPONSE_MAX_BYTES),
+    }));
+    const options = createOAuthOptions({ fetchClientIdMetadata });
+    const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const response = await app.request(
+      authorizeUrl({
+        clientId: "https://agent.example/oauth-client.json",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+  });
+
+  it("derives and accepts the 27,303-byte largest-valid CIMD, then refuses cap+1", async () => {
+    const paddedUrl = (suffix: string) => {
+      const prefix = "https://a.example/";
+      return `${prefix}${"x".repeat(2048 - prefix.length - suffix.length)}${suffix}`;
+    };
+    const clientId = paddedUrl("client-id");
+    const redirectUris = Array.from({ length: 10 }, (_, index) => paddedUrl(`redirect-${index}`));
+    const body = {
+      client_id: clientId,
+      client_name: "x".repeat(120),
+      client_uri: paddedUrl("client-uri"),
+      platform_profile_url: paddedUrl("profile-url"),
+      redirect_uris: redirectUris,
+      scope: [...UCP_OAUTH_SUPPORTED_SCOPES, "operations:read", "operations:write"].join(" "),
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    };
+    expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBe(27_303);
+    const capPlusOnePadding = 32_769 - Buffer.byteLength(JSON.stringify({ ...body, padding: "" }), "utf8");
+    const capPlusOne = { ...body, padding: " ".repeat(capPlusOnePadding) };
+    expect(Buffer.byteLength(JSON.stringify(capPlusOne), "utf8")).toBe(CIMD_RESPONSE_MAX_BYTES + 1);
+
+    const run = async (metadata: unknown) => {
+      const options = createOAuthOptions({ fetchClientIdMetadata: async () => metadata });
+      const db = options.auth.db as unknown as { consents: Map<string, unknown>; codes: Map<string, unknown> };
+      const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+      const response = await app.request(
+        authorizeUrl({
+          clientId,
+          redirectUri: redirectUris[0]!,
+          scope: "catalog:read",
+          challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+        }),
+      );
+      return { response, db };
+    };
+
+    const accepted = await run(body);
+    expect(accepted.response.status).toBe(302);
+    expect(accepted.db.consents.size).toBe(1);
+    const refused = await run(capPlusOne);
+    expect(refused.response.status).toBe(400);
+    await expect(refused.response.json()).resolves.toMatchObject({ error: "invalid_client" });
+    expect(refused.db.consents.size).toBe(0);
+    expect(refused.db.codes.size).toBe(0);
+  });
+
+  it.each(["delayed headers", "never-ending body"] as const)(
+    "aborts the production CIMD transport at the same deadline for %s",
+    async (mode) => {
+      vi.useFakeTimers();
+      try {
+        let stream: Readable | undefined;
+        const requestClientIdMetadata = vi.fn<NonNullable<UcpOAuthRoutesOptions["requestClientIdMetadata"]>>(
+          (_url, _requestOptions, callback) => {
+            const client = new EventEmitter() as ReturnType<typeof request>;
+            client.destroy = vi.fn(() => {
+              stream?.destroy();
+              return client;
+            });
+            client.end = vi.fn(() => {
+              if (mode === "never-ending body") {
+                let sent = false;
+                stream = new Readable({
+                  read() {
+                    if (!sent) {
+                      sent = true;
+                      this.push(Buffer.from("{"));
+                    }
+                  },
+                });
+                callback?.(Object.assign(stream, { statusCode: 200, headers: {} }) as never);
+              }
+              return client;
+            });
+            return client;
+          },
+        );
+        const options = createOAuthOptions({
+          lookupClientIdMetadata: async () => [{ address: "8.8.8.8", family: 4 }],
+          requestClientIdMetadata,
+        });
+        const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+        const pending = app.request(
+          authorizeUrl({
+            clientId: "https://agent.example/oauth-client.json",
+            redirectUri: "https://agent.example/callback",
+            scope: "catalog:read",
+            challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(5_000);
+        const response = await pending;
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ error: "invalid_client" });
+        expect(requestClientIdMetadata.mock.results[0]?.value.destroy).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("lists and revokes linked platform authorizations for the current account", async () => {
     const revokeStoredPaymentMethodsForAgentGrant = vi.fn(async () => ({
