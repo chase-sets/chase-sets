@@ -520,7 +520,9 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     const beyond = await page.evaluate(() => window.scrollY + 200);
     await scrollWindowTo(page, beyond + DIRECTION_DELTA + 8);
     await waitForSearchRowPhase(page, "collapsed");
-    expect(await page.evaluate(() => document.activeElement?.closest(searchHeaderSelector) === null)).toBe(true);
+    expect(
+      await page.evaluate((header) => document.activeElement?.closest(header) === null, searchHeaderSelector),
+    ).toBe(true);
     expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(64, 0);
 
     let step = 0;
@@ -600,7 +602,7 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     page,
   }, testInfo) => {
     await page.setContent(`
-      <nav id="header" data-search-row-state="collapsed"><form role="search">
+      <nav id="header" data-search-row-state="collapsed" style="--shell-header-height: 64px"><form role="search">
         <input type="radio" name="choice" value="unchecked">
         <input type="radio" name="choice" value="checked" checked>
       </form></nav>
