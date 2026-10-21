@@ -49,7 +49,6 @@ function helperUseSatisfiesClaim(usedHelpers, claimedHelper) {
   }
   return false;
 }
-
 function helperUsageIsCovered(usedHelper, coveredHelpers) {
   if (coveredHelpers.has(usedHelper)) return true;
   if (usedHelper === "defineResourceRoute" && coveredHelpers.has("loadAfterWrite")) return true;
