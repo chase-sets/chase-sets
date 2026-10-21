@@ -606,6 +606,16 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       await scrollWindowTo(page, beyond + DIRECTION_DELTA + 8);
       await waitForSearchRowPhase(page, "collapsed");
 
+      // Phase B: native traversal, then the reveal's restoration evidence and one published record.
+      evidence.indices.firstKeyPress = ++step;
+      const authority = await readReverseTraversalAuthority(page, {
+        navSelector: searchHeaderSelector,
+        inputSelector: searchFormInputSelector,
+        maxPresses: MAX_REVERSE_PRESSES,
+      });
+      evidence.trace = authority.trace;
+      evidence.presses = authority.presses;
+
       // Phase A: capture before the first key press; only the entry precondition is asserted.
       evidence.indices.phaseACapture = ++step;
       await assertCollapsedReverseTraversalPrecondition(page, searchHeaderSelector, evidenceContext);
@@ -627,16 +637,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       evidence.triggerDiagnostics = await readFocusDiagnostics(page, searchFormTriggerSelector);
       evidence.family = attributeFamily(evidence.inputDiagnostics);
       if (handle) evidence.mutantAtPhaseA = await handle.read();
-
-      // Phase B: native traversal, then the reveal's restoration evidence and one published record.
-      evidence.indices.firstKeyPress = ++step;
-      const authority = await readReverseTraversalAuthority(page, {
-        navSelector: searchHeaderSelector,
-        inputSelector: searchFormInputSelector,
-        maxPresses: MAX_REVERSE_PRESSES,
-      });
-      evidence.trace = authority.trace;
-      evidence.presses = authority.presses;
 
       evidence.postExpandReadback = await page.evaluate((input) => {
         const element = document.querySelector(input);
