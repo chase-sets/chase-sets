@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   inspectJsonImportAttributes,
   manifestHostRegistrationFields,
@@ -739,6 +740,7 @@ describe("real repository execution membership", () => {
     const indexedSources = execFileSync("git", ["ls-files", "--", "*.ts", "*.tsx", "*.mts", "*.cts"], {
       encoding: "utf8",
       timeout: 10_000,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)
@@ -752,6 +754,7 @@ describe("real repository execution membership", () => {
     const indexedWorkspaces = execFileSync("git", ["ls-files", "--", "*/package.json"], {
       encoding: "utf8",
       timeout: 10_000,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)

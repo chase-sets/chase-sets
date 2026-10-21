@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFi
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   auditBrowserUsabilityRoutes,
   browserUsabilityGoal,
@@ -15,7 +16,11 @@ const schema = "browser-usability/v1";
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
 const writeJson = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2) + "\n", { flag: "wx" });
-const git = (args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+const git = (args) =>
+  execFileSync("git", args, {
+    encoding: "utf8",
+    ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
+  }).trim();
 const required = (value, name) => {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required.`);
   return value;
