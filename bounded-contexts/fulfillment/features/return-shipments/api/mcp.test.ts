@@ -1,7 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import { validateMcpModuleRegistrations } from "@chase-sets/platform-runtime/mcp";
+import { flattenAvailableMcpTools, mcpServiceCatalog } from "@chase-sets/platform-runtime/mcp-contracts";
+import contextManifest from "../../../context.json" with { type: "json" };
 import { createFulfillmentReturnIntakeMcpHandlers } from "./mcp";
 import type { FulfillmentReturnShipmentServices } from "./runtime";
+
+const names = [
+  "fulfillment.complete-return-intake",
+  "fulfillment.correct-return-intake",
+  "fulfillment.get-return-intake-queue",
+  "fulfillment.reconcile-unidentified-return-package",
+  "fulfillment.record-unidentified-return-package",
+  "fulfillment.resolve-return-intake",
+];
 
 const operator = {
   sessionId: "sess_1",
@@ -44,6 +56,36 @@ function services(overrides: Record<string, unknown> = {}) {
 }
 
 describe("return-intake MCP source-call contract coverage", () => {
+  it("registers exactly the six operator return-intake tools in the catalog, manifest and handlers", () => {
+    const handlers = createFulfillmentReturnIntakeMcpHandlers(services());
+    expect(
+      flattenAvailableMcpTools()
+        .filter((tool) => tool.serviceId === "fulfillment" && tool.permissionBoundary.scope === "operator")
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(names);
+    expect(contextManifest.agentCoverage["return-intake"].tools).toEqual(names);
+    expect(Object.keys(handlers.toolHandlers).sort()).toEqual(names);
+
+    const registration = {
+      contextName: "fulfillment",
+      capabilities: { tools: names.map((name) => ({ name, ownerSlice: "return-shipments" })) },
+      handlers,
+    };
+    const service = mcpServiceCatalog.find((entry) => entry.serviceId === "fulfillment")!;
+    const ownedCatalog = [
+      { ...service, tools: service.tools.filter((tool) => names.includes(tool.name)), resources: [] },
+    ];
+    expect(validateMcpModuleRegistrations([registration], ownedCatalog)).toEqual([]);
+    for (const omitted of names) {
+      const toolHandlers = { ...registration.handlers.toolHandlers };
+      delete toolHandlers[omitted];
+      expect(
+        validateMcpModuleRegistrations([{ ...registration, handlers: { toolHandlers } }], ownedCatalog).join("\n"),
+      ).toContain(omitted);
+    }
+  });
+
   it("reads the facility queue with the source route's three bounded calls", async () => {
     const fake = services();
     const handlers = createFulfillmentReturnIntakeMcpHandlers(fake);
