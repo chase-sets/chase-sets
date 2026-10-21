@@ -6,6 +6,9 @@ import {
   Select,
   StatusPill,
   Text,
+  Button,
+  HiddenInput,
+  WorkbenchForm,
   type BadgeTone,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -27,6 +30,8 @@ import type { CatalogDeferredAttentionQueueResult } from "../../../../attention-
 import { CatalogAttentionQueuePanel } from "../../../../attention-queue/ui/attention-queue-panel";
 import type { CatalogAliasReviewReadModel } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
 import { CatalogIntegrationAliasReviewWorkspace } from "../alias-review/alias-review-workspace";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
+import { CatalogCommandFeedbackBanner } from "../../workbench-shell";
 
 const ALL_VALUE = "__all__";
 
@@ -77,6 +82,8 @@ export type CatalogScopeLandingPageProps = Readonly<{
   attentionQueue?: CatalogDeferredAttentionQueueResult;
   generalAliasReview?: CatalogAliasReviewReadModel | null;
   generalAliasReviewFailed?: boolean;
+  commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  attentionItemKey?: string;
 }>;
 
 export function CatalogScopeLandingPage({
@@ -86,10 +93,12 @@ export function CatalogScopeLandingPage({
   loading,
   error,
   actionHref = "/catalog/scopes",
-  canManage = true,
-  attentionQueue = { status: "unavailable" },
+  canManage = false,
+  attentionQueue,
   generalAliasReview = null,
   generalAliasReviewFailed = false,
+  commandFeedback = null,
+  attentionItemKey,
 }: CatalogScopeLandingPageProps) {
   const controls = useCatalogListQueryControls(query);
   const [, setSearchParams] = useSearchParams();
@@ -163,81 +172,98 @@ export function CatalogScopeLandingPage({
     },
   ];
 
-  return (
-    <>
-      <AttentionQueueHomeSlot result={attentionQueue} actionHref={actionHref} canManage={canManage} />
-      {generalAliasReview ? (
-        <ProgressiveDisclosure
-          title={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.title")}
-          description={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.description")}
-          summary={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.summary", {
-            count: generalAliasReview.counts.needsReview,
-          })}
-          defaultOpen={false}
-          tone={generalAliasReview.counts.needsReview > 0 ? "warning" : "neutral"}
-        >
-          <CatalogIntegrationAliasReviewWorkspace
-            readModel={generalAliasReview}
-            actionHref={actionHref}
-            canManageAliases={canManage}
+  const supplementary =
+    attentionQueue || generalAliasReview || generalAliasReviewFailed || commandFeedback ? (
+      <section data-catalog-scope-home-review="true">
+        {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
+        {attentionItemKey && commandFeedback?.status === "success" ? (
+          <WorkbenchForm variant="button" method="post" action={actionHref}>
+            <HiddenInput name="_intent" value="restore-attention-item" />
+            <HiddenInput name="itemKey" value={attentionItemKey} />
+            <Button type="submit" size="sm" tone="secondary" disabled={!canManage}>
+              {t("catalog.features.attentionQueue.action.restore")}
+            </Button>
+          </WorkbenchForm>
+        ) : null}
+        {attentionQueue ? (
+          <AttentionQueueHomeSlot result={attentionQueue} actionHref={actionHref} canManage={canManage} />
+        ) : null}
+        {generalAliasReview ? (
+          <ProgressiveDisclosure
+            title={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.title")}
+            description={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.description")}
+            summary={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.summary", {
+              count: generalAliasReview.counts.needsReview,
+            })}
+            defaultOpen={false}
+            tone={generalAliasReview.counts.needsReview > 0 ? "warning" : "neutral"}
+          >
+            <CatalogIntegrationAliasReviewWorkspace
+              readModel={generalAliasReview}
+              actionHref={actionHref}
+              canManageAliases={canManage}
+            />
+          </ProgressiveDisclosure>
+        ) : generalAliasReviewFailed ? (
+          <OperationalStatusBanner
+            tone="warning"
+            role="status"
+            title={t("catalog.features.sourceObservations.ui.aliasReview.title")}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
           />
-        </ProgressiveDisclosure>
-      ) : generalAliasReviewFailed ? (
-        <OperationalStatusBanner
-          tone="warning"
-          role="status"
-          title={t("catalog.features.sourceObservations.ui.aliasReview.title")}
-          description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
-        />
-      ) : null}
-      <EntityListPage<CatalogScopeLandingRow>
-        title={t("catalog.features.sourceObservations.ui.scopeLanding.title")}
-        entityName={t("catalog.features.sourceObservations.ui.scopeLanding.entityName")}
-        items={readModel.rows as CatalogScopeLandingRow[]}
-        total={readModel.counts.total}
-        loading={loading}
-        error={error}
-        columns={columns}
-        getRowId={(row) => row.scopeRecordId}
-        getHref={(row) => row.detailHref}
-        search={controls.search}
-        onSearchChange={controls.setSearch}
-        statusFilter={controls.status}
-        onStatusFilterChange={controls.setStatus}
-        statusOptions={LIFECYCLE_STATUS_VALUES.map((value) => ({ label: value, value }))}
-        activeFilterCount={activeFilterCount}
-        page={controls.page}
-        pageSize={controls.pageSize}
-        onPageChange={controls.setPage}
-        extraFilters={
-          <>
-            <Select
-              key="productDomain"
-              label={t("catalog.features.sourceObservations.ui.scopeLanding.filter.productDomain")}
-              value={productDomain || ALL_VALUE}
-              onValueChange={(value) => setProductDomain(value === ALL_VALUE ? "" : value)}
-              items={[
-                { label: t("catalog.features.sourceObservations.ui.scopeLanding.filter.allDomains"), value: ALL_VALUE },
-                ...catalogScopeProductDomains.map((value) => ({ label: value, value })),
-              ]}
-            />
-            <Select
-              key="language"
-              label={t("catalog.features.sourceObservations.ui.scopeLanding.filter.language")}
-              value={controls.language || ALL_VALUE}
-              onValueChange={(value) => controls.setLanguage(value === ALL_VALUE ? "" : value)}
-              items={[
-                {
-                  label: t("catalog.features.sourceObservations.ui.scopeLanding.filter.allLanguages"),
-                  value: ALL_VALUE,
-                },
-                ...readModel.facets.languageEditions.map((value) => ({ label: value, value })),
-              ]}
-            />
-          </>
-        }
-      />
-    </>
+        ) : null}
+      </section>
+    ) : null;
+
+  return (
+    <EntityListPage<CatalogScopeLandingRow>
+      supplementary={supplementary}
+      title={t("catalog.features.sourceObservations.ui.scopeLanding.title")}
+      entityName={t("catalog.features.sourceObservations.ui.scopeLanding.entityName")}
+      items={readModel.rows as CatalogScopeLandingRow[]}
+      total={readModel.counts.total}
+      loading={loading}
+      error={error}
+      columns={columns}
+      getRowId={(row) => row.scopeRecordId}
+      getHref={(row) => row.detailHref}
+      search={controls.search}
+      onSearchChange={controls.setSearch}
+      statusFilter={controls.status}
+      onStatusFilterChange={controls.setStatus}
+      statusOptions={LIFECYCLE_STATUS_VALUES.map((value) => ({ label: value, value }))}
+      activeFilterCount={activeFilterCount}
+      page={controls.page}
+      pageSize={controls.pageSize}
+      onPageChange={controls.setPage}
+      extraFilters={
+        <>
+          <Select
+            key="productDomain"
+            label={t("catalog.features.sourceObservations.ui.scopeLanding.filter.productDomain")}
+            value={productDomain || ALL_VALUE}
+            onValueChange={(value) => setProductDomain(value === ALL_VALUE ? "" : value)}
+            items={[
+              { label: t("catalog.features.sourceObservations.ui.scopeLanding.filter.allDomains"), value: ALL_VALUE },
+              ...catalogScopeProductDomains.map((value) => ({ label: value, value })),
+            ]}
+          />
+          <Select
+            key="language"
+            label={t("catalog.features.sourceObservations.ui.scopeLanding.filter.language")}
+            value={controls.language || ALL_VALUE}
+            onValueChange={(value) => controls.setLanguage(value === ALL_VALUE ? "" : value)}
+            items={[
+              {
+                label: t("catalog.features.sourceObservations.ui.scopeLanding.filter.allLanguages"),
+                value: ALL_VALUE,
+              },
+              ...readModel.facets.languageEditions.map((value) => ({ label: value, value })),
+            ]}
+          />
+        </>
+      }
+    />
   );
 }
 

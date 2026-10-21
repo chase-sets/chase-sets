@@ -165,7 +165,6 @@ export function CatalogAttentionQueuePanel({
           caption={t("catalog.features.attentionQueue.title")}
           getRowId={(row) => row.itemKey}
           density="compact"
-          data-catalog-attention-queue-list="true"
           emptyTitle={t("catalog.features.attentionQueue.empty.title")}
           emptyDescription={t("catalog.features.attentionQueue.empty.description")}
         />
@@ -173,7 +172,6 @@ export function CatalogAttentionQueuePanel({
     </WorkflowModule>
   );
 }
-
 // A one-click resolution that POSTs a daily-surface intent (e.g. alias accept)
 // and stays on the daily route. Reason-requiring resolutions carry a default
 // reason so the single-click action remains valid without a separate page.
@@ -190,13 +188,8 @@ function ResolutionCommandButton({
 }) {
   const label = t(resolution.labelKey);
   return (
-    <WorkbenchForm
-      variant="button"
-      method="post"
-      action={actionHref}
-      data-attention-resolution={legacyResolutionDataAttribute(resolution.intent)}
-    >
-      <HiddenInput name="_intent" value={submittedResolutionIntent(resolution.intent)} />
+    <WorkbenchForm variant="button" method="post" action={actionHref} data-attention-resolution={resolution.intent}>
+      <HiddenInput name="_intent" value={resolution.intent} />
       {Object.entries(resolution.fields).map(([name, value]) => (
         <HiddenInput key={name} name={name} value={value} />
       ))}
@@ -207,7 +200,6 @@ function ResolutionCommandButton({
     </WorkbenchForm>
   );
 }
-
 // The inline drawer for an item: its evidence plus the universal park controls
 // (dismiss / defer with a reason). Opening and acting stays on the daily surface.
 function AttentionItemDrawer({
@@ -310,7 +302,6 @@ function severityTone(severity: CatalogAttentionSeverity): "danger" | "warning" 
       return "info";
   }
 }
-
 function severityLabel(severity: CatalogAttentionSeverity): string {
   switch (severity) {
     case "critical":
@@ -337,14 +328,4 @@ function kindLabel(kind: CatalogAttentionItem["kind"]): string {
     case "stale-scope-sync":
       return t("catalog.features.attentionQueue.kind.staleScopeSync");
   }
-}
-
-function legacyResolutionDataAttribute(intent: string): string {
-  // Keep the existing DOM telemetry selector stable while the submitted
-  // command vocabulary moves to the entity-scoped alias ids.
-  return intent === "alias.accept" ? "accept" : intent === "alias.reject" ? "reject" : intent;
-}
-
-function submittedResolutionIntent(intent: string): string {
-  return intent === "accept" ? "alias.accept" : intent === "reject" ? "alias.reject" : intent;
 }

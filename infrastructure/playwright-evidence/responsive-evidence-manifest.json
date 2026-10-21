@@ -616,7 +616,7 @@
       },
       "target": {
         "identity": "catalog-scope-card-list",
-        "selector": "main div[role='list']:not([data-catalog-attention-queue-list])",
+        "selector": "main div[role='list']:not([data-catalog-scope-home-review] *)",
         "populatedSelector": ":scope > [role='listitem']"
       },
       "measurements": [
@@ -642,7 +642,7 @@
         {
           "identity": "scope-table-hidden-on-mobile",
           "scope": "page",
-          "selector": "main table",
+          "selector": "main table:not([data-catalog-scope-home-review] *)",
           "property": "visible",
           "assertion": {
             "equals": false
@@ -677,7 +677,7 @@
       },
       "target": {
         "identity": "catalog-scope-table",
-        "selector": "main table",
+        "selector": "main table:not([data-catalog-scope-home-review] *)",
         "populatedSelector": ":scope > tbody > tr"
       },
       "measurements": [
@@ -703,7 +703,7 @@
         {
           "identity": "scope-cards-hidden-on-tablet",
           "scope": "page",
-          "selector": "main div[role='list']",
+          "selector": "main div[role='list']:not([data-catalog-scope-home-review] *)",
           "property": "visible",
           "assertion": {
             "equals": false

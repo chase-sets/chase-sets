@@ -75,6 +75,8 @@ export function CatalogProviderDetailPage({
   const authoring = readModel.profileAuthoring;
   const selectedProfile = authoring.selectedProfile;
   const providerKey = readModel.routeContext.providerKey ?? selectedProfile?.providerKey ?? null;
+  const selectedUnitKey = readModel.routeContext.unitKey;
+  const selectedJobId = readModel.routeContext.jobId;
   const cloneDraft = authoring.cloneDraft;
   const cloneDisabled = cloneDraft.state !== "available" && cloneDraft.state !== "degraded";
   const submitHref = catalogProviderDetailHref(providerKey);
@@ -178,8 +180,8 @@ export function CatalogProviderDetailPage({
 
       <ProviderVersionHistory readModel={readModel} providerKey={providerKey} />
 
-      <ProviderParticipatingUnits readModel={readModel} providerKey={providerKey} />
-      <ProviderRecentJobs readModel={readModel} providerKey={providerKey} />
+      <ProviderParticipatingUnits readModel={readModel} providerKey={providerKey} selectedUnitKey={selectedUnitKey} />
+      <ProviderRecentJobs readModel={readModel} providerKey={providerKey} selectedJobId={selectedJobId} />
     </DenseAdminWorkbench>
   );
 }
@@ -199,14 +201,21 @@ function CommandFeedbackBanner({ feedback }: Readonly<{ feedback: CatalogPrimary
 function ProviderParticipatingUnits({
   readModel,
   providerKey,
+  selectedUnitKey,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   providerKey: string | null;
+  selectedUnitKey?: string | null;
 }>) {
   const provider = providerKey
     ? readModel.providerScope.providers.find((candidate) => candidate.providerKey === providerKey)
     : null;
   const units = provider?.units ?? [];
+  const orderedUnits = selectedUnitKey
+    ? [...units].sort(
+        (left, right) => Number(right.unitKey === selectedUnitKey) - Number(left.unitKey === selectedUnitKey),
+      )
+    : units;
 
   return (
     <WorkflowModule
@@ -222,11 +231,19 @@ function ProviderParticipatingUnits({
         />
       ) : (
         <WorkbenchStack gap="sm">
-          {units.map((unit) => (
-            <ProviderParticipatingUnit key={unit.unitKey} readModel={readModel} unit={unit} />
+          {orderedUnits.map((unit) => (
+            <ProviderParticipatingUnit
+              key={unit.unitKey}
+              readModel={readModel}
+              unit={unit}
+              selected={unit.unitKey === selectedUnitKey}
+            />
           ))}
         </WorkbenchStack>
       )}
+      {selectedUnitKey && !units.some((unit) => unit.unitKey === selectedUnitKey) ? (
+        <WorkbenchText tone="secondary">{t("catalog.features.attentionQueue.resolution.unavailable")}</WorkbenchText>
+      ) : null}
     </WorkflowModule>
   );
 }
@@ -234,47 +251,51 @@ function ProviderParticipatingUnits({
 function ProviderParticipatingUnit({
   readModel,
   unit,
+  selected = false,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   unit: CatalogPrimaryWorkbenchReadModel["providerScope"]["providers"][number]["units"][number];
+  selected?: boolean;
 }>) {
   const health = readModel.healthTriage.units.find((candidate) => candidate.unitKey === unit.unitKey);
   const none = t("catalog.features.sourceObservations.ui.primaryWorkbench.none");
 
   return (
-    <KeyValueList
-      density="compact"
-      variant="surface"
-      items={[
-        { key: unit.unitKey, value: `${unit.productDomain}/${unit.productForm}` },
-        {
-          key: t("catalog.features.sourceObservations.ui.providerDetail.units.scopes"),
-          value: unit.importScopes.join(", ") || none,
-        },
-        {
-          key: t("catalog.features.sourceObservations.ui.providerDetail.units.activeProfile"),
-          value:
-            unit.activeProfile?.profileVersion ??
-            t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-        },
-        {
-          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic"),
-          value: health ? stateLabel(health.semanticReadiness) : none,
-        },
-        {
-          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport"),
-          value: health ? stateLabel(health.transportReadiness) : none,
-        },
-        {
-          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
-          value: `${stateLabel(readModel.healthTriage.freshness)} · ${formatDateTime(readModel.healthTriage.generatedAt)}`,
-        },
-        {
-          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
-          value: health?.latestDiagnosticText ?? none,
-        },
-      ]}
-    />
+    <div data-provider-unit-selected={selected ? "true" : undefined}>
+      <KeyValueList
+        density="compact"
+        variant="surface"
+        items={[
+          { key: unit.unitKey, value: `${unit.productDomain}/${unit.productForm}` },
+          {
+            key: t("catalog.features.sourceObservations.ui.providerDetail.units.scopes"),
+            value: unit.importScopes.join(", ") || none,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.providerDetail.units.activeProfile"),
+            value:
+              unit.activeProfile?.profileVersion ??
+              t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic"),
+            value: health ? stateLabel(health.semanticReadiness) : none,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport"),
+            value: health ? stateLabel(health.transportReadiness) : none,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
+            value: `${stateLabel(readModel.healthTriage.freshness)} · ${formatDateTime(readModel.healthTriage.generatedAt)}`,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
+            value: health?.latestDiagnosticText ?? none,
+          },
+        ]}
+      />
+    </div>
   );
 }
 
@@ -288,14 +309,20 @@ type OpenProviderJobs = Readonly<{ providerKey: string; jobIds: readonly string[
 function ProviderRecentJobs({
   readModel,
   providerKey,
+  selectedJobId,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   providerKey: string | null;
+  selectedJobId?: string | null;
 }>) {
   const jobs = providerKey ? readModel.importJobs.jobs.filter((job) => job.providerKey === providerKey) : [];
   const lastJob = jobs[0] ?? null;
   const inspectable = providerKey === operatorSessionProviderKey;
-  const [openJobs, setOpenJobs] = useState<OpenProviderJobs | null>(null);
+  const [openJobs, setOpenJobs] = useState<OpenProviderJobs | null>(() =>
+    providerKey && selectedJobId && jobs.some((job) => job.jobId === selectedJobId)
+      ? { providerKey, jobIds: [selectedJobId] }
+      : null,
+  );
   const openJobIds =
     openJobs && openJobs.providerKey === providerKey
       ? openJobs.jobIds.filter((jobId) => jobs.some((job) => job.jobId === jobId))
@@ -325,6 +352,7 @@ function ProviderRecentJobs({
             open={openJobIds.includes(job.jobId)}
             onOpenChange={(open) => setJobOpen(job.jobId, open)}
             data-catalog-provider-job-disclosure={job.jobId}
+            data-provider-job-selected={job.jobId === selectedJobId ? "true" : undefined}
           >
             <ProviderJobOutcome job={job} />
           </ProgressiveDisclosure>
@@ -375,6 +403,9 @@ function ProviderRecentJobs({
         emptyTitle={t("catalog.features.sourceObservations.ui.providerDetail.jobs.emptyTitle")}
         emptyDescription={t("catalog.features.sourceObservations.ui.providerDetail.jobs.emptyDescription")}
       />
+      {selectedJobId && !jobs.some((job) => job.jobId === selectedJobId) ? (
+        <WorkbenchText tone="secondary">{t("catalog.features.attentionQueue.resolution.unavailable")}</WorkbenchText>
+      ) : null}
     </WorkflowModule>
   );
 }

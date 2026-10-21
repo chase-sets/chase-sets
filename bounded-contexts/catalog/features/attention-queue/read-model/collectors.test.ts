@@ -230,15 +230,15 @@ describe("collectAliasCandidateItems", () => {
     ]);
     expect(items).toHaveLength(1);
     expect(items[0]!.severity).toBe("info");
-    expect(items[0]!.resolution.intent).toBe("accept");
-    expect(items[0]!.secondaryResolutions[0]!.intent).toBe("reject");
+    expect(items[0]!.resolution.intent).toBe("alias.accept");
+    expect(items[0]!.secondaryResolutions[0]!.intent).toBe("alias.reject");
     expect(items[0]!.secondaryResolutions[0]!.requiresReason).toBe(true);
   });
 
   it("keeps alias metadata compatible while the mounted form submits entity-scoped ids", () => {
     const item = collectAliasCandidateItems([aliasCandidate({ alias_hash: "h1" })])[0]!;
-    expect(item.resolution.intent).toBe("accept");
-    expect(item.secondaryResolutions[0]!.intent).toBe("reject");
+    expect(item.resolution.intent).toBe("alias.accept");
+    expect(item.secondaryResolutions[0]!.intent).toBe("alias.reject");
   });
 });
 

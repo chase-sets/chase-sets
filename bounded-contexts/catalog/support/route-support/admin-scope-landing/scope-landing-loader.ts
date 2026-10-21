@@ -90,9 +90,8 @@ async function loadGeneralAliasReview(
   try {
     const value = await api.getCatalogAliasReviewReadModel<unknown>("limit=200");
     return isAliasReviewReadModel(value) ? { readModel: value, failed: false } : { readModel: null, failed: true };
-  } catch (error) {
-    if (error instanceof CatalogApiError) return { readModel: null, failed: true };
-    throw error;
+  } catch {
+    return { readModel: null, failed: true };
   }
 }
 

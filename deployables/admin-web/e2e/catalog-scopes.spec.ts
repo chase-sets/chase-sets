@@ -77,7 +77,7 @@ test.describe.serial("catalog admin scopes", () => {
 
     await captureResponsiveEvidence({ page, testInfo, claimId: "catalog-scope-cards-mobile" });
 
-    const scopeCards = page.locator("main div[role='list']");
+    const scopeCards = page.locator("main div[role='list']:not([data-catalog-scope-home-review] *)");
     await scopeCards.locator(":scope > [role='listitem']").first().getByRole("link", { name: "View" }).click();
 
     await expect(page.getByRole("heading", { name: "Coverage matrix" })).toBeVisible();

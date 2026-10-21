@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { MetaFunction } from "react-router";
-import { useLoaderData, useNavigation } from "react-router";
+import { useActionData, useLoaderData, useNavigation } from "react-router";
 import { CatalogScopeLandingPage } from "../../features/source-observations/ui/admin-control-plane/scope-landing/scope-landing-page";
 import { loader } from "../../support/route-support/admin-scope-landing/scope-landing-loader";
 import { dispatchIntegrationsCommand } from "../../support/route-support/admin-integrations/integrations-command-dispatch";
@@ -27,6 +27,7 @@ export default function ScopeLandingRoute() {
     canManage,
   } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
+  const actionData = useActionData<typeof action>();
 
   return (
     <CatalogScopeLandingPage
@@ -40,6 +41,8 @@ export default function ScopeLandingRoute() {
       attentionQueue={attentionQueue}
       generalAliasReview={generalAliasReview}
       generalAliasReviewFailed={generalAliasReviewFailed}
+      commandFeedback={actionData?.feedback}
+      attentionItemKey={actionData?.attentionItemKey}
     />
   );
 }

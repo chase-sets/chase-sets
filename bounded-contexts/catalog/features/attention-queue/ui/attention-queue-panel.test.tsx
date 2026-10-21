@@ -184,8 +184,8 @@ describe("CatalogAttentionQueuePanel", () => {
 
     // Alias candidates carry an inline accept + reject that POST to the daily
     // action (no navigation to another surface).
-    const acceptForm = document.querySelector('[data-attention-resolution="accept"]');
-    const rejectForm = document.querySelector('[data-attention-resolution="reject"]');
+    const acceptForm = document.querySelector('[data-attention-resolution="alias.accept"]');
+    const rejectForm = document.querySelector('[data-attention-resolution="alias.reject"]');
     expect(acceptForm?.getAttribute("action")).toBe("/admin/integrations");
     expect(rejectForm).not.toBeNull();
     expect((acceptForm?.querySelector('input[name="_intent"]') as HTMLInputElement)?.value).toBe("alias.accept");

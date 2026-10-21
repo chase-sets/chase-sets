@@ -128,4 +128,18 @@ describe("Catalog scope-landing route loader", () => {
     expect(routeData.generalAliasReview).toBeNull();
     expect(routeData.generalAliasReviewFailed).toBe(true);
   });
+
+  it("keeps scopes when the supplementary alias read has a transport failure", async () => {
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: [scopeRow()], total: 1, count: 1 });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listCatalogScopeRecords,
+      getCatalogAttentionQueueReadModel: vi.fn().mockResolvedValue({ malformed: true }),
+      getCatalogAliasReviewReadModel: vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+    });
+
+    const routeData = await runLoader("https://admin.example/catalog/scopes");
+
+    expect(routeData.readModel.rows).toHaveLength(1);
+    expect(routeData.generalAliasReviewFailed).toBe(true);
+  });
 });

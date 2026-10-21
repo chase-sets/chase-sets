@@ -9,6 +9,8 @@ import { readCatalogListQuery } from "../../../../../support/shell-support/list-
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
 import { CatalogScopeLandingPage } from "./scope-landing-page";
 import { buildCatalogScopeLandingReadModel } from "./scope-landing-read-model";
+import { catalogAttentionQueueReadModelFixture } from "../../../../attention-queue/api/attention-queue-test-fixtures";
+import type { CatalogDeferredAttentionQueueResult } from "../../../../attention-queue/api/contracts";
 
 afterEach(cleanup);
 
@@ -35,7 +37,12 @@ function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeR
   };
 }
 
-function renderLanding(input: { scopes: ListResponse<CatalogScopeRecordDetail>; url?: string; error?: string | null }) {
+function renderLanding(input: {
+  scopes: ListResponse<CatalogScopeRecordDetail>;
+  url?: string;
+  error?: string | null;
+  attentionQueue?: CatalogDeferredAttentionQueueResult;
+}) {
   const url = input.url ?? "https://admin.example/catalog/scopes";
   const query = readCatalogListQuery(new Request(url));
   const readModel = buildCatalogScopeLandingReadModel({
@@ -60,6 +67,7 @@ function renderLanding(input: { scopes: ListResponse<CatalogScopeRecordDetail>; 
             productDomain=""
             loading={false}
             error={input.error ?? null}
+            attentionQueue={input.attentionQueue}
           />
         ),
       },
@@ -115,5 +123,18 @@ describe("CatalogScopeLandingPage", () => {
     });
 
     expect(screen.getAllByText("Scope records are unavailable.").length).toBeGreaterThan(0);
+  });
+
+  it("keeps home review content after the Scopes heading inside the page container", async () => {
+    renderLanding({
+      scopes: { items: [scope()], total: 1, count: 1 },
+      attentionQueue: { status: "ready", readModel: catalogAttentionQueueReadModelFixture() },
+    });
+
+    const heading = await screen.findByRole("heading", { name: "Scopes" });
+    const review = document.querySelector("[data-catalog-scope-home-review]")!;
+    expect(heading.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(heading.closest("[data-catalog-scope-home-review]")).toBeNull();
+    expect(review.closest("main") ?? review.parentElement).toBeTruthy();
   });
 });

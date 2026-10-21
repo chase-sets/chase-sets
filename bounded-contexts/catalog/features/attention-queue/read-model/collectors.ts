@@ -212,12 +212,12 @@ export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateR
       providerKey: row.provider_key,
       unitKey: null,
       observedAt: row.first_observed_at,
-      resolution: commandResolution("accept", "catalog.features.attentionQueue.action.acceptAlias", {
+      resolution: commandResolution("alias.accept", "catalog.features.attentionQueue.action.acceptAlias", {
         aliasHashes: row.alias_hash,
       }),
       secondaryResolutions: [
         commandResolution(
-          "reject",
+          "alias.reject",
           "catalog.features.attentionQueue.action.rejectAlias",
           { aliasHashes: row.alias_hash },
           true,

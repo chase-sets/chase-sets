@@ -1350,7 +1350,8 @@
         "tests": [
           "bounded-contexts/catalog/support/route-support/admin-scope-landing/scope-landing-loader.test.ts",
           "bounded-contexts/catalog/support/route-support/admin-integrations/attention-queue-command-handler.test.ts",
-          "bounded-contexts/catalog/tests/admin-integrations-route-governance.test.ts"
+          "bounded-contexts/catalog/tests/admin-integrations-route-governance.test.tsx",
+          "bounded-contexts/catalog/tests/admin-integrations-route-action.test.tsx"
         ]
       }
     }
