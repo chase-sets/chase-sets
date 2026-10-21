@@ -75,6 +75,7 @@ import {
 import { createListingPublishedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
+import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
 import {
   assertActiveListingCapacity,
   decideInventoryListingCapacity,
@@ -1239,6 +1240,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     if (params.listingPhotoUploads.length === 0) {
       return [];
     }
+    // The aggregate judges the same trimmed descriptions again; checking first
+    // means rejected text never leaves normalized assets orphaned in storage.
+    for (const upload of params.listingPhotoUploads) {
+      assertSafeAuthoredText("listing-evidence-alt-text", upload.altText?.trim());
+    }
     assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
 
     const gatePolicy = await resolveListingGatePolicy();
@@ -1635,6 +1641,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         (photo) => photo.photoId === params.replacedPhotoId && photo.status === "active",
       );
       assert(target, "Listing evidence entry was not found.");
+      assertSafeAuthoredText("listing-evidence-alt-text", params.upload.altText?.trim(), target.altText);
       assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
       const gatePolicy = await resolveListingGatePolicy();
       const contentType = params.upload.contentType.toLowerCase();

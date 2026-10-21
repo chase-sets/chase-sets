@@ -19,7 +19,9 @@ export function collectPlatformSecretKeys(values = buildPlatformHelmValues(), op
 
   for (const component of Object.values(values.components ?? {})) {
     for (const entry of component.env ?? []) {
-      if (entry.secret) {
+      // An optional key is installed by its own field manager (the staging evidence
+      // window), so the deploy neither supplies nor claims it.
+      if (entry.secret && !entry.optional) {
         keys.add(entry.secretKey ?? entry.name);
       }
     }

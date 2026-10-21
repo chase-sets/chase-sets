@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { runActivationCommand } from "../scripts/activate-agent-grant-revocation.mjs";
+import { activationRefusalCode, runActivationCommand } from "../scripts/activate-agent-grant-revocation.mjs";
 import type { AgentGrantRevocations, RevocationActivationProof } from "@chase-sets/identity/server";
 
 function proof(): RevocationActivationProof {
@@ -55,6 +56,26 @@ describe("revocation-floor activation command", () => {
     expect(activate).toHaveBeenCalledTimes(1);
     expect(write).toHaveBeenCalledWith(expect.objectContaining({ state: "activated" }));
   });
+  it("activates a staging proof only inside a staging pod", async () => {
+    const captured = { ...proof(), environment: "staging" as const };
+    const activate = vi.fn();
+    await runActivationCommand({
+      owner: { activate, activationProof: async () => undefined },
+      environment: "staging",
+      readProof: async () => captured,
+      write: vi.fn(),
+    });
+    expect(activate).toHaveBeenCalledTimes(1);
+    await expect(
+      runActivationCommand({
+        owner: { activate, activationProof: async () => undefined },
+        environment: "production",
+        readProof: async () => captured,
+        write: vi.fn(),
+      }),
+    ).rejects.toThrow("revocation_activation_environment_mismatch");
+    expect(activate).toHaveBeenCalledTimes(1);
+  });
   it("calls the deployed Identity port with trusted context and revalidates before claiming success", async () => {
     const captured = proof();
     const readProof = vi.fn(async () => captured);
@@ -73,6 +94,24 @@ describe("revocation-floor activation command", () => {
     expect(activate).toHaveBeenCalledTimes(1);
     expect(readProof).toHaveBeenCalledTimes(2);
     expect(write.mock.calls.map(([item]) => item.state)).toEqual(["revalidate", "activated"]);
+  });
+  it.each([
+    [
+      "an Identity refusal",
+      new Error("revocation_dormant_request_unresolved"),
+      "revocation_dormant_request_unresolved",
+    ],
+    ["a raw database error", new Error("connect postgres://user:synthetic-secret@db"), "revocation_activation_refused"],
+    ["an unbounded code", new Error(`revocation_${"a".repeat(65)}`), "revocation_activation_refused"],
+    ["a thrown string", "revocation_status_unavailable", "revocation_activation_refused"],
+  ])("crosses the pod boundary with only a bounded code for %s", (_name, error, code) => {
+    expect(activationRefusalCode(error)).toBe(code);
+  });
+  it("prints the bounded code, never a generic or raw refusal, from the entrypoint", () => {
+    const source = readFileSync(new URL("../scripts/activate-agent-grant-revocation.mts", import.meta.url), "utf8");
+    expect(source.replaceAll("\r\n", "\n")).toContain(
+      "main().catch((error: unknown) => {\n    process.stderr.write(`${activationRefusalCode(error)}\\n`);",
+    );
   });
   it.each(["foreign", "old-worker", "incomplete", "stale"])(
     "refuses %s proof without an Identity activation call",

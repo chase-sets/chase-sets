@@ -34,6 +34,27 @@ vi.mock("@stripe/stripe-js", () => ({
   },
 }));
 
+vi.mock("react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router")>();
+  return {
+    ...actual,
+    useNavigation: () => {
+      try {
+        return actual.useNavigation();
+      } catch {
+        return { state: "idle", formMethod: undefined, formAction: undefined };
+      }
+    },
+    useFormAction: (action?: string) => {
+      try {
+        return actual.useFormAction(action);
+      } catch {
+        return action ?? "/";
+      }
+    },
+  };
+});
+
 import AccountPaymentMethodsRoute, { action, loader } from "../routes/marketplace/account-payment-methods";
 import { PaymentsApiError } from "../client";
 import { classifySavedPaymentMethodAttemptFailure } from "../support/request-support/saved-payment-method-attempt";

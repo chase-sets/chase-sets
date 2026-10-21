@@ -21,6 +21,24 @@ export type UcpTransport = "rest" | "mcp";
 export type UcpResponseStatus = "ok" | "error" | "requires_action";
 export type UcpMessageSeverity = "info" | "warning" | "error";
 
+export type UcpErrorSeverity = "recoverable" | "unrecoverable";
+
+export function ucpErrorSeverity(code: string): UcpErrorSeverity {
+  if (
+    code.startsWith("invalid_") ||
+    code === "quantity_unit_mismatch" ||
+    code === "validation_failed" ||
+    code.startsWith("idempotency_key_") ||
+    code === "signed_request_required" ||
+    code === "authentication_required" ||
+    code.endsWith("_limited") ||
+    code === "profile_unreachable"
+  ) {
+    return "recoverable";
+  }
+  return "unrecoverable";
+}
+
 export type UcpServiceDeclaration = Readonly<{
   version: string;
   spec: string;

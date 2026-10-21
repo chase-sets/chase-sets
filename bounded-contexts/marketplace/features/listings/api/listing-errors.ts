@@ -7,8 +7,23 @@ import { MarketplaceListingGatePolicyError } from "../domain/listing-gate-policy
 import { listingErrorContract, type ListingErrorCode } from "../ui/listing-error-contract";
 import { MarketplaceListingRequestError } from "./listing-request-error";
 import { MarketplaceListingEvidenceIncompleteError, MarketplaceSalesFeeQuoteStaleError } from "./runtime";
+import {
+  AuthoredTextRejectedError,
+  type AuthoredTextRejectionCode,
+} from "../../reviews/domain/authored-text-safeguard";
+
+const authoredTextListingErrorCodes = {
+  text_control_character: "text-control-character",
+  text_direction_override: "text-direction-override",
+  text_unsafe_link: "text-unsafe-link",
+  text_duplicate_link: "text-duplicate-link",
+} as const satisfies Record<AuthoredTextRejectionCode, ListingErrorCode>;
+
+/** Allowed on every endpoint whose request can carry a new Listing Evidence description. */
+export const authoredTextListingErrors: readonly ListingErrorCode[] = Object.values(authoredTextListingErrorCodes);
 
 function classifyListingError(error: unknown): ListingErrorCode | null {
+  if (error instanceof AuthoredTextRejectedError) return authoredTextListingErrorCodes[error.code];
   if (error instanceof MarketplaceListingRequestError) {
     switch (error.code) {
       case "unknown-field":
