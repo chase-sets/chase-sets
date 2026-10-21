@@ -162,6 +162,8 @@ describeDb("Pricing Health real loader and grade queries", () => {
       return app.fetch(request);
     });
     try {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
       const response = await loader({
         request: new Request("http://localhost/account/desk/pricing-health"),
         params: {},
@@ -171,6 +173,7 @@ describeDb("Pricing Health real loader and grade queries", () => {
         data: { health: read.health, run: { dryRunId: run.dryRunId }, canCompute: false },
       });
     } finally {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
     await pools.pricing.query("UPDATE pricing_repricing_dry_runs SET health=NULL WHERE dry_run_id=$1", [run.dryRunId]);
