@@ -13,7 +13,13 @@ export async function appendSearchSessionStarted(
     await eventStore.appendToStream({
       streamId: `discovery.search-session-${digest(key)}`,
       expectedVersion: "no_stream",
-      events: [{ eventId: `evt_search_${digest(key)}` as EventId, eventType: "discovery.search-session.started", payload: input }],
+      events: [
+        {
+          eventId: `evt_search_${digest(key)}` as EventId,
+          eventType: "discovery.search-session.started",
+          payload: input,
+        },
+      ],
       context,
     });
   } catch (error) {

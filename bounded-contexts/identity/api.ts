@@ -1212,12 +1212,13 @@ async function grantGuestAccountForAuth(
     context: params.context,
   });
 
-  if (services.eventStore) await appendOnboardingCompleted(services.eventStore, params.context, {
-    accountId: params.accountId as AccountId,
-    userId: params.userId as UserId,
-    onboardingPath: "guest-account",
-    idempotencyKey: `identity:onboarding:guest-account:${params.accountId}:${params.userId}`,
-  });
+  if (services.eventStore)
+    await appendOnboardingCompleted(services.eventStore, params.context, {
+      accountId: params.accountId as AccountId,
+      userId: params.userId as UserId,
+      onboardingPath: "guest-account",
+      idempotencyKey: `identity:onboarding:guest-account:${params.accountId}:${params.userId}`,
+    });
 
   return { membershipId, snapshots: [mutationSnapshot("membership", membershipId, result)] };
 }
@@ -1413,13 +1414,14 @@ async function acceptInvitationForUserFromAuth(
     },
     context: params.context,
   });
-  if (services.eventStore) await appendOnboardingCompleted(services.eventStore, params.context, {
-    accountId: invitation.accountId,
-    userId: params.userId as UserId,
-    onboardingPath: "invitation",
-    invitationId: params.invitationId,
-    idempotencyKey: `identity:onboarding:invitation:${params.invitationId}:${params.userId}`,
-  });
+  if (services.eventStore)
+    await appendOnboardingCompleted(services.eventStore, params.context, {
+      accountId: invitation.accountId,
+      userId: params.userId as UserId,
+      onboardingPath: "invitation",
+      invitationId: params.invitationId,
+      idempotencyKey: `identity:onboarding:invitation:${params.invitationId}:${params.userId}`,
+    });
   return {
     membershipId,
     snapshots: [
