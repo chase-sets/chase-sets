@@ -9,6 +9,7 @@ import {
   Button,
   HiddenInput,
   WorkbenchForm,
+  Stack,
   type BadgeTone,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -174,7 +175,7 @@ export function CatalogScopeLandingPage({
 
   const supplementary =
     attentionQueue || generalAliasReview || generalAliasReviewFailed || commandFeedback ? (
-      <section data-catalog-scope-home-review="true">
+      <Stack element="section" data-catalog-scope-home-review="true">
         {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
         {attentionItemKey && commandFeedback?.status === "success" ? (
           <WorkbenchForm variant="button" method="post" action={actionHref}>
@@ -212,7 +213,7 @@ export function CatalogScopeLandingPage({
             description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
           />
         ) : null}
-      </section>
+      </Stack>
     ) : null;
 
   return (

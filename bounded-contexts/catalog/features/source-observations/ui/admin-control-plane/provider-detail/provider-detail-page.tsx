@@ -261,7 +261,7 @@ function ProviderParticipatingUnit({
   const none = t("catalog.features.sourceObservations.ui.primaryWorkbench.none");
 
   return (
-    <div data-provider-unit-selected={selected ? "true" : undefined}>
+    <WorkbenchStack element="div" gap="none" data-provider-unit-selected={selected ? "true" : undefined}>
       <KeyValueList
         density="compact"
         variant="surface"
@@ -295,7 +295,7 @@ function ProviderParticipatingUnit({
           },
         ]}
       />
-    </div>
+    </WorkbenchStack>
   );
 }
 
