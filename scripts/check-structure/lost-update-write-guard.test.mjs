@@ -50,7 +50,12 @@ const [legacyPredicate, candidatePredicate] = await Promise.all(
   [legacySource, candidateSource].map(async (source) => {
     const module = await import(
       `data:text/javascript;base64,${Buffer.from(
-        `${source.replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerApiUrl))}\nexport { isReadModelOrProjectionFile as __predicate };`,
+        `${source
+          .replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerApiUrl))
+          .replace(
+            '"../lib/git-listing.mjs"',
+            JSON.stringify(new URL("../lib/git-listing.mjs", import.meta.url).href),
+          )}\nexport { isReadModelOrProjectionFile as __predicate };`,
       ).toString("base64")}`
     );
     return module.__predicate;

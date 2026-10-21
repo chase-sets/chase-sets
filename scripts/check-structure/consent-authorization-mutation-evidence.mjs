@@ -25,8 +25,8 @@ export const consentAuthorizationEvidenceFailureCodes = Object.freeze({
 
 export const consentAuthorizationEvidenceWorkUnitCeilings = Object.freeze({
   reconciliationGitLsFilesSpawns: 3,
-  compilerSurfaceSourceParses: 7,
-  trackedFilesDigested: 111,
+  compilerSurfaceSourceParses: 8,
+  trackedFilesDigested: 112,
 });
 
 export function collectConsentAuthorizationEvidenceWorkUnitViolations(
