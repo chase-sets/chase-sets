@@ -27,11 +27,14 @@ test.describe("marketplace auth form pending state", () => {
     });
     await submitter.click();
     await expect(form).toHaveAttribute("aria-busy", "true");
+    await expect(submitter).toHaveAttribute("aria-busy", "true");
+    await expect(submitter).toBeEnabled();
     await expect(submitter).toBeFocused();
     await submitter.click();
     expect(posts).toBe(1);
     release();
     await expect(page).toHaveURL(/\/account\/cart(?:\?|$)/);
+    expect(posts).toBe(1);
   });
 
   test("sign-in Enter submit blocks double submission and keeps focus on the password field @marketplace-account @browser-e2e-seed", async ({
@@ -63,6 +66,7 @@ test.describe("marketplace auth form pending state", () => {
     expect(posts).toBe(1);
     release();
     await expect(page).toHaveURL(/\/account\/cart(?:\?|$)/);
+    expect(posts).toBe(1);
   });
 
   test("sign-in without JavaScript completes through a document POST @marketplace-account @browser-e2e-seed", async ({

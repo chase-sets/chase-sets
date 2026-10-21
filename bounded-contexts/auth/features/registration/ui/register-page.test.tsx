@@ -411,7 +411,12 @@ describe("registration page", () => {
     await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
     expect(requestForm.getAttribute("aria-busy")).toBe("true");
     expect(consumeForm.getAttribute("aria-busy")).toBeNull();
+    expect(send.getAttribute("aria-busy")).toBe("true");
+    expect(consumeForm.querySelector("fieldset[disabled]")).toBeNull();
+    fireEvent.click(send);
+    fireEvent.submit(requestForm);
     await route.settle(safeFailure("phone-code-request"));
+    expect(route.requests).toHaveBeenCalledOnce();
     expect(requestForm.getAttribute("aria-busy")).toBeNull();
   });
 
@@ -431,6 +436,8 @@ describe("registration page", () => {
       registrationMethodsShown: "passkey,phone-code,magic-link,password",
       challengeId: successfulPasskey.challengeId,
     });
+    expect(form.getAttribute("aria-busy")).toBe("true");
+    expect(form.querySelector("fieldset[disabled]")).toBeNull();
     await route.settle(safeFailure("passkey-register"));
   });
 
@@ -458,31 +465,37 @@ describe("registration page", () => {
     const events: CustomEvent["detail"][] = [];
     const listener = (event: Event) => events.push((event as CustomEvent).detail);
     window.addEventListener("chase-sets:registration-method", listener);
-    const route = await renderAuthRoute(
-      { path: "/register", Component: MarketplaceRegisterRoute, loader },
-      "/register",
-    );
-    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
-    const form = screen.getByRole("button", { name: "Create account with password" }).closest("form")!;
-    fireEvent.submit(form);
-    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
-    window.dispatchEvent(new Event("beforeunload"));
-    expect(events).toEqual(
-      expect.arrayContaining([expect.objectContaining({ method: "password", stage: "completed" })]),
-    );
-    expect(events.some((event) => event?.stage === "abandoned")).toBe(false);
-    await route.settle(redirect("/done"));
-    window.removeEventListener("chase-sets:registration-method", listener);
+    try {
+      const route = await renderAuthRoute(
+        { path: "/register", Component: MarketplaceRegisterRoute, loader },
+        "/register",
+      );
+      fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+      const form = screen.getByRole("button", { name: "Create account with password" }).closest("form")!;
+      fireEvent.submit(form);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+      window.dispatchEvent(new Event("beforeunload"));
+      expect(events).toEqual(
+        expect.arrayContaining([expect.objectContaining({ method: "password", stage: "completed" })]),
+      );
+      expect(events.some((event) => event?.stage === "abandoned")).toBe(false);
+      await route.settle(redirect("/done"));
+    } finally {
+      window.removeEventListener("chase-sets:registration-method", listener);
+    }
   });
 
-  it("emits abandoned on beforeunload when registration was never completed", () => {
+  it("emits abandoned on beforeunload when registration was never completed", async () => {
     const events: CustomEvent["detail"][] = [];
     const listener = (event: Event) => events.push((event as CustomEvent).detail);
     window.addEventListener("chase-sets:registration-method", listener);
-    render(<RegisterPage />);
-    window.dispatchEvent(new Event("beforeunload"));
-    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ stage: "abandoned" })]));
-    window.removeEventListener("chase-sets:registration-method", listener);
+    try {
+      await renderAuthRoute({ path: "/register", Component: MarketplaceRegisterRoute, loader }, "/register");
+      window.dispatchEvent(new Event("beforeunload"));
+      expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ stage: "abandoned" })]));
+    } finally {
+      window.removeEventListener("chase-sets:registration-method", listener);
+    }
   });
 
   it("defaults to passkeys and presents them as recommended", () => {

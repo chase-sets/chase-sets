@@ -530,7 +530,12 @@ describe("marketplace pending submission contracts", () => {
     await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
     expect(requestForm.getAttribute("aria-busy")).toBe("true");
     expect(consumeForm.getAttribute("aria-busy")).toBeNull();
+    expect(send.getAttribute("aria-busy")).toBe("true");
+    expect(consumeForm.querySelector("fieldset[disabled]")).toBeNull();
+    fireEvent.click(send);
+    fireEvent.submit(requestForm);
     await route.settle(safeFailure("phone-code-request"));
+    expect(route.requests).toHaveBeenCalledOnce();
     expect(requestForm.getAttribute("aria-busy")).toBeNull();
   });
 
@@ -549,6 +554,7 @@ describe("marketplace pending submission contracts", () => {
     await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
     expect(forms[0].getAttribute("aria-busy")).toBe("true");
     expect(forms[1].getAttribute("aria-busy")).toBeNull();
+    expect(forms[1].querySelector("fieldset[disabled]")).toBeNull();
     await route.settle(safeFailure("magic-link-request"));
   });
 
@@ -565,6 +571,8 @@ describe("marketplace pending submission contracts", () => {
       email: "buyer@example.com",
       challengeId: successfulPasskey.challengeId,
     });
+    expect(form.getAttribute("aria-busy")).toBe("true");
+    expect(form.querySelector("fieldset[disabled]")).toBeNull();
     await route.settle(safeFailure("passkey-sign-in"));
   });
 
@@ -578,6 +586,7 @@ describe("marketplace pending submission contracts", () => {
       await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(attempt));
       await route.settle(safeFailure("password"));
       expect(form.getAttribute("aria-busy")).toBeNull();
+      expect(form.querySelector<HTMLInputElement>('input[name="email"]')?.value).toBe("buyer@example.com");
     }
     await act(async () => {
       await route.router.navigate("/done");
