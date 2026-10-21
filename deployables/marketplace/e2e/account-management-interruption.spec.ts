@@ -578,7 +578,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     }
     async function dropSummaryLinkFragment() {
       // Summary links are in-page anchors; drop their fragment so the claim's exact route holds.
-      await page.evaluate(() => history.replaceState(history.state, "", location.pathname + location.search));
+      await page.evaluate(() => history.replaceState(history.state, "", location.pathname));
     }
     async function captureCreate360() {
       await dropSummaryLinkFragment();
