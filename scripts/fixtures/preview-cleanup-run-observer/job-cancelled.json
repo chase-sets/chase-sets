@@ -1,0 +1,130 @@
+{
+  "id": 117410958360,
+  "run_id": 39037773622,
+  "workflow_name": "Platform Preview Cleanup",
+  "head_branch": "main",
+  "run_url": "https://api.github.com/repos/chase-sets/chase-sets/actions/runs/39037773622",
+  "run_attempt": 1,
+  "node_id": "CR_kwDORKgVcc8AAAAbVj0MGA",
+  "head_sha": "e579491f2ec47eb9018e260754cb81b2c61196ff",
+  "url": "https://api.github.com/repos/chase-sets/chase-sets/actions/jobs/117410958360",
+  "html_url": "https://github.com/chase-sets/chase-sets/actions/runs/39037773622/job/117410958360",
+  "status": "completed",
+  "conclusion": "cancelled",
+  "created_at": "2026-10-17T13:44:01Z",
+  "started_at": "2026-10-17T13:44:07Z",
+  "completed_at": "2026-10-17T13:54:23Z",
+  "name": "Discover Preview Cleanup",
+  "steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-10-17T13:44:07Z",
+      "completed_at": "2026-10-17T13:44:09Z"
+    },
+    {
+      "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-10-17T13:44:09Z",
+      "completed_at": "2026-10-17T13:44:13Z"
+    },
+    {
+      "name": "Run digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-10-17T13:44:13Z",
+      "completed_at": "2026-10-17T13:44:14Z"
+    },
+    {
+      "name": "Run hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-10-17T13:44:14Z",
+      "completed_at": "2026-10-17T13:44:16Z"
+    },
+    {
+      "name": "Run ./.github/actions/setup-pnpm-workspace",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5,
+      "started_at": "2026-10-17T13:44:16Z",
+      "completed_at": "2026-10-17T13:44:21Z"
+    },
+    {
+      "name": "Install dependencies",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6,
+      "started_at": "2026-10-17T13:44:21Z",
+      "completed_at": "2026-10-17T13:44:26Z"
+    },
+    {
+      "name": "Configure staging Kubernetes context for preview sweep",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 7,
+      "started_at": "2026-10-17T13:44:26Z",
+      "completed_at": "2026-10-17T13:44:35Z"
+    },
+    {
+      "name": "Resolve cleanup targets",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "number": 8,
+      "started_at": "2026-10-17T13:44:35Z",
+      "completed_at": "2026-10-17T13:54:20Z"
+    },
+    {
+      "name": "Summarize scheduled preview cleanup sweep",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 9,
+      "started_at": "2026-10-17T13:54:20Z",
+      "completed_at": "2026-10-17T13:54:20Z"
+    },
+    {
+      "name": "Upload scheduled preview cleanup sweep artifact",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 10,
+      "started_at": "2026-10-17T13:54:20Z",
+      "completed_at": "2026-10-17T13:54:20Z"
+    },
+    {
+      "name": "Post Run ./.github/actions/setup-pnpm-workspace",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 19,
+      "started_at": "2026-10-17T13:54:20Z",
+      "completed_at": "2026-10-17T13:54:20Z"
+    },
+    {
+      "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 20,
+      "started_at": "2026-10-17T13:54:20Z",
+      "completed_at": "2026-10-17T13:54:20Z"
+    },
+    {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 21,
+      "started_at": "2026-10-17T13:54:20Z",
+      "completed_at": "2026-10-17T13:54:20Z"
+    }
+  ],
+  "check_run_url": "https://api.github.com/repos/chase-sets/chase-sets/check-runs/117410958360",
+  "labels": ["ubuntu-latest"],
+  "runner_id": 1000172510,
+  "runner_name": "GitHub Actions 1000172510",
+  "runner_group_id": 0,
+  "runner_group_name": "GitHub Actions"
+}
