@@ -39,7 +39,8 @@ function reporterStepConclusion(reporter) {
 
 /**
  * Classify only the completed attempt's jobs. The run conclusion is a
- * supporting fact, never a substitute for the job list.
+ * supporting fact, never a substitute for the job list. `jobs` is every job
+ * read; `listedJobs` is the subset an alert names.
  */
 export function classifyPreviewCleanupRun({ run, jobs, totalCount = jobs.length }) {
   if (!run || !Array.isArray(jobs) || !Number.isSafeInteger(totalCount) || totalCount < 0) {
@@ -56,6 +57,7 @@ export function classifyPreviewCleanupRun({ run, jobs, totalCount = jobs.length 
       classification: "unreported",
       reason: "incomplete-job-list",
       jobs: summaries,
+      listedJobs: summaries,
       reporterStepConclusion: reporterStep,
     };
   }
@@ -66,6 +68,7 @@ export function classifyPreviewCleanupRun({ run, jobs, totalCount = jobs.length 
       classification: "unreported",
       reason: "unknown-conclusion",
       jobs: summaries,
+      listedJobs: summaries,
       reporterStepConclusion: reporterStep,
     };
   }
@@ -75,6 +78,7 @@ export function classifyPreviewCleanupRun({ run, jobs, totalCount = jobs.length 
       classification: "reported",
       reason: null,
       jobs: summaries,
+      listedJobs: [],
       reporterStepConclusion: reporterStep,
     };
   }
@@ -84,6 +88,7 @@ export function classifyPreviewCleanupRun({ run, jobs, totalCount = jobs.length 
       classification: "unreported",
       reason: "missing-reporter",
       jobs: summaries,
+      listedJobs: summaries,
       reporterStepConclusion: null,
     };
   }
@@ -94,6 +99,7 @@ export function classifyPreviewCleanupRun({ run, jobs, totalCount = jobs.length 
       classification: "clean",
       reason: null,
       jobs: summaries,
+      listedJobs: [],
       reporterStepConclusion: reporterStep,
     };
   }
@@ -101,7 +107,8 @@ export function classifyPreviewCleanupRun({ run, jobs, totalCount = jobs.length 
   return {
     classification: "unreported",
     reason: "unfinished-jobs",
-    jobs: unfinished,
+    jobs: summaries,
+    listedJobs: unfinished,
     reporterStepConclusion: reporterStep,
   };
 }
@@ -171,31 +178,45 @@ function observationRecord({ run, runAttempt, classification }) {
   return record;
 }
 
-function alertDetails({ run, runAttempt, classification }) {
-  const runUrl = run.html_url ?? `https://github.com/${repositoryFromEnvironment()}/actions/runs/${run.id}`;
-  const jobs = classification.jobs.map(({ name, conclusion }) => `- ${name}: ${conclusion ?? "unknown"}`).join("\n");
+function alertDetails({ repository, run, runAttempt, classification }) {
+  const runUrl = run.html_url ?? `https://github.com/${repository}/actions/runs/${run.id}`;
+  const jobs = classification.listedJobs
+    .map(({ name, conclusion }) => `- ${name}: ${conclusion ?? "unknown"}`)
+    .join("\n");
   return [`Run: ${runUrl}`, `Attempt: ${runAttempt}`, `Conclusion: ${run.conclusion ?? "unknown"}`, jobs].join("\n");
+}
+
+/**
+ * Read one completed attempt of a scheduled Platform Preview Cleanup run and
+ * return its observation record and alert details. Any other run fails before
+ * its jobs are read.
+ */
+export async function observePreviewCleanupRun({ repository, runId, runAttempt, fetchJson = githubJson }) {
+  const run = await fetchJson(`/repos/${repository}/actions/runs/${runId}`);
+  if (run?.name !== "Platform Preview Cleanup" || run?.event !== "schedule") {
+    throw new Error("The observed run is not a scheduled Platform Preview Cleanup run.");
+  }
+  if (run.run_attempt !== runAttempt) throw new Error("The observed run attempt does not match the requested attempt.");
+  const { jobs, totalCount } = await readAttemptJobs({ repository, runId, runAttempt, fetchJson });
+  const classification = classifyPreviewCleanupRun({ run, jobs, totalCount });
+  return {
+    record: observationRecord({ run, runAttempt, classification }),
+    details: alertDetails({ repository, run, runAttempt, classification }),
+  };
 }
 
 async function observe() {
   const repository = repositoryFromEnvironment();
   const runId = positiveInteger(process.env.OBSERVED_RUN_ID, "OBSERVED_RUN_ID");
   const runAttempt = positiveInteger(process.env.OBSERVED_RUN_ATTEMPT, "OBSERVED_RUN_ATTEMPT");
-  const run = await githubJson(`/repos/${repository}/actions/runs/${runId}`);
-  if (run.name !== "Platform Preview Cleanup" || run.event !== "schedule") {
-    throw new Error("The observed run is not a scheduled Platform Preview Cleanup run.");
-  }
-  if (run.run_attempt !== runAttempt) throw new Error("The observed run attempt does not match the requested attempt.");
-  const { jobs, totalCount } = await readAttemptJobs({ repository, runId, runAttempt });
-  const classification = classifyPreviewCleanupRun({ run, jobs, totalCount });
-  const record = observationRecord({ run, runAttempt, classification });
+  const { record, details } = await observePreviewCleanupRun({ repository, runId, runAttempt });
   const path = observationPath();
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
-  writeOutput("classification", classification.classification);
-  writeOutput("reason", classification.reason ?? "");
+  writeOutput("classification", record.classification);
+  writeOutput("reason", record.reason ?? "");
   writeOutput("summary", "Scheduled preview cleanup did not finish cleanly or its reporter did not post.");
-  writeOutput("details", alertDetails({ run, runAttempt, classification }));
+  writeOutput("details", details);
   writeOutput("record_path", path);
 }
 
