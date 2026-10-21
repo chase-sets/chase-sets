@@ -53,7 +53,7 @@ describe("Terms drift reconciliation", () => {
 });
 
 /** Resolves every comma-separated range of a `path:ranges` citation, one slice per range. */
-function citedRanges(reference: string) {
+function citedRanges(reference: string): readonly { range: string; text: string }[] {
   const separator = reference.lastIndexOf(":");
   const relativePath = reference.slice(0, separator);
   return reference
@@ -61,8 +61,8 @@ function citedRanges(reference: string) {
     .split(",")
     .map((range) => {
       const slice = readCitedSourceSlice(repositoryRoot, `${relativePath}:${range}`);
-      if (slice.error !== undefined) {
-        throw new Error(`${relativePath}:${range} — ${slice.error}`);
+      if (slice.error !== undefined || slice.text === undefined) {
+        throw new Error(`${relativePath}:${range} — ${slice.error ?? "no cited text"}`);
       }
       return { range, text: slice.text };
     });
