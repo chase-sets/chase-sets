@@ -18,7 +18,7 @@ const providerEnvironment = /^(?:TCGPLAYER_|PROVIDER.*(?:SESSION|CREDENTIAL)|CON
 const savedEnvironment = new Map<string, string | undefined>();
 
 test.beforeAll(async () => {
-  platform = await loopbackPlatform({});
+  platform = await loopbackPlatform({ serveReservation: true });
   for (const key of Object.keys(process.env))
     if (providerEnvironment.test(key)) {
       savedEnvironment.set(key, process.env[key]);
@@ -43,13 +43,17 @@ test.afterAll(async () => {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
+  delete process.env.VITE_PLATFORM_API_URL;
+  delete process.env.VITE_CONNECTOR_CLIENT_ID;
 });
 
 function digestDist() {
-  const files = readdirSync(dist)
-    .sort()
-    .map((file) => readFileSync(join(dist, file)));
-  return createHash("sha256").update(Buffer.concat(files)).digest("hex");
+  const hash = createHash("sha256");
+  for (const file of readdirSync(dist).sort()) {
+    const bytes = readFileSync(join(dist, file));
+    hash.update(file).update("\0").update(String(bytes.byteLength)).update("\0").update(bytes);
+  }
+  return hash.digest("hex");
 }
 
 test("connector-pairing-drill-loopback-chromium", async ({}, testInfo) => {
@@ -77,6 +81,8 @@ test("connector-pairing-drill-loopback-chromium", async ({}, testInfo) => {
       async revoke() {
         // The drill fires the work alarm after pairing to drive the real claim path.
       },
+      reservationObserved: () => platform.drillObservation().reservationServed,
+      claimCountObserved: () => platform.drillObservation().claimCount,
     });
   } catch (error) {
     console.log(`CONNECTOR_DRILL_PLATFORM ${JSON.stringify(platform.observation())}`);
@@ -90,20 +96,34 @@ test("connector-pairing-drill-loopback-chromium", async ({}, testInfo) => {
     pageStatus: 200,
     pairedState: "paired-idle",
     trace: "none",
-    reservation: "none",
+    reservation: "present",
   });
   expect(receipt.requests).toContainEqual({ origin: "https://connector-drill.invalid", source: "worker", count: 1 });
   expect(
     receipt.requests.find((row) => row.origin === platform.origin && row.source === "worker")?.count,
   ).toBeGreaterThan(0);
-  expect(platform.observation()).toMatchObject({
-    claimCount: 1,
+  expect(platform.drillObservation()).toMatchObject({
+    claimCount: 2,
     claimCookieArrived: false,
     tokenCookieArrived: false,
     redirectTargetCount: 0,
+    channelPageCount: 1,
+    reservationServed: true,
   });
   expect(receipt.requests.every((row) => row.origin !== "https://store.tcgplayer.com")).toBe(true);
   expect(scanRetainedArtifacts(output, platform.forbidden())).toBeGreaterThan(0);
+  expect(readdirSync(output)).toEqual(["receipt.json"]);
+  expect(
+    scanRetainedArtifacts(output, [
+      ...platform.forbidden(),
+      "access_token",
+      "refresh_token",
+      "code_verifier",
+      "Bearer ",
+      "cc_at_",
+      "cc_rt_",
+    ]),
+  ).toBeGreaterThan(0);
 });
 
 test("connector-pairing-drill-origin-mutants-refuse-before-fetch", async () => {
@@ -146,8 +166,59 @@ test("connector-pairing-drill-active-trace-refuses-before-sign-in", async () => 
   ).rejects.toThrow("connector-drill-trace-active");
 });
 
-test("connector-pairing-drill-receipt-forbids-secret-markers", () => {
-  const receipt = JSON.stringify({ reservation: "none", pageOpenedPath: "/account/channels/connection_synthetic" });
-  expect(receipt).not.toContain("cc_at_");
-  expect(receipt).not.toContain("Bearer ");
+test("connector-pairing-drill-fail-closed-mutants", async () => {
+  const base = {
+    dist,
+    platformOrigin: platform.origin,
+    clientId: synthetic.clientId,
+    artifactDigest: digestDist(),
+    signIn: async (context) => {
+      await context.addCookies([
+        {
+          name: synthetic.cookieName,
+          value: synthetic.cookieValue,
+          url: platform.origin,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ]);
+    },
+    preparePairing: async () => createSyntheticPairingCode(platform.origin),
+    revoke: async () => {},
+    cookieForwarded: () =>
+      platform.drillObservation().claimCookieArrived || platform.drillObservation().tokenCookieArrived,
+  };
+  await expect(runPairingDrill({ ...base, skipSecondAction: true })).rejects.toThrow("connector-drill-page-status");
+  await expect(runPairingDrill({ ...base, skipPreparePairing: true })).rejects.toThrow(
+    "connector-drill-pairing-preparation-refused",
+  );
+  await expect(runPairingDrill({ ...base, bypassForwarder: true })).rejects.toThrow();
+  await expect(runPairingDrill({ ...base, preserveResponseHeaders: true })).rejects.toThrow(
+    "connector-drill-forward-headers",
+  );
+  await expect(runPairingDrill({ ...base, forwardCookieHeaders: true })).rejects.toThrow(
+    "connector-drill-cookie-forwarded",
+  );
+  await expect(runPairingDrill({ ...base, plantReceiptToken: true })).rejects.toThrow(
+    "connector-retained-artifact-secret",
+  );
+  await expect(runPairingDrill({ ...base, skipWorkAlarm: true })).rejects.toThrow("connector-drill-lifecycle-refused");
+  platform.setClaimMutant("401");
+  try {
+    await expect(runPairingDrill({ ...base })).rejects.toThrow();
+  } finally {
+    platform.setClaimMutant("normal");
+  }
+  platform.setClaimMutant("replay");
+  try {
+    await expect(runPairingDrill({ ...base })).rejects.toThrow();
+  } finally {
+    platform.setClaimMutant("normal");
+  }
+  process.env.TCGPLAYER_DRILL_MUTANT = "1";
+  try {
+    await expect(runPairingDrill(base)).rejects.toThrow("connector-drill-provider-environment-refused");
+  } finally {
+    delete process.env.TCGPLAYER_DRILL_MUTANT;
+  }
 });

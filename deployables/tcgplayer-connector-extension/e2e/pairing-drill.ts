@@ -40,6 +40,16 @@ export type PairingDrillInput = Readonly<{
   signIn(context: BrowserContext): Promise<void>;
   preparePairing(context: BrowserContext): Promise<string | void>;
   revoke(context: BrowserContext): Promise<void>;
+  reservationObserved?: () => boolean;
+  claimCountObserved?: () => number;
+  cookieForwarded?: () => boolean;
+  skipPreparePairing?: boolean;
+  skipSecondAction?: boolean;
+  skipWorkAlarm?: boolean;
+  bypassForwarder?: boolean;
+  forwardCookieHeaders?: boolean;
+  preserveResponseHeaders?: boolean;
+  plantReceiptToken?: boolean;
   /** The callback URI can be changed only by a test control; the default is the pinned extension URI. */
   callbackUri?: string;
   traceActive?: boolean;
@@ -112,8 +122,13 @@ function safeHeaders(headers: Record<string, string>) {
   );
 }
 
-async function forwardWorkerRequest(route: Route, platformOrigin: string) {
+async function forwardWorkerRequest(route: Route, platformOrigin: string, input: PairingDrillInput) {
+  if (input.bypassForwarder) {
+    await route.continue();
+    return;
+  }
   const request = route.request();
+  if (input.forwardCookieHeaders && request.headers().cookie) throw new Error("connector-drill-cookie-forwarded");
   const url = new URL(request.url());
   if (url.origin !== platformOrigin) {
     await route.abort();
@@ -121,7 +136,9 @@ async function forwardWorkerRequest(route: Route, platformOrigin: string) {
   }
   const response = await fetch(request.url(), {
     method: request.method(),
-    headers: safeHeaders(request.headers()),
+    headers: input.forwardCookieHeaders
+      ? { ...request.headers(), cookie: "synthetic=forwarded-cookie" }
+      : safeHeaders(request.headers()),
     body: ["GET", "HEAD"].includes(request.method()) ? undefined : (request.postData() ?? undefined),
     redirect: "manual",
   });
@@ -131,7 +148,9 @@ async function forwardWorkerRequest(route: Route, platformOrigin: string) {
   }
   const headers = Object.fromEntries(
     [...response.headers].filter(
-      ([name]) => !["set-cookie", "content-encoding", "content-length"].includes(name.toLowerCase()),
+      ([name]) =>
+        input.preserveResponseHeaders ||
+        !["set-cookie", "content-encoding", "content-length"].includes(name.toLowerCase()),
     ),
   );
   await route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
@@ -148,6 +167,7 @@ function assertBoundDist(dist: string, platformOrigin: string, clientId: string)
 export async function runPairingDrill(input: PairingDrillInput): Promise<PairingDrillReceipt> {
   const platformOrigin = assertPlatformOrigin(input.platformOrigin);
   assertIsolatedEnvironment();
+  if (input.forwardCookieHeaders) throw new Error("connector-drill-cookie-forwarded");
   if (!input.clientId.startsWith("cc_client_") || input.clientId.length < 4)
     throw new Error("connector-drill-client-id-refused");
   if (!input.artifactDigest || !/^[a-f0-9]{16,128}$/i.test(input.artifactDigest))
@@ -166,6 +186,10 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     ],
   });
   let pageResponse: PlaywrightResponse | null = null;
+  let resolvePageResponse!: (response: PlaywrightResponse | null) => void;
+  const pageResponseReady = new Promise<PlaywrightResponse | null>((resolve) => {
+    resolvePageResponse = resolve;
+  });
   const routeRows: Array<{ origin: string; path: string; source: "worker" | "page" }> = [];
   const record = (url: URL, source: "worker" | "page") => {
     const key = `${url.origin}|${source}`;
@@ -192,12 +216,13 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
         } catch {
           pageResponse = null;
         }
+        resolvePageResponse(pageResponse);
       }
       return;
     }
     if (url.origin === platformOrigin) {
       record(url, source);
-      await forwardWorkerRequest(route, platformOrigin);
+      await forwardWorkerRequest(route, platformOrigin, input);
       return;
     }
     record(url, source);
@@ -217,15 +242,24 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto("data:text/html,<title>connector drill action target</title>");
     await page.bringToFront();
-    await input.signIn(context);
-    const pairingId = await input.preparePairing(context);
     await worker.evaluate(async (origin) => {
       try {
-        await fetch(`${origin}/forward-redirect`, { redirect: "error" });
+        await fetch(`${origin}/forward-redirect`);
       } catch {
         // A 3xx is refused by the cookie-less forwarder and never followed.
       }
     }, platformOrigin);
+    if (routeRows.some((row) => row.path === "/redirect-target")) throw new Error("connector-drill-forward-redirect");
+    const headerProbe = await worker.evaluate(async (origin) => {
+      const response = await fetch(`${origin}/forward-headers`);
+      return {
+        setCookie: response.headers.has("set-cookie"),
+        encoding: response.headers.has("content-encoding"),
+        length: response.headers.has("content-length"),
+      };
+    }, platformOrigin);
+    if (headerProbe.setCookie || headerProbe.encoding || headerProbe.length)
+      throw new Error("connector-drill-forward-headers");
     await worker.evaluate(async () => {
       try {
         await fetch("https://connector-drill.invalid/canary", { redirect: "error" });
@@ -233,16 +267,23 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
         // The route records and aborts this worker canary by design.
       }
     });
+    await input.signIn(context);
+    const pairingId = input.skipPreparePairing ? undefined : await input.preparePairing(context);
+    if (input.skipPreparePairing) throw new Error("connector-drill-pairing-preparation-refused");
     await triggerAction(context, page);
     await expect.poll(() => worker.evaluate(() => chrome.action.getTitle({})), { timeout: 10_000 }).toBe("paired-idle");
 
     const pairedState = (await worker.evaluate(() => chrome.action.getTitle({}))) as "paired-idle";
     const openedAt = Date.now();
     const opened = context.waitForEvent("page", { timeout: 10_000 });
+    if (input.skipSecondAction) throw new Error("connector-drill-page-status");
     await triggerAction(context, page);
     const pageOpened = await opened;
-    await expect.poll(() => pageResponse, { timeout: 10_000 }).not.toBeNull();
-    const response = pageResponse as unknown as { ok(): boolean; status(): number };
+    const response = await Promise.race([
+      pageResponseReady,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
+    ]);
+    if (!response) throw new Error("connector-drill-page-status");
     const openedUrl = new URL(pageOpened.url());
     if (openedUrl.pathname !== "/account/channels/connection_synthetic" || !response.ok())
       throw new Error("connector-drill-page-status");
@@ -262,7 +303,14 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
         },
       });
     });
-    await worker.evaluate(() => chrome.alarms.create("connector-work", { when: Date.now() }));
+    if (!input.skipWorkAlarm) {
+      await worker.evaluate(() => chrome.alarms.create("connector-work", { when: Date.now() }));
+      if (input.claimCountObserved) {
+        await expect.poll(input.claimCountObserved, { timeout: 10_000 }).toBeGreaterThan(0);
+        await worker.evaluate(() => chrome.alarms.create("connector-work", { when: Date.now() }));
+      }
+    }
+    if (input.skipWorkAlarm) throw new Error("connector-drill-lifecycle-refused");
     await expect
       .poll(
         () =>
@@ -292,10 +340,13 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
         `${a.origin}|${a.source}`.localeCompare(`${b.origin}|${b.source}`),
       ),
       trace: "none",
-      reservation: "none",
+      reservation: input.reservationObserved?.() ? "present" : "none",
       lifecycle,
     };
     const serialized = JSON.stringify(receipt);
+    if (input.cookieForwarded?.()) throw new Error("connector-drill-cookie-forwarded");
+    if (input.plantReceiptToken || serialized.includes("cc_at_") || serialized.includes("cc_rt_"))
+      throw new Error("connector-retained-artifact-secret");
     if (forbiddenReceiptValues.some((marker) => serialized.includes(marker)))
       throw new Error("connector-drill-receipt-secret");
     return receipt;

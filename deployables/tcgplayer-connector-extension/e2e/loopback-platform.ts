@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
+import { syntheticClaim } from "../__tests__/harness/claim";
 
 export const synthetic = {
   cookieName: "synthetic_connector_session",
@@ -16,6 +17,7 @@ export async function loopbackPlatform(
   options: {
     port?: number;
     requirePairingCode?: boolean;
+    serveReservation?: boolean;
     handle?: (request: IncomingMessage, reply: ServerResponse) => Promise<boolean>;
   } = {},
 ) {
@@ -29,6 +31,10 @@ export async function loopbackPlatform(
   let claimCookieArrived = false;
   let tokenCookieArrived = false;
   let redirectTargetCount = 0;
+  let channelPageCount = 0;
+  let reservationServed = false;
+  let claimReservationServed = false;
+  let replayReservation = false;
   let state = "";
   let challenge = "";
   let verifier = "";
@@ -41,12 +47,23 @@ export async function loopbackPlatform(
     if (await options.handle?.(request, reply)) return;
     const url = new URL(request.url!, "http://127.0.0.1");
     if (url.pathname === "/forward-redirect") {
-      reply.writeHead(302, { Location: `${origin}/redirect-target` }).end();
+      reply.writeHead(302, { Location: "/redirect-target" }).end();
       return;
     }
     if (url.pathname === "/redirect-target") {
       redirectTargetCount++;
       reply.writeHead(200).end("redirect-target");
+      return;
+    }
+    if (url.pathname === "/forward-headers") {
+      reply
+        .writeHead(200, {
+          "Content-Type": "text/plain",
+          "Set-Cookie": "synthetic=forbidden",
+          "Content-Encoding": "identity",
+          "Content-Length": "7",
+        })
+        .end("headers");
       return;
     }
     reply.setHeader("Cache-Control", "no-store");
@@ -154,11 +171,19 @@ export async function loopbackPlatform(
     if (url.pathname.endsWith("/claim")) {
       claimCount++;
       claimCookieArrived = !!request.headers.cookie;
+      if (options.serveReservation && (!claimReservationServed || replayReservation)) {
+        claimReservationServed = true;
+        reservationServed = true;
+        reply.writeHead(200, { "Content-Type": "application/json" });
+        reply.end(JSON.stringify({ reservation: syntheticClaim(), pollWindowSeconds: 30 }));
+        return;
+      }
       reply.writeHead(401, { "Content-Type": "application/json" });
       reply.end(JSON.stringify({ error: "invalid-credential" }));
       return;
     }
     if (url.pathname.startsWith("/account/channels")) {
+      if (url.pathname === "/account/channels/connection_synthetic") channelPageCount++;
       reply.end("<!doctype html><title>Channels</title>");
       return;
     }
@@ -183,6 +208,14 @@ export async function loopbackPlatform(
       cookieArrived = false;
       queryClosed = false;
       tokenClosed = false;
+      claimCount = 0;
+      claimCookieArrived = false;
+      tokenCookieArrived = false;
+      redirectTargetCount = 0;
+      channelPageCount = 0;
+      reservationServed = false;
+      claimReservationServed = false;
+      replayReservation = false;
     },
     release: () => {
       release?.();
@@ -193,11 +226,23 @@ export async function loopbackPlatform(
       cookieArrived,
       queryClosed,
       tokenClosed,
+    }),
+    drillObservation: () => ({
       claimCount,
       claimCookieArrived,
       tokenCookieArrived,
       redirectTargetCount,
+      channelPageCount,
+      reservationServed,
     }),
+    markReservationServed: () => {
+      reservationServed = true;
+    },
+    setClaimMutant: (mutant: "replay" | "401" | "normal") => {
+      replayReservation = mutant === "replay";
+      if (mutant === "401") claimReservationServed = true;
+      if (mutant === "normal") claimReservationServed = false;
+    },
     forbidden: () => [
       synthetic.cookieName,
       synthetic.cookieValue,
@@ -223,5 +268,8 @@ export async function createSyntheticPairingCode(origin: string): Promise<string
     body: "{}",
   });
   if (!response.ok) throw new Error("synthetic-pairing-code-refused");
-  return "synthetic-pairing";
+  const body: unknown = await response.json();
+  if (!body || typeof body !== "object" || !("pairingId" in body) || typeof body.pairingId !== "string")
+    throw new Error("synthetic-pairing-code-refused");
+  return body.pairingId;
 }
