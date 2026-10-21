@@ -130,8 +130,8 @@ const batteryWorkUnitCeilings = Object.freeze({
   executedGuardNodeSubprocesses: 0,
   totalChildProcessSpawns: 408,
   reconciliationGitLsFilesSpawns: 3,
-  compilerSurfaceSourceParses: 7,
-  trackedFilesDigested: 111,
+  compilerSurfaceSourceParses: 8,
+  trackedFilesDigested: 112,
 });
 
 const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
@@ -3328,8 +3328,8 @@ describe("Consent authorization sites", () => {
 
     expect(liveMutationInventory.workUnits).toEqual({
       reconciliationGitLsFilesSpawns: 1,
-      compilerSurfaceSourceParses: 7,
-      trackedFilesDigested: 111,
+      compilerSurfaceSourceParses: 8,
+      trackedFilesDigested: 112,
     });
     expect(collectConsentAuthorizationEvidenceWorkUnitViolations(liveMutationInventory.workUnits)).toEqual([]);
     const ceilingMutantRefusals = {};
