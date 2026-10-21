@@ -219,7 +219,7 @@ function assertAuthorityRequests(requests) {
   expect(seen).toEqual(AUTHORITY_REQUESTS);
   expect(requests[0].headers.authorization).toBeUndefined();
   expect(
-    requests.find(({ url }) => url.startsWith("https://synthetic.blob.core.windows.net")).headers.authorization,
+    requests.find(({ url }) => new URL(url).origin === new URL(SIGNED_LOG).origin).headers.authorization,
   ).toBeUndefined();
   for (const { url, headers } of requests) {
     if (new URL(url).origin === "https://api.github.com") expect(headers.authorization).toBeTruthy();
