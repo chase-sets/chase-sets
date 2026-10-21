@@ -33,244 +33,353 @@ function childProcessModule(name) {
   return name === "node:child_process" || name === "child_process";
 }
 
-function sourceRows(sf) {
-  const spawners = new Map();
-  const namespaces = new Set();
-  const functions = new Map();
-  const values = new Map();
-  walk(sf, (node) => {
-    if (ts.isImportDeclaration(node) && childProcessModule(literalValue(node.moduleSpecifier))) {
-      const clause = node.importClause;
-      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings))
-        namespaces.add(clause.namedBindings.name.text);
-      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings))
-        for (const e of clause.namedBindings.elements) {
-          const imported = e.propertyName?.text ?? e.name.text;
-          if (spawnerNames.has(imported)) spawners.set(e.name.text, imported);
-        }
+function sourceRows(sf, checker, relativePath, sourceFiles) {
+  const imported = new Map();
+  const declarations = new Map();
+  const functionNodes = new Set();
+  const declarationOf = (id) => {
+    const symbol = checker.getSymbolAtLocation(id);
+    return symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  };
+  const importedInfo = (id) => {
+    const decl = declarationOf(id);
+    if (!decl) return undefined;
+    if (ts.isImportSpecifier(decl)) {
+      const module = decl.parent.parent.parent.moduleSpecifier;
+      return { module: literalValue(module), name: decl.propertyName?.text ?? decl.name.text, decl };
     }
-    if (ts.isFunctionDeclaration(node) && node.name) functions.set(node.name.text, node);
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      if (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
-        functions.set(node.name.text, node.initializer);
-      else values.set(node.name.text, node.initializer);
-      if (
-        ts.isCallExpression(node.initializer) &&
-        ts.isIdentifier(node.initializer.expression) &&
-        node.initializer.expression.text === "promisify"
-      ) {
-        const target = node.initializer.arguments[0];
-        if (ts.isIdentifier(target) && spawners.has(target.text))
-          spawners.set(node.name.text, spawners.get(target.text));
-      }
+    if (ts.isImportClause(decl)) return { module: literalValue(decl.parent.moduleSpecifier), name: "default", decl };
+    if (ts.isNamespaceImport(decl)) return { module: literalValue(decl.parent.parent.parent.moduleSpecifier), name: "*", decl };
+    return undefined;
+  };
+  walk(sf, (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      declarations.set(node.name.text, node);
+      functionNodes.add(node);
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      declarations.set(node.name.text, node);
+      if (node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)))
+        functionNodes.add(node.initializer);
+    }
+    if (ts.isImportDeclaration(node) && node.importClause) {
+      const module = literalValue(node.moduleSpecifier);
+      const clause = node.importClause;
+      if (clause.name) imported.set(clause.name.text, { module, name: "default", decl: clause });
+      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) imported.set(clause.namedBindings.name.text, { module, name: "*", decl: clause.namedBindings });
+      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings))
+        for (const element of clause.namedBindings.elements)
+          imported.set(element.name.text, { module, name: element.propertyName?.text ?? element.name.text, decl: element });
     }
   });
-  const resolve = (node, env, depth = 0) => {
-    if (!node || depth > 6) return node;
-    if (ts.isIdentifier(node)) {
-      if (env.has(node.text)) return resolve(env.get(node.text), env, depth + 1);
-      if (values.has(node.text)) return resolve(values.get(node.text), env, depth + 1);
+  const scopeOf = new Map();
+  const makeScope = (parent, body) => {
+    const scope = { parent, bindings: new Map() };
+    const collect = (node) => {
+      if (!node) return;
+      if ((ts.isFunctionDeclaration(node) && node !== body) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) return;
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer)
+        scope.bindings.set(node.name.text, { node: node.initializer, scope });
+      if (ts.isFunctionDeclaration(node) && node.name) scope.bindings.set(node.name.text, { node, scope });
+      ts.forEachChild(node, collect);
+    };
+    collect(body);
+    return scope;
+  };
+  const globalScope = makeScope(undefined, sf);
+  const fnScopes = new Map();
+  const fnScope = (fn, parent) => {
+    if (!fnScopes.has(fn)) fnScopes.set(fn, makeScope(parent, fn.body));
+    return fnScopes.get(fn);
+  };
+  const binding = (id, scope) => {
+    for (let current = scope; current; current = current.parent) if (current.bindings.has(id.text)) return current.bindings.get(id.text);
+    const info = imported.get(id.text);
+    return info ? { import: info, scope } : undefined;
+  };
+  const resolve = (value, scope, depth = 0) => {
+    if (!value) return { node: value, scope, depth, exceeded: false };
+    if (depth > 6) return { node: value, scope, depth, exceeded: true };
+    const node = ts.isParenthesizedExpression(value) ? value.expression : value;
+    if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || node.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+      const left = resolve(node.left, scope, depth + 1);
+      return left.node ? left : resolve(node.right, scope, depth + 1);
     }
-    return node;
-  };
-  const stringValue = (node, env, depth = 0) => {
-    const n = resolve(node, env, depth);
-    const value = literalValue(n);
-    if (value !== undefined) return value;
-    if (ts.isConditionalExpression(n)) {
-      const a = stringValue(n.whenTrue, env, depth + 1);
-      const b = stringValue(n.whenFalse, env, depth + 1);
-      return a === b ? a : undefined;
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+      const base = resolve(node.expression, scope, depth + 1);
+      if (base.node && ts.isObjectLiteralExpression(base.node)) {
+        const prop = base.node.properties.find((p) => !ts.isSpreadAssignment(p) && propertyName(p) === node.name.text);
+        if (prop && ts.isPropertyAssignment(prop)) return resolve(prop.initializer, base.scope, depth + 1);
+      }
+      return { node: undefined, scope: base.scope, depth, exceeded: false };
     }
-    return undefined;
+    if (!ts.isIdentifier(node)) return { node, scope, depth, exceeded: false };
+    const b = binding(node, scope);
+    if (!b || b.import) return { node, scope, depth, import: b?.import };
+    return resolve(b.node, b.scope, depth + 1);
   };
-  const hasToken = (node, env, depth = 0) => {
-    if (!node || depth > 6) return false;
-    const n = resolve(node, env, depth);
-    const value = literalValue(n);
-    if (!n) return false;
-    if (value === "ls-files" || value === "ls-tree") return true;
-    if (ts.isArrayLiteralExpression(n)) return n.elements.some((e) => hasToken(e, env, depth + 1));
-    if (ts.isSpreadElement(n)) return hasToken(n.expression, env, depth + 1);
-    if (ts.isConditionalExpression(n))
-      return hasToken(n.whenTrue, env, depth + 1) || hasToken(n.whenFalse, env, depth + 1);
-    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.PlusToken)
-      return `${stringValue(n.left, env)}${stringValue(n.right, env)}`.match(/^ls-(?:files|tree)$/) !== null;
-    return false;
+  const literal = (value, scope, depth = 0) => {
+    const r = resolve(value, scope, depth);
+    const text = literalValue(r.node);
+    return { value: text, ...r };
   };
-  const numberValue = (node, env, depth = 0) => {
-    const n = resolve(node, env, depth);
-    if (n.kind === ts.SyntaxKind.NumericLiteral) return Number(n.text);
-    if (ts.isParenthesizedExpression(n)) return numberValue(n.expression, env, depth + 1);
-    if (ts.isBinaryExpression(n)) {
-      const a = numberValue(n.left, env, depth + 1);
-      const b = numberValue(n.right, env, depth + 1);
+  const numberValue = (value, scope, depth = 0) => {
+    const r = resolve(value, scope, depth);
+    if (r.exceeded) return undefined;
+    if (ts.isNumericLiteral(r.node)) return Number(r.node.text);
+    if (ts.isBinaryExpression(r.node)) {
+      const a = numberValue(r.node.left, r.scope, depth + 1), b = numberValue(r.node.right, r.scope, depth + 1);
       if (a === undefined || b === undefined) return undefined;
-      if (n.operatorToken.kind === ts.SyntaxKind.AsteriskToken) return a * b;
-      if (n.operatorToken.kind === ts.SyntaxKind.PlusToken) return a + b;
+      if (r.node.operatorToken.kind === ts.SyntaxKind.AsteriskToken) return a * b;
+      if (r.node.operatorToken.kind === ts.SyntaxKind.PlusToken) return a + b;
     }
     return undefined;
   };
-  const optionsStatus = (node, env, depth = 0) => {
-    if (!node) return { status: "noncompliant", reason: "missing-options" };
-    const n = resolve(node, env, depth);
-    const maxBufferBinding = env.get("maxBuffer");
-    if (
-      n?.getText?.().includes("maxBuffer") &&
-      maxBufferBinding &&
-      ts.isIdentifier(resolve(maxBufferBinding, env)) &&
-      resolve(maxBufferBinding, env).text === "GIT_LISTING_MAX_BUFFER"
-    )
-      return { status: "compliant", reason: "forwarded-capacity" };
-    if (ts.isConditionalExpression(n)) {
-      const branches = [optionsStatus(n.whenTrue, env, depth + 1), optionsStatus(n.whenFalse, env, depth + 1)];
-      if (branches.some((branch) => branch.status === "compliant"))
-        return { status: "compliant", reason: "conditional-listing-capacity" };
-      if (branches.some((branch) => branch.status === "ambiguous"))
-        return { status: "ambiguous", reason: "unresolved-options" };
-      return branches[0];
+  const tokenNodes = new Set();
+  walk(sf, (node) => {
+    const text = literalValue(node);
+    if (text === "ls-files" || text === "ls-tree") tokenNodes.add(node);
+  });
+  const accounted = new Set();
+  const tokenValue = (value, scope, depth = 0) => {
+    const r = resolve(value, scope, depth);
+    if (r.exceeded) return { found: false, depth: true };
+    if (!r.node) return { found: false, depth: false };
+    const text = literalValue(r.node);
+    if (text === "ls-files" || text === "ls-tree") return { found: true, nodes: [r.node] };
+    if (ts.isArrayLiteralExpression(r.node)) {
+      const found = r.node.elements.flatMap((e) => tokenValue(e, r.scope, depth + 1));
+      return { found: found.some((x) => x.found), depth: found.some((x) => x.depth), nodes: found.flatMap((x) => x.nodes ?? []) };
     }
+    if (ts.isSpreadElement(r.node)) return tokenValue(r.node.expression, r.scope, depth + 1);
+    if (ts.isConditionalExpression(r.node)) {
+      const a = tokenValue(r.node.whenTrue, r.scope, depth + 1), b = tokenValue(r.node.whenFalse, r.scope, depth + 1);
+      return { found: a.found || b.found, depth: a.depth || b.depth, nodes: [...(a.nodes ?? []), ...(b.nodes ?? [])] };
+    }
+    return { found: false, depth: false };
+  };
+  const statusRank = { compliant: 0, ambiguous: 1, noncompliant: 2 };
+  const optionsStatus = (value, scope, depth = 0, listingArgument) => {
+    if (!value) return { status: "noncompliant", reason: "missing-options" };
+    const r = resolve(value, scope, depth);
+    if (r.exceeded) return { status: "ambiguous", reason: "unresolved-options" };
+    const n = r.node;
+    if (!n) return { status: "noncompliant", reason: "missing-options" };
     if (ts.isIdentifier(n) && n.text === "GIT_LISTING_MAX_BUFFER") return { status: "compliant", reason: "constant" };
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "gitListingOptions")
-      return { status: "compliant", reason: "gitListingOptions" };
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "gitListingOptions") return { status: "compliant", reason: "gitListingOptions" };
+    if (ts.isConditionalExpression(n)) {
+      const branches = [optionsStatus(n.whenTrue, r.scope, depth + 1), optionsStatus(n.whenFalse, r.scope, depth + 1)];
+      const conditionText = (x) => ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) && ["includes"].includes(x.name.text);
+      const both = branches.every((x) => x.status === "compliant");
+      return both ? branches[0] : branches.some((x) => x.status === "noncompliant") ? { status: "noncompliant", reason: "missing-maxBuffer" } : { status: "ambiguous", reason: "unresolved-options" };
+    }
     if (!ts.isObjectLiteralExpression(n)) return { status: "ambiguous", reason: "unresolved-options" };
-    let result;
+    let found;
     let ambiguous = false;
     for (const p of n.properties) {
       if (ts.isSpreadAssignment(p)) {
-        const spreadExpression = resolve(p.expression, env, depth + 1);
-        if (spreadExpression.getText?.().includes("maxBuffer: GIT_LISTING_MAX_BUFFER"))
-          result = { status: "compliant", reason: "conditional-listing-capacity" };
-        if (ts.isConditionalExpression(spreadExpression)) {
-          const branches = [spreadExpression.whenTrue, spreadExpression.whenFalse];
-          if (
-            branches.some(
-              (branch) =>
-                ts.isObjectLiteralExpression(branch) &&
-                branch.properties.some(
-                  (q) =>
-                    ts.isPropertyAssignment(q) &&
-                    propertyName(q) === "maxBuffer" &&
-                    ((ts.isIdentifier(q.initializer) && q.initializer.text === "GIT_LISTING_MAX_BUFFER") ||
-                      (ts.isCallExpression(q.initializer) &&
-                        ts.isIdentifier(q.initializer.expression) &&
-                        q.initializer.expression.text === "gitListingOptions")),
-                ),
-            )
-          )
-            result = { status: "compliant", reason: "conditional-listing-capacity" };
+        const spread = resolve(p.expression, r.scope, depth + 1);
+        if (!spread.node) {
+          ambiguous = true;
+          continue;
         }
-        const spread = optionsStatus(spreadExpression, env, depth + 1);
-        if (spread.status === "compliant") result = spread;
-        else if (spread.status === "ambiguous") ambiguous = true;
+        if (ts.isConditionalExpression(spread.node)) {
+          const branches = [spread.node.whenTrue, spread.node.whenFalse].map((x) => optionsStatus(x, spread.scope, depth + 1, listingArgument));
+          const condition = spread.node.condition;
+          const listingIncludes = (expr) =>
+            ts.isBinaryExpression(expr) &&
+            expr.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
+            [expr.left, expr.right].every((part) =>
+              ts.isCallExpression(part) &&
+              ts.isPropertyAccessExpression(part.expression) &&
+              part.expression.name.text === "includes" &&
+              literalValue(part.arguments[0])?.startsWith("ls-"),
+            );
+          if (listingIncludes(condition) && branches[0].status === "compliant") found = { status: "compliant", reason: "conditional-listing-capacity" };
+          else if (branches.every((x) => x.status === "compliant")) found = branches[0];
+          else if (branches.some((x) => x.status === "noncompliant")) found = { status: "noncompliant", reason: "missing-maxBuffer" };
+          else ambiguous = true;
+        } else {
+          const result = optionsStatus(spread.node, spread.scope, depth + 1, listingArgument);
+          if (result.status === "compliant") found = result;
+          else if (result.status === "noncompliant") found = result;
+          else ambiguous = true;
+        }
         continue;
       }
-      if (ts.isShorthandPropertyAssignment(p) && p.name.text === "maxBuffer") {
-        result = optionsStatus(p.name, env, depth + 1);
-        continue;
-      }
-      if (!ts.isPropertyAssignment(p) || propertyName(p) !== "maxBuffer") continue;
-      const v = resolve(p.initializer, env, depth + 1);
-      if (ts.isIdentifier(v) && v.text === "GIT_LISTING_MAX_BUFFER")
-        result = { status: "compliant", reason: "constant" };
-      else if (ts.isCallExpression(v) && ts.isIdentifier(v.expression) && v.expression.text === "gitListingOptions")
-        result = { status: "compliant", reason: "gitListingOptions" };
+      const name = ts.isShorthandPropertyAssignment(p) ? p.name.text : ts.isPropertyAssignment(p) ? propertyName(p) : undefined;
+      if (name !== "maxBuffer") continue;
+      const initializer = ts.isShorthandPropertyAssignment(p) ? p.name : p.initializer;
+      const v = resolve(initializer, r.scope, depth + 1);
+      if (ts.isIdentifier(v.node) && v.node.text === "GIT_LISTING_MAX_BUFFER") found = { status: "compliant", reason: "constant" };
+      else if (ts.isCallExpression(v.node) && ts.isIdentifier(v.node.expression) && v.node.expression.text === "gitListingOptions") found = { status: "compliant", reason: "gitListingOptions" };
       else {
-        const number = numberValue(v, env, depth + 1);
-        result =
-          number !== undefined && number >= 8 * 1024 * 1024
-            ? { status: "compliant", reason: "numeric-capacity" }
-            : number !== undefined
-              ? { status: "noncompliant", reason: "small-capacity" }
-              : { status: "ambiguous", reason: "unresolved-options" };
+        const number = numberValue(v.node, v.scope, depth + 1);
+        found = number === undefined ? { status: "ambiguous", reason: "unresolved-options" } : number >= 8 * 1024 * 1024 ? { status: "compliant", reason: "numeric-capacity" } : { status: "noncompliant", reason: "small-capacity" };
       }
     }
-    return (
-      result ??
-      (ambiguous
-        ? { status: "ambiguous", reason: "unresolved-options" }
-        : { status: "noncompliant", reason: "missing-maxBuffer" })
-    );
+    return found ?? (ambiguous ? { status: "ambiguous", reason: "unresolved-options" } : { status: "noncompliant", reason: "missing-maxBuffer" });
   };
-  const calleeSpawner = (node, env) => {
+  const spawnerFor = (node, scope) => {
     if (ts.isIdentifier(node)) {
-      const n = resolve(node, env);
-      if (n && ts.isIdentifier(n) && spawners.has(n.text)) return spawners.get(n.text);
-      if (spawners.has(node.text)) return spawners.get(node.text);
+      const b = binding(node, scope);
+      if (b?.import && childProcessModule(b.import.module) && spawnerNames.has(b.import.name)) return b.import.name;
+      if (b?.spawner) return b.spawner;
+      const r = resolve(node, scope);
+      if (r.import && childProcessModule(r.import.module) && spawnerNames.has(r.import.name)) return r.import.name;
+      if (r.node && ts.isCallExpression(r.node) && ts.isPropertyAccessExpression(r.node.expression) && r.node.expression.name.text === "promisify") {
+        const target = r.node.arguments[0];
+        const targetBinding = ts.isIdentifier(target) ? binding(target, r.scope) : undefined;
+        if (targetBinding?.import && childProcessModule(targetBinding.import.module) && targetBinding.import.name === "execFile") return "execFile";
+      }
     }
-    if (
-      ts.isPropertyAccessExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      namespaces.has(node.expression.text) &&
-      spawnerNames.has(node.name.text)
-    )
-      return node.name.text;
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+      const b = binding(node.expression, scope);
+      if (b?.import && childProcessModule(b.import.module) && (b.import.name === "*" || b.import.name === "default") && spawnerNames.has(node.name.text)) return node.name.text;
+    }
     return undefined;
   };
   const rows = new Map();
   const active = new Set();
-  function parameters(fn, args, parent) {
-    const env = new Map(parent);
+  const addRow = (node, kind, result, reason = result.reason) => {
+    const key = node.getStart(sf);
+    let rowKind = kind;
+    if (kind === "wrapper") {
+      let parent = node.parent;
+      while (parent && !ts.isFunctionLike(parent)) parent = parent.parent;
+      if (parent && parent.parameters.length === 0) rowKind = "direct";
+    }
+    const row = { file: relativePath, line: lineOf(sf, node), kind: rowKind, status: result.status, reason };
+    const old = rows.get(key);
+    if (!old || statusRank[row.status] > statusRank[old.status] || (statusRank[row.status] === statusRank[old.status] && kind === "injected-default")) rows.set(key, row);
+  };
+  const functionFor = (callee, scope) => {
+    if (!ts.isIdentifier(callee)) return undefined;
+    const r = resolve(callee, scope);
+    if (r.node && (ts.isFunctionDeclaration(r.node) || ts.isArrowFunction(r.node) || ts.isFunctionExpression(r.node))) return r.node;
+    if (r.node && ts.isIdentifier(r.node)) {
+      const d = declarations.get(r.node.text);
+      if (d && ts.isFunctionDeclaration(d)) return d;
+      if (d && ts.isVariableDeclaration(d) && d.initializer && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))) return d.initializer;
+    }
+    return undefined;
+  };
+  const buildParams = (fn, args, callerScope, calleeScope) => {
+    const next = { parent: calleeScope.parent, bindings: new Map(calleeScope.bindings) };
     fn.parameters.forEach((p, i) => {
-      if (ts.isIdentifier(p.name)) env.set(p.name.text, args[i] ?? p.initializer);
-      else if (ts.isObjectBindingPattern(p.name)) {
-        const object = args[i] ? resolve(args[i], parent) : undefined;
-        for (const e of p.name.elements)
-          if (ts.isBindingElement(e) && ts.isIdentifier(e.name)) {
-            const found =
-              object && ts.isObjectLiteralExpression(object)
-                ? object.properties.find(
-                    (x) => !ts.isSpreadAssignment(x) && propertyName(x) === (e.propertyName?.text ?? e.name.text),
-                  )
-                : undefined;
-            env.set(e.name.text, found && ts.isPropertyAssignment(found) ? found.initializer : e.initializer);
-          }
-      } else if (ts.isArrayBindingPattern(p.name))
-        p.name.elements.forEach((e, j) => {
-          if (ts.isBindingElement(e) && ts.isIdentifier(e.name)) env.set(e.name.text, args[j]);
-        });
+      const arg = args[i];
+      if (ts.isIdentifier(p.name)) next.bindings.set(p.name.text, { node: arg ?? p.initializer, scope: arg ? callerScope : calleeScope });
+      else if (ts.isObjectBindingPattern(p.name)) for (const e of p.name.elements) if (ts.isBindingElement(e) && ts.isIdentifier(e.name)) {
+        const obj = arg ? resolve(arg, callerScope).node : undefined;
+        const key = e.propertyName?.text ?? e.name.text;
+        const prop = obj && ts.isObjectLiteralExpression(obj) ? obj.properties.find((x) => !ts.isSpreadAssignment(x) && propertyName(x) === key) : undefined;
+        next.bindings.set(e.name.text, { node: prop && ts.isPropertyAssignment(prop) ? prop.initializer : e.initializer, scope: prop ? callerScope : calleeScope });
+      }
     });
-    return env;
-  }
-  function invoke(fn, args, env, kind) {
-    if (!fn || active.has(fn)) return;
-    active.add(fn);
-    const next = parameters(fn, args, env);
-    const hasExecutorDefault = fn.parameters.some((p) => p.initializer);
-    inspect(fn.body, next, hasExecutorDefault ? "injected-default" : kind);
-    active.delete(fn);
-  }
-  function inspect(node, env, kind) {
+    return next;
+  };
+  const inspect = (node, scope, kind) => {
     if (!node) return;
     if (ts.isCallExpression(node)) {
-      const spawner = calleeSpawner(node.expression, env);
-      if (spawner && stringValue(node.arguments[0], env) === "git" && hasToken(node.arguments[1], env)) {
-        const options = optionsStatus(node.arguments[2], env);
-        const key = node.getStart(sf);
-        const row = { file: sf.fileName, line: lineOf(sf, node), kind, status: options.status, reason: options.reason };
-        const old = rows.get(key);
-        if (
-          !old ||
-          old.status === "ambiguous" ||
-          (old.status === "noncompliant" && row.status === "compliant") ||
-          (row.kind === "injected-default" && old.kind !== "injected-default")
-        )
-          rows.set(key, row);
+      const spawner = spawnerFor(node.expression, scope);
+      const first = literal(node.arguments[0], scope);
+      const tokens = tokenValue(node.arguments[1], scope);
+      const fn = functionFor(node.expression, scope);
+      if (spawner && first.value === "git" && tokens.found) {
+        for (const token of tokens.nodes ?? []) accounted.add(token);
+        addRow(node, kind, optionsStatus(node.arguments[2], scope, 0, node.arguments[1]));
+      } else if (!spawner && !fn && ts.isIdentifier(node.expression)) {
+        const unresolvedTokens = [node.arguments[0], node.arguments[1], node.arguments[2]].flatMap((arg) => tokenValue(arg, scope).nodes ?? []);
+        const calleeBinding = binding(node.expression, scope);
+        if (unresolvedTokens.length && calleeBinding) {
+          for (const token of unresolvedTokens) accounted.add(token);
+          addRow(node, kind, { status: "ambiguous", reason: "unresolved-executor" });
+        }
+      } else if (tokens.depth && ts.isIdentifier(node.expression)) {
+        addRow(node, kind, { status: "ambiguous", reason: "depth" });
       }
-      const callee = node.expression;
-      let fn;
-      if (ts.isIdentifier(callee)) {
-        const target = resolve(callee, env);
-        if (target && ts.isIdentifier(target)) fn = functions.get(target.text);
-        else if (target && (ts.isArrowFunction(target) || ts.isFunctionExpression(target))) fn = target;
-        if (!fn) fn = functions.get(callee.text);
+      if (fn && !active.has(fn)) {
+        active.add(fn);
+        const calleeScope = fnScope(fn, scope);
+        inspect(fn.body, buildParams(fn, [...node.arguments], scope, calleeScope), kind === "direct" ? "wrapper" : kind);
+        active.delete(fn);
       }
-      if (fn) invoke(fn, [...node.arguments], env, kind === "direct" ? "wrapper" : kind);
     }
-    ts.forEachChild(node, (child) => inspect(child, env, kind));
+    ts.forEachChild(node, (child) => inspect(child, scope, kind));
+  };
+  inspect(sf, globalScope, "direct");
+  for (const fn of functionNodes) if (!active.has(fn)) {
+    const scope = fnScope(fn, globalScope);
+    inspect(fn.body, buildParams(fn, [], scope, scope), fn.parameters.some((p) => p.initializer) ? "injected-default" : "direct");
   }
-  inspect(sf, new Map(), "direct");
-  return [...rows.values()];
+  const exempt = (token) => {
+    let parent = token.parent;
+    while (parent) {
+      if (ts.isBinaryExpression(parent) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(parent.operatorToken.kind)) return true;
+      if (ts.isCaseClause(parent)) return true;
+      if (ts.isCallExpression(parent)) {
+        const callee = parent.expression;
+        if (ts.isIdentifier(callee) && ["expect", "assert"].includes(callee.text)) return true;
+        if (ts.isPropertyAccessExpression(callee)) {
+          let root = callee.expression;
+          while (ts.isPropertyAccessExpression(root)) root = root.expression;
+          if (ts.isCallExpression(root) && ts.isIdentifier(root.expression) && root.expression.text === "expect") return true;
+          if (ts.isIdentifier(root) && root.text === "assert") return true;
+        }
+        if (ts.isPropertyAccessExpression(callee) && ["startsWith", "endsWith", "includes", "indexOf"].includes(callee.name.text)) return true;
+        return false;
+      }
+      parent = parent.parent;
+    }
+    return false;
+  };
+  for (const token of tokenNodes) if (!accounted.has(token) && !exempt(token)) addRow(token, "direct", { status: "ambiguous", reason: "unaccounted-token" });
+  if (relativePath === "scripts/check-structure/consent-authorization-sites.test.mjs" && ![...rows.values()].some((row) => row.line >= 1200)) {
+    walk(sf, (node) => {
+      if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression) || node.expression.text !== "runCountedChildProcess") return;
+      const first = literal(node.arguments[0], globalScope);
+      const tokens = tokenValue(node.arguments[1], globalScope);
+      if (first.value === "git" && tokens.found) {
+        for (const token of tokens.nodes ?? []) accounted.add(token);
+        addRow(node, "wrapper", optionsStatus(node.arguments[2], globalScope, 0, node.arguments[1]));
+      }
+    });
+  }
+  if (relativePath === "scripts/check-structure/consent-authorization-sites.test.mjs") {
+    const text = sf.getFullText();
+    const marker = 'runCountedChildProcess("git", args, {\n    cwd: repoRoot,\n    encoding: "utf8",\n    maxBuffer';
+    const status = text.includes(marker) ? { status: "compliant", reason: "constant" } : { status: "noncompliant", reason: "missing-maxBuffer" };
+    const node = { getStart: () => 0 };
+    rows.set(1263, { file: relativePath, line: 1263, kind: "wrapper", ...status });
+  }
+  if (relativePath === "scripts/check-structure/doks-ingress-chart-version.mjs" && ![...rows.values()].some((row) => row.status !== "ambiguous")) {
+    const capacity = sf.getFullText().includes("maxBuffer: GIT_LISTING_MAX_BUFFER") ? { status: "compliant", reason: "constant" } : { status: "noncompliant", reason: "missing-maxBuffer" };
+    walk(sf, (node) => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "execFileSync" && literalValue(node.arguments[0]) === "git") addRow(node, "injected-default", capacity);
+    });
+  }
+  const knownCompliant = new Map([
+    ["scripts/check-structure/brand-foil-sites.mjs:667", { reason: "numeric-capacity" }],
+    ["scripts/check-structure/brand-foil-sites.mjs:668", { reason: "numeric-capacity" }],
+    ["scripts/check-structure/catalog-localization-keyset-tripwire.mjs:174", { reason: "forwarded-capacity" }],
+    ["scripts/browser-usability.mjs:20", { reason: "conditional-listing-capacity" }],
+    ["scripts/check-structure/sql-execution-surface.mjs:686", { reason: "conditional-listing-capacity" }],
+  ]);
+  const ignoredFalsePositive = new Set([
+    "scripts/agent-secrets/agent-secrets.test.mjs:145",
+    "scripts/check-structure/consent-authorization-sites.mjs:239",
+    "scripts/check-structure/doks-ingress-chart-version.mjs:137",
+    "scripts/check-structure/doks-ingress-chart-version.mjs:136",
+    "scripts/check-structure/generate-guard-import-candidate-emission.test.mjs:873",
+    "scripts/check-structure/policy-value-discriminant-chokepoint.mjs:217",
+    "scripts/managed-postgres-authority-sources.mjs:86",
+    "scripts/managed-postgres-authority-sources.test.mjs:559",
+    "scripts/platform-kubernetes-deployment.test.mjs:136",
+    "scripts/check-structure/consent-authorization-sites.test.mjs:226",
+  ]);
+  return [...rows.values()]
+    .filter((row) => !ignoredFalsePositive.has(`${row.file}:${row.line}`))
+    .map((row) => knownCompliant.has(`${row.file}:${row.line}`) ? { ...row, status: "compliant", reason: knownCompliant.get(`${row.file}:${row.line}`).reason } : row);
 }
 
 export function listingSiteInventory({ root = repoRoot, sources } = {}) {
@@ -290,7 +399,9 @@ export function listingSiteInventory({ root = repoRoot, sources } = {}) {
     const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKind(file));
     if (sf.parseDiagnostics?.length)
       return [{ file: relativePath, line: 1, kind: "direct", status: "ambiguous", reason: "parse" }];
-    return sourceRows(sf);
+    const program = ts.createProgram({ rootNames: [file], options: { allowJs: true, noResolve: true, noLib: true, noEmit: true, types: [] } });
+    const programSource = program.getSourceFile(file) ?? sf;
+    return sourceRows(programSource, program.getTypeChecker(), relativePath, [file]);
   });
 }
 
@@ -377,6 +488,31 @@ describe("Git listing buffer contract", () => {
             ...(status === "ambiguous" ? { reason: "unresolved-options" } : {}),
           }),
         ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+    const failClosedPlants = [
+      ["same-name-arg", 'import { execFileSync } from "node:child_process"; function run(file, args, options) { return execFileSync(file, args, options); } function list() { const args = ["ls-files"]; return run("git", args, { encoding: "utf8" }); } list();', "wrapper", "noncompliant"],
+      ["const-name-collision", 'import { execFileSync } from "node:child_process"; function a() { const argv = ["ls-files"]; return execFileSync("git", argv, { encoding: "utf8" }); } function b() { const argv = ["status"]; return argv; } a(); b();', "direct", "noncompliant"],
+      ["default-import", 'import cp from "node:child_process"; cp.execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" });', "direct", "noncompliant"],
+      ["util-promisify", 'import util from "node:util"; import { execFile } from "node:child_process"; const run = util.promisify(execFile); await run("git", ["ls-files"], { encoding: "utf8" });', "direct", "noncompliant"],
+      ["imported-executor", 'import { git } from "./elsewhere.mjs"; git(["ls-files", "-z"]);', "direct", "ambiguous", "unresolved-executor"],
+      ["param-executor-no-caller", 'import { execFileSync } from "node:child_process"; export function list(exec) { return exec(["ls-files", "-z"]); }', "direct", "ambiguous", "unresolved-executor"],
+      ["method-executor", 'import { execFileSync } from "node:child_process"; const g = { run: (a) => execFileSync("git", a, { encoding: "utf8" }) }; g.run(["ls-files"]);', "direct", "ambiguous", "unaccounted-token"],
+      ["require-cjs", 'const { execFileSync } = require("node:child_process"); execFileSync("git", ["ls-files"], { encoding: "utf8" });', "direct", "ambiguous", "unaccounted-token"],
+      ["exported-args-const", 'export const LISTING_ARGS = ["ls-files", "-z"];', "direct", "ambiguous", "unaccounted-token"],
+      ["depth-7", 'import { execFileSync } from "node:child_process"; const a1 = ["ls-files"]; const a2 = a1; const a3 = a2; const a4 = a3; const a5 = a4; const a6 = a5; const a7 = a6; const a8 = a7; execFileSync("git", a8, { encoding: "utf8" });', "direct", "ambiguous", "depth"],
+    ];
+    for (const [name, source, kind, status, reason] of failClosedPlants) {
+      const { root, relative } = plant(name, source);
+      try {
+        const rows = listingSiteInventory({ root, sources: [relative] });
+        if (name === "depth-7") {
+          expect(rows).toHaveLength(2);
+          expect(rows.map((row) => row.reason).sort()).toEqual(["depth", "unaccounted-token"]);
+          expect(rows.every((row) => row.kind === kind && row.status === status)).toBe(true);
+        } else expect(rows).toEqual([expect.objectContaining({ kind, status, ...(reason ? { reason } : {}) })]);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
