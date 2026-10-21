@@ -101,10 +101,24 @@ describe("reported-content-target-action-partition", () => {
         expect(appendToStream, `${targetType} x ${action}`).not.toHaveBeenCalled();
       }
     }
-    expect(accepted).toEqual(
-      Object.entries(REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE).flatMap(([targetType, targetActions]) =>
-        targetActions.map((action) => `${targetType}:${action}`),
-      ),
+    // The frozen partition, stated independently of the table under test.
+    expect(accepted.sort()).toEqual(
+      [
+        "listing:dismiss",
+        "listing:contact-seller",
+        "listing:unlist",
+        "listing:escalate-account-suspension",
+        "review:dismiss",
+        "review:contact-seller",
+        "review:withdraw-review",
+        "review:redact-review-feedback",
+        "review:withdraw-review-reply",
+        "review:escalate-account-suspension",
+        "account-profile:dismiss",
+        "account-profile:contact-account",
+        "account-profile:redact-profile-display-name",
+        "account-profile:escalate-account-suspension",
+      ].sort(),
     );
   });
 

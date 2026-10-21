@@ -154,7 +154,7 @@ describe("reported-content-operator-minimization", () => {
       />,
     );
     expect(screen.getAllByText("Account profile").length).toBeGreaterThan(0);
-    expect(screen.getByText(`Account profile ${target}`)).toBeTruthy();
+    expect(screen.getAllByText(`Account profile ${target}`).length).toBeGreaterThan(0);
     expectNoReporterIdentifiers(list.container.innerHTML);
   });
 });

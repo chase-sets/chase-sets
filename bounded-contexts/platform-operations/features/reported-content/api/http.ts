@@ -1,11 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import {
-  isReportedContentModerationAction,
-  ReportedContentActionRejectedError,
-  type ReportedContentActionRejectionCode,
-} from "./contracts";
+import { isReportedContentModerationAction, ReportedContentActionRejectedError } from "./contracts";
 import type { ReportedContentServices } from "./runtime";
 
 type ExperienceApiEnv = AuthenticatedApiEnv;
@@ -68,15 +64,6 @@ function parseActionBody(body: unknown) {
     throw new ReportedContentActionRejectedError("unknown-action");
   }
   return { action, note: note?.trim() || null };
-}
-
-function actionRejectedResponse(reason: ReportedContentActionRejectionCode) {
-  return new Response(
-    JSON.stringify({
-      error: { code: "validation_failed", reason, message: t("experience.api.reported.content.action.rejected") },
-    }),
-    { status: 400, headers: { "Content-Type": "application/json" } },
-  );
 }
 
 export function createReportedContentRoutes(services: ReportedContentServices) {
@@ -155,7 +142,17 @@ export function createReportedContentRoutes(services: ReportedContentServices) {
       return c.json({ id: result.actionId, recordedAt: result.recordedAt });
     } catch (error) {
       if (error instanceof ReportedContentActionRejectedError) {
-        return actionRejectedResponse(error.code);
+        // The bounded code is the whole explanation; request text is never echoed.
+        return c.json(
+          {
+            error: {
+              code: "validation_failed",
+              reason: error.code,
+              message: t("experience.api.reported.content.action.rejected"),
+            },
+          },
+          400,
+        );
       }
       throw error;
     }
