@@ -829,7 +829,7 @@ const citationFencePaths = {
 } as const;
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
-  [citationFencePaths.authenticityTerms]: "87965e016a67474e187a17a6f1698f332d964314453ff0946926906388057de9",
+  [citationFencePaths.authenticityTerms]: "0c0bc65b7d958d98308b5f6d768f3b273471efe06953551b2f84ed55c8140707",
   // Includes #7422 revocation, #9499 Inventory recovery storage, the #9106 Search Interpretation marker in
   // stored search restoration, and #9721 byte-identical citation relocations; only C1-C7 digits remain normalized.
   [citationFencePaths.privacyPolicy]: "458b04e7594d16a9ffcbc0eacf38bb0d0db92a99f9701d0739824d2819ed6fc0",
