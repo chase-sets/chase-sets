@@ -361,27 +361,81 @@ function kubernetesWriters(reads, context) {
   return writers;
 }
 
+const POD_PHASES = new Set(["Pending", "Running", "Succeeded", "Failed", "Unknown"]);
+const CONTAINER_SLOTS = Object.freeze([
+  ["init", "initContainers", "initContainerStatuses"],
+  ["regular", "containers", "containerStatuses"],
+  ["ephemeral", "ephemeralContainers", "ephemeralContainerStatuses"],
+]);
+const SAFE_CONTAINER_REASON = /^[A-Za-z]{1,64}$/;
+
+const podPhase = (pod) => (POD_PHASES.has(pod.status?.phase) ? pod.status.phase : "Unknown");
+
+function containerState(status) {
+  if (!isObject(status?.state)) return "absent";
+  for (const state of ["waiting", "terminated", "running"]) {
+    if (isObject(status.state[state])) return state;
+  }
+  return "absent";
+}
+
+function containerReason(status, state) {
+  const reason = status?.state?.[state]?.reason;
+  return typeof reason === "string" && SAFE_CONTAINER_REASON.test(reason) ? reason : "unnamed";
+}
+
+function unresolvedContainerAttributions(pod) {
+  const attributions = [];
+  for (const [slot, specKey, statusKey] of CONTAINER_SLOTS) {
+    const containers = Array.isArray(pod.spec?.[specKey]) ? pod.spec[specKey] : [];
+    const statuses = Array.isArray(pod.status?.[statusKey]) ? pod.status[statusKey] : [];
+    for (const container of containers) {
+      const status = statuses.find((entry) => entry?.name === container?.name);
+      const imageID = typeof status?.imageID === "string" ? status.imageID : "";
+      if (/sha256:[0-9a-f]{64}$/.test(imageID)) continue;
+      const state = containerState(status);
+      attributions.push({
+        pod: `pods:${kubernetesName(pod.metadata?.namespace)}/${kubernetesName(pod.metadata?.name)}`,
+        slot,
+        phase: podPhase(pod),
+        state,
+        reason: containerReason(status, state),
+      });
+    }
+  }
+  return attributions;
+}
+
+function unresolvedImageReason(attributions) {
+  const details = attributions
+    .slice(0, 10)
+    .map(({ pod, slot, phase, state, reason }) => `${pod} slot:${slot} phase:${phase} state:${state} reason:${reason}`)
+    .join(", ");
+  return `unresolved-image; total:${attributions.length}; ${details}`;
+}
+
 // Writer pods' resolved image digests over init, regular and ephemeral containers; a container without a resolved
-// imageID is not a digest yet.
+// imageID is not a digest yet. Attribution is bounded and contains only allowlisted pod/container state metadata.
 function imageDigests(pods) {
   if (pods.status !== "complete") return pods;
   const digests = new Set();
-  let unresolved = 0;
+  const unresolved = [];
   for (const pod of pods.items) {
     if (writerReferences(pod.spec).length === 0) continue;
-    const statuses = ["initContainerStatuses", "containerStatuses", "ephemeralContainerStatuses"].flatMap((key) =>
-      Array.isArray(pod.status?.[key]) ? pod.status[key] : [],
+    const attributions = unresolvedContainerAttributions(pod);
+    unresolved.push(...attributions);
+    const statuses = CONTAINER_SLOTS.flatMap(([, , statusKey]) =>
+      Array.isArray(pod.status?.[statusKey]) ? pod.status[statusKey] : [],
     );
     for (const container of containersOf(pod.spec)) {
       const digest = /sha256:[0-9a-f]{64}$/.exec(
         statuses.find((status) => status?.name === container?.name)?.imageID ?? "",
       );
       if (digest) digests.add(digest[0]);
-      else unresolved++;
     }
   }
-  return unresolved > 0
-    ? { status: "unknown", reason: "unresolved-image" }
+  return unresolved.length > 0
+    ? { status: "unknown", reason: "unresolved-image", attribution: unresolvedImageReason(unresolved) }
     : { status: "complete", value: [...digests].sort() };
 }
 
@@ -416,7 +470,7 @@ const HOST_ACTIONS = {
 function unknownFrom(target, blocked) {
   return {
     status: "unknown",
-    missingAuthority: blocked.map(([source, reason]) => `${SOURCE_LABELS[source]}: ${reason}`).join("; "),
+    missingAuthority: blocked.map(([source, reason, detail]) => `${SOURCE_LABELS[source]}: ${detail ?? reason}`).join("; "),
     hostAction: `${[...new Set(blocked.map(([, reason]) => HOST_ACTIONS[reason] ?? "inspect the failing read"))].join("; ")}, then re-dispatch the capture for ${target}`,
   };
 }
@@ -533,7 +587,7 @@ export async function captureProviderAuthority(
             digests.value,
             "imageID in status.initContainerStatuses, containerStatuses and ephemeralContainerStatuses of writer pods",
           )
-        : unknownFrom(target, [["pods", digests.reason]]),
+        : unknownFrom(target, [["pods", digests.reason, digests.attribution]]),
     "writers.serving": writerSetFor(
       target,
       "serving",
