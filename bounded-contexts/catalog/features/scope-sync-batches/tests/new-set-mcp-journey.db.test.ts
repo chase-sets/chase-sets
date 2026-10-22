@@ -7,6 +7,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { toTransportEvent } from "@chase-sets/event-core";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { module as catalogModule } from "../../../index";
@@ -70,11 +71,7 @@ describe("new set over MCP journey", () => {
         for (const projector of services.projectors) {
           const handler = projector.handlers[event.eventType];
           if (handler) {
-            await handler({
-              streamId: event.streamId,
-              data: event.payload,
-              timing: { recordedAt: event.recordedAt, globalPosition: event.globalPosition },
-            } as never);
+            await handler(toTransportEvent(event));
           }
         }
       }
