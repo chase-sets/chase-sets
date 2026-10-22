@@ -13,6 +13,7 @@ import { module as authModule } from "../../../../auth/index";
 import { module as identityModule } from "../../../../identity/index";
 import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../../../../identity/features/account-capabilities/api/authority";
 import { module as discoveryModule } from "../../../../discovery/index";
+import { module as notificationsModule } from "../../../../notifications/index";
 import { module as customerFeedbackModule } from "../../../index";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
@@ -27,12 +28,14 @@ const context: EventStoreContext = {
 };
 
 describeDb("CSAT outcome projection against real rows and checkpoints", () => {
-  let pools: Readonly<Record<"auth" | "identity" | "discovery" | "customer-feedback", PgTransactionalPool>>;
+  let pools: Readonly<
+    Record<"auth" | "identity" | "discovery" | "notifications" | "customer-feedback", PgTransactionalPool>
+  >;
 
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(
       databaseBaseUrl!,
-      ["auth", "identity", "discovery", "customer-feedback"],
+      ["auth", "identity", "discovery", "notifications", "customer-feedback"],
       "csat_outcome_projection",
     );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
@@ -44,6 +47,7 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     await bootstrapContextDatabase(identityModule, pools.identity);
     await bootstrapContextDatabase(authModule, pools.auth);
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
+    await bootstrapContextDatabase(notificationsModule, pools.notifications);
     await bootstrapContextDatabase(customerFeedbackModule, pools["customer-feedback"]);
   });
 
@@ -62,6 +66,13 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
       },
       { contextName: "auth", mountRole: "source-only", module: authModule, pool: pools.auth, ports: {} },
       { contextName: "discovery", mountRole: "source-only", module: discoveryModule, pool: pools.discovery, ports: {} },
+      {
+        contextName: "notifications",
+        mountRole: "source-only",
+        module: notificationsModule,
+        pool: pools.notifications,
+        ports: {},
+      },
       { contextName: "customer-feedback", module: customerFeedbackModule, pool: pools["customer-feedback"], ports: {} },
     ]);
   }
