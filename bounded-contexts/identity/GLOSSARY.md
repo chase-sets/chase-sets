@@ -295,6 +295,10 @@ Notes:
 - Profiles are representational only.
 - Profiles must not contain permissions or credentials.
 
+### Account Profile
+
+An **Account Profile** is an Account's Profile as other users meet it. It is the `account-profile` noun in Identity's public facts: an **Account Profile Report** (`identity.account-profile.report-submitted` v1, `contracts/event-core/public-event-payloads/identity.ts`) records that one Account reported another Account's profile, and Platform Operations queues it as Reported Content. The reporting user, route and attempt stay Identity-private.
+
 ### Contact Method
 
 A **Contact Method** is a way to reach or verify a user.
@@ -400,6 +404,14 @@ Notes:
 - **One unresolvable member makes the whole bundle unresolved.** A version that contradicts its publication, or an authority that cannot be validated, yields no requirement list at all rather than a shorter one.
 - **An empty requirement set is a value, not a disabled mode.** The shipped corpus derives two empty ordered sets, and resolution still ran.
 - **Bundle acceptance is subject-exact and aggregate.** It is decided for exactly one subject at exactly one scope, and satisfaction requires the current state of each required member to be recorded at the exact required version. Another user of the same account, an account-scoped fact standing in for a user-scoped one, a withdrawn or superseded record, and a legacy `terms` fact never satisfy a bundle.
+
+### Registration
+
+**Registration** is the atomic creation of an Account, User, Membership, and declared consent bundle.
+
+### Onboarding
+
+**Onboarding** is the completion of a guest-account or invitation membership journey.
 
 ### Registration Consent Resolution
 

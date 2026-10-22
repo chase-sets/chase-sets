@@ -25,6 +25,7 @@ export const stagingRefreshOverlapWorkflowFiles = Object.freeze([
   ".github/workflows/catalog-staging-provider-uat.yml",
   ".github/workflows/catalog-integration-staging-reset.yml",
   ".github/workflows/platform-staging-representative-commerce-state.yml",
+  ".github/workflows/platform-staging-cluster-addons.yml",
 ]);
 
 function choice(queryKind, labels, values = [], extra = {}) {

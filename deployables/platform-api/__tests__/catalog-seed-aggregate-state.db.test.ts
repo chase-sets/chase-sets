@@ -42,7 +42,7 @@ describe("Catalog integration aggregate-state seed", () => {
     };
     await catalogModule.seed(pools.catalog, catalogServices(runtime), options);
     await expectAllRequiredAggregatesActive();
-    expect((await inspectCatalogIntegrationSeedState(pools.catalog)).length).toBe(130);
+    expect((await inspectCatalogIntegrationSeedState(pools.catalog)).length).toBe(131);
     const afterBootOne = await requiredEventCounts();
 
     await catalogModule.seed(pools.catalog, catalogServices(runtime), options);

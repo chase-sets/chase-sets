@@ -271,6 +271,15 @@ const scrydexCacheCaptureDelta = [
     purpose: "application-runtime",
   })),
 );
+const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-force-refresh-bounded",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
 // #9962 adds the read-only preview-pool census workflow's provider authority grants.
 const previewPoolCensusDelta = [
   ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
@@ -405,6 +414,33 @@ const credentialHealthDelta = [
     purpose: "credential-rotation",
   })),
 ];
+// #10045 delta: the staging cluster add-on dispatch's state-read context step and its step-local DigitalOcean token.
+const stagingClusterAddonsWorkflow = ".github/workflows/platform-staging-cluster-addons.yml";
+const stagingClusterAddonsJob = "apply-staging-cluster-addons";
+const stagingClusterAddonsDelta = [
+  ...[
+    ["DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+    ["SPACES_ACCESS_ID", "spaces-evidence"],
+    ["SPACES_SECRET_KEY", "spaces-evidence"],
+  ].map(([secretName, purpose]) => ({
+    file: stagingClusterAddonsWorkflow,
+    jobId: stagingClusterAddonsJob,
+    stepAnchor: "name:Configure staging Kubernetes context#7",
+    secretName,
+    purpose,
+  })),
+  ...[
+    "name:Probe DigitalOcean token presence#9",
+    "name:Apply staging cluster add-ons#10",
+    "name:Scan evidence for the DigitalOcean token#13",
+  ].map((stepAnchor) => ({
+    file: stagingClusterAddonsWorkflow,
+    jobId: stagingClusterAddonsJob,
+    stepAnchor,
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  })),
+];
 // #9800 reviewed delta: the protected Collections anonymous-owner redaction runner's database boundary grants.
 const collectionsAnonymousOwnerRedactionDelta = [
   "DIGITALOCEAN_ACCESS_TOKEN",
@@ -514,6 +550,10 @@ const reviewedStepInsertions = [
     uses: uploadArtifact,
     occurrence: 6,
   },
+  // #10259: scheduled batch download, batch resolution and target-number steps ahead of the destroy-preview cleanup steps.
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 7 },
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 8 },
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 9 },
 ];
 
 function applyReviewedStepInsertions(record) {
@@ -549,7 +589,7 @@ async function readJson(root, path) {
 }
 
 async function trackSources(root) {
-  await execFileAsync("git", ["add", "-A", "--", AUTHORITY_ROOT], { cwd: root });
+  await execFileAsync("git", ["-c", "core.ignorecase=false", "add", "-A", "--", AUTHORITY_ROOT], { cwd: root });
 }
 
 async function materializeImmutableMigrationInput(original) {
@@ -729,14 +769,16 @@ describe("managed Postgres authority source generator", () => {
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
         ...scrydexCacheCaptureDelta,
+        ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
         ...credentialHealthDelta,
+        ...stagingClusterAddonsDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
         ...stagingEvidenceWindowDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1683);
+    expect(expected.grants).toHaveLength(1692);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),

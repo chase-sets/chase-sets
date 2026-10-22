@@ -52,7 +52,6 @@ import {
   type AgentWebhookOutbox,
   type AgentWebhookTarget,
 } from "../ucp-support/agent-webhooks";
-import { publishAuthenticationCsatOutcomeFact } from "../request-support/csat-outcome-facts";
 import {
   createAuthIdentityInvitationProjectionPositionReader,
   createInvitationProjectionFreshnessWaiter,
@@ -450,7 +449,6 @@ async function startSessionForUser(
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
     membershipsOverride?: readonly AuthSessionMembership[];
-    publishAuthenticationOutcome?: boolean;
   }>,
 ): Promise<AuthSessionStartResult> {
   let memberships = params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
@@ -567,7 +565,6 @@ export async function startInteractiveAuth(
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
     membershipsOverride?: readonly AuthSessionMembership[];
-    publishAuthenticationOutcome?: boolean;
   }>,
 ): Promise<InteractiveAuthResult> {
   const sessionResult = await startSessionForUser(services, params);
@@ -591,14 +588,6 @@ export async function startInteractiveAuth(
     sessionId: sessionResult.sessionId,
     expiresAt: sessionResult.session.expires_at,
   });
-
-  if (params.publishAuthenticationOutcome) {
-    await publishAuthenticationCsatOutcomeFact(services.eventStore, params.context, {
-      subjectAccountId: sessionResult.session.account_id,
-      sessionId: sessionResult.sessionId,
-      outcomeOccurredAt: sessionResult.session.started_at,
-    });
-  }
 
   return {
     type: "session-started",

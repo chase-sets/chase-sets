@@ -52,13 +52,13 @@ function listingCreated() {
   return event!;
 }
 
-function reservation(assertCurrent = vi.fn(async () => undefined)) {
+function reservation(ownerContext: string, streamId: string, assertCurrent = vi.fn(async () => undefined)) {
   return {
-    ownerContext: "test",
-    streamId: "test.stream",
+    ownerContext,
+    streamId,
     expectedVersion: 1,
     assertCurrent,
-    seal: { ownerContext: "test", streamId: "test.stream", version: 1, context },
+    seal: { ownerContext, streamId, version: 1, context },
   };
 }
 
@@ -76,7 +76,10 @@ function setup() {
     .then(() => {
       let current = true;
       const authority = {
-        authorizeManage: vi.fn(async () => ({ value: current, reservations: current ? [reservation()] : [] })),
+        authorizeManage: vi.fn(async () => ({
+          value: current,
+          reservations: current ? [reservation("identity", "identity.account-acc_1")] : [],
+        })),
         resolveConnection: vi.fn(async () => ({
           value: {
             connectionId: "con_1",
@@ -85,7 +88,7 @@ function setup() {
             environment: "sandbox" as const,
             identityRevision: 1,
           },
-          reservations: [reservation()],
+          reservations: [reservation("channels", "channels.connection-con_1")],
         })),
         resolveAllocation: vi.fn(async () => ({
           value: {
@@ -95,7 +98,7 @@ function setup() {
             allocationRevision: 1,
             eligibleQuantity: 1,
           },
-          reservations: [reservation()],
+          reservations: [reservation("inventory", "inventory.item-inv_1")],
         })),
         revoke() {
           current = false;
@@ -191,7 +194,7 @@ describe("Listing target command runtime", () => {
         allocationRevision: 1,
         eligibleQuantity: 1,
       },
-      reservations: [reservation()],
+      reservations: [reservation("inventory", "inventory.item-inv_1")],
     });
     await expect(runtime.activateListingForChannel(activationInput, context)).rejects.toThrow(
       "Inventory allocation authority identity mismatch",

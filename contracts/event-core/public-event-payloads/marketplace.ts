@@ -475,6 +475,66 @@ export type MarketplaceReportSubmittedPayload = Readonly<{
   submittedAt: string;
 }>;
 
+const marketplaceReportSubmittedKeys = [
+  "reportId",
+  "targetType",
+  "targetId",
+  "targetOwnerAccountId",
+  "reporterKind",
+  "reporterKey",
+  "reporterAccountId",
+  "reporterUserId",
+  "reason",
+  "details",
+  "sourceRoutePath",
+  "submittedAt",
+] as const;
+
+/**
+ * Reads a stored Marketplace Report. The record is closed to the twelve keys every
+ * historical report carries; the reason vocabulary stays Marketplace-owned, so any
+ * nonempty reason is returned unchanged.
+ */
+export function parseMarketplaceReportSubmittedPayload(value: unknown): MarketplaceReportSubmittedPayload {
+  const input = listingEnforcementRecord(value, "Marketplace Report");
+  if (
+    Reflect.ownKeys(input).length !== marketplaceReportSubmittedKeys.length ||
+    marketplaceReportSubmittedKeys.some((key) => !Object.hasOwn(input, key))
+  ) {
+    throw new Error(`Marketplace Report requires exactly: ${marketplaceReportSubmittedKeys.join(", ")}.`);
+  }
+  if (input.targetType !== "listing" && input.targetType !== "review") {
+    throw new Error("Marketplace Report target type must be listing or review.");
+  }
+  if (input.reporterKind !== "account" && input.reporterKind !== "visitor") {
+    throw new Error("Marketplace Report reporter kind must be account or visitor.");
+  }
+  for (const key of ["reportId", "targetId", "reporterKey", "reason", "sourceRoutePath"] as const) {
+    if (typeof input[key] !== "string" || input[key].length === 0) {
+      throw new Error(`Marketplace Report ${key} must be a nonempty string.`);
+    }
+  }
+  for (const key of ["targetOwnerAccountId", "reporterAccountId", "reporterUserId", "details"] as const) {
+    if (input[key] !== null && (typeof input[key] !== "string" || input[key].length === 0)) {
+      throw new Error(`Marketplace Report ${key} must be a nonempty string or null.`);
+    }
+  }
+  return {
+    reportId: input.reportId as string,
+    targetType: input.targetType,
+    targetId: input.targetId as string,
+    targetOwnerAccountId: input.targetOwnerAccountId as string | null,
+    reporterKind: input.reporterKind,
+    reporterKey: input.reporterKey as string,
+    reporterAccountId: input.reporterAccountId as string | null,
+    reporterUserId: input.reporterUserId as string | null,
+    reason: input.reason as string,
+    details: input.details as string | null,
+    sourceRoutePath: input.sourceRoutePath as string,
+    submittedAt: listingEnforcementInstant(input.submittedAt, "Marketplace Report time"),
+  };
+}
+
 export type MarketplaceEventPayloads = Readonly<{
   "marketplace.review-opportunity.changed.v1": ReviewOpportunityChangedV1;
   "marketplace.listing.created": MarketplaceListingCreatedPayload;

@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 22,
-      authoritativeSites: 22,
+      discoveredCallCandidates: 19,
+      authoritativeSites: 19,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -84,7 +84,6 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       production.roots.length,
     );
     expect(production.candidates.map(({ file, outcome }) => [file, outcome])).toEqual([
-      ["bounded-contexts/auth/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
       ["bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts", "CANONICAL"],
       [
         "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
@@ -96,13 +95,11 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
-      ["bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
       ["bounded-contexts/identity/api.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
-      ["bounded-contexts/identity/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
       ["bounded-contexts/marketplace/features/listings/api/listing-request.ts", "CANONICAL"],
       ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],

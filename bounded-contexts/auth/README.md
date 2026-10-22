@@ -55,12 +55,13 @@ Session/token security lifetimes -- values, env vars, bounds, and the env-tier-b
 ## Incoming Dependencies
 
 - Identity for user, account, membership, and invitation facts, projected into auth-owned tables for local reads (`auth-identity-account-projection`, `auth-identity-user-projection`, `auth-identity-membership-projection`, `auth-identity-invitation-projection`).
+- Customer Feedback consumes `auth.session.started` through its `customer-feedback-csat-outcome-fact-projection` subscription.
 - Identity's `@chase-sets/identity/server` for the narrow synchronous identity mutations that still belong to Identity.
 - Ordering, Fulfillment, and Payments order/shipment/refund facts, consumed only by the optional agent-webhook projection once all three source contexts are mounted.
 
 ## Outgoing Integration Events
 
-- None. `auth.session.started`, `auth.session.account-switched`, `auth.session.revoked`, and `auth.session.expired` are consumed only by Auth's own session projection today.
+- None. `auth.session.started`, `auth.session.account-switched`, `auth.session.revoked`, and `auth.session.expired` are consumed by Auth's own session projection; `auth.session.started` is also consumed by Customer Feedback's `customer-feedback-csat-outcome-fact-projection`.
 
 ## Invariants
 

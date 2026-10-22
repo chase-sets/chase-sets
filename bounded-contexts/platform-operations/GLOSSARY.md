@@ -116,7 +116,11 @@ The **Foregone Fee Estimate** is the offer-economics monitor's projection of wha
 
 ## Reported Content
 
-**Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report facts.
+**Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report and Identity Account Profile Report facts. Its closed targets are `listing`, `review` and `account-profile`, and each target accepts exactly its own moderation actions (`features/reported-content/api/contracts.ts`). An `account-profile` target is the reported Account, which is also its owner. A target is actionable only once a report has queued it. Operators see the minimum reporter evidence: reporter kind, reason, details, submission time and a distinct reporter count, never a reporter identifier.
+
+An **Account Profile Report** is Identity's closed v1 fact that one Account reported another Account's profile (`contracts/event-core/public-event-payloads/identity.ts`); an Account never reports itself.
+
+`contact-account` records that an operator asked the reported Account to correct its profile. `redact-profile-display-name` records, with a required note, the operator's decision that the Account's profile display name be redacted; Identity owns the redaction itself.
 
 ## Listing Removal Directive
 

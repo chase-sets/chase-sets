@@ -7,6 +7,7 @@
     "testProfile": "db"
   },
   "scripts": {
+    "build": "node ../../scripts/bundle-node-service.mjs platform-api",
     "admin-qa-actor-fixtures": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/admin-qa-actor-fixtures.ts",
     "admin-qa-actor-fixtures:production": "tsx src/admin-qa-actor-fixtures.ts",
     "bootstrap": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/bootstrap.ts",
@@ -15,7 +16,7 @@
     "representative-commerce-state": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/representative-commerce-state.ts",
     "representative-commerce-state:production": "tsx src/representative-commerce-state.ts",
     "start": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
-    "start:production": "tsx src/main.ts",
+    "start:production": "node --enable-source-maps dist/main.js",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
     "test:fast": "vitest run --config ./vitest.config.ts --exclude __tests__/bootstrap-scenario.db.test.ts --exclude __tests__/bootstrap-shared-seed-command.db.test.ts --exclude __tests__/bootstrap-production-reconciliation.db.test.ts --exclude __tests__/bootstrap-lock-contention.db.test.ts --exclude __tests__/catalog-seed-aggregate-state.db.test.ts --exclude __tests__/catalog-seed-interruption-resume.db.test.ts --exclude __tests__/authoritative-seed-resume-core.db.test.ts --exclude __tests__/authoritative-seed-resume-reconciliation.db.test.ts --exclude __tests__/authoritative-seed-resume-recovery.db.test.ts --exclude __tests__/inventory-seed-resume.db.test.ts --exclude __tests__/seed-command-full-pools.db.test.ts --exclude __tests__/operator-session/operator-session-grant-mint.db.test.ts --exclude __tests__/operator-session/operator-session-grant-lifecycle.db.test.ts --exclude __tests__/operator-session/operator-session-grant-scope.db.test.ts --exclude __tests__/operator-session/operator-session-push.db.test.ts --exclude __tests__/operator-session/operator-extension-route-contract.db.test.ts --exclude __tests__/connector-mount-gate-isolation.db.test.ts --exclude __tests__/seed-command-catalog.db.test.ts --exclude __tests__/listing-channel-activation-composition.db.test.ts",
