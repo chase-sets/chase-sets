@@ -18,6 +18,7 @@ import {
 } from "./features/public-doc-reviews/read-model/projection";
 import { buildCommercialTermsEffectiveDateAttentionProjectionHandlers } from "./features/commercial-terms-attention/read-model/projection";
 import {
+  buildIdentityReportedContentProjectionHandlers,
   buildMarketplaceReportedContentProjectionHandlers,
   buildPlatformOperationsReportedContentProjectionHandlers,
 } from "./features/reported-content/read-model/projection";
@@ -114,6 +115,7 @@ export const module = defineBoundedContextModule<
           buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
         "fulfillment.support-return-label-source-projection": () =>
           buildSupportReturnLabelSourceProjectionHandlers(services.db),
+        "identity.reported-content-queue-projection": () => buildIdentityReportedContentProjectionHandlers(services.db),
         "marketplace.reported-content-queue-projection": () =>
           buildMarketplaceReportedContentProjectionHandlers(services.db),
         "platform-operations.reported-content-queue-projection": () =>

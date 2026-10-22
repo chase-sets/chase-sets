@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigation } from "react-router";
 import {
   Badge,
   Button,
@@ -41,11 +40,6 @@ export function ManualSyncPanelView({
   outcome = null,
 }: Readonly<{ panel: ManualSyncPanel; outcome?: ManualSyncActionOutcome | null }>) {
   const [selectionProbe, setSelectionProbe] = useState<FounderSelectionProbe | null>(null);
-  const navigation = useNavigation();
-  const pending = (intent: string, surface?: string) =>
-    navigation.state === "submitting" &&
-    navigation.formData?.get("intent") === intent &&
-    (surface === undefined || navigation.formData.get("surface") === surface);
   const run = panel.run;
   const state = run?.state ?? "none";
   const recovery = panel.attentionReason === "recovery";
@@ -113,7 +107,7 @@ export function ManualSyncPanelView({
       ) : null}
       <Inline gap={2} wrap>
         {panel.actions.includes("compose") ? (
-          <EmptyAction intent="compose" labelKey="channels.manualSync.action.compose" submitting={pending("compose")} />
+          <EmptyAction intent="compose" labelKey="channels.manualSync.action.compose" />
         ) : null}
         {panel.actions.includes("retry-clamp") && run ? (
           <RunAction
@@ -121,7 +115,6 @@ export function ManualSyncPanelView({
             labelKey="channels.manualSync.action.retryClamp"
             runId={run.runId}
             revision={run.revision}
-            submitting={pending("retry-clamp")}
           />
         ) : null}
         {panel.actions.includes("download") && run ? (
@@ -133,7 +126,6 @@ export function ManualSyncPanelView({
             labelKey="channels.manualSync.action.cancel"
             runId={run.runId}
             revision={run.revision}
-            submitting={pending("validation-cancelled")}
           />
         ) : null}
         {panel.actions.includes("release") && run ? (
@@ -142,12 +134,11 @@ export function ManualSyncPanelView({
             labelKey="channels.manualSync.action.release"
             runId={run.runId}
             revision={run.revision}
-            submitting={pending("release")}
           />
         ) : null}
       </Inline>
       {panel.actions.includes("record-upload-attempt") && run ? (
-        <RouterForm method="post" submitting={pending("upload-attempt")}>
+        <RouterForm method="post">
           <HiddenInput name="intent" value="upload-attempt" />
           <HiddenInput name="runId" value={run.runId} />
           <HiddenInput name="expectedRevision" value={String(run.revision)} />
@@ -156,19 +147,10 @@ export function ManualSyncPanelView({
         </RouterForm>
       ) : null}
       {panel.actions.includes("ingest-live") ? (
-        <ExportForm
-          surface="live"
-          label={t("channels.manualSync.action.ingestLive")}
-          submitting={pending("ingest", "live")}
-          onProbe={setSelectionProbe}
-        />
+        <ExportForm surface="live" label={t("channels.manualSync.action.ingestLive")} onProbe={setSelectionProbe} />
       ) : null}
       {panel.actions.includes("ingest-staged") ? (
-        <ExportForm
-          surface="staged"
-          label={t("channels.manualSync.action.ingestStaged")}
-          submitting={pending("ingest", "staged")}
-        />
+        <ExportForm surface="staged" label={t("channels.manualSync.action.ingestStaged")} />
       ) : null}
       {selectionProbe ? (
         <OperationalStatusBanner
@@ -180,12 +162,7 @@ export function ManualSyncPanelView({
       ) : null}
       {outcome?.kind === "manual-sync-ingest" ? <IngestReceipt receipt={outcome.receipt} /> : null}
       {panel.actions.includes("verify") && run ? (
-        <VerifyForm
-          runId={run.runId}
-          revision={run.revision}
-          candidate={panel.verificationCandidate}
-          submitting={pending("verify")}
-        />
+        <VerifyForm runId={run.runId} revision={run.revision} candidate={panel.verificationCandidate} />
       ) : null}
     </WorkflowModule>
   );
@@ -198,13 +175,9 @@ const coverageReasonKeys = {
   "inbound-authority-failing": "channels.manualSync.coverage.failing.description",
 } as const;
 
-function EmptyAction({
-  intent,
-  labelKey,
-  submitting,
-}: Readonly<{ intent: string; labelKey: Parameters<typeof t>[0]; submitting: boolean }>) {
+function EmptyAction({ intent, labelKey }: Readonly<{ intent: string; labelKey: Parameters<typeof t>[0] }>) {
   return (
-    <RouterForm method="post" spacing="none" submitting={submitting}>
+    <RouterForm method="post" spacing="none">
       <HiddenInput name="intent" value={intent} />
       <Button type="submit">{t(labelKey)}</Button>
     </RouterForm>
@@ -216,16 +189,14 @@ function RunAction({
   labelKey,
   runId,
   revision,
-  submitting,
 }: Readonly<{
   intent: string;
   labelKey: Parameters<typeof t>[0];
   runId: string;
   revision: number;
-  submitting: boolean;
 }>) {
   return (
-    <RouterForm method="post" spacing="none" submitting={submitting}>
+    <RouterForm method="post" spacing="none">
       <HiddenInput name="intent" value={intent} />
       <HiddenInput name="runId" value={runId} />
       <HiddenInput name="expectedRevision" value={String(revision)} />
@@ -256,17 +227,15 @@ function DownloadAction({
 function ExportForm({
   surface,
   label,
-  submitting,
   onProbe,
 }: Readonly<{
   surface: "live" | "staged";
   label: string;
-  submitting: boolean;
   onProbe?: (probe: FounderSelectionProbe | null) => void;
 }>) {
   const [validSelection, setValidSelection] = useState(false);
   return (
-    <RouterForm method="post" encType="multipart/form-data" submitting={submitting}>
+    <RouterForm method="post" encType="multipart/form-data">
       <HiddenInput name="intent" value="ingest" />
       <HiddenInput name="surface" value={surface} />
       <FileDropzone
@@ -345,12 +314,10 @@ function VerifyForm({
   runId,
   revision,
   candidate,
-  submitting,
 }: Readonly<{
   runId: string;
   revision: number;
   candidate: ManualSyncVerificationCandidate | null;
-  submitting: boolean;
 }>) {
   if (!candidate) {
     return (
@@ -363,7 +330,7 @@ function VerifyForm({
     );
   }
   return (
-    <RouterForm method="post" submitting={submitting}>
+    <RouterForm method="post">
       <HiddenInput name="intent" value="verify" />
       <HiddenInput name="runId" value={runId} />
       <HiddenInput name="expectedRevision" value={String(revision)} />

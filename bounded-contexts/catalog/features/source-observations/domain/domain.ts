@@ -510,6 +510,12 @@ export function isMagicSetReferenceSourceObservationNormalized(
   return normalized.kind === "magic-set-reference";
 }
 
+export function isYugiohSetReferenceSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationYugiohSetReferenceNormalized {
+  return normalized.kind === "yugioh-set-reference";
+}
+
 export function isYugiohCatalogItemSourceObservationNormalized(
   normalized: SourceObservationNormalized,
 ): normalized is SourceObservationYugiohSealedProductNormalized {

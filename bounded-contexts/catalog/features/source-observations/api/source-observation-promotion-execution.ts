@@ -22,6 +22,7 @@ import {
   type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationNormalized,
   type SourceObservationOnePieceSetReferenceNormalized,
+  type SourceObservationYugiohSetReferenceNormalized,
   type SourceObservationPromotionProfileEvidence,
 } from "../domain/domain";
 import { ProviderSendStoppedError } from "./providers/provider-send-admission";
@@ -392,7 +393,8 @@ export function referenceDataPromotionEvidence(input: {
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized;
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): SourceObservationPromotionProfileEvidence {
   return {
@@ -407,7 +409,8 @@ function referenceDataPromotionPlanFingerprint(input: {
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized;
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): string {
   const payload = {
@@ -776,7 +779,8 @@ export async function requireReferenceDataPromotionProfileVersion(
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized,
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized,
   selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const profile = selector
