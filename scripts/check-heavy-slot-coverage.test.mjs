@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -479,7 +480,10 @@ const inheritedOwnerWaivers = Object.freeze({
 });
 
 function deriveInheritedOwnerCandidates(root = repositoryRoot) {
-  const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" })
+  const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], {
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean)
     .map((file) => file.replaceAll("\\", "/"));
