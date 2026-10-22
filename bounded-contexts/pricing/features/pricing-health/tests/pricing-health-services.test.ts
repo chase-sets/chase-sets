@@ -54,8 +54,9 @@ describe("Pricing Health current revision authority", () => {
     const services = createPricingHealthServices({
       db,
       policies: { resolvePolicy: resolvePolicy as never },
-      repricingPolicies: { loadOwnedRepricingPolicy },
-      repricingEngine: { enqueueDryRun },
+      repricingPolicies: { loadOwnedRepricingPolicy, getHalt: vi.fn<RepricingPolicyServices["getHalt"]>() },
+      repricingEngine: { enqueueDryRun, getDryRun: vi.fn<RepricingEngineServices["getDryRun"]>() },
+      forecastLedger: { listGoalAdoptions: async () => [] },
     });
     return { state, calls, services, loadOwnedRepricingPolicy, enqueueDryRun };
   }

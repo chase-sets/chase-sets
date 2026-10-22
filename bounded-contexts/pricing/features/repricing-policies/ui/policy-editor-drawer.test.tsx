@@ -67,6 +67,26 @@ function fill(label: string, value: string) {
 }
 
 describe("policy editor prerequisites and gates", () => {
+  it("opens an explicitly advanced conditional policy intact", async () => {
+    const api = apiFixture();
+    const conditional = {
+      ...body,
+      rules: [{ ...body.rules[0]!, conditions: [{ type: "quantity-at-least" as const, quantity: 2 }] }],
+    };
+    render(
+      <PolicyEditorDrawer
+        api={api}
+        initialBody={conditional}
+        initialTier="advanced"
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("Policy name");
+    expect(screen.getByText("Advanced rule editor", { exact: true })).toBeTruthy();
+    expect((screen.getByLabelText("Policy name") as HTMLInputElement).value).toBe(conditional.name);
+    expect(api.startRepricingDryRun).not.toHaveBeenCalled();
+  });
   it("summary callers preserve Pricing message-only alerts without automatic focus", async () => {
     const api = apiFixture();
     vi.mocked(api.startRepricingDryRun).mockRejectedValue(

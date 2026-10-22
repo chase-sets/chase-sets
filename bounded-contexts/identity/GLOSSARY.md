@@ -405,6 +405,14 @@ Notes:
 - **An empty requirement set is a value, not a disabled mode.** The shipped corpus derives two empty ordered sets, and resolution still ran.
 - **Bundle acceptance is subject-exact and aggregate.** It is decided for exactly one subject at exactly one scope, and satisfaction requires the current state of each required member to be recorded at the exact required version. Another user of the same account, an account-scoped fact standing in for a user-scoped one, a withdrawn or superseded record, and a legacy `terms` fact never satisfy a bundle.
 
+### Registration
+
+**Registration** is the atomic creation of an Account, User, Membership, and declared consent bundle.
+
+### Onboarding
+
+**Onboarding** is the completion of a guest-account or invitation membership journey.
+
 ### Registration Consent Resolution
 
 A **Registration Consent Resolution** is Identity's signed answer to "what must a person agree to in
