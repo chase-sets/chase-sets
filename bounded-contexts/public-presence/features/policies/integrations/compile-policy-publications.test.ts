@@ -493,7 +493,7 @@ describe("public policy corpus compiler", () => {
     // Re-derived for #8667, the first Terms content edit since #7429; prior pin was on-disk Terms at bb85cc7a24^.
     // Re-derived again for the #9721 byte-identical Stripe payment citation relocations, and for the #9034
     // ratified-decision and shipped-control review-text reconciliation.
-    // Re-derived for the Marketplace glossary citation relocation in #4334; operative Terms are unchanged.
+    // Re-derived for the Marketplace glossary citation relocation; operative Terms are unchanged.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
     ).toBe("sha256:242a359fabd0f469c47a55912815c9877fcd6f1d74465a87145cbeb65d7880bc");
