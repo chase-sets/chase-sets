@@ -283,7 +283,7 @@ export const tcgdexPokemonTcgProviderProfile = {
           values: { expansionName: { kind: "path", path: "expansionName" } },
         },
         requiredPaths: ["expansionId", "expansionName"],
-        // A TCGdex expansion id names one product per language (#10038).
+        // A TCGdex expansion id names one product per language.
         languageEdition: {
           languageCodePath: "languageCode",
           attributeKey: "language-editions",
