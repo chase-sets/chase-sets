@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { consumeTimingRecords, isValidTimingRecord, parseTimingRecord, timingRecordLine } from "./provider-browser-install-timing.mjs";
+import {
+  consumeTimingRecords,
+  isValidTimingRecord,
+  parseTimingRecord,
+  timingRecordLine,
+} from "./provider-browser-install-timing.mjs";
 
 const headSha = "a".repeat(40);
 const record = {
@@ -26,7 +31,7 @@ describe("provider-browser-install-timing/v1", () => {
   });
 
   it.each([
-    ["malformed", "provider-browser-install-timing/v1 {"] ,
+    ["malformed", "provider-browser-install-timing/v1 {"],
     ["wrong-head", { ...record, headSha: "b".repeat(40) }],
     ["skipped/cancelled-before-step", { ...record, terminalOutcome: "success", elapsedMs: -1 }],
     ["duplicate", [record, record]],
@@ -39,7 +44,9 @@ describe("provider-browser-install-timing/v1", () => {
 
   it("classifies source and cache values", () => {
     expect(isValidTimingRecord({ ...record, source: "cache", cache: "hit" }, { headSha })).toBe(true);
-    expect(isValidTimingRecord({ ...record, source: "provider-download", cache: "not-applicable" }, { headSha })).toBe(true);
+    expect(isValidTimingRecord({ ...record, source: "provider-download", cache: "not-applicable" }, { headSha })).toBe(
+      true,
+    );
   });
 
   it("consumes one owning record and excludes skipped or cancelled-before-step jobs", () => {

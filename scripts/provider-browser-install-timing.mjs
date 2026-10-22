@@ -29,14 +29,19 @@ export function isValidTimingRecord(record, { headSha } = {}) {
   if (!Number.isSafeInteger(record.elapsedMs) || record.elapsedMs < 0) return false;
   if (record.step !== "Install provider browser boundary") return false;
   if (!/^[a-f0-9]{40}$/.test(record.headSha) || (headSha && record.headSha !== headSha)) return false;
-  if (!isIso(record.startedAt) || !isIso(record.endedAt) || Date.parse(record.endedAt) < Date.parse(record.startedAt)) return false;
+  if (!isIso(record.startedAt) || !isIso(record.endedAt) || Date.parse(record.endedAt) < Date.parse(record.startedAt))
+    return false;
   if (!phases.has(record.phase) || !sources.has(record.source) || !caches.has(record.cache)) return false;
   if (record.retryCount !== 0 || !outcomes.has(record.terminalOutcome)) return false;
   return true;
 }
 
 function isIso(value) {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) && !Number.isNaN(Date.parse(value));
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) &&
+    !Number.isNaN(Date.parse(value))
+  );
 }
 
 export function timingRecordLine(record) {
@@ -46,7 +51,10 @@ export function timingRecordLine(record) {
 
 export function consumeTimingRecords(lines, { headSha, stepExecuted = true } = {}) {
   if (!stepExecuted || !Array.isArray(lines)) return [];
-  const records = lines.map(parseTimingRecord).filter(Boolean).filter((record) => isValidTimingRecord(record, { headSha }));
+  const records = lines
+    .map(parseTimingRecord)
+    .filter(Boolean)
+    .filter((record) => isValidTimingRecord(record, { headSha }));
   const unique = new Map();
   const duplicates = new Set();
   for (const record of records) {

@@ -14,9 +14,9 @@ const staticJob = workflow.slice(workflow.indexOf("  static:"), workflow.indexOf
 describe("Static Checks provider install timeout", () => {
   it("static checks provider install timeout propagation", () => {
     expect(INSTALLER_TIMEOUT_SECONDS).toBe(600);
-    expect(staticJob).toContain("INSTALLER_TIMEOUT_SECONDS: \"600\"");
+    expect(staticJob).toContain('INSTALLER_TIMEOUT_SECONDS: "600"');
     expect(INSTALLER_TIMEOUT_GRACE_MS).toBe(5_000);
-    expect(wrapper).toContain('detached: true');
+    expect(wrapper).toContain("detached: true");
     expect(wrapper).toContain('process.kill(-child.pid, "SIGTERM")');
     expect(wrapper).toContain('process.kill(-child.pid, "SIGKILL")');
     expect(staticJob).toContain("timeout-minutes: 20");

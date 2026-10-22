@@ -34,7 +34,10 @@ export function runInstaller({
   write = (line) => console.log(line),
   error = (line) => console.error(line),
 } = {}) {
-  if (env.INSTALLER_TIMEOUT_SECONDS !== undefined && env.INSTALLER_TIMEOUT_SECONDS !== String(INSTALLER_TIMEOUT_SECONDS)) {
+  if (
+    env.INSTALLER_TIMEOUT_SECONDS !== undefined &&
+    env.INSTALLER_TIMEOUT_SECONDS !== String(INSTALLER_TIMEOUT_SECONDS)
+  ) {
     throw new Error("INSTALLER_TIMEOUT_SECONDS must be exactly 600");
   }
   const started = now();
@@ -101,7 +104,7 @@ export function runInstaller({
         terminalOutcome: outcomeFrom({ timedOut, status, output: output.join("\n") }),
       };
       write(timingRecordLine(record));
-      resolve({ status: timedOut ? 124 : status ?? 1, signal, timedOut, record });
+      resolve({ status: timedOut ? 124 : (status ?? 1), signal, timedOut, record });
     });
   });
 }
