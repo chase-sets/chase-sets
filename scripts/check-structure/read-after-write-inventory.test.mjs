@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   collectMutationConsistencySurfaces,
+  collectReadAfterWriteRouteIndexes,
   validateReadAfterWriteRouteInventory,
 } from "./read-after-write-inventory.mjs";
 
@@ -811,6 +812,186 @@ describe("read-after-write route inventory guard", () => {
     );
 
     expect(result.violations).toEqual([]);
+  });
+
+  it("discovers chained Hono GET routes and chained mount prefixes", async () => {
+    const root = createTempRepo();
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "api.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function buildCheckoutApi() {",
+        '  return new Hono<CheckoutEnv>().route("/account", sessionRoutes());',
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "route.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function sessionRoutes() {",
+        '  return new Hono<CheckoutEnv>().get(\n    "/checkout-sessions/:sessionId",\n    async (c) => c.json({}),\n  );',
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(root, createContextManifest(root));
+    expect(result.violations).toEqual([]);
+    expect([
+      ...collectReadAfterWriteRouteIndexes(createContextManifest(root)).apiRoutePathsByContext.get("checkout"),
+    ]).toEqual(expect.arrayContaining(["/account/checkout-sessions/:sessionId"]));
+
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "route.ts"),
+      "export function sessionRoutes() { return new Hono<CheckoutEnv>(); }\n",
+      "utf8",
+    );
+    const missingRoute = await validate(root, createContextManifest(root));
+    expect(missingRoute.violations.length).toBeGreaterThan(0);
+  });
+
+  it("discovers chained Hono mutation routes with statement-form surface ids", async () => {
+    const root = createTempRepo();
+    writeFileSync(path.join(root, "bounded-contexts", "checkout", "api.ts"), "", "utf8");
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "route.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function sessionRoutes() {",
+        '  return new Hono<CheckoutEnv>().post(\n    "/payments",\n    async (c) => c.json({}),\n  );',
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const surfaces = await collectMutationConsistencySurfaces({
+      repoRoot: root,
+      contextManifests: createContextManifest(root),
+    });
+    expect(surfaces.map((surface) => surface.id)).toContain(
+      "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /payments",
+    );
+  });
+
+  it.each([
+    ["constructor arguments", 'return new Hono({ strict: false }).post("/payments", h);'],
+    [
+      "nested type arguments",
+      'return new Hono<{ Variables: { actor: ReturnType<typeof f> } }>().post("/payments", h);',
+    ],
+    ["multiline type arguments", 'return new Hono<{\n    Variables: { actor: Actor };\n  }>().post("/payments", h);'],
+    ["middleware link", 'return new Hono<Env>()\n    .use("/payments", mw)\n    .post("/payments", h);'],
+    ["app middleware link", 'const app = new Hono();\napp.use("/payments", mw).post("/payments", h);\nreturn app;'],
+  ])("discovers chained Hono mutation routes on a %s chain", async (_shape, source) => {
+    const root = createTempRepo();
+    writeFileSync(path.join(root, "bounded-contexts", "checkout", "api.ts"), "", "utf8");
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "route.ts"),
+      [`import { Hono } from "hono";`, "export function sessionRoutes() {", `  ${source}`, "}", ""].join("\n"),
+      "utf8",
+    );
+
+    const surfaces = await collectMutationConsistencySurfaces({
+      repoRoot: root,
+      contextManifests: createContextManifest(root),
+    });
+    expect(surfaces.map((surface) => surface.id)).toContain(
+      "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /payments",
+    );
+  });
+
+  it("keeps statement-form routes whose handler call-end scan cannot close", async () => {
+    const root = createTempRepo();
+    writeFileSync(path.join(root, "bounded-contexts", "checkout", "api.ts"), "", "utf8");
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "route.ts"),
+      [
+        'import { Hono } from "hono";',
+        "const app = new Hono();",
+        `app.post("/payments", async (c) => c.text(String(c.req.query("q")).replace(/'/g, "")));`,
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const surfaces = await collectMutationConsistencySurfaces({
+      repoRoot: root,
+      contextManifests: createContextManifest(root),
+    });
+    expect(surfaces.map((surface) => surface.id)).toContain(
+      "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /payments",
+    );
+  });
+
+  it("walks every link of a multi-link Hono chain", async () => {
+    const root = createTempRepo();
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "api.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function buildCheckoutApi() {",
+        "  const app = new Hono();",
+        '  return app\n    .route("/account", sessionRoutes())\n    .route("/ops", sessionRoutes());',
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "route.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function sessionRoutes() {",
+        "  return new Hono<CheckoutEnv>()",
+        '    .post("/payments", async (c) => {',
+        "      const body = parse(await c.req.json());",
+        "      return c.json({ id: create(body) });",
+        "    })",
+        '    .get("/checkout-sessions/:sessionId", async (c) => c.json(load(c.req.param("sessionId"))))',
+        "    .delete(",
+        '      "/payments/:id",',
+        "      async (c) => c.json({}),",
+        "    );",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const contextManifests = createContextManifest(root);
+    const indexes = collectReadAfterWriteRouteIndexes(contextManifests);
+    expect([...indexes.apiRoutePathsByContext.get("checkout")]).toEqual(
+      expect.arrayContaining(["/account/checkout-sessions/:sessionId", "/ops/checkout-sessions/:sessionId"]),
+    );
+    const surfaces = await collectMutationConsistencySurfaces({ repoRoot: root, contextManifests });
+    expect(surfaces.map((surface) => surface.id)).toEqual(
+      expect.arrayContaining([
+        "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /payments",
+        "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:DELETE /payments/:id",
+      ]),
+    );
+  });
+
+  it("ignores get and post calls whose chain is not rooted at a Hono app", async () => {
+    const root = createTempRepo();
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "route.ts"),
+      ['new URLSearchParams(query).get("a");', 'clients.api.post("/v1/x", body);', 'cache.get("/k");', ""].join("\n"),
+      "utf8",
+    );
+    const indexes = collectReadAfterWriteRouteIndexes(createContextManifest(root));
+    const surfaces = await collectMutationConsistencySurfaces({
+      repoRoot: root,
+      contextManifests: createContextManifest(root),
+    });
+    const checkoutPaths = [...indexes.apiRoutePathsByContext.get("checkout")];
+    expect(checkoutPaths.filter((routePath) => /\/(?:a|k|v1\/x)$/.test(routePath))).toEqual([]);
+    expect(surfaces.filter((surface) => surface.kind === "api-route")).toEqual([]);
   });
 
   it("fails when a helper-using route is missing inventory coverage", async () => {

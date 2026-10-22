@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFile, readdir, stat } from "node:fs/promises";
-import { basename, dirname, extname, relative, resolve, sep } from "node:path";
+import { dirname, extname, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
@@ -12,7 +12,9 @@ const SCHEMA_PATH = "scripts/managed-postgres-authority-manifest.schema.json";
 const CANONICAL_BOUNDARY_ACTION = "./.github/actions/export-managed-postgres-authority";
 const ROOT_AUTHORITY_SECRETS = new Set(["DIGITALOCEAN_ACCESS_TOKEN", "SPACES_ACCESS_ID", "SPACES_SECRET_KEY"]);
 const YAML_EXTENSIONS = new Set([".yml", ".yaml"]);
+const ACTION_MANIFEST_NAMES = new Set(["action.yml", "action.yaml"]);
 const EXCLUDED_DIRECTORIES = new Set([".git", "node_modules", ".pnpm"]);
+const MAX_OUTSTANDING_READDIRS = 4;
 const SECRET_REFERENCE = /\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)\b/g;
 const REMOTE_PINNED_USES = /^[^/@\s]+\/[^@\s]+(?:\/[^@\s]+)*@[0-9a-f]{40}$/i;
 const TLS_DOWNGRADE =
@@ -112,13 +114,74 @@ export async function scanManagedPostgresAuthority(options = {}) {
 
 async function enumerateYamlIngressFiles(repositoryRoot) {
   const workflowsRoot = resolve(repositoryRoot, ".github/workflows");
-  const workflowFiles = (await listFilesIfPresent(workflowsRoot))
-    .filter((path) => YAML_EXTENSIONS.has(extname(path)))
-    .sort(comparePaths);
-  const actionFiles = (await listFilesIfPresent(repositoryRoot))
-    .filter((path) => ["action.yml", "action.yaml"].includes(basename(path).toLowerCase()))
-    .sort(comparePaths);
+  const repositoryTree = await readDirectoryTree(repositoryRoot, workflowsRoot);
+  // Root traversal cannot reach a missing, linked or differently cased workflows root.
+  const workflowsTree = repositoryTree.workflowsNode ?? (await readDirectoryTree(workflowsRoot, workflowsRoot)).root;
+  const workflowFiles = collectSelectedFiles(workflowsTree, "workflow", []).sort(comparePaths);
+  const actionFiles = collectSelectedFiles(repositoryTree.root, "action", []).sort(comparePaths);
   return [...new Set([...workflowFiles, ...actionFiles])].sort(comparePaths);
+}
+
+async function readDirectoryTree(directory, workflowsRoot) {
+  const root = directoryNode(directory, directory === workflowsRoot);
+  let workflowsNode = null;
+  const waiting = [root];
+  const reading = new Set();
+  let failure = null;
+  while (waiting.length > 0 || reading.size > 0) {
+    while (failure === null && waiting.length > 0 && reading.size < MAX_OUTSTANDING_READDIRS) {
+      const read = readDirectoryEntries(waiting.shift(), workflowsRoot)
+        .then(
+          (children) => {
+            for (const child of children) {
+              if (child.path === workflowsRoot) workflowsNode = child;
+              waiting.push(child);
+            }
+          },
+          (error) => {
+            failure ??= { error };
+          },
+        )
+        .finally(() => reading.delete(read));
+      reading.add(read);
+    }
+    // After a failure, settle every outstanding read before rejecting.
+    if (reading.size === 0) break;
+    await Promise.race(reading);
+  }
+  if (failure) throw failure.error;
+  return { root, workflowsNode };
+}
+
+async function readDirectoryEntries(node, workflowsRoot) {
+  const children = [];
+  const entries = await readdirIfPresent(node.path);
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (entry.isDirectory()) {
+      if (EXCLUDED_DIRECTORIES.has(entry.name)) continue;
+      const path = resolve(node.path, entry.name);
+      const child = directoryNode(path, node.inWorkflows || path === workflowsRoot);
+      node.entries.push({ directory: child });
+      children.push(child);
+    } else if (entry.isFile()) {
+      const workflow = node.inWorkflows && YAML_EXTENSIONS.has(extname(entry.name));
+      const action = ACTION_MANIFEST_NAMES.has(entry.name.toLowerCase());
+      if (workflow || action) node.entries.push({ path: resolve(node.path, entry.name), workflow, action });
+    }
+  }
+  return children;
+}
+
+function directoryNode(path, inWorkflows) {
+  return { path, inWorkflows, entries: [] };
+}
+
+function collectSelectedFiles(node, selection, files) {
+  for (const entry of node.entries) {
+    if (entry.directory) collectSelectedFiles(entry.directory, selection, files);
+    else if (entry[selection]) files.push(entry.path);
+  }
+  return files;
 }
 
 function discoverIngressAndSteps(parsedFiles, violations) {
@@ -440,6 +503,7 @@ async function scanLayerB(repositoryRoot, parsedFiles, violations) {
   const packageIndex = await loadPackageIndex(repositoryRoot);
   const queue = [];
   const scanned = new Set();
+  const expanded = new Set();
 
   for (const parsed of parsedFiles) {
     if (parsed.kind === "workflow") {
@@ -469,6 +533,7 @@ async function scanLayerB(repositoryRoot, parsedFiles, violations) {
           queue,
           violations,
           false,
+          expanded,
         );
       }
       for (const [index, step] of (parsed.value.runs?.steps ?? []).entries()) {
@@ -511,9 +576,10 @@ async function scanLayerB(repositoryRoot, parsedFiles, violations) {
         violations,
         surface.allowCanonicalProducer &&
           repositoryPath(repositoryRoot, path) === "scripts/terraform-state-database-urls.mjs",
+        expanded,
       );
     }
-    await enqueuePackageScripts(repositoryRoot, packageIndex, surface, queue, violations);
+    await enqueuePackageScripts(repositoryRoot, packageIndex, surface, queue, violations, expanded);
   }
   return { scannedSurfaceCount: scanned.size };
 }
@@ -535,10 +601,17 @@ function addContentTripwires(surface, violations) {
   }
 }
 
-async function enqueueFileSurface(repositoryRoot, path, parent, queue, violations, allowCanonicalProducer) {
+// Returns whether this expansion is reusable within the invocation: repeating it for the same path,
+// job, step anchor and producer flag would only re-queue already queued surfaces and re-emit identical
+// findings. Findings anchored to parent.file are not reusable, so those expansions always repeat.
+async function enqueueFileSurface(repositoryRoot, path, parent, queue, violations, allowCanonicalProducer, expanded) {
+  const expansionKey = JSON.stringify([path, parent.jobId, parent.stepAnchor, allowCanonicalProducer]);
+  if (expanded.has(expansionKey)) {
+    return true;
+  }
   if (!isWithinRepository(repositoryRoot, path) || !(await firstExistingFile([path]))) {
     violations.push(violation("referenced-executable-missing", parent));
-    return;
+    return false;
   }
   const file = repositoryPath(repositoryRoot, path);
   let source;
@@ -546,7 +619,7 @@ async function enqueueFileSurface(repositoryRoot, path, parent, queue, violation
     source = await readFile(path, "utf8");
   } catch {
     violations.push(violation("referenced-executable-missing", parent));
-    return;
+    return false;
   }
   queue.push({
     id: `file:${file}`,
@@ -557,31 +630,45 @@ async function enqueueFileSurface(repositoryRoot, path, parent, queue, violation
     baseDirectory: dirname(path),
     allowCanonicalProducer,
   });
+  let reusable = true;
   for (const reference of matches(source, LOCAL_MODULE_REFERENCE, 1)) {
     const importedPath = await resolveExecutableReference(repositoryRoot, dirname(path), reference);
     if (!importedPath) {
       violations.push(violation("referenced-executable-missing", { ...parent, file }));
       continue;
     }
-    await enqueueFileSurface(repositoryRoot, importedPath, parent, queue, violations, allowCanonicalProducer);
+    const importReusable = await enqueueFileSurface(
+      repositoryRoot,
+      importedPath,
+      parent,
+      queue,
+      violations,
+      allowCanonicalProducer,
+      expanded,
+    );
+    reusable &&= importReusable;
   }
+  if (reusable) {
+    expanded.add(expansionKey);
+  }
+  return reusable;
 }
 
-async function enqueuePackageScripts(repositoryRoot, packageIndex, surface, queue, violations) {
+async function enqueuePackageScripts(repositoryRoot, packageIndex, surface, queue, violations, expanded) {
   FILTERED_PACKAGE_RUN_REFERENCE.lastIndex = 0;
   for (const match of surface.source.matchAll(FILTERED_PACKAGE_RUN_REFERENCE)) {
     const packageRecord = packageIndex.byName.get(match[1] ?? match[2]);
     if (packageRecord) {
-      await enqueuePackageScript(repositoryRoot, packageRecord, match[3], surface, queue, violations);
+      await enqueuePackageScript(repositoryRoot, packageRecord, match[3], surface, queue, violations, expanded);
     }
   }
   PACKAGE_RUN_REFERENCE.lastIndex = 0;
   for (const match of surface.source.matchAll(PACKAGE_RUN_REFERENCE)) {
-    await enqueuePackageScript(repositoryRoot, packageIndex.root, match[1], surface, queue, violations);
+    await enqueuePackageScript(repositoryRoot, packageIndex.root, match[1], surface, queue, violations, expanded);
   }
 }
 
-async function enqueuePackageScript(repositoryRoot, packageRecord, scriptName, parent, queue, violations) {
+async function enqueuePackageScript(repositoryRoot, packageRecord, scriptName, parent, queue, violations, expanded) {
   const source = packageRecord?.scripts?.[scriptName];
   if (typeof source !== "string") {
     return;
@@ -605,7 +692,7 @@ async function enqueuePackageScript(repositoryRoot, packageRecord, scriptName, p
       violations.push(violation("referenced-executable-missing", surface));
       continue;
     }
-    await enqueueFileSurface(repositoryRoot, path, surface, queue, violations, false);
+    await enqueueFileSurface(repositoryRoot, path, surface, queue, violations, false, expanded);
   }
 }
 
@@ -774,22 +861,6 @@ function onlyKeys(value, allowed) {
 function matches(source, pattern, group) {
   pattern.lastIndex = 0;
   return [...source.matchAll(pattern)].map((match) => match[group]);
-}
-
-async function listFilesIfPresent(directory, files = []) {
-  const entries = await readdirIfPresent(directory);
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    if (entry.isDirectory() && EXCLUDED_DIRECTORIES.has(entry.name)) {
-      continue;
-    }
-    const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) {
-      await listFilesIfPresent(path, files);
-    } else if (entry.isFile()) {
-      files.push(path);
-    }
-  }
-  return files;
 }
 
 async function readdirIfPresent(directory) {

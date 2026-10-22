@@ -48,8 +48,13 @@ function isolatedGeneratorSource(original) {
     "@chase-sets/typescript-compiler-api",
     "prettier",
     "./fixtures/guard-import-candidate-emission/importer-specifier-fixture.mjs",
+    "../lib/git-listing.mjs",
   ]) {
-    isolated = isolated.replace(JSON.stringify(specifier), JSON.stringify(import.meta.resolve(specifier)));
+    const resolved =
+      specifier === "../lib/git-listing.mjs"
+        ? pathToFileURL(path.join(repoRoot, "scripts/lib/git-listing.mjs")).href
+        : import.meta.resolve(specifier);
+    isolated = isolated.replace(JSON.stringify(specifier), JSON.stringify(resolved));
   }
   return isolated;
 }

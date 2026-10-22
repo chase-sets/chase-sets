@@ -17,6 +17,7 @@ import {
   buildFulfillmentOrderProjectionHandlers,
 } from "./features/shipments/integrations/source/source-projection";
 import { createFulfillmentShipmentMcpHandlers } from "./features/shipments/api/mcp";
+import { createFulfillmentReturnIntakeMcpHandlers } from "./features/return-shipments/api/mcp";
 import { buildFulfillmentSupportReturnSourceProjectionHandlers } from "./features/return-shipments/integrations/support/support-source-projection";
 
 export const module = defineBoundedContextModule<FulfillmentServices, PgTransactionalPool, FulfillmentHostPorts>({
@@ -34,7 +35,14 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
       router: buildFulfillmentProviderWebhookApi(services),
     },
   ],
-  buildMcpHandlers: (services) => createFulfillmentShipmentMcpHandlers(services.shipments),
+  buildMcpHandlers: (services) => {
+    const shipments = createFulfillmentShipmentMcpHandlers(services.shipments);
+    const returnIntake = createFulfillmentReturnIntakeMcpHandlers(services.returnShipments);
+    return {
+      toolHandlers: { ...shipments.toolHandlers, ...returnIntake.toolHandlers },
+      resourceHandlers: { ...shipments.resourceHandlers, ...returnIntake.resourceHandlers },
+    };
+  },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
