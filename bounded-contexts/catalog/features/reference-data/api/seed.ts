@@ -658,9 +658,6 @@ async function addMissingSeedAttributes(
     context: seedContext,
     expectedVersion: aggregate.events.length,
   });
-  console.log(
-    `  Reference Record "${def.name}" reconciled with additive attributes ${missing.map(([attributeKey]) => attributeKey).join(", ")}`,
-  );
 }
 
 /** A seeded Pokemon expansion is the English edition of its product. */
