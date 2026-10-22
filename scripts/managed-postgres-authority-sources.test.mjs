@@ -514,6 +514,10 @@ const reviewedStepInsertions = [
     uses: uploadArtifact,
     occurrence: 6,
   },
+  // #10259: scheduled batch download, batch resolution and target-number steps ahead of the destroy-preview cleanup steps.
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 7 },
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 8 },
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 9 },
 ];
 
 function applyReviewedStepInsertions(record) {

@@ -131,6 +131,21 @@ describe("SupportRequestDetailPage", () => {
     cleanup();
   });
 
+  it("participant form busies only its own submission while sibling controls remain independent", () => {
+    renderPage(
+      buildRequest({
+        checklist: buildRequest().checklist.map((item) =>
+          item.key === "damage-evidence" ? { ...item, satisfiedAt: null } : { ...item, satisfiedAt: item.satisfiedAt },
+        ),
+      }),
+      "buyer",
+    );
+    const submit = screen.getByRole("button", { name: "Submit evidence" });
+    expect(submit.closest("form")).toBeTruthy();
+    expect(submit.closest("form")?.getAttribute("aria-busy")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send response" })).toBeNull();
+  });
+
   it("prompts the buyer for their unsatisfied required evidence before exposing seller actions", () => {
     renderPage(buildRequest(), "buyer");
 

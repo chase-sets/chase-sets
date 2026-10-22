@@ -941,10 +941,10 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.05", "active"],
-      ["ygojson", "2026.07.14", "active"],
-      ["ygojson", "2026.06.21", "active"],
-      ["ygoprodeck", "2026.06.21", "active"],
-      ["ygoprodeck", "2026.06.21", "active"],
+      ["ygojson", "2026.10.18", "active"],
+      ["ygojson", "2026.10.18", "active"],
+      ["ygoprodeck", "2026.10.18", "active"],
+      ["ygoprodeck", "2026.10.18", "active"],
     ]);
     expect(getCatalogProviderIntegrationProfileVersion("mtgjson")).toMatchObject({
       providerKey: "mtgjson",

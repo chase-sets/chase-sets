@@ -295,6 +295,10 @@ Notes:
 - Profiles are representational only.
 - Profiles must not contain permissions or credentials.
 
+### Account Profile
+
+An **Account Profile** is an Account's Profile as other users meet it. It is the `account-profile` noun in Identity's public facts: an **Account Profile Report** (`identity.account-profile.report-submitted` v1, `contracts/event-core/public-event-payloads/identity.ts`) records that one Account reported another Account's profile, and Platform Operations queues it as Reported Content. The reporting user, route and attempt stay Identity-private.
+
 ### Contact Method
 
 A **Contact Method** is a way to reach or verify a user.
