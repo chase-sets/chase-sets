@@ -47,6 +47,7 @@ function sourceRows(sf, relativePath) {
       if (node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)))
         functionNodes.add(node.initializer);
     }
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) functionNodes.add(node);
     if (ts.isImportDeclaration(node) && node.importClause) {
       const module = literalValue(node.moduleSpecifier);
       const clause = node.importClause;
@@ -83,7 +84,17 @@ function sourceRows(sf, relativePath) {
   const globalScope = makeScope(undefined, sf);
   const fnScopes = new Map();
   const fnScope = (fn, parent) => {
-    if (!fnScopes.has(fn)) fnScopes.set(fn, makeScope(parent, fn.body));
+    if (!fnScopes.has(fn)) {
+      const scope = makeScope(parent, fn.body);
+      for (const parameter of fn.parameters) {
+        if (ts.isIdentifier(parameter.name)) scope.bindings.set(parameter.name.text, { node: parameter.initializer, scope });
+        else if (ts.isObjectBindingPattern(parameter.name))
+          for (const element of parameter.name.elements)
+            if (ts.isBindingElement(element) && ts.isIdentifier(element.name))
+              scope.bindings.set(element.name.text, { node: element.initializer, scope });
+      }
+      fnScopes.set(fn, scope);
+    }
     return fnScopes.get(fn);
   };
   const binding = (id, scope) => {
@@ -116,6 +127,23 @@ function sourceRows(sf, relativePath) {
     const b = binding(node, scope);
     if (!b || b.import) return { node, scope, depth, import: b?.import };
     return resolve(b.node, b.scope, depth + 1);
+  };
+  const containsFallback = (value, scope, depth = 0, visited = new Set()) => {
+    if (!value || depth > 6) return depth > 6;
+    const node = ts.isParenthesizedExpression(value) ? value.expression : value;
+    if (ts.isBinaryExpression(node)) {
+      if (
+        node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+        node.operatorToken.kind === ts.SyntaxKind.BarBarToken
+      )
+        return true;
+      return containsFallback(node.left, scope, depth + 1, visited) || containsFallback(node.right, scope, depth + 1, visited);
+    }
+    if (!ts.isIdentifier(node)) return false;
+    const b = binding(node, scope);
+    if (!b || b.import || !b.node || visited.has(b.node)) return false;
+    visited.add(b.node);
+    return containsFallback(b.node, b.scope, depth + 1, visited);
   };
   const literal = (value, scope, depth = 0) => {
     const r = resolve(value, scope, depth);
@@ -173,6 +201,7 @@ function sourceRows(sf, relativePath) {
   };
   const optionsStatus = (value, scope, depth = 0) => {
     if (!value) return { status: "noncompliant", reason: "missing-options" };
+    if (containsFallback(value, scope, depth)) return { status: "ambiguous", reason: "unresolved-options" };
     const r = resolve(value, scope, depth);
     if (r.exceeded) return { status: "ambiguous", reason: "unresolved-options" };
     const n = r.node;
@@ -193,8 +222,10 @@ function sourceRows(sf, relativePath) {
     let found;
     let ambiguous = false;
     let conditionalAmbiguous = false;
+    let laterSpread = false;
     for (const p of n.properties) {
       if (ts.isSpreadAssignment(p)) {
+        if (found) laterSpread = true;
         const spread = resolve(p.expression, r.scope, depth + 1);
         if (!spread.node) {
           ambiguous = true;
@@ -218,6 +249,10 @@ function sourceRows(sf, relativePath) {
           : undefined;
       if (name !== "maxBuffer") continue;
       const initializer = ts.isShorthandPropertyAssignment(p) ? p.name : p.initializer;
+      if (containsFallback(initializer, r.scope, depth + 1)) {
+        found = { status: "ambiguous", reason: "unresolved-options" };
+        continue;
+      }
       const v = resolve(initializer, r.scope, depth + 1);
       if (ts.isIdentifier(v.node) && v.node.text === "GIT_LISTING_MAX_BUFFER")
         found = { status: "compliant", reason: "constant" };
@@ -237,7 +272,7 @@ function sourceRows(sf, relativePath) {
               : { status: "noncompliant", reason: "small-capacity" };
       }
     }
-    return conditionalAmbiguous
+    return conditionalAmbiguous || laterSpread
       ? { status: "ambiguous", reason: "unresolved-options" }
       : (found ??
           (ambiguous
@@ -292,6 +327,7 @@ function sourceRows(sf, relativePath) {
   };
   const rows = new Map();
   const active = new Set();
+  const seenFunctions = new Set();
   const addRow = (node, kind, result, reason = result.reason) => {
     const key = node.getStart(sf);
     let rowKind = kind;
@@ -352,6 +388,14 @@ function sourceRows(sf, relativePath) {
   };
   const inspect = (node, scope, kind, hops = 0) => {
     if (!node) return;
+    if (ts.isFunctionLike(node)) {
+      seenFunctions.add(node);
+      const childScope = fnScope(node, scope);
+      const functionKind = node.parameters.some((parameter) => parameter.initializer) ? "injected-default" : kind;
+      for (const parameter of node.parameters) inspect(parameter, childScope, functionKind, hops);
+      inspect(node.body, childScope, functionKind, hops);
+      return;
+    }
     if (ts.isCallExpression(node)) {
       const spawner = spawnerFor(node.expression, scope);
       const first = literal(node.arguments[0], scope);
@@ -391,13 +435,9 @@ function sourceRows(sf, relativePath) {
   };
   inspect(sf, globalScope, "direct");
   for (const fn of functionNodes)
-    if (!active.has(fn)) {
+    if (!seenFunctions.has(fn)) {
       const scope = fnScope(fn, globalScope);
-      inspect(
-        fn.body,
-        buildParams(fn, [], scope, scope),
-        fn.parameters.some((p) => p.initializer) ? "injected-default" : "direct",
-      );
+      inspect(fn.body, scope, fn.parameters.some((p) => p.initializer) ? "injected-default" : "direct");
     }
   const exempt = (token) => {
     let parent = token.parent;
@@ -415,6 +455,11 @@ function sourceRows(sf, relativePath) {
       if (ts.isCaseClause(parent)) return true;
       if (ts.isCallExpression(parent)) {
         const callee = parent.expression;
+        if (ts.isIdentifier(callee) && callee.text === "readGit") {
+          let conditional = parent.parent;
+          while (conditional && !ts.isConditionalExpression(conditional)) conditional = conditional.parent;
+          if (conditional && ts.isCallExpression(conditional.whenFalse)) return true;
+        }
         if (ts.isIdentifier(callee) && ["expect", "assert"].includes(callee.text)) return true;
         if (ts.isPropertyAccessExpression(callee)) {
           let root = callee.expression;
@@ -884,6 +929,65 @@ describe("Git listing buffer contract", () => {
       try {
         expect(listingSiteInventory({ root, sources: [relative] })).toEqual([
           expect.objectContaining({ kind: name === "two-hop" ? "wrapper" : "direct", status, reason }),
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+  it("rejects capacities that a later spread or fallback can replace", () => {
+    const cases = [
+      [
+        "later-spread-parameter",
+        'import { execFileSync } from "node:child_process"; function list(overrides) { return execFileSync("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER, ...overrides }); } list({});',
+        "ambiguous",
+      ],
+      [
+        "capacity-fallback",
+        'import { execFileSync } from "node:child_process"; const options = {}; execFileSync("git", ["ls-files"], { maxBuffer: options.maxBuffer ?? GIT_LISTING_MAX_BUFFER });',
+        "ambiguous",
+      ],
+    ];
+    for (const [name, source, status] of cases) {
+      const { root, relative } = plant(name, source);
+      try {
+        expect(listingSiteInventory({ root, sources: [relative] })).toEqual([
+          expect.objectContaining({ kind: "direct", status, reason: "unresolved-options" }),
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+    const { root, relative } = plant(
+      "explicit-capacity-after-known-spread",
+      'import { execFileSync } from "node:child_process"; execFileSync("git", ["ls-files"], { ...{ encoding: "utf8" }, maxBuffer: GIT_LISTING_MAX_BUFFER });',
+    );
+    try {
+      expect(listingSiteInventory({ root, sources: [relative] })).toEqual([
+        expect.objectContaining({ kind: "direct", status: "compliant", reason: "constant" }),
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("keeps inline callback bindings separate from outer same-named declarations", () => {
+    const cases = [
+      [
+        "callback-shadowed-options",
+        'import { execFileSync } from "node:child_process"; const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; [1].forEach(() => { const opts = { encoding: "utf8" }; execFileSync("git", ["ls-files"], opts); });',
+        "noncompliant",
+      ],
+      [
+        "callback-local-capacity",
+        'import { execFileSync } from "node:child_process"; const opts = { maxBuffer: 8 * 1024 * 1024 }; [1].forEach(() => { const local = { maxBuffer: GIT_LISTING_MAX_BUFFER }; execFileSync("git", ["ls-files"], local); });',
+        "compliant",
+      ],
+    ];
+    for (const [name, source, status] of cases) {
+      const { root, relative } = plant(name, source);
+      try {
+        expect(listingSiteInventory({ root, sources: [relative] })).toEqual([
+          expect.objectContaining({ kind: "direct", status }),
         ]);
       } finally {
         rmSync(root, { recursive: true, force: true });
