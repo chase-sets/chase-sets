@@ -211,6 +211,28 @@ describe("five-field lock lifecycle", () => {
     }
   });
 
+  it("preserves registered repeated-action authority anchors when wiring the gate receipt", () => {
+    const job = parse(readFileSync(".github/workflows/platform-production.yml", "utf8")).jobs["deploy-production"];
+    const grants = JSON.parse(
+      readFileSync(".github/authority/platform-production/deploy-production.json", "utf8"),
+    ).grants;
+    const occurrences = new Map();
+    const anchors = new Map();
+    for (const step of job.steps.filter((step) => step.uses)) {
+      const occurrence = (occurrences.get(step.uses) ?? 0) + 1;
+      occurrences.set(step.uses, occurrence);
+      anchors.set(`uses:${step.uses}${occurrence > 1 ? `#${occurrence}` : ""}`, step);
+    }
+    for (const grant of grants.filter((grant) => grant.stepAnchor.startsWith("uses:actions/upload-artifact@"))) {
+      expect(JSON.stringify(anchors.get(grant.stepAnchor)?.env), grant.stepAnchor).toContain(
+        `secrets.${grant.secretName}`,
+      );
+    }
+    expect(job.steps.find((step) => step.name === "Upload release health summary").with.path).toContain(
+      "production-release-lock.json",
+    );
+  });
+
   it("keeps both runbooks on five-field create/clear order, host readback and non-release escalation", () => {
     const primary = readFileSync("docs/runbooks/release-process-evolution.md", "utf8");
     const operations = readFileSync("docs/runbooks/doks-platform-operations.md", "utf8");
