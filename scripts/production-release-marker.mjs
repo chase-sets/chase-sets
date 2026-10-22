@@ -489,7 +489,10 @@ async function readRetainedTransition(api, env, runId, job) {
   );
   requireThat(candidates.length === 1, "missing or duplicate transition artifact in source upload interval");
   const artifact = await api(`actions/artifacts/${candidates[0].id}`);
-  requireThat(artifact.id === candidates[0].id && artifact.name === candidates[0].name, "mismatched transition artifact metadata");
+  requireThat(
+    artifact.id === candidates[0].id && artifact.name === candidates[0].name,
+    "mismatched transition artifact metadata",
+  );
   requireThat(artifact.expired === false, "transition artifact expired");
   const directory = await mkdtemp(join(tmpdir(), "production-marker-source-"));
   try {
@@ -501,7 +504,10 @@ async function readRetainedTransition(api, env, runId, job) {
     );
     await writeFile(archive, stdout);
     const listing = await command("unzip", ["-Z1", archive]);
-    requireThat(listing.stdout.trim() === "production-kubernetes-deployment-transition.json", "unexpected transition archive members");
+    requireThat(
+      listing.stdout.trim() === "production-kubernetes-deployment-transition.json",
+      "unexpected transition archive members",
+    );
     const extracted = await command("unzip", ["-p", archive, "production-kubernetes-deployment-transition.json"]);
     return { artifact, transition: JSON.parse(extracted.stdout) };
   } finally {
@@ -728,13 +734,22 @@ async function main(action, env) {
     const options = { release: identity.release, namespace: identity.namespace };
     const transitionPath = "artifacts/release-health/production-kubernetes-deployment-transition.json";
     if (action === "marker-only") {
-      requireThat(env.GITHUB_EVENT_NAME === "workflow_dispatch" && env.GITHUB_REF_NAME === "main", "marker-only recovery requires main workflow_dispatch");
+      requireThat(
+        env.GITHUB_EVENT_NAME === "workflow_dispatch" && env.GITHUB_REF_NAME === "main",
+        "marker-only recovery requires main workflow_dispatch",
+      );
       requireThat(env.RECONCILE_MARKER_ONLY === "true", "marker-only recovery input is not enabled");
       const sourceRunId = Number(env.MARKER_SOURCE_RUN_ID);
       const sourceAttempt = Number(env.MARKER_SOURCE_ATTEMPT);
       requireThat(Number.isSafeInteger(sourceRunId) && sourceRunId > 0, "invalid marker source run");
-      requireThat(Number.isSafeInteger(sourceAttempt) && sourceAttempt > 0 && sourceAttempt <= 10, "invalid marker source attempt");
-      requireThat(typeof env.MARKER_RECOVERY_REASON === "string" && env.MARKER_RECOVERY_REASON.trim().length > 0, "marker recovery reason is required");
+      requireThat(
+        Number.isSafeInteger(sourceAttempt) && sourceAttempt > 0 && sourceAttempt <= 10,
+        "invalid marker source attempt",
+      );
+      requireThat(
+        typeof env.MARKER_RECOVERY_REASON === "string" && env.MARKER_RECOVERY_REASON.trim().length > 0,
+        "marker recovery reason is required",
+      );
       const sourceRun = await api(`actions/runs/${sourceRunId}`);
       requireThat(
         sourceRun.id === sourceRunId &&
@@ -787,7 +802,7 @@ async function main(action, env) {
         githubRepository: env.GITHUB_REPOSITORY,
         githubToken: env.GITHUB_TOKEN,
       });
-      requireThat(lock.deploymentAllowed === true && !(lock.errors?.length), "production release lock refused source");
+      requireThat(lock.deploymentAllowed === true && !lock.errors?.length, "production release lock refused source");
       await command(
         process.execPath,
         [
@@ -823,7 +838,8 @@ async function main(action, env) {
       await reconcileMarkerOnly(sourceIdentity, {
         ...markerIo(sourceIdentity, env, assertFresh),
         readHistory: () => readHistory(options),
-        readValues: async (revision) => JSON.parse((await command("helm", buildHelmValuesArgs({ ...options, revision }))).stdout),
+        readValues: async (revision) =>
+          JSON.parse((await command("helm", buildHelmValuesArgs({ ...options, revision }))).stdout),
         assertWriters: assertFresh,
         capture: () =>
           captureKubernetesRollbackTarget({
