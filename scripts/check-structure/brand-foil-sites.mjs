@@ -4,6 +4,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
+import { gitListingOptions } from "../lib/git-listing.mjs";
 
 // These are the ratified lexical signatures, not a computed-colour evaluator.
 export const lexicalLaw = {
@@ -655,17 +656,17 @@ export function reconcileIndexedPathRecords(enumerated, staged) {
 }
 
 function indexedPathEntries(repoRoot) {
-  const options = {
+  const options = gitListingOptions({
     cwd: repoRoot,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 32 * 1024 * 1024,
     windowsHide: true,
-  };
+  });
   return {
     entries: reconcileIndexedPathRecords(
-      execFileSync("git", ["ls-files", "-z"], options),
-      execFileSync("git", ["ls-files", "--stage", "-z"], options),
+      execFileSync("git", ["ls-files", "-z"], gitListingOptions(options)),
+      execFileSync("git", ["ls-files", "--stage", "-z"], gitListingOptions(options)),
     ),
     options,
   };
