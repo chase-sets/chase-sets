@@ -118,6 +118,30 @@ describe("Pricing Health S12 recommendation", () => {
       held: 1,
     });
   });
+  it("uses S9 to break ties after rounding S8 to minor units", () => {
+    const lowerS9 = {
+      ...candidate,
+      goalId: "a",
+      profitPerDay: { USD: 3.004 },
+      capitalTurn: { USD: 0.1 },
+    };
+    const higherS9 = {
+      ...candidate,
+      goalId: "b",
+      profitPerDay: { USD: 3.003 },
+      capitalTurn: { USD: 0.2 },
+    };
+
+    expect(
+      recommendGoalChange({
+        ...input,
+        candidates: [lowerS9, higherS9],
+      }),
+    ).toMatchObject({
+      kind: "switch",
+      goalId: "b",
+    });
+  });
   it("does not treat the amount of candidate price movement as a current attention reason", () => {
     expect(
       recommendGoalChange({

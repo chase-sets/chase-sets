@@ -164,7 +164,8 @@ export function recommendGoalChange(
           })
           .sort(
             (a, b) =>
-              b.profitPerDay![currency]! - a.profitPerDay![currency]! ||
+              roundedProfit(b.profitPerDay![currency]!, currency) -
+                roundedProfit(a.profitPerDay![currency]!, currency) ||
               (b.capitalTurn?.[currency] ?? -Infinity) - (a.capitalTurn?.[currency] ?? -Infinity) ||
               (a.medianWaitDays?.[currency] ?? Infinity) - (b.medianWaitDays?.[currency] ?? Infinity) ||
               a.goalId.localeCompare(b.goalId) ||
