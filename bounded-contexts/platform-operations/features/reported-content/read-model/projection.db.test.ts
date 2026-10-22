@@ -119,6 +119,7 @@ describeDb("reported content removal SQL", () => {
       const audit = () =>
         handlers["platform-operations.reported-content.action-recorded"]!(
           event("platform-operations.reported-content.action-recorded", {
+            actionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
             targetType: "listing",
             targetId: "lst_1",
             action: "unlist",
@@ -156,6 +157,7 @@ describeDb("reported content removal SQL", () => {
       const handlers = buildReportedContentProjectionHandlers(pools["platform-operations"]);
       await handlers["platform-operations.reported-content.action-recorded"]!(
         event("platform-operations.reported-content.action-recorded", {
+          actionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAW",
           targetType: "listing",
           targetId: "lst_1",
           action,
