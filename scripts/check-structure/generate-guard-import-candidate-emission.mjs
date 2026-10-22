@@ -30,7 +30,7 @@ function defaultExecGit(args) {
     cwd: repoRoot,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
-    ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   });
 }
 

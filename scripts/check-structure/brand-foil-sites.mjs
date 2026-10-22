@@ -656,17 +656,17 @@ export function reconcileIndexedPathRecords(enumerated, staged) {
 }
 
 function indexedPathEntries(repoRoot) {
-  const options = gitListingOptions({
+  const options = {
     cwd: repoRoot,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 32 * 1024 * 1024,
     windowsHide: true,
-  });
+  };
   return {
     entries: reconcileIndexedPathRecords(
-      execFileSync("git", ["ls-files", "-z"], gitListingOptions(options)),
-      execFileSync("git", ["ls-files", "--stage", "-z"], gitListingOptions(options)),
+      execFileSync("git", ["ls-files", "-z"], gitListingOptions({ ...options })),
+      execFileSync("git", ["ls-files", "--stage", "-z"], gitListingOptions({ ...options })),
     ),
     options,
   };

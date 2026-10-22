@@ -687,7 +687,7 @@ function defaultExecGit(args, repoRoot) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   });
 }
 

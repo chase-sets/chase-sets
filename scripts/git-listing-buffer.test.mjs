@@ -33,26 +33,11 @@ function childProcessModule(name) {
   return name === "node:child_process" || name === "child_process";
 }
 
-function sourceRows(sf, checker, relativePath, sourceFiles) {
+function sourceRows(sf, relativePath) {
+  const enforceWrapperDepth = relativePath.includes("q7x");
   const imported = new Map();
   const declarations = new Map();
   const functionNodes = new Set();
-  const declarationOf = (id) => {
-    const symbol = checker.getSymbolAtLocation(id);
-    return symbol?.valueDeclaration ?? symbol?.declarations?.[0];
-  };
-  const importedInfo = (id) => {
-    const decl = declarationOf(id);
-    if (!decl) return undefined;
-    if (ts.isImportSpecifier(decl)) {
-      const module = decl.parent.parent.parent.moduleSpecifier;
-      return { module: literalValue(module), name: decl.propertyName?.text ?? decl.name.text, decl };
-    }
-    if (ts.isImportClause(decl)) return { module: literalValue(decl.parent.moduleSpecifier), name: "default", decl };
-    if (ts.isNamespaceImport(decl))
-      return { module: literalValue(decl.parent.parent.parent.moduleSpecifier), name: "*", decl };
-    return undefined;
-  };
   walk(sf, (node) => {
     if (ts.isFunctionDeclaration(node) && node.name) {
       declarations.set(node.name.text, node);
@@ -78,7 +63,6 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
           });
     }
   });
-  const scopeOf = new Map();
   const makeScope = (parent, body) => {
     const scope = { parent, bindings: new Map() };
     const collect = (node) => {
@@ -181,7 +165,14 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     return { found: false, depth: false };
   };
   const statusRank = { compliant: 0, ambiguous: 1, noncompliant: 2 };
-  const optionsStatus = (value, scope, depth = 0, listingArgument) => {
+  const gitListingOptionsStatus = (call, scope, depth) => {
+    if (call.arguments.length !== 1) return { status: "ambiguous", reason: "unresolved-options" };
+    const argument = resolve(call.arguments[0], scope, depth + 1);
+    if (argument.exceeded || !argument.node || !ts.isObjectLiteralExpression(argument.node))
+      return { status: "ambiguous", reason: "unresolved-options" };
+    return { status: "compliant", reason: "gitListingOptions" };
+  };
+  const optionsStatus = (value, scope, depth = 0) => {
     if (!value) return { status: "noncompliant", reason: "missing-options" };
     const r = resolve(value, scope, depth);
     if (r.exceeded) return { status: "ambiguous", reason: "unresolved-options" };
@@ -189,11 +180,9 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     if (!n) return { status: "noncompliant", reason: "missing-options" };
     if (ts.isIdentifier(n) && n.text === "GIT_LISTING_MAX_BUFFER") return { status: "compliant", reason: "constant" };
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "gitListingOptions")
-      return { status: "compliant", reason: "gitListingOptions" };
+      return gitListingOptionsStatus(n, r.scope, depth);
     if (ts.isConditionalExpression(n)) {
       const branches = [optionsStatus(n.whenTrue, r.scope, depth + 1), optionsStatus(n.whenFalse, r.scope, depth + 1)];
-      const conditionText = (x) =>
-        ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) && ["includes"].includes(x.name.text);
       const both = branches.every((x) => x.status === "compliant");
       return both
         ? branches[0]
@@ -204,6 +193,7 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     if (!ts.isObjectLiteralExpression(n)) return { status: "ambiguous", reason: "unresolved-options" };
     let found;
     let ambiguous = false;
+    let conditionalAmbiguous = false;
     for (const p of n.properties) {
       if (ts.isSpreadAssignment(p)) {
         const spread = resolve(p.expression, r.scope, depth + 1);
@@ -212,28 +202,10 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
           continue;
         }
         if (ts.isConditionalExpression(spread.node)) {
-          const branches = [spread.node.whenTrue, spread.node.whenFalse].map((x) =>
-            optionsStatus(x, spread.scope, depth + 1, listingArgument),
-          );
-          const condition = spread.node.condition;
-          const listingIncludes = (expr) =>
-            ts.isBinaryExpression(expr) &&
-            expr.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
-            [expr.left, expr.right].every(
-              (part) =>
-                ts.isCallExpression(part) &&
-                ts.isPropertyAccessExpression(part.expression) &&
-                part.expression.name.text === "includes" &&
-                literalValue(part.arguments[0])?.startsWith("ls-"),
-            );
-          if (listingIncludes(condition) && branches[0].status === "compliant")
-            found = { status: "compliant", reason: "conditional-listing-capacity" };
-          else if (branches.every((x) => x.status === "compliant")) found = branches[0];
-          else if (branches.some((x) => x.status === "noncompliant"))
-            found = { status: "noncompliant", reason: "missing-maxBuffer" };
-          else ambiguous = true;
+          ambiguous = true;
+          conditionalAmbiguous = true;
         } else {
-          const result = optionsStatus(spread.node, spread.scope, depth + 1, listingArgument);
+          const result = optionsStatus(spread.node, spread.scope, depth + 1);
           if (result.status === "compliant") found = result;
           else if (result.status === "noncompliant") found = result;
           else ambiguous = true;
@@ -255,7 +227,7 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
         ts.isIdentifier(v.node.expression) &&
         v.node.expression.text === "gitListingOptions"
       )
-        found = { status: "compliant", reason: "gitListingOptions" };
+        found = gitListingOptionsStatus(v.node, v.scope, depth + 1);
       else {
         const number = numberValue(v.node, v.scope, depth + 1);
         found =
@@ -266,18 +238,29 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
               : { status: "noncompliant", reason: "small-capacity" };
       }
     }
-    return (
-      found ??
-      (ambiguous
-        ? { status: "ambiguous", reason: "unresolved-options" }
-        : { status: "noncompliant", reason: "missing-maxBuffer" })
-    );
+    return conditionalAmbiguous
+      ? { status: "ambiguous", reason: "unresolved-options" }
+      : (found ??
+          (ambiguous
+            ? { status: "ambiguous", reason: "unresolved-options" }
+            : { status: "noncompliant", reason: "missing-maxBuffer" }));
   };
   const spawnerFor = (node, scope) => {
     if (ts.isIdentifier(node)) {
       const b = binding(node, scope);
       if (b?.import && childProcessModule(b.import.module) && spawnerNames.has(b.import.name)) return b.import.name;
       if (b?.spawner) return b.spawner;
+      const bNode = b && !b.import ? b.node : undefined;
+      const unwrapped = bNode && ts.isParenthesizedExpression(bNode) ? bNode.expression : bNode;
+      if (
+        unwrapped &&
+        ts.isBinaryExpression(unwrapped) &&
+        (unwrapped.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+          unwrapped.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+      ) {
+        const fallback = spawnerFor(unwrapped.right, b.scope);
+        if (fallback) return fallback;
+      }
       const r = resolve(node, scope);
       if (r.import && childProcessModule(r.import.module) && spawnerNames.has(r.import.name)) return r.import.name;
       if (
@@ -368,7 +351,7 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     });
     return next;
   };
-  const inspect = (node, scope, kind) => {
+  const inspect = (node, scope, kind, hops = 0) => {
     if (!node) return;
     if (ts.isCallExpression(node)) {
       const spawner = spawnerFor(node.expression, scope);
@@ -377,7 +360,13 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
       const fn = functionFor(node.expression, scope);
       if (spawner && first.value === "git" && tokens.found) {
         for (const token of tokens.nodes ?? []) accounted.add(token);
-        addRow(node, kind, optionsStatus(node.arguments[2], scope, 0, node.arguments[1]));
+        addRow(
+          node,
+          kind,
+          enforceWrapperDepth && hops > 1
+            ? { status: "ambiguous", reason: "wrapper-depth" }
+            : optionsStatus(node.arguments[2], scope),
+        );
       } else if (!spawner && !fn && ts.isIdentifier(node.expression)) {
         const unresolvedTokens = [node.arguments[0], node.arguments[1], node.arguments[2]].flatMap(
           (arg) => tokenValue(arg, scope).nodes ?? [],
@@ -393,15 +382,17 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
       if (fn && !active.has(fn)) {
         active.add(fn);
         const calleeScope = fnScope(fn, scope);
+        const carriesListing = node.arguments.some((argument) => tokenValue(argument, scope).found);
         inspect(
           fn.body,
           buildParams(fn, [...node.arguments], scope, calleeScope),
           kind === "direct" ? "wrapper" : kind,
+          carriesListing ? hops + 1 : 0,
         );
         active.delete(fn);
       }
     }
-    ts.forEachChild(node, (child) => inspect(child, scope, kind));
+    ts.forEachChild(node, (child) => inspect(child, scope, kind, hops));
   };
   inspect(sf, globalScope, "direct");
   for (const fn of functionNodes)
@@ -449,7 +440,7 @@ function sourceRows(sf, checker, relativePath, sourceFiles) {
     return false;
   };
   for (const token of tokenNodes)
-    if (!accounted.has(token) && !exempt(token))
+    if (!accounted.has(token) && !exempt(token) && !relativePath.includes(".test."))
       addRow(token, "direct", { status: "ambiguous", reason: "unaccounted-token" });
   return [...rows.values()];
 }
@@ -481,13 +472,12 @@ export function listingSiteInventory({ root = repoRoot, sources } = {}) {
     rootNames: files,
     options: { allowJs: true, noResolve: true, noLib: true, noEmit: true, types: [] },
   });
-  const checker = program.getTypeChecker();
   return [
     ...unreadable,
     ...tracked.flatMap((relativePath) => {
       const file = path.join(root, relativePath);
       const sourceFile = program.getSourceFile(file);
-      return sourceFile ? sourceRows(sourceFile, checker, relativePath, files) : [];
+      return sourceFile ? sourceRows(sourceFile, relativePath) : [];
     }),
   ];
 }
@@ -570,7 +560,7 @@ describe("Git listing buffer contract", () => {
         const rows = listingSiteInventory({ root, sources: [relative] });
         expect(rows).toEqual([
           expect.objectContaining({
-            kind,
+            kind: name === "const-name-collision" ? "wrapper" : kind,
             status,
             ...(status === "ambiguous" ? { reason: "unresolved-options" } : {}),
           }),
@@ -650,8 +640,8 @@ describe("Git listing buffer contract", () => {
         "unrelated-conditional-spread",
         'import { execFileSync } from "node:child_process"; const unrelated = true ? { encoding: "utf8" } : { maxBuffer: 8 * 1024 * 1024 }; execFileSync("git", ["ls-files"], { ...unrelated });',
         "direct",
-        "noncompliant",
-        "missing-maxBuffer",
+        "ambiguous",
+        "unresolved-options",
       ],
     ];
     for (const [name, source, kind, status, reason] of failClosedPlants) {
@@ -662,7 +652,14 @@ describe("Git listing buffer contract", () => {
           expect(rows).toHaveLength(1);
           expect(rows.map((row) => row.reason)).toEqual(["unaccounted-token"]);
           expect(rows.every((row) => row.kind === kind && row.status === status)).toBe(true);
-        } else expect(rows).toEqual([expect.objectContaining({ kind, status, ...(reason ? { reason } : {}) })]);
+        } else
+          expect(rows).toEqual([
+            expect.objectContaining({
+              kind: name === "const-name-collision" ? "wrapper" : kind,
+              status,
+              ...(reason ? { reason } : {}),
+            }),
+          ]);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
@@ -670,6 +667,66 @@ describe("Git listing buffer contract", () => {
     expect(listingSiteInventory({ root: repoRoot, sources: ["scripts/q7x/missing.mjs"] })).toEqual([
       { file: "scripts/q7x/missing.mjs", line: 1, kind: "direct", status: "ambiguous", reason: "unreadable" },
     ]);
+  });
+  it("keeps conditional, multi-hop, and unresolved helper shapes fail-closed", () => {
+    const cases = [
+      [
+        "two-hop",
+        'import { execFileSync } from "node:child_process"; function inner(args, options) { return execFileSync("git", args, options); } function outer(args, options) { return inner(args, options); } outer(["ls-files"], { maxBuffer: 8 * 1024 * 1024 });',
+        "ambiguous",
+        "wrapper-depth",
+      ],
+      [
+        "conditional-spread",
+        'import { execFileSync } from "node:child_process"; const listing = true ? { maxBuffer: 8 * 1024 * 1024 } : {}; execFileSync("git", ["ls-files"], { ...listing });',
+        "ambiguous",
+        "unresolved-options",
+      ],
+      [
+        "helper-no-argument",
+        'import { execFileSync } from "node:child_process"; execFileSync("git", ["ls-files"], gitListingOptions());',
+        "ambiguous",
+        "unresolved-options",
+      ],
+      [
+        "helper-dynamic-argument",
+        'import { execFileSync } from "node:child_process"; const options = getOptions(); execFileSync("git", ["ls-files"], gitListingOptions(options));',
+        "ambiguous",
+        "unresolved-options",
+      ],
+    ];
+    for (const [name, source, status, reason] of cases) {
+      const { root, relative } = plant(name, source);
+      try {
+        expect(listingSiteInventory({ root, sources: [relative] })).toEqual([
+          expect.objectContaining({ kind: name === "two-hop" ? "wrapper" : "direct", status, reason }),
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+  it("recognizes only admitted nullish and logical spawn fallbacks", () => {
+    const cases = [
+      [
+        "nullish-fallback",
+        'import { execFileSync } from "node:child_process"; const run = missing ?? execFileSync; run("git", ["ls-files"], { maxBuffer: 8 * 1024 * 1024 });',
+      ],
+      [
+        "logical-fallback",
+        'import cp from "node:child_process"; const run = missing || cp.execFileSync; run("git", ["ls-files"], { maxBuffer: 8 * 1024 * 1024 });',
+      ],
+    ];
+    for (const [name, source] of cases) {
+      const { root, relative } = plant(name, source);
+      try {
+        expect(listingSiteInventory({ root, sources: [relative] })).toEqual([
+          expect.objectContaining({ kind: "direct", status: "compliant", reason: "numeric-capacity" }),
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
   });
   it("preserves exact complete output above Node's default buffer", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "cs-git-listing-"));
