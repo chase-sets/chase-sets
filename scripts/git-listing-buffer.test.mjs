@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import os from "node:os";
@@ -84,19 +83,30 @@ function sourceRows(sf, relativePath) {
   const globalScope = makeScope(undefined, sf);
   const fnScopes = new Map();
   const fnScope = (fn, parent) => {
-    if (!fnScopes.has(fn)) {
-      const scope = makeScope(parent, fn.body);
+    let byParent = fnScopes.get(fn);
+    if (!byParent) fnScopes.set(fn, (byParent = new Map()));
+    if (!byParent.has(parent)) {
+      const params = { parent, bindings: new Map() };
+      const scope = makeScope(params, fn.body);
+      scope.fn = fn;
       for (const parameter of fn.parameters) {
         if (ts.isIdentifier(parameter.name))
-          scope.bindings.set(parameter.name.text, { node: parameter.initializer, scope });
+          params.bindings.set(parameter.name.text, { node: parameter.initializer, scope: params });
         else if (ts.isObjectBindingPattern(parameter.name))
           for (const element of parameter.name.elements)
             if (ts.isBindingElement(element) && ts.isIdentifier(element.name))
-              scope.bindings.set(element.name.text, { node: element.initializer, scope });
+              params.bindings.set(element.name.text, { node: element.initializer, scope: params });
       }
-      fnScopes.set(fn, scope);
+      byParent.set(parent, scope);
     }
-    return fnScopes.get(fn);
+    return byParent.get(parent);
+  };
+  const lexicalParent = (fn, scope) => {
+    let outer = fn.parent;
+    while (outer && !ts.isFunctionLike(outer)) outer = outer.parent;
+    if (!outer) return globalScope;
+    for (let current = scope; current; current = current.parent) if (current.fn === outer) return current;
+    return fnScope(outer, lexicalParent(outer, globalScope));
   };
   const binding = (id, scope) => {
     for (let current = scope; current; current = current.parent)
@@ -114,40 +124,23 @@ function sourceRows(sf, relativePath) {
         node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
     ) {
       const left = resolve(node.left, scope, depth + 1);
-      return left.node ? left : resolve(node.right, scope, depth + 1);
+      return { ...(left.node ? left : resolve(node.right, scope, depth + 1)), fallback: true };
     }
     if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
       const base = resolve(node.expression, scope, depth + 1);
       if (base.node && ts.isObjectLiteralExpression(base.node)) {
         const prop = base.node.properties.find((p) => !ts.isSpreadAssignment(p) && propertyName(p) === node.name.text);
-        if (prop && ts.isPropertyAssignment(prop)) return resolve(prop.initializer, base.scope, depth + 1);
+        if (prop && ts.isPropertyAssignment(prop)) {
+          const r = resolve(prop.initializer, base.scope, depth + 1);
+          return base.fallback ? { ...r, fallback: true } : r;
+        }
       }
-      return { node: undefined, scope: base.scope, depth, exceeded: false };
+      return { node: undefined, scope: base.scope, depth, exceeded: false, fallback: base.fallback };
     }
     if (!ts.isIdentifier(node)) return { node, scope, depth, exceeded: false };
     const b = binding(node, scope);
     if (!b || b.import) return { node, scope, depth, import: b?.import };
     return resolve(b.node, b.scope, depth + 1);
-  };
-  const containsFallback = (value, scope, depth = 0, visited = new Set()) => {
-    if (!value || depth > 6) return depth > 6;
-    const node = ts.isParenthesizedExpression(value) ? value.expression : value;
-    if (ts.isBinaryExpression(node)) {
-      if (
-        node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
-        node.operatorToken.kind === ts.SyntaxKind.BarBarToken
-      )
-        return true;
-      return (
-        containsFallback(node.left, scope, depth + 1, visited) ||
-        containsFallback(node.right, scope, depth + 1, visited)
-      );
-    }
-    if (!ts.isIdentifier(node)) return false;
-    const b = binding(node, scope);
-    if (!b || b.import || !b.node || visited.has(b.node)) return false;
-    visited.add(b.node);
-    return containsFallback(b.node, b.scope, depth + 1, visited);
   };
   const literal = (value, scope, depth = 0) => {
     const r = resolve(value, scope, depth);
@@ -156,7 +149,7 @@ function sourceRows(sf, relativePath) {
   };
   const numberValue = (value, scope, depth = 0) => {
     const r = resolve(value, scope, depth);
-    if (r.exceeded) return undefined;
+    if (r.exceeded || r.fallback) return undefined;
     if (ts.isNumericLiteral(r.node)) return Number(r.node.text);
     if (ts.isBinaryExpression(r.node)) {
       const a = numberValue(r.node.left, r.scope, depth + 1),
@@ -205,9 +198,8 @@ function sourceRows(sf, relativePath) {
   };
   const optionsStatus = (value, scope, depth = 0) => {
     if (!value) return { status: "noncompliant", reason: "missing-options" };
-    if (containsFallback(value, scope, depth)) return { status: "ambiguous", reason: "unresolved-options" };
     const r = resolve(value, scope, depth);
-    if (r.exceeded) return { status: "ambiguous", reason: "unresolved-options" };
+    if (r.exceeded || r.fallback) return { status: "ambiguous", reason: "unresolved-options" };
     const n = r.node;
     if (!n) return { status: "noncompliant", reason: "missing-options" };
     if (ts.isIdentifier(n) && n.text === "GIT_LISTING_MAX_BUFFER") return { status: "compliant", reason: "constant" };
@@ -232,17 +224,22 @@ function sourceRows(sf, relativePath) {
         if (found) laterSpread = true;
         const spread = resolve(p.expression, r.scope, depth + 1);
         if (!spread.node) {
+          found = undefined;
           ambiguous = true;
           continue;
         }
         if (ts.isConditionalExpression(spread.node)) {
+          found = undefined;
           ambiguous = true;
           conditionalAmbiguous = true;
         } else {
           const result = optionsStatus(spread.node, spread.scope, depth + 1);
           if (result.status === "compliant") found = result;
           else if (result.status === "noncompliant") found = result;
-          else ambiguous = true;
+          else {
+            found = undefined;
+            ambiguous = true;
+          }
         }
         continue;
       }
@@ -253,12 +250,9 @@ function sourceRows(sf, relativePath) {
           : undefined;
       if (name !== "maxBuffer") continue;
       const initializer = ts.isShorthandPropertyAssignment(p) ? p.name : p.initializer;
-      if (containsFallback(initializer, r.scope, depth + 1)) {
-        found = { status: "ambiguous", reason: "unresolved-options" };
-        continue;
-      }
       const v = resolve(initializer, r.scope, depth + 1);
-      if (ts.isIdentifier(v.node) && v.node.text === "GIT_LISTING_MAX_BUFFER")
+      if (v.fallback) found = { status: "ambiguous", reason: "unresolved-options" };
+      else if (ts.isIdentifier(v.node) && v.node.text === "GIT_LISTING_MAX_BUFFER")
         found = { status: "compliant", reason: "constant" };
       else if (
         ts.isCallExpression(v.node) &&
@@ -368,11 +362,11 @@ function sourceRows(sf, relativePath) {
     return undefined;
   };
   const buildParams = (fn, args, callerScope, calleeScope) => {
-    const next = { parent: calleeScope.parent, bindings: new Map(calleeScope.bindings) };
+    const next = { parent: calleeScope.parent, bindings: new Map(calleeScope.bindings), fn };
     fn.parameters.forEach((p, i) => {
       const arg = args[i];
       if (ts.isIdentifier(p.name))
-        next.bindings.set(p.name.text, { node: arg ?? p.initializer, scope: arg ? callerScope : calleeScope });
+        next.bindings.set(p.name.text, { node: arg ?? p.initializer, scope: arg ? callerScope : calleeScope.parent });
       else if (ts.isObjectBindingPattern(p.name))
         for (const e of p.name.elements)
           if (ts.isBindingElement(e) && ts.isIdentifier(e.name)) {
@@ -384,7 +378,7 @@ function sourceRows(sf, relativePath) {
                 : undefined;
             next.bindings.set(e.name.text, {
               node: prop && ts.isPropertyAssignment(prop) ? prop.initializer : e.initializer,
-              scope: prop ? callerScope : calleeScope,
+              scope: prop ? callerScope : calleeScope.parent,
             });
           }
     });
@@ -396,7 +390,7 @@ function sourceRows(sf, relativePath) {
       seenFunctions.add(node);
       const childScope = fnScope(node, scope);
       const functionKind = node.parameters.some((parameter) => parameter.initializer) ? "injected-default" : kind;
-      for (const parameter of node.parameters) inspect(parameter, childScope, functionKind, hops);
+      for (const parameter of node.parameters) inspect(parameter, childScope.parent, functionKind, hops);
       inspect(node.body, childScope, functionKind, hops);
       return;
     }
@@ -424,7 +418,7 @@ function sourceRows(sf, relativePath) {
       }
       if (fn && !active.has(fn)) {
         active.add(fn);
-        const calleeScope = fnScope(fn, scope);
+        const calleeScope = fnScope(fn, lexicalParent(fn, scope));
         const carriesListing = node.arguments.some((argument) => tokenValue(argument, scope).found);
         inspect(
           fn.body,
@@ -440,7 +434,7 @@ function sourceRows(sf, relativePath) {
   inspect(sf, globalScope, "direct");
   for (const fn of functionNodes)
     if (!seenFunctions.has(fn)) {
-      const scope = fnScope(fn, globalScope);
+      const scope = fnScope(fn, lexicalParent(fn, globalScope));
       inspect(fn.body, scope, fn.parameters.some((p) => p.initializer) ? "injected-default" : "direct");
     }
   const exempt = (token) => {
@@ -459,11 +453,6 @@ function sourceRows(sf, relativePath) {
       if (ts.isCaseClause(parent)) return true;
       if (ts.isCallExpression(parent)) {
         const callee = parent.expression;
-        if (ts.isIdentifier(callee) && callee.text === "readGit") {
-          let conditional = parent.parent;
-          while (conditional && !ts.isConditionalExpression(conditional)) conditional = conditional.parent;
-          if (conditional && ts.isCallExpression(conditional.whenFalse)) return true;
-        }
         if (ts.isIdentifier(callee) && ["expect", "assert"].includes(callee.text)) return true;
         if (ts.isPropertyAccessExpression(callee)) {
           let root = callee.expression;
@@ -494,7 +483,7 @@ export function listingSiteInventory({ root = repoRoot, sources } = {}) {
     sources ??
     execFileSync("git", ["-C", root, "ls-files", "-z", "--", "scripts"], gitListingOptions({ encoding: "utf8" }))
       .split("\0")
-      .filter((f) => f.startsWith("scripts/") && extensions.test(f) && f !== "scripts/git-listing-buffer.test.mjs");
+      .filter((f) => f.startsWith("scripts/") && extensions.test(f));
   const unreadable = [];
   const files = tracked.flatMap((relativePath) => {
     const file = path.join(root, relativePath);
@@ -548,6 +537,18 @@ describe("Git listing buffer contract", () => {
     const cases = [
       ["name-keyed", "scripts/arbitrary/injected-name.mjs", injected("execGit"), "row"],
       ["parameter-renamed", "scripts/arbitrary/injected-other.mjs", injected("run"), "row"],
+      [
+        "readGit-conditional",
+        "scripts/arbitrary/injected-read-git.mjs",
+        'export function list(readGit, fallback) { return readGit ? readGit(["ls-files", "-z", "--others"]) : fallback(); }\n',
+        "row",
+      ],
+      [
+        "readGit-conditional-small-executor",
+        "scripts/arbitrary/injected-read-git-small.mjs",
+        'import { execFileSync } from "node:child_process"; function list(readGit, fallback) { const read = () => (readGit ? readGit(["ls-files", "-z", "--others"]) : fallback()); return read(); } const out = list((args) => execFileSync("git", args, { maxBuffer: 1024 }), () => "");\n',
+        "row",
+      ],
       ["test-path", "scripts/arbitrary/injected-other.test.mjs", injected("run"), "row"],
       [
         "unresolved-factory-test-path",
@@ -597,6 +598,11 @@ describe("Git listing buffer contract", () => {
     expect(observations).toEqual([
       { name: "name-keyed", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
       { name: "parameter-renamed", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
+      { name: "readGit-conditional", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
+      {
+        name: "readGit-conditional-small-executor",
+        rows: [{ kind: "wrapper", status: "noncompliant", reason: "small-capacity" }],
+      },
       { name: "test-path", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
       {
         name: "unresolved-factory-test-path",
@@ -875,6 +881,57 @@ describe("Git listing buffer contract", () => {
         "ambiguous",
         "unresolved-options",
       ],
+      [
+        "callback-parameter-shadow",
+        'import { execFileSync } from "node:child_process"; const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; [1].forEach((opts) => execFileSync("git", ["ls-files"], opts));',
+        "direct",
+        "noncompliant",
+      ],
+      [
+        "wrapper-default-small-override",
+        'import { execFileSync } from "node:child_process"; function list(roots, opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { return roots.map((root) => execFileSync("git", ["ls-files", "-z"], { cwd: root, ...opts })); } list(["."], { maxBuffer: 1024 });',
+        "wrapper",
+        "noncompliant",
+      ],
+      [
+        "wrapper-default-small-direct",
+        'import { execFileSync } from "node:child_process"; function list(roots, opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { return roots.map((root) => execFileSync("git", ["ls-files", "-z"], opts)); } list(["."], { maxBuffer: 1024 });',
+        "wrapper",
+        "noncompliant",
+      ],
+      [
+        "call-order-shadow",
+        'import { execFileSync } from "node:child_process"; function list() { return execFileSync("git", ["ls-files"], opts); } function outer() { const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; return list(); } const opts = { cwd: "." }; outer();',
+        "direct",
+        "noncompliant",
+      ],
+      [
+        "parameter-initializer-shadow",
+        'import { execFileSync } from "node:child_process"; function list(o = opts) { const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; return execFileSync("git", ["ls-files"], o); } const opts = { cwd: "." }; list();',
+        "injected-default",
+        "noncompliant",
+      ],
+      [
+        "property-fallback",
+        'import { execFileSync } from "node:child_process"; function listTracked(root, options = {}) { const config = { capacity: options.maxBuffer ?? GIT_LISTING_MAX_BUFFER }; return execFileSync("git", ["ls-files", "-z"], { cwd: root, maxBuffer: config.capacity }); } listTracked(".");',
+        "injected-default",
+        "ambiguous",
+        "unresolved-options",
+      ],
+      [
+        "property-small-fallback",
+        'import { execFileSync } from "node:child_process"; function listTracked(root, options = {}) { const config = { capacity: options.maxBuffer ?? 16 * 1024 * 1024 }; return execFileSync("git", ["ls-files", "-z"], { cwd: root, maxBuffer: config.capacity }); } listTracked(".");',
+        "injected-default",
+        "ambiguous",
+        "unresolved-options",
+      ],
+      [
+        "parameter-options-fallback",
+        'import { execFileSync } from "node:child_process"; function listTracked(root, options) { const presets = { listing: options ?? { maxBuffer: GIT_LISTING_MAX_BUFFER } }; return execFileSync("git", ["ls-files", "-z"], presets.listing); } listTracked(".");',
+        "direct",
+        "ambiguous",
+        "unresolved-options",
+      ],
     ];
     for (const [name, source, kind, status, reason] of failClosedPlants) {
       const { root, relative } = plant(name, source);
@@ -951,6 +1008,26 @@ describe("Git listing buffer contract", () => {
         'import { execFileSync } from "node:child_process"; const options = {}; execFileSync("git", ["ls-files"], { maxBuffer: options.maxBuffer ?? GIT_LISTING_MAX_BUFFER });',
         "ambiguous",
       ],
+      [
+        "imported-spread",
+        'import { execFileSync } from "node:child_process"; import { overrides } from "./elsewhere.mjs"; execFileSync("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER, ...overrides });',
+        "ambiguous",
+      ],
+      [
+        "call-spread",
+        'import { execFileSync } from "node:child_process"; const overrides = loadOptions(); execFileSync("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER, ...overrides });',
+        "ambiguous",
+      ],
+      [
+        "module-imported-spread",
+        'import { execFileSync } from "node:child_process"; import { overrides } from "./elsewhere.mjs"; function list() { return execFileSync("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER, ...overrides }); } list();',
+        "ambiguous",
+      ],
+      [
+        "consent-trailing-spread",
+        'import { execFileSync } from "node:child_process"; function list(options) { return execFileSync("git", ["ls-files"], { cwd: ".", encoding: "utf8", maxBuffer: 1024 * 1024 * 1024, ...options }); } list({});',
+        "ambiguous",
+      ],
     ];
     for (const [name, source, status] of cases) {
       const { root, relative } = plant(name, source);
@@ -985,6 +1062,11 @@ describe("Git listing buffer contract", () => {
         "callback-local-capacity",
         'import { execFileSync } from "node:child_process"; const opts = { maxBuffer: 8 * 1024 * 1024 }; [1].forEach(() => { const local = { maxBuffer: GIT_LISTING_MAX_BUFFER }; execFileSync("git", ["ls-files"], local); });',
         "compliant",
+      ],
+      [
+        "callback-parameter-capacity",
+        'import { execFileSync } from "node:child_process"; const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; [1].forEach((opts) => execFileSync("git", ["ls-files"], opts));',
+        "noncompliant",
       ],
     ];
     for (const [name, source, status] of cases) {
@@ -1031,8 +1113,8 @@ describe("Git listing buffer contract", () => {
       const blob = execFileSync("git", ["hash-object", "-w", "--stdin"], { cwd: root, input: "x\n" }).toString().trim();
       const indexInfo = names.map((name) => `100644 ${blob}\t${name}`).join("\n") + "\n";
       execFileSync("git", ["update-index", "--index-info"], { cwd: root, input: indexInfo });
-      assert.throws(() => execFileSync("git", ["ls-files", "-z"], { cwd: root }), /ENOBUFS|maxBuffer/i);
       const listing = execFileSync("git", ["ls-files", "-z"], gitListingOptions({ cwd: root }));
+      expect(listing.length).toBeGreaterThan(1024 * 1024);
       expect(listing.toString("utf8").split("\0").filter(Boolean)).toEqual(names);
     } finally {
       rmSync(root, { recursive: true, force: true });
