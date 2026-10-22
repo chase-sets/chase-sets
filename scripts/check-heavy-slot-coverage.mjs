@@ -193,6 +193,9 @@ function deriveFromScript(root, scriptName, command, packageDirectory, tracked, 
       const script = nodeScriptFrom(tokens, nodeIndex);
       const resolved = script ? resolveTrackedModule(root, packageDirectory, script, tracked) : null;
       if (!resolved) {
+        // Production service launchers execute the generated runtime bundle;
+        // the build script, not the generated dist file, owns heavy admission.
+        if (scriptName === "start:production" && /^(?:\.\/)?dist\/main\.js$/.test(script ?? "")) continue;
         unresolved.add(`${packageDirectory || "."}: ${segment.trim()}`);
       } else if (!reviewedCheapNodeEntrypoints.has(resolved)) entrypoints.add(resolved);
     }

@@ -401,7 +401,6 @@ export async function acceptInvitationAttempt(
                 rolePermissions: AUTH_ROLE_PERMISSIONS[binding.roleKey as keyof typeof AUTH_ROLE_PERMISSIONS] ?? [],
               },
             ],
-            publishAuthenticationOutcome: true,
           });
           await advance(next);
           return {

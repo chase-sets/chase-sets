@@ -1826,13 +1826,14 @@ describe("workflows", () => {
       "platform-staging-admin-qa-actor-fixtures.yml#provision-admin-qa-actor-fixtures",
       "platform-staging-advisory-evidence.yml#staging-advisory-evidence",
       "platform-staging-bootstrap-hook-drill.yml#workflow",
+      "platform-staging-cluster-addons.yml#apply-staging-cluster-addons",
       "platform-staging-evidence-window.yml#staging-evidence-window",
       "platform-staging-helm-recovery.yml#workflow",
       "platform-staging-representative-commerce-state.yml#refresh-representative-commerce-state",
       "platform-staging-reset.yml#reset-staging",
       "platform-staging-rollback-drill.yml#workflow",
     ]);
-    expect(new Set(declarations.map((entry) => entry.split("#")[0])).size).toBe(10);
+    expect(new Set(declarations.map((entry) => entry.split("#")[0])).size).toBe(11);
   });
 
   it("adds no admission or queue state the observer cannot produce", () => {
