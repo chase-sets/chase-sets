@@ -52,7 +52,9 @@ describe("collectUnmappedScopeItems", () => {
   });
 
   it("carries the exact scope destination identity", () => {
-    const item = collectUnmappedScopeItems([scopeMapping({ mapping_id: "mapped-1", scope_record_id: "scope/one" })])[0]!;
+    const item = collectUnmappedScopeItems([
+      scopeMapping({ mapping_id: "mapped-1", scope_record_id: "scope/one" }),
+    ])[0]!;
     expect(item.itemKey).toBe("unmapped-scope:mapped-1");
     expect(item.resolution.fields).toMatchObject({ mappingId: "mapped-1", scopeRecordId: "scope/one" });
     expect(item.resolution.href).toBe("/catalog/scopes/scope%2Fone");
@@ -215,7 +217,11 @@ describe("collectImportJobItems", () => {
     const item = collectImportJobItems([
       unitActivity({ jobId: "job/failed", providerKey: "tcgdex", unitKey: "tcgdex:card" }),
     ])[0]!;
-    expect(item.resolution.fields).toMatchObject({ jobId: "job/failed", providerKey: "tcgdex", unitKey: "tcgdex:card" });
+    expect(item.resolution.fields).toMatchObject({
+      jobId: "job/failed",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:card",
+    });
     expect(item.resolution.href).toBe("/catalog/providers/tcgdex?jobId=job%2Ffailed");
   });
 });

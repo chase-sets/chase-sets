@@ -159,7 +159,9 @@ function acceptedItemAlias(overrides: Partial<CatalogItemAliasRow> = {}): Catalo
   };
 }
 
-function acceptedReferenceAlias(overrides: Partial<CatalogReferenceRecordAliasRow> = {}): CatalogReferenceRecordAliasRow {
+function acceptedReferenceAlias(
+  overrides: Partial<CatalogReferenceRecordAliasRow> = {},
+): CatalogReferenceRecordAliasRow {
   return {
     alias_hash: "alias-accepted-reference",
     reference_record_id: "ref-1",
@@ -303,7 +305,8 @@ describe("CatalogScopeLandingPage", () => {
       canManage: true,
     });
     const restore = [...document.querySelectorAll<HTMLFormElement>("form")].find(
-      (form) => (form.querySelector('input[name="_intent"]') as HTMLInputElement | null)?.value === "restore-attention-item",
+      (form) =>
+        (form.querySelector('input[name="_intent"]') as HTMLInputElement | null)?.value === "restore-attention-item",
     );
     expect((restore?.querySelector('input[name="_intent"]') as HTMLInputElement | null)?.value).toBe(
       "restore-attention-item",
@@ -323,9 +326,9 @@ describe("CatalogScopeLandingPage", () => {
       canManage: false,
     });
     await user.click(screen.getByRole("button", { name: /All-scopes alias review/i }));
-    expect(document.querySelectorAll('[data-alias-review-command] button[disabled]')).not.toHaveLength(0);
+    expect(document.querySelectorAll("[data-alias-review-command] button[disabled]")).not.toHaveLength(0);
     await user.click(screen.getAllByRole("button", { name: "Review health" }).at(-1)!);
-    expect(document.querySelectorAll('[data-attention-park] button[disabled]').length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("[data-attention-park] button[disabled]").length).toBeGreaterThan(0);
 
     cleanup();
     renderLanding({

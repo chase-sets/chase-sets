@@ -299,9 +299,9 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
   // DataTable renders every row twice (phone card, then desktop table); both
   // disclosure triggers must report the same controlled state.
   function jobTriggers(jobId: string): HTMLElement[] {
-    const disclosures = within(recentJobs()).getAllByRole("group").filter(
-      (group) => group.getAttribute("data-catalog-provider-job-disclosure") === jobId,
-    );
+    const disclosures = within(recentJobs())
+      .getAllByRole("group")
+      .filter((group) => group.getAttribute("data-catalog-provider-job-disclosure") === jobId);
     const triggers = disclosures.map((group) => within(group).getByRole("button"));
     expect(triggers).toHaveLength(2);
     return triggers;
@@ -426,7 +426,12 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
     });
     render(
       <CatalogProviderDetailPage
-        readModel={providerJobsReadModel([job], "tcgdex", {}, `&unitKey=${encodeURIComponent(unitKey)}&jobId=tcgdex-job`)}
+        readModel={providerJobsReadModel(
+          [job],
+          "tcgdex",
+          {},
+          `&unitKey=${encodeURIComponent(unitKey)}&jobId=tcgdex-job`,
+        )}
       />,
     );
 
@@ -437,11 +442,7 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
   });
 
   it("keeps an explicit missing selected job unavailable", () => {
-    render(
-      <CatalogProviderDetailPage
-        readModel={providerJobsReadModel([], "tcgdex", {}, "&jobId=missing-job")}
-      />,
-    );
+    render(<CatalogProviderDetailPage readModel={providerJobsReadModel([], "tcgdex", {}, "&jobId=missing-job")} />);
     expect(screen.getAllByText(/Resolution unavailable/i).length).toBeGreaterThan(0);
     expect(document.querySelector('[data-provider-job-selected="true"]')).toBeNull();
   });

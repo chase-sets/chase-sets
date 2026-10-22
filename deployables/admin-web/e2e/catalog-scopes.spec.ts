@@ -25,7 +25,7 @@ test.describe.serial("catalog admin scopes", () => {
 
     await expectAdminPageReady(page, { heading: "Scopes" });
 
-    const allScopesAliasDisclosure = page.getByRole("button", { name: /All scopes/i });
+    const allScopesAliasDisclosure = page.getByRole("button", { name: /All[- ]scopes/i });
     await expect(allScopesAliasDisclosure).toBeVisible();
     await allScopesAliasDisclosure.click();
     await expect(allScopesAliasDisclosure).toHaveAttribute("aria-expanded", "true");

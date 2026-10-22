@@ -56,7 +56,11 @@ describe("Catalog scope-landing route action", () => {
         }),
       ),
     );
-    expect(result.feedback).toMatchObject({ status: "error", intent: "dismiss-attention-item", result: "command-failed" });
+    expect(result.feedback).toMatchObject({
+      status: "error",
+      intent: "dismiss-attention-item",
+      result: "command-failed",
+    });
   });
 
   it("returns the committed dismiss key, restores it, and the next loader observes the read-after-write state", async () => {
@@ -66,9 +70,9 @@ describe("Catalog scope-landing route action", () => {
       return { status: "recorded" };
     });
     const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
-    const getCatalogAttentionQueueReadModel = vi.fn().mockImplementation(async () =>
-      dismissed ? { malformed: true } : { malformed: true },
-    );
+    const getCatalogAttentionQueueReadModel = vi
+      .fn()
+      .mockImplementation(async () => (dismissed ? { malformed: true } : { malformed: true }));
     mockCreateCatalogRequestApiClient.mockReturnValue({
       dispatchCatalogAttentionQueueCommand: dispatch,
       listCatalogScopeRecords,
@@ -92,9 +96,7 @@ describe("Catalog scope-landing route action", () => {
       reason: "review",
     });
 
-    const restored = await action(
-      routeArgs(request("restore-attention-item", { itemKey: dismiss.attentionItemKey! })),
-    );
+    const restored = await action(routeArgs(request("restore-attention-item", { itemKey: dismiss.attentionItemKey! })));
     expect(restored.feedback).toMatchObject({ status: "success", result: "job-queued" });
     expect(dispatch).toHaveBeenLastCalledWith({ intent: "restore", itemKey: "provider-health:tcgdex:unit" });
 
