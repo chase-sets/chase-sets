@@ -23,6 +23,9 @@ import {
   type PrivacyProductTruthBinding,
 } from "./privacy-policy-product-truth";
 import { privacyPolicyArtifact, requiredPrivacyPolicySubjectIds } from "./privacy-policy";
+import { agentConnectorTermsPolicyArtifact } from "./agent-connector-terms";
+import { sellerAgreementPolicyArtifact } from "./seller-agreement";
+import { termsOfServicePolicyArtifact } from "./terms-of-service";
 
 const domainDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(domainDirectory, "../../../../..");
@@ -141,7 +144,7 @@ describe("Privacy Policy candidate", () => {
     );
     const [capture, strategy, onboarding] = section.reviewManifest.assumptions;
     expect(capture.assertion).toContain("records capture");
-    expect(capture.evidenceRef).toContain("runtime.ts:2627-2668");
+    expect(capture.evidenceRef).toContain("runtime.ts:3005-3046");
     expect(capture.evidenceRef).toContain("domain.ts:957-994");
     expect(capture.evidenceRef).not.toMatch(/1485-1515|0006-stripe-connect/);
     expect(strategy.evidenceRef).toBe("docs/adr/0006-stripe-connect-custom-account-experience.md:15");
@@ -206,7 +209,6 @@ describe("Privacy Policy candidate", () => {
     expect(sectionText(privacyPolicyArtifact, "privacy-rights-and-requests")).toContain(
       "[RIGHTS-VERIFICATION-AND-RESPONSE:",
     );
-    expect(sectionText(privacyPolicyArtifact, "privacy-rights-and-requests")).toContain("[NOTICE-EMAIL]");
     expect(sectionText(privacyPolicyArtifact, "children")).toContain("[CHILDREN-STATEMENT:");
     expect(sectionText(privacyPolicyArtifact, "state-supplements")).toContain("[STATE-SUPPLEMENTS:");
     const admt = sectionText(privacyPolicyArtifact, "automated-decisionmaking-technology");
@@ -501,3 +503,194 @@ describe(
   },
   LONG_DERIVATION_MS,
 );
+
+type PrivacySection = PublicPolicyArtifact["sections"][number];
+
+function manifestTexts(artifact: PublicPolicyArtifact): readonly string[] {
+  return artifact.sections.flatMap((section) => [
+    section.reviewManifest.scopeNote,
+    ...section.reviewManifest.openQuestions,
+    ...section.reviewManifest.assumptions.flatMap(({ assertion, evidenceRef }) => [assertion, evidenceRef]),
+  ]);
+}
+
+function privacySection(artifact: PublicPolicyArtifact, sectionId: string): PrivacySection {
+  const section = artifact.sections.find(({ id }) => id === sectionId);
+  if (section === undefined) throw new Error(`missing Privacy section '${sectionId}'`);
+  return section;
+}
+
+function withPrivacySection(sectionId: string, change: (section: PrivacySection) => PrivacySection) {
+  return {
+    ...privacyPolicyArtifact,
+    sections: privacyPolicyArtifact.sections.map((section) => (section.id === sectionId ? change(section) : section)),
+  };
+}
+
+function rolloutScopeErrors(artifact: PublicPolicyArtifact): readonly string[] {
+  const errors: string[] = [];
+  if (artifact.metadata.rolloutJurisdictionsOrProductLimits.length !== 0) errors.push("publication metadata populated");
+  const scope = privacySection(artifact, "privacy-notice-scope").reviewManifest;
+  if (!scope.decisionRefs.includes(5678)) errors.push("privacy-notice-scope does not cite #5678");
+  if (
+    !scope.openQuestions.some((question) =>
+      question.includes("Initial rollout jurisdictions are ratified (#5678: US, all 50 states + DC)"),
+    )
+  ) {
+    errors.push("privacy-notice-scope does not state the ratified rollout scope");
+  }
+  const supplements = privacySection(artifact, "state-supplements").reviewManifest;
+  if (!supplements.decisionRefs.includes(5678)) errors.push("state-supplements does not cite #5678");
+  if (!supplements.scopeNote.includes("ratified #5678 rollout scope")) errors.push("state-supplements scope drifted");
+  if (
+    !supplements.openQuestions.some(
+      (question) =>
+        question.includes("(US, all 50 states + DC) need state-specific supplements") &&
+        question.includes("are counsel judgments"),
+    )
+  ) {
+    errors.push("state-supplement counsel question missing");
+  }
+  if (manifestTexts(artifact).some((text) => /undecided/i.test(text))) errors.push("rollout scope called undecided");
+  return errors;
+}
+
+/** Every Privacy manifest statement about [NOTICE-EMAIL] must carry the Terms' #5677 status and provenance. */
+function noticeEmailOwnershipErrors(artifact: PublicPolicyArtifact): readonly string[] {
+  const errors: string[] = [];
+  const statements = manifestTexts(artifact).filter((text) => /\[NOTICE-EMAIL\]|notice email/i.test(text));
+  if (statements.length < 2) errors.push(`expected the scope and rights statements, found ${statements.length}`);
+  for (const statement of statements) {
+    const label = statement.slice(0, 40);
+    for (const fragment of ["#5677", "did not supply a dedicated", "placeholder pending that operator-supplied fact"]) {
+      if (!statement.includes(fragment)) errors.push(`'${label}' lacks '${fragment}'`);
+    }
+    if (/counsel-owned|counsel's selection|counsel selection/i.test(statement)) {
+      errors.push(`'${label}' calls [NOTICE-EMAIL] counsel-owned`);
+    }
+  }
+  return errors;
+}
+
+/** The scope subject's draft text, byte-identical to its text before the Connector Pairing question was added. */
+const privacyScopeDraftFixture =
+  "This privacy notice describes how Chase Sets Limited (“Chase Sets”) collects, uses, shares, and retains personal information when you visit the Chase Sets website, join the waitlist, create an Account, buy or sell trading cards and related collectibles, set up payouts, or contact support. It applies to the Chase Sets marketplace and its account, developer, and support surfaces. It does not replace the Terms of Service or the other policies that govern your use of the marketplace, and it does not cover the independent practices of other users or of providers acting under their own notices, such as the payment processing described in the Stripe-managed processing section below.";
+
+const connectorGlossaryRef = "bounded-contexts/channels/GLOSSARY.md:21-32";
+
+function privacyConnectorPairingErrors(artifact: PublicPolicyArtifact): readonly string[] {
+  const errors: string[] = [];
+  const section = privacySection(artifact, "privacy-notice-scope");
+  if (section.draftText !== privacyScopeDraftFixture) errors.push("privacy-notice-scope draft text changed");
+  const questions = section.reviewManifest.openQuestions.filter((question) => question.includes("Connector Pairing"));
+  if (questions.length !== 1) return [...errors, `expected one Connector Pairing question, found ${questions.length}`];
+  for (const fragment of [
+    `Channels ships Connector Pairing (${connectorGlossaryRef})`,
+    "neither an agent nor a seller actor",
+    "covered surfaces do not name Channel Connections or Connector Pairing",
+    "is a counsel question",
+  ]) {
+    if (!questions[0]!.includes(fragment)) errors.push(`question lacks '${fragment}'`);
+  }
+  return errors;
+}
+
+describe("Privacy reconciliation with ratified decisions and sibling artifacts", () => {
+  it("privacy rollout scope cites ratified decision and preserves empty publication metadata", () => {
+    expect(rolloutScopeErrors(privacyPolicyArtifact)).toEqual([]);
+    // The Seller Agreement carries the same ratified scope with the same publication-time placement.
+    const sellerRolloutQuestion = sellerAgreementPolicyArtifact.sections
+      .flatMap(({ reviewManifest }) => reviewManifest.openQuestions)
+      .find((question) => question.includes("#5678"));
+    expect(sellerRolloutQuestion).toContain("#5678: US, all 50 states + DC");
+    expect(sellerRolloutQuestion).toContain("rolloutJurisdictionsOrProductLimits metadata field at publication time");
+    expect(sellerAgreementPolicyArtifact.metadata.rolloutJurisdictionsOrProductLimits).toEqual([]);
+
+    const undecided = withPrivacySection("privacy-notice-scope", (section) => ({
+      ...section,
+      reviewManifest: {
+        ...section.reviewManifest,
+        openQuestions: section.reviewManifest.openQuestions.map((question, index) =>
+          index === 0 ? "Launch jurisdiction scope is undecided." : question,
+        ),
+      },
+    }));
+    expect(rolloutScopeErrors(undecided)).toEqual([
+      "privacy-notice-scope does not state the ratified rollout scope",
+      "rollout scope called undecided",
+    ]);
+    const populated = {
+      ...privacyPolicyArtifact,
+      metadata: { ...privacyPolicyArtifact.metadata, rolloutJurisdictionsOrProductLimits: ["US"] },
+    };
+    expect(rolloutScopeErrors(populated)).toEqual(["publication metadata populated"]);
+  });
+
+  it("notice email ownership is consistent across legal artifacts", () => {
+    expect(sectionText(privacyPolicyArtifact, "privacy-rights-and-requests")).toContain("[NOTICE-EMAIL]");
+    expect(noticeEmailOwnershipErrors(privacyPolicyArtifact)).toEqual([]);
+    const termsNoticeQuestion = termsOfServicePolicyArtifact.sections
+      .find(({ id }) => id === "governing-law-and-forum")!
+      .reviewManifest.openQuestions.find((question) => question.includes("[NOTICE-EMAIL]"));
+    expect(termsNoticeQuestion).toContain("#5677 recorded the entity, state, and mailing notice address");
+    expect(termsNoticeQuestion).toContain("did not supply a dedicated legal-notice email");
+    expect(termsNoticeQuestion).toContain("[NOTICE-EMAIL] is an explicit placeholder pending that fact");
+
+    const counselOwnedStatement = "The notice email ([NOTICE-EMAIL]) remains a counsel-owned selection per #5677.";
+    const counselOwned = withPrivacySection("privacy-rights-and-requests", (section) => ({
+      ...section,
+      reviewManifest: {
+        ...section.reviewManifest,
+        openQuestions: [...section.reviewManifest.openQuestions, counselOwnedStatement],
+      },
+    }));
+    const label = counselOwnedStatement.slice(0, 40);
+    expect(noticeEmailOwnershipErrors(counselOwned)).toEqual([
+      `'${label}' lacks 'did not supply a dedicated'`,
+      `'${label}' lacks 'placeholder pending that operator-supplied fact'`,
+      `'${label}' calls [NOTICE-EMAIL] counsel-owned`,
+    ]);
+  });
+
+  it("connector pairing privacy manifest question is draft-preserving", () => {
+    expect(privacyConnectorPairingErrors(privacyPolicyArtifact)).toEqual([]);
+    const glossary = readCitedSourceSlice(repoRoot, connectorGlossaryRef);
+    expect(glossary.error).toBeUndefined();
+    expect(glossary.text).toContain("It is neither an agent nor a seller actor.");
+    expect(glossary.text).toContain("## Connector Pairing");
+    // One status and provenance across artifacts: the Agent Connector Terms question cites the same entry.
+    const agentQuestion = agentConnectorTermsPolicyArtifact.sections
+      .flatMap(({ reviewManifest }) => reviewManifest.openQuestions)
+      .find((question) => question.includes("Connector Pairing"));
+    expect(agentQuestion).toContain(`(${connectorGlossaryRef})`);
+    expect(agentQuestion).toContain("neither an agent nor a seller actor");
+
+    const omitted = withPrivacySection("privacy-notice-scope", (section) => ({
+      ...section,
+      reviewManifest: {
+        ...section.reviewManifest,
+        openQuestions: section.reviewManifest.openQuestions.filter(
+          (question) => !question.includes("Connector Pairing"),
+        ),
+      },
+    }));
+    expect(privacyConnectorPairingErrors(omitted)).toEqual(["expected one Connector Pairing question, found 0"]);
+    const misclassified = withPrivacySection("privacy-notice-scope", (section) => ({
+      ...section,
+      reviewManifest: {
+        ...section.reviewManifest,
+        openQuestions: section.reviewManifest.openQuestions.map((question) =>
+          question.replace("neither an agent nor a seller actor", "an authorized agent"),
+        ),
+      },
+    }));
+    expect(privacyConnectorPairingErrors(misclassified)).toEqual([
+      "question lacks 'neither an agent nor a seller actor'",
+    ]);
+    const draftChanged = withPrivacySection("privacy-notice-scope", (section) => ({
+      ...section,
+      draftText: `${section.draftText} It also covers Connector Pairing.`,
+    }));
+    expect(privacyConnectorPairingErrors(draftChanged)).toEqual(["privacy-notice-scope draft text changed"]);
+  });
+});

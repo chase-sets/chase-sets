@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 import { INTERNAL_ONLY_PAYMENT_EVENTS } from "./stripe-webhook-endpoint.mjs";
-import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS } from "./stripe-webhook-events.mjs";
+import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, stripeV1ConnectWebhookEvents } from "./stripe-webhook-events.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -65,5 +65,28 @@ describe("Stripe webhook event registry", () => {
     expect(cliSource).toContain("webhookEventRegistry.payment");
     expect(cliSource).toContain("webhookEventRegistry.connectAccounts[connectAccountsApi]");
     expect(cliSource).toContain("webhookEventRegistry.connectMoneyMovement");
+  });
+
+  it("derives the v1 webhook-endpoint Connect list from the registry without v2 names", () => {
+    expect(stripeV1ConnectWebhookEvents("v2")).toEqual(webhookEventRegistry.connectMoneyMovement);
+    expect(stripeV1ConnectWebhookEvents("v1")).toEqual([
+      ...webhookEventRegistry.connectAccounts.v1,
+      ...webhookEventRegistry.connectMoneyMovement,
+    ]);
+    expect(stripeV1ConnectWebhookEvents(" V1 ")).toEqual(stripeV1ConnectWebhookEvents("v1"));
+    for (const posture of ["v1", "v2"]) {
+      expect(stripeV1ConnectWebhookEvents(posture)).toEqual(expect.arrayContaining(["payout.paid", "payout.failed"]));
+      expect(stripeV1ConnectWebhookEvents(posture).filter((event) => event.startsWith("v2."))).toEqual([]);
+    }
+    expect(() => stripeV1ConnectWebhookEvents("v3")).toThrow("STRIPE_CONNECT_ACCOUNTS_API must be one of: v1, v2.");
+    expect(() => stripeV1ConnectWebhookEvents("")).toThrow("STRIPE_CONNECT_ACCOUNTS_API must be one of: v1, v2.");
+  });
+
+  it("keeps the lifecycle Connect list on the registry derivation", () => {
+    const lifecycleSource = source("scripts/provider-webhook-lifecycle.mjs");
+
+    expect(lifecycleSource).toContain("stripeV1ConnectWebhookEvents(");
+    expect(lifecycleSource).not.toContain("webhookEventRegistry.connect");
+    expect(lifecycleSource).not.toMatch(/"(?:payout|account)\.[a-z_.]+"/u);
   });
 });

@@ -22,7 +22,7 @@
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/observability": "workspace:*",
     "@chase-sets/http": "workspace:*",
-    "hono": "^4.12.12"
+    "hono": "^4.13.13"
   },
   "devDependencies": {
     "@opentelemetry/api": "^1.9.0",

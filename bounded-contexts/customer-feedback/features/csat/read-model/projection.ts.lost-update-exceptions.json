@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-8b8d117ff80ad2c0",
+    "binding": {
+      "module": "bounded-contexts/customer-feedback/features/csat/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "customer_feedback_csat_invitations",
+      "digest": "ebce8716be999a727a3c849ae06e60f65d9b4205085be365e042d310acd21804"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/customer-feedback/features/csat/read-model/projection.ts:316 directly synchronizes customer_feedback_csat_invitations from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

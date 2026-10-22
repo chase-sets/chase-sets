@@ -1,88 +1,17 @@
-import { mkdtemp, mkdir, rm, writeFile, readFile, open } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
+import { discoverWrites, validateLostUpdateWriteGuard as candidateGuard } from "./lost-update-write-guard.mjs";
 
 const roots = [];
-afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
-
-describe("lost update write guard", () => {
-  it("enrols the actual credential store SQL and rejects loss of its two-counter guard", async () => {
-    const file = "bounded-contexts/channels/features/credentials/api/runtime.ts";
-    const source = await readFile(file, "utf8");
-    const root = await fixture(file, "");
-    await writeFile(path.join(root, file), source);
-    const result = await validateLostUpdateWriteGuard({ repoRoot: root });
-    expect(result.violations).toEqual([]);
-    expect(result.rows).toEqual([
-      expect.objectContaining({ table: "channels_connection_credentials", classification: "guarded" }),
-    ]);
-    for (const column of [
-      "token_generation",
-      "envelope_revision",
-      "version",
-      "kind",
-      "provider_key",
-      "environment",
-      "account_id",
-      "connection_id",
-      "payload_format",
-      "created_at",
-    ]) {
-      const unguarded = source.replace(new RegExp(`AND ${column} = \\$\\d+`), "");
-      expect(unguarded).not.toBe(source);
-      await writeFile(path.join(root, file), unguarded);
-      expect((await validateLostUpdateWriteGuard({ repoRoot: root })).violations).toHaveLength(1);
-    }
-  });
-  it("fails the historical market-estimates queries.ts shape (negative control)", async () => {
-    const root = await fixture(
-      "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts",
-      `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`,
-    );
-    await expect(validateLostUpdateWriteGuard({ repoRoot: root })).resolves.toMatchObject({
-      violations: [expect.stringContaining("key-only UPDATE")],
-    });
-  });
-  it("fails a key-only write at a second keyword-free read-model path", async () => {
-    const root = await fixture(
-      "bounded-contexts/example/features/estimates/read-model/queries.ts",
-      `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`,
-    );
-    await expect(validateLostUpdateWriteGuard({ repoRoot: root })).resolves.toMatchObject({
-      violations: [expect.stringContaining("key-only UPDATE")],
-    });
-  });
-  it("accepts a predicate proving the read state is still current", async () => {
-    const root = await fixture(
-      "bounded-contexts/example/features/estimates/read-model/queries.ts",
-      `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1 AND fresh_until = $3`,
-    );
-    await expect(validateLostUpdateWriteGuard({ repoRoot: root })).resolves.toEqual(
-      expect.objectContaining({ violations: [] }),
-    );
-  });
-  it("accepts a monotonic global-position predicate", async () => {
-    const root = await fixture(
-      "bounded-contexts/example/features/categories/read-model/projection.ts",
-      `UPDATE category_rows SET status = $2 WHERE category_id = $1 AND last_global_position <= $3`,
-    );
-    await expect(validateLostUpdateWriteGuard({ repoRoot: root })).resolves.toEqual(
-      expect.objectContaining({ violations: [] }),
-    );
-  });
-});
-
+const repoRoot = process.cwd();
 const allowlistPath = "scripts/check-structure/lost-update-write-guard-allowlist.json";
-const blueprintPath = "bounded-contexts/catalog/features/blueprints/read-model/admin-projection.ts";
 const estimatesPath = "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts";
-const siblingPath = "bounded-contexts/pricing/features/market-estimates/read-model/entries.ts";
 const credentialsPath = "bounded-contexts/channels/features/credentials/api/runtime.ts";
-const blueprintTable = "catalog_admin_blueprint_detail_pages";
-const estimatesTable = "pricing_market_price_estimates";
+const siblingPath = "bounded-contexts/pricing/features/market-estimates/read-model/entries.ts";
 const credentialColumns = [
   "row_id",
   "token_generation",
@@ -96,186 +25,468 @@ const credentialColumns = [
   "payload_format",
   "created_at",
 ];
-const credentialSql = `UPDATE channels_connection_credentials SET payload = $12 WHERE ${credentialColumns
-  .map((column, index) => `${column} = $${index + 1}`)
-  .join(" AND ")}`;
+const git = (...args) =>
+  execFileSync("git", args, { cwd: repoRoot, encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+// The last central-reader revision is discoverable after landing too. During
+// cutover it is the final main merge base; future source edits need not preserve
+// historical line numbers, so the complete parity probe uses that exact tree.
+const removal = git("log", "-1", "--format=%H", "--diff-filter=D", "--", allowlistPath).trim();
+const base = removal ? `${removal}^` : git("merge-base", "HEAD", "origin/main").trim();
+const legacySource = git("show", `${base}:scripts/check-structure/lost-update-write-guard.mjs`);
+const legacy = (await import(`data:text/javascript;base64,${Buffer.from(legacySource).toString("base64")}`))
+  .validateLostUpdateWriteGuard;
+const candidateSource = await readFile(
+  path.join(repoRoot, "scripts/check-structure/lost-update-write-guard.mjs"),
+  "utf8",
+);
+const scannerPathspecs = [
+  ":(glob)bounded-contexts/**/read-model/**",
+  ":(glob)bounded-contexts/**/*projection.*",
+  ":(glob)bounded-contexts/**/*queue.*",
+  "bounded-contexts/channels/features/credentials/api/runtime.ts",
+];
+const compilerApiUrl = import.meta.resolve("@chase-sets/typescript-compiler-api");
+const [legacyPredicate, candidatePredicate] = await Promise.all(
+  [legacySource, candidateSource].map(async (source) => {
+    const module = await import(
+      `data:text/javascript;base64,${Buffer.from(
+        `${source
+          .replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerApiUrl))
+          .replace(
+            '"../lib/git-listing.mjs"',
+            JSON.stringify(new URL("../lib/git-listing.mjs", import.meta.url).href),
+          )}\nexport { isReadModelOrProjectionFile as __predicate };`,
+      ).toString("base64")}`
+    );
+    return module.__predicate;
+  }),
+);
+const validateLostUpdateWriteGuard = process.env.LOST_UPDATE_BASE_CONTROL === "1" ? legacy : candidateGuard;
+afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
-describe("central allowlist reconciliation", () => {
-  it("baseline reconciliation partitions every original entry", async () => {
-    const { root, original, before } = await reconciliationFixture();
-    const inventory = JSON.stringify(before.rows);
-    const partition = partitionBaseline(original, inventory);
-    expect(partition).toEqual(
-      JSON.parse(original).map((entry, index) => ({ entry, matched: index === 1 || index === 3 })),
-    );
-    const live = partition[1].entry;
-    for (const id of [
-      `${siblingPath}:44:DELETE:${blueprintTable}`,
-      `${blueprintPath}:45:DELETE:${blueprintTable}`,
-      `${blueprintPath}:44:UPDATE:${blueprintTable}`,
-      `${blueprintPath}:44:DELETE:${estimatesTable}`,
-    ]) {
-      expect(partitionBaseline(JSON.stringify([{ ...live, id }]), inventory), id).toEqual([
-        { entry: { ...live, id }, matched: false },
-      ]);
+describe("owner-local lost-update exceptions", () => {
+  it("enrols the actual credential store SQL and rejects loss of its two-counter guard", async () => {
+    const source = await readFile(credentialsPath, "utf8");
+    const root = await fixture(credentialsPath, source);
+    const result = await candidateGuard({ repoRoot: root });
+    expect(result.violations).toEqual([]);
+    expect(result.rows).toEqual([
+      expect.objectContaining({ table: "channels_connection_credentials", classification: "guarded" }),
+    ]);
+    for (const column of credentialColumns.filter((name) => name !== "row_id")) {
+      const unguarded = source.replace(new RegExp(`AND ${column} = \\$\\d+`), "");
+      expect(unguarded).not.toBe(source);
+      await put(root, credentialsPath, unguarded);
+      expect((await candidateGuard({ repoRoot: root })).violations).toHaveLength(1);
     }
-
-    // Bad inputs must stop before the guard's Map/Set can conceal duplicates.
-    const entries = JSON.parse(original);
-    const duplicate = JSON.stringify([...entries, entries[0]]);
-    await writeFile(path.join(root, allowlistPath), duplicate);
-    const duplicateResult = await validateLostUpdateWriteGuard({ repoRoot: root });
-    expect(() => partitionBaseline(duplicate, JSON.stringify(duplicateResult.rows))).toThrow(
-      "duplicate allowlist identity",
-    );
-    expect(() => partitionBaseline(original, JSON.stringify([...before.rows, before.rows[0]]))).toThrow(
-      "duplicate inventory identity",
-    );
-    for (const unreadable of ["{", "null", "{}", "[null]", '[{"id":42}]']) {
-      expect(() => partitionBaseline(unreadable, inventory)).toThrow();
-      expect(() => partitionBaseline(original, unreadable)).toThrow();
-    }
-    const inconsistent = structuredClone(before.rows);
-    inconsistent[0].line += 1;
-    expect(() => partitionBaseline(original, JSON.stringify(inconsistent))).toThrow("inventory identity");
-    await writeFile(path.join(root, allowlistPath), "{");
-    await expect(validateLostUpdateWriteGuard({ repoRoot: root })).rejects.toThrow();
-    await rm(path.join(root, allowlistPath));
-    await expect(validateLostUpdateWriteGuard({ repoRoot: root })).rejects.toThrow("ENOENT");
   });
 
-  it("retiring zero-match entries preserves every effective classification", async () => {
-    const { root, original, before } = await reconciliationFixture();
-    const survivors = partitionBaseline(original, JSON.stringify(before.rows))
-      .filter(({ matched }) => matched)
-      .map(({ entry }) => entry);
-    const after = await discoverWithAllowlist(root, survivors);
-    assertRetirement(original, before, survivors, after);
-    expect(after.rows.map(({ classification }) => classification)).toContain("key-only but safe");
-    expect(after.rows.map(({ classification }) => classification)).toContain("guarded");
+  it("fails the historical market-estimates queries.ts shape (negative control)", async () => {
+    const root = await fixture(
+      estimatesPath,
+      "const sql = `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`;",
+    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toMatchObject({
+      violations: [expect.stringContaining("key-only UPDATE")],
+    });
+  });
 
-    // Include same-size mutations to defeat count-only parity.
-    for (const [label, mutate, rejection] of [
-      ["changed classification", (rows) => (rows[0].classification = "key-only but safe"), "row parity"],
-      ["changed identity", (rows) => (rows[0].file = siblingPath), "inventory identity"],
-      ["missing row", (rows) => rows.pop(), "row parity"],
+  it("fails a key-only write at a second keyword-free read-model path", async () => {
+    const root = await fixture(
+      "bounded-contexts/example/features/estimates/read-model/queries.ts",
+      "const sql = `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`;",
+    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toMatchObject({
+      violations: [expect.stringContaining("key-only UPDATE")],
+    });
+  });
+
+  it("accepts a predicate proving the read state is still current", async () => {
+    const root = await fixture(
+      "bounded-contexts/example/features/estimates/read-model/queries.ts",
+      "const sql = `UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1 AND fresh_until = $3`;",
+    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(expect.objectContaining({ violations: [] }));
+  });
+
+  it("accepts a monotonic global-position predicate", async () => {
+    const root = await fixture(
+      "bounded-contexts/example/features/categories/read-model/projection.ts",
+      "const sql = `UPDATE category_rows SET status = $2 WHERE category_id = $1 AND last_global_position <= $3`;",
+    );
+    await expect(candidateGuard({ repoRoot: root })).resolves.toEqual(expect.objectContaining({ violations: [] }));
+  });
+
+  it("exception migration preserves complete classifications", async () => {
+    const root = await fixture();
+    const archive = path.join(root, "base.tar");
+    const inventory = git("ls-tree", "-r", "--name-only", base, "--", "bounded-contexts")
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+    expect(inventory.every((file) => legacyPredicate(file) === candidatePredicate(file))).toBe(true);
+    const expectedScannerFiles = inventory.filter(candidatePredicate);
+    execFileSync("git", ["archive", "--format=tar", `--output=${archive}`, base, "--", ...scannerPathspecs], {
+      cwd: repoRoot,
+      timeout: 30000,
+    });
+    execFileSync("tar", ["-xf", archive, "-C", root], { timeout: 30000 });
+    if (removal) {
+      const sidecarArchive = path.join(root, "sidecars.tar");
+      execFileSync(
+        "git",
+        [
+          "archive",
+          "--format=tar",
+          `--output=${sidecarArchive}`,
+          removal,
+          "--",
+          ":(glob)bounded-contexts/**/*.lost-update-exceptions.json",
+        ],
+        { cwd: repoRoot, timeout: 30000 },
+      );
+      execFileSync("tar", ["-xf", sidecarArchive, "-C", root], { timeout: 30000 });
+    }
+    for (const file of expectedScannerFiles) await access(path.join(root, file));
+    const original = git("show", `${base}:${allowlistPath}`);
+    await put(root, allowlistPath, original);
+    const before = await legacy({ repoRoot: root });
+    const partition = partitionBaseline(original, JSON.stringify(before.rows));
+    expect(partition.every(({ matched }) => matched)).toBe(true);
+    const sidecars = [];
+    const files = [
+      ...new Set(before.rows.filter((row) => row.classification === "key-only but safe").map((row) => row.file)),
+    ];
+    for (const file of files) {
+      const sidecarPath = `${file}.lost-update-exceptions.json`;
+      const text = await readFile(path.join(removal ? root : repoRoot, sidecarPath), "utf8");
+      await put(root, `${file}.lost-update-exceptions.json`, text);
+      for (const entry of JSON.parse(text)) sidecars.push({ file, entry });
+    }
+    await put(root, allowlistPath, "[]");
+    const after = await validateLostUpdateWriteGuard({ repoRoot: root });
+    assertMigration(original, before, sidecars, after);
+    expect(await readFile(path.join(repoRoot, allowlistPath), "utf8").catch((error) => error.code)).toBe("ENOENT");
+
+    // Membership and identity controls, including same-size replacement. These
+    // compare independent base records, not a candidate-generated snapshot.
+    for (const mutant of [
+      sidecars.slice(1),
+      [...sidecars, sidecars[0]],
+      sidecars.map((item, i) => (i ? item : { ...item, entry: { ...item.entry, reason: `${item.entry.reason} ` } })),
+    ])
+      expect(() => assertMigration(original, before, mutant, after)).toThrow();
+    const mutated = structuredClone(after);
+    mutated.rows[0].classification =
+      mutated.rows[0].classification === "guarded" ? "key-only lost-update risk" : "guarded";
+    expect(() => assertMigration(original, before, sidecars, mutated)).toThrow("row parity");
+    expect(() => assertMigration(original, before, sidecars, { ...after, rows: after.rows.slice(1) })).toThrow(
+      "row parity",
+    );
+    const first = sidecars[0];
+    const target = `${first.file}.lost-update-exceptions.json`;
+    const controlRoot = await fixture(first.file, await readFile(path.join(root, first.file), "utf8"));
+    const records = JSON.parse(await readFile(path.join(root, target), "utf8"));
+    await put(controlRoot, target, JSON.stringify(records));
+    const intact = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
+    const strip = ({ id, file, line, kind, table, classification, binding }) => ({
+      id,
+      file,
+      line,
+      kind,
+      table,
+      classification,
+      binding,
+    });
+    expect(intact.rows.filter((row) => row.file === first.file).map(strip)).toEqual(
+      after.rows.filter((row) => row.file === first.file).map(strip),
+    );
+    await put(controlRoot, target, JSON.stringify(records.slice(1)));
+    const lost = await validateLostUpdateWriteGuard({ repoRoot: controlRoot });
+    const intactRows = intact.rows.filter((row) => row.file === first.file);
+    const lostRows = lost.rows.filter((row) => row.file === first.file);
+    const differences = lostRows.filter(
+      (row, index) => JSON.stringify(strip(row)) !== JSON.stringify(strip(intactRows[index])),
+    );
+    expect(differences).toHaveLength(1);
+    expect(differences[0].binding).toEqual(sidecars[0].entry.binding);
+    expect(differences[0].classification).toBe("key-only lost-update risk");
+    const replacements = new Map(lostRows.map((row) => [row.id, row]));
+    const spliced = { ...after, rows: after.rows.map((row) => replacements.get(row.id) ?? row) };
+    expect(() => assertMigration(original, before, sidecars.slice(1), spliced)).toThrow("row parity");
+  });
+
+  it("unrelated lines preserve write binding but statement changes refuse", async () => {
+    const source = await readFile(estimatesPath, "utf8");
+    const root = await fixture(estimatesPath, source);
+    const entries = await exceptions(root, estimatesPath, source);
+    const original = await validateLostUpdateWriteGuard({ repoRoot: root });
+    expect(original.rows.some((row) => row.classification === "key-only but safe")).toBe(true);
+    for (const changed of [
+      `// unrelated heading\n\n${source}`,
+      source.replace(/export async function/, "\n\nexport async function"),
+    ]) {
+      await put(root, estimatesPath, changed);
+      const result = await validateLostUpdateWriteGuard({ repoRoot: root });
+      expect(result.violations).toEqual(original.violations);
+      expect(result.rows.map(({ binding, classification }) => ({ binding, classification }))).toEqual(
+        original.rows.map(({ binding, classification }) => ({ binding, classification })),
+      );
+      expect(await readFile(path.join(root, `${estimatesPath}.lost-update-exceptions.json`), "utf8")).toBe(
+        JSON.stringify(entries),
+      );
+    }
+    // Literal whitespace is data, as are interpolation expression tokens.
+    for (const sql of [
+      "UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1",
+      "UPDATE pricing_market_price_estimates SET fresh_until = ${input.value} WHERE estimate_id = $1",
+    ]) {
+      const fixtureSource = `export async function save(db, input) { await db.query(\`${sql}\`); }`;
+      await put(root, estimatesPath, fixtureSource);
+      await exceptions(root, estimatesPath, fixtureSource);
+      for (const mutated of [
+        fixtureSource.replace("SET fresh_until", "SET  fresh_until"),
+        fixtureSource.replace(sql.includes("${") ? "input.value" : "$2", sql.includes("${") ? "input.other" : "$3"),
+      ]) {
+        await put(root, estimatesPath, mutated);
+        const result = await validateLostUpdateWriteGuard({ repoRoot: root });
+        expect(result.rows[0].classification).toBe("key-only lost-update risk");
+        expect(result.violations.some((line) => line.includes("stale sidecar"))).toBe(true);
+      }
+    }
+    const credential = await readFile(credentialsPath, "utf8");
+    await put(root, credentialsPath, credential);
+    const beforeCredential = await validateLostUpdateWriteGuard({ repoRoot: root });
+    await put(root, credentialsPath, `// unrelated\n\n${credential}`);
+    const movedCredential = await validateLostUpdateWriteGuard({ repoRoot: root });
+    expect(movedCredential.rows.find((row) => row.file === credentialsPath).binding).toEqual(
+      beforeCredential.rows.find((row) => row.file === credentialsPath).binding,
+    );
+    expect(movedCredential.rows.find((row) => row.file === credentialsPath).classification).toBe("guarded");
+  });
+
+  it("exception bindings reject stale duplicate ambiguous and credential drift", async () => {
+    const source =
+      "export async function save(db) { await db.query(`UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`); }";
+    const root = await fixture(siblingPath, source);
+    const entries = await exceptions(root, siblingPath, source);
+    expect((await validateLostUpdateWriteGuard({ repoRoot: root })).violations).toEqual([]);
+    for (const [label, records, diagnostic] of [
+      ["malformed", "{", "malformed sidecar"],
+      ["shape", "{}", "must contain an array"],
+      ["unjustified", JSON.stringify([{ ...entries[0], reason: "short" }]), "justification"],
+      ["duplicate", JSON.stringify([...entries, entries[0]]), "duplicat"],
       [
-        "extra row",
-        (rows) =>
-          rows.push({
-            ...rows[0],
-            id: `${siblingPath}:99:UPDATE:${estimatesTable}`,
-            file: siblingPath,
-            line: 99,
-            kind: "UPDATE",
-            table: estimatesTable,
-          }),
-        "row parity",
+        "stale",
+        JSON.stringify([{ ...entries[0], binding: { ...entries[0].binding, digest: "0".repeat(64) } }]),
+        "stale sidecar",
+      ],
+      [
+        "cross-module",
+        JSON.stringify([{ ...entries[0], binding: { ...entries[0].binding, module: estimatesPath } }]),
+        "cross-module",
+      ],
+      [
+        "directory",
+        JSON.stringify([
+          { ...entries[0], binding: { ...entries[0].binding, module: path.posix.dirname(siblingPath) } },
+        ]),
+        "cross-module",
       ],
     ]) {
-      const changed = structuredClone(after);
-      mutate(changed.rows);
-      expect(() => assertRetirement(original, before, survivors, changed), label).toThrow(rejection);
-    }
-    for (const records of [
-      [...survivors].reverse(),
-      survivors.map((entry, index) => (index === 0 ? { ...entry, reason: `${entry.reason} ` } : entry)),
-      [...survivors, JSON.parse(original)[0]],
-    ]) {
-      const result = await discoverWithAllowlist(root, records);
-      expect(() => assertRetirement(original, before, records, result)).toThrow("survivor records");
-    }
-  });
-
-  it("stale retirement cannot authorize a risky write or remove a live waiver", async () => {
-    const { root, original, before } = await reconciliationFixture();
-    const entries = JSON.parse(original);
-    const survivors = entries.filter((_, index) => index === 1 || index === 3);
-    const after = await discoverWithAllowlist(root, survivors);
-    assertRetirement(original, before, survivors, after);
-
-    // Keep all sources and reasons fixed; vary only the stale record's identity.
-    for (const risk of before.rows.filter((row) => row.classification === "key-only lost-update risk")) {
-      const staleIndex = risk.table === blueprintTable ? 0 : 2;
-      const repinned = entries.map((entry, index) => (index === staleIndex ? { ...entry, id: risk.id } : entry));
-      const result = await discoverWithAllowlist(root, repinned);
-      expect(result.rows.find((row) => row.id === risk.id)?.classification).toBe("key-only but safe");
-      expect(result.violations).not.toContain(riskDiagnostic(risk));
-      expect(() => assertRetirement(original, before, repinned, result)).toThrow("survivor records");
-      expect(() => assertRetirement(original, before, survivors, result)).toThrow("row parity");
-    }
-
-    const withoutLiveWaiver = survivors.slice(1);
-    const lostWaiver = await discoverWithAllowlist(root, withoutLiveWaiver);
-    const liveRow = before.rows.find((row) => row.id === survivors[0].id);
-    expect(lostWaiver.violations).toContain(riskDiagnostic(liveRow));
-    expect(() => assertRetirement(original, before, withoutLiveWaiver, lostWaiver)).toThrow("survivor records");
-    expect(() => assertRetirement(original, before, survivors, lostWaiver)).toThrow("row parity");
-
-    const unrelatedRisk = after.rows.find((row) => row.file === siblingPath);
-    const omittedRow = { ...after, rows: after.rows.filter((row) => row.id !== unrelatedRisk.id) };
-    expect(() => assertRetirement(original, before, survivors, omittedRow)).toThrow("row parity");
-    const suppressedRisk = {
-      ...after,
-      violations: after.violations.filter((line) => line !== riskDiagnostic(unrelatedRisk)),
-    };
-    expect(() => assertRetirement(original, before, survivors, suppressedRisk)).toThrow("diagnostic parity");
-  });
-
-  it("risk residue stays fail closed after stale retirement", async () => {
-    const { root, original, before } = await reconciliationFixture();
-    const survivors = JSON.parse(original).filter((_, index) => index === 1 || index === 3);
-    const after = await discoverWithAllowlist(root, survivors);
-    assertRetirement(original, before, survivors, after);
-    const stdoutPath = path.join(root, "inventory.json");
-    const stderrPath = path.join(root, "diagnostics.txt");
-    const stdout = await open(stdoutPath, "w");
-    const stderr = await open(stderrPath, "w");
-    try {
-      const exit = await new Promise((resolve, reject) => {
-        const child = spawn(
-          process.execPath,
-          [path.resolve("scripts/check-structure/lost-update-write-guard.mjs"), "--inventory"],
-          { cwd: root, stdio: ["ignore", stdout.fd, stderr.fd] },
-        );
-        child.on("error", reject);
-        child.on("close", (code, signal) => resolve({ code, signal }));
-      });
-      expect(exit).toEqual({ code: 1, signal: null });
-    } finally {
-      await Promise.all([stdout.close(), stderr.close()]);
-    }
-    expect(await readFile(stderrPath, "utf8")).toBe(`${after.violations.join("\n")}\n`);
-    expect(JSON.parse(await readFile(stdoutPath, "utf8"))).toEqual(after.rows);
-
-    // Freeze the retired allowlist and all other source bytes. Each credential
-    // predicate independently governs safety, even after stale entries are gone.
-    for (const [index, column] of credentialColumns.entries()) {
-      const drifted = credentialSql.replace(`${column} = $${index + 1}`, `${column} <> $${index + 1}`);
-      await writeFile(path.join(root, credentialsPath), `const sql = \`${drifted}\`;`);
+      await put(root, `${siblingPath}.lost-update-exceptions.json`, records);
       const result = await validateLostUpdateWriteGuard({ repoRoot: root });
-      const credential = result.rows.find((row) => row.file === credentialsPath);
-      expect(credential.classification).toBe("key-only lost-update risk");
-      expect(result.violations).toEqual([
-        ...after.violations.slice(0, 1),
-        riskDiagnostic(credential),
-        ...after.violations.slice(1),
-      ]);
-      expect(() => assertRetirement(original, before, survivors, result)).toThrow("row parity");
+      expect(
+        result.violations.some((line) => line.includes(diagnostic)),
+        label,
+      ).toBe(true);
+      expect(result.rows[0].classification, label).toBe("key-only lost-update risk");
     }
+    await put(root, `${siblingPath}.lost-update-exceptions.json`, JSON.stringify(entries));
+    await put(
+      root,
+      siblingPath,
+      `${source}\nexport async function future(db) { await db.query(\`UPDATE unrelated_rows SET value = $2 WHERE id = $1\`); }`,
+    );
+    expect((await validateLostUpdateWriteGuard({ repoRoot: root })).rows[1].classification).toBe(
+      "key-only lost-update risk",
+    );
+    await put(
+      root,
+      siblingPath,
+      source.replace(
+        "await db.query",
+        "await db.query(`UPDATE pricing_market_price_estimates SET fresh_until = $2 WHERE estimate_id = $1`); await db.query",
+      ),
+    );
+    const ambiguous = await validateLostUpdateWriteGuard({ repoRoot: root });
+    expect(ambiguous.violations.length).toBeGreaterThan(0);
+    expect(ambiguous.rows.every((row) => row.classification === "key-only lost-update risk")).toBe(true);
+    const credential = await readFile(credentialsPath, "utf8");
+    await rm(path.join(root, siblingPath));
+    await rm(path.join(root, `${siblingPath}.lost-update-exceptions.json`));
+    await put(root, credentialsPath, credential);
+    expect((await validateLostUpdateWriteGuard({ repoRoot: root })).violations).toEqual([]);
+    const updateStart = credential.indexOf("UPDATE channels_connection_credentials");
+    const updateEnd = credential.indexOf("`", updateStart);
+    const whereStart = credential.indexOf("WHERE", updateStart);
+    for (const column of credentialColumns) {
+      const mutated =
+        credential.slice(0, whereStart) +
+        credential.slice(whereStart, updateEnd).replace(new RegExp(`\\b${column} = \\$\\d+`), "") +
+        credential.slice(updateEnd);
+      expect(mutated).not.toBe(credential);
+      await put(root, credentialsPath, mutated);
+      const result = await validateLostUpdateWriteGuard({ repoRoot: root });
+      expect(result.rows[0].classification, column).toBe("key-only lost-update risk");
+      await exceptions(root, credentialsPath, mutated);
+      expect(
+        (await validateLostUpdateWriteGuard({ repoRoot: root })).rows[0].classification,
+        `${column} cannot be waived`,
+      ).toBe("key-only lost-update risk");
+      await rm(path.join(root, `${credentialsPath}.lost-update-exceptions.json`));
+    }
+  });
+
+  it("keeps fulfillment's identical risk siblings outside the named waiver", async () => {
+    const file = "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts";
+    const source = await readFile(file, "utf8");
+    const root = await fixture(file, source);
+    await put(
+      root,
+      `${file}.lost-update-exceptions.json`,
+      await readFile(`${file}.lost-update-exceptions.json`, "utf8"),
+    );
+    const result = await validateLostUpdateWriteGuard({ repoRoot: root });
+    const duplicates = result.rows.filter((row) => row.binding?.boundary && row.table === "fulfillment_shipment_pages");
+    expect(duplicates.some((row) => row.classification === "key-only but safe")).toBe(true);
+    expect(
+      duplicates.filter((row) => row.classification === "key-only lost-update risk").length,
+    ).toBeGreaterThanOrEqual(2);
+    const records = JSON.parse(await readFile(path.join(root, `${file}.lost-update-exceptions.json`), "utf8"));
+    for (const entry of records) delete entry.binding.boundary;
+    await put(root, `${file}.lost-update-exceptions.json`, JSON.stringify(records));
+    expect(
+      (await validateLostUpdateWriteGuard({ repoRoot: root })).violations.some((line) =>
+        line.includes("stale sidecar"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects orphaned sidecars and source relocation without rebinding", async () => {
+    const source = "const sql = `DELETE FROM category_rows WHERE category_id = $1`;";
+    const root = await fixture(estimatesPath, source);
+    await exceptions(root, estimatesPath, source);
+    await put(root, siblingPath, source);
+    await put(
+      root,
+      `${siblingPath}.lost-update-exceptions.json`,
+      await readFile(path.join(root, `${estimatesPath}.lost-update-exceptions.json`), "utf8"),
+    );
+    await rm(path.join(root, estimatesPath));
+    const result = await validateLostUpdateWriteGuard({ repoRoot: root });
+    expect(result.violations.some((line) => line.includes("owner source is missing"))).toBe(true);
+    expect(result.violations.some((line) => line.includes("cross-module"))).toBe(true);
+    expect(result.rows[0].classification).toBe("key-only lost-update risk");
+  });
+
+  it("ignores built output without letting sidecars choose the scanner population", async () => {
+    const source = "const sql = `DELETE FROM category_rows WHERE category_id = $1`;";
+    const root = await fixture(siblingPath, source);
+    const before = await validateLostUpdateWriteGuard({ repoRoot: root });
+    await put(root, "bounded-contexts/pricing/dist/read-model/queries.ts", source);
+    await put(root, "bounded-contexts/pricing/dist/read-model/queries.ts.lost-update-exceptions.json", "{");
+    expect(await validateLostUpdateWriteGuard({ repoRoot: root })).toEqual(before);
+    expect(before.rows[0].classification).toBe("key-only lost-update risk");
+  });
+
+  it("keeps interpolation trivia out of the digest but preserves token and literal data", () => {
+    const binding = (expression) =>
+      discoverWrites({
+        relativeFile: siblingPath,
+        source: `function save(){ return \`UPDATE rows SET value = \${${expression}} WHERE id = $1\`; }`,
+      })[0].binding;
+    expect(binding("input.value")).toEqual(binding(" input /* comment */ . value "));
+    expect(binding("'a b'")).not.toEqual(binding("'ab'"));
+    expect(binding("input.value")).not.toEqual(binding("input.other"));
+  });
+
+  it("requires sidecars to be tracked in a repository", async () => {
+    const source = "const sql = `DELETE FROM category_rows WHERE category_id = $1`;";
+    const root = await fixture(siblingPath, source);
+    await exceptions(root, siblingPath, source);
+    execFileSync("git", ["init", "--quiet"], { cwd: root, timeout: 10000 });
+    const untracked = await validateLostUpdateWriteGuard({ repoRoot: root });
+    expect(untracked.violations.some((line) => line.includes("untracked sidecar"))).toBe(true);
+    expect(untracked.rows[0].classification).toBe("key-only lost-update risk");
+    execFileSync("git", ["add", "."], { cwd: root, timeout: 10000 });
+    expect((await validateLostUpdateWriteGuard({ repoRoot: root })).violations).toEqual([]);
+  });
+
+  it("kills the kind-table-only binding bypass mutant", async () => {
+    const source = "function save(){ return `UPDATE category_rows SET value = $2 WHERE id = $1`; }";
+    const root = await fixture(siblingPath, source);
+    await exceptions(root, siblingPath, source);
+    await put(root, siblingPath, source.replace("$2", "$3"));
+    const assertRefusal = (result) => expect(result.rows[0].classification).toBe("key-only lost-update risk");
+    assertRefusal(await validateLostUpdateWriteGuard({ repoRoot: root }));
+    const guardSource = await readFile("scripts/check-structure/lost-update-write-guard.mjs", "utf8");
+    const governingMatch =
+      "const matches = sidecarEntriesByBinding.get(`${row.file}\\u0000${JSON.stringify(row.binding)}`) ?? [];";
+    expect(guardSource.split(governingMatch)).toHaveLength(2);
+    const mutantSource = guardSource
+      .replace(
+        governingMatch,
+        "const matches = sidecarEntries.filter((entry) => entry.source === row.file && entry.binding.kind === row.kind && entry.binding.table === row.table);",
+      )
+      .replace(
+        '"@chase-sets/typescript-compiler-api"',
+        JSON.stringify(import.meta.resolve("@chase-sets/typescript-compiler-api")),
+      )
+      .replace('"../lib/git-listing.mjs"', JSON.stringify(new URL("../lib/git-listing.mjs", import.meta.url).href));
+    const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutantSource).toString("base64")}`);
+    const bypassed = await mutant.validateLostUpdateWriteGuard({ repoRoot: root });
+    expect(() => assertRefusal(bypassed)).toThrow();
+    expect(bypassed.rows[0].classification).toBe("key-only but safe");
+  });
+
+  it("binds nested constants and unnamed closures to the nearest named owner", () => {
+    const source =
+      'const handlers = { "owner.changed": async () => { await transaction(async () => { const sql = `DELETE FROM rows WHERE id = ${key}`; await query(sql); }); }, "owner.removed": async () => { const sql = `DELETE FROM rows WHERE id = ${key}`; } };';
+    const rows = discoverWrites({ source, relativeFile: siblingPath });
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.binding.boundary)).toEqual(['"owner.changed"', '"owner.removed"']);
+    expect(rows[0].binding.digest).toBe(rows[1].binding.digest);
   });
 });
 
-function riskDiagnostic(row) {
-  return `${row.id}: key-only ${row.kind} on a read-model/projection table; add a read-state concurrency predicate or a justified allowlist entry.`;
+async function fixture(file, source = "") {
+  const root = await mkdtemp(path.join(os.tmpdir(), "lost-update-guard-"));
+  roots.push(root);
+  await mkdir(path.join(root, "bounded-contexts"), { recursive: true });
+  await put(root, allowlistPath, "[]");
+  if (file) await put(root, file, source);
+  return root;
 }
 
-function staleDiagnostic(entry) {
-  return `${allowlistPath}: stale allowlist entry '${entry.id}'.`;
+async function put(root, file, source) {
+  await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+  await writeFile(path.join(root, file), source);
 }
 
-// Test-only accounting: the unmodified validator supplies discovery and
-// classifications. Validate captured identities before any membership lookup.
+async function exceptions(root, file, source) {
+  const entries = discoverWrites({ source, relativeFile: file })
+    .filter((row) => !row.guarded)
+    .map((row, index) => ({
+      id: `synthetic-exception-${index}`,
+      binding: row.binding,
+      classification: "key-only but safe",
+      reason: "Synthetic exact write exception for isolated binding controls.",
+    }));
+  await put(root, `${file}.lost-update-exceptions.json`, JSON.stringify(entries));
+  return entries;
+}
+
 function partitionBaseline(allowlistText, inventoryText) {
   const entries = JSON.parse(allowlistText);
   const rows = JSON.parse(inventoryText);
@@ -284,125 +495,50 @@ function partitionBaseline(allowlistText, inventoryText) {
     ["inventory", rows],
   ]) {
     assert(Array.isArray(records), `${label} must be an array`);
-    const seen = [];
+    const seen = new Set();
     for (const record of records) {
       assert(record && typeof record.id === "string", `unreadable ${label} identity`);
       assert(
         /^bounded-contexts\/[^:]+:[1-9]\d*:(UPDATE|DELETE):[a-zA-Z_][a-zA-Z0-9_]*$/.test(record.id),
         `invalid ${label} identity`,
       );
-      assert(!seen.includes(record.id), `duplicate ${label} identity: ${record.id}`);
-      seen.push(record.id);
-      if (label === "allowlist") {
-        assert.deepEqual(Object.keys(record).sort(), ["id", "reason"]);
+      assert(!seen.has(record.id), `duplicate ${label} identity`);
+      seen.add(record.id);
+      if (label === "allowlist")
         assert(typeof record.reason === "string" && record.reason.trim().length >= 20, "unreadable reason");
-      } else {
+      else
         assert.equal(
           record.id,
           `${record.file}:${record.line}:${record.kind}:${record.table}`,
           "inconsistent inventory identity",
         );
-        assert(Number.isSafeInteger(record.line) && record.line > 0, "invalid inventory line");
-        assert(
-          ["guarded", "key-only but safe", "key-only lost-update risk"].includes(record.classification),
-          "unreadable classification",
-        );
-      }
     }
   }
   return entries.map((entry) => ({ entry, matched: rows.some((row) => row.id === entry.id) }));
 }
 
-function assertRetirement(original, before, retained, after) {
-  const partition = partitionBaseline(original, JSON.stringify(before.rows));
-  partitionBaseline(JSON.stringify(retained), JSON.stringify(after.rows));
+function assertMigration(original, before, sidecars, after) {
+  const entries = JSON.parse(original);
+  partitionBaseline(original, JSON.stringify(before.rows));
+  const strip = ({ id, file, line, kind, table, classification }) => ({ id, file, line, kind, table, classification });
+  assert.deepEqual(after.rows.map(strip), before.rows.map(strip), "row parity");
+  const accounted = sidecars.map(({ file, entry }) => {
+    const matches = after.rows.filter(
+      (row) => row.file === file && JSON.stringify(row.binding) === JSON.stringify(entry.binding),
+    );
+    assert.equal(matches.length, 1, "binding cardinality");
+    assert.equal(matches[0].classification, entry.classification, "classification parity");
+    return { id: matches[0].id, reason: entry.reason };
+  });
   assert.deepEqual(
-    retained,
-    partition.filter(({ matched }) => matched).map(({ entry }) => entry),
-    "survivor records and order",
+    accounted.sort((a, b) => a.id.localeCompare(b.id)),
+    entries.sort((a, b) => a.id.localeCompare(b.id)),
+    "base membership and justification parity",
   );
-  assert.deepEqual(after.rows, before.rows, "row parity");
-  const retiredDiagnostics = partition.filter(({ matched }) => !matched).map(({ entry }) => staleDiagnostic(entry));
-  assert.deepEqual(
-    after.violations,
-    before.violations.filter((line) => !retiredDiagnostics.includes(line)),
-    "diagnostic parity",
-  );
-}
-
-async function discoverWithAllowlist(root, entries) {
-  await writeFile(path.join(root, allowlistPath), `${JSON.stringify(entries, null, 2)}\n`);
-  return validateLostUpdateWriteGuard({ repoRoot: root });
-}
-
-async function reconciliationFixture() {
-  const root = await fixture(blueprintPath, "");
-  const blueprintSql = `DELETE FROM ${blueprintTable} WHERE blueprint_id = $1`;
-  const estimateSql = `UPDATE ${estimatesTable} SET fresh_until = $2 WHERE estimate_id = $1`;
-  for (const [file, source] of [
-    [blueprintPath, `${"\n".repeat(39)}const first = \`${blueprintSql}\`;\n\n\n\nconst second = \`${blueprintSql}\`;`],
-    [estimatesPath, `const first = \`${estimateSql}\`;\nconst second = \`${estimateSql} AND fresh_until = $3\`;`],
-    [siblingPath, `const sql = \`${estimateSql}\`;`],
-    [credentialsPath, `const sql = \`${credentialSql}\`;`],
-  ]) {
-    await mkdir(path.dirname(path.join(root, file)), { recursive: true });
-    await writeFile(path.join(root, file), source);
-  }
-  const entries = [
-    {
-      id: `${blueprintPath}:41:DELETE:${blueprintTable}`,
-      reason: "Synthetic stale blueprint waiver; never move this identity.",
-    },
-    {
-      id: `${blueprintPath}:44:DELETE:${blueprintTable}`,
-      reason: "Synthetic effective waiver; preserve these exact bytes.  ",
-    },
-    {
-      id: `${estimatesPath}:9:UPDATE:${estimatesTable}`,
-      reason: "Synthetic stale estimate waiver; never guess a candidate.",
-    },
-    {
-      id: `${estimatesPath}:2:UPDATE:${estimatesTable}`,
-      reason: "Synthetic matching guarded entry must also survive retirement.",
-    },
-  ];
-  const before = await discoverWithAllowlist(root, entries);
-  // Independent fixture expectations ensure discovery cannot silently omit a
-  // path or merge the two same-table candidates into one identity.
-  expect(before.rows).toEqual(
-    [
-      [blueprintPath, 40, "DELETE", blueprintTable, "key-only lost-update risk"],
-      [blueprintPath, 44, "DELETE", blueprintTable, "key-only but safe"],
-      [credentialsPath, 1, "UPDATE", "channels_connection_credentials", "guarded"],
-      [siblingPath, 1, "UPDATE", estimatesTable, "key-only lost-update risk"],
-      [estimatesPath, 1, "UPDATE", estimatesTable, "key-only lost-update risk"],
-      [estimatesPath, 2, "UPDATE", estimatesTable, "guarded"],
-    ].map(([file, line, kind, table, classification]) => ({
-      id: `${file}:${line}:${kind}:${table}`,
-      file,
-      line,
-      kind,
-      table,
-      classification,
-    })),
-  );
-  expect(before.violations).toEqual([
-    riskDiagnostic(before.rows[0]),
-    riskDiagnostic(before.rows[3]),
-    riskDiagnostic(before.rows[4]),
-    staleDiagnostic(entries[0]),
-    staleDiagnostic(entries[2]),
-  ]);
-  return { root, original: await readFile(path.join(root, allowlistPath), "utf8"), before };
-}
-
-async function fixture(relativePath, sql) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lost-update-guard-"));
-  roots.push(root);
-  const target = path.join(root, relativePath);
-  await mkdir(path.dirname(target), { recursive: true });
-  await mkdir(path.join(root, "scripts/check-structure"), { recursive: true });
-  await writeFile(target, `const sql = \`${sql}\`;`, "utf8");
-  await writeFile(path.join(root, "scripts/check-structure/lost-update-write-guard-allowlist.json"), "[]", "utf8");
-  return root;
+  assert.equal(after.violations.length, before.violations.length, "diagnostic parity");
+  for (const row of before.rows.filter((row) => row.classification === "key-only lost-update risk"))
+    assert(
+      after.violations.some((line) => line.startsWith(`${row.id}: key-only `)),
+      `missing risk diagnostic ${row.id}`,
+    );
 }

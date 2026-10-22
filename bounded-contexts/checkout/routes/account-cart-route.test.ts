@@ -23,15 +23,20 @@ import {
   mockGetCart,
   mockGetGuestCart,
   MockMarketplaceApiError,
+  mockGetCartCommandAttempt,
+  mockGetGuestCartCommandAttempt,
   mockRemoveCartLine,
   mockRemoveGuestCartLine,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockSubmitCartCommands,
+  mockSubmitGuestCartCommands,
   mockUpdateCartLineFulfillment,
   mockUpdateCartLineQuantity,
   mockUpdateGuestCartLineFulfillment,
   mockUpdateGuestCartLineQuantity,
 } from "../tests/support/checkout-route-test-harness";
+import { cartAttemptResult, committedCartAttempt } from "../tests/support/cart-attempt-results";
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(
@@ -886,105 +891,130 @@ describe("checkout web routes: account cart", () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it("updates the primary grouped cart line and removes duplicate line ids", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
-    let resolveQuantityWrite!: (value: unknown) => void;
-    mockUpdateCartLineQuantity.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveQuantityWrite = resolve;
-        }),
-    );
-    mockRemoveCartLine.mockResolvedValue(checkoutCommit("44", "evt_duplicate_removed"));
+  const PRESENTED_ATTEMPT_ID = "attempt_account_cart_action_0001";
+
+  function cartActionRequest(form: URLSearchParams, guest = false) {
+    return accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...(guest ? { cookie: "chase_sets_anonymous_cart=anon_cart_1" } : {}),
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+  }
+
+  function cartAttemptClient() {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      updateCartLineQuantity: mockUpdateCartLineQuantity,
-      removeCartLine: mockRemoveCartLine,
+      submitCartCommands: mockSubmitCartCommands,
+      submitGuestCartCommands: mockSubmitGuestCartCommands,
+      getCartCommandAttempt: mockGetCartCommandAttempt,
+      getGuestCartCommandAttempt: mockGetGuestCartCommandAttempt,
     });
+  }
+
+  function expectNoPerLineCartWrites() {
+    for (const perLineWrite of [
+      mockUpdateCartLineQuantity,
+      mockUpdateGuestCartLineQuantity,
+      mockUpdateCartLineFulfillment,
+      mockUpdateGuestCartLineFulfillment,
+      mockRemoveCartLine,
+      mockRemoveGuestCartLine,
+    ]) {
+      expect(perLineWrite).not.toHaveBeenCalled();
+    }
+  }
+
+  it("submits a grouped quantity update as one attempt: the primary quantity and every duplicate removal together", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockSubmitCartCommands.mockResolvedValue({
+      status: "completed",
+      attempt: committedCartAttempt([
+        { command: "quantity", lineId: "cli_primary" },
+        { command: "remove", lineId: "cli_duplicate" },
+      ]),
+      ...checkoutCommit("44", "evt_quantity_and_duplicate_removed"),
+    });
+    cartAttemptClient();
 
     const form = new URLSearchParams();
     form.append("lineId", "cli_primary");
     form.append("lineId", "cli_duplicate");
     form.set("quantity", "2");
     form.set("quantityDelta", "1");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
     form.set("intent", "update-cart-line");
 
-    const actionPromise = accountCartAction({
-      request: new Request("http://localhost/account/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
+    const response = (await cartActionRequest(form)) as Response;
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(mockUpdateCartLineQuantity).toHaveBeenCalledWith("cli_primary", { quantity: 3 });
-    expect(mockRemoveCartLine).not.toHaveBeenCalled();
-
-    resolveQuantityWrite(checkoutCommit("43", "evt_quantity"));
-    const response = (await actionPromise) as Response;
-
-    expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
+    expect(mockSubmitCartCommands).toHaveBeenCalledTimes(1);
+    expect(mockSubmitCartCommands).toHaveBeenCalledWith({
+      attemptId: PRESENTED_ATTEMPT_ID,
+      commands: [
+        { type: "quantity", lineId: "cli_primary", quantity: 3 },
+        { type: "remove", lineId: "cli_duplicate" },
+      ],
+    });
+    expectNoPerLineCartWrites();
+    expect(mockGetCartCommandAttempt).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
     await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "44",
       sources: [
-        {
-          sourceContextName: "checkout",
-          maxGlobalPosition: "44",
-          eventIds: ["evt_quantity", "evt_duplicate_removed"],
-        },
+        { sourceContextName: "checkout", maxGlobalPosition: "44", eventIds: ["evt_quantity_and_duplicate_removed"] },
       ],
     });
   });
 
   it("uses absolute optimistic quantity for signed-in grouped cart updates", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
-    mockUpdateCartLineQuantity.mockResolvedValue(checkoutCommit("48", "evt_quantity"));
-    mockRemoveCartLine.mockResolvedValue(checkoutCommit("49", "evt_duplicate_removed"));
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      updateCartLineQuantity: mockUpdateCartLineQuantity,
-      removeCartLine: mockRemoveCartLine,
+    mockSubmitCartCommands.mockResolvedValue({
+      status: "completed",
+      attempt: committedCartAttempt([
+        { command: "quantity", lineId: "cli_primary" },
+        { command: "remove", lineId: "cli_duplicate" },
+      ]),
+      ...checkoutCommit("48", "evt_quantity"),
     });
+    cartAttemptClient();
 
     const form = new URLSearchParams();
     form.append("lineId", "cli_primary");
     form.append("lineId", "cli_duplicate");
     form.set("quantity", "5");
-    form.set("quantityDelta", "-1");
+    form.set("quantityDelta", "1");
     form.set("optimisticStrategy", "optimistic-with-correction");
     form.set("correctionSource", "fresh-read:loader-revalidation");
-    form.set("optimisticSequence", "3");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
     form.set("intent", "update-cart-line");
 
-    const response = (await accountCartAction({
-      request: new Request("http://localhost/account/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const response = (await cartActionRequest(form)) as Response;
 
-    expect(mockUpdateCartLineQuantity).toHaveBeenCalledWith("cli_primary", { quantity: 5 });
-    expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
-    expect(mockUpdateCartLineQuantity.mock.invocationCallOrder[0]).toBeLessThan(
-      mockRemoveCartLine.mock.invocationCallOrder[0] ?? 0,
-    );
+    expect(mockSubmitCartCommands).toHaveBeenCalledWith({
+      attemptId: PRESENTED_ATTEMPT_ID,
+      commands: [
+        { type: "quantity", lineId: "cli_primary", quantity: 5 },
+        { type: "remove", lineId: "cli_duplicate" },
+      ],
+    });
     expect(response.status).toBe(302);
     expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
   });
 
   it("uses absolute optimistic quantity for guest cart updates", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
-    mockUpdateGuestCartLineQuantity.mockResolvedValue(checkoutCommit("50", "evt_guest_quantity"));
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      updateGuestCartLineQuantity: mockUpdateGuestCartLineQuantity,
-      removeGuestCartLine: mockRemoveGuestCartLine,
+    mockSubmitGuestCartCommands.mockResolvedValue({
+      status: "completed",
+      attempt: committedCartAttempt([{ command: "quantity", lineId: "cli_guest" }]),
+      ...checkoutCommit("50", "evt_guest_quantity"),
     });
+    cartAttemptClient();
 
     const form = new URLSearchParams();
     form.append("lineId", "cli_guest");
@@ -992,215 +1022,304 @@ describe("checkout web routes: account cart", () => {
     form.set("optimisticStrategy", "optimistic-with-correction");
     form.set("correctionSource", "fresh-read:loader-revalidation");
     form.set("optimisticSequence", "2");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
     form.set("intent", "update-cart-line");
 
-    const response = (await accountCartAction({
-      request: new Request("http://localhost/account/cart", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const response = (await cartActionRequest(form, true)) as Response;
 
-    expect(mockUpdateGuestCartLineQuantity).toHaveBeenCalledWith("anon_cart_1", "cli_guest", { quantity: 4 });
-    expect(mockRemoveGuestCartLine).not.toHaveBeenCalled();
+    expect(mockSubmitGuestCartCommands).toHaveBeenCalledWith("anon_cart_1", {
+      attemptId: PRESENTED_ATTEMPT_ID,
+      commands: [{ type: "quantity", lineId: "cli_guest", quantity: 4 }],
+    });
+    expect(mockSubmitCartCommands).not.toHaveBeenCalled();
+    expectNoPerLineCartWrites();
     expect(response.status).toBe(302);
     expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
   });
 
-  it("locks preferred listing fulfillment for signed-in grouped cart lines", async () => {
+  it("locks preferred listing fulfillment for every signed-in grouped cart line in one attempt", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
-    mockUpdateCartLineFulfillment
-      .mockResolvedValueOnce(checkoutCommit("45", "evt_primary_locked"))
-      .mockResolvedValueOnce(checkoutCommit("46", "evt_duplicate_locked"));
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      updateCartLineFulfillment: mockUpdateCartLineFulfillment,
+    mockSubmitCartCommands.mockResolvedValue({
+      status: "completed",
+      attempt: committedCartAttempt([
+        { command: "fulfillment", lineId: "cli_primary" },
+        { command: "fulfillment", lineId: "cli_duplicate" },
+      ]),
+      ...checkoutCommit("46", "evt_grouped_locked"),
     });
+    cartAttemptClient();
 
     const form = new URLSearchParams();
     form.append("lineId", "cli_primary");
     form.append("lineId", "cli_duplicate");
     form.set("sellerPreferenceId", "lst_card_vault");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
     form.set("intent", "lock-preferred-listing");
 
-    const response = (await accountCartAction({
-      request: new Request("http://localhost/account/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const response = (await cartActionRequest(form)) as Response;
 
-    expect(mockUpdateCartLineFulfillment).toHaveBeenCalledWith("cli_primary", {
+    const locked = {
+      type: "fulfillment",
       fulfillmentMode: "locked-listing",
       lockedListingId: "lst_card_vault",
       sellerPreferenceId: "lst_card_vault",
       availabilityState: "available",
+    };
+    expect(mockSubmitCartCommands).toHaveBeenCalledTimes(1);
+    expect(mockSubmitCartCommands).toHaveBeenCalledWith({
+      attemptId: PRESENTED_ATTEMPT_ID,
+      commands: [
+        { ...locked, lineId: "cli_primary" },
+        { ...locked, lineId: "cli_duplicate" },
+      ],
     });
-    expect(mockUpdateCartLineFulfillment).toHaveBeenCalledWith("cli_duplicate", {
-      fulfillmentMode: "locked-listing",
-      lockedListingId: "lst_card_vault",
-      sellerPreferenceId: "lst_card_vault",
-      availabilityState: "available",
-    });
-    expect(mockUpdateCartLineFulfillment.mock.invocationCallOrder[0]).toBeLessThan(
-      mockUpdateCartLineFulfillment.mock.invocationCallOrder[1] ?? 0,
-    );
+    expectNoPerLineCartWrites();
     expect(response.status).toBe(302);
-    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
     await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "46",
-      sources: [
-        {
-          sourceContextName: "checkout",
-          maxGlobalPosition: "46",
-          eventIds: ["evt_primary_locked", "evt_duplicate_locked"],
-        },
-      ],
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "46", eventIds: ["evt_grouped_locked"] }],
     });
   });
 
   it("locks preferred listing fulfillment for guest cart lines", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
-    mockUpdateGuestCartLineFulfillment.mockResolvedValue(checkoutCommit("47", "evt_guest_locked"));
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      updateGuestCartLineFulfillment: mockUpdateGuestCartLineFulfillment,
+    mockSubmitGuestCartCommands.mockResolvedValue({
+      status: "completed",
+      attempt: committedCartAttempt([{ command: "fulfillment", lineId: "cli_guest" }]),
+      ...checkoutCommit("47", "evt_guest_locked"),
     });
+    cartAttemptClient();
 
     const form = new URLSearchParams();
     form.append("lineId", "cli_guest");
     form.set("sellerPreferenceId", "lst_card_vault");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
     form.set("intent", "lock-preferred-listing");
 
-    const response = (await accountCartAction({
-      request: new Request("http://localhost/account/cart", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const response = (await cartActionRequest(form, true)) as Response;
 
-    expect(mockUpdateGuestCartLineFulfillment).toHaveBeenCalledWith("anon_cart_1", "cli_guest", {
-      fulfillmentMode: "locked-listing",
-      lockedListingId: "lst_card_vault",
-      sellerPreferenceId: "lst_card_vault",
-      availabilityState: "available",
+    expect(mockSubmitGuestCartCommands).toHaveBeenCalledWith("anon_cart_1", {
+      attemptId: PRESENTED_ATTEMPT_ID,
+      commands: [
+        {
+          type: "fulfillment",
+          lineId: "cli_guest",
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "lst_card_vault",
+          sellerPreferenceId: "lst_card_vault",
+          availabilityState: "available",
+        },
+      ],
     });
     expect(response.status).toBe(302);
-    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
     await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "47",
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "47", eventIds: ["evt_guest_locked"] }],
     });
   });
 
-  it("removes every grouped cart line id from the simplified cart page", async () => {
+  it("removes every grouped cart line id in one attempt from the simplified cart page", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
-    mockRemoveCartLine
-      .mockResolvedValueOnce(checkoutCommit("45", "evt_primary_removed"))
-      .mockResolvedValueOnce(checkoutCommit("46", "evt_duplicate_removed"));
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      removeCartLine: mockRemoveCartLine,
+    mockSubmitCartCommands.mockResolvedValue({
+      status: "completed",
+      attempt: committedCartAttempt([
+        { command: "remove", lineId: "cli_primary" },
+        { command: "remove", lineId: "cli_duplicate" },
+      ]),
+      ...checkoutCommit("46", "evt_grouped_removed"),
     });
+    cartAttemptClient();
 
     const form = new URLSearchParams();
     form.append("lineId", "cli_primary");
     form.append("lineId", "cli_duplicate");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
     form.set("intent", "remove-cart-line");
 
-    const response = (await accountCartAction({
-      request: new Request("http://localhost/account/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+    const response = (await cartActionRequest(form)) as Response;
 
-    expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_primary");
-    expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
-    expect(mockRemoveCartLine.mock.invocationCallOrder[0]).toBeLessThan(
-      mockRemoveCartLine.mock.invocationCallOrder[1] ?? 0,
-    );
+    expect(mockSubmitCartCommands).toHaveBeenCalledTimes(1);
+    expect(mockSubmitCartCommands).toHaveBeenCalledWith({
+      attemptId: PRESENTED_ATTEMPT_ID,
+      commands: [
+        { type: "remove", lineId: "cli_primary" },
+        { type: "remove", lineId: "cli_duplicate" },
+      ],
+    });
+    expectNoPerLineCartWrites();
     expect(response.status).toBe(302);
-    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
     await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "46",
-      sources: [
-        {
-          sourceContextName: "checkout",
-          maxGlobalPosition: "46",
-          eventIds: ["evt_primary_removed", "evt_duplicate_removed"],
-        },
-      ],
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "46", eventIds: ["evt_grouped_removed"] }],
     });
   });
 
-  it("removes grouped guest cart lines in order and preserves every fresh-write receipt", async () => {
+  it("mints exactly one attempt id on the server when a no-script post presents none", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
-    let resolvePrimaryRemove!: (value: unknown) => void;
-    mockRemoveGuestCartLine
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolvePrimaryRemove = resolve;
-          }),
-      )
-      .mockResolvedValueOnce(checkoutCommit("52", "evt_guest_duplicate_removed"));
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      removeGuestCartLine: mockRemoveGuestCartLine,
+    mockSubmitGuestCartCommands.mockResolvedValue({
+      status: "completed",
+      attempt: committedCartAttempt([{ command: "remove", lineId: "cli_guest_primary" }]),
+      ...checkoutCommit("51", "evt_guest_primary_removed"),
     });
+    cartAttemptClient();
 
     const form = new URLSearchParams();
     form.append("lineId", "cli_guest_primary");
-    form.append("lineId", "cli_guest_duplicate");
+    form.set("attemptId", "short");
     form.set("intent", "remove-cart-line");
 
-    const actionPromise = accountCartAction({
-      request: new Request("http://localhost/account/cart", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie: "chase_sets_anonymous_cart=anon_cart_1",
-        },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
+    const response = (await cartActionRequest(form, true)) as Response;
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(mockRemoveGuestCartLine).toHaveBeenCalledWith("anon_cart_1", "cli_guest_primary");
-    expect(mockRemoveGuestCartLine).not.toHaveBeenCalledWith("anon_cart_1", "cli_guest_duplicate");
-
-    resolvePrimaryRemove(checkoutCommit("51", "evt_guest_primary_removed"));
-    const response = (await actionPromise) as Response;
-
-    expect(mockRemoveGuestCartLine).toHaveBeenCalledWith("anon_cart_1", "cli_guest_duplicate");
+    expect(mockSubmitGuestCartCommands).toHaveBeenCalledTimes(1);
+    const [, body] = mockSubmitGuestCartCommands.mock.calls[0]!;
+    expect(body.attemptId).toMatch(/^[A-Za-z0-9_-]{22,128}$/);
+    expect(body.attemptId).not.toBe("short");
     expect(response.status).toBe(302);
-    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
-    await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
-      commitPosition: "52",
-      sources: [
-        {
-          sourceContextName: "checkout",
-          maxGlobalPosition: "52",
-          eventIds: ["evt_guest_primary_removed", "evt_guest_duplicate_removed"],
-        },
-      ],
+  });
+
+  it("refuses a cart write without an owner before anything is sent", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    cartAttemptClient();
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
+    form.set("intent", "remove-cart-line");
+
+    const result = await cartActionRequest(form);
+
+    expect(result).toEqual({
+      attempt: expect.objectContaining({ state: "failed-safe", attemptId: PRESENTED_ATTEMPT_ID, terminalLines: [] }),
     });
+    expect(mockSubmitCartCommands).not.toHaveBeenCalled();
+    expect(mockSubmitGuestCartCommands).not.toHaveBeenCalled();
+    expect(mockGetCartCommandAttempt).not.toHaveBeenCalled();
+  });
+
+  it("resolves a lost response with exactly one lookup and redirects on the committed receipt it returns", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockSubmitCartCommands.mockRejectedValue(new TypeError("fetch failed"));
+    mockGetCartCommandAttempt.mockResolvedValue(
+      committedCartAttempt([{ command: "remove", lineId: "cli_primary" }], {
+        eventId: "evt_attempt_recorded",
+        globalPosition: "61",
+      }),
+    );
+    cartAttemptClient();
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
+    form.set("intent", "remove-cart-line");
+
+    const response = (await cartActionRequest(form)) as Response;
+
+    expect(mockSubmitCartCommands).toHaveBeenCalledTimes(1);
+    expect(mockGetCartCommandAttempt).toHaveBeenCalledTimes(1);
+    expect(mockGetCartCommandAttempt).toHaveBeenCalledWith({
+      attemptId: PRESENTED_ATTEMPT_ID,
+      kind: "cart.commands",
+      target: "cart",
+      requestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(response.status).toBe(302);
+    await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
+      commitPosition: "61",
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "61", eventIds: ["evt_attempt_recorded"] }],
+    });
+  });
+
+  it.each([
+    ["a gateway failure", new MockCheckoutApiError(503, { error: { code: "unavailable" } })],
+    ["a transport loss", new TypeError("fetch failed")],
+  ])("holds %s as ambiguous after one unobserved lookup and never resends", async (_label, lost) => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockSubmitGuestCartCommands.mockRejectedValue(lost);
+    mockGetGuestCartCommandAttempt.mockResolvedValue(cartAttemptResult("not-observed"));
+    cartAttemptClient();
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_guest_primary");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
+    form.set("intent", "remove-cart-line");
+
+    const result = await cartActionRequest(form, true);
+
+    expect(result).toEqual({
+      attempt: {
+        state: "ambiguous",
+        intent: "remove-cart-line",
+        attemptId: PRESENTED_ATTEMPT_ID,
+        message: null,
+        terminalLines: [],
+      },
+    });
+    expect(mockSubmitGuestCartCommands).toHaveBeenCalledTimes(1);
+    expect(mockGetGuestCartCommandAttempt).toHaveBeenCalledTimes(1);
+    expect(mockGetGuestCartCommandAttempt).toHaveBeenCalledWith(
+      "anon_cart_1",
+      expect.objectContaining({ attemptId: PRESENTED_ATTEMPT_ID, kind: "cart.commands" }),
+    );
+  });
+
+  it("returns a partial attempt with its terminal lines instead of redirecting", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockSubmitCartCommands.mockResolvedValue({
+      status: "completed",
+      attempt: committedCartAttempt([
+        { command: "quantity", lineId: "cli_primary" },
+        { command: "remove", lineId: "cli_duplicate", outcome: "conflict", message: "Cart line not found." },
+      ]),
+      ...checkoutCommit("70", "evt_partial"),
+    });
+    cartAttemptClient();
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.append("lineId", "cli_duplicate");
+    form.set("quantity", "2");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
+    form.set("intent", "update-cart-line");
+
+    const result = await cartActionRequest(form);
+
+    expect(result).toEqual({
+      attempt: {
+        state: "partial",
+        intent: "update-cart-line",
+        attemptId: PRESENTED_ATTEMPT_ID,
+        message: null,
+        terminalLines: [{ lineId: "cli_duplicate", outcome: "conflict", message: "Cart line not found." }],
+      },
+    });
+    expect(mockGetCartCommandAttempt).not.toHaveBeenCalled();
+  });
+
+  it("resolves a decided refusal by the attempt it carries without a lookup", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockSubmitCartCommands.mockRejectedValue(
+      new MockCheckoutApiError(409, {
+        error: { code: "cart_changed", message: "Your cart changed. Review it and try again." },
+        attempt: cartAttemptResult("failed-safe", { reason: "cart-changed" }),
+      }),
+    );
+    cartAttemptClient();
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.set("attemptId", PRESENTED_ATTEMPT_ID);
+    form.set("intent", "remove-cart-line");
+
+    const result = await cartActionRequest(form);
+
+    expect(result).toEqual({
+      attempt: expect.objectContaining({
+        state: "failed-safe",
+        message: "Your cart changed. Review it and try again.",
+        terminalLines: [],
+      }),
+    });
+    expect(mockSubmitCartCommands).toHaveBeenCalledTimes(1);
+    expect(mockGetCartCommandAttempt).not.toHaveBeenCalled();
   });
 });

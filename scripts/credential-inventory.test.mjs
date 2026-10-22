@@ -273,24 +273,81 @@ function replacing(name, testPrefixes) {
 }
 
 describe("agent tier in the credential inventory (AC1)", () => {
-  it("admits the repository's agent tier exactly as #10031 ruled", () => {
+  it("admits the repository's agent tier exactly as ruled", () => {
     const { errors, inventory } = validateCredentialInventory(repositoryInventory);
     expect(errors).toEqual([]);
     expect(inventory.agentTier).toEqual({
       project: "chase-sets-agent-dev",
       keys: [
         { name: "EASYPOST_API_KEY", testPrefixes: ["EZTK"] },
+        { name: "EBAY_SANDBOX_APP_ID", testPrefixes: [] },
+        { name: "EBAY_SANDBOX_CERT_ID", testPrefixes: ["SBX-"] },
+        { name: "EBAY_SANDBOX_DEV_ID", testPrefixes: [] },
+        { name: "EBAY_SANDBOX_RUNAME", testPrefixes: [] },
+        { name: "EBAY_SANDBOX_SELLER_A", testPrefixes: [] },
         { name: "SEED_PACKS_SPACES_ACCESS_ID", testPrefixes: [] },
         { name: "SEED_PACKS_SPACES_SECRET_KEY", testPrefixes: [] },
         { name: "STRIPE_PUBLISHABLE_KEY", testPrefixes: ["pk_test_"] },
         { name: "STRIPE_SECRET_KEY", testPrefixes: ["sk_test_", "rk_test_"] },
       ],
+      // tokenExpiresOn is the expiry #10032's closing comment recorded.
+      accounts: [{ name: "lanes", machineAccount: "chase-sets-lanes", access: "read", tokenExpiresOn: "2027-01-16" }],
     });
   });
 
   it("admits test keys, a non-production bucket-scoped Spaces pair and an absent agentTier", () => {
     expect(validateCredentialInventory(tierFixture(admittedKeys)).errors).toEqual([]);
+    expect(validateCredentialInventory(tierFixture(admittedKeys)).inventory.agentTier.accounts).toEqual([]);
     expect(validateCredentialInventory(fixture(tierSecrets)).inventory.agentTier).toBeNull();
+  });
+
+  it("admits accounts with a dated or null tokenExpiresOn", () => {
+    const accounts = [
+      { name: "lanes", machineAccount: "chase-sets-lanes", access: "read", tokenExpiresOn: "2024-02-29" },
+      { name: "spare-2", machineAccount: "chase-sets-spare", access: "read", tokenExpiresOn: null },
+    ];
+    const { errors, inventory } = validateCredentialInventory(tierFixture(admittedKeys, { accounts }));
+    expect(errors).toEqual([]);
+    expect(inventory.agentTier.accounts).toEqual(accounts);
+  });
+
+  const lanes = { name: "lanes", machineAccount: "chase-sets-lanes", access: "read", tokenExpiresOn: "2027-01-16" };
+  const dateError = "agentTier account lanes: tokenExpiresOn must be a YYYY-MM-DD date or null";
+  const nameError = (label) => `agentTier account ${label}: name must match ^[a-z0-9][a-z0-9-]{0,62}$`;
+  it.each([
+    ["a date without zero padding", [{ ...lanes, tokenExpiresOn: "2027-1-16" }], [dateError]],
+    ["a date that is not on the calendar", [{ ...lanes, tokenExpiresOn: "2027-02-29" }], [dateError]],
+    ["a month past December", [{ ...lanes, tokenExpiresOn: "2027-13-01" }], [dateError]],
+    ["a timestamp", [{ ...lanes, tokenExpiresOn: "2027-01-16T00:00:00Z" }], [dateError]],
+    ["a day-first date", [{ ...lanes, tokenExpiresOn: "16/01/2027" }], [dateError]],
+    ["a numeric date", [{ ...lanes, tokenExpiresOn: 20270116 }], [dateError]],
+    ["a missing tokenExpiresOn", [{ name: "lanes", machineAccount: "chase-sets-lanes", access: "read" }], [dateError]],
+    ["an upper-case name", [{ ...lanes, name: "Lanes" }], [nameError("Lanes")]],
+    ["a name starting with a hyphen", [{ ...lanes, name: "-lanes" }], [nameError("-lanes")]],
+    ["a name with an underscore", [{ ...lanes, name: "lanes_1" }], [nameError("lanes_1")]],
+    ["a 64-character name", [{ ...lanes, name: "a".repeat(64) }], [nameError("a".repeat(64))]],
+    ["a non-string name", [{ ...lanes, name: 7 }], [nameError("accounts[0]")]],
+    [
+      "a duplicate account",
+      [lanes, { ...lanes, tokenExpiresOn: null }],
+      ["agentTier account lanes: duplicate account"],
+    ],
+    ["an unknown account field", [{ ...lanes, token: "x" }], ["agentTier account lanes: unknown key token"]],
+    [
+      "an empty machineAccount",
+      [{ ...lanes, machineAccount: "" }],
+      ["agentTier account lanes: machineAccount must be a printable name"],
+    ],
+    ["write access", [{ ...lanes, access: "write" }], ["agentTier account lanes: access must be read"]],
+    ["a non-object account", ["lanes"], ["agentTier account accounts[0]: account must be an object"]],
+  ])("rejects an agentTier account with %s", (_label, accounts, messages) => {
+    expect(validateCredentialInventory(tierFixture(admittedKeys, { accounts })).errors).toEqual(messages);
+  });
+
+  it("rejects agentTier accounts that are not a list", () => {
+    expect(validateCredentialInventory(tierFixture(admittedKeys, { accounts: lanes })).errors).toEqual([
+      "agentTier: accounts must be a list",
+    ]);
   });
 
   it.each([
@@ -449,8 +506,8 @@ describe("credential tiers CLI (AC2)", () => {
     const lines = result.stdout.split("\n").filter(Boolean);
     const headings = lines.filter((line) => !/^ {2}[A-Z_][A-Z0-9_]*$/.test(line));
     expect(headings).toEqual([
-      "Agent tier (Bitwarden project chase-sets-agent-dev), 5 names:",
-      `CI/deploy-only, ${repositoryInventory.secrets.length - 5} names:`,
+      "Agent tier (Bitwarden project chase-sets-agent-dev), 10 names:",
+      `CI/deploy-only, ${repositoryInventory.secrets.length - 10} names:`,
     ]);
     const printed = lines.filter((line) => !headings.includes(line)).map((line) => line.trim());
     const names = repositoryInventory.secrets.map((secret) => secret.name);

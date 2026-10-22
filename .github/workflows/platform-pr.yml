@@ -523,10 +523,23 @@ jobs:
           OPERATOR_EVIDENCE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
           OPERATOR_EVIDENCE_JOB_INDEX: ${{ strategy.job-index }}
           CHASE_SETS_BROWSER_E2E_SYSTEM: production
+          RENDERED_COPY_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+          RENDERED_COPY_JOB_INDEX: ${{ strategy.job-index }}
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: |
           set -o pipefail
           pnpm run test:e2e:suite "${{ matrix.suite_batch }}" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
+
+      - name: Upload rendered-copy observation part
+        id: rendered-copy-part-upload
+        if: ${{ github.event_name == 'pull_request' && matrix.suite_batch == 'rendered_copy' && steps.e2e-producer.outputs.rendered-copy-part != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.e2e-producer.outputs.rendered-copy-part }}
+          path: .artifacts/rendered-copy-parts/${{ steps.e2e-producer.outputs.rendered-copy-part }}/part.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Prepare sanitized operator extension evidence
         id: operator-evidence

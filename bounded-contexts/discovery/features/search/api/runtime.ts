@@ -17,15 +17,17 @@ import {
 } from "../read-model/hybrid-retrieval";
 import {
   previewBulkAddSearchResults,
+  normalizeCategorySet,
   type DiscoveryBulkCartPreview,
   type DiscoverySearchCursorState,
   type DiscoverySearchParams,
 } from "../read-model/queries";
 import { buildDiscoverySearchItemProjectionHandlers, rebuildDiscoverySearchIndex } from "../read-model/projection";
-import { publishDiscoveryCsatOutcomeFact } from "../../../support/request-support/csat-outcome-facts";
+import { appendSearchSessionStarted } from "../../../support/request-support/lifecycle-events";
 import type { DiscoverySearchSuggestion } from "../../../support/client-support/contracts";
 import { suggestDiscoveryItems } from "../read-model/suggestions";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AccountId, SessionId } from "@chase-sets/primitives/typed-ids";
 
 export type DiscoverySearchQuerySignal = Readonly<{
   queryHash: string;
@@ -143,12 +145,9 @@ export function createDiscoveryItemSearchRuntime(
     previewBulkAdd: (params = {}) => previewBulkAddSearchResults(deps.db, params),
     rebuildSearchIndex: (db) => rebuildDiscoverySearchIndex(db),
     publishSearchOutcome: async ({ accountId, sessionId, context }) => {
-      await publishDiscoveryCsatOutcomeFact(deps.eventStore, context, {
-        outcomeCode: "discovery.search-completed",
-        subjectAccountId: accountId,
-        subjectKind: "account",
-        subject: { entityType: "session", entityId: sessionId },
-        idempotencyKey: `discovery:search-session:${sessionId}`,
+      await appendSearchSessionStarted(deps.eventStore, context, {
+        accountId: accountId as AccountId,
+        sessionId: sessionId as SessionId,
       });
     },
     projectors: [
@@ -165,9 +164,11 @@ function sha256(value: string): string {
 }
 
 function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string) {
+  const categories = normalizeCategorySet(params.categories);
   return {
     search: normalizedSearch,
-    category: params.category ?? null,
+    category: categories.length > 0 ? null : (params.category ?? null),
+    ...(categories.length > 0 ? { categories } : {}),
     tag: params.tag ?? null,
     blueprintId: params.blueprintId ?? null,
     language: params.language ?? null,
@@ -175,6 +176,7 @@ function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string)
     marketActivity: params.marketActivity ?? null,
     priceMin: params.priceMin ?? null,
     priceMax: params.priceMax ?? null,
+    ...(params.priceCurrency !== undefined ? { priceCurrency: params.priceCurrency } : {}),
     inStock: params.inStock ?? false,
     fieldFilters: params.fieldFilters ?? [],
     referenceFilters: params.referenceFilters ?? [],
@@ -186,8 +188,9 @@ function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string)
 }
 
 function filterState(params: DiscoverySearchParams): string {
+  const hasCategories = normalizeCategorySet(params.categories).length > 0;
   const filters = [
-    params.category && "category",
+    hasCategories ? "category" : params.category && "category",
     params.tag && "tag",
     params.blueprintId && "blueprint",
     params.language && "language",
@@ -195,6 +198,7 @@ function filterState(params: DiscoverySearchParams): string {
     params.marketActivity && "market-activity",
     params.priceMin && "price-min",
     params.priceMax && "price-max",
+    params.priceCurrency !== undefined && "price-currency",
     params.inStock && "in-stock",
     params.fieldFilters?.length && "field",
     params.referenceFilters?.length && "reference",

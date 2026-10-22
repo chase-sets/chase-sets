@@ -34,7 +34,6 @@ function batch(overrides: Partial<InventoryImportBatch> = {}): InventoryImportBa
     adapter_version: 1,
     quantity_mode: "add",
     default_storage_location_id: "loc_active",
-    source_filename: "stock.csv",
     total_count: 1,
     accepted_count: 0,
     rejected_count: 1,

@@ -11,6 +11,8 @@ import { identityRetentionExemptions } from "./support/runtime-support/retention
 import type { IdentityHostPorts, IdentityServices } from "./support/runtime-support/services";
 import { buildIdentityApi, buildIdentityPublicApi } from "./api";
 import { createAccountMcpHandlers } from "./features/accounts/api/mcp";
+import { createUserMcpHandlers } from "./features/users/api/mcp";
+import { createAccessHubMcpHandlers } from "./features/access-hub/api/mcp";
 import { createIdentityServices } from "./support/runtime-support/services";
 import { identitySchemaSql } from "./support/runtime-support/schema";
 import { identityUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -35,7 +37,23 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
     { mountPath: "/api/identity", contextMountOrdinal: 1, router: buildIdentityApi(services) },
     { mountPath: "/api/public/identity", contextMountOrdinal: 2, router: buildIdentityPublicApi(services) },
   ],
-  buildMcpHandlers: (services) => createAccountMcpHandlers(services.accounts),
+  buildMcpHandlers: (services) => {
+    const accountHandlers = createAccountMcpHandlers(services.accounts);
+    const userHandlers = createUserMcpHandlers(services.users);
+    const accessHubHandlers = createAccessHubMcpHandlers(services.accessHub);
+    return {
+      toolHandlers: {
+        ...accountHandlers.toolHandlers,
+        ...userHandlers.toolHandlers,
+        ...accessHubHandlers.toolHandlers,
+      },
+      resourceHandlers: {
+        ...accountHandlers.resourceHandlers,
+        ...userHandlers.resourceHandlers,
+        ...accessHubHandlers.resourceHandlers,
+      },
+    };
+  },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventReactionsFromManifest({

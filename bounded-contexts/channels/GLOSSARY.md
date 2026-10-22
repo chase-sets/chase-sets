@@ -70,7 +70,9 @@ session authority.
 A **Staged Readback Verdict** is the closed, counts-only result of comparing
 the worker-authorized pre/post staged exports with the composed members. It is
 `applied` only when completeness, identity, member projection and non-member
-stability all hold; otherwise it is unknown or basis-diverged.
+stability all hold; otherwise it is unknown or basis-diverged. A member may
+declare a non-zero pending basis only as a compensation whose composed delta
+exactly cancels it.
 
 ## Connector Liveness Authority
 

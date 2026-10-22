@@ -2,22 +2,22 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it } from "vitest";
 import { SOURCE_FILES } from "../test-window-browser.mjs";
 import { removalRefusal } from "./protocol.mjs";
 
 const read = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
 const launcher = read("launcher.c");
 const installer = read("install-ci.sh");
+const shell = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
+const shellPath = (value) =>
+  process.platform === "win32"
+    ? value.replaceAll("\\", "/").replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`)
+    : value;
 
 it("SYNTHETIC shipped I/W capture validates whole output and retains all resources on every refusal", () => {
   const root = mkdtempSync(path.join(tmpdir(), "SYNTHETIC-removal-witness-"));
-  const shell = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
   // Rebind fixed paths only in an owned fixture copy; production has no overrides.
-  const shellPath = (value) =>
-    process.platform === "win32"
-      ? value.replaceAll("\\", "/").replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`)
-      : value;
   const input = path.join(root, "input");
   const source = path.join(input, "scripts/provider-object-disposition/browser-boundary");
   const target = path.join(root, "target");
@@ -180,16 +180,191 @@ it("cleanup completion requires exact-name and loaded-profile absence after admi
   }
 });
 
-it("native inputs remain exact-head while shared Static retains PR merge-ref provenance", () => {
+// SYNTHETIC temp repositories run the shipped validate-checkout, create-input and
+// archive-input sections; only the fixed git and input paths and the root-owned
+// install are rebound.
+const boundaryInput = "scripts/provider-object-disposition/browser-boundary/boundary.txt";
+const policyInput = "scripts/provider-object-disposition/test-window-policy.mjs";
+const browserInput = "scripts/provider-object-disposition/test-window-browser.mjs";
+const checkout = { runs: 0 };
+
+function git(...args) {
+  const result = spawnSync("git", args, { cwd: checkout.repo, env: checkout.env, encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr}`);
+  return result.stdout;
+}
+
+function commit(parent, files, message) {
+  if (parent) git("checkout", "--quiet", "--force", "--detach", parent);
+  for (const [name, text] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(checkout.repo, name)), { recursive: true });
+    writeFileSync(path.join(checkout.repo, name), text);
+  }
+  git("add", "--all");
+  git("commit", "--quiet", "--message", message);
+  return git("rev-parse", "HEAD").trim();
+}
+
+function merge([base, ...heads], message) {
+  git("checkout", "--quiet", "--force", "--detach", base);
+  git("merge", "--quiet", "--no-ff", "--message", message, ...heads);
+  return git("rev-parse", "HEAD").trim();
+}
+
+beforeAll(() => {
+  checkout.root = mkdtempSync(path.join(tmpdir(), "SYNTHETIC-validate-checkout-"));
+  checkout.repo = path.join(checkout.root, "repo");
+  mkdirSync(checkout.repo);
+  writeFileSync(path.join(checkout.root, "gitconfig"), "");
+  checkout.env = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: path.join(checkout.root, "gitconfig"),
+    GIT_AUTHOR_NAME: "SYNTHETIC",
+    GIT_AUTHOR_EMAIL: "synthetic@example.invalid",
+    GIT_COMMITTER_NAME: "SYNTHETIC",
+    GIT_COMMITTER_EMAIL: "synthetic@example.invalid",
+  };
+  git("init", "--quiet");
+  const inputs = { [boundaryInput]: "base\n", [policyInput]: "base\n", [browserInput]: "base\n" };
+  const base = commit(null, { ...inputs, "README.md": "base\n" }, "base");
+  const main = commit(base, { [boundaryInput]: "main\n" }, "main changes a protected input");
+  const first = commit(base, { "README.md": "first\n" }, "untouched head parent");
+  const untouched = commit(first, { "README.md": "untouched\n" }, "untouched head");
+  const untouchedMerge = merge([main, untouched], "merge untouched head into main");
+  const tree = git("rev-parse", `${untouched}^{tree}`).trim();
+  const orphan = spawnSync("git", ["hash-object", "-t", "commit", "-w", "--stdin"], {
+    cwd: checkout.repo,
+    env: checkout.env,
+    encoding: "utf8",
+    input: [
+      `tree ${git("rev-parse", `${untouchedMerge}^{tree}`).trim()}`,
+      `parent ${"6".repeat(40)}`,
+      `parent ${untouched}`,
+      "author SYNTHETIC <synthetic@example.invalid> 1700000000 +0000",
+      "committer SYNTHETIC <synthetic@example.invalid> 1700000000 +0000",
+      "",
+      "merge ref whose base tip object is missing",
+      "",
+    ].join("\n"),
+  });
+  expect(orphan.status, orphan.stderr).toBe(0);
+  const changed = commit(base, { [boundaryInput]: "changed\n" }, "head changes a protected input");
+  const both = commit(base, { [policyInput]: "both\n" }, "head changes another protected input");
+  const stacked = commit(base, { [boundaryInput]: "stacked\n" }, "unlanded stacked base");
+  const other = commit(base, { "OTHER.md": "other\n" }, "third parent");
+  checkout.sha = {
+    base,
+    main,
+    later: commit(main, { "README.md": "later\n" }, "later main"),
+    first,
+    untouched,
+    untouchedMerge,
+    missingBaseMerge: orphan.stdout.trim(),
+    changed,
+    both,
+    changedMerge: merge([base, changed], "merge changed head into base"),
+    bothMerge: merge([main, both], "merge both-changed head into main"),
+    stackedMerge: merge([stacked, untouched], "merge untouched head into stacked base"),
+    baseMerge: merge([base, untouched], "merge untouched head into base"),
+    octopus: merge([main, untouched, other], "merge two heads into main"),
+    missing: "5".repeat(40),
+    tree,
+  };
   const setup = read("ci-setup.sh");
-  expect(setup).toContain('git merge-base --is-ancestor "$BOUNDARY_HEAD_SHA" HEAD');
-  expect(setup).toContain('git diff --quiet "$BOUNDARY_HEAD_SHA" --');
-  expect(setup).toContain('git archive "$BOUNDARY_HEAD_SHA" --');
+  const start = setup.indexOf("mark validate-checkout");
+  const end = setup.indexOf("mark install-boundary");
+  expect(0 < start && start < end).toBe(true);
+  checkout.script = path.join(checkout.root, "validate-checkout.sh");
+  writeFileSync(
+    checkout.script,
+    setup.slice(0, setup.indexOf("mark runner-identity")) +
+      'input="$1"\nsudo() { if test "$1" = install; then mkdir "$input"; else "$@"; fi; }\n' +
+      setup.slice(start, end).replaceAll("/usr/bin/git ", "git "),
+  );
+});
+
+afterAll(() => {
+  // root is the exact create-only fixture returned by mkdtemp, never a source path.
+  if (checkout.root) rmSync(checkout.root, { recursive: true, force: true });
+});
+
+function validateCheckout(head, bound, landed, drift) {
+  for (const name of [head, bound, landed]) expect(checkout.sha).toHaveProperty(name);
+  git("checkout", "--quiet", "--force", "--detach", checkout.sha[head]);
+  git("update-ref", "refs/remotes/origin/main", checkout.sha[landed]);
+  if (drift) writeFileSync(path.join(checkout.repo, boundaryInput), "drift\n");
+  const input = path.join(checkout.root, `input-${(checkout.runs += 1)}`);
+  const result = spawnSync(shell, [shellPath(checkout.script), shellPath(input)], {
+    cwd: checkout.repo,
+    env: { ...checkout.env, BOUNDARY_HEAD_SHA: checkout.sha[bound] },
+    encoding: "utf8",
+  });
+  return { ...result, input };
+}
+
+const stage = (value) => `provider-boundary-setup-stage:${value}\n`;
+
+it.each([
+  ["(a) main's base tip for an untouched head", "untouchedMerge", "untouched", "main", "base", "main"],
+  ["(a) a base tip that a newer origin/main contains", "untouchedMerge", "untouched", "later", "base", "main"],
+  ["(b) the head that alone changed a protected input", "changedMerge", "changed", "base", "head", "changed"],
+  ["(d) a merge-group checkout equal to the bound SHA", "changed", "changed", "base", "head", "changed"],
+])("SYNTHETIC validate-checkout installs %s", (_, head, bound, landed, role, source) => {
+  const actual = validateCheckout(head, bound, landed);
+  expect({ status: actual.status, stdout: actual.stdout, stderr: actual.stderr }).toEqual({
+    status: 0,
+    stdout:
+      stage("validate-checkout") +
+      `provider-boundary-candidate:${checkout.sha[bound]}\n` +
+      `provider-boundary-native-source:${role}:${checkout.sha[source]}\n` +
+      stage("create-input") +
+      stage("archive-input"),
+    stderr: "",
+  });
+  // The archive is the selected source commit, byte-identical to the checkout.
+  for (const file of [boundaryInput, policyInput, browserInput]) {
+    const installed = readFileSync(path.join(actual.input, file), "utf8");
+    expect(installed).toBe(git("show", `${checkout.sha[source]}:${file}`));
+    expect(installed).toBe(readFileSync(path.join(checkout.repo, file), "utf8"));
+  }
+});
+
+it.each([
+  ["(c) a head and main that both changed protected inputs", "bothMerge", "both", "main", "checkout-boundary-bytes"],
+  ["a second parent other than the bound SHA", "baseMerge", "first", "base", "checkout-ancestry"],
+  ["a single-parent descendant of the bound SHA", "untouched", "first", "base", "checkout-ancestry"],
+  ["a merge ref with three parents", "octopus", "untouched", "main", "checkout-ancestry"],
+  ["a base tip that origin/main does not contain", "stackedMerge", "untouched", "base", "checkout-boundary-bytes"],
+  ["a missing bound commit object", "untouchedMerge", "missing", "main", "validate-checkout"],
+  ["a bound SHA that names a tree", "untouchedMerge", "tree", "main", "validate-checkout"],
+  ["a missing base tip object", "missingBaseMerge", "untouched", "main", "validate-checkout"],
+  ["uncommitted input drift on the base path", "untouchedMerge", "untouched", "main", "checkout-boundary-bytes", true],
+  ["uncommitted input drift on the bound-SHA path", "changed", "changed", "base", "checkout-boundary-bytes", true],
+])("SYNTHETIC validate-checkout refuses %s before create-input", (_, head, bound, landed, refusal, drift) => {
+  const actual = validateCheckout(head, bound, landed, drift);
+  expect({
+    refused: actual.status !== 0,
+    stdout: actual.stdout,
+    refusal: actual.stderr.split("\n").at(-2),
+  }).toEqual({
+    refused: true,
+    stdout: stage("validate-checkout"),
+    refusal: `provider-boundary-setup-refused:${refusal}`,
+  });
+  expect(existsSync(actual.input)).toBe(false);
+});
+
+it("native inputs stay bound to an exact commit while shared Static retains PR merge-ref provenance", () => {
+  const setup = read("ci-setup.sh");
   expect(setup.indexOf("checkout-boundary-bytes")).toBeLessThan(setup.indexOf("mark create-input"));
   const workflow = read("../../../.github/workflows/platform-pr.yml");
   const job = workflow.slice(workflow.indexOf("  static:"), workflow.indexOf("  typecheck:"));
   expect(job).toContain("BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}");
   expect(job).not.toContain("          ref:");
+  expect(job).toMatch(/^ {10}fetch-depth: 0$/m);
+  const diagnostics = read("../../../.github/workflows/browser-boundary-diagnostics.yml");
+  expect(diagnostics).toContain("BOUNDARY_HEAD_SHA: ${{ github.sha }}");
 });
 
 it("required Static keeps the complete source gate and native matrix under unchanged job deadlines", () => {

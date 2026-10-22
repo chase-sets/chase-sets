@@ -20,6 +20,7 @@ export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
   "blocking-staging-verification",
   "production-verification",
   "superseded-pre-mutation",
+  "agent-grant-revocation-activation-refused",
   "doks-admission-webhook-unreachable",
   "unknown",
 ]);
@@ -69,6 +70,14 @@ const ROOT_CAUSES = Object.freeze({
     remediation: "No recovery is required; the newer main commit owns the deploy lane.",
     phase: "pre-mutation",
     affectedComponent: "deploy-lane",
+  },
+  "agent-grant-revocation-activation-refused": {
+    summary:
+      "Agent Grant revocation activation refused after the release was healthy; the release was neither aborted nor rolled back.",
+    remediation:
+      "Read the refusal code and the agent-grant-revocation-status artifact, then follow the activation runbook; do not retry a non-transient refusal until it is resolved.",
+    phase: "agent-grant-revocation-activation",
+    affectedComponent: "agent-grant-revocation",
   },
   "doks-admission-webhook-unreachable": {
     summary:
@@ -349,6 +358,15 @@ export function classifyDeploymentRootCause(input = {}) {
 
   if (input.superseded === true || /superseded-pre-mutation/.test(phaseHint)) {
     return rootCauseRecord("superseded-pre-mutation", input, steps, text);
+  }
+  if (phaseHint === "agent-grant-revocation-activation") {
+    // The status record's refusal is already a bounded code; nothing else is carried.
+    const refusal = (input.diagnostics ?? [])
+      .map((diagnostic) => diagnostic?.refusal)
+      .find((code) => typeof code === "string" && /^revocation_[a-z_]{1,64}$/.test(code));
+    return rootCauseRecord("agent-grant-revocation-activation-refused", input, steps, text, {
+      providerReason: refusal ?? "revocation_release_refused",
+    });
   }
   const admissionWebhookTransient = admissionWebhookTransientFromAttempts(input.diagnostics);
   if (admissionWebhookTransient) {

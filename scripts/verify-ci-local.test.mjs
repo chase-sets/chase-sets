@@ -810,6 +810,7 @@ describe("verify-ci-local", () => {
     expect(records.filter(({ gate }) => gate.id === "e2e-tests").map(({ spec }) => spec)).toEqual(prCommands);
     expect(receipt.plan.gates.find(({ id }) => id === "e2e-tests").e2eBatches).toEqual([
       "marketplace_browse,catalog_admin_integrations",
+      "rendered_copy",
     ]);
   });
 

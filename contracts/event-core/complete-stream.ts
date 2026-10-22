@@ -8,13 +8,13 @@ export type CompleteStreamReader = Readonly<{
 export type ReadCompleteStreamInput = Readonly<{
   streamId: StreamId;
   /** Inclusive first stream version. Defaults to 1. */
-  fromVersion?: StreamVersion;
+  fromVersion?: StreamVersion | undefined;
   /**
    * Inclusive maximum number of events that may be returned. The reader probes
    * past a full page at the bound so an exact-bound history succeeds while a
    * visible next event rejects.
    */
-  maxEvents?: number;
+  maxEvents?: number | undefined;
 }>;
 
 export class EventStreamTooLongError extends Error {
@@ -73,8 +73,12 @@ export async function readCompleteStream(
       return collected;
     }
 
-    const lastStreamVersion = page[page.length - 1].streamVersion;
-    if (!Number.isSafeInteger(lastStreamVersion) || lastStreamVersion === Number.MAX_SAFE_INTEGER) {
+    const lastStreamVersion = page.at(-1)?.streamVersion;
+    if (
+      lastStreamVersion === undefined ||
+      !Number.isSafeInteger(lastStreamVersion) ||
+      lastStreamVersion === Number.MAX_SAFE_INTEGER
+    ) {
       throw new Error(
         `Event stream '${input.streamId}' returned an invalid continuation stream version ${lastStreamVersion}.`,
       );
@@ -88,26 +92,27 @@ function assertContiguousPage(
   page: readonly StoredEvent[],
   expectedFirstVersion: StreamVersion,
 ): void {
-  if (page.length === 0) {
+  const [firstEvent, ...laterEvents] = page;
+  if (firstEvent === undefined) {
     return;
   }
 
-  const firstVersion = page[0].streamVersion;
+  const firstVersion = firstEvent.streamVersion;
   if (firstVersion !== expectedFirstVersion) {
     throw new Error(
       `Event stream '${streamId}' returned stream version ${firstVersion}; inclusive read expected ${expectedFirstVersion}.`,
     );
   }
 
-  for (let index = 1; index < page.length; index += 1) {
-    const previousVersion = page[index - 1].streamVersion;
-    const currentVersion = page[index].streamVersion;
+  let previousVersion = firstVersion;
+  for (const { streamVersion: currentVersion } of laterEvents) {
     const expectedVersion = previousVersion + 1;
     if (currentVersion !== expectedVersion) {
       throw new Error(
         `Event stream '${streamId}' returned non-contiguous stream versions ${previousVersion} then ${currentVersion}; expected ${expectedVersion}.`,
       );
     }
+    previousVersion = currentVersion;
   }
 }
 

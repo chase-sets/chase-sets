@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { globSync, readFileSync } from "node:fs";
+import { globSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createVitest, parseCLI } from "vitest/node";
@@ -169,6 +169,46 @@ async function captureConsole(action) {
 }
 
 describe("run-workspaces", () => {
+  it("relevance DB excluded from non-DB callers", async () => {
+    const discovery = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/discovery");
+    expect(discovery.packageJson.chaseSets.testProfile).toBe("db");
+    const scripts = discovery.packageJson.scripts;
+    const selected = {};
+    expect(process.env.TEST_DATABASE_URL).toBeUndefined();
+    for (const name of ["test:fast", "test:unit", "test:db", "test:relevance"]) {
+      const { filter, options } = parseCLI(scripts[name]);
+      const vitest = await createVitest("test", {
+        root: discovery.dir,
+        config: "./tests/vitest.config.mjs",
+        watch: false,
+        exclude: options.exclude,
+      });
+      try {
+        selected[name] = (await vitest.globTestSpecifications(filter))
+          .map((spec) => path.relative(discovery.dir, spec.moduleId).replaceAll("\\", "/"))
+          .sort();
+      } finally {
+        await vitest.close();
+      }
+      expect(selected[name].includes("tests/search-relevance.db.test.ts"), name).toBe(
+        name === "test:db" || name === "test:relevance",
+      );
+    }
+    const rootScripts = readJson("package.json").scripts;
+    expect(rootScripts["verify:test"]).toContain("test --exclude-test-profile=db");
+    expect(rootScripts["verify:test"]).toContain("test:unit --test-profile=db");
+    expect(rootScripts["coverage:fast"]).toContain("--exclude-test-profile=db");
+    expect(rootScripts["coverage:fast"]).toContain("test:unit --test-profile=db");
+    const workflow = readFileSync(".github/workflows/platform-pr.yml", "utf8");
+    expect(workflow).toContain("test --exclude-test-profile=db");
+    expect(workflow).toContain("test:unit --test-profile=db");
+    expect(workflow).toContain("DB Profile Tests");
+    if (process.env.DISCOVERY_RELEVANCE_SELECTION_OUT)
+      writeFileSync(
+        process.env.DISCOVERY_RELEVANCE_SELECTION_OUT,
+        `${JSON.stringify({ testDatabaseUrlPresent: false, selected }, null, 2)}\n`,
+      );
+  });
   it("keeps local verify:test on the same non-DB workspace runner used by CI", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
     const verifyTest = packageJson.scripts["verify:test"];
@@ -798,7 +838,7 @@ describe("DB duration scheduling", () => {
     );
     for (const [name, scripts] of [
       ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2", "test:db:3"]],
-      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2"]],
+      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
     }
@@ -873,7 +913,7 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(58);
+    expect(census.entries).toHaveLength(59);
     expect(census.entries).toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.entries).toContain("__tests__/activate-agent-grant-revocation.test.ts");
@@ -902,7 +942,7 @@ describe("DB duration scheduling", () => {
         groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([6, 12]);
+      expect(groups.map((files) => files.length)).toEqual([3, 12, 3]);
       expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
       expect(groups[1]).toContain(
         path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
@@ -1271,8 +1311,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(67);
-    expect(replay.observations).toHaveLength(91);
+    expect(unitEntries).toHaveLength(68);
+    expect(replay.observations).toHaveLength(92);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {

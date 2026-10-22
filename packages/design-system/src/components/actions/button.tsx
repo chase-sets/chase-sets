@@ -1,5 +1,5 @@
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useCallback, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
@@ -10,6 +10,7 @@ import { toMotionDomProps } from "../../utils/motion-props";
 import { controlSquareSizeClasses } from "../control-sizing";
 import type { ButtonTone, ButtonSize } from "./shared";
 import { buttonBaseClass, buttonToneClasses, buttonSizeClasses, resolveInteractiveMotion } from "./shared";
+import { useFormContext } from "../forms/form";
 
 function iconTone(tone: ButtonTone): "inverse" | "accent" {
   return tone === "primary" || tone === "danger" ? "inverse" : "accent";
@@ -60,6 +61,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref,
 ) {
+  const { pendingSubmitter } = useFormContext();
+  const [buttonElement, setButtonElement] = useState<HTMLButtonElement | null>(null);
   const motionSettings = useChaseMotion();
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
@@ -68,18 +71,27 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
   const nativeProps = toMotionDomProps(rest);
   const isDisabled = disabled || loading;
+  const derivedLoading = pendingSubmitter !== null && pendingSubmitter === buttonElement;
+  const setButtonRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      setButtonElement(node);
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
 
   return (
     <motion.button
       {...nativeProps}
-      ref={ref}
+      ref={setButtonRef}
       type={type}
       disabled={isDisabled}
-      aria-busy={loading || undefined}
+      aria-busy={loading || derivedLoading || undefined}
       {...(isDisabled ? undefined : interactiveMotion)}
       className={cx(buttonBaseClass, buttonToneClasses[tone], buttonSizeClasses[size], block && "w-full")}
     >
-      {loading ? <ButtonSpinner tone={tone} /> : null}
+      {loading || derivedLoading ? <ButtonSpinner tone={tone} /> : null}
       <span className={cx("inline-flex min-w-0 max-w-full items-center justify-center gap-2", loading && "invisible")}>
         {renderLeadingIcon(leadingIcon, tone)}
         <span className="min-w-0">{children}</span>
