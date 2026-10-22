@@ -68,10 +68,15 @@ const boundedSites = [
     pointer: "bounded-contexts/identity/support/request-support/csat-outcome-facts.test.ts",
     consumption: "first-event",
   },
+  {
+    id: "bounded-contexts/marketplace/features/listings/api/listing-request.ts#readStream#1",
+    pointer: "bounded-contexts/marketplace/features/listings/api/listing-request.test.ts",
+    consumption: "replay",
+  },
 ];
 
 const expectedInventory = [
-  ...boundedSites.map(({ id }) => [id, "1"]),
+  ...boundedSites.map(({ id, consumption }) => [id, consumption === "replay" ? "2" : "1"]),
   // The authority-tracking decorator forwards the caller's complete read request.
   [
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
@@ -121,7 +126,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twenty-one-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twenty-two-call corpus and nine production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });
@@ -266,6 +271,18 @@ describe("bounded-stream-contracts-acceptance-control", () => {
       ),
     ).toContain("presence-consumption-changed");
   });
+
+  it("rejects Listing request replay bound, duplicate-history guard, and later-event mutants", () => {
+    const file = "bounded-contexts/marketplace/features/listings/api/listing-request.ts";
+    const source = readSource(file);
+    expect(errorCodes(mutatedInventory(file, source.replace("limit: 2", "limit: 1")))).toContain("inventory-mismatch");
+    expect(errorCodes(mutatedInventory(file, source.replace("events.length !== 1 ||", "")))).toContain(
+      "replay-consumption-changed",
+    );
+    expect(errorCodes(mutatedInventory(file, source.replace("events[0]", "events[1]")))).toContain(
+      "replay-consumption-changed",
+    );
+  });
 });
 
 function deriveProgramInventory(compilerProgram) {
@@ -334,7 +351,9 @@ function acceptanceErrors(inventory, targetOverrides = new Map()) {
       errors.push({ code: "bounded-site-missing", siteId: expected.id });
       continue;
     }
-    if (site.limit !== "1") errors.push({ code: "bounded-limit-not-one", siteId: expected.id });
+    if (expected.consumption !== "replay" && site.limit !== "1") {
+      errors.push({ code: "bounded-limit-not-one", siteId: expected.id });
+    }
     validateConsumption(site, expected.consumption, errors);
     validatePointer(site, targetOverrides, errors);
   }
@@ -352,6 +371,7 @@ function validateConsumption(site, expectedConsumption, errors) {
 
   const indices = [];
   const lengthComparisons = [];
+  const exactLengthComparisons = [];
   visit(scope, (node) => {
     if (
       ts.isElementAccessExpression(node) &&
@@ -373,6 +393,12 @@ function validateConsumption(site, expectedConsumption, errors) {
           parent.operatorToken.kind === ts.SyntaxKind.GreaterThanToken &&
           parent.right.getText(site.source) === "0",
       );
+      exactLengthComparisons.push(
+        ts.isBinaryExpression(parent) &&
+          parent.left === node &&
+          parent.operatorToken.getText(site.source) === "!==" &&
+          parent.right.getText(site.source) === "1",
+      );
     }
   });
 
@@ -384,6 +410,12 @@ function validateConsumption(site, expectedConsumption, errors) {
     (indices.length !== 0 || lengthComparisons.length !== 1 || !lengthComparisons[0])
   ) {
     errors.push({ code: "presence-consumption-changed", siteId: site.id });
+  }
+  if (
+    expectedConsumption === "replay" &&
+    (indices.length !== 1 || indices[0] !== "0" || exactLengthComparisons.filter(Boolean).length !== 1)
+  ) {
+    errors.push({ code: "replay-consumption-changed", siteId: site.id });
   }
 }
 

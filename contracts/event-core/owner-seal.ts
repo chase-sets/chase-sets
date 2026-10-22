@@ -89,8 +89,14 @@ export async function assertOwnerStreamCommitParticipants(
   participants: readonly OwnerStreamCommitParticipant[],
   expectedContext?: EventStoreContext,
 ): Promise<void> {
+  const consumedStreams = new Set<string>();
   for (const participant of participants) {
     assertOwnerStreamCommitParticipantShape(participant);
+    const streamKey = `${participant.ownerContext}\u0000${participant.streamId}`;
+    if (consumedStreams.has(streamKey)) {
+      throw new Error(`Owner stream seal is duplicated for ${participant.ownerContext}.`);
+    }
+    consumedStreams.add(streamKey);
     if (
       expectedContext &&
       (participant.seal.context.tenantId !== expectedContext.tenantId ||

@@ -421,7 +421,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
             return await withPgTransaction(
               pool,
               async (client) => {
-                await assertOwnerStreamCommitParticipants(options?.commitParticipants ?? [], inputs[0]?.context);
+                const commitParticipants = options?.commitParticipants;
+                if (commitParticipants?.length) {
+                  await assertOwnerStreamCommitParticipants(commitParticipants, inputs[0]?.context);
+                }
                 return appendEventsToStreams({
                   client,
                   inputs,

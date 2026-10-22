@@ -370,11 +370,11 @@
     "status": "cutover"
   },
   "deployables/platform-api/src/app.ts": {
-    "families": ["import-create"],
-    "authority": "Collections owner-authorized Saved List snapshot and Inventory trusted actor context",
-    "attempt": "caller requestId through recovered Inventory import-create service",
-    "read": "private first acceptance receipt and durable validation job",
-    "consumer": "Collections to Inventory host port",
+    "families": ["import-create", "item-read"],
+    "authority": "Collections owner-authorized Saved List snapshot and Inventory trusted actor context; trusted Inventory item and allocation authority for channel-only Listing activation",
+    "attempt": "caller requestId through recovered Inventory import-create service; owner-local seal captured before Marketplace append",
+    "read": "private first acceptance receipt and durable validation job; current Inventory item and allocation snapshots",
+    "consumer": "Collections to Inventory host port; Marketplace listing target authority",
     "status": "cutover"
   },
   "deployables/platform-worker/src/main.ts": {

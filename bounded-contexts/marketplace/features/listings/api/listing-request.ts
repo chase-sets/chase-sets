@@ -45,6 +45,7 @@ export function createListingRequestExecutor(eventStore: EventStore) {
       )
       .digest("hex");
     const replay = async () => {
+      // @stream-read-contract bounded-contexts/marketplace/features/listings/api/listing-request.test.ts
       const events = await eventStore.readStream({ streamId, limit: 2 });
       if (!events.length) return null;
       const event = events[0]!;

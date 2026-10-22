@@ -260,7 +260,10 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       const priorEventsById = new Map(eventsById);
 
       try {
-        await assertOwnerStreamCommitParticipants(options?.commitParticipants ?? [], inputs[0]?.context);
+        const commitParticipants = options?.commitParticipants;
+        if (commitParticipants?.length) {
+          await assertOwnerStreamCommitParticipants(commitParticipants, inputs[0]?.context);
+        }
         return inputs.map((input) => ({
           streamId: input.streamId,
           storedEvents: input.events.length === 0 ? [] : appendToStream(input),
