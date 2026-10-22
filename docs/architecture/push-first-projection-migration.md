@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (171)
+## Projection Groups (172)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -82,6 +82,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `customer-feedback:customer-feedback-case-attention-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-analytics-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-invitation-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
+| `customer-feedback:customer-feedback-csat-outcome-fact-projection` | Customer Feedback | auth, identity, discovery | push-eligible | 0/3 |
 | `customer-feedback:customer-feedback-feedback-case-opening` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-feedback-case-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-notification-delivery-recording` | Customer Feedback | notifications | push-eligible | 0/1 |

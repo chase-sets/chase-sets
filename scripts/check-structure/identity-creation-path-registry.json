@@ -207,7 +207,7 @@
       "members": [
         {
           "file": "bounded-contexts/auth/support/api-support/guest-checkout-routes.ts",
-          "line": 223,
+          "line": 222,
           "constructor": "createGuestAccount"
         },
         {
