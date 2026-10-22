@@ -1653,8 +1653,9 @@ export function spliceIntoBody(body, block) {
 }
 
 function rateLimitBackoffMs(response, attempt) {
-  const retryAfter = Number(response.headers.get("retry-after"));
-  if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+  const retryAfterHeader = response.headers.get("retry-after");
+  const retryAfter = Number(retryAfterHeader);
+  if (retryAfterHeader !== null && Number.isFinite(retryAfter) && retryAfter >= 0) {
     return Math.min(RATE_LIMIT_BACKOFF_CAP_MS, retryAfter * 1_000);
   }
   const reset = Number(response.headers.get("x-ratelimit-reset"));
@@ -1664,8 +1665,18 @@ function rateLimitBackoffMs(response, attempt) {
   return Math.min(RATE_LIMIT_BACKOFF_CAP_MS, 250 * 2 ** (attempt - 1));
 }
 
-function isRateLimited(response) {
-  return response.status === 429 || response.status === 403;
+async function isRateLimited(response) {
+  if (response.status === 429) return true;
+  if (response.status !== 403) return false;
+  if (response.headers.has("retry-after") || response.headers.get("x-ratelimit-remaining") === "0") return true;
+  const payload = await response
+    .clone()
+    .json()
+    .catch(() => null);
+  return (
+    typeof payload?.message === "string" &&
+    /secondary rate limit|primary rate limit|API rate limit exceeded/i.test(payload.message)
+  );
 }
 
 async function waitForRateLimit(response, attempt) {
@@ -1673,9 +1684,16 @@ async function waitForRateLimit(response, attempt) {
   await new Promise((resolve) => setTimeout(resolve, delay));
 }
 
-async function gh(pathname, token, init = {}, request = globalThis.fetch, { retryRateLimit = false } = {}) {
+async function gh(
+  pathname,
+  token,
+  init = {},
+  request = globalThis.fetch,
+  { retryRateLimit = false, beforeRequest } = {},
+) {
   const url = pathname.startsWith("http") ? pathname : `https://api.github.com${pathname}`;
   for (let attempt = 1; ; attempt += 1) {
+    beforeRequest?.();
     const response = await request(url, {
       ...init,
       headers: {
@@ -1686,7 +1704,7 @@ async function gh(pathname, token, init = {}, request = globalThis.fetch, { retr
       },
     });
     if (response.ok) return response;
-    if (retryRateLimit && isRateLimited(response) && attempt < RATE_LIMIT_RETRY_ATTEMPTS) {
+    if (retryRateLimit && (await isRateLimited(response)) && attempt < RATE_LIMIT_RETRY_ATTEMPTS) {
       await waitForRateLimit(response, attempt);
       continue;
     }
@@ -1874,7 +1892,7 @@ query($owner:String!, $name:String!, $number:Int!, $after:String) {
   }
 }`;
 
-async function graphql(query, variables, token, request, options = { retryRateLimit: false }) {
+async function graphql(query, variables, token, request, options = { retryRateLimit: true }) {
   const response = await gh(
     "https://api.github.com/graphql",
     token,
@@ -1925,12 +1943,19 @@ export async function collectLiveMonthlyRefinedInventory({ repository, token, re
 // block still renders and the splice still runs.
 async function collectLiveBacklogRelevanceDelivered({ owner, name, token, request }) {
   let requests = 0;
-  const load = async (query, variables, path) => {
+  const consumeRequest = () => {
     requests += 1;
     if (requests > BACKLOG_RELEVANCE_MAX_REQUESTS) {
       throw relevanceError("ROADMAP_RELEVANCE_R3_REQUEST_BUDGET_EXCEEDED");
     }
-    return path(await graphql(query, { owner, name, ...variables }, token, request, { retryRateLimit: true }));
+  };
+  const load = async (query, variables, path) => {
+    return path(
+      await graphql(query, { owner, name, ...variables }, token, request, {
+        retryRateLimit: true,
+        beforeRequest: consumeRequest,
+      }),
+    );
   };
   try {
     const numbers = await collectBacklogRelevanceDelivered({

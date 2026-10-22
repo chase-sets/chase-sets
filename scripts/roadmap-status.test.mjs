@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { classified } from "./backlog-classify.mjs";
 import {
   BACKLOG_RELEVANCE_KEEP_OPEN_MARKER,
@@ -196,6 +196,7 @@ function createMainRequest({
   roadmapBody = `${START_MARKER}\nstale\n${END_MARKER}`,
   childrenByEpic = new Map(),
   timelinesByIssue = new Map(),
+  graphqlRespond = () => null,
 } = {}) {
   const requests = [];
   const request = async (url, init = {}) => {
@@ -205,6 +206,8 @@ function createMainRequest({
 
     if (parsed.pathname === "/graphql") {
       const { query, variables } = JSON.parse(init.body);
+      const override = await graphqlRespond(query, variables, init);
+      if (override) return override;
       if (query.includes("REFINED_INVENTORY_PRS_SENTINEL")) {
         return jsonResponse({
           data: {
@@ -3215,6 +3218,88 @@ describe("backlog relevance", () => {
   const delivered9101 = [{ number: 9101, references: [merged("2026-10-08T20:42:09Z")] }];
 
   it.each([
+    ["issue facts", "states:[OPEN,CLOSED]"],
+    ["window milestones", "WINDOW_MILESTONES_SENTINEL"],
+    ["window issues", "WINDOW_ISSUES_SENTINEL"],
+    ["refined inventory", "REFINED_INVENTORY_PRS_SENTINEL"],
+  ])("recovers a core %s secondary-limit 403 and patches the roadmap", async (_name, sentinel) => {
+    let attempts = 0;
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      relevance: { issues: delivered9101 },
+      graphqlRespond: (query) => {
+        if (!query.includes(sentinel)) return null;
+        attempts += 1;
+        return attempts === 1
+          ? jsonResponse({ message: "You have exceeded a secondary rate limit" }, { status: 403 })
+          : null;
+      },
+    });
+
+    expect(attempts).toBeGreaterThanOrEqual(2);
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.generated[0]).toContain(`${R3}: **1**`);
+    expect(result.patches).toHaveLength(1);
+    expect(JSON.parse(result.patches[0].body).body).toBe(result.generated[0]);
+  });
+
+  it("fails a core permission 403 once without generating or splicing the roadmap", async () => {
+    let attempts = 0;
+    let body = `Before\n${START_MARKER}\nstale\n${END_MARKER}\nAfter`;
+    const original = body;
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      roadmapBody: () => body,
+      relevance: { issues: delivered9101 },
+      graphqlRespond: () => {
+        attempts += 1;
+        return jsonResponse({ message: "Resource not accessible by integration" }, { status: 403 });
+      },
+    });
+    for (const patch of result.patches) body = JSON.parse(patch.body).body;
+
+    expect(attempts).toBe(1);
+    expect(result.code).toBe(1);
+    expect(result.diagnostics).toEqual([expect.stringContaining("GitHub request failed: 403")]);
+    expect(result.generated).toEqual([]);
+    expect(result.patches).toEqual([]);
+    expect(body).toBe(original);
+  });
+
+  it.each(["alternating limits", "persistent limit at the cap"])(
+    "caps physical relevance requests at 256 with %s and still splices unknown",
+    async (mode) => {
+      let physicalRequests = 0;
+      const result = await runRelevanceMain({
+        issues: mainIssues(),
+        relevance: {
+          issues: Array.from({ length: 300 }, (_, index) => ({
+            number: 10_000 + index,
+            references: [merged(MERGE_1)],
+          })),
+          respond: () => {
+            physicalRequests += 1;
+            if (physicalRequests % 2 === 1 || (mode === "persistent limit at the cap" && physicalRequests >= 255)) {
+              return new Response(JSON.stringify({ message: "You have exceeded a secondary rate limit" }), {
+                status: 403,
+                headers: { "retry-after": "0" },
+              });
+            }
+            return null;
+          },
+        },
+      });
+
+      expect(physicalRequests).toBe(256);
+      expect(result.code).toBe(0);
+      expect(result.diagnostics).toEqual([]);
+      expect(result.generated[0]).toContain(`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_BUDGET_EXCEEDED`);
+      expect(result.patches).toHaveLength(1);
+    },
+  );
+
+  it.each([
     ["a complete collection", {}, [`${R3}: **1**`, "- #9101"]],
     [
       "an R3 page error",
@@ -3321,6 +3406,60 @@ describe("backlog relevance", () => {
 
     expect(result.code).toBe(0);
     expect(result.diagnostics).toEqual([]);
+    expect(result.generated[0]).toContain(`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_FAILED`);
+    expect(result.patches).toHaveLength(1);
+  });
+
+  it.each([
+    [429, { "retry-after": "2" }, 2_000],
+    [429, { "retry-after": "10" }, 5_000],
+    [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(NOW / 1_000 + 3) }, 3_000],
+    [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(NOW / 1_000 - 1) }, 0],
+  ])("retries status %s with provider backoff headers %j", async (status, headers, delay) => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const delays = [];
+    const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation((callback, ms) => {
+      delays.push(ms);
+      return originalSetTimeout(callback, 0);
+    });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(NOW);
+    let attempts = 0;
+    try {
+      const result = await runRelevanceMain({
+        issues: mainIssues(),
+        relevance: {
+          issues: delivered9101,
+          respond: () => {
+            attempts += 1;
+            return attempts === 1 ? new Response("{}", { status, headers }) : null;
+          },
+        },
+      });
+
+      expect(delays).toEqual([delay]);
+      expect(result.code).toBe(0);
+      expect(result.generated[0]).toContain(`${R3}: **1**`);
+      expect(result.patches).toHaveLength(1);
+    } finally {
+      timer.mockRestore();
+      clock.mockRestore();
+    }
+  });
+
+  it("does not retry a relevance permission 403 and splices an explicit unknown", async () => {
+    let attempts = 0;
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      relevance: {
+        respond: () => {
+          attempts += 1;
+          return jsonResponse({ message: "Resource not accessible by integration" }, { status: 403 });
+        },
+      },
+    });
+
+    expect(attempts).toBe(1);
+    expect(result.code).toBe(0);
     expect(result.generated[0]).toContain(`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_FAILED`);
     expect(result.patches).toHaveLength(1);
   });
