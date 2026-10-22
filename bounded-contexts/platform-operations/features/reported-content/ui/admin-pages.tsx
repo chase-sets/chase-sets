@@ -20,10 +20,12 @@ import {
   Text,
   Textarea,
 } from "@chase-sets/design-system";
-import type {
-  ReportedContentQueueDetail,
-  ReportedContentQueueItem,
-  ReportedContentQueueMetrics,
+import {
+  REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE,
+  type ReportedContentModerationAction,
+  type ReportedContentQueueDetail,
+  type ReportedContentQueueItem,
+  type ReportedContentQueueMetrics,
 } from "../api/contracts";
 
 type ListResponse<T> = Readonly<{
@@ -55,12 +57,21 @@ const statusItems = [
     value: "review-reply-withdrawn",
     label: t("platformOperations.reportedContent.status.reviewReplyWithdrawn"),
   },
+  {
+    value: "account-contact-requested",
+    label: t("platformOperations.reportedContent.status.accountContactRequested"),
+  },
+  {
+    value: "profile-display-name-redacted",
+    label: t("platformOperations.reportedContent.status.profileDisplayNameRedacted"),
+  },
 ];
 
 const targetTypeItems = [
   { value: "all", label: t("platformOperations.reportedContent.allTargets") },
   { value: "listing", label: t("platformOperations.reportedContent.target.listing") },
   { value: "review", label: t("platformOperations.reportedContent.target.review") },
+  { value: "account-profile", label: t("platformOperations.reportedContent.target.accountProfile") },
 ];
 
 function statusLabel(status: string) {
@@ -76,7 +87,8 @@ function statusTone(status: string) {
     status === "suspension-escalated" ||
     status === "review-withdrawn" ||
     status === "review-feedback-redacted" ||
-    status === "review-reply-withdrawn"
+    status === "review-reply-withdrawn" ||
+    status === "profile-display-name-redacted"
   ) {
     return "danger";
   }
@@ -87,25 +99,78 @@ function targetTypeLabel(targetType: string) {
   return targetTypeItems.find((item) => item.value === targetType)?.label ?? targetType;
 }
 
-function actionLabel(action: string) {
-  switch (action) {
-    case "dismiss":
-      return t("platformOperations.reportedContent.actionLabel.dismiss");
-    case "contact-seller":
-      return t("platformOperations.reportedContent.actionLabel.contactSeller");
-    case "unlist":
-      return t("platformOperations.reportedContent.actionLabel.unlist");
-    case "escalate-account-suspension":
-      return t("platformOperations.reportedContent.actionLabel.escalate");
-    case "withdraw-review":
-      return t("platformOperations.reportedContent.actionLabel.withdrawReview");
-    case "redact-review-feedback":
-      return t("platformOperations.reportedContent.actionLabel.redactReviewFeedback");
-    case "withdraw-review-reply":
-      return t("platformOperations.reportedContent.actionLabel.withdrawReviewReply");
-    default:
-      return action;
-  }
+// One presentation per contract action; the detail page offers exactly its target's actions.
+const actionPresentation: Readonly<
+  Record<
+    ReportedContentModerationAction,
+    Readonly<{
+      button: string;
+      label: string;
+      tone: "secondary" | "danger";
+      icon: "check" | "message" | "warning" | "shield";
+    }>
+  >
+> = {
+  dismiss: {
+    button: t("platformOperations.reportedContent.action.dismiss"),
+    label: t("platformOperations.reportedContent.actionLabel.dismiss"),
+    tone: "secondary",
+    icon: "check",
+  },
+  "contact-seller": {
+    button: t("platformOperations.reportedContent.action.contactSeller"),
+    label: t("platformOperations.reportedContent.actionLabel.contactSeller"),
+    tone: "secondary",
+    icon: "message",
+  },
+  "contact-account": {
+    button: t("platformOperations.reportedContent.action.contactAccount"),
+    label: t("platformOperations.reportedContent.actionLabel.contactAccount"),
+    tone: "secondary",
+    icon: "message",
+  },
+  unlist: {
+    button: t("platformOperations.reportedContent.action.unlist"),
+    label: t("platformOperations.reportedContent.actionLabel.unlist"),
+    tone: "danger",
+    icon: "warning",
+  },
+  "withdraw-review": {
+    button: t("platformOperations.reportedContent.action.withdrawReview"),
+    label: t("platformOperations.reportedContent.actionLabel.withdrawReview"),
+    tone: "danger",
+    icon: "warning",
+  },
+  "redact-review-feedback": {
+    button: t("platformOperations.reportedContent.action.redactReviewFeedback"),
+    label: t("platformOperations.reportedContent.actionLabel.redactReviewFeedback"),
+    tone: "danger",
+    icon: "warning",
+  },
+  "withdraw-review-reply": {
+    button: t("platformOperations.reportedContent.action.withdrawReviewReply"),
+    label: t("platformOperations.reportedContent.actionLabel.withdrawReviewReply"),
+    tone: "danger",
+    icon: "warning",
+  },
+  "redact-profile-display-name": {
+    button: t("platformOperations.reportedContent.action.redactProfileDisplayName"),
+    label: t("platformOperations.reportedContent.actionLabel.redactProfileDisplayName"),
+    tone: "danger",
+    icon: "warning",
+  },
+  "escalate-account-suspension": {
+    button: t("platformOperations.reportedContent.action.escalate"),
+    label: t("platformOperations.reportedContent.actionLabel.escalate"),
+    tone: "danger",
+    icon: "shield",
+  },
+};
+
+function reporterKindLabel(reporterKind: "account" | "visitor") {
+  return reporterKind === "account"
+    ? t("platformOperations.reportedContent.reporterKind.account")
+    : t("platformOperations.reportedContent.reporterKind.visitor");
 }
 
 function formatReportDateTime(value: string | null) {
@@ -262,6 +327,10 @@ export function ReportedContentAdminDetailPage({
               },
               { key: t("platformOperations.reportedContent.reports"), value: item.report_count },
               {
+                key: t("platformOperations.reportedContent.distinctReporters"),
+                value: item.distinct_reporter_count,
+              },
+              {
                 key: t("platformOperations.reportedContent.firstReported"),
                 value: formatReportDateTime(item.first_reported_at),
               },
@@ -283,45 +352,18 @@ export function ReportedContentAdminDetailPage({
               maxLength={1000}
             />
             <Stack direction={{ base: "column", md: "row" }} gap={2}>
-              <Button type="submit" name="action" value="dismiss" tone="secondary" leadingIcon="check">
-                {t("platformOperations.reportedContent.action.dismiss")}
-              </Button>
-              <Button type="submit" name="action" value="contact-seller" tone="secondary" leadingIcon="message">
-                {t("platformOperations.reportedContent.action.contactSeller")}
-              </Button>
-              {item.target_type === "listing" ? (
-                <Button type="submit" name="action" value="unlist" tone="danger" leadingIcon="warning">
-                  {t("platformOperations.reportedContent.action.unlist")}
+              {REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE[item.target_type].map((action) => (
+                <Button
+                  key={action}
+                  type="submit"
+                  name="action"
+                  value={action}
+                  tone={actionPresentation[action].tone}
+                  leadingIcon={actionPresentation[action].icon}
+                >
+                  {actionPresentation[action].button}
                 </Button>
-              ) : null}
-              {item.target_type === "review" ? (
-                <>
-                  <Button type="submit" name="action" value="withdraw-review" tone="danger" leadingIcon="warning">
-                    {t("platformOperations.reportedContent.action.withdrawReview")}
-                  </Button>
-                  <Button
-                    type="submit"
-                    name="action"
-                    value="redact-review-feedback"
-                    tone="danger"
-                    leadingIcon="warning"
-                  >
-                    {t("platformOperations.reportedContent.action.redactReviewFeedback")}
-                  </Button>
-                  <Button type="submit" name="action" value="withdraw-review-reply" tone="danger" leadingIcon="warning">
-                    {t("platformOperations.reportedContent.action.withdrawReviewReply")}
-                  </Button>
-                </>
-              ) : null}
-              <Button
-                type="submit"
-                name="action"
-                value="escalate-account-suspension"
-                tone="danger"
-                leadingIcon="shield"
-              >
-                {t("platformOperations.reportedContent.action.escalate")}
-              </Button>
+              ))}
             </Stack>
             <Text size="sm" tone="secondary">
               {t("platformOperations.reportedContent.reviewActionsRequireNote")}
@@ -330,7 +372,7 @@ export function ReportedContentAdminDetailPage({
           {item.last_action ? (
             <Text size="sm" tone="secondary">
               {t("platformOperations.reportedContent.lastAction", {
-                action: actionLabel(item.last_action),
+                action: actionPresentation[item.last_action].label,
                 timestamp: formatReportDateTime(item.last_action_at),
               })}
             </Text>
@@ -345,7 +387,7 @@ export function ReportedContentAdminDetailPage({
                   <Text>{report.details ?? t("platformOperations.reportedContent.noDetails")}</Text>
                   <Text size="sm" tone="secondary">
                     {t("platformOperations.reportedContent.reportAttribution", {
-                      reporter: report.reporterAccountId ?? report.reporterKey,
+                      reporterKind: reporterKindLabel(report.reporterKind),
                       timestamp: formatReportDateTime(report.submittedAt),
                     })}
                   </Text>

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -58,6 +59,7 @@ beforeAll(() => {
   const manifests = execFileSync("git", ["ls-files", "bounded-contexts/*/context.json"], {
     cwd: root,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   })
     .trim()
     .split(/\r?\n/);
@@ -83,6 +85,7 @@ function findCheckoutOnlyScriptImports(repoRoot) {
   const files = execFileSync("git", ["ls-files", "-z", "infrastructure", "bounded-contexts", "contracts", "packages"], {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   })
     .split("\0")
     .filter(
@@ -310,6 +313,10 @@ it("unclassified-producer candidate-versus-bypass mutant", async () => {
     .replace(
       '"./generate-link-intents.mjs"',
       JSON.stringify(pathToFileURL(path.join(import.meta.dirname, "generate-link-intents.mjs")).href),
+    )
+    .replace(
+      '"../lib/git-listing.mjs"',
+      JSON.stringify(pathToFileURL(path.join(import.meta.dirname, "../lib/git-listing.mjs")).href),
     );
   const bypass = await import(`data:text/javascript;base64,${Buffer.from(bypassSource).toString("base64")}`);
   for (const sibling of [arbitrary, ...methodSiblings]) {
