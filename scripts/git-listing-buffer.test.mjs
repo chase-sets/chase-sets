@@ -362,9 +362,7 @@ function sourceRows(sf, relativePath) {
         addRow(
           node,
           kind,
-          hops > 1
-            ? { status: "ambiguous", reason: "wrapper-depth" }
-            : optionsStatus(node.arguments[2], scope),
+          hops > 1 ? { status: "ambiguous", reason: "wrapper-depth" } : optionsStatus(node.arguments[2], scope),
         );
       } else if (!spawner && !fn && ts.isIdentifier(node.expression)) {
         const unresolvedTokens = [node.arguments[0], node.arguments[1], node.arguments[2]].flatMap(
