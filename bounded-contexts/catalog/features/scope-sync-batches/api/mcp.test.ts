@@ -21,7 +21,7 @@ const owner = { ...operator, roleKey: "owner" } satisfies ResolvedActor;
 const granted: OperatorAuthorityDecision = {
   kind: "granted",
   membershipId: operator.membershipId,
-  roleKey: operator.roleKey,
+  roleKey: "platform-admin",
   rolePermissions: operator.permissions,
 };
 const denied: OperatorAuthorityDecision = { kind: "denied", reason: "not-platform-admin" };
@@ -77,10 +77,10 @@ describe("Scope Sync Batch MCP handlers", () => {
           }),
         });
         return response.json() as Promise<{
-          result?: {
+          result: {
             isError?: boolean;
-            content?: readonly { text: string }[];
-            tools?: readonly { name: string }[];
+            content: readonly { text: string }[];
+            tools: readonly { name: string }[];
           };
           error?: unknown;
         }>;
@@ -102,7 +102,7 @@ describe("Scope Sync Batch MCP handlers", () => {
 
   it("returns the current preview for a stale confirmation", async () => {
     const h = harness();
-    h.runtime.confirm.mockRejectedValueOnce({
+    (h.runtime.confirm as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
       code: "scope_sync_batch_stale_preview",
       message: "Preview changed.",
       currentPreview: { planFingerprint: "current" },
