@@ -27,6 +27,10 @@ import { requireCatalogItemPromotionObservation } from "../source-observation-pr
 import { discoverPromotionTargets, foldPromotionTargetSource } from "./promotion-target-discovery";
 import { promotionTargetBindingStream, type PromotionReferenceKey } from "./promotion-target-identity";
 import { canonicalPromotionReferenceText as canonical } from "./promotion-reference-canonicalization";
+import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
+import { ygojsonYugiohSetReferenceSourceObservationMappingContract } from "../providers/ygojson/executable-mapping-contract";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   decideCatalogItem,
   evolveCatalogItem,
@@ -193,6 +197,84 @@ describe("promotion target retained-reference exclusion", () => {
     expect(
       source.revisions.map((revision) => revision.normalized?.externalCatalogItemReferences?.[0]?.externalKey),
     ).toEqual(["product:old", "product:new"]);
+  });
+
+  it("discovers source observations with complete normalized evidence from legacy and normalized-evidence-chunked histories", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const codec = createPassthroughDomainEventCodec<SourceObservationEvent>();
+    const ygoFixture = JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL("../__fixtures__/ygojson-yugioh-set-reference-data/beginners-edition-2.json", import.meta.url),
+        ),
+        "utf8",
+      ),
+    );
+    const ygojson = requireCatalogProviderSourceObservation({
+      contract: ygojsonYugiohSetReferenceSourceObservationMappingContract,
+      payload: ygoFixture,
+      observedAt: "2026-10-22T00:00:00.000Z",
+    });
+    const inline = normalizeCatalogProviderSourceObservation({
+      contract: tcgdexPokemonCardSourceObservationMappingContract,
+      payload: { ...fixture, observationId: "inline-source", externalKey: "inline-source" },
+      observedAt: "2026-10-22T00:00:00.000Z",
+    });
+    if (!inline.observation) throw new Error("Inline source fixture did not map");
+    const legacy = {
+      ...inline.observation,
+      observationId: "legacy-source",
+      sourcePayload: { oversized: "legacy source payload ".repeat(20_000) },
+    };
+    const observations = [inline.observation, legacy, { ...ygojson, observationId: "chunked-source" }] as const;
+
+    for (const observation of observations) {
+      const streamId = `catalog.source-observation-${observation.observationId}`;
+      const events = decideSourceObservation(initialSourceObservationState, {
+        type: "RecordSourceObservation",
+        ...observation,
+      });
+      if (observation === inline.observation) expect(events).toHaveLength(1);
+      if (observation === legacy) {
+        expect(events[0]?.data).toHaveProperty("normalized", observation.normalized);
+        expect(
+          events.slice(1).every((event) => event.type === "catalog.source-observation.source-payload-chunk-recorded"),
+        ).toBe(true);
+      }
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context,
+        events: events.map(codec.encode),
+      });
+      const history = await eventStore.readStream({ streamId });
+      const source = foldPromotionTargetSource(observation.observationId, history);
+      const discovered = await discoverPromotionTargets({
+        eventStore,
+        keys: [{ level: "member", observationId: observation.observationId }],
+        additionalTargetIds: [],
+        locate: async () => [],
+      });
+      expect(discovered.sources.get(observation.observationId)).toEqual(source);
+      expect(source.revisions).toHaveLength(1);
+      expect(source.state.normalized).toEqual(observation.normalized);
+      expect(source.state.pendingSourcePayloadChunks).toBeNull();
+      expect(source.state.pendingNormalizedEvidenceChunks).toBeNull();
+    }
+
+    const chunkedHistory = await eventStore.readStream({ streamId: "catalog.source-observation-chunked-source" });
+    const finalNormalizedChunk = chunkedHistory.findLastIndex(
+      (event) => event.eventType === "catalog.source-observation.normalized-evidence-chunk-recorded",
+    );
+    expect(finalNormalizedChunk).toBeGreaterThan(0);
+    const invalidHistory = [
+      ...chunkedHistory.slice(0, finalNormalizedChunk),
+      chunkedHistory[0]!,
+      ...chunkedHistory.slice(finalNormalizedChunk),
+    ];
+    expect(() => foldPromotionTargetSource("chunked-source", invalidHistory)).toThrow(
+      "promotion-target-incomplete-source",
+    );
   });
   it.each(["linked", "unlinked", "relinked"] as const)(
     "uses current source Product-link ownership after a proved %s history",

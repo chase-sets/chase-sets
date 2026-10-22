@@ -526,10 +526,17 @@ async function loadObservationHistory(
      ORDER BY stream_version ASC`,
     [`catalog.source-observation-${expected.observationId}`],
   );
-  if (rows.rows.length === 0) {
+  return foldRepresentativeCatalogObservationHistory(rows.rows, expected);
+}
+
+export function foldRepresentativeCatalogObservationHistory(
+  rows: readonly StoredEventRow[],
+  expected: CatalogProviderSourceObservationInput,
+): SourceObservationState | null {
+  if (rows.length === 0) {
     return null;
   }
-  const eventTypes = rows.rows.map((row) => row.event_type);
+  const eventTypes = rows.map((row) => row.event_type);
   if (
     eventTypes[0] !== "catalog.source-observation.recorded" ||
     eventTypes.filter((type) => type === "catalog.source-observation.recorded").length !== 1 ||
@@ -549,7 +556,7 @@ async function loadObservationHistory(
 
   let state = initialSourceObservationState;
   try {
-    for (const row of rows.rows) {
+    for (const row of rows) {
       state = evolveSourceObservation(state, sourceObservationEvent(row));
     }
   } catch {
