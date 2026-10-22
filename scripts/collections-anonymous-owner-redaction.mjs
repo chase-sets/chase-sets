@@ -99,7 +99,7 @@ export function deriveFloor(root) {
   }
 }
 
-function containsFloor(root, floor, revision) {
+export function containsFloor(root, floor, revision) {
   try {
     git(root, "merge-base", "--is-ancestor", floor, revision);
     return true;
@@ -210,9 +210,16 @@ export function validatePacket(options, snapshot, floor) {
   return packet;
 }
 
-function binding(options) {
+export function expectedJobEnvironment(target, mode) {
+  return target === "production" && (mode === "activate" || mode === "redact") ? "production-cutover" : target;
+}
+
+export function binding(options) {
   guard(modes.includes(options.mode) && options.mode !== "verify", "mode-invalid");
-  guard(targets.includes(options.target) && options.target === options.jobEnvironment, "target-mismatch");
+  guard(
+    targets.includes(options.target) && options.jobEnvironment === expectedJobEnvironment(options.target, options.mode),
+    "target-mismatch",
+  );
   guard(
     typeof options.defaultBranch === "string" &&
       /^[a-zA-Z0-9_./-]+$/.test(options.defaultBranch) &&

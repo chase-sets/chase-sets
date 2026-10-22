@@ -175,7 +175,6 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
         accountId: identity.accountId,
         authenticationMethod: "sms-code",
         context: getBootstrapContext(c),
-        publishAuthenticationOutcome: true,
         membershipsOverride: [
           {
             membershipId: identity.membershipId,
@@ -199,7 +198,6 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
       accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "sms-code",
       context: getBootstrapContext(c),
-      publishAuthenticationOutcome: true,
     });
 
     return c.json(authResult);

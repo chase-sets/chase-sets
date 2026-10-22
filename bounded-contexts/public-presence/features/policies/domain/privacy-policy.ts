@@ -26,8 +26,8 @@ export type PrivacyPolicySubjectId = (typeof requiredPrivacyPolicySubjectIds)[nu
  * non-published, non-effective, empty rollout scope, and non-consent-
  * activatable until qualified counsel reviews this exact candidate and a
  * separately authorized change records that approval. Bracketed [ALL-CAPS]
- * tokens are explicit placeholders for counsel-owned conclusions, never
- * operative statements.
+ * tokens are explicit placeholders for counsel-owned conclusions or, like
+ * [NOTICE-EMAIL], pending operator-supplied facts, never operative statements.
  *
  * Operative prose describes provider relationships by function, never by legal
  * role: the `service provider` characterization is reserved for the N6
@@ -65,12 +65,13 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       reviewManifest: {
         scopeNote:
           "Define who the notice speaks for (the #5677 contracting entity), which surfaces it covers, and where its coverage ends relative to other users' and providers' own notices.",
-        decisionRefs: [5677, 5679],
+        decisionRefs: [5677, 5678, 5679],
         productTruthRefs: ["bounded-contexts/public-presence/features/policies/domain/policy-registry.ts:25-33"],
         openQuestions: [
-          "Launch jurisdiction scope is undecided: metadata.rolloutJurisdictionsOrProductLimits stays empty until counsel fixes the launch scope, and no jurisdiction claim is made in this draft.",
+          "Initial rollout jurisdictions are ratified (#5678: US, all 50 states + DC). As in the Seller Agreement, that scope is carried in metadata.rolloutJurisdictionsOrProductLimits at publication time, so the field stays empty in this candidate and this draft makes no jurisdiction claim.",
           "E-SIGN and INFORM Consumers Act conclusions from the #5685 discovery remain counsel-owned; whether INFORM verification or disclosure duties change what this notice must say about seller information is part of the #5679 engagement (E-SIGN capture itself is #5900).",
-          "The dedicated legal/privacy notice email is a counsel-owned selection ([NOTICE-EMAIL] in the rights section); this draft does not designate the general support contact as the privacy contact.",
+          "#5677 recorded the entity and mailing notice address but did not supply a dedicated legal/privacy notice email; [NOTICE-EMAIL] in the rights section is an explicit placeholder pending that operator-supplied fact, as in the Terms of Service, and this draft does not designate the general support contact as the privacy contact.",
+          "Channels ships Connector Pairing (bounded-contexts/channels/GLOSSARY.md:21-32): a seller consumes a one-use pairing code to bind a Connector, a client authorized for one Channel Connection through a separate Auth-issued grant and neither an agent nor a seller actor, to that Channel Connection. This notice's covered surfaces do not name Channel Connections or Connector Pairing; whether it must describe the personal information those surfaces process is a counsel question.",
         ],
         assumptions: [
           {
@@ -350,7 +351,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           "Which rights apply in which launch states, the verification standard per request type, authorized-agent handling, response timing, and any appeal path are counsel judgments.",
           "The shipped Support Request flow types are order-centric (product-not-received, return-request, payment-problem, and similar); no dedicated privacy-request flow type or self-service data-export surface exists today. If counsel requires a dedicated intake or export mechanism at launch, that is a new fixed-scope product issue.",
           "Internally, redaction machinery exists only for Customer Feedback data; fulfilling account-wide deletion requests has no shipped end-to-end mechanism and needs counsel-guided product work before rights language promises it.",
-          "The notice email ([NOTICE-EMAIL]) remains a counsel-owned selection per #5677.",
+          "#5677 did not supply a dedicated notice email; [NOTICE-EMAIL] remains an explicit placeholder pending that operator-supplied fact, as in the Terms of Service.",
         ],
         assumptions: [
           {
@@ -428,11 +429,11 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Reserve the state-supplement placement and content for counsel; the launch-state list is coupled to the undecided rollout scope in this artifact's metadata.",
-        decisionRefs: [5679],
+          "Reserve the state-supplement placement and content for counsel; the launch-state list follows the ratified #5678 rollout scope, carried in this artifact's metadata only at publication.",
+        decisionRefs: [5678, 5679],
         productTruthRefs: [],
         openQuestions: [
-          "Which states need supplements depends on the counsel-owned launch scope (metadata.rolloutJurisdictionsOrProductLimits is deliberately empty in this candidate).",
+          "Which of the ratified #5678 rollout jurisdictions (US, all 50 states + DC) need state-specific supplements, and what those supplements say, are counsel judgments; metadata.rolloutJurisdictionsOrProductLimits stays deliberately empty in this candidate until publication.",
           "The category/source/purpose/recipient table format for California, and any state-specific defined-term usage, are counsel judgments; the data-categories, purposes, and recipients sections above are the product-truth inputs for that table.",
         ],
         assumptions: [],

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData } from "./seed";
+import { seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData, seedReferenceData } from "./seed";
+import { ygojsonYugiohSetReferenceProviderProfile } from "../../source-observations/api/providers/ygojson/executable-mapping-contract";
+import { ygoprodeckYugiohSetReferenceProviderProfile } from "../../source-observations/api/providers/ygoprodeck/executable-mapping-contract";
 
 const retryLocalProjectionBlockedStream = vi.hoisted(() =>
   vi.fn<typeof import("@chase-sets/bounded-context-runtime").retryLocalProjectionBlockedStream>(
@@ -26,6 +28,42 @@ describe("reference data seed", () => {
     retryLocalProjectionBlockedStream.mockImplementation(async (_contextName, _pool, _projector, streamId) =>
       projectionRetryResult(streamId, "already-resolved"),
     );
+  });
+
+  it("seeds the canonical Yu-Gi-Oh product line idempotently for provider profiles", async () => {
+    const harness = createReferenceSeedHarness();
+
+    await seedReferenceData(harness.services as never);
+    const firstRunDetails = [...harness.details];
+    harness.commands.length = 0;
+    harness.details.length = 0;
+
+    await seedReferenceData(harness.services as never);
+
+    expect(harness.commands).toEqual([]);
+    expect(firstRunDetails).toContainEqual(
+      expect.objectContaining({
+        key: "yu-gi-oh-official-card-game",
+        name: "Yu-Gi-Oh! Official Card Game",
+      }),
+    );
+    expect(firstRunDetails.filter((detail) => detail.key === "yu-gi-oh-official-card-game")).toHaveLength(1);
+    const productLineId = catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame;
+    expect(firstRunDetails).toContainEqual(
+      expect.objectContaining({
+        referenceRecordId: productLineId,
+        typeKey: "product-line",
+        key: "yu-gi-oh-official-card-game",
+      }),
+    );
+    expect(
+      [ygoprodeckYugiohSetReferenceProviderProfile, ygojsonYugiohSetReferenceProviderProfile].map((profile) =>
+        profile.referenceHierarchyMapping.referenceRecords.find((rule) => rule.ruleKey === "yugioh-product-line"),
+      ),
+    ).toEqual([
+      expect.objectContaining({ recordId: { kind: "static", referenceRecordId: productLineId } }),
+      expect.objectContaining({ recordId: { kind: "static", referenceRecordId: productLineId } }),
+    ]);
   });
 
   it("reconciles Magic reference roots and Time Spiral without recreating Pokemon reference data", async () => {
@@ -487,6 +525,8 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
     reviewStatus: string | undefined;
   }[] = [];
   const details: {
+    referenceRecordId?: string;
+    typeKey?: string;
     key: string | undefined;
     name?: string;
     attributes?: unknown;
@@ -618,6 +658,8 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
       }) => {
         commands.push({ streamId, type: command.type, key: command.key });
         details.push({
+          referenceRecordId: command.referenceRecordId,
+          typeKey: command.typeKey,
           key: command.key,
           name: command.name?.values?.en,
           attributes: command.attributes,

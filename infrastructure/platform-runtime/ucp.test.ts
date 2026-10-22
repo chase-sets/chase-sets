@@ -541,6 +541,72 @@ describe("UCP REST routes", () => {
     });
   });
 
+  it("returns fixed signature content on REST and MCP when a signing key is malformed", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const malformedJwk = {
+      kty: "EC",
+      crv: "P-256",
+      kid: "platform-2026",
+      x: "not-a-canonical-coordinate",
+      y: "not-a-canonical-coordinate",
+    } as unknown as JsonWebKey;
+    const signatureVerificationFailed = vi.fn();
+    const signatureVerification = {
+      keyResolver: vi.fn(async () => malformedJwk),
+    };
+    const restApp = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: { create_checkout: vi.fn() },
+        observer: { signatureVerificationFailed },
+        signatureVerification,
+      }),
+    );
+    const restBody = JSON.stringify({ source: { type: "cart" } });
+    const restResponse = await restApp.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body: restBody,
+      headers: signedHeadersWithKey("POST", "/ucp/v1/checkout-sessions", restBody, privateKey, {
+        "Idempotency-Key": "idem_malformed_rest",
+      }),
+    });
+
+    const mcpApp = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({ observer: { signatureVerificationFailed }, signatureVerification }),
+    );
+    const mcpBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "malformed-signature",
+      method: "tools/call",
+      params: {
+        name: "complete_checkout",
+        arguments: {
+          id: "chk_malformed",
+          meta: {
+            "ucp-agent": { profile: "https://agent.example/.well-known/ucp" },
+            "idempotency-key": "idem_malformed_mcp",
+          },
+        },
+      },
+    });
+    const mcpResponse = await mcpApp.request("/ucp/mcp", {
+      method: "POST",
+      body: mcpBody,
+      headers: signedHeadersWithKey("POST", "/ucp/mcp", mcpBody, privateKey, {
+        "Idempotency-Key": "idem_malformed_mcp",
+      }),
+    });
+
+    const fixedMessage = "HTTP Message Signature verification failed.";
+    expect(restResponse.status).toBe(400);
+    await expect(restResponse.json()).resolves.toMatchObject({ messages: [{ message: fixedMessage }] });
+    expect(mcpResponse.status).toBe(200);
+    await expect(mcpResponse.json()).resolves.toMatchObject({ error: { message: fixedMessage } });
+    expect(signatureVerificationFailed).toHaveBeenCalledTimes(2);
+    expect(signatureVerificationFailed.mock.calls.map(([event]) => event.reason)).toEqual([fixedMessage, fixedMessage]);
+  });
+
   it("rejects signed writes when created is stale", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", {
       modulusLength: 2048,

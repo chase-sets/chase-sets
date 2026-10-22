@@ -61,11 +61,17 @@ export const anonymousOwnerActivationMigrations: readonly BcSchemaMigration[] = 
   },
 ];
 
-export async function readAnonymousOwnerActivation(db: PgQueryable, lock = false): Promise<AnonymousOwnerActivation> {
-  const result = await db.query<AnonymousOwnerActivation>(
-    `SELECT singleton, activated_at::text AS activated_at, gate_packet_sha256, floor_commit
-     FROM collections_anonymous_owner_activation WHERE singleton = true${lock ? " FOR UPDATE" : " FOR SHARE"}`,
-  );
+/** The lockless activation read; `readAnonymousOwnerActivation` appends its lock clause to this exact statement. */
+export const anonymousOwnerActivationReadSql = `SELECT singleton, activated_at::text AS activated_at, gate_packet_sha256, floor_commit
+     FROM collections_anonymous_owner_activation WHERE singleton = true`;
+
+/** `none` serves autocommit observers: a row lock outlives no statement there, and read-only sessions reject it. */
+export async function readAnonymousOwnerActivation(
+  db: PgQueryable,
+  lock: "update" | "share" | "none" = "share",
+): Promise<AnonymousOwnerActivation> {
+  const clause = { update: " FOR UPDATE", share: " FOR SHARE", none: "" }[lock];
+  const result = await db.query<AnonymousOwnerActivation>(`${anonymousOwnerActivationReadSql}${clause}`);
   return result?.rows?.[0] ?? { singleton: true, activated_at: null, gate_packet_sha256: null, floor_commit: null };
 }
 
@@ -74,7 +80,7 @@ export async function activateAnonymousOwnerCutover(
   input: Readonly<{ gatePacketSha256: string; floorCommit: string }>,
 ): Promise<AnonymousOwnerActivation> {
   return withPgTransaction(pool, async (db) => {
-    const current = await readAnonymousOwnerActivation(db, true);
+    const current = await readAnonymousOwnerActivation(db, "update");
     if (current.activated_at) return current;
     const result = await db.query<AnonymousOwnerActivation>(
       `UPDATE collections_anonymous_owner_activation

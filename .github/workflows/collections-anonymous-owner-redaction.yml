@@ -42,7 +42,7 @@ jobs:
   cutover:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: ${{ inputs.target }}
+    environment: ${{ inputs.target == 'production' && (inputs.mode == 'activate' || inputs.mode == 'redact') && 'production-cutover' || inputs.target }}
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -76,7 +76,7 @@ jobs:
         env:
           REDACTION_MODE: ${{ inputs.mode }}
           REDACTION_TARGET: ${{ inputs.target }}
-          REDACTION_JOB_ENVIRONMENT: ${{ inputs.target }}
+          REDACTION_JOB_ENVIRONMENT: ${{ inputs.target == 'production' && (inputs.mode == 'activate' || inputs.mode == 'redact') && 'production-cutover' || inputs.target }}
           REDACTION_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           REDACTION_APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
           REDACTION_GATE_PACKET: ${{ inputs.gate_packet }}

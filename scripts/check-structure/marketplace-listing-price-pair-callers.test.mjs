@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { repoRoot } from "../lib/repo.mjs";
 
 const registeredCallers = new Map([
@@ -20,6 +21,10 @@ const registeredCallers = new Map([
   [
     "bounded-contexts/marketplace/features/listings/api/mcp.ts",
     ["priceCurrencyCode: readRequiredPriceCurrencyCode(args)"],
+  ],
+  [
+    "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
+    ["priceAmount: snapshot.priceAmount", "priceCurrencyCode: snapshot.priceCurrencyCode"],
   ],
   [
     "bounded-contexts/marketplace/features/listings/api/route.ts",
@@ -139,7 +144,11 @@ function source(file) {
 }
 
 function sourceDerivedCallers() {
-  const tracked = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], { cwd: repoRoot, encoding: "utf8" })
+  const tracked = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split(/\r?\n/)
     .filter(Boolean)
     .filter((file) => !/\.test\.[cm]?[jt]sx?$/.test(file));
@@ -156,7 +165,11 @@ function sourceDerivedOfferCallers() {
 }
 
 function productionTypescriptFiles() {
-  return execFileSync("git", ["ls-files", "*.ts", "*.tsx"], { cwd: repoRoot, encoding: "utf8" })
+  return execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split(/\r?\n/)
     .filter(Boolean)
     .filter((file) => !/\.test\.[cm]?[jt]sx?$/.test(file));

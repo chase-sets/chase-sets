@@ -74,6 +74,7 @@ import type { AuthEventPayloads } from "./public-event-payloads/auth";
 import type { CheckoutEventPayloads } from "./public-event-payloads/checkout";
 import type { FulfillmentEventPayloads } from "./public-event-payloads/fulfillment";
 import type { IdentityEventPayloads } from "./public-event-payloads/identity";
+import type { DiscoveryEventPayloads } from "./public-event-payloads/discovery";
 import type { InventoryEventPayloads } from "./public-event-payloads/inventory";
 import type { MarketplaceEventPayloads } from "./public-event-payloads/marketplace";
 import type { OrderingEventPayloads } from "./public-event-payloads/ordering";
@@ -822,6 +823,7 @@ type IndependentlyComposedPublicEventKeys =
   | keyof ChannelsEventPayloads
   | keyof AuthEventPayloads
   | keyof IdentityEventPayloads
+  | keyof DiscoveryEventPayloads
   | keyof CheckoutEventPayloads
   | keyof CollectionsEventPayloads
   | keyof FulfillmentEventPayloads
