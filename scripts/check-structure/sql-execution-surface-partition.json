@@ -193,6 +193,7 @@
     "bounded-contexts/customer-feedback/features/csat/api/runtime.ts",
     "bounded-contexts/customer-feedback/features/csat/read-model/analytics-projection.ts",
     "bounded-contexts/customer-feedback/features/csat/read-model/analytics-query.ts",
+    "bounded-contexts/customer-feedback/features/csat/read-model/outcome-fact-projection.ts",
     "bounded-contexts/customer-feedback/features/csat/read-model/projection.ts",
     "bounded-contexts/customer-feedback/features/csat/read-model/queries.ts",
     "bounded-contexts/customer-feedback/features/privacy/api/runtime.ts",
