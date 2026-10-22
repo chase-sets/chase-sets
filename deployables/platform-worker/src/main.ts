@@ -1708,7 +1708,7 @@ function createPricingJobRunners(
               marketplaceListingGatewayForAccount: (accountId) => ({
                 applyBulkListingPriceUpdates: async (body) => ({
                   items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                    { accountId: accountId as never, updates: body.updates },
+                    { accountId: accountId as never, updates: body.updates, changeSource: body.changeSource },
                     SYSTEM_CONTEXT,
                   ),
                 }),
@@ -1747,7 +1747,7 @@ function createPricingJobRunners(
                 marketplaceGatewayForAccount: (accountId) => ({
                   applyBulkListingPriceUpdates: async (body) => ({
                     items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                      { accountId, updates: body.updates },
+                      { accountId, updates: body.updates, changeSource: body.changeSource },
                       SYSTEM_CONTEXT,
                     ),
                   }),

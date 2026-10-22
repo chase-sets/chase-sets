@@ -6,6 +6,7 @@ import type { buildPricingApi } from "../../api";
 import type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 import type { PricingRecommendationJobStatus } from "../../features/recommendations/api/runtime";
 import type { BulkRepriceJobStatus } from "../../features/bulk-reprice-ingestion/api/runtime";
+import type { MigrationNudge } from "../../features/bulk-reprice-ingestion/domain/nudge";
 import type {
   PublicMarketPageData,
   PublicMarketPageSitemapEntry,
@@ -257,6 +258,9 @@ export function createPricingApiClient({
           header: headers,
         }),
       );
+    },
+    async getBulkRepriceNudge(): Promise<MigrationNudge> {
+      return parseJsonResponse(await client.account["bulk-reprice"].nudge.$get({ header: headers }));
     },
     async listRepricingPolicies(): Promise<readonly RepricingPolicyListItem[]> {
       return parseJsonResponse(await client.account["repricing-policies"].$get({ header: headers }));

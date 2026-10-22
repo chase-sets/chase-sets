@@ -445,13 +445,15 @@ export type CreateListingCommand = Readonly<{
   evidence?: readonly MarketplaceListingPhotoDraft[] | null;
 }>;
 
+export type ListingPriceChangeSource = "seller" | "bulk-reprice" | "repricing-engine";
+
 export type UpdateListingPriceCommand = Readonly<{
   type: "UpdateListingPrice";
   priceAmount: string;
   priceCurrencyCode: string;
   feeLocks: readonly MarketplaceListingFeeLock[];
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
-  changeSource?: "repricing-engine";
+  changeSource: ListingPriceChangeSource;
 }>;
 
 export type UpdateListingQuantityCapCommand = Readonly<{
@@ -579,7 +581,8 @@ export type ListingCreatedEvent = DomainEvent<
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
     feeLocks: MarketplaceListingFeeLock[];
-    changeSource?: "repricing-engine";
+    /** Missing only on historical price events emitted before source attribution shipped. */
+    changeSource?: ListingPriceChangeSource;
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
     evidenceRequirements: ListingEvidenceRequirementSnapshot;
@@ -766,7 +769,7 @@ export const decideMarketplaceListing: AggregateDecider<
         priceAmount: normalizeMoneyAmount(command.priceAmount),
         priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
         ...feeLockProjectionFields(feeLocks),
-        ...(command.changeSource ? { changeSource: command.changeSource } : {}),
+        changeSource: command.changeSource,
       };
 
       const currencyUnchanged = state.priceCurrencyCode === data.priceCurrencyCode;

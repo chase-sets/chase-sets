@@ -30,8 +30,44 @@ import {
   PricingRepricingPolicyListPage,
   type RepricingHaltState,
 } from "../../features/repricing-policies/ui/policy-list-page";
+import {
+  compileRepricingPreset,
+  REPRICING_PREFILL_OFFSET_CAP,
+  type PolicyEditorBody,
+} from "../../features/repricing-policies/ui/presets";
 
 export const REPRICING_DESK_HREF = "/account/desk/repricing";
+
+export type RepricingDeskPrefill = Readonly<{
+  body: PolicyEditorBody | null;
+  notice: string | null;
+}>;
+
+export function parseRepricingDeskPrefill(search: string): RepricingDeskPrefill {
+  const query = new URLSearchParams(search);
+  if (query.get("prefill") !== "market-offset") return { body: null, notice: null };
+  const anchor = query.get("anchor");
+  const rawOffset = query.get("offsetPercent");
+  const currency = query.get("currency")?.trim().toUpperCase() ?? "";
+  const offset = rawOffset === null ? NaN : Number(rawOffset);
+  if (anchor !== "market-estimate" || !/^[A-Z]{3}$/.test(currency) || !Number.isFinite(offset)) {
+    return { body: null, notice: "The migration suggestion was incomplete. Enter the policy values manually." };
+  }
+  if (Math.abs(offset) > REPRICING_PREFILL_OFFSET_CAP) {
+    return { body: null, notice: "The migration suggestion is outside the supported policy range." };
+  }
+  return {
+    body: compileRepricingPreset({
+      preset: "track-market",
+      name: "Track market estimate",
+      knob: Math.round(offset * 100) / 100,
+      currencyCode: currency,
+      floor: { mode: "absolute", amount: "" },
+      scope: { kind: "all-listings" },
+    }),
+    notice: null,
+  };
+}
 
 const releasedHalt: RepricingHaltState = { engaged: false, engagedAt: null, releasedAt: null };
 
@@ -160,6 +196,7 @@ export default function MarketplaceSellerDeskRepricingRoute() {
   const submit = useSubmit();
   const [editorOpen, setEditorOpen] = useState(() => new URLSearchParams(location.search).get("create") === "1");
   const [openedAtKey, setOpenedAtKey] = useState(location.key);
+  const prefill = parseRepricingDeskPrefill(location.search);
   useEffect(() => {
     if (!actionData?.error) setEditorOpen(new URLSearchParams(location.search).get("create") === "1");
   }, [location.key]);
@@ -195,6 +232,8 @@ export default function MarketplaceSellerDeskRepricingRoute() {
       />
       {editorOpen ? (
         <PolicyEditorDrawer
+          key={location.key}
+          initialBody={prefill.body ?? undefined}
           onClose={() => setEditorOpen(false)}
           saving={navigation.state === "submitting"}
           saveErrors={
@@ -211,6 +250,7 @@ export default function MarketplaceSellerDeskRepricingRoute() {
           }
         />
       ) : null}
+      {prefill.notice ? <div role="status">{prefill.notice}</div> : null}
     </>
   );
 }

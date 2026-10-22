@@ -23,6 +23,9 @@ import {
   type BulkRepriceInputRow,
 } from "../domain/csv";
 import { bulkRepriceIngestionPolicy, type BulkRepriceIngestionPolicyValue } from "../domain/policy";
+import { deriveMigrationNudge, type MigrationNudge } from "../domain/nudge";
+import { bulkRepriceSunsetPolicy } from "../../repricing-engine/domain/sunset";
+import { listRepricingSourceShareWeeks } from "../../repricing-engine/read-model/source-share";
 import {
   checkBulkRepriceCreateRateLimit,
   listBulkRepriceRows,
@@ -55,6 +58,7 @@ export type BulkRepriceMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
     body: Readonly<{
       updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+      changeSource: "bulk-reprice";
     }>,
   ) => Promise<Readonly<{ items: readonly BulkRepriceListingOutcome[] }>>;
 }>;
@@ -163,6 +167,7 @@ export type BulkRepriceIngestionServices = Readonly<{
   ) => ReturnType<typeof listBulkRepriceRows>;
   getResultsCsv: (jobId: string) => Promise<string>;
   pruneJobRetention: (input?: { completedBefore?: string | Date; limit?: number }) => Promise<number>;
+  getMigrationNudge: (accountId: string) => Promise<MigrationNudge>;
   processNextBulkRepriceJob: (input: {
     claimOwnerId: string;
     claimTtlMs: number;
@@ -424,6 +429,71 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
     }
   };
 
+  const getMigrationNudge: BulkRepriceIngestionServices["getMigrationNudge"] = async (accountId) => {
+    const policy = await resolvePolicy();
+    if (policy.nudgeMinEstimateSamples === undefined) {
+      return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "insufficient-estimates" };
+    }
+    const sunsetPolicy = await policyResolver.resolvePolicy(bulkRepriceSunsetPolicy);
+    if (sunsetPolicy.source !== "policy") {
+      return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "policy-unknown" };
+    }
+    const now = new Date();
+    const from = new Date(now.getTime() - 26 * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const to = now.toISOString().slice(0, 10);
+    const weeks = await listRepricingSourceShareWeeks(deps.db, { from, to, sellerAccountId: accountId });
+    const latestCompleteWeek = [...weeks].reverse().find((week) => week.status === "complete");
+    const sellerReliance = latestCompleteWeek?.topSellers.find(
+      (seller) =>
+        seller.accountId === accountId &&
+        seller.bulkListingCount > sunsetPolicy.value.relianceListingThreshold &&
+        seller.bulkCount > seller.policyCount &&
+        seller.bulkCount > seller.manualCount,
+    );
+    if (!sellerReliance) {
+      return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "reliance-not-met" };
+    }
+    const result = await deps.db.query<{
+      applied_price_amount: string;
+      market_estimate_amount: string;
+      currency_code: string;
+    }>(
+      `WITH latest_job AS (
+         SELECT job_id
+           FROM pricing_bulk_reprice_jobs
+          WHERE job_kind = 'bulk-reprice'
+            AND status = 'completed'
+            AND (payload->>'accountId') = $1
+          ORDER BY completed_at DESC, job_id DESC
+          LIMIT 1
+       )
+       SELECT rows.requested_price_amount::text AS applied_price_amount,
+              estimate.amount::text AS market_estimate_amount,
+              estimate.currency_code
+         FROM latest_job
+         JOIN pricing_bulk_reprice_jobs AS job ON job.job_id = latest_job.job_id
+         JOIN pricing_bulk_reprice_rows AS rows ON rows.job_id = job.job_id
+         JOIN pricing_market_listing_inputs AS listing ON listing.listing_id = rows.resolved_listing_id
+         JOIN pricing_market_price_estimates AS estimate
+           ON estimate.catalog_catalog_item_id = listing.catalog_catalog_item_id
+          AND estimate.product_id = listing.product_id
+          AND estimate.currency_code = listing.price_currency_code
+          AND estimate.fresh_until >= CURRENT_TIMESTAMP
+        WHERE rows.outcome = 'applied'
+        ORDER BY rows.row_number ASC
+        LIMIT 500`,
+      [accountId],
+    );
+    return deriveMigrationNudge(
+      result.rows.map((row) => ({
+        appliedPriceAmount: row.applied_price_amount,
+        marketEstimateAmount: row.market_estimate_amount,
+        currencyCode: row.currency_code,
+      })),
+      { minEstimateSamples: policy.nudgeMinEstimateSamples },
+    );
+  };
+
   return {
     resolvePolicy,
     checkCreateJobRateLimit,
@@ -439,6 +509,7 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
         completedBefore: input.completedBefore ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
         limit: input.limit,
       }),
+    getMigrationNudge,
     processNextBulkRepriceJob,
   };
 }
@@ -653,7 +724,10 @@ async function processBulkRepriceWave(params: {
       priceAmount: entry.priceAmount,
       priceCurrencyCode: entry.priceCurrencyCode,
     }));
-    const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({ updates });
+    const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({
+      updates,
+      changeSource: "bulk-reprice",
+    });
     const outcomeByListingId = new Map(bulkResult.items.map((item) => [item.listingId, item] as const));
 
     for (const [listingId, entry] of updatesByListingId) {

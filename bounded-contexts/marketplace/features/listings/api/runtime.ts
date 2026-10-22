@@ -59,6 +59,7 @@ import {
   type MarketplaceListingCommand,
   type MarketplaceListingEvent,
   type MarketplaceListingState,
+  type ListingPriceChangeSource,
 } from "../domain/domain";
 import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
 import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
@@ -183,6 +184,7 @@ export class MarketplaceListingEvidenceIncompleteError extends Error {
 }
 
 export type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
+export type { ListingPriceChangeSource } from "../domain/domain";
 
 export type MarketplaceListingServices = Readonly<{
   operatorUnlistListing: (
@@ -413,6 +415,7 @@ export type MarketplaceListingServices = Readonly<{
     params: Readonly<{
       accountId: string;
       updates: readonly MarketplaceBulkListingPriceUpdateInput[];
+      changeSource: ListingPriceChangeSource;
     }>,
     context: EventStoreContext,
   ) => Promise<readonly MarketplaceBulkListingPriceUpdateOutcome[]>;
@@ -1845,6 +1848,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           priceAmount: params.priceAmount,
           priceCurrencyCode: params.priceCurrencyCode,
           feeLocks,
+          changeSource: "seller",
         },
         context,
       });
@@ -1898,7 +1902,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
                 priceCurrencyCode: update.priceCurrencyCode,
                 feeLocks,
                 minimumChange: update.minimumChange,
-                changeSource: update.idempotencyKey?.startsWith("repricing:") ? "repricing-engine" : undefined,
+                changeSource: params.changeSource,
               },
               context,
             });

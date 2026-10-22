@@ -28,7 +28,7 @@ const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
 const currentQuoteEvidence = `${listingRuntime}:1007-1027; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:419-444; ${listingDomain}:552-584; ${listingDomain}:1003-1032; ${listingRuntime}:1472-1517; ${currentQuoteEvidence}`;
+const creationEvidence = `${listingDomain}:419-444; ${listingDomain}:552-584; ${listingDomain}:1003-1036; ${listingRuntime}:1472-1519; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -113,25 +113,25 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1837-1853; ${listingRuntime}:1854-1962; ${feeQuotes}:154-176; ${listingDomain}:759-767; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:1840-1856; ${listingRuntime}:1858-1910; ${feeQuotes}:154-176; ${listingDomain}:759-767; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
-            evidenceRef: `${listingTests}:383-405`,
+            evidenceRef: `${listingTests}:384-410`,
           },
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:812-822; ${listingDomain}:1053-1060`,
+            evidenceRef: `${listingDomain}:815-824; ${listingDomain}:1059-1066`,
           },
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:791-810; ${feeLock}:143-180; ${listingRuntime}:1965-1977; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:791-810; ${feeLock}:143-180; ${listingRuntime}:1966-1980; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:989-995; ${listingTests}:407-429; ${creationEvidence}; ${runtimeTests}:971-1097`,
+            evidenceRef: `${listingDomain}:995-998; ${listingTests}:407-429; ${creationEvidence}; ${runtimeTests}:971-1097`,
           },
           {
             assertion:

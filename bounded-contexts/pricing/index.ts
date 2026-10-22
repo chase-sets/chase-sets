@@ -36,6 +36,7 @@ import {
   buildMarketPriceRepricingReactionHandlers,
 } from "./features/repricing-engine/integrations/signal-reactions";
 import { composePricingInventoryEconomicsProjectionHandlers } from "./features/economics/integrations/inventory/projection";
+import { buildRepricingSourceShareProjectionHandlers } from "./features/repricing-engine/read-model/source-share";
 
 const pricingContextManifest = contextManifest as BcContextManifest;
 
@@ -54,6 +55,20 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const marketTradesHandlers = buildPricingMarketTradesProjectionHandlers(services.db);
+    const marketplaceInputHandlers = buildPricingMarketplaceInputProjectionHandlers(services.db);
+    const sourceShareHandlers = buildRepricingSourceShareProjectionHandlers(services.db);
+    const existingPriceUpdateHandler = marketplaceInputHandlers["marketplace.listing.price-updated"];
+    const sourceSharePriceUpdateHandler = sourceShareHandlers["marketplace.listing.price-updated"];
+    const marketplaceInputHandlersWithSourceShare = {
+      ...marketplaceInputHandlers,
+      "marketplace.listing.price-updated": async (
+        event: Parameters<typeof existingPriceUpdateHandler>[0],
+        context: Parameters<typeof existingPriceUpdateHandler>[1],
+      ) => {
+        await existingPriceUpdateHandler(event, context);
+        await sourceSharePriceUpdateHandler(event, context);
+      },
+    };
 
     return [
       ...buildEventSubscriptionsFromManifest({
@@ -70,7 +85,7 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
               ...buildPricingOwnSaleObservationProjectionHandlers(services.db),
             }),
           "marketplace.pricing-market-input-projection": () =>
-            buildPricingMarketplaceInputProjectionHandlers(services.db),
+            marketplaceInputHandlersWithSourceShare,
           "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),
           "fulfillment.pricing-fulfillment-input-projection": () =>
             buildPricingFulfillmentInputProjectionHandlers(services.db),

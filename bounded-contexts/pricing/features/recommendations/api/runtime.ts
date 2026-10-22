@@ -71,6 +71,7 @@ export type PricingMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
     body: Readonly<{
       updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+      changeSource: "seller";
     }>,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<Readonly<{ items: readonly PricingMarketplaceListingOutcome[] }>>;
@@ -736,6 +737,7 @@ export function createPricingRecommendationRuntime(
               priceAmount,
               priceCurrencyCode,
             })),
+            changeSource: "seller",
           },
           { signal },
         ),

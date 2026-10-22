@@ -94,6 +94,12 @@ export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionS
     }),
   );
 
+  app.get("/nudge", async (c) => {
+    const access = requireBulkRepriceAccess(c);
+    if (access.response) return access.response;
+    return c.json(await services.getMigrationNudge(access.actor.accountId));
+  });
+
   app.post("/", async (c) => {
     const access = requireBulkRepriceAccess(c);
     if (access.response) {

@@ -130,6 +130,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
       calls: 0,
       applyBulkListingPriceUpdates: async (body: {
         updates: readonly { listingId: string; priceAmount: string; priceCurrencyCode: string }[];
+        changeSource: "bulk-reprice";
       }) => {
         gateway.calls += 1;
         return {

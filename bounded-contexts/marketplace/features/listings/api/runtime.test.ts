@@ -1525,6 +1525,7 @@ describe("marketplace listing runtime", () => {
       expect(event).toBeDefined();
       return event!.payload as {
         priceCurrencyCode: string;
+        changeSource?: string;
         feeLocks: readonly MarketplaceListingFeeLock[];
         feeQuoteFingerprint: string;
         termsScheduleId: string | null;
@@ -1622,6 +1623,7 @@ describe("marketplace listing runtime", () => {
         services.applyBulkListingPriceUpdates(
           {
             accountId: "acc_seller",
+            changeSource: "seller",
             updates: [{ listingId: "lst_founder_preserved", priceAmount: "25.00", priceCurrencyCode: "USD" }],
           },
           context,
@@ -1632,6 +1634,7 @@ describe("marketplace listing runtime", () => {
         services.applyBulkListingPriceUpdates(
           {
             accountId: "acc_seller",
+            changeSource: "seller",
             updates: [{ listingId: "lst_founder_preserved", priceAmount: "25.00", priceCurrencyCode: "EUR" }],
           },
           context,
@@ -1685,6 +1688,7 @@ describe("marketplace listing runtime", () => {
       await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: [{ listingId: "lst_nonzero_requote", priceAmount: "40.00", priceCurrencyCode: "USD" }],
         },
         context,
@@ -1749,6 +1753,7 @@ describe("marketplace listing runtime", () => {
       await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: [{ listingId: "lst_multi_tranche", priceAmount: "30.00", priceCurrencyCode: "USD" }],
         },
         context,
@@ -1811,7 +1816,10 @@ describe("marketplace listing runtime", () => {
       };
 
       await expect(
-        services.applyBulkListingPriceUpdates({ accountId: "acc_seller", updates: [update] }, context),
+        services.applyBulkListingPriceUpdates(
+          { accountId: "acc_seller", changeSource: "seller", updates: [update] },
+          context,
+        ),
       ).resolves.toMatchObject([{ listingId, outcome: "applied" }]);
       expect((await readPriceUpdatedPayload(eventStore, listingId)).feeLocks[0]?.terms).toEqual(syntheticFounderTerms);
     });
@@ -1888,6 +1896,7 @@ describe("marketplace listing runtime", () => {
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: [
             {
               listingId: "lst_bulk_1",
@@ -1961,6 +1970,7 @@ describe("marketplace listing runtime", () => {
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: [
             { listingId: "lst_manual_wins", priceAmount: "18.00", priceCurrencyCode: "USD", expectedVersion: 1 },
           ],
@@ -2002,6 +2012,7 @@ describe("marketplace listing runtime", () => {
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: [
             {
               listingId: "lst_authoritative_tolerance",
@@ -2017,6 +2028,9 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes[0]).toMatchObject({ outcome: "applied" });
+      await expect(readPriceUpdatedPayload(eventStore, "lst_authoritative_tolerance")).resolves.toMatchObject({
+        changeSource: "seller",
+      });
       await expect(services.loadListingState("lst_authoritative_tolerance")).resolves.toMatchObject({
         priceAmount: "11.00",
         priceCurrencyCode: "USD",
@@ -2044,6 +2058,7 @@ describe("marketplace listing runtime", () => {
       );
       const mutation = {
         accountId: "acc_seller",
+        changeSource: "seller",
         updates: [
           {
             listingId: "lst_retry_once",
@@ -2126,6 +2141,7 @@ describe("marketplace listing runtime", () => {
         services.applyBulkListingPriceUpdates(
           {
             accountId: "acc_seller",
+          changeSource: "seller",
             updates: [
               {
                 listingId,
@@ -2173,6 +2189,7 @@ describe("marketplace listing runtime", () => {
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: [
             {
               listingId: "lst_does_not_exist",
@@ -2247,6 +2264,7 @@ describe("marketplace listing runtime", () => {
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: listingIds.map((listingId, index) => ({
             listingId,
             priceAmount: `${21 + index}.00`,
@@ -2295,6 +2313,7 @@ describe("marketplace listing runtime", () => {
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: listingIds.map((listingId, index) => ({
             listingId,
             priceAmount: `${21 + index}.00`,
@@ -2392,6 +2411,7 @@ describe("marketplace listing runtime", () => {
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
+          changeSource: "seller",
           updates: [
             { listingId: "lst_revision_1", priceAmount: "21.00", priceCurrencyCode: "USD" },
             { listingId: "lst_revision_2", priceAmount: "22.00", priceCurrencyCode: "USD" },
@@ -2429,7 +2449,10 @@ describe("marketplace listing runtime", () => {
       });
 
       await expect(
-        services.applyBulkListingPriceUpdates({ accountId: "acc_seller", updates: [] }, context),
+        services.applyBulkListingPriceUpdates(
+          { accountId: "acc_seller", changeSource: "seller", updates: [] },
+          context,
+        ),
       ).resolves.toEqual([]);
     });
   });

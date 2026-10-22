@@ -1404,6 +1404,7 @@ export function createAccountListingRoutes(
         {
           accountId: access.actor.accountId,
           updates: parseBulkListingPriceUpdates(body),
+          changeSource: "seller",
         },
         context,
       );

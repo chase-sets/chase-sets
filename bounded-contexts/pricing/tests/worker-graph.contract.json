@@ -201,8 +201,8 @@
       "projectionName": "pricing-market-input-projection",
       "sourceContextName": "marketplace",
       "targetContextName": "pricing",
-      "subscriptionVersion": 2,
-      "checkpointKey": "pricing-market-input-projection:marketplace:v2",
+      "subscriptionVersion": 3,
+      "checkpointKey": "pricing-market-input-projection:marketplace:v3",
       "handlers": {
         "marketplace.offer.paused": "<function>",
         "marketplace.offer.resumed": "<function>",

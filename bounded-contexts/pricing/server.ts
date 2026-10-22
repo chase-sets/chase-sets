@@ -31,6 +31,17 @@ export type {
 } from "./features/own-sale-observations/read-model/queries";
 export { createPricingRequestApiClient } from "./support/request-support/api-client";
 export type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
+export {
+  listRepricingSourceShareWeeks,
+  type RepricingSourceShareWeek,
+} from "./features/repricing-engine/read-model/source-share";
+export {
+  bulkRepriceSunsetPolicy,
+  decodeBulkRepriceSunsetPolicyValue,
+  evaluateBulkRepriceSunset,
+  type BulkRepriceSunsetDecision,
+  type BulkRepriceSunsetPolicyValue,
+} from "./features/repricing-engine/domain/sunset";
 export type {
   TcgplayerMarketTransport,
   TcgplayerMarketTransportCapability,

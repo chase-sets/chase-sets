@@ -172,6 +172,32 @@ export function OpsDashboardAdminPage({
         />
       </PageSection>
 
+      <PageSection title={t("platformOperations.opsDashboard.repricingSourceShare")}>
+        {summary.repricingSourceShare.status === "unavailable" ? (
+          <Text tone="secondary">{t("platformOperations.opsDashboard.repricingSourceShareUnavailable")}</Text>
+        ) : summary.repricingSourceShare.weeks.length === 0 ? (
+          <EmptyState
+            icon="chart"
+            title={t("platformOperations.opsDashboard.repricingSourceShareEmptyTitle")}
+            description={t("platformOperations.opsDashboard.repricingSourceShareEmptyDescription")}
+          />
+        ) : (
+          <DataTable
+            columns={[
+              { key: "week", header: t("platformOperations.opsDashboard.repricingSourceShareWeek"), cell: (week) => week.weekStart },
+              { key: "status", header: t("platformOperations.opsDashboard.repricingSourceShareStatus"), cell: (week) => <Badge tone={week.status === "complete" ? "success" : "danger"}>{week.status}</Badge> },
+              { key: "bulk", header: t("platformOperations.opsDashboard.repricingSourceShareBulk"), cell: (week) => `${(week.shares.bulk * 100).toFixed(1)}% (${week.counts.bulk})` },
+              { key: "policy", header: t("platformOperations.opsDashboard.repricingSourceSharePolicy"), cell: (week) => `${(week.shares.policy * 100).toFixed(1)}% (${week.counts.policy})` },
+              { key: "manual", header: t("platformOperations.opsDashboard.repricingSourceShareManual"), cell: (week) => `${(week.shares.manual * 100).toFixed(1)}% (${week.counts.manual})` },
+            ]}
+            rows={[...summary.repricingSourceShare.weeks]}
+            getRowId={(week) => week.weekStart}
+            emptyTitle={t("platformOperations.opsDashboard.repricingSourceShareEmptyTitle")}
+            emptyDescription={t("platformOperations.opsDashboard.repricingSourceShareEmptyDescription")}
+          />
+        )}
+      </PageSection>
+
       <PageSection title={t("platformOperations.opsDashboard.reconciliation")}>
         <Text tone="secondary" size="sm">
           {t("platformOperations.opsDashboard.reconciliationDescription")}

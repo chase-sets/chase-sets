@@ -4,15 +4,16 @@ import { createPricingRequestApiClient, PricingApiError } from "../../request-su
 import type { BulkRepriceJobStatus } from "../../../features/bulk-reprice-ingestion/api/runtime";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "listings.manage",
   });
   const api = createPricingRequestApiClient(request);
   const activeJobId = new URL(request.url).searchParams.get("jobId") ?? "";
   const activeJob = activeJobId ? await loadActiveBulkRepriceJob(api, activeJobId) : null;
+  const nudge = await api.getBulkRepriceNudge().catch(() => ({ status: "unavailable" as const, offsetPercent: null, currencyCode: null, reason: "unavailable" as const }));
 
-  return { activeJobId, activeJob };
+  return { activeJobId, activeJob, nudge, accountId: actor.accountId };
 }
 
 async function loadActiveBulkRepriceJob(

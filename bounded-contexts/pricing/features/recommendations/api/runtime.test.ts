@@ -409,7 +409,10 @@ describe("pricing recommendation runtime", () => {
     // previewListingTerms + updateListingPrice pair per listing.
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
-      { updates: [{ listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" }] },
+      {
+        updates: [{ listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" }],
+        changeSource: "seller",
+      },
       expect.any(Object),
     );
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.applied");
@@ -456,6 +459,7 @@ describe("pricing recommendation runtime", () => {
           { listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" },
           { listingId: "lst_2", priceAmount: "24.99", priceCurrencyCode: "USD" },
         ],
+        changeSource: "seller",
       },
       expect.any(Object),
     );

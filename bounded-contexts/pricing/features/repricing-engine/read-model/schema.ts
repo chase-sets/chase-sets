@@ -32,6 +32,19 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_policy_evaluations (
   evaluated_at timestamptz NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS pricing_repricing_source_share_events (
+  event_id text PRIMARY KEY,
+  week_start date NOT NULL,
+  seller_account_id text NOT NULL,
+  listing_id text NOT NULL,
+  source text NOT NULL CHECK (source IN ('seller', 'bulk-reprice', 'repricing-engine', 'unattributed')),
+  occurred_at timestamptz NOT NULL,
+  global_position bigint NOT NULL CHECK (global_position >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS pricing_repricing_source_share_week_seller_idx
+  ON pricing_repricing_source_share_events (week_start, seller_account_id);
+
 CREATE INDEX IF NOT EXISTS pricing_repricing_policy_evaluations_policy_idx
   ON pricing_repricing_policy_evaluations (policy_id, evaluated_at DESC);
 
@@ -85,6 +98,23 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_daily_sweep_cursor (
 `;
 
 export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261022_pricing_repricing_source_share",
+    description: "Ledger Marketplace listing price sources by event id for bounded sunset adoption weeks.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS pricing_repricing_source_share_events (
+        event_id text PRIMARY KEY,
+        week_start date NOT NULL,
+        seller_account_id text NOT NULL,
+        listing_id text NOT NULL,
+        source text NOT NULL CHECK (source IN ('seller', 'bulk-reprice', 'repricing-engine', 'unattributed')),
+        occurred_at timestamptz NOT NULL,
+        global_position bigint NOT NULL CHECK (global_position >= 0)
+      )`,
+      `CREATE INDEX IF NOT EXISTS pricing_repricing_source_share_week_seller_idx
+        ON pricing_repricing_source_share_events (week_start, seller_account_id)`,
+    ],
+  },
   {
     migrationId: "20260914_pricing_repricing_spiral_breaker",
     description: "Retain product-scoped repricing direction and automatic freeze expiry in the cooldown ledger.",

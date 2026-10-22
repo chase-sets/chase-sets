@@ -26,6 +26,9 @@
     "scope-preview",
     "repricing-policy-assignment",
     "repricing-dry-run",
+    "repricing-source-share",
+    "bulk-reprice-sunset-eligibility",
+    "migration-nudge",
     "bulk-reprice-job",
     "market-capture",
     "demand-curve",
@@ -139,7 +142,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "pricing-market-input-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",

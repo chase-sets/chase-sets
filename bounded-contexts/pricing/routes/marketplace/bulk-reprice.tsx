@@ -25,6 +25,7 @@ export default function MarketplaceBulkRepriceRoute() {
     <PricingBulkRepricePage
       activeJobId={data.activeJobId}
       initialActiveJob={data.activeJob}
+      nudge={data.nudge}
       message={actionData && "message" in actionData ? String(actionData.message ?? "") : null}
       errorMessage={actionData && "error" in actionData ? String(actionData.error ?? "") : null}
     />

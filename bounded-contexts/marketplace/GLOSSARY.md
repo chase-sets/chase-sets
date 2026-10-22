@@ -441,3 +441,9 @@ Notes:
 - The action is attributed to the Listing owner taken from the aggregate, never from a caller. Its time is the auto-unlist timestamp or the operator action's recorded time.
 - A source removes a Listing at most once. A redelivered source is inert even after republish, a distinct later source removes again, and an identity is never reused for another source. Draft, paused and withdrawn Listings are not removed.
 - The latest action stays current across republish and pause. Historical automated unlisting without an action identity remains valid and records none.
+# Listing Price Change Source
+
+A **Listing Price Change Source** is the writer-declared reason on a new
+`marketplace.listing.price-updated` event: `seller`, `bulk-reprice`, or
+`repricing-engine`. Historical events without the marker are unattributed,
+never inferred as manual.

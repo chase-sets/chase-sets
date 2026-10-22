@@ -227,6 +227,7 @@ describe("marketplace listing no-op suppression", () => {
       priceAmount: "10.0",
       priceCurrencyCode: " eur ",
       feeLocks: listing.feeLocks,
+      changeSource: "seller",
     });
 
     expect(currencyChange).toHaveLength(1);
@@ -240,6 +241,7 @@ describe("marketplace listing no-op suppression", () => {
         priceAmount: "10.0",
         priceCurrencyCode: " usd ",
         feeLocks: listing.feeLocks,
+        changeSource: "seller",
       }),
     ).toEqual([]);
   });
@@ -285,6 +287,7 @@ describe("marketplace listing no-op suppression", () => {
           priceAmount: "25.00",
           priceCurrencyCode: "USD",
           feeLocks: [requoted],
+          changeSource: "seller",
         });
 
       if (!accepted) {
@@ -309,6 +312,7 @@ describe("marketplace listing no-op suppression", () => {
           priceAmount: "10.0",
           priceCurrencyCode: "USD",
           feeLocks: [feeLock({ marketplaceSalesFeeUnitAmount: "1.0" })],
+          changeSource: "seller",
         }),
       ).toEqual([]);
     });
@@ -422,6 +426,7 @@ describe("marketplace listing no-op suppression", () => {
           priceAmount: "11.00",
           priceCurrencyCode: "USD",
           feeLocks: withdrawn.feeLocks,
+          changeSource: "seller",
         }),
       ).toThrow("Withdrawn listings cannot be updated");
       expect(() => decideMarketplaceListing(withdrawn, createListingCommand)).toThrow(
@@ -457,6 +462,7 @@ describe("marketplace listing no-op suppression", () => {
             feeQuoteFingerprint: "fee_repriced",
           }),
         ],
+        changeSource: "seller",
       }).reduce(evolveMarketplaceListing, listing);
 
       expect(repriced).toMatchObject({

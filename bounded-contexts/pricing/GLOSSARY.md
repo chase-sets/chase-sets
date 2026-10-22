@@ -2,6 +2,24 @@
 
 This glossary defines the canonical terminology for the Pricing bounded context.
 
+## Repricing Source Share
+
+**Repricing Source Share** is the UTC-week partition of Marketplace listing
+price-update events by their writer-declared source. The event id is the
+deduplication key; an absent source is Unattributed.
+
+## Bulk Reprice Sunset Eligibility
+
+**Bulk Reprice Sunset Eligibility** is the policy-driven decision over complete
+source-share weeks and seller reliance. Unknown policy or incomplete evidence
+never becomes an eligible or zero-valued result.
+
+## Migration Nudge
+
+A **Migration Nudge** is a seller-facing link from bulk repricing to the
+existing repricing desk with a deterministic market-offset prefill. It never
+creates or activates a policy without the desk dry run and save.
+
 ## Demand Curve
 
 A **Demand Curve** is a Product-Key-scoped version of ordered price percentiles, buyer arrival, supply, and sell-time evidence for one currency, variant, language, and condition. Its points, version, fingerprint, and build instant are immutable. Its freshness horizon advances only when the closer verifies the same inputs for that served version. The same card-wide Condition Ladder rescales all conditions; a missing, superseded, stale, or undenominated curve is not a positive estimate. Historical versions retain null currency and freshness until replaced, never backfilled.
