@@ -440,6 +440,7 @@ Cluster-scoped ingress-nginx, cert-manager, issuers, Argo Rollouts, and preview 
 
 ```bash
 node scripts/doks-cluster-addons.mjs --environment staging --dry-run
+gh workflow run platform-staging-cluster-addons.yml --ref main -f confirm="apply staging cluster addons" -f release_ref=<main-sha> -f preflight_only=true  # false runs the full staging plan
 kubectl --namespace ingress-nginx get service ingress-nginx-controller
 kubectl --namespace chase-sets-platform get ingress
 ```
