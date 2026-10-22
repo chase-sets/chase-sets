@@ -271,6 +271,15 @@ const scrydexCacheCaptureDelta = [
     purpose: "application-runtime",
   })),
 );
+const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-force-refresh-bounded",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
 // #9962 adds the read-only preview-pool census workflow's provider authority grants.
 const previewPoolCensusDelta = [
   ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
@@ -760,6 +769,7 @@ describe("managed Postgres authority source generator", () => {
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
         ...scrydexCacheCaptureDelta,
+        ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
         ...credentialHealthDelta,
         ...stagingClusterAddonsDelta,

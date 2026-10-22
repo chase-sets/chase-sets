@@ -623,14 +623,14 @@ describe("Catalog integrations route", () => {
     // the `ready` envelope: the alias candidate's accept command plus its
     // reason-bearing secondary reject, posted to the daily route action.
     const expectedActionHref = catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion");
-    const acceptForm = document.querySelector<HTMLFormElement>('form[data-attention-resolution="accept"]');
-    const rejectForm = document.querySelector<HTMLFormElement>('form[data-attention-resolution="reject"]');
+    const acceptForm = document.querySelector<HTMLFormElement>('form[data-attention-resolution="alias.accept"]');
+    const rejectForm = document.querySelector<HTMLFormElement>('form[data-attention-resolution="alias.reject"]');
     expect(acceptForm?.getAttribute("action")).toBe(expectedActionHref);
     expect(rejectForm?.getAttribute("action")).toBe(expectedActionHref);
     expect(acceptForm?.querySelector<HTMLInputElement>('input[name="aliasHash"]')?.value).toBe("h1");
     expect(rejectForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe("Reject");
-    const acceptButtons = attentionCommandButtons("accept");
-    const rejectButtons = attentionCommandButtons("reject");
+    const acceptButtons = attentionCommandButtons("alias.accept");
+    const rejectButtons = attentionCommandButtons("alias.reject");
     expect(acceptButtons.length).toBeGreaterThan(0);
     expect(rejectButtons.length).toBeGreaterThan(0);
     expect(acceptButtons.map((button) => button.disabled)).toEqual(acceptButtons.map(() => false));
@@ -648,8 +648,8 @@ describe("Catalog integrations route", () => {
     });
 
     expect(await screen.findByText("2 need you")).toBeTruthy();
-    const acceptButtons = attentionCommandButtons("accept");
-    const rejectButtons = attentionCommandButtons("reject");
+    const acceptButtons = attentionCommandButtons("alias.accept");
+    const rejectButtons = attentionCommandButtons("alias.reject");
     expect(acceptButtons.length).toBeGreaterThan(0);
     expect(rejectButtons.length).toBeGreaterThan(0);
     expect(acceptButtons.map((button) => button.disabled)).toEqual(acceptButtons.map(() => true));
