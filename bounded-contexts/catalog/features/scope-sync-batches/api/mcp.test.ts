@@ -179,7 +179,7 @@ describe("Scope Sync Batch MCP handlers", () => {
       "catalog.retry-scope-sync-unit",
     ] as const;
     expect(operatorNames).toHaveLength(21);
-    expect(flattenAvailableMcpTools().map((tool) => tool.name)).toEqual(expect.arrayContaining(operatorNames));
+    expect(flattenAvailableMcpTools().map((tool) => tool.name)).toEqual(expect.arrayContaining([...operatorNames]));
     expect(
       listed.result.tools.some((tool: { name: string }) =>
         operatorNames.includes(tool.name as (typeof operatorNames)[number]),
