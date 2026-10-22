@@ -31,8 +31,8 @@ describe("ops repricing source-share state", () => {
       crossContext: {
         getRepricingSourceShare: async () => expected,
         getPlatformGmvSeries: async () => [],
-        getPlatformKpiSummary: async () => ({} as never),
-        getPlatformLiquiditySummary: async () => ({} as never),
+        getPlatformKpiSummary: async () => ({}) as never,
+        getPlatformLiquiditySummary: async () => ({}) as never,
         getTopCatalogItemsByGmv: async () => [],
       },
     });

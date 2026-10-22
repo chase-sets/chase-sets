@@ -1,8 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export const pricingRepricingSourceShareCheckpointKey =
-  "pricing-market-input-projection:marketplace:v3";
+export const pricingRepricingSourceShareCheckpointKey = "pricing-market-input-projection:marketplace:v3";
 
 export type RepricingPriceSource = "seller" | "bulk-reprice" | "repricing-engine" | "unattributed";
 
@@ -106,13 +105,22 @@ export async function listRepricingSourceShareWeeks(
   return weeks.map((weekStart) => {
     const members = byWeek.get(weekStart) ?? [];
     const counts = { bulk: 0, policy: 0, manual: 0, unattributed: 0 };
-    const sellerTotals = new Map<string, { bulk: number; policy: number; manual: number; total: number; listings: Set<string> }>();
+    const sellerTotals = new Map<
+      string,
+      { bulk: number; policy: number; manual: number; total: number; listings: Set<string> }
+    >();
     for (const row of members) {
       if (row.source === "bulk-reprice") counts.bulk += 1;
       else if (row.source === "repricing-engine") counts.policy += 1;
       else if (row.source === "seller") counts.manual += 1;
       else counts.unattributed += 1;
-      const seller = sellerTotals.get(row.seller_account_id) ?? { bulk: 0, policy: 0, manual: 0, total: 0, listings: new Set<string>() };
+      const seller = sellerTotals.get(row.seller_account_id) ?? {
+        bulk: 0,
+        policy: 0,
+        manual: 0,
+        total: 0,
+        listings: new Set<string>(),
+      };
       seller.total += 1;
       if (row.source === "bulk-reprice") {
         seller.bulk += 1;

@@ -3,7 +3,9 @@ import { parseRepricingDeskPrefill } from "./account-desk-repricing";
 
 describe("repricing desk migration prefill", () => {
   it("builds the track-market editor body for populated and zero offsets", () => {
-    expect(parseRepricingDeskPrefill("?prefill=market-offset&anchor=market-estimate&offsetPercent=0&currency=usd")).toMatchObject({
+    expect(
+      parseRepricingDeskPrefill("?prefill=market-offset&anchor=market-estimate&offsetPercent=0&currency=usd"),
+    ).toMatchObject({
       notice: null,
       body: {
         name: "Track market estimate",
@@ -11,11 +13,7 @@ describe("repricing desk migration prefill", () => {
           {
             directive: {
               offset: { mode: "percent", percent: 0 },
-              anchorChain: [
-                { source: "market-estimate" },
-                { source: "lowest-competing-ask" },
-                { source: "last-sold" },
-              ],
+              anchorChain: [{ source: "market-estimate" }, { source: "lowest-competing-ask" }, { source: "last-sold" }],
             },
           },
         ],

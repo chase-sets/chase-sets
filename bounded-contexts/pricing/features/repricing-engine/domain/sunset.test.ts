@@ -28,7 +28,11 @@ describe("bulk reprice sunset policy", () => {
 
   it("accepts explicit zero bounds", () => {
     expect(
-      decodeBulkRepriceSunsetPolicyValue({ maxBulkSharePercent: 0, consecutiveCompleteWeeks: 1, relianceListingThreshold: 0 }),
+      decodeBulkRepriceSunsetPolicyValue({
+        maxBulkSharePercent: 0,
+        consecutiveCompleteWeeks: 1,
+        relianceListingThreshold: 0,
+      }),
     ).toEqual({ maxBulkSharePercent: 0, consecutiveCompleteWeeks: 1, relianceListingThreshold: 0 });
   });
 

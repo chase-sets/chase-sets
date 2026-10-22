@@ -353,8 +353,7 @@ export const pricingEnglishTranslations = {
     "Columns: sellerSku, listingId, newPrice. Provide either a sellerSku or a listingId per row.",
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.title":
     "Your bulk repricing pattern is ready to migrate",
-  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.description":
-    "Suggested market offset: {offset}%",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.description": "Suggested market offset: {offset}%",
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.openEditor": "Open repricing editor",
   "pricing.features.marketRollups.api.route.from.and.to.must.be.iso.calendar":
     "from and to must be ISO calendar dates (YYYY-MM-DD).",

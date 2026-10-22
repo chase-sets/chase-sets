@@ -35,7 +35,12 @@ export function decodeBulkRepriceSunsetPolicyValue(raw: JsonValue): BulkRepriceS
   return {
     maxBulkSharePercent: integer(value.maxBulkSharePercent, "maxBulkSharePercent", 0, 100),
     consecutiveCompleteWeeks: integer(value.consecutiveCompleteWeeks, "consecutiveCompleteWeeks", 1, 26),
-    relianceListingThreshold: integer(value.relianceListingThreshold, "relianceListingThreshold", 0, Number.MAX_SAFE_INTEGER),
+    relianceListingThreshold: integer(
+      value.relianceListingThreshold,
+      "relianceListingThreshold",
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ),
   };
 }
 

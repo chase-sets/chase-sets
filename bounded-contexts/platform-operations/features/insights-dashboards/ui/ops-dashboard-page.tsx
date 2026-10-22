@@ -184,11 +184,31 @@ export function OpsDashboardAdminPage({
         ) : (
           <DataTable
             columns={[
-              { key: "week", header: t("platformOperations.opsDashboard.repricingSourceShareWeek"), cell: (week) => week.weekStart },
-              { key: "status", header: t("platformOperations.opsDashboard.repricingSourceShareStatus"), cell: (week) => <Badge tone={week.status === "complete" ? "success" : "danger"}>{week.status}</Badge> },
-              { key: "bulk", header: t("platformOperations.opsDashboard.repricingSourceShareBulk"), cell: (week) => `${(week.shares.bulk * 100).toFixed(1)}% (${week.counts.bulk})` },
-              { key: "policy", header: t("platformOperations.opsDashboard.repricingSourceSharePolicy"), cell: (week) => `${(week.shares.policy * 100).toFixed(1)}% (${week.counts.policy})` },
-              { key: "manual", header: t("platformOperations.opsDashboard.repricingSourceShareManual"), cell: (week) => `${(week.shares.manual * 100).toFixed(1)}% (${week.counts.manual})` },
+              {
+                key: "week",
+                header: t("platformOperations.opsDashboard.repricingSourceShareWeek"),
+                cell: (week) => week.weekStart,
+              },
+              {
+                key: "status",
+                header: t("platformOperations.opsDashboard.repricingSourceShareStatus"),
+                cell: (week) => <Badge tone={week.status === "complete" ? "success" : "danger"}>{week.status}</Badge>,
+              },
+              {
+                key: "bulk",
+                header: t("platformOperations.opsDashboard.repricingSourceShareBulk"),
+                cell: (week) => `${(week.shares.bulk * 100).toFixed(1)}% (${week.counts.bulk})`,
+              },
+              {
+                key: "policy",
+                header: t("platformOperations.opsDashboard.repricingSourceSharePolicy"),
+                cell: (week) => `${(week.shares.policy * 100).toFixed(1)}% (${week.counts.policy})`,
+              },
+              {
+                key: "manual",
+                header: t("platformOperations.opsDashboard.repricingSourceShareManual"),
+                cell: (week) => `${(week.shares.manual * 100).toFixed(1)}% (${week.counts.manual})`,
+              },
             ]}
             rows={[...summary.repricingSourceShare.weeks]}
             getRowId={(week) => week.weekStart}

@@ -84,8 +84,7 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
               ...buildPricingInventoryInputProjectionHandlers(services.db),
               ...buildPricingOwnSaleObservationProjectionHandlers(services.db),
             }),
-          "marketplace.pricing-market-input-projection": () =>
-            marketplaceInputHandlersWithSourceShare,
+          "marketplace.pricing-market-input-projection": () => marketplaceInputHandlersWithSourceShare,
           "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),
           "fulfillment.pricing-fulfillment-input-projection": () =>
             buildPricingFulfillmentInputProjectionHandlers(services.db),

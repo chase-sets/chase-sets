@@ -29,16 +29,23 @@ export function deriveMigrationNudge(
   rows: readonly MigrationNudgeRow[],
   params: Readonly<{ minEstimateSamples?: number; magnitudeCap?: number }>,
 ): MigrationNudge {
-  if (rows.length === 0) return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "no-samples" };
+  if (rows.length === 0)
+    return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "no-samples" };
   const currencies = new Set(rows.map((row) => row.currencyCode.trim().toUpperCase()).filter(Boolean));
-  if (currencies.size !== 1) return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "mixed-currency" };
+  if (currencies.size !== 1)
+    return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "mixed-currency" };
   const ratios = rows.flatMap((row) => {
     const applied = money(row.appliedPriceAmount);
     const estimate = money(row.marketEstimateAmount);
-    return applied !== null && estimate !== null ? [((applied / estimate) - 1) * 100] : [];
+    return applied !== null && estimate !== null ? [(applied / estimate - 1) * 100] : [];
   });
   if (params.minEstimateSamples === undefined || ratios.length < params.minEstimateSamples) {
-    return { status: "unavailable", offsetPercent: null, currencyCode: [...currencies][0]!, reason: "insufficient-estimates" };
+    return {
+      status: "unavailable",
+      offsetPercent: null,
+      currencyCode: [...currencies][0]!,
+      reason: "insufficient-estimates",
+    };
   }
   ratios.sort((a, b) => a - b);
   const middle = Math.floor(ratios.length / 2);
@@ -46,7 +53,12 @@ export function deriveMigrationNudge(
   const offsetPercent = Math.round(median * 100) / 100;
   const cap = params.magnitudeCap ?? REPRICING_POLICY_PERCENT_MAGNITUDE_CAP;
   if (Math.abs(offsetPercent) > cap) {
-    return { status: "unavailable", offsetPercent: null, currencyCode: [...currencies][0]!, reason: "offset-out-of-range" };
+    return {
+      status: "unavailable",
+      offsetPercent: null,
+      currencyCode: [...currencies][0]!,
+      reason: "offset-out-of-range",
+    };
   }
   return { status: "available", offsetPercent, currencyCode: [...currencies][0]! };
 }

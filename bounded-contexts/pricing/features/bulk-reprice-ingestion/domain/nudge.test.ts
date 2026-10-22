@@ -18,7 +18,12 @@ describe("migration nudge derivation", () => {
   });
 
   it.each([
-    ["mixed currency", [row("10.00", "10.00", "USD"), row("10.00", "10.00", "EUR")], { minEstimateSamples: 1 }, "mixed-currency"],
+    [
+      "mixed currency",
+      [row("10.00", "10.00", "USD"), row("10.00", "10.00", "EUR")],
+      { minEstimateSamples: 1 },
+      "mixed-currency",
+    ],
     ["too few estimates", [row("10.00", "10.00")], { minEstimateSamples: 2 }, "insufficient-estimates"],
     ["out of range", [row("200.00", "100.00")], { minEstimateSamples: 1, magnitudeCap: 50 }, "offset-out-of-range"],
     ["no samples", [], { minEstimateSamples: 1 }, "no-samples"],

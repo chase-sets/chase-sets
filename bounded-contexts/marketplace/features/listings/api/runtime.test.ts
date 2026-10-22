@@ -2141,7 +2141,7 @@ describe("marketplace listing runtime", () => {
         services.applyBulkListingPriceUpdates(
           {
             accountId: "acc_seller",
-          changeSource: "seller",
+            changeSource: "seller",
             updates: [
               {
                 listingId,

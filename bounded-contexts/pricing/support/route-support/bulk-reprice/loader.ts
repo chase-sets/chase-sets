@@ -11,7 +11,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createPricingRequestApiClient(request);
   const activeJobId = new URL(request.url).searchParams.get("jobId") ?? "";
   const activeJob = activeJobId ? await loadActiveBulkRepriceJob(api, activeJobId) : null;
-  const nudge = await api.getBulkRepriceNudge().catch(() => ({ status: "unavailable" as const, offsetPercent: null, currencyCode: null, reason: "unavailable" as const }));
+  const nudge = await api
+    .getBulkRepriceNudge()
+    .catch(() => ({
+      status: "unavailable" as const,
+      offsetPercent: null,
+      currencyCode: null,
+      reason: "unavailable" as const,
+    }));
 
   return { activeJobId, activeJob, nudge, accountId: actor.accountId };
 }

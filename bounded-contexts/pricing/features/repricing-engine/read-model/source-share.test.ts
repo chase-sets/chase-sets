@@ -5,16 +5,14 @@ describe("repricing source-share projection", () => {
   it("declares event-id dedupe and maps an absent source to unattributed", async () => {
     const db = { query: vi.fn().mockResolvedValue({ rows: [] }) };
     const handler = buildRepricingSourceShareProjectionHandlers(db as never)["marketplace.listing.price-updated"]!;
-    await handler(
-      {
-        id: "evt_1",
-        streamId: "marketplace.listing-lst_1",
-        data: { priceAmount: "10.00" },
-        audit: { forAccountId: "acc_1" },
-        timing: { occurredAt: "2026-10-07T12:00:00.000Z" },
-        globalPosition: "4",
-      } as never,
-    );
+    await handler({
+      id: "evt_1",
+      streamId: "marketplace.listing-lst_1",
+      data: { priceAmount: "10.00" },
+      audit: { forAccountId: "acc_1" },
+      timing: { occurredAt: "2026-10-07T12:00:00.000Z" },
+      globalPosition: "4",
+    } as never);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT (event_id) DO NOTHING"), [
       "evt_1",
       "2026-10-04",
@@ -32,10 +30,34 @@ describe("repricing source-share projection", () => {
         if (sql.includes("SELECT week_start::text")) {
           return {
             rows: [
-              { week_start: "2026-10-04", seller_account_id: "acc_1", listing_id: "lst_1", source: "bulk-reprice", global_position: "1" },
-              { week_start: "2026-10-04", seller_account_id: "acc_1", listing_id: "lst_2", source: "repricing-engine", global_position: "2" },
-              { week_start: "2026-10-04", seller_account_id: "acc_1", listing_id: "lst_3", source: "seller", global_position: "3" },
-              { week_start: "2026-10-04", seller_account_id: "acc_2", listing_id: "lst_4", source: "unattributed", global_position: "4" },
+              {
+                week_start: "2026-10-04",
+                seller_account_id: "acc_1",
+                listing_id: "lst_1",
+                source: "bulk-reprice",
+                global_position: "1",
+              },
+              {
+                week_start: "2026-10-04",
+                seller_account_id: "acc_1",
+                listing_id: "lst_2",
+                source: "repricing-engine",
+                global_position: "2",
+              },
+              {
+                week_start: "2026-10-04",
+                seller_account_id: "acc_1",
+                listing_id: "lst_3",
+                source: "seller",
+                global_position: "3",
+              },
+              {
+                week_start: "2026-10-04",
+                seller_account_id: "acc_2",
+                listing_id: "lst_4",
+                source: "unattributed",
+                global_position: "4",
+              },
             ],
           };
         }
