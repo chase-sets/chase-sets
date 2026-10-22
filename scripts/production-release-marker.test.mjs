@@ -276,18 +276,34 @@ describe("marker-only source recovery", () => {
       id: 900000100 + attempt,
       run_attempt: attempt,
       steps: [
-        { name: "Capture production rollback target", status: "completed", conclusion: "failure", started_at: timestamp(1), completed_at: timestamp(2) },
-        { name: "Deploy production Kubernetes release", status: "completed", conclusion: deploy, started_at: timestamp(3), completed_at: timestamp(4) },
-        { name: "Roll back production Kubernetes release", status: "completed", conclusion: "skipped", started_at: timestamp(5), completed_at: timestamp(6) },
+        {
+          name: "Capture production rollback target",
+          status: "completed",
+          conclusion: "failure",
+          started_at: timestamp(1),
+          completed_at: timestamp(2),
+        },
+        {
+          name: "Deploy production Kubernetes release",
+          status: "completed",
+          conclusion: deploy,
+          started_at: timestamp(3),
+          completed_at: timestamp(4),
+        },
+        {
+          name: "Roll back production Kubernetes release",
+          status: "completed",
+          conclusion: "skipped",
+          started_at: timestamp(5),
+          completed_at: timestamp(6),
+        },
       ],
     });
     const api = vi.fn(async (path) => {
       const attempt = Number(path.match(/attempts\/(\d+)/)?.[1]);
       return { total_count: 1, jobs: [{ ...makeCaptureRefusal(attempt), run_attempt: attempt }] };
     });
-    await expect(
-      rejectInterveningSourceDeployment(api, { ...identity, latestAttempt: 3 }),
-    ).resolves.toBeUndefined();
+    await expect(rejectInterveningSourceDeployment(api, { ...identity, latestAttempt: 3 })).resolves.toBeUndefined();
     api.mockImplementation(async (path) => {
       const attempt = Number(path.match(/attempts\/(\d+)/)?.[1]);
       return {
@@ -295,9 +311,9 @@ describe("marker-only source recovery", () => {
         jobs: [makeCaptureRefusal(attempt, attempt === 2 ? "success" : "skipped")],
       };
     });
-    await expect(
-      rejectInterveningSourceDeployment(api, { ...identity, latestAttempt: 3 }),
-    ).rejects.toThrow("Deploy production Kubernetes release");
+    await expect(rejectInterveningSourceDeployment(api, { ...identity, latestAttempt: 3 })).rejects.toThrow(
+      "Deploy production Kubernetes release",
+    );
   });
 
   it("publishes only after live source identity and stable retained history checks", async () => {

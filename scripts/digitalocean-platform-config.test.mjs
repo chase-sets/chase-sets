@@ -1348,7 +1348,10 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("rejects every ordinary input in marker-only admission without weakening the recovery mode", () => {
-    const admission = workflowStep(workflowJob(platformProductionWorkflow, "reconcile-production-marker"), "Validate marker-only admission");
+    const admission = workflowStep(
+      workflowJob(platformProductionWorkflow, "reconcile-production-marker"),
+      "Validate marker-only admission",
+    );
     for (const fragment of [
       'DISPATCH_SOURCE" = recovery',
       'RELEASE_REF" = main',
