@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   lstatSync,
   mkdirSync,
@@ -139,7 +140,7 @@ function withTempDirectory(prefix, action) {
 }
 
 function parseGitIndex(
-  output = execFileSync("git", ["ls-files", "-s", "-z"], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }),
+  output = execFileSync("git", ["ls-files", "-s", "-z"], { cwd: ROOT, maxBuffer: GIT_LISTING_MAX_BUFFER }),
 ) {
   const entries = output
     .toString("utf8")
@@ -1782,7 +1783,9 @@ describe.sequential("fail-closed importer controls", () => {
       writeFileSync(target, "export const benign = true;\n");
       createFileSymlink("untracked-target.mjs", candidate);
       execFileSync("git", ["add", "candidate.mjs"], { cwd: directory });
-      const before = parseGitIndex(execFileSync("git", ["ls-files", "-s", "-z"], { cwd: directory }))[0];
+      const before = parseGitIndex(
+        execFileSync("git", ["ls-files", "-s", "-z"], { cwd: directory, maxBuffer: GIT_LISTING_MAX_BUFFER }),
+      )[0];
       expect(before.mode).toBe("120000");
       const firstBytes = readFileSync(candidate, "utf8");
       expectRefusal("IMPORTER_TRACKED_SYMLINK", () =>
@@ -1794,7 +1797,9 @@ describe.sequential("fail-closed importer controls", () => {
       );
 
       writeFileSync(target, `import ${JSON.stringify(pathToFileURL(EMITTER_PATH).href)};\n`);
-      const after = parseGitIndex(execFileSync("git", ["ls-files", "-s", "-z"], { cwd: directory }))[0];
+      const after = parseGitIndex(
+        execFileSync("git", ["ls-files", "-s", "-z"], { cwd: directory, maxBuffer: GIT_LISTING_MAX_BUFFER }),
+      )[0];
       const secondBytes = readFileSync(candidate, "utf8");
       expect(after.objectId).toBe(before.objectId);
       expect(secondBytes).not.toBe(firstBytes);
@@ -1828,7 +1833,10 @@ describe.sequential("fail-closed importer controls", () => {
     expect(
       generatedLooking.filter((path) => extensionToken(path) !== ".json").every((path) => candidatePaths.has(path)),
     ).toBe(true);
-    const trackedIgnored = execFileSync("git", ["ls-files", "-ci", "--exclude-standard", "-z"], { cwd: ROOT })
+    const trackedIgnored = execFileSync("git", ["ls-files", "-ci", "--exclude-standard", "-z"], {
+      cwd: ROOT,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .toString("utf8")
       .split("\0")
       .filter(Boolean)
@@ -1856,7 +1864,10 @@ describe.sequential("fail-closed importer controls", () => {
   });
 
   it("the canonical footprint is exactly three files", () => {
-    const visible = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { cwd: ROOT })
+    const visible = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
+      cwd: ROOT,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .toString("utf8")
       .split("\0")
       .filter(Boolean)

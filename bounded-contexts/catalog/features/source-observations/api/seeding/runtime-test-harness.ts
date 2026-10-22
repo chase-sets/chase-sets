@@ -1620,6 +1620,8 @@ export function createChangedObservationRefreshHarness(
     deterministicCatalogItemIds?: readonly string[];
     partialCatalogItemId?: string | null;
     promotionCommandAlreadyApplied?: { catalogItemId: string };
+    referenceRecordRows?: readonly { referenceRecordId: string; typeKey: string; key: string }[];
+    persistReferenceDataEvents?: boolean;
     assetStorage?: CatalogRuntimeDeps["assetStorage"];
     /** SYNTHETIC display identity data the validated planner resolves against.
      * Defaults to a resolving global title template plus a draft current item
@@ -1650,6 +1652,7 @@ export function createChangedObservationRefreshHarness(
       expansionName: "Ascended Heroes Updated",
       seriesName: "Mega Evolution",
     });
+  const persistReferenceDataEvents = input.persistReferenceDataEvents === true;
   const observationRow = {
     observation_id: "obs_changed",
     sync_run_id: "job_sync_changed",
@@ -1757,6 +1760,21 @@ export function createChangedObservationRefreshHarness(
   ];
 
   const referenceHistories = new Map<string, ReturnType<typeof storedEvent>[]>();
+  for (const row of input.referenceRecordRows ?? []) {
+    const streamId = `catalog.reference-record-${row.referenceRecordId}`;
+    referenceHistories.set(streamId, [
+      storedEvent(1, streamId, "catalog.reference-record.created", {
+        referenceRecordId: row.referenceRecordId,
+        typeKey: row.typeKey,
+        key: row.key,
+        name: { defaultLocale: "en", values: { en: row.key } },
+        description: { defaultLocale: "en", values: { en: row.key } },
+        attributes: {},
+        relationships: [],
+      }),
+      storedEvent(2, streamId, "catalog.reference-record.published", {}),
+    ]);
+  }
   const harnessDb = {
     query: async <T>(sql: string, values: readonly unknown[] = []) => {
       if (sql.includes("FROM catalog_source_observations")) {
@@ -1821,6 +1839,13 @@ export function createChangedObservationRefreshHarness(
       if (sql.includes("FROM catalog_reference_records")) {
         const typeKey = String(values[0]);
         const key = String(values[1] ?? "existing");
+        const seeded = (input.referenceRecordRows ?? []).find((row) => row.typeKey === typeKey && row.key === key);
+        if (seeded) {
+          return { rowCount: 1, rows: [{ reference_record_id: seeded.referenceRecordId }] as T[] };
+        }
+        if (input.referenceRecordRows) {
+          return { rowCount: 0, rows: [] as T[] };
+        }
         const id = `ref_${key}`;
         const referenceStream = `catalog.reference-record-${id}`;
         referenceHistories.set(referenceStream, [
@@ -1962,9 +1987,33 @@ export function createChangedObservationRefreshHarness(
   const referenceRecordCreateCommands: Extract<ReferenceRecordCommand, { type: "CreateReferenceRecord" }>[] = [];
   const referenceData = {
     referenceTypeCommandHandler: async () => ({ version: 1, state: {} }),
-    referenceRecordCommandHandler: async (input: { command: ReferenceRecordCommand }) => {
+    referenceRecordCommandHandler: async (input: { streamId: string; command: ReferenceRecordCommand }) => {
       if (input.command.type === "CreateReferenceRecord") {
         referenceRecordCreateCommands.push(input.command);
+        if (persistReferenceDataEvents) {
+          const streamId = `catalog.reference-record-${input.command.referenceRecordId}`;
+          referenceHistories.set(streamId, [
+            ...(referenceHistories.get(streamId) ?? []),
+            storedEvent(
+              (referenceHistories.get(streamId)?.length ?? 0) + 1,
+              streamId,
+              "catalog.reference-record.created",
+              {
+                referenceRecordId: input.command.referenceRecordId,
+                typeKey: input.command.typeKey,
+                key: input.command.key,
+                name: input.command.name,
+                description: input.command.description,
+                attributes: input.command.attributes ?? {},
+                relationships: input.command.relationships ?? [],
+              },
+            ),
+          ]);
+        }
+      } else if (input.command.type === "PublishReferenceRecord" && persistReferenceDataEvents) {
+        const streamId = input.streamId;
+        const history = referenceHistories.get(streamId);
+        if (history) history.push(storedEvent(history.length + 1, streamId, "catalog.reference-record.published", {}));
       }
       return { version: 1, state: {} };
     },

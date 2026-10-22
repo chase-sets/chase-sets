@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 
@@ -9,11 +10,17 @@ const trackedTypeScriptFiles = execFileSync("git", ["ls-files", "-z", "--", "*.t
   cwd: repoRoot,
   encoding: "utf8",
   windowsHide: true,
+  maxBuffer: GIT_LISTING_MAX_BUFFER,
 })
   .split("\0")
   .filter(Boolean);
 const trackedFiles = new Set(
-  execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8", windowsHide: true })
+  execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean),
 );
