@@ -1,0 +1,54 @@
+name: Production marker recovery context
+description: Configure the existing production Kubernetes context and registry client without mutation.
+inputs:
+  digitalocean-token:
+    required: true
+  spaces-access-id:
+    required: true
+  spaces-secret-key:
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Configure production Kubernetes context
+      shell: bash
+      working-directory: infrastructure/digitalocean/doks
+      env:
+        DIGITALOCEAN_ACCESS_TOKEN: ${{ inputs.digitalocean-token }}
+        TF_VAR_digitalocean_token: ${{ inputs.digitalocean-token }}
+        TF_VAR_spaces_access_id: ${{ inputs.spaces-access-id }}
+        TF_VAR_spaces_secret_key: ${{ inputs.spaces-secret-key }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.spaces-access-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.spaces-secret-key }}
+      run: |
+        set -euo pipefail
+        kubeconfig="${RUNNER_TEMP}/chase-sets-production.kubeconfig"
+        terraform output -raw kubeconfig > "$kubeconfig" || true
+        chmod 600 "$kubeconfig"
+        if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+          cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+          cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+          if [ -z "$cluster_id" ] && [ -z "$cluster_name" ]; then
+            echo "Production Kubernetes context is unavailable from the reviewed Terraform state." >&2
+            exit 1
+          fi
+          if [ -n "$cluster_id" ]; then
+            doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+          else
+            doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+          fi
+          chmod 600 "$kubeconfig"
+        fi
+        current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+        [ -n "$current_context" ] || { echo "Production Kubernetes kubeconfig has no current context." >&2; exit 1; }
+        echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+        echo "Configured production Kubernetes context: ${current_context}"
+
+    - name: Authenticate production registry read client
+      shell: bash
+      env:
+        DIGITALOCEAN_ACCESS_TOKEN: ${{ inputs.digitalocean-token }}
+      run: |
+        set -euo pipefail
+        doctl registry get --format Name --no-header >/dev/null
+        doctl registry login --expiry-seconds 3600

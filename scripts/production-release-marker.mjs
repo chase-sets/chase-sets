@@ -16,6 +16,7 @@ import {
   readHelmOperationCensus,
   selectStableDeployedHelmSource,
 } from "./platform-kubernetes-deployment.mjs";
+import { runReleaseLockCheck } from "./release-lock.mjs";
 
 const execute = promisify(execFile);
 const sha = /^[0-9a-f]{40}$/;
@@ -362,6 +363,21 @@ export async function readPriorAuthority(api, identity) {
   throw new Error("no exact prior marker-failure authority");
 }
 
+async function rejectInterveningSourceDeployment(api, identity) {
+  for (let previous = identity.attempt - 1; previous >= 1; previous -= 1) {
+    const job = await productionJob(api, identity.runId, previous);
+    requireThat(job.head_sha === identity.workflowHead, "mismatched intervening source head");
+    requireThat(job.status === "completed" && job.conclusion === "failure", "unverified intervening source attempt");
+    requireThat(
+      job.steps?.some((item) => item.name === markerStepName && item.conclusion === "failure") !== true,
+      "duplicate source marker authority",
+    );
+    step(job, "Capture production rollback target", "failure");
+    step(job, "Deploy production Kubernetes release", "skipped");
+    step(job, "Roll back production Kubernetes release", "skipped");
+  }
+}
+
 export async function reconcileReleaseMarker(identity, io) {
   const refs = await io.readRefs();
   if (identity.attempt === 1 || refs.production === identity.commit) return;
@@ -392,6 +408,36 @@ export async function reconcileReleaseMarker(identity, io) {
     await io.assertWriters();
   };
   await publishReleaseMarker({ ...identity, productionCommit: refs.production }, { ...io, assertFresh });
+}
+
+/**
+ * Reconcile a retained production deployment from a separate, exact source run.
+ * The executor run is deliberately not treated as deployment authority: it only
+ * supplies the current writer census and the exclusive recovery admission.
+ */
+export async function reconcileMarkerOnly(identity, io) {
+  const refs = await io.readRefs();
+  requireThat(sha.test(refs.production ?? ""), "production ref unavailable");
+  const history = normalizedHistory(await io.readHistory());
+  const deployed = history.filter((entry) => entry.status === "deployed");
+  const values = await io.readValues(deployed.length === 1 ? deployed[0].revision : history.at(-1).revision);
+  requireThat(values.global?.image?.tag === identity.commit, "live Helm identity does not match source commit");
+  const expectedHistory = stableRecoveryHistory(history, identity.resultingHeadRevision);
+  const assertFresh = async () => {
+    await io.assertWriters();
+    requireThat(
+      JSON.stringify(stableRecoveryHistory(await io.readHistory(), identity.resultingHeadRevision)) ===
+        JSON.stringify(expectedHistory),
+      "Helm history changed during marker-only recovery",
+    );
+    const captured = await io.capture();
+    requireThat(
+      JSON.stringify(captured.preDeployHistory) === JSON.stringify(expectedHistory),
+      "Helm history moved during marker-only identity capture",
+    );
+    await io.assertWriters();
+  };
+  return publishReleaseMarker({ ...identity, productionCommit: refs.production }, { ...io, assertFresh });
 }
 
 async function readTransitionArtifact(api, env, identity, job) {
@@ -427,6 +473,37 @@ async function readTransitionArtifact(api, env, identity, job) {
     );
     const extracted = await command("unzip", ["-p", archive, "production-kubernetes-deployment-transition.json"]);
     return validateTransitionAuthority(JSON.parse(extracted.stdout), artifact, job, identity);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function readRetainedTransition(api, env, runId, job) {
+  const artifacts = await readCompletePages(api, `actions/runs/${runId}/artifacts`, "artifacts");
+  const upload = step(job, uploadStepName, "success");
+  const candidates = artifacts.filter(
+    (artifact) =>
+      artifact.name === "production-kubernetes-deployment-transition" &&
+      instant(artifact.created_at) >= instant(upload.started_at) &&
+      instant(artifact.created_at) <= instant(upload.completed_at),
+  );
+  requireThat(candidates.length === 1, "missing or duplicate transition artifact in source upload interval");
+  const artifact = await api(`actions/artifacts/${candidates[0].id}`);
+  requireThat(artifact.id === candidates[0].id && artifact.name === candidates[0].name, "mismatched transition artifact metadata");
+  requireThat(artifact.expired === false, "transition artifact expired");
+  const directory = await mkdtemp(join(tmpdir(), "production-marker-source-"));
+  try {
+    const archive = join(directory, "transition.zip");
+    const { stdout } = await command(
+      "gh",
+      ["api", `repos/${env.GITHUB_REPOSITORY}/actions/artifacts/${artifact.id}/zip`],
+      { encoding: "buffer", env: { ...env, GH_TOKEN: env.GITHUB_TOKEN } },
+    );
+    await writeFile(archive, stdout);
+    const listing = await command("unzip", ["-Z1", archive]);
+    requireThat(listing.stdout.trim() === "production-kubernetes-deployment-transition.json", "unexpected transition archive members");
+    const extracted = await command("unzip", ["-p", archive, "production-kubernetes-deployment-transition.json"]);
+    return { artifact, transition: JSON.parse(extracted.stdout) };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -621,17 +698,23 @@ async function main(action, env) {
       run.id === runId &&
         run.path === ".github/workflows/platform-production.yml" &&
         run.event === "workflow_dispatch" &&
+        run.head_branch === "main" &&
+        run.ref === "refs/heads/main" &&
         run.run_attempt === attempt &&
         run.status === "in_progress",
       "unverified production workflow source",
     );
+    const markerOnly = action === "marker-only";
+    const initialCommit = markerOnly ? "0".repeat(40) : env.RELEASE_COMMIT;
+    const initialDigest = markerOnly ? `sha256:${"0".repeat(64)}` : env.RELEASE_IMAGE_DIGEST;
+    const initialImage = markerOnly ? env.RELEASE_IMAGE : env.RELEASE_IMAGE;
     identity = {
       runId,
       attempt,
       workflowHead: run.head_sha,
-      commit: env.RELEASE_COMMIT,
-      digest: env.RELEASE_IMAGE_DIGEST,
-      image: env.RELEASE_IMAGE?.replace(/:[^/:]+$/, ""),
+      commit: initialCommit,
+      digest: initialDigest,
+      image: initialImage?.replace(/:[^/:]+$/, ""),
       release: env.CHASE_SETS_HELM_RELEASE,
       namespace: env.CHASE_SETS_KUBERNETES_NAMESPACE,
       tag: releaseMarkerIdentity(run, env.RELEASE_COMMIT),
@@ -644,6 +727,118 @@ async function main(action, env) {
     );
     const options = { release: identity.release, namespace: identity.namespace };
     const transitionPath = "artifacts/release-health/production-kubernetes-deployment-transition.json";
+    if (action === "marker-only") {
+      requireThat(env.GITHUB_EVENT_NAME === "workflow_dispatch" && env.GITHUB_REF_NAME === "main", "marker-only recovery requires main workflow_dispatch");
+      requireThat(env.RECONCILE_MARKER_ONLY === "true", "marker-only recovery input is not enabled");
+      const sourceRunId = Number(env.MARKER_SOURCE_RUN_ID);
+      const sourceAttempt = Number(env.MARKER_SOURCE_ATTEMPT);
+      requireThat(Number.isSafeInteger(sourceRunId) && sourceRunId > 0, "invalid marker source run");
+      requireThat(Number.isSafeInteger(sourceAttempt) && sourceAttempt > 0 && sourceAttempt <= 10, "invalid marker source attempt");
+      requireThat(typeof env.MARKER_RECOVERY_REASON === "string" && env.MARKER_RECOVERY_REASON.trim().length > 0, "marker recovery reason is required");
+      const sourceRun = await api(`actions/runs/${sourceRunId}`);
+      requireThat(
+        sourceRun.id === sourceRunId &&
+          sourceRun.path === ".github/workflows/platform-production.yml" &&
+          sourceRun.event === "workflow_dispatch" &&
+          sourceRun.run_attempt === sourceAttempt &&
+          sourceRun.head_branch === "main" &&
+          sourceRun.status === "completed" &&
+          sourceRun.conclusion === "failure",
+        "unverified marker source workflow",
+      );
+      const sourceJob = await productionJob(api, sourceRunId, sourceAttempt);
+      const retained = await readRetainedTransition(api, env, sourceRunId, sourceJob);
+      const marker = retained.transition.markerIdentity;
+      requireThat(
+        marker?.runId === sourceRunId &&
+          marker.attempt === sourceAttempt &&
+          marker.jobId === sourceJob.id &&
+          sha.test(marker.commit) &&
+          digestPattern.test(marker.digest) &&
+          sha.test(marker.productionCommit) &&
+          typeof marker.tag === "string" &&
+          /^release-/.test(marker.tag),
+        "source transition lacks exact marker identity",
+      );
+      const sourceIdentity = {
+        runId: sourceRunId,
+        attempt: sourceAttempt,
+        workflowHead: sourceRun.head_sha,
+        commit: marker.commit,
+        digest: marker.digest,
+        image: identity.image,
+        release: identity.release,
+        namespace: identity.namespace,
+        tag: marker.tag,
+        productionCommit: marker.productionCommit,
+        resultingHeadRevision: retained.transition.resultingHeadRevision,
+      };
+      admitPriorProductionJob(sourceJob, sourceIdentity);
+      await rejectInterveningSourceDeployment(api, sourceIdentity);
+      validateTransitionAuthority(retained.transition, retained.artifact, sourceJob, sourceIdentity);
+      const lock = await runReleaseLockCheck({
+        environmentName: "production",
+        releaseCommit: sourceIdentity.commit,
+        releaseLocked: env.PRODUCTION_RELEASE_LOCKED ?? "false",
+        lockReason: env.PRODUCTION_RELEASE_LOCK_REASON ?? "",
+        lockReference: env.PRODUCTION_RELEASE_LOCK_REFERENCE ?? "",
+        emergencyBypass: "false",
+        emergencyReference: "",
+        githubRepository: env.GITHUB_REPOSITORY,
+        githubToken: env.GITHUB_TOKEN,
+      });
+      requireThat(lock.deploymentAllowed === true && !(lock.errors?.length), "production release lock refused source");
+      await command(
+        process.execPath,
+        [
+          "./scripts/release-health-merge-group-failure-signatures.mjs",
+          "--command",
+          "guard",
+          "--lane",
+          "release-dispatch",
+          "--lane",
+          "staging",
+          "--lane",
+          "production",
+          "--base-sha",
+          sourceIdentity.commit,
+          "--candidate-sha",
+          sourceIdentity.commit,
+          "--actor",
+          env.GITHUB_ACTOR ?? "github-actions",
+          "--automatic",
+          "false",
+          "--circuit-issue-number",
+          env.CIRCUIT_ISSUE_NUMBER ?? "",
+          "--circuit-reason",
+          env.CIRCUIT_REASON ?? "",
+          "--enforcement",
+          env.DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT ?? "false",
+          "--github-summary",
+          env.GITHUB_STEP_SUMMARY ?? "",
+        ],
+        { env },
+      );
+      const assertFresh = () => assertWriters(env, options);
+      await reconcileMarkerOnly(sourceIdentity, {
+        ...markerIo(sourceIdentity, env, assertFresh),
+        readHistory: () => readHistory(options),
+        readValues: async (revision) => JSON.parse((await command("helm", buildHelmValuesArgs({ ...options, revision }))).stdout),
+        assertWriters: assertFresh,
+        capture: () =>
+          captureKubernetesRollbackTarget({
+            ...options,
+            registryName: sourceIdentity.image.split("/")[1],
+            repository: "chase-sets-platform",
+            tag: sourceIdentity.commit,
+            digest: sourceIdentity.digest,
+            lastKnownGoodCommit: sourceIdentity.commit,
+            releaseTag: sourceIdentity.tag,
+            spawn: readOnlySpawn,
+          }),
+      });
+      return;
+    }
     if (action === "retain-identity") {
       const job = await productionJob(api, runId, attempt);
       requireThat(

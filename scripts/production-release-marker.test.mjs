@@ -13,6 +13,7 @@ import {
   registryManifestBytes,
   readPriorAuthority,
   reconcileReleaseMarker,
+  reconcileMarkerOnly,
   readOnlySpawn,
   markerIo,
 } from "./production-release-marker.mjs";
@@ -219,6 +220,46 @@ describe("publication interruption and unknown response", () => {
     state.registry = Buffer.from("{}");
     await expect(publishReleaseMarker(identity, io)).rejects.toThrow();
     expect(io.publishRegistry).not.toHaveBeenCalled();
+    expect(io.publishGit).not.toHaveBeenCalled();
+  });
+});
+
+describe("marker-only source recovery", () => {
+  it("publishes only after live source identity and stable retained history checks", async () => {
+    const { io, state } = publication();
+    const history = [
+      { revision: 20, status: "superseded", description: "Upgrade complete" },
+      { revision: 21, status: "deployed", description: "Upgrade complete" },
+    ];
+    const source = { ...identity, resultingHeadRevision: 21 };
+    const effects = [];
+    const result = await reconcileMarkerOnly(source, {
+      ...io,
+      readHistory: vi.fn(async () => history),
+      readValues: vi.fn(async () => ({ global: { image: { tag: commit } } })),
+      assertWriters: vi.fn(async () => effects.push("writers")),
+      capture: vi.fn(async () => ({ preDeployHistory: history })),
+      assertFresh: vi.fn(async () => {}),
+    });
+    expect(result).toMatchObject({ marker_updated: "true", production_marker_commit: commit });
+    expect(effects.length).toBeGreaterThanOrEqual(2);
+    expect(state.production).toBe(commit);
+  });
+
+  it("refuses a live Helm identity that is not the retained source commit", async () => {
+    const { io } = publication();
+    await expect(
+      reconcileMarkerOnly(
+        { ...identity, resultingHeadRevision: 21 },
+        {
+          ...io,
+          readHistory: async () => [{ revision: 21, status: "deployed", description: "Upgrade complete" }],
+          readValues: async () => ({ global: { image: { tag: previousCommit } } }),
+          assertWriters: vi.fn(),
+          capture: vi.fn(),
+        },
+      ),
+    ).rejects.toThrow("live Helm identity");
     expect(io.publishGit).not.toHaveBeenCalled();
   });
 });
