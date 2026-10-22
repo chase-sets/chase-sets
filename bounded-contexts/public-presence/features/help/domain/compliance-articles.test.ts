@@ -24,7 +24,7 @@ import {
   dmcaUnverifiedRegistrationMarker,
   incorporatedHelpArticleSlugs,
 } from "./compliance-legal-review-corpus";
-import type { HelpArticle } from "./article-model";
+import type { HelpArticle, HelpArticleInline } from "./article-model";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const articlesDirectory = join(dirname(fileURLToPath(import.meta.url)), "articles");
@@ -36,30 +36,35 @@ const complianceArticles = [
     slug: "community-guidelines-and-enforcement",
     audience: "buyer",
     category: "buying",
+    reviewedAt: "2026-08-02",
     bodySha256: "fde175eef4ac26a3d7d48163027e2d6ee6de6786b35e5cfe925ed8ca0a5cc450",
   },
   {
     slug: "intellectual-property-and-dmca",
     audience: "seller",
     category: "selling",
-    bodySha256: "39d90002ac81cd7a5a8a45d5ca1ea9b47a617a0361c2c553e790fb044dabd40d",
+    reviewedAt: "2026-10-21",
+    bodySha256: "77d3c98fa8209ee68ad73d36fffc5cc113118cbc4b7e6f4a0f2f6ea13ac45534",
   },
   {
     slug: "prohibited-and-restricted-items",
     audience: "seller",
     category: "selling",
+    reviewedAt: "2026-08-02",
     bodySha256: "96f232639db1f8bb961926953a9a709843e6f06c7c018286dc30d1b976de0a86",
   },
   {
     slug: "sales-tax",
     audience: "seller",
     category: "selling",
+    reviewedAt: "2026-08-02",
     bodySha256: "2f6962e43c3a4921d498ae9ce52ba6c880df9a236c4ea27892a297113931300e",
   },
   {
     slug: "tax-reporting-1099k",
     audience: "seller",
     category: "selling",
+    reviewedAt: "2026-08-02",
     bodySha256: "45170b5493e4ffe63e58ded0069f7f791e97d1ad0cd8d08964ef635702964b98",
   },
 ] as const;
@@ -210,6 +215,7 @@ const statutoryEvidence = {
   "intellectual-property-and-dmca": {
     urls: ["https://www.copyright.gov/512/", dmcaDirectoryUrl],
     propositions: [/penalty of perjury/i, /ten and no more than fourteen business days/i],
+    reviewSentencePrefix: "reviewed against the U.S. Copyright Office's Section 512 materials on ",
   },
   "sales-tax": {
     urls: ["https://www.streamlinedsalestax.org/for-businesses/marketplace-facilitator"],
@@ -242,6 +248,79 @@ function assertStatutoryEvidence(article: HelpArticle) {
     timeZone: "UTC",
   }).format(new Date(`${article.reviewedAt}T00:00:00.000Z`));
   if (!text.includes(renderedReviewDate)) throw new Error(`${article.slug} reviewedAt lacks a captured source review`);
+  if ("reviewSentencePrefix" in evidence && !text.includes(`${evidence.reviewSentencePrefix}${renderedReviewDate}`)) {
+    throw new Error(`${article.slug} statutory-review sentence must carry reviewedAt`);
+  }
+}
+
+function inlineText(inlines: readonly HelpArticleInline[]) {
+  return inlines
+    .map((inline) => ("value" in inline ? inline.value : inline.type === "link" ? inline.label : ""))
+    .join("");
+}
+
+function sectionListItems(article: HelpArticle, headingText: string) {
+  const headingIndex = article.blocks.findIndex((block) => block.type === "heading" && block.text === headingText);
+  if (headingIndex < 0) throw new Error(`${article.slug} is missing the '${headingText}' section`);
+  const nextHeadingOffset = article.blocks.slice(headingIndex + 1).findIndex((block) => block.type === "heading");
+  const section = article.blocks.slice(
+    headingIndex + 1,
+    nextHeadingOffset < 0 ? undefined : headingIndex + 1 + nextHeadingOffset,
+  );
+  const lists = section.flatMap((block) => (block.type === "list" ? [block] : []));
+  if (lists.length !== 1) throw new Error(`'${headingText}' must contain exactly one element list`);
+  return lists[0].items.map(inlineText);
+}
+
+/** 17 U.S.C. 512(c)(3)(A)(iv): an email address is required only "if available". */
+function assertDmcaNoticeContactWording(article: HelpArticle) {
+  const contactItems = sectionListItems(article, "What a DMCA notice must contain").filter((item) =>
+    /telephone number/i.test(item),
+  );
+  if (contactItems.length !== 1) throw new Error("DMCA notice must list exactly one contact-information element");
+  const [contact] = contactItems;
+  if (!/^information reasonably sufficient for Chase Sets to contact you, such as /i.test(contact)) {
+    throw new Error("DMCA notice contact element must ask for information reasonably sufficient to contact the sender");
+  }
+  if (!/, and, if available, an email address$/i.test(contact)) {
+    throw new Error("DMCA notice contact element must make an email address conditional on availability");
+  }
+}
+
+/** 17 U.S.C. 512(g)(3)(A)-(D), with (D)'s three requirements held as separate elements. */
+const dmcaCounterNoticeElements = [
+  { element: "(g)(3)(A) signature", pattern: /^your physical or electronic signature$/i },
+  {
+    element: "(g)(3)(B) removed-material identification and location",
+    pattern: /^identification of the removed material and where it appeared before removal$/i,
+  },
+  {
+    element: "(g)(3)(C) good-faith mistake or misidentification statement",
+    pattern: /^a statement under penalty of perjury that you have a good-faith belief .*mistake or misidentification$/i,
+  },
+  { element: "(g)(3)(D) name, address, and telephone number", pattern: /^your name, address, and telephone number$/i },
+  {
+    element: "(g)(3)(D) federal-district venue, including outside the United States",
+    pattern:
+      /^a statement that you consent to the jurisdiction of the federal district court for the judicial district where your address is located or, if your address is outside the United States, any judicial district in which Chase Sets may be found$/i,
+  },
+  {
+    element: "(g)(3)(D) acceptance of service of process",
+    pattern:
+      /^a statement that you will accept service of process from the person who sent the infringement notice or that person's agent$/i,
+  },
+] as const;
+
+function assertDmcaCounterNoticeElements(article: HelpArticle) {
+  const items = sectionListItems(article, "If your listing is taken down: counter-notices");
+  for (const { element, pattern } of dmcaCounterNoticeElements) {
+    if (!items.some((item) => pattern.test(item))) throw new Error(`DMCA counter-notice is missing ${element}`);
+  }
+  for (const item of items) {
+    if (!dmcaCounterNoticeElements.some(({ pattern }) => pattern.test(item))) {
+      throw new Error(`DMCA counter-notice lists a non-statutory element: ${item}`);
+    }
+  }
 }
 
 type DmcaDirectoryProbe = Readonly<{
@@ -300,14 +379,14 @@ describe("#5693 compliance policy articles", () => {
 
   it.each(complianceArticles)(
     "discovers $slug through the generated catalog with localized audience/category chrome",
-    ({ slug, audience, category }) => {
+    ({ slug, audience, category, reviewedAt }) => {
       const article = findArticle(slug);
       expect(article).toMatchObject({
         slug,
         locale: "en",
         audience,
         category,
-        reviewedAt: "2026-08-02",
+        reviewedAt,
         href: `/help/${category}/${slug}`,
       });
       expect(publicHelpArticlePaths.filter((path) => path === article.href)).toHaveLength(1);
@@ -366,6 +445,69 @@ describe("#5693 compliance policy articles", () => {
       taxSource.source.replace('reviewedAt: "2026-08-02"', 'reviewedAt: "2026-08-03"'),
     );
     expect(() => assertStatutoryEvidence(stale)).toThrow("reviewedAt lacks a captured source review");
+
+    const dmcaSource = complianceSource("intellectual-property-and-dmca");
+    const staleDmca = compileHelpArticleSource(
+      dmcaSource.fileName,
+      dmcaSource.source.replace('reviewedAt: "2026-10-21"', 'reviewedAt: "2026-08-02"'),
+    );
+    expect(() => assertStatutoryEvidence(staleDmca)).toThrow("statutory-review sentence must carry reviewedAt");
+  });
+
+  it("DMCA notice contact wording follows 512(c)(3)(A)(iv)", () => {
+    expect(() => assertDmcaNoticeContactWording(findArticle("intellectual-property-and-dmca"))).not.toThrow();
+
+    const { fileName, source } = complianceSource("intellectual-property-and-dmca");
+    const currentContact =
+      "- information reasonably sufficient for Chase Sets to contact you, such as your address, telephone number, and, if available, an email address\n";
+    expect(source).toContain(currentContact);
+    const mandatoryEmail = compileHelpArticleSource(
+      fileName,
+      source.replace(currentContact, "- your name, address, telephone number, and email address\n"),
+    );
+    expect(() => assertDmcaNoticeContactWording(mandatoryEmail)).toThrow(
+      "must ask for information reasonably sufficient to contact the sender",
+    );
+    const unconditionalEmail = compileHelpArticleSource(
+      fileName,
+      source.replace(", and, if available, an email address\n", ", and an email address\n"),
+    );
+    expect(() => assertDmcaNoticeContactWording(unconditionalEmail)).toThrow(
+      "must make an email address conditional on availability",
+    );
+  });
+
+  it("DMCA counter-notice wording covers every 512(g)(3) element", () => {
+    expect(() => assertDmcaCounterNoticeElements(findArticle("intellectual-property-and-dmca"))).not.toThrow();
+
+    const { fileName, source } = complianceSource("intellectual-property-and-dmca");
+    const outsideUsVenue =
+      " or, if your address is outside the United States, any judicial district in which Chase Sets may be found";
+    const serviceOfProcess =
+      "- a statement that you will accept service of process from the person who sent the infringement notice or that person's agent\n";
+    expect(source).toContain(outsideUsVenue);
+    expect(source).toContain(serviceOfProcess);
+
+    const withoutOutsideUsVenue = compileHelpArticleSource(fileName, source.replace(outsideUsVenue, ""));
+    expect(() => assertDmcaCounterNoticeElements(withoutOutsideUsVenue)).toThrow(
+      "missing (g)(3)(D) federal-district venue, including outside the United States",
+    );
+    const withoutServiceOfProcess = compileHelpArticleSource(fileName, source.replace(serviceOfProcess, ""));
+    expect(() => assertDmcaCounterNoticeElements(withoutServiceOfProcess)).toThrow(
+      "missing (g)(3)(D) acceptance of service of process",
+    );
+    const withExtraRequirement = compileHelpArticleSource(
+      fileName,
+      source.replace(serviceOfProcess, `${serviceOfProcess}- your email address\n`),
+    );
+    expect(() => assertDmcaCounterNoticeElements(withExtraRequirement)).toThrow(
+      "lists a non-statutory element: your email address",
+    );
+  });
+
+  it("keeps the generated DMCA article equal to its compiled source", () => {
+    const { fileName, source } = complianceSource("intellectual-property-and-dmca");
+    expect(findArticle("intellectual-property-and-dmca")).toEqual(compileHelpArticleSource(fileName, source));
   });
 
   it("fails closed to registration-status-unverified", () => {

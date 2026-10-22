@@ -15,6 +15,8 @@ import {
   buildPreviewDatabaseClusterInventory,
   cleanupLeakedPreviewDatabaseClusters,
   cleanupMatrixForTargets,
+  cleanupBatchesForTargets,
+  cleanupMatrixForBatches,
   classifyDatabaseCluster,
   commandOutput,
   combinePreviewCleanupCandidates,
@@ -151,6 +153,18 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     });
   });
 
+  it("partitions 1,260 sorted cleanup targets into contiguous 32-target batches", () => {
+    const targets = Array.from({ length: 1_260 }, (_, index) => ({ prNumber: 1_260 - index }));
+    const batches = cleanupBatchesForTargets(targets);
+    expect(batches).toHaveLength(40);
+    expect(batches.flatMap((batch) => batch.targets.map((target) => target.prNumber))).toEqual(
+      Array.from({ length: 1_260 }, (_, index) => index + 1),
+    );
+    expect(batches.slice(0, -1).every((batch) => batch.targets.length === 32)).toBe(true);
+    expect(batches.at(-1).targets).toHaveLength(12);
+    expect(cleanupMatrixForBatches(batches, { checkoutRef: "main", imageSha: "abc123" }).include).toHaveLength(40);
+  });
+
   it("discovers closed pull requests from preview state and live database clusters", async () => {
     const result = await discoverPreviewCleanupTargets(
       {
@@ -198,25 +212,31 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.matrix).toEqual({
       include: [
         {
-          pr_number: 10,
+          batch_index: 0,
+          batch_count: 1,
           checkout_ref: "main",
           image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-10-postgres",
-        },
-        {
-          pr_number: 12,
-          checkout_ref: "main",
-          image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-12-postgres",
-        },
-        {
-          pr_number: 13,
-          checkout_ref: "main",
-          image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-13-postgres",
         },
       ],
     });
+  });
+
+  it("records an empty successful no-op without a destroy matrix", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+    });
+    expect(result.record).toMatchObject({
+      result: "empty",
+      closedTargetCount: 0,
+      batchSize: 32,
+      batchCount: 0,
+      batches: [],
+    });
+    expect(result.matrix).toEqual({ include: [] });
   });
 
   it("builds a read-only inventory and marks closed or merged preview clusters leaked", async () => {
@@ -475,7 +495,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.record.targets).toEqual([
       expect.objectContaining({ prNumber: 50, pullRequestState: "closed", selected: true }),
     ]);
-    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 50 })]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
   });
 
   it("extracts preview PR numbers from live chase-sets-pr-* namespace names only", () => {
@@ -542,7 +562,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       expect.objectContaining({ prNumber: 4736, pullRequestState: "closed", merged: true, selected: true }),
     ]);
     expect(result.record.targets.some((target) => target.prNumber === 4783)).toBe(false);
-    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 4736 })]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
   });
 
   it("degrades to a warning instead of failing the whole sweep when namespace listing is unavailable", async () => {
@@ -829,6 +849,71 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     }
   });
 
+  it("looks up each sorted candidate once with no more than eight active workers", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const lookedUp = [];
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({
+        Contents: Array.from({ length: 1_260 }, (_, index) => ({ Key: `platform/previews/pr-${index + 1}.tfstate` })),
+      }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+      fetchPullRequest: async (prNumber) => {
+        lookedUp.push(prNumber);
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        active -= 1;
+        return { state: "closed", merged: false };
+      },
+    });
+    expect(maximumActive).toBeLessThanOrEqual(8);
+    expect(lookedUp).toHaveLength(1_260);
+    expect(new Set(lookedUp).size).toBe(1_260);
+    expect(result.record.targets).toHaveLength(1_260);
+    expect(result.record.batchSize).toBe(32);
+    expect(result.record.batchCount).toBe(40);
+    expect(result.record.batches.map((batch) => batch.targets.length)).toEqual([...Array(39).fill(32), 12]);
+    expect(result.matrix.include).toEqual([
+      ...Array.from({ length: 40 }, (_, batch_index) => ({
+        batch_index,
+        batch_count: 40,
+        checkout_ref: "main",
+        image_sha: "abc123",
+      })),
+    ]);
+  });
+
+  it("fails closed above the 256-batch matrix limit without truncating targets", async () => {
+    const discover = async (count) =>
+      discoverPreviewCleanupTargets(discoveryOptions(), {
+        awsJson: async () => ({
+          Contents: Array.from({ length: count }, (_, index) => ({ Key: `platform/previews/pr-${index + 1}.tfstate` })),
+        }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => [],
+        fetchPullRequest: async () => ({ state: "closed", merged: false }),
+      });
+
+    const withinLimit = await discover(8_192);
+    expect(withinLimit.record.batchCount).toBe(256);
+    expect(withinLimit.record.result).not.toBe("failure");
+    expect(withinLimit.matrix.include).toHaveLength(256);
+
+    const overLimit = await discover(8_193);
+    expect(overLimit.record.result).toBe("failure");
+    expect(overLimit.record.errors).toContain("matrix-limit-exceeded");
+    expect(overLimit.record.batchCount).toBe(257);
+    expect(overLimit.record.targets).toHaveLength(8_193);
+    expect(overLimit.record.batches).toHaveLength(257);
+    expect(overLimit.matrix).toEqual({ include: [] });
+  });
+
   it("fails closed at the discovery budget", async () => {
     const calls = { namespaces: 0, lookups: 0 };
     let nowMs = 0;
@@ -932,7 +1017,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
         testCase.name,
       ).toEqual(testCase.expected);
       expect(
-        result.matrix.include.map((target) => target.pr_number),
+        result.record.targets.map((target) => target.prNumber),
         testCase.name,
       ).toEqual(testCase.expected);
       if (testCase.listCount !== undefined) {
@@ -1532,10 +1617,10 @@ describe("discover-idle-drafts (#9964)", () => {
     expect(result.matrix).toEqual({
       include: [
         {
-          pr_number: 502,
+          batch_index: 0,
+          batch_count: 1,
           checkout_ref: "main",
           image_sha: "abc123",
-          expected_database_cluster_name: "chase-sets-pr-502-postgres",
         },
       ],
     });

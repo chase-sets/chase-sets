@@ -35,8 +35,8 @@ export const YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY = defineCatal
   ingestionPurpose: "reference-data",
 });
 
-export const YGOJSON_PRODUCTION_PROFILE_VERSION = "2026.06.21";
-export const YGOJSON_YUGIOH_SEALED_PRODUCT_PROFILE_VERSION = "2026.07.14";
+export const YGOJSON_PRODUCTION_PROFILE_VERSION = "2026.10.18";
+export const YGOJSON_YUGIOH_SEALED_PRODUCT_PROFILE_VERSION = "2026.10.18";
 export const YGOJSON_VALIDATION_PROFILE_VERSION = "ygojson-validation-2026.06.21";
 
 export type YgojsonProviderPayload =

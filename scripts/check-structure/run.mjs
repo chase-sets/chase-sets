@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -1639,7 +1640,11 @@ function classifyShellManifest({ manifest, root, manifestPath = `${root}/context
 }
 
 export async function discoverShellContributionManifests({ repoRoot: rootDir = repoRoot } = {}) {
-  const files = execFileSync("git", ["ls-files", "-z", "--", "*.json"], { cwd: rootDir, encoding: "utf8" })
+  const files = execFileSync("git", ["ls-files", "-z", "--", "*.json"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean);
   const manifests = [];

@@ -306,6 +306,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-pr-scope.yml": "ci",
     "platform-pr.yml": "release",
     "platform-preview-cleanup.yml": "release",
+    "platform-preview-cleanup-observer.yml": "ci",
     "platform-preview-pool-census.yml": "ci",
     "platform-preview-wildcard-tls.yml": "release",
     "platform-production-restore-point-cleanup.yml": "release",

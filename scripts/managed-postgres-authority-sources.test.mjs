@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { copyFile, mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -270,6 +271,15 @@ const scrydexCacheCaptureDelta = [
     purpose: "application-runtime",
   })),
 );
+const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-force-refresh-bounded",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
 // #9962 adds the read-only preview-pool census workflow's provider authority grants.
 const previewPoolCensusDelta = [
   ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
@@ -493,6 +503,10 @@ const reviewedRetiredVerifierRemovals = new Set([
 // An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
 const uploadArtifact = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 const reviewedStepInsertions = [
+  // #10259: scheduled batch download, batch resolution and target-number steps ahead of destroy-preview cleanup.
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 7 },
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 8 },
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 9 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 52 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
@@ -655,7 +669,7 @@ async function materializeImmutableMigrationInput(original) {
   const { stdout } = await execFileAsync(
     "git",
     ["ls-tree", "-r", "--name-only", migrationBase, "--", ".github/workflows", AUTHORITY_ROOT],
-    { cwd: repositoryRoot, encoding: "utf8" },
+    { cwd: repositoryRoot, encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER },
   );
   for (const path of stdout.split("\n").filter(Boolean)) {
     const file = await execFileAsync("git", ["show", `${migrationBase}:${path}`], {
@@ -825,6 +839,7 @@ describe("managed Postgres authority source generator", () => {
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
         ...scrydexCacheCaptureDelta,
+        ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
         ...credentialHealthDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
@@ -833,7 +848,7 @@ describe("managed Postgres authority source generator", () => {
         ...qualificationCleanupDelta,
       ].map(applyQualificationStepInsertions),
     };
-    expect(expected.grants).toHaveLength(1694);
+    expect(expected.grants).toHaveLength(1697);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta

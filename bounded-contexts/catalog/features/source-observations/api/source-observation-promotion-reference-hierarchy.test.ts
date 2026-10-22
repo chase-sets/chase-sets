@@ -1,6 +1,9 @@
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { describe, expect, it, vi } from "vitest";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import { createReferenceDataRuntime, type ReferenceDataServices } from "../../reference-data/api/runtime";
@@ -14,6 +17,12 @@ import {
   resolvePromotionReferenceHierarchy,
   resolvePromotionReferenceHierarchyReadOnly,
 } from "./source-observation-promotion-reference-hierarchy";
+import { requireCatalogProviderSourceObservation } from "./promotion/provider-source-observation-normalizer";
+import {
+  ygojsonYugiohSetReferenceProviderProfile,
+  ygojsonYugiohSetReferenceSourceObservationMappingContract,
+} from "./providers/ygojson/executable-mapping-contract";
+import { buildCatalogScopeRegistryProjectionHandlers } from "../../scope-registry/read-model/projection";
 
 /**
  * SYNTHETIC Reference Data only: an in-memory EventStore behind the real
@@ -146,6 +155,153 @@ function harness(projected: readonly ProjectedReferenceRecord[] = []) {
 }
 
 describe("promotion reference hierarchy provisioning against authoritative Reference Data histories", () => {
+  it("promotes the captured YGOJSON set through the seeded hierarchy and scope projection", async () => {
+    const h = harness([
+      {
+        reference_record_id: "ref_seed_pokemon_trading_card_game",
+        type_key: "product-line",
+        key: "pokemon-trading-card-game",
+        attributes: {},
+      },
+      {
+        reference_record_id: "ref_seed_magic_the_gathering",
+        type_key: "product-line",
+        key: "magic-the-gathering",
+        attributes: {},
+      },
+      {
+        reference_record_id: "ref_seed_one_piece_card_game",
+        type_key: "product-line",
+        key: "one-piece-card-game",
+        attributes: {},
+      },
+      {
+        reference_record_id: "ref_seed_disney_lorcana",
+        type_key: "product-line",
+        key: "disney-lorcana",
+        attributes: {},
+      },
+    ]);
+    const fixture = JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL("./__fixtures__/ygojson-yugioh-set-reference-data/beginners-edition-2.json", import.meta.url),
+        ),
+        "utf8",
+      ),
+    ) as JsonValue;
+    const normalized = requireCatalogProviderSourceObservation({
+      contract: ygojsonYugiohSetReferenceSourceObservationMappingContract,
+      payload: fixture,
+      observedAt: "2026-10-18T19:00:00.000Z",
+    }).normalized;
+    if (normalized.kind !== "yugioh-set-reference")
+      throw new Error("fixture did not normalize as Yu-Gi-Oh set reference");
+
+    const result = await resolvePromotionReferenceHierarchy({
+      deps: h.deps,
+      referenceData: h.referenceData,
+      profile: ygojsonYugiohSetReferenceProviderProfile,
+      normalized,
+      context,
+    });
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).toBe(
+      catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+    );
+    const productLineStream = `catalog.reference-record-${catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame}`;
+    expect(await h.eventStore.readStream({ streamId: productLineStream })).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.reference-record.created",
+        payload: expect.objectContaining({ key: "yu-gi-oh-official-card-game", typeKey: "product-line" }),
+      }),
+    );
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).not.toBe("ref_seed_pokemon_trading_card_game");
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).not.toBe("ref_seed_magic_the_gathering");
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).not.toBe("ref_seed_one_piece_card_game");
+    expect(result.referenceRecordIdsByTypeKey["product-line"]).not.toBe("ref_seed_disney_lorcana");
+    expect(result.targetReferenceRecordId).toBe("ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a");
+
+    const setStream = `catalog.reference-record-${result.targetReferenceRecordId}`;
+    const setCreate = (await h.eventStore.readStream({ streamId: setStream })).find(
+      (event) => event.eventType === "catalog.reference-record.created",
+    );
+    expect(setCreate?.payload).toMatchObject({
+      typeKey: "set",
+      key: "000f0093-1847-4db7-a315-5bd07f055c7a",
+      relationships: [
+        {
+          relationshipType: "part-of",
+          referenceId: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+        },
+      ],
+    });
+    expect(
+      (await h.eventStore.readStream({ streamId: setStream })).filter((event) =>
+        event.eventType.includes("product-line"),
+      ),
+    ).toEqual([]);
+    expect(
+      await h.eventStore.readStream({ streamId: "catalog.reference-record-ref_ygojson_product_line_yu_gi_oh" }),
+    ).toEqual([]);
+
+    const projectedRows = new Map<string, Record<string, unknown>>();
+    const projectionQuery = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("reference_record_id = ANY")) {
+        const ids = Array.isArray(params?.[0]) ? (params?.[0] as readonly string[]) : [];
+        return {
+          rows: ids
+            .map((id) => projectedRows.get(id))
+            .filter((row): row is Record<string, unknown> => row !== undefined),
+        };
+      }
+      if (/INSERT\s+INTO\s+catalog_scope_records/.test(sql)) {
+        const values = params ?? [];
+        const row = {
+          scope_record_id: values[0],
+          product_domain: values[1],
+          scope_kind: values[2],
+          reference_type_key: values[3],
+          reference_record_id: values[4],
+          reference_record_key: values[5],
+          parent_scope_record_id: values[8] ?? null,
+          product_line_scope_record_id: values[9] ?? null,
+          series_scope_record_id: values[10] ?? null,
+          lifecycle_status: values[16] ?? "draft",
+        };
+        projectedRows.set(String(values[4]), row);
+        return { rows: [] };
+      }
+      if (/UPDATE\s+catalog_scope_records/.test(sql)) {
+        const row = projectedRows.get(String(params?.[0]));
+        if (row) row.lifecycle_status = params?.[1];
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+    const handlers = buildCatalogScopeRegistryProjectionHandlers({ query: projectionQuery });
+    for (const streamId of [productLineStream, setStream]) {
+      for (const event of await h.eventStore.readStream({ streamId })) {
+        const handler = handlers[event.eventType];
+        if (!handler) continue;
+        await handler({
+          streamId,
+          data: event.payload,
+          timing: { recordedAt: "2026-10-18T19:00:00.000Z" },
+        } as never);
+      }
+    }
+    const setRow = projectedRows.get(result.targetReferenceRecordId);
+    expect(setRow).toMatchObject({
+      product_domain: "yugioh",
+      scope_kind: "set",
+      lifecycle_status: "active",
+      parent_scope_record_id: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+    });
+    expect(
+      [...projectedRows.values()].filter((row) => row.product_domain === "yugioh" && row.scope_kind === "set"),
+    ).toHaveLength(1);
+  });
+
   it.each<[string, readonly ("create" | "publish")[]]>([
     ["empty", []],
     ["draft", ["create"]],
