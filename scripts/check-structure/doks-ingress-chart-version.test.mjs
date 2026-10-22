@@ -93,7 +93,7 @@ function createRecordingGitSeam({
   failAt,
 } = {}) {
   const calls = [];
-  const execGit = (args) => {
+  const execGit = (_file, args) => {
     calls.push([...args]);
     if (args[0] === failAt) throw new Error(`${failAt} unavailable`);
     if (args[0] === "rev-parse") return worktree;
@@ -368,7 +368,7 @@ describe("doks ingress chart version guard", () => {
       path.join(process.cwd(), "scripts/check-structure/doks-ingress-chart-version.mjs"),
       "utf8",
     );
-    expect(source.match(/execFileSync\(/g)).toHaveLength(1);
+    expect(source).toContain("execGit = execFileSync");
   });
 
   it("distinguishes a failing worktree probe from merge-base failure in both environments", () => {

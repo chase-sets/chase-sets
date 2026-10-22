@@ -370,10 +370,8 @@ function sourceRows(sf, relativePath) {
         );
         const calleeBinding = binding(node.expression, scope);
         if (unresolvedTokens.length && calleeBinding) {
-          if (calleeBinding.import || ["execGit", "readGit", "runGit"].includes(node.expression.text))
-            for (const token of unresolvedTokens) accounted.add(token);
-          if (calleeBinding.import && !["execGit", "readGit", "runGit"].includes(node.expression.text))
-            addRow(node, kind, { status: "ambiguous", reason: "unresolved-executor" });
+          if (calleeBinding.import) for (const token of unresolvedTokens) accounted.add(token);
+          if (calleeBinding.import) addRow(node, kind, { status: "ambiguous", reason: "unresolved-executor" });
         }
       }
       if (fn && !active.has(fn)) {
@@ -437,7 +435,7 @@ function sourceRows(sf, relativePath) {
     return false;
   };
   for (const token of tokenNodes)
-    if (!accounted.has(token) && !exempt(token) && !relativePath.includes(".test."))
+    if (!accounted.has(token) && !exempt(token))
       addRow(token, "direct", { status: "ambiguous", reason: "unaccounted-token" });
   return [...rows.values()];
 }
@@ -469,6 +467,7 @@ export function listingSiteInventory({ root = repoRoot, sources } = {}) {
     rootNames: files,
     options: { allowJs: true, noResolve: true, noLib: true, noEmit: true, types: [] },
   });
+  program.getTypeChecker();
   return [
     ...unreadable,
     ...tracked.flatMap((relativePath) => {
@@ -494,6 +493,181 @@ describe("Git listing buffer contract", () => {
     expect(inventory.length).toBeGreaterThan(0);
     expect(inventory.filter((site) => site.status !== "compliant")).toEqual([]);
   }, 60_000);
+  it("classifies Git listing invocations by their behavior rather than names or paths", () => {
+    const injected = (parameter) =>
+      `export function list(${parameter}) {\n  return ${parameter}(["ls-files", "-z", "--others"]);\n}\n`;
+    const cases = [
+      ["name-keyed", "scripts/arbitrary/injected-name.mjs", injected("execGit"), "row"],
+      ["parameter-renamed", "scripts/arbitrary/injected-other.mjs", injected("run"), "row"],
+      ["test-path", "scripts/arbitrary/injected-other.test.mjs", injected("run"), "row"],
+      [
+        "unresolved-factory-test-path",
+        "scripts/arbitrary/factory.test.mjs",
+        'import { makeRunner } from "./runner.mjs";\nconst run = makeRunner();\nrun("git", ["ls-files", "-z", "--others"]);\n',
+        "row",
+      ],
+      [
+        "unresolved-factory-production-path",
+        "scripts/arbitrary/factory.mjs",
+        'import { makeRunner } from "./runner.mjs";\nconst run = makeRunner();\nrun("git", ["ls-files", "-z", "--others"]);\n',
+        "row",
+      ],
+      [
+        "comparison-operand",
+        "scripts/arbitrary/comparison.mjs",
+        'export const isList = (args) => args[0] === "ls-files";\n',
+        "none",
+      ],
+      [
+        "expect-operand",
+        "scripts/arbitrary/expect.mjs",
+        'import { expect } from "vitest";\nexport const check = (calls) => expect(calls).toEqual([["ls-tree", "HEAD"]]);\n',
+        "none",
+      ],
+      [
+        "includes-operand",
+        "scripts/arbitrary/includes.mjs",
+        'export const isList = (args) => args.includes("ls-files");\n',
+        "none",
+      ],
+    ];
+    const observations = [];
+    for (const [name, relative, source, expected] of cases) {
+      const { root } = plant(name, source, relative);
+      try {
+        const rows = listingSiteInventory({ root, sources: [relative] });
+        observations.push({
+          name,
+          rows: rows.map(({ kind, status, reason }) => ({ kind, status, reason })),
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+      expect(expected).toMatch(/^(?:row|none)$/);
+    }
+    expect(observations).toEqual([
+      { name: "name-keyed", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
+      { name: "parameter-renamed", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
+      { name: "test-path", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
+      {
+        name: "unresolved-factory-test-path",
+        rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }],
+      },
+      {
+        name: "unresolved-factory-production-path",
+        rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }],
+      },
+      { name: "comparison-operand", rows: [] },
+      { name: "expect-operand", rows: [] },
+      { name: "includes-operand", rows: [] },
+    ]);
+  });
+  it("proves the four AC3 mutation controls and two neutral shifts on temporary copies", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "cs-git-listing-controls-"));
+    const copy = (relative, source) => {
+      const file = path.join(root, relative);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, source);
+      return relative;
+    };
+    const removeLine = (source, expected, occurrence = 0) => {
+      const lines = source.split(/\r?\n/);
+      let seen = -1;
+      const index = lines.findIndex((line) => line.includes(expected) && ++seen === occurrence);
+      if (index < 0) throw new Error(`missing mutation target ${expected} occurrence ${occurrence}`);
+      lines.splice(index, 1);
+      return lines.join("\n");
+    };
+    const neutralShift = (source) => {
+      const lines = source.split(/\r?\n/);
+      let lastImport = -1;
+      lines.forEach((line, index) => {
+        if (/^import\b/.test(line) || (lastImport >= 0 && index === lastImport + 1 && /^\s/.test(line)))
+          lastImport = index;
+      });
+      while (lastImport + 1 < lines.length && !/;\s*$/.test(lines[lastImport])) lastImport += 1;
+      lines.splice(lastImport + 1, 0, "// neutral shift control");
+      return lines.join("\n");
+    };
+    const source = (relative) => readFileSync(path.join(repoRoot, relative), "utf8");
+    const controls = [
+      {
+        label: "doks-ingress",
+        relative: "scripts/check-structure/doks-ingress-chart-version.mjs",
+        text: removeLine(
+          source("scripts/check-structure/doks-ingress-chart-version.mjs"),
+          "maxBuffer: GIT_LISTING_MAX_BUFFER",
+        ),
+        expected: "red",
+      },
+      {
+        label: "managed-postgres",
+        relative: "scripts/managed-postgres-authority-sources.mjs",
+        text: removeLine(source("scripts/managed-postgres-authority-sources.mjs"), "maxBuffer: 10 * 1024 * 1024"),
+        expected: "red",
+      },
+      {
+        label: "brand-foil-default-buffer",
+        relative: "scripts/check-structure/brand-foil-sites.mjs",
+        text: removeLine(
+          source("scripts/check-structure/brand-foil-sites.mjs"),
+          "maxBuffer: 32 * 1024 * 1024",
+        ).replaceAll("gitListingOptions({ ...options })", "{ ...options }"),
+        expected: "red",
+      },
+      {
+        label: "consent-tracked-files",
+        relative: "scripts/check-structure/consent-authorization-sites.test.mjs",
+        text: removeLine(
+          source("scripts/check-structure/consent-authorization-sites.test.mjs"),
+          "maxBuffer: GIT_LISTING_MAX_BUFFER",
+          0,
+        ),
+        expected: "red",
+      },
+      {
+        label: "consent-counted-child-process",
+        relative: "scripts/check-structure/consent-authorization-sites.test.mjs",
+        text: removeLine(
+          source("scripts/check-structure/consent-authorization-sites.test.mjs"),
+          "maxBuffer: GIT_LISTING_MAX_BUFFER",
+          1,
+        ),
+        expected: "red",
+      },
+      {
+        label: "neutral-catalog-localization",
+        relative: "scripts/check-structure/catalog-localization-keyset-tripwire.mjs",
+        text: neutralShift(source("scripts/check-structure/catalog-localization-keyset-tripwire.mjs")),
+        expected: "green",
+      },
+      {
+        label: "neutral-policy-value",
+        relative: "scripts/check-structure/policy-value-discriminant-chokepoint.mjs",
+        text: neutralShift(source("scripts/check-structure/policy-value-discriminant-chokepoint.mjs")),
+        expected: "green",
+      },
+    ];
+    try {
+      const observations = controls.map(({ label, relative, text: mutated, expected }) => {
+        copy(relative, mutated);
+        const rows = listingSiteInventory({ root, sources: [relative] });
+        const nonCompliant = rows.filter((row) => row.status !== "compliant");
+        return { label, observed: nonCompliant.length > 0 ? "red" : "green", expected, nonCompliant };
+      });
+      expect(observations.map(({ label, observed, expected }) => ({ label, observed, expected }))).toEqual([
+        { label: "doks-ingress", observed: "red", expected: "red" },
+        { label: "managed-postgres", observed: "red", expected: "red" },
+        { label: "brand-foil-default-buffer", observed: "red", expected: "red" },
+        { label: "consent-tracked-files", observed: "red", expected: "red" },
+        { label: "consent-counted-child-process", observed: "red", expected: "red" },
+        { label: "neutral-catalog-localization", observed: "green", expected: "green" },
+        { label: "neutral-policy-value", observed: "green", expected: "green" },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it("fails closed for direct and wrapper/default planted violations", () => {
     const cases = [
       [
@@ -505,6 +679,12 @@ describe("Git listing buffer contract", () => {
       [
         "small-literal",
         'import { execFileSync } from "node:child_process"; execFileSync("git", ["ls-files"], { maxBuffer: 2 * 1024 * 1024 });',
+        "direct",
+        "noncompliant",
+      ],
+      [
+        "small-literal-1024",
+        'import { execFileSync } from "node:child_process"; execFileSync("git", ["ls-files"], { maxBuffer: 1024 });',
         "direct",
         "noncompliant",
       ],
@@ -557,7 +737,7 @@ describe("Git listing buffer contract", () => {
         const rows = listingSiteInventory({ root, sources: [relative] });
         expect(rows).toEqual([
           expect.objectContaining({
-            kind: name === "const-name-collision" ? "wrapper" : kind,
+            kind,
             status,
             ...(status === "ambiguous" ? { reason: "unresolved-options" } : {}),
           }),
@@ -588,6 +768,12 @@ describe("Git listing buffer contract", () => {
       [
         "util-promisify",
         'import util from "node:util"; import { execFile } from "node:child_process"; const run = util.promisify(execFile); await run("git", ["ls-files"], { encoding: "utf8" });',
+        "direct",
+        "noncompliant",
+      ],
+      [
+        "bare-promisify",
+        'import { promisify } from "node:util"; import { execFile } from "node:child_process"; const run = promisify(execFile); await run("git", ["ls-files"]);',
         "direct",
         "noncompliant",
       ],
@@ -652,7 +838,7 @@ describe("Git listing buffer contract", () => {
         } else
           expect(rows).toEqual([
             expect.objectContaining({
-              kind: name === "const-name-collision" ? "wrapper" : kind,
+              kind,
               status,
               ...(reason ? { reason } : {}),
             }),

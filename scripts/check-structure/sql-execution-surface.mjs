@@ -748,16 +748,13 @@ export function deriveChangedSqlExecutionFiles({
   return files.map(normalizeRepoPath).filter(isGovernedProductionModule).sort();
 }
 
-export function listNonTestTypeScriptModules(repoRoot, { execGit = null } = {}) {
-  const tracked =
-    execGit === null
-      ? execFileSync("git", ["ls-files", "-z", "--cached"], {
-          cwd: repoRoot,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "pipe"],
-          maxBuffer: GIT_LISTING_MAX_BUFFER,
-        })
-      : execGit(["ls-files", "-z", "--cached"]);
+export function listNonTestTypeScriptModules(repoRoot, { execGit = execFileSync } = {}) {
+  const tracked = execGit("git", ["ls-files", "-z", "--cached"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  });
   return tracked.split("\0").filter(Boolean).map(normalizeRepoPath).filter(isGovernedProductionModule).sort();
 }
 
