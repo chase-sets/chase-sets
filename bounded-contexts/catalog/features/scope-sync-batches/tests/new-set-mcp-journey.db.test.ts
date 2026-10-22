@@ -220,7 +220,7 @@ describe("new set over MCP journey", () => {
         observations["catalog.list-source-observations"],
         {
           provider: "mtgjson",
-          setName: "Time Spiral",
+          setId: "Time Spiral",
         },
       );
       expect(sourceRows.items.length).toBeGreaterThan(0);

@@ -86,6 +86,7 @@ export function parseProviderScopeMappingReviewInput(
   return { intent, mappingIds, reason };
 }
 
+/** Applies an already parsed review input; HTTP and MCP callers own boundary parsing. */
 export async function reviewProviderScopeMappings(
   services: ProviderScopeMappingServices,
   input: ProviderScopeMappingReviewInput,

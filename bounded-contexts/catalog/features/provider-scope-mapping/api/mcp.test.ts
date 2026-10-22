@@ -48,7 +48,7 @@ describe("Provider Scope Mapping MCP handlers", () => {
     const handlers = createProviderScopeMappingMcpHandlers(services()).toolHandlers;
     await expect(
       handlers["catalog.get-scope-mapping-inbox"]!({ actor: owner, arguments: {} } as never),
-    ).rejects.toThrow("catalog.manage");
+    ).rejects.toThrow("catalog.view");
   });
 
   it("shares the review command loop and actor context with HTTP", async () => {
@@ -69,8 +69,18 @@ describe("Provider Scope Mapping MCP handlers", () => {
       "catalog.review-scope-mappings",
       "catalog.propose-scope-mapping",
     ]);
+    expect(contextManifest.agentCoverage["scope-landing"]).toEqual({ pending: "#9685" });
     const route = readFileSync(new URL("../../../routes/admin/scope-coverage.tsx", import.meta.url), "utf8");
     const detail = readFileSync(new URL("../../../routes/admin/scope-coverage-detail.tsx", import.meta.url), "utf8");
+    const landing = readFileSync(new URL("../../../routes/admin/scope-landing.tsx", import.meta.url), "utf8");
+    const landingLoader = readFileSync(
+      new URL("../../../support/route-support/admin-scope-landing/scope-landing-loader.ts", import.meta.url),
+      "utf8",
+    );
+    expect([...new Set([...landingLoader.matchAll(/api\.(\w+)/g)].map((match) => match[1]))].sort()).toEqual(
+      ["getCatalogAliasReviewReadModel", "getCatalogAttentionQueueReadModel", "listCatalogScopeRecords"].sort(),
+    );
+    expect(landing).toMatch(/export async function action\(/);
     expect([...route.matchAll(/api\.(\w+)(?:<[^>]+>)?\(/g)].map((match) => match[1]).sort()).toEqual(
       ["getUnmappedScopeInbox"].sort(),
     );
@@ -168,8 +178,12 @@ describe("Provider Scope Mapping MCP handlers", () => {
     ).resolves.toEqual({ providerKey: "p" });
     discovery.setRefreshPaused.mockResolvedValueOnce(null);
     await expect(
+      dh["catalog.pause-provider-refresh"]!({ actor: operator, arguments: { providerKey: "p" } } as never),
+    ).rejects.toThrow("provider_refresh_schedule_not_found");
+    discovery.setRefreshPaused.mockResolvedValueOnce(null);
+    await expect(
       dh["catalog.resume-provider-refresh"]!({ actor: operator, arguments: { providerKey: "p" } } as never),
-    ).resolves.toBeNull();
+    ).rejects.toThrow("provider_refresh_schedule_not_found");
     const registry = { listScopeRecords: vi.fn().mockResolvedValue({ items: [], total: 0 }), getScopeRecord: vi.fn() };
     const rh = createScopeRegistryMcpHandlers(registry as never).toolHandlers;
     await expect(rh["catalog.list-scope-records"]!({ actor: operator, arguments: {} } as never)).resolves.toEqual({

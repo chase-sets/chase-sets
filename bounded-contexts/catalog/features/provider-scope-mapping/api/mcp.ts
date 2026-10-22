@@ -16,6 +16,12 @@ function operator(actor: ResolvedActor | null): ResolvedActor {
   }
   return actor;
 }
+function viewer(actor: ResolvedActor | null): ResolvedActor {
+  if (!actor || actor.roleKey !== "platform-admin" || !actor.permissions.includes("catalog.view")) {
+    throw new Error("Missing required operator permission: catalog.view.");
+  }
+  return actor;
+}
 function stringArg(args: Readonly<Record<string, unknown>>, key: string, required = false): string | undefined {
   const value = args[key];
   if (typeof value !== "string" || !value.trim()) {
@@ -28,11 +34,11 @@ export function createProviderScopeMappingMcpHandlers(
   services: ProviderScopeMappingServices,
 ): ProviderScopeMappingMcpHandlers {
   const inbox: McpToolHandler = async ({ actor, arguments: args }) => {
-    operator(actor);
+    viewer(actor);
     return services.getUnmappedScopeInbox(unmappedScopeInboxParams(args));
   };
   const coverage: McpToolHandler = async ({ actor, arguments: args }) => {
-    operator(actor);
+    viewer(actor);
     const id = stringArg(args, "scopeRecordId", true)!;
     const result = await services.getScopeCoverageMatrix(id);
     if (!result) throw new Error("Scope Record not found.");

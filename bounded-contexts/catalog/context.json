@@ -216,7 +216,7 @@
         "catalog.propose-scope-mapping"
       ]
     },
-    "scope-landing": { "tools": ["catalog.list-scope-records"] },
+    "scope-landing": { "pending": "#9685" },
     "scope-sync-batches": { "pending": "#9822" },
     "scope-detail": { "pending": "#9822" }
   },

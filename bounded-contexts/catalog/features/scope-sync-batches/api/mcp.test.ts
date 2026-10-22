@@ -90,13 +90,21 @@ describe("Scope Sync Batch MCP handlers", () => {
 
   it("rejects a confirmation whose text does not match planFingerprint before the service", async () => {
     const h = harness();
-    const result = await h.request("tools/call", "catalog.confirm-scope-sync-batch", {
-      selection: { mode: "ids", scopeRecordIds: ["scope_1"] },
-      planFingerprint: "a".repeat(64),
-      idempotencyKey: "replay-1",
-      confirmationText: "wrong",
-    });
+    const result = await h.request(
+      "tools/call",
+      "catalog.confirm-scope-sync-batch",
+      {
+        selection: { mode: "ids", scopeRecordIds: ["scope_1"] },
+        planFingerprint: "a".repeat(64),
+        idempotencyKey: "replay-1",
+        confirmationText: "wrong",
+      },
+      { confirmed: true, text: "wrong" },
+    );
     expect(result.result.isError).toBe(true);
+    expect(result.result.content[0].text).toContain(
+      "Confirmation text must exactly match the 'planFingerprint' input value.",
+    );
     expect(h.runtime.confirm).not.toHaveBeenCalled();
   });
 
@@ -147,10 +155,36 @@ describe("Scope Sync Batch MCP handlers", () => {
     h.setActor(owner);
     h.setAuthority(denied);
     const listed = await h.request("tools/list");
-    const operatorNames = flattenAvailableMcpTools()
-      .filter((tool) => tool.name.startsWith("catalog.") && tool.permissionBoundary.scope === "operator")
-      .map((tool) => tool.name);
-    expect(listed.result.tools.some((tool: { name: string }) => operatorNames.includes(tool.name))).toBe(false);
+    const operatorNames = [
+      "catalog.list-provider-refresh-schedules",
+      "catalog.run-provider-refresh",
+      "catalog.pause-provider-refresh",
+      "catalog.resume-provider-refresh",
+      "catalog.list-scope-observations",
+      "catalog.list-scope-record-proposals",
+      "catalog.create-reference-record",
+      "catalog.publish-reference-record",
+      "catalog.list-scope-records",
+      "catalog.get-scope-record",
+      "catalog.get-scope-mapping-inbox",
+      "catalog.get-scope-coverage",
+      "catalog.propose-scope-mapping",
+      "catalog.review-scope-mappings",
+      "catalog.preview-scope-sync-batch",
+      "catalog.confirm-scope-sync-batch",
+      "catalog.get-scope-sync-batch",
+      "catalog.list-source-observations",
+      "catalog.cancel-scope-sync-batch",
+      "catalog.resume-scope-sync-batch",
+      "catalog.retry-scope-sync-unit",
+    ] as const;
+    expect(operatorNames).toHaveLength(21);
+    expect(flattenAvailableMcpTools().map((tool) => tool.name)).toEqual(expect.arrayContaining(operatorNames));
+    expect(
+      listed.result.tools.some((tool: { name: string }) =>
+        operatorNames.includes(tool.name as (typeof operatorNames)[number]),
+      ),
+    ).toBe(false);
     for (const name of operatorNames) {
       const result = await h.request("tools/call", name, {});
       expect(result.result.isError).toBe(true);

@@ -42,12 +42,14 @@ export function createProviderScopeDiscoveryMcpHandlers(
       const scoped = operator(actor, "catalog.manage");
       const providerKey = optionalString(args, "providerKey");
       if (!providerKey) throw new Error("providerKey is required.");
-      return services.setRefreshPaused({
+      const schedule = await services.setRefreshPaused({
         providerKey,
         paused,
         actor: `user:${scoped.userId}`,
         reason: optionalString(args, "reason") ?? null,
       });
+      if (!schedule) throw new Error("provider_refresh_schedule_not_found");
+      return schedule;
     };
   const listScopeObservations: McpToolHandler = async ({ actor, arguments: args }) => {
     operator(actor, "catalog.view");

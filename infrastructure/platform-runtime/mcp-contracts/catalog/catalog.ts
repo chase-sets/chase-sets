@@ -37,7 +37,7 @@ const opRead = (
 });
 const writeFields = {
   idempotencyKey: idempotencyKeyProperty(),
-  confirmationText: stringProperty("Exact tool title confirmation text."),
+  confirmationText: stringProperty("Confirmation text."),
 };
 const writeRequired = ["idempotencyKey", "confirmationText"] as const;
 const opWrite = (
@@ -68,7 +68,7 @@ const unknownObject = (description: string) => ({
   additionalProperties: true,
   properties: {},
 });
-const idempotent = (properties: Parameters<typeof objectSchema>[0], required: readonly string[]) => ({
+const idempotent = (properties: Parameters<typeof objectSchema>[0]) => ({
   ...properties,
   ...writeFields,
 });
@@ -290,6 +290,7 @@ const tools: readonly McpToolDescriptor[] = [
         budget: unknownObject("Scope Sync budget."),
         planFingerprint: stringProperty("Exact preview plan fingerprint."),
         ...writeFields,
+        confirmationText: stringProperty("Must equal planFingerprint."),
       },
       ["selection", "planFingerprint", ...writeRequired],
       "scope-sync-batch",
@@ -337,7 +338,7 @@ const tools: readonly McpToolDescriptor[] = [
     "cancel-scope-sync-batch",
     "Cancel Scope Sync Batch",
     "catalog.manage",
-    idempotent({ batchId: stringProperty("Scope Sync Batch identifier.") }, writeRequired),
+    idempotent({ batchId: stringProperty("Scope Sync Batch identifier.") }),
     ["batchId", ...writeRequired],
     "scope-sync-batch",
   ),
@@ -345,7 +346,7 @@ const tools: readonly McpToolDescriptor[] = [
     "resume-scope-sync-batch",
     "Resume Scope Sync Batch",
     "catalog.manage",
-    idempotent({ batchId: stringProperty("Scope Sync Batch identifier.") }, writeRequired),
+    idempotent({ batchId: stringProperty("Scope Sync Batch identifier.") }),
     ["batchId", ...writeRequired],
     "scope-sync-batch",
   ),
@@ -353,13 +354,10 @@ const tools: readonly McpToolDescriptor[] = [
     "retry-scope-sync-unit",
     "Retry Scope Sync Unit",
     "catalog.manage",
-    idempotent(
-      {
-        batchId: stringProperty("Scope Sync Batch identifier."),
-        scopeRecordId: stringProperty("Scope Record identifier."),
-      },
-      writeRequired,
-    ),
+    idempotent({
+      batchId: stringProperty("Scope Sync Batch identifier."),
+      scopeRecordId: stringProperty("Scope Record identifier."),
+    }),
     ["batchId", "scopeRecordId", ...writeRequired],
     "scope-sync-batch-unit",
   ),
@@ -376,7 +374,7 @@ const toolsWithWorkflowGuidance = tools.map((tool) =>
       ? {
           ...tool,
           description:
-            "Propose a Provider Scope Mapping. The mapping projection may lag; poll Catalog reads before previewing the Scope Sync Batch.",
+            "Propose a Provider Scope Mapping. The mapping projection may lag; poll catalog.get-scope-coverage before previewing the Scope Sync Batch.",
         }
       : tool,
 );
