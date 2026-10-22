@@ -264,7 +264,9 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
       timing: { recordedAt: weekEnd.toISOString() },
     } as never);
     await pool.query(
-      `INSERT INTO event_subscription_checkpoints (checkpoint_key, last_global_position, updated_at) VALUES ($1, 2, now())`,
+      `INSERT INTO event_subscription_checkpoints
+       (checkpoint_key, projection_name, source_context_name, subscription_version, last_global_position, updated_at)
+       VALUES ($1, 'pricing-market-input-projection', 'marketplace', 3, 2, now())`,
       [pricingRepricingSourceShareCheckpointKey],
     );
     await pool.query(

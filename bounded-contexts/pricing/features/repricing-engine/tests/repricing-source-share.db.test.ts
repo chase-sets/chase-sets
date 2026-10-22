@@ -38,8 +38,10 @@ describeDb("repricing source-share synthetic matrix", () => {
 
   async function checkpoint(position: string) {
     await pools.pricing.query(
-      `INSERT INTO event_subscription_checkpoints (checkpoint_key, last_global_position, updated_at)
-      VALUES ($1, $2, '2030-01-01') ON CONFLICT (checkpoint_key) DO UPDATE SET last_global_position = EXCLUDED.last_global_position`,
+      `INSERT INTO event_subscription_checkpoints
+       (checkpoint_key, projection_name, source_context_name, subscription_version, last_global_position, updated_at)
+       VALUES ($1, 'pricing-market-input-projection', 'marketplace', 3, $2, '2030-01-01')
+       ON CONFLICT (checkpoint_key) DO UPDATE SET last_global_position = EXCLUDED.last_global_position`,
       [pricingRepricingSourceShareCheckpointKey, position],
     );
     await pools.pricing.query(
