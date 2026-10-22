@@ -1,4 +1,4 @@
-import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import type { InventoryProductSchema } from "./versioning";
 import { toInventoryItemProductSchema } from "./versioning";
@@ -12,12 +12,6 @@ export type InventoryCatalogItemSnapshot = Readonly<{
   status: string;
   product_schema: InventoryProductSchema | null;
   updated_at: string;
-}>;
-
-export type InventoryCatalogItemSearchParams = Readonly<{
-  search?: string | null;
-  status?: string | null;
-  limit?: number | null;
 }>;
 
 export type InventoryExternalProductReference = Readonly<{
@@ -106,61 +100,6 @@ export async function getInventoryCatalogItem(
   }
 
   return toInventoryCatalogItemSnapshot(row);
-}
-
-export async function searchInventoryCatalogItems(
-  db: PgQueryable,
-  params: InventoryCatalogItemSearchParams,
-): Promise<{ items: InventoryCatalogItemSnapshot[]; total: number }> {
-  if (!(await hasInventoryCatalogItemsTable(db))) {
-    return { items: [], total: 0 };
-  }
-
-  const search = params.search?.trim() ?? "";
-  const status = params.status?.trim() || "active";
-  const limit = Math.max(1, Math.min(params.limit ?? 10, 25));
-  const values: unknown[] = [status];
-  const where = ["status = $1"];
-
-  if (search.length > 0) {
-    values.push(`%${escapeLikePattern(search)}%`);
-    where.push(
-      `(title ILIKE $${values.length} ESCAPE '\\' OR subtitle ILIKE $${values.length} ESCAPE '\\' OR catalog_item_id ILIKE $${values.length} ESCAPE '\\')`,
-    );
-  }
-
-  values.push(limit);
-
-  const result = await db.query<InventoryCatalogItemRow & { total_count: string }>(
-    `SELECT
-       catalog_item_id,
-       language_code,
-       title,
-       subtitle,
-       blueprint_id,
-       status,
-       product_schema,
-       updated_at,
-       COUNT(*) OVER() AS total_count
-     FROM inventory_catalog_items
-     WHERE ${where.join(" AND ")}
-     ORDER BY
-       CASE
-         WHEN catalog_item_id ILIKE ${search.length > 0 ? `$2 ESCAPE '\\'` : "''"} THEN 0
-         WHEN title ILIKE ${search.length > 0 ? `$2 ESCAPE '\\'` : "''"} THEN 1
-         ELSE 2
-       END,
-       title ASC,
-       subtitle ASC NULLS LAST,
-       catalog_item_id ASC
-     LIMIT $${values.length}`,
-    values,
-  );
-
-  return {
-    items: result.rows.map(toInventoryCatalogItemSnapshot),
-    total: Number(result.rows[0]?.total_count ?? 0),
-  };
 }
 
 export async function getInventoryExternalProductReference(
