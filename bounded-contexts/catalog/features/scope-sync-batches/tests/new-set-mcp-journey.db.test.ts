@@ -20,6 +20,7 @@ import { createScopeRegistryMcpHandlers } from "../../scope-registry/api/mcp";
 import { createScopeSyncBatchMcpHandlers } from "../api/mcp";
 import { createSourceObservationsMcpHandlers } from "../../source-observations/api/mcp";
 import { catalogFixtureTransports } from "../../source-observations/api/providers/catalog-fixture-transports";
+import { catalogProviderIntegrationProfileVersions } from "../../source-observations/api/providers/registry";
 
 const actor = {
   sessionId: "sess_new_set",
@@ -39,6 +40,10 @@ const context = {
   audit: { performedByUserId: actor.userId, forAccountId: actor.accountId },
 };
 const MTGJSON_SET_UNIT = "mtgjson:mtg:set:reference-data";
+const mtgjsonSetProfile = catalogProviderIntegrationProfileVersions.find(
+  (version) => version.providerKey === "mtgjson" && version.profileKey === "mtg-set-reference-data",
+);
+if (!mtgjsonSetProfile) throw new Error(`Missing profile for ${MTGJSON_SET_UNIT}.`);
 
 describe("new set over MCP journey", () => {
   let pool: PgTransactionalPool;
@@ -55,7 +60,9 @@ describe("new set over MCP journey", () => {
     await pool.query(catalogModule.schemaSql);
     const eventStore = createPostgresEventStore({ pool });
     const services = createCatalogServices(pool);
-    await services.providerIntegrationProfiles.seedProfileVersions();
+    // The journey proves one new set unit. Seed only that active profile so the
+    // planner's default primary-unit participation cannot add unrelated units.
+    await services.providerIntegrationProfiles.seedProfileVersions([mtgjsonSetProfile]);
 
     await pool.query(
       `INSERT INTO catalog_scope_records
