@@ -585,7 +585,13 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.record.targets).toEqual([
       expect.objectContaining({ prNumber: 4736, namespace: "chase-sets-pr-4736", pullRequestState: "closed" }),
     ]);
-    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 4736 })]);
+    expect(result.record.batches).toEqual([
+      expect.objectContaining({
+        index: 0,
+        targets: [expect.objectContaining({ prNumber: 4736, namespace: "chase-sets-pr-4736" })],
+      }),
+    ]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
   });
 
   it("accepts an empty Kubernetes List without warning", async () => {
