@@ -61,7 +61,6 @@ export type InventoryImportBatch = Readonly<{
   adapter_version: number;
   quantity_mode: InventoryImportQuantityMode;
   default_storage_location_id: string | null;
-  source_filename: string | null;
   total_count: number;
   accepted_count: number;
   rejected_count: number;
@@ -157,7 +156,6 @@ export async function getImportBatch(
        adapter_version,
        quantity_mode,
        default_storage_location_id,
-       NULL::text AS source_filename,
        total_count,
        accepted_count,
        rejected_count,
@@ -241,7 +239,6 @@ export async function listImportBatches(
          adapter_version,
          quantity_mode,
          default_storage_location_id,
-         NULL::text AS source_filename,
          total_count,
          accepted_count,
          rejected_count,

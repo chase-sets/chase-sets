@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { describe, expect, it } from "vitest";
 import { buildDesignSystemComponentIndex } from "../generate-design-system-component-index.mjs";
 
@@ -22,7 +23,11 @@ const count = (text) => [...text.matchAll(/stripe/gi)].length;
 const read = (path) => readFileSync(join(root, path), "utf8");
 
 function trackedPaths() {
-  return execFileSync("git", ["ls-files", "-z", "--", prefix], { cwd: root, encoding: "utf8" })
+  return execFileSync("git", ["ls-files", "-z", "--", prefix], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean);
 }
