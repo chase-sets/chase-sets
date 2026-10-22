@@ -1,6 +1,7 @@
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
 import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServices } from "./runtime";
@@ -8,6 +9,7 @@ import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServi
 function buildApp(
   options: Readonly<{
     actor: MarketplaceApiEnv["Variables"]["actor"];
+    context?: MarketplaceApiEnv["Variables"]["context"];
     services: MarketplaceListingServices;
   }>,
 ) {
@@ -15,18 +17,19 @@ function buildApp(
 
   app.use("*", async (c, next) => {
     c.set("actor", options.actor);
-    c.set(
-      "context",
-      options.actor
-        ? {
-            tenantId: "tnt_identity" as never,
-            audit: {
-              performedByUserId: options.actor.userId as never,
-              forAccountId: options.actor.accountId as never,
-            },
-          }
-        : null,
-    );
+    const context: MarketplaceApiEnv["Variables"]["context"] =
+      options.context === undefined
+        ? options.actor
+          ? {
+              tenantId: "tnt_identity" as TenantId,
+              audit: {
+                performedByUserId: options.actor.userId as UserId,
+                forAccountId: options.actor.accountId as AccountId,
+              },
+            }
+          : null
+        : options.context;
+    c.set("context", context);
     await next();
   });
 
@@ -322,10 +325,9 @@ describe("listing target command snapshots", () => {
   };
 
   function targetServices() {
-    const services = createServices();
-    services.acceptListingTargetPrice = vi
-      .fn<MarketplaceListingServices["acceptListingTargetPrice"]>()
-      .mockResolvedValue({
+    const services = {
+      ...createServices(),
+      acceptListingTargetPrice: vi.fn<MarketplaceListingServices["acceptListingTargetPrice"]>().mockResolvedValue({
         listingId: "lst_1",
         version: 4,
         acceptedTargetPrice: {
@@ -348,14 +350,16 @@ describe("listing target command snapshots", () => {
             identityRevision: 2,
           },
         },
-      });
-    services.activateListingForChannel = vi
-      .fn<MarketplaceListingServices["activateListingForChannel"]>()
-      .mockResolvedValue({
+      }),
+    };
+    const activationServices = {
+      ...services,
+      activateListingForChannel: vi.fn<MarketplaceListingServices["activateListingForChannel"]>().mockResolvedValue({
         listingId: "lst_1",
         version: 5,
-      });
-    return services;
+      }),
+    };
+    return activationServices;
   }
 
   it.each([
@@ -422,6 +426,25 @@ describe("listing target command snapshots", () => {
     });
 
     expect(response.status).toBe(403);
+    expect(services[method]).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["target-prices", "acceptListingTargetPrice", priceInput],
+    ["target-activations", "activateListingForChannel", activationInput],
+  ] as const)("requires an authentication context before invoking %s", async (path, method, input) => {
+    const services = targetServices();
+    const app = buildApp({ actor: sellerActor, context: null, services });
+    const response = await app.request(`/account/listings/lst_1/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "authentication_required", message: "Authentication context missing." },
+    });
     expect(services[method]).not.toHaveBeenCalled();
   });
 });

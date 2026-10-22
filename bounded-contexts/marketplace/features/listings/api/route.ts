@@ -1130,7 +1130,12 @@ export function createAccountListingRoutes(
       const context = c.get("context");
       if (!context)
         return c.json(
-          { error: { code: "authentication_required", message: "Authentication context is required." } },
+          {
+            error: {
+              code: "authentication_required",
+              message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+            },
+          },
           401,
         );
       const body = await c.req.json<Record<string, unknown>>();
@@ -1174,7 +1179,12 @@ export function createAccountListingRoutes(
       const context = c.get("context");
       if (!context)
         return c.json(
-          { error: { code: "authentication_required", message: "Authentication context is required." } },
+          {
+            error: {
+              code: "authentication_required",
+              message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+            },
+          },
           401,
         );
       const body = await c.req.json<Record<string, unknown>>();

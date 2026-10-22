@@ -1,30 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createListingActivationAuthority } from "./listing-activation-authority";
+import type { ListingActivationIdentityReader } from "./listing-activation-authority";
 
 const context = {
-  tenantId: "tenant_1",
-  audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
-} as never;
+  tenantId: "tenant_1" as EventStoreContext["tenantId"],
+  audit: {
+    performedByUserId: "usr_1" as EventStoreContext["audit"]["performedByUserId"],
+    forAccountId: "acc_1" as EventStoreContext["audit"]["forAccountId"],
+  },
+} satisfies EventStoreContext;
 
-function identity(overrides: Record<string, unknown> = {}) {
+function identity(overrides: Partial<ListingActivationIdentityReader> = {}): ListingActivationIdentityReader {
   const account = { state: { status: "active" }, version: 4 };
   const membership = {
     state: { userId: "usr_1", accountId: "acc_1", roleKey: "owner", status: "active" },
     version: 7,
   };
-  return {
-    accounts: {
-      getAccountStateWithVersion: vi.fn(async () => account),
-    },
-    memberships: {
-      getActiveMembershipForUserAccount: vi.fn(async () => ({
-        membership_id: "mem_1",
-        role_permissions: ["listings.manage"],
-      })),
-      getMembershipStateWithVersion: vi.fn(async () => membership),
-    },
-    ...overrides,
-  } as never;
+  const accounts: ListingActivationIdentityReader["accounts"] = {
+    getAccountStateWithVersion: vi.fn(async () => account),
+  };
+  const memberships: ListingActivationIdentityReader["memberships"] = {
+    getActiveMembershipForUserAccount: vi.fn(async () => ({
+      membership_id: "mem_1",
+      role_permissions: ["listings.manage"],
+    })),
+    getMembershipStateWithVersion: vi.fn(async () => membership),
+  };
+  return { accounts: overrides.accounts ?? accounts, memberships: overrides.memberships ?? memberships };
 }
 
 describe("Identity Listing activation authority", () => {
