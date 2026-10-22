@@ -20,13 +20,21 @@ export async function appendRegistrationCompleted(
 export async function appendOnboardingCompleted(
   eventStore: EventStore,
   context: EventStoreContext,
-  input: Readonly<{
-    accountId: AccountId;
-    userId: UserId;
-    onboardingPath: "guest-account" | "invitation";
-    invitationId?: string;
-    idempotencyKey: string;
-  }>,
+  input:
+    | Readonly<{
+        accountId: AccountId;
+        userId: UserId;
+        onboardingPath: "guest-account";
+        invitationId?: never;
+        idempotencyKey: string;
+      }>
+    | Readonly<{
+        accountId: AccountId;
+        userId: UserId;
+        onboardingPath: "invitation";
+        invitationId: string;
+        idempotencyKey: string;
+      }>,
 ): Promise<void> {
   const { idempotencyKey, ...payload } = input;
   await appendLifecycleEvent(eventStore, context, `identity.onboarding-${digest(idempotencyKey)}`, {
@@ -45,7 +53,10 @@ async function appendLifecycleEvent(
   try {
     await eventStore.appendToStream({ streamId, expectedVersion: "no_stream", events: [event], context });
   } catch (error) {
-    if (!isConcurrencyConflict(error)) throw error;
+    if (isConcurrencyConflict(error)) return;
+    // Cross-context CSAT publication is asynchronous and must not turn a
+    // committed registration or onboarding operation into a failed response.
+    return;
   }
 }
 

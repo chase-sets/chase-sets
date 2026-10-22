@@ -16,9 +16,6 @@ CREATE TABLE IF NOT EXISTS customer_feedback_csat_outcome_facts (
   reason_code text NULL
 );
 
-CREATE INDEX IF NOT EXISTS customer_feedback_csat_outcome_facts_subject_idx
-  ON customer_feedback_csat_outcome_facts (subject_account_id, outcome_occurred_at DESC);
-
 CREATE TABLE IF NOT EXISTS customer_feedback_csat_invitations (
   invitation_id text PRIMARY KEY,
   stream_id text NOT NULL,

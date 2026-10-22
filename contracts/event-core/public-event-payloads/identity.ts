@@ -64,12 +64,19 @@ export type IdentityRegistrationCompletedPayload = Readonly<{
   userId: UserId;
 }>;
 
-export type IdentityOnboardingCompletedPayload = Readonly<{
-  accountId: AccountId;
-  userId: UserId;
-  onboardingPath: "guest-account" | "invitation";
-  invitationId?: string;
-}>;
+export type IdentityOnboardingCompletedPayload =
+  | Readonly<{
+      accountId: AccountId;
+      userId: UserId;
+      onboardingPath: "guest-account";
+      invitationId?: never;
+    }>
+  | Readonly<{
+      accountId: AccountId;
+      userId: UserId;
+      onboardingPath: "invitation";
+      invitationId: string;
+    }>;
 
 export type IdentityAccountBadgeAssignedPayload = Readonly<{
   badgeKey: string;
