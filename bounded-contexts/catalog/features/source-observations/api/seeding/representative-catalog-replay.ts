@@ -537,6 +537,7 @@ async function loadObservationHistory(
       (type) =>
         type !== "catalog.source-observation.recorded" &&
         type !== "catalog.source-observation.source-payload-chunk-recorded" &&
+        type !== "catalog.source-observation.normalized-evidence-chunk-recorded" &&
         type !== "catalog.source-observation.promoted",
     ) ||
     eventTypes.filter((type) => type === "catalog.source-observation.promoted").length > 1 ||
@@ -556,6 +557,7 @@ async function loadObservationHistory(
   }
   if (
     state.pendingSourcePayloadChunks !== null ||
+    state.pendingNormalizedEvidenceChunks !== null ||
     state.id !== expected.observationId ||
     state.providerKey !== expected.providerKey ||
     state.externalKey !== expected.externalKey ||
@@ -583,6 +585,7 @@ function sourceObservationEvent(row: StoredEventRow): SourceObservationEvent {
   switch (row.event_type) {
     case "catalog.source-observation.recorded":
     case "catalog.source-observation.source-payload-chunk-recorded":
+    case "catalog.source-observation.normalized-evidence-chunk-recorded":
     case "catalog.source-observation.promoted":
       return { type: row.event_type, data: row.payload } as SourceObservationEvent;
     default:

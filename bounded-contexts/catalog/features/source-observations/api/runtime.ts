@@ -530,12 +530,15 @@ function shouldInvalidateSourceObservationEvent(eventType: string, event: { data
     (eventType === "catalog.source-observation.recorded" ||
       eventType === "catalog.source-observation.changed" ||
       eventType === "catalog.source-observation.refreshed") &&
-    hasSourcePayloadChunkCount(event.data)
+    (hasSourcePayloadChunkCount(event.data) || hasNormalizedEvidenceChunkCount(event.data))
   ) {
     return false;
   }
 
-  if (eventType !== "catalog.source-observation.source-payload-chunk-recorded") {
+  if (
+    eventType !== "catalog.source-observation.source-payload-chunk-recorded" &&
+    eventType !== "catalog.source-observation.normalized-evidence-chunk-recorded"
+  ) {
     return true;
   }
 
@@ -549,4 +552,8 @@ function shouldInvalidateSourceObservationEvent(eventType: string, event: { data
 
 function hasSourcePayloadChunkCount(value: unknown): boolean {
   return !!value && typeof value === "object" && "sourcePayloadChunkCount" in value;
+}
+
+function hasNormalizedEvidenceChunkCount(value: unknown): boolean {
+  return !!value && typeof value === "object" && "normalizedEvidenceChunkCount" in value;
 }

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
@@ -11,6 +13,8 @@ import {
 import { catalogProviderProfileVersionIngestionUnitKey } from "./provider-integration-profiles";
 import type { TcgplayerAutomationCatalogClient } from "./providers/tcgplayer-automation-catalog-client";
 import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
+import { YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY } from "./provider-adapters/ygojson";
+import { evolveSourceObservation, initialSourceObservationState, type SourceObservationEvent } from "../domain/domain";
 import { createSourceObservationRuntime } from "./runtime";
 import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
 import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
@@ -1863,6 +1867,71 @@ describe("source observation runtime: provider integration jobs", () => {
     ).toBe(true);
   });
 
+  it("processes queued YGOJSON Beginner's Edition 2 imports through the durable integration worker with complete normalized evidence", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ygojsonBeginnerEditionTwoFetch();
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "ygojson",
+        profileKey: "yugioh-set-reference-data",
+        language: "en",
+        setId: "000f0093-1847-4db7-a315-5bd07f055c7a",
+      },
+      acceptedScopeRecordId: "scope_yugioh_official_card_game",
+      acceptedUnitKey: YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+      renewSucceeds: true,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions(),
+    );
+
+    try {
+      await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+        1,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: {
+        normalizedEvidenceEncoding: "json-utf8-base64-v1",
+        sourcePayloadEncoding: "json-utf8-base64-v1",
+      },
+    });
+    expect(
+      harness.appendedSourceEvents.every(
+        (event) => Buffer.byteLength(JSON.stringify(event.payload), "utf8") <= 48 * 1024,
+      ),
+    ).toBe(true);
+
+    const state = harness.appendedSourceEvents
+      .map(({ eventType, payload }) => ({ type: eventType, data: payload }) as SourceObservationEvent)
+      .reduce(evolveSourceObservation, initialSourceObservationState);
+    expect(state.status).toBe("observed");
+    expect(state.normalized).toMatchObject({
+      kind: "yugioh-set-reference",
+      tcg: "yugioh",
+      name: "Beginner's Edition 2",
+      productLineName: "Yu-Gi-Oh!",
+    });
+    expect(state.normalized).toEqual(
+      expect.objectContaining({
+        localeEvidence: expect.anything(),
+        cardPrintEvidence: expect.anything(),
+      }),
+    );
+    expect(state.pendingNormalizedEvidenceChunks).toBeNull();
+    expect(state.pendingSourcePayloadChunks).toBeNull();
+    expect(state.sourcePayload).toEqual(expect.objectContaining({ kind: "set-reference" }));
+  });
+
   it.each([
     {
       profileKey: "lorcana-card-reference-data",
@@ -2620,6 +2689,29 @@ describe("source observation runtime: provider integration jobs", () => {
     });
   });
 });
+
+function ygojsonBeginnerEditionTwoFetch(): typeof globalThis.fetch {
+  const fixture = JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL("./__fixtures__/ygojson-yugioh-set-reference-data/beginners-edition-2.json", import.meta.url),
+      ),
+      "utf8",
+    ),
+  ) as { set: Record<string, unknown> };
+  const url =
+    "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/individual/sets/000f0093-1847-4db7-a315-5bd07f055c7a.json";
+
+  return (async (input: RequestInfo | URL) => {
+    if (String(input) !== url) {
+      return new Response(null, { status: 404 });
+    }
+    return new Response(JSON.stringify(fixture.set), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof globalThis.fetch;
+}
 
 function mtgjsonFetch(options: Readonly<{ oversizedSet?: boolean }> = {}): typeof globalThis.fetch {
   const card = {
