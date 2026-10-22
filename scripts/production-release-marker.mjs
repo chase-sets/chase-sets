@@ -363,9 +363,9 @@ export async function readPriorAuthority(api, identity) {
   throw new Error("no exact prior marker-failure authority");
 }
 
-async function rejectInterveningSourceDeployment(api, identity) {
-  for (let previous = identity.attempt - 1; previous >= 1; previous -= 1) {
-    const job = await productionJob(api, identity.runId, previous);
+export async function rejectInterveningSourceDeployment(api, identity) {
+  for (let next = identity.attempt + 1; next <= identity.latestAttempt; next += 1) {
+    const job = await productionJob(api, identity.runId, next);
     requireThat(job.head_sha === identity.workflowHead, "mismatched intervening source head");
     requireThat(job.status === "completed" && job.conclusion === "failure", "unverified intervening source attempt");
     requireThat(
@@ -376,6 +376,31 @@ async function rejectInterveningSourceDeployment(api, identity) {
     step(job, "Deploy production Kubernetes release", "skipped");
     step(job, "Roll back production Kubernetes release", "skipped");
   }
+}
+
+export async function admitMarkerSourceRun(api, runId, sourceAttempt) {
+  const sourceRun = await api(`actions/runs/${runId}/attempts/${sourceAttempt}`);
+  requireThat(
+    sourceRun.id === runId &&
+      sourceRun.path === ".github/workflows/platform-production.yml" &&
+      sourceRun.event === "workflow_dispatch" &&
+      sourceRun.run_attempt === sourceAttempt &&
+      sourceRun.head_branch === "main" &&
+      sourceRun.status === "completed" &&
+      sourceRun.conclusion === "failure",
+    "unverified marker source workflow",
+  );
+  const latestRun = await api(`actions/runs/${runId}`);
+  requireThat(
+    latestRun.id === runId &&
+      latestRun.status === "completed" &&
+      latestRun.head_sha === sourceRun.head_sha &&
+      Number.isSafeInteger(latestRun.run_attempt) &&
+      latestRun.run_attempt >= sourceAttempt &&
+      latestRun.run_attempt <= 10,
+    "unverified marker source latest attempt",
+  );
+  return { sourceRun, latestRun };
 }
 
 export async function reconcileReleaseMarker(identity, io) {
@@ -418,6 +443,10 @@ export async function reconcileReleaseMarker(identity, io) {
 export async function reconcileMarkerOnly(identity, io) {
   const refs = await io.readRefs();
   requireThat(sha.test(refs.production ?? ""), "production ref unavailable");
+  requireThat(
+    refs.production === identity.productionCommit || refs.production === identity.commit,
+    "production ref does not match retained marker identity",
+  );
   const history = normalizedHistory(await io.readHistory());
   const deployed = history.filter((entry) => entry.status === "deployed");
   const values = await io.readValues(deployed.length === 1 ? deployed[0].revision : history.at(-1).revision);
@@ -438,6 +467,24 @@ export async function reconcileMarkerOnly(identity, io) {
     await io.assertWriters();
   };
   return publishReleaseMarker({ ...identity, productionCommit: refs.production }, { ...io, assertFresh });
+}
+
+async function writeMarkerSummary(identity, result, env, phase) {
+  if (typeof env.GITHUB_STEP_SUMMARY !== "string" || env.GITHUB_STEP_SUMMARY.length === 0) return;
+  const marker = result?.marker ?? {};
+  const lines = [
+    "### Production marker recovery",
+    `- source_run_id: ${identity.runId}`,
+    `- source_attempt: ${identity.attempt}`,
+    `- source_job_id: ${identity.sourceJobId ?? "unknown"}`,
+    `- source_commit: ${identity.commit}`,
+    `- source_tag: ${identity.tag}`,
+    `- production_marker_commit: ${result?.production_marker_commit ?? marker.production_marker_commit ?? "unknown"}`,
+    `- phase: ${phase}`,
+    `- marker_error: ${result?.marker_error ?? marker.marker_error ?? ""}`,
+    "",
+  ];
+  await appendFile(env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
 }
 
 async function readTransitionArtifact(api, env, identity, job) {
@@ -750,18 +797,19 @@ async function main(action, env) {
         typeof env.MARKER_RECOVERY_REASON === "string" && env.MARKER_RECOVERY_REASON.trim().length > 0,
         "marker recovery reason is required",
       );
-      const sourceRun = await api(`actions/runs/${sourceRunId}`);
       requireThat(
-        sourceRun.id === sourceRunId &&
-          sourceRun.path === ".github/workflows/platform-production.yml" &&
-          sourceRun.event === "workflow_dispatch" &&
-          sourceRun.run_attempt === sourceAttempt &&
-          sourceRun.head_branch === "main" &&
-          sourceRun.status === "completed" &&
-          sourceRun.conclusion === "failure",
-        "unverified marker source workflow",
+        !(env.CIRCUIT_ISSUE_NUMBER ?? "") && !(env.CIRCUIT_REASON ?? ""),
+        "marker-only recovery rejects circuit inputs",
       );
+      const { sourceRun, latestRun } = await admitMarkerSourceRun(api, sourceRunId, sourceAttempt);
       const sourceJob = await productionJob(api, sourceRunId, sourceAttempt);
+      identity = {
+        ...identity,
+        runId: sourceRunId,
+        attempt: sourceAttempt,
+        workflowHead: sourceRun.head_sha,
+        sourceJobId: sourceJob.id,
+      };
       const retained = await readRetainedTransition(api, env, sourceRunId, sourceJob);
       const marker = retained.transition.markerIdentity;
       requireThat(
@@ -772,7 +820,7 @@ async function main(action, env) {
           digestPattern.test(marker.digest) &&
           sha.test(marker.productionCommit) &&
           typeof marker.tag === "string" &&
-          /^release-/.test(marker.tag),
+          marker.tag === releaseMarkerIdentity(sourceRun, marker.commit),
         "source transition lacks exact marker identity",
       );
       const sourceIdentity = {
@@ -787,7 +835,11 @@ async function main(action, env) {
         tag: marker.tag,
         productionCommit: marker.productionCommit,
         resultingHeadRevision: retained.transition.resultingHeadRevision,
+        createdAt: sourceRun.created_at,
+        latestAttempt: latestRun.run_attempt,
+        sourceJobId: sourceJob.id,
       };
+      identity = sourceIdentity;
       admitPriorProductionJob(sourceJob, sourceIdentity);
       await rejectInterveningSourceDeployment(api, sourceIdentity);
       validateTransitionAuthority(retained.transition, retained.artifact, sourceJob, sourceIdentity);
@@ -835,7 +887,7 @@ async function main(action, env) {
         { env },
       );
       const assertFresh = () => assertWriters(env, options);
-      await reconcileMarkerOnly(sourceIdentity, {
+      const result = await reconcileMarkerOnly(sourceIdentity, {
         ...markerIo(sourceIdentity, env, assertFresh),
         readHistory: () => readHistory(options),
         readValues: async (revision) =>
@@ -853,6 +905,7 @@ async function main(action, env) {
             spawn: readOnlySpawn,
           }),
       });
+      await writeMarkerSummary(sourceIdentity, result, env, "complete");
       return;
     }
     if (action === "retain-identity") {
@@ -930,6 +983,13 @@ async function main(action, env) {
       production_marker_commit: knownProduction,
       marker_error: error.message,
     };
+    if (identity?.sourceJobId) {
+      try {
+        await writeMarkerSummary(identity, { marker: error.marker }, env, "refused");
+      } catch {
+        // Preserve the original refusal when the runner summary is unavailable.
+      }
+    }
     throw error;
   }
 }

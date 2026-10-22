@@ -496,17 +496,21 @@ jobs:
           EMERGENCY_REFERENCE: ${{ inputs.emergency_reference }}
           DECOMMISSION_PLAN_ONLY: ${{ inputs.decommission_plan_only == true && 'true' || 'false' }}
           MARKER_RECOVERY_REASON: ${{ inputs.reason }}
+          CIRCUIT_ISSUE_NUMBER: ${{ inputs.circuit_issue_number }}
+          CIRCUIT_REASON: ${{ inputs.circuit_reason }}
         run: |
           set -euo pipefail
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "marker-only recovery requires refs/heads/main" >&2; exit 1; }
           [ "$DISPATCH_SOURCE" = recovery ] || { echo "marker-only recovery requires dispatch_source=recovery" >&2; exit 1; }
           [ "$RELEASE_REF" = main ] || { echo "marker-only recovery requires release_ref=main" >&2; exit 1; }
           [ -z "$DISPATCH_RUN_ID" ] && [ -z "$DISPATCH_ATTEMPT" ] || { echo "marker-only recovery rejects ordinary dispatch provenance" >&2; exit 1; }
           [ "$FORCE_DEPLOY" = false ] && [ "$AGENT_GRANT_REVOCATION_ACTIVATION" = none ] && [ "$CATALOG_PROVIDER_SEND_WINDOW_ENABLED" = false ] || { echo "marker-only recovery rejects deploy activation inputs" >&2; exit 1; }
           [ "$FORCE_RESTORE_POINT" = false ] && [ -z "$RECOVERY_REASON" ] && [ "$EMERGENCY_RELEASE" = false ] && [ -z "$EMERGENCY_REFERENCE" ] && [ "$DECOMMISSION_PLAN_ONLY" = false ] || { echo "marker-only recovery rejects rollout and emergency inputs" >&2; exit 1; }
+          [ -z "$CIRCUIT_ISSUE_NUMBER" ] && [ -z "$CIRCUIT_REASON" ] || { echo "marker-only recovery rejects circuit inputs" >&2; exit 1; }
           [ -n "$MARKER_RECOVERY_REASON" ] || { echo "marker-only recovery requires an audited reason" >&2; exit 1; }
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
@@ -514,26 +518,6 @@ jobs:
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      - name: Initialize read-only production Kubernetes state
-        working-directory: infrastructure/digitalocean/doks
-        env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          ../../../scripts/terraform-init-with-retry.sh \
-            -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=doks/production.tfstate \
-            -backend-config=region=us-east-1 \
-            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
-            -backend-config=skip_credentials_validation=true \
-            -backend-config=skip_metadata_api_check=true \
-            -backend-config=skip_region_validation=true \
-            -backend-config=skip_requesting_account_id=true \
-            -backend-config=use_path_style=true \
-            -backend-config=use_lockfile=true
       - uses: ./.github/actions/production-marker-recovery-context
         with:
           digitalocean-token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -552,8 +536,6 @@ jobs:
           RELEASE_IMAGE: ${{ env.RELEASE_IMAGE }}
           RELEASE_COMMIT: 0000000000000000000000000000000000000000
           RELEASE_IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
-          GITHUB_STEP_SUMMARY: ${{ env.GITHUB_STEP_SUMMARY }}
-          GITHUB_OUTPUT: ${{ env.GITHUB_OUTPUT }}
         run: node ./scripts/production-release-marker.mjs marker-only
 
   deployment-contract-preflight:

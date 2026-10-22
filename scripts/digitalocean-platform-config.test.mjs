@@ -725,6 +725,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const productionMarkerRecoveryAction = readFileSync(
+  resolve(".github/actions/production-marker-recovery-context/action.yml"),
+  "utf8",
+);
 const platformProductionStaleHelmRecoveryWorkflow = readFileSync(
   resolve(".github/workflows/platform-production-stale-helm-recovery.yml"),
   "utf8",
@@ -1325,6 +1329,39 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("keeps marker recovery admitted only on immutable main and shares initialized DOKS context", () => {
+    const recoveryJob = workflowJob(platformProductionWorkflow, "reconcile-production-marker");
+    const admission = workflowStep(recoveryJob, "Validate marker-only admission");
+    expect(admission).toContain('[ "$GITHUB_REF" = refs/heads/main ]');
+    expect(admission).toContain("marker-only recovery rejects circuit inputs");
+    expect(recoveryJob).toContain("ref: ${{ github.sha }}");
+    expect(recoveryJob).not.toContain("ref: main");
+    expect(recoveryJob).not.toContain("Initialize read-only production Kubernetes state");
+    expect(productionMarkerRecoveryAction).toContain("key=doks/production.tfstate");
+    expect(productionMarkerRecoveryAction.indexOf("terraform-init-with-retry.sh")).toBeLessThan(
+      productionMarkerRecoveryAction.indexOf("terraform output -raw kubeconfig"),
+    );
+    expect(workflowJob(platformProductionWorkflow, "deploy-production")).toContain(
+      "uses: ./.github/actions/production-marker-recovery-context",
+    );
+    expect(recoveryJob).toContain("uses: ./.github/actions/production-marker-recovery-context");
+  });
+
+  it("rejects every ordinary input in marker-only admission without weakening the recovery mode", () => {
+    const admission = workflowStep(workflowJob(platformProductionWorkflow, "reconcile-production-marker"), "Validate marker-only admission");
+    for (const fragment of [
+      'DISPATCH_SOURCE" = recovery',
+      'RELEASE_REF" = main',
+      'DISPATCH_RUN_ID" ] && [ -z "$DISPATCH_ATTEMPT"',
+      'FORCE_DEPLOY" = false',
+      'FORCE_RESTORE_POINT" = false',
+      'CIRCUIT_ISSUE_NUMBER" ] && [ -z "$CIRCUIT_REASON"',
+      '-n "$MARKER_RECOVERY_REASON"',
+    ]) {
+      expect(admission).toContain(fragment);
+    }
+  });
+
   it("enrolls the Catalog send-window composition controls in the required DB proof profile", () => {
     const compositionTest =
       "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts";

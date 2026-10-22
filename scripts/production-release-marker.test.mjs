@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   admitPriorProductionJob,
+  admitMarkerSourceRun,
   assertRegistryIdentity,
   publishReleaseMarker,
   readCompletePages,
@@ -12,6 +13,7 @@ import {
   validateTransitionAuthority,
   registryManifestBytes,
   readPriorAuthority,
+  rejectInterveningSourceDeployment,
   reconcileReleaseMarker,
   reconcileMarkerOnly,
   readOnlySpawn,
@@ -225,6 +227,79 @@ describe("publication interruption and unknown response", () => {
 });
 
 describe("marker-only source recovery", () => {
+  it("admits an earlier retained authority while requiring a completed matching latest attempt", async () => {
+    const sourceRun = {
+      id: run.id,
+      path: ".github/workflows/platform-production.yml",
+      event: "workflow_dispatch",
+      run_attempt: 1,
+      head_branch: "main",
+      head_sha: commit,
+      status: "completed",
+      conclusion: "failure",
+      created_at: run.created_at,
+    };
+    const latestRun = { ...sourceRun, run_attempt: 3, status: "completed", conclusion: "failure" };
+    const api = vi.fn(async (path) => (path.endsWith("/attempts/1") ? sourceRun : latestRun));
+    await expect(admitMarkerSourceRun(api, run.id, 1)).resolves.toMatchObject({
+      sourceRun,
+      latestRun,
+    });
+    expect(api).toHaveBeenNthCalledWith(1, `actions/runs/${run.id}/attempts/1`);
+    expect(api).toHaveBeenNthCalledWith(2, `actions/runs/${run.id}`);
+  });
+
+  it.each([
+    ["in-progress latest", { status: "in_progress" }],
+    ["head mismatch", { head_sha: previousCommit }],
+  ])("refuses %s source state", async (_name, latestPatch) => {
+    const sourceRun = {
+      id: run.id,
+      path: ".github/workflows/platform-production.yml",
+      event: "workflow_dispatch",
+      run_attempt: 1,
+      head_branch: "main",
+      head_sha: commit,
+      status: "completed",
+      conclusion: "failure",
+      created_at: run.created_at,
+    };
+    const api = vi.fn(async (path) =>
+      path.endsWith("/attempts/1") ? sourceRun : { ...sourceRun, run_attempt: 3, ...latestPatch },
+    );
+    await expect(admitMarkerSourceRun(api, run.id, 1)).rejects.toThrow("unverified marker source latest attempt");
+  });
+
+  it("rejects an intervening deployment and accepts capture-only refusals after the authority", async () => {
+    const makeCaptureRefusal = (attempt, deploy = "skipped") => ({
+      ...syntheticJob(),
+      id: 900000100 + attempt,
+      run_attempt: attempt,
+      steps: [
+        { name: "Capture production rollback target", status: "completed", conclusion: "failure", started_at: timestamp(1), completed_at: timestamp(2) },
+        { name: "Deploy production Kubernetes release", status: "completed", conclusion: deploy, started_at: timestamp(3), completed_at: timestamp(4) },
+        { name: "Roll back production Kubernetes release", status: "completed", conclusion: "skipped", started_at: timestamp(5), completed_at: timestamp(6) },
+      ],
+    });
+    const api = vi.fn(async (path) => {
+      const attempt = Number(path.match(/attempts\/(\d+)/)?.[1]);
+      return { total_count: 1, jobs: [{ ...makeCaptureRefusal(attempt), run_attempt: attempt }] };
+    });
+    await expect(
+      rejectInterveningSourceDeployment(api, { ...identity, latestAttempt: 3 }),
+    ).resolves.toBeUndefined();
+    api.mockImplementation(async (path) => {
+      const attempt = Number(path.match(/attempts\/(\d+)/)?.[1]);
+      return {
+        total_count: 1,
+        jobs: [makeCaptureRefusal(attempt, attempt === 2 ? "success" : "skipped")],
+      };
+    });
+    await expect(
+      rejectInterveningSourceDeployment(api, { ...identity, latestAttempt: 3 }),
+    ).rejects.toThrow("Deploy production Kubernetes release");
+  });
+
   it("publishes only after live source identity and stable retained history checks", async () => {
     const { io, state } = publication();
     const history = [
@@ -235,14 +310,38 @@ describe("marker-only source recovery", () => {
     const effects = [];
     const result = await reconcileMarkerOnly(source, {
       ...io,
+      readRefs: vi.fn(async () => {
+        effects.push("refs");
+        return io.readRefs();
+      }),
+      readRegistry: vi.fn(async () => {
+        effects.push("registry-read");
+        return io.readRegistry();
+      }),
+      publishRegistry: vi.fn(async () => {
+        effects.push("registry-publish");
+        return io.publishRegistry();
+      }),
+      publishGit: vi.fn(async (...args) => {
+        effects.push("git-publish");
+        return io.publishGit(...args);
+      }),
       readHistory: vi.fn(async () => history),
       readValues: vi.fn(async () => ({ global: { image: { tag: commit } } })),
       assertWriters: vi.fn(async () => effects.push("writers")),
-      capture: vi.fn(async () => ({ preDeployHistory: history })),
+      capture: vi.fn(async () => {
+        effects.push("capture");
+        return { preDeployHistory: history };
+      }),
       assertFresh: vi.fn(async () => {}),
     });
     expect(result).toMatchObject({ marker_updated: "true", production_marker_commit: commit });
-    expect(effects.length).toBeGreaterThanOrEqual(2);
+    expect(effects).toContain("writers");
+    expect(effects).toContain("capture");
+    expect(effects).toContain("git-publish");
+    expect(effects.indexOf("writers")).toBeLessThan(effects.indexOf("capture"));
+    expect(effects.indexOf("capture")).toBeLessThan(effects.indexOf("git-publish"));
+    expect(effects.lastIndexOf("writers")).toBeLessThan(effects.indexOf("git-publish"));
     expect(state.production).toBe(commit);
   });
 
