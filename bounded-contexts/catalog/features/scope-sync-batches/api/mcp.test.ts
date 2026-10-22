@@ -76,7 +76,14 @@ describe("Scope Sync Batch MCP handlers", () => {
             params: name ? { name, arguments: args, ...(confirmation ? { confirmation } : {}) } : {},
           }),
         });
-        return response.json() as Promise<any>;
+        return response.json() as Promise<{
+          result?: {
+            isError?: boolean;
+            content?: readonly { text: string }[];
+            tools?: readonly { name: string }[];
+          };
+          error?: unknown;
+        }>;
       },
     };
   }
