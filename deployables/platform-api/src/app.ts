@@ -381,15 +381,17 @@ export function createPlatformApiHost(
       const item = itemLoaded?.state;
       if (!itemLoaded || !item) return { value: null, reservations: [] };
       if (String(item.productId) !== productId) return { value: null, reservations: [] };
-      const itemRead = await inventory?.items.getItem(inventoryItemId, accountId);
-      if (!itemRead || itemRead.product_id !== productId || itemRead.account_id !== accountId) {
+      const stock = await inventory?.items.loadAuthoritativeStockSnapshot?.(inventoryItemId, accountId, context);
+      if (!stock || stock.itemId !== inventoryItemId || stock.accountId !== accountId) {
         return { value: null, reservations: [] };
       }
       const allocation = await inventory?.channelStockAllocations.readAuthoritative({ accountId, inventoryItemId });
       if (!allocation || "kind" in allocation) return { value: null, reservations: [] };
       const partition = allocation.partitions.find((candidate) => candidate.channelConnectionId === connectionId);
       const eligibleQuantity =
-        allocation.mode === "shared-pool" ? itemRead.available_quantity : (partition?.units ?? 0);
+        allocation.mode === "shared-pool"
+          ? stock.availableQuantity
+          : Math.min(stock.availableQuantity, partition?.units ?? 0);
       if (allocation.revision !== allocationRevision || eligibleQuantity <= 0) {
         return { value: null, reservations: [] };
       }
@@ -422,18 +424,22 @@ export function createPlatformApiHost(
               ) {
                 throw new Error("Inventory allocation authority changed.");
               }
-              const currentRead = await inventory!.items.getItem(inventoryItemId, accountId);
+              const currentStock = await inventory!.items.loadAuthoritativeStockSnapshot?.(
+                inventoryItemId,
+                accountId,
+                context,
+              );
               const currentPartition = currentAllocation.partitions.find(
                 (candidate) => candidate.channelConnectionId === connectionId,
               );
               const currentEligibleQuantity =
                 currentAllocation.mode === "shared-pool"
-                  ? (currentRead?.available_quantity ?? 0)
-                  : (currentPartition?.units ?? 0);
+                  ? (currentStock?.availableQuantity ?? 0)
+                  : Math.min(currentStock?.availableQuantity ?? 0, currentPartition?.units ?? 0);
               if (
-                !currentRead ||
-                currentRead.account_id !== accountId ||
-                currentRead.product_id !== productId ||
+                !currentStock ||
+                currentStock.accountId !== accountId ||
+                currentStock.itemId !== inventoryItemId ||
                 currentEligibleQuantity <= 0
               ) {
                 throw new Error("Inventory allocation authority changed.");

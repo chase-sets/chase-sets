@@ -41,6 +41,72 @@ const shipFromAddress = {
 } as const;
 
 describe("inventory item runtime", () => {
+  it("loads sellable stock from owner history without consulting the item or hold projections", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const itemId = "inv_owner_stock";
+    const holdId = "hld_owner_stock";
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("WITH candidates AS")) {
+          return { rows: [{ stream_id: `inventory.hold-${holdId}`, total: "1", current_version: "1" }] };
+        }
+        throw new Error("Projection reads cannot authorize stock.");
+      }),
+    };
+    const services = createInventoryItemRuntime(
+      { eventStore, db: db as never, checkpointStore: createCheckpointStore() },
+      {} as never,
+      {} as never,
+    );
+    await services.commandHandler({
+      streamId: `inventory.item-${itemId}`,
+      command: {
+        type: "CreateInventoryItem",
+        itemId: itemId as never,
+        accountId: "acc_seller" as never,
+        catalogItemId: "cat_1" as never,
+        productId: "cat_1::",
+        storageLocationId: "loc_stock",
+        totalQuantity: 5,
+        acquisitionOccurrence: { kind: "unknown" },
+        commandOccurredAt: "2026-10-22T12:00:00Z",
+      },
+      context,
+    });
+    await eventStore.appendToStream({
+      streamId: `inventory.hold-${holdId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId,
+            itemId,
+            accountId: "acc_seller",
+            quantity: 3,
+            reason: "Owner stock control",
+            purpose: "manual",
+            sourceRef: null,
+            expiresAt: null,
+          },
+        },
+      ],
+    });
+
+    await expect(services.loadAuthoritativeStockSnapshot!(itemId, "acc_seller", context)).resolves.toEqual({
+      itemId,
+      accountId: "acc_seller",
+      totalQuantity: 5,
+      heldQuantity: 3,
+      availableQuantity: 2,
+    });
+    await expect(services.loadAuthoritativeStockSnapshot!(itemId, "acc_foreign", context)).rejects.toThrow(
+      "Inventory item not found.",
+    );
+    expect(db.query).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["load->history", "history->append"] as const)(
     "issue-9598 fences listing-stock top-up across %s and a repeat converges without adjustment",
     async (window) => {

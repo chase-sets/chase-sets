@@ -242,6 +242,13 @@ export function createInMemoryEventStore(): InMemoryEventStore {
   const eventStore: EventStore = {
     appendToStream: async (input) => appendToStream(input),
     appendToStreams: async (inputs, options?: AppendToStreamsOptions) => {
+      // Complete async preparation before the synchronous snapshot/append/
+      // restore section so rejection cannot erase another caller's append.
+      const commitParticipants = options?.commitParticipants;
+      if (commitParticipants?.length) {
+        await assertOwnerStreamCommitParticipants(commitParticipants, inputs[0]?.context);
+      }
+
       // Every input's expected version is enforced, including a zero-event
       // one: that input is a pure version guard on a stream this append does
       // not write to, and skipping it would silently drop the guard.
@@ -260,10 +267,6 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       const priorEventsById = new Map(eventsById);
 
       try {
-        const commitParticipants = options?.commitParticipants;
-        if (commitParticipants?.length) {
-          await assertOwnerStreamCommitParticipants(commitParticipants, inputs[0]?.context);
-        }
         return inputs.map((input) => ({
           streamId: input.streamId,
           storedEvents: input.events.length === 0 ? [] : appendToStream(input),

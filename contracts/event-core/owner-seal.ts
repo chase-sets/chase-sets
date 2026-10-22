@@ -6,7 +6,7 @@ export type OwnerStreamReservation = Readonly<{
   streamId: string;
   expectedVersion: number;
   assertCurrent: () => Promise<void>;
-  /** The durable owner-local seal captured with the reservation. */
+  /** Captured revision metadata, not a durable owner-local state seal. */
   seal?: OwnerStreamSeal;
 }>;
 

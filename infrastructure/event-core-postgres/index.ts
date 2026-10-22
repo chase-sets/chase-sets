@@ -2,7 +2,6 @@ export * from "./aggregate-snapshot-store";
 export * from "./catalog-mirror";
 export * from "./event-store-indexes";
 export * from "./event-store";
-export * from "./owner-seal";
 export * from "./list-query";
 export * from "./measure-publication-staging";
 export * from "./pool";

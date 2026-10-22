@@ -34,6 +34,7 @@ import {
 } from "../../../support/runtime-support/inventory-adjustment-idempotency";
 import {
   loadAuthoritativeInventoryStockSnapshot,
+  type InventoryStockSnapshot,
   type InventoryItemRepository,
 } from "../../../support/runtime-support/stock-snapshot";
 import { getStorageLocation } from "../../storage-locations/read-model/queries";
@@ -110,6 +111,12 @@ export type InventoryItemServices = Readonly<{
     itemId: string,
     accountId: string,
   ) => Promise<Readonly<{ state: InventoryItemState; version: number }> | null>;
+  /** Complete owner-store stock state, including authoritative active holds. */
+  loadAuthoritativeStockSnapshot?: (
+    itemId: string,
+    accountId: string,
+    context: EventStoreContext,
+  ) => Promise<InventoryStockSnapshot>;
   ensureListingStock: (
     params: Readonly<{
       accountId: AccountId;
@@ -400,6 +407,15 @@ export function createInventoryItemRuntime(
       const aggregate = await repository.load(`inventory.item-${itemId}`);
       return aggregate.state.id !== null && aggregate.state.accountId === accountId ? aggregate : null;
     },
+    loadAuthoritativeStockSnapshot: (itemId, accountId, context) =>
+      loadAuthoritativeInventoryStockSnapshot({
+        db: deps.db,
+        eventStore: deps.eventStore,
+        itemRepository: repository,
+        itemId,
+        accountId: accountId as AccountId,
+        context,
+      }),
     ensureListingStock: async (params, context) => {
       if (!Number.isInteger(params.quantity) || params.quantity <= 0) {
         throw new InventoryDomainError("Listing stock quantity must be a positive whole number.");
