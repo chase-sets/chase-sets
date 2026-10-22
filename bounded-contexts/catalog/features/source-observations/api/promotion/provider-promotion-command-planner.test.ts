@@ -389,7 +389,7 @@ describe("planCatalogProviderPromotionCommands", () => {
     const result = await planPromotion({
       profile: ygojsonYugiohSealedProductReferenceProviderProfile,
       profileKey: "yugioh-sealed-product-reference-data",
-      profileVersion: "2026.07.14",
+      profileVersion: "2026.10.18",
       providerKey: "ygojson",
       externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
       mode: "create",
@@ -461,7 +461,7 @@ describe("planCatalogProviderPromotionCommands", () => {
     const input = {
       profile: ygojsonYugiohSealedProductReferenceProviderProfile,
       profileKey: "yugioh-sealed-product-reference-data",
-      profileVersion: "2026.07.14",
+      profileVersion: "2026.10.18",
       providerKey: "ygojson",
       externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
       mode: "refresh" as const,

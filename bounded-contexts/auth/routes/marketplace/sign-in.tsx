@@ -30,13 +30,14 @@ export function loader({ request }: LoaderFunctionArgs) {
 export default function MarketplaceSignInRoute() {
   const actionData = useAuthFormActionData(useActionData<typeof action>());
   const data = useLoaderData<typeof loader>();
-  const submission = useAuthFormSubmission();
+  const { submissionPending } = useAuthFormSubmission();
   const location = useLocation();
   const actionError = actionData && "error" in actionData ? actionData : null;
   return (
     <Container width="narrow" paddingX={0}>
       <SignInPage
-        {...submission}
+        submissionPending={submissionPending}
+        submissionMode="router"
         actionError={actionError}
         socialError={data.socialLoginError}
         socialOccurrence={location.key}
