@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   consumeTimingRecords,
   isValidTimingRecord,
   parseTimingRecord,
   timingRecordLine,
 } from "./provider-browser-install-timing.mjs";
+import { runInstaller } from "./provider-browser-install-timeout.mjs";
 
 const headSha = "a".repeat(40);
 const record = {
@@ -16,42 +19,92 @@ const record = {
   headSha,
   startedAt: "2026-10-22T18:23:08.000Z",
   endedAt: "2026-10-22T18:33:08.000Z",
-  phase: "terminal",
+  phase: "browser-download",
   source: "provider-download",
   cache: "miss",
   retryCount: 0,
   terminalOutcome: "timeout",
 };
+const authority = { headSha, stepExecuted: true };
+const line = (value) => `provider-browser-install-timing/v1 ${JSON.stringify(value)}`;
+afterEach(() => vi.useRealTimers());
 
 describe("provider-browser-install-timing/v1", () => {
   it("accepts provider-browser-install-timing/v1", () => {
-    const line = timingRecordLine(record);
-    expect(parseTimingRecord(line)).toEqual(record);
-    expect(isValidTimingRecord(record, { headSha })).toBe(true);
+    expect(parseTimingRecord(timingRecordLine(record))).toEqual(record);
+    expect(consumeTimingRecords([timingRecordLine(record)], authority)).toEqual([record]);
   });
-
   it.each([
-    ["malformed", "provider-browser-install-timing/v1 {"],
-    ["wrong-head", { ...record, headSha: "b".repeat(40) }],
-    ["skipped/cancelled-before-step", { ...record, terminalOutcome: "success", elapsedMs: -1 }],
-    ["duplicate", [record, record]],
-    ["nonzero-retry", { ...record, retryCount: 1 }],
-  ])("rejects %s records", (_name, value) => {
-    if (typeof value === "string") expect(parseTimingRecord(value)).toBeNull();
-    else if (Array.isArray(value)) expect(value).toHaveLength(2);
-    else expect(isValidTimingRecord(value, { headSha })).toBe(false);
+    { ...record, runId: 123 },
+    { ...record, jobId: "x" },
+    { ...record, runAttempt: -1 },
+    { ...record, elapsedMs: 1.5 },
+    { ...record, phase: "unknown" },
+    { ...record, step: "setup" },
+    { ...record, startedAt: "2026-02-30T18:23:08.000Z" },
+    { ...record, endedAt: "2026-10-22T18:23:07.000Z" },
+    { ...record, startedAt: "2026-10-22T18:23:08-05:00" },
+    { ...record, extra: "PRIVATE" },
+  ])("rejects malformed records", (value) => expect(consumeTimingRecords([line(value)], authority)).toEqual([]));
+  it("rejects malformed JSON and missing fields", () => {
+    expect(parseTimingRecord("provider-browser-install-timing/v1 {")).toBeNull();
+    for (const field of Object.keys(record)) {
+      const value = { ...record };
+      delete value[field];
+      expect(isValidTimingRecord(value), field).toBe(false);
+    }
   });
-
-  it("classifies source and cache values", () => {
-    expect(isValidTimingRecord({ ...record, source: "cache", cache: "hit" }, { headSha })).toBe(true);
-    expect(isValidTimingRecord({ ...record, source: "provider-download", cache: "not-applicable" }, { headSha })).toBe(
-      true,
+  it("rejects wrong-head records", () =>
+    expect(consumeTimingRecords([line({ ...record, headSha: "b".repeat(40) })], authority)).toEqual([]));
+  it("excludes skipped/cancelled-before-step records", () => {
+    expect(consumeTimingRecords([line(record)], { headSha, stepExecuted: false })).toEqual([]);
+    expect(consumeTimingRecords([line(record)])).toEqual([]);
+    expect(consumeTimingRecords([line({ ...record, terminalOutcome: "skipped" })], authority)).toEqual([]);
+    expect(consumeTimingRecords([line({ ...record, terminalOutcome: "cancelled-before-step" })], authority)).toEqual(
+      [],
     );
   });
-
-  it("consumes one owning record and excludes skipped or cancelled-before-step jobs", () => {
-    const line = timingRecordLine(record);
-    expect(consumeTimingRecords([line, line], { headSha })).toEqual([]);
-    expect(consumeTimingRecords([line], { headSha, stepExecuted: false })).toEqual([]);
+  it("excludes duplicate owning records", () =>
+    expect(consumeTimingRecords([line(record), line(record)], authority)).toEqual([]));
+  it("rejects nonzero-retry records", () =>
+    expect(consumeTimingRecords([line({ ...record, retryCount: 1 })], authority)).toEqual([]));
+  it("validates source/cache classification", () => {
+    for (const [source, cache] of [
+      ["cache", "hit"],
+      ["provider-download", "miss"],
+      ["provider-download", "not-applicable"],
+    ]) {
+      expect(isValidTimingRecord({ ...record, source, cache })).toBe(true);
+    }
+    for (const [source, cache] of [
+      ["cache", "miss"],
+      ["provider-download", "hit"],
+      ["raw-provider", "miss"],
+      ["cache", "unknown"],
+    ]) {
+      expect(isValidTimingRecord({ ...record, source, cache })).toBe(false);
+    }
+  });
+  it("live emit/consume uses the wrapper's sole terminal record", async () => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), {
+      pid: 555,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      send: vi.fn(),
+    });
+    const lines = [];
+    const result = runInstaller({
+      identity: { runId: record.runId, runAttempt: 1, jobId: record.jobId, headSha },
+      env: { INSTALLER_TIMEOUT_SECONDS: "600" },
+      spawnImpl: () => child,
+      write: (value) => lines.push(value),
+    });
+    child.stdout.write("provider-boundary-setup-stage:install-chromium\nprovider-boundary-setup-stage:complete\n");
+    child.emit("message", { installerStatus: 0 });
+    child.emit("close", 0);
+    const actual = await result;
+    expect(consumeTimingRecords(lines, authority)).toEqual([actual.record]);
+    expect(lines).toHaveLength(1);
   });
 });

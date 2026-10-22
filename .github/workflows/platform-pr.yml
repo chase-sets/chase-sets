@@ -173,6 +173,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: read
     env:
       BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     timeout-minutes: 20
@@ -194,8 +195,7 @@ jobs:
       - name: Install provider browser boundary
         env:
           INSTALLER_TIMEOUT_SECONDS: "600"
-          PROVIDER_BROWSER_INSTALL_STEP: Install provider browser boundary
-          PROVIDER_BROWSER_INSTALL_CACHE: miss
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/provider-browser-install-timeout.mjs
 
       - name: Installed-boundary controls

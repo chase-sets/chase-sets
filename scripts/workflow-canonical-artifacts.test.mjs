@@ -127,6 +127,12 @@ node ./producer.mjs --out="\${GITHUB_WORKSPACE}/evidence/equals.json"`),
   it("guards the nongoverning browser-boundary diagnostic summary as one exact fail-closed payload (#9259)", () => {
     const file = ".github/workflows/browser-boundary-diagnostics.yml";
     const workflow = readFileSync(resolve(file), "utf8");
+    expect(workflow).toContain("timeout-minutes: 60");
+    expect(workflow).toContain("name: Installed-boundary diagnostic subset (NOT PROVEN)");
+    expect(workflow).toContain("run: bash scripts/provider-object-disposition/browser-boundary/ci-setup.sh");
+    expect(workflow).not.toContain("provider-browser-install-timeout.mjs");
+    expect(workflow).toContain("provider-boundary-diagnostic-refused:selector");
+    expect(workflow).toContain("run: bash scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh");
     const outPath = "artifacts/browser-boundary-diagnostics/summary.json";
 
     const result = checkWorkflowCanonicalArtifacts(workflow, { workflowFile: file });

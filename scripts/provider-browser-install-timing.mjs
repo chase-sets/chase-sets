@@ -24,14 +24,43 @@ export function parseTimingRecord(line) {
 
 export function isValidTimingRecord(record, { headSha } = {}) {
   if (!record || typeof record !== "object" || Array.isArray(record)) return false;
-  if (!/^\d+$/.test(record.runId) || !/^\d+$/.test(record.jobId)) return false;
+  const fields = [
+    "runId",
+    "jobId",
+    "runAttempt",
+    "elapsedMs",
+    "step",
+    "headSha",
+    "startedAt",
+    "endedAt",
+    "phase",
+    "source",
+    "cache",
+    "retryCount",
+    "terminalOutcome",
+  ];
+  if (Object.keys(record).length !== fields.length || fields.some((field) => !Object.hasOwn(record, field)))
+    return false;
+  if (
+    typeof record.runId !== "string" ||
+    typeof record.jobId !== "string" ||
+    !/^\d{1,20}$/.test(record.runId) ||
+    !/^\d{1,20}$/.test(record.jobId)
+  )
+    return false;
   if (!Number.isSafeInteger(record.runAttempt) || record.runAttempt < 0) return false;
   if (!Number.isSafeInteger(record.elapsedMs) || record.elapsedMs < 0) return false;
   if (record.step !== "Install provider browser boundary") return false;
-  if (!/^[a-f0-9]{40}$/.test(record.headSha) || (headSha && record.headSha !== headSha)) return false;
+  if (
+    typeof record.headSha !== "string" ||
+    !/^[a-f0-9]{40}$/.test(record.headSha) ||
+    (headSha && record.headSha !== headSha)
+  )
+    return false;
   if (!isIso(record.startedAt) || !isIso(record.endedAt) || Date.parse(record.endedAt) < Date.parse(record.startedAt))
     return false;
   if (!phases.has(record.phase) || !sources.has(record.source) || !caches.has(record.cache)) return false;
+  if ((record.source === "cache") !== (record.cache === "hit")) return false;
   if (record.retryCount !== 0 || !outcomes.has(record.terminalOutcome)) return false;
   return true;
 }
@@ -40,7 +69,8 @@ function isIso(value) {
   return (
     typeof value === "string" &&
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) &&
-    !Number.isNaN(Date.parse(value))
+    !Number.isNaN(Date.parse(value)) &&
+    new Date(value).toISOString() === value.replace(/Z$/, value.includes(".") ? "Z" : ".000Z")
   );
 }
 
@@ -49,8 +79,8 @@ export function timingRecordLine(record) {
   return `${RECORD_PREFIX}${JSON.stringify(record)}`;
 }
 
-export function consumeTimingRecords(lines, { headSha, stepExecuted = true } = {}) {
-  if (!stepExecuted || !Array.isArray(lines)) return [];
+export function consumeTimingRecords(lines, { headSha, stepExecuted = false } = {}) {
+  if (!stepExecuted || !/^[a-f0-9]{40}$/.test(headSha ?? "") || !Array.isArray(lines)) return [];
   const records = lines
     .map(parseTimingRecord)
     .filter(Boolean)
