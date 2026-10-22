@@ -565,6 +565,69 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
   });
 
+  it("unwraps Kubernetes List items before closed-preview namespace selection", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [{ name: "chasesets.com" }],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => ({
+        apiVersion: "v1",
+        kind: "List",
+        items: [{ metadata: { name: "chase-sets-pr-4736" } }],
+      }),
+      fetchPullRequest: async () => ({ state: "closed", merged: true }),
+    });
+
+    expect(result.record.namespaceCandidates).toEqual([
+      { prNumber: 4736, namespace: "chase-sets-pr-4736", creationTimestamp: null },
+    ]);
+    expect(result.record.targets).toEqual([
+      expect.objectContaining({ prNumber: 4736, namespace: "chase-sets-pr-4736", pullRequestState: "closed" }),
+    ]);
+    expect(result.record.batches).toEqual([
+      expect.objectContaining({
+        index: 0,
+        targets: [expect.objectContaining({ prNumber: 4736, namespace: "chase-sets-pr-4736" })],
+      }),
+    ]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ batch_index: 0, batch_count: 1 })]);
+  });
+
+  it("accepts an empty Kubernetes List without warning", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => ({ apiVersion: "v1", kind: "List", items: [] }),
+    });
+
+    expect(result.record.namespaceCandidates).toEqual([]);
+    expect(result.record.phases[3]).toMatchObject({ name: "namespace-list", count: 0, error: null });
+    expect(result.record.warnings).toEqual([]);
+  });
+
+  it("fails closed when the namespace listing has no items array", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({ Contents: [] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => ({ apiVersion: "v1", kind: "Status" }),
+    });
+
+    expect(result.record.namespaceCandidates).toEqual([]);
+    expect(result.record.targets).toEqual([]);
+    expect(result.matrix.include).toEqual([]);
+    expect(result.record.phases[3]).toMatchObject({ name: "namespace-list", count: null });
+    expect(result.record.phases[3].error).toBe("kubectl namespace listing returned no items array.");
+    expect(result.record.warnings[0]).toBe(
+      "Preview namespace listing failed; state, cluster, and DNS cleanup targets were still evaluated.",
+    );
+    expect(result.record.warnings[1]).toBe("kubectl namespace listing returned no items array.");
+  });
+
   it("degrades to a warning instead of failing the whole sweep when namespace listing is unavailable", async () => {
     const result = await discoverPreviewCleanupTargets(
       {
@@ -973,16 +1036,6 @@ describe("digitalocean-preview-cleanup-sweep", () => {
         expected: [3],
       },
       { name: "namespace-only", namespaces: [{ metadata: { name: "chase-sets-pr-4" } }], expected: [4] },
-      {
-        name: "namespace-only (kubectl List shape)",
-        namespaces: {
-          apiVersion: "v1",
-          kind: "List",
-          items: [{ metadata: { name: "chase-sets-pr-10" } }, { metadata: { name: "kube-system" } }],
-        },
-        expected: [],
-        listCount: 2,
-      },
       {
         name: "mixed open/closed/merged",
         state: [{ Key: "platform/previews/pr-5.tfstate" }, { Key: "platform/previews/pr-6.tfstate" }],

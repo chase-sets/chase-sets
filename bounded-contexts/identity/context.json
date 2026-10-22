@@ -44,7 +44,7 @@
     "ui-support"
   ],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
+  "allowedContextDependencies": [],
   "seedRequirements": [],
   "eventReactions": [
     {

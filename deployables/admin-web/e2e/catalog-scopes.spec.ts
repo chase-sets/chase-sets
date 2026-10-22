@@ -25,11 +25,17 @@ test.describe.serial("catalog admin scopes", () => {
 
     await expectAdminPageReady(page, { heading: "Scopes" });
 
+    const allScopesAliasDisclosure = page.getByRole("button", { name: /All[- ]scopes/i });
+    await expect(allScopesAliasDisclosure).toBeVisible();
+    await allScopesAliasDisclosure.click();
+    await expect(allScopesAliasDisclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator('[data-catalog-scope-home-review] [role="region"]')).toBeVisible();
+
     // Primary filters render inline; the extra product-domain and language
     // facets live behind the overflow panel like other catalog list surfaces.
     await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
-    await page.getByRole("button", { name: /More filters/ }).click();
+    await page.getByRole("button", { name: "More filters (2)", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "Product domain" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Language" })).toBeVisible();
     await page.getByRole("button", { name: "Close filters" }).click();
@@ -77,7 +83,7 @@ test.describe.serial("catalog admin scopes", () => {
 
     await captureResponsiveEvidence({ page, testInfo, claimId: "catalog-scope-cards-mobile" });
 
-    const scopeCards = page.locator("main div[role='list']");
+    const scopeCards = page.locator("main div[role='list']:not([data-catalog-scope-home-review] *)");
     await scopeCards.locator(":scope > [role='listitem']").first().getByRole("link", { name: "View" }).click();
 
     await expect(page.getByRole("heading", { name: "Coverage matrix" })).toBeVisible();

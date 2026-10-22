@@ -77,7 +77,9 @@ function participantOf(streamId: string, consentOrdinal: (streamId: string) => n
   if (streamId.startsWith("identity.account-")) return "account";
   if (streamId.startsWith("identity.user-")) return "user";
   if (streamId.startsWith("identity.membership-")) return "membership";
-  if (streamId.startsWith("identity.csat-outcome-fact-")) return "outcome-fact";
+  if (streamId.startsWith("identity.registration-") && !streamId.startsWith("identity.registration-operation-")) {
+    return "outcome-fact";
+  }
   if (!streamId.startsWith("identity.consent-")) return null;
 
   const ordinal = consentOrdinal(streamId);
@@ -671,7 +673,7 @@ describeDb("registration atomicity and convergence", () => {
     expect(state.users).toHaveLength(1);
   });
 
-  it("does not let a failing cross-context outcome fact fail a committed registration", async () => {
+  it("keeps registration atomic when outcome projection fails", async () => {
     const harness = createHarness();
     harness.fault.position = "outcome-fact";
 
