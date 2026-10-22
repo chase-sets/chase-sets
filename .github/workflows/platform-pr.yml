@@ -192,7 +192,11 @@ jobs:
         run: pnpm run verify:metadata
 
       - name: Install provider browser boundary
-        run: bash scripts/provider-object-disposition/browser-boundary/ci-setup.sh
+        env:
+          INSTALLER_TIMEOUT_SECONDS: "600"
+          PROVIDER_BROWSER_INSTALL_STEP: Install provider browser boundary
+          PROVIDER_BROWSER_INSTALL_CACHE: miss
+        run: node scripts/provider-browser-install-timeout.mjs
 
       - name: Installed-boundary controls
         run: |
