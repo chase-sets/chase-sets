@@ -75,11 +75,6 @@ defaultBackend:
     - maxSkew: 1
       topologyKey: kubernetes.io/hostname
       whenUnsatisfiable: ScheduleAnyway
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/name: ingress-nginx
-          app.kubernetes.io/instance: ingress-nginx
-          app.kubernetes.io/component: default-backend
   image:
     registry: docker.io
     image: nginxinc/nginx-unprivileged
