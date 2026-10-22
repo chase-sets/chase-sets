@@ -1132,6 +1132,7 @@ describe("marketplace listing routes", () => {
     expect(services.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
       {
         accountId: "acc_seller",
+        changeSource: "seller",
         updates: [
           { listingId: "lst_1", priceAmount: "21.00", priceCurrencyCode: "USD", feeQuoteFingerprint: null },
           {

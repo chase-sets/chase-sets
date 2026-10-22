@@ -1,4 +1,21 @@
 export const platformOperationsEnglishTranslations = {
+  "platformOperations.opsDashboard.repricingSunsetDecision": "Bulk sunset eligibility: {status}",
+  "platformOperations.opsDashboard.repricingSunsetDecisionStatus.eligible": "Eligible",
+  "platformOperations.opsDashboard.repricingSunsetDecisionStatus.ineligible": "Ineligible",
+  "platformOperations.opsDashboard.repricingSunsetDecisionStatus.unknown": "Unknown",
+  "platformOperations.opsDashboard.repricingDecisionReason.policyNotConfigured": "Sunset policy is not configured.",
+  "platformOperations.opsDashboard.repricingDecisionReason.insufficientWeeks":
+    "Not enough complete weeks are available.",
+  "platformOperations.opsDashboard.repricingDecisionReason.nonconsecutiveOrStaleWeeks":
+    "The measured weeks are not consecutive or are stale.",
+  "platformOperations.opsDashboard.repricingDecisionReason.incomplete": "Week {week} is incomplete.",
+  "platformOperations.opsDashboard.repricingDecisionReason.bulkShareOverLimit":
+    "Week {week} exceeds the allowed bulk share.",
+  "platformOperations.opsDashboard.repricingDecisionReason.bulkReliance":
+    "Week {week} shows reliance on bulk repricing.",
+  "platformOperations.opsDashboard.repricingDecisionReason.unknown": "The sunset decision evidence is unrecognized.",
+  "platformOperations.opsDashboard.repricingSourceShareUnattributed": "Unattributed",
+  "platformOperations.opsDashboard.repricingSourceShareSellers": "Top sellers by bulk share (distinct bulk listings)",
   "support.participantAttempt.checkBeforeRetry": "Check status before retrying this support action.",
   "support.participantAttempt.ambiguous":
     "We could not confirm whether your support action completed. Do not submit it again yet.",
@@ -158,6 +175,19 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.opsDashboard.trendChartLabel": "Platform GMV over time",
   "platformOperations.opsDashboard.unitVolume": "Units",
   "platformOperations.opsDashboard.verifiedTradeCount": "Verified trades",
+  "platformOperations.opsDashboard.repricingSourceShare": "Repricing source share",
+  "platformOperations.opsDashboard.repricingSourceShareUnavailable": "Source-share instrumentation is unavailable.",
+  "platformOperations.opsDashboard.repricingSourceShareEmptyTitle": "No repricing activity",
+  "platformOperations.opsDashboard.repricingSourceShareEmptyDescription": "No price changes were recorded.",
+  "platformOperations.opsDashboard.repricingSourceShareWeek": "Week",
+  "platformOperations.opsDashboard.repricingSourceShareStatus": "Status",
+  "platformOperations.opsDashboard.repricingSourceShareStatus.complete": "Complete",
+  "platformOperations.opsDashboard.repricingSourceShareStatus.incomplete": "Incomplete",
+  "platformOperations.opsDashboard.repricingSourceShareReason.checkpoint-lag": "Checkpoint lag",
+  "platformOperations.opsDashboard.repricingSourceShareReason.unattributed-event": "Unattributed event",
+  "platformOperations.opsDashboard.repricingSourceShareBulk": "Bulk",
+  "platformOperations.opsDashboard.repricingSourceSharePolicy": "Policy",
+  "platformOperations.opsDashboard.repricingSourceShareManual": "Manual",
   "platformOperations.projectionOperations.actions": "Actions",
   "platformOperations.projectionOperations.activeWorkers": "Active workers",
   "platformOperations.projectionOperations.activeWorkerSummary": "{active} active · {stale} stale",

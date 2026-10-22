@@ -46,6 +46,23 @@ export type OpsTopCatalogItem = Readonly<{
   unitVolume: number;
 }>;
 
+export type OpsRepricingSourceShareWeek = Readonly<{
+  weekStart: string;
+  status: "complete" | "incomplete";
+  reason: "checkpoint-lag" | "unattributed-event" | null;
+  eventCount: number;
+  counts: Readonly<{ bulk: number; policy: number; manual: number; unattributed: number }>;
+  shares: Readonly<{ bulk: number; policy: number; manual: number }>;
+  topSellers: readonly Readonly<{ accountId: string; bulkShare: number; bulkListingCount: number }>[];
+}>;
+
+export type OpsRepricingSourceShare = Readonly<{
+  status: "available" | "unavailable";
+  weeks: readonly OpsRepricingSourceShareWeek[];
+  reason?: string;
+  decision?: Readonly<{ status: "eligible" | "ineligible" | "unknown"; reasons: readonly string[] }>;
+}>;
+
 export type OpsMarketAnalyticsCrossContextPort = Readonly<{
   getPlatformGmvSeries: (
     params: Readonly<{ from: string; to: string; granularity?: OpsGranularity }>,
@@ -55,4 +72,5 @@ export type OpsMarketAnalyticsCrossContextPort = Readonly<{
   getTopCatalogItemsByGmv: (
     params: Readonly<{ from: string; to: string; limit?: number }>,
   ) => Promise<readonly OpsTopCatalogItem[]>;
+  getRepricingSourceShare: (params: Readonly<{ from: string; to: string }>) => Promise<OpsRepricingSourceShare>;
 }>;

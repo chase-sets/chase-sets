@@ -103,6 +103,7 @@ export type RepricingMarketplaceGateway = Readonly<{
       minimumChange: RepricingListingEvaluation["tolerance"];
       idempotencyKey: string;
     }>[];
+    changeSource: "repricing-engine";
   }) => Promise<{
     items: readonly Readonly<{
       listingId: string;
@@ -644,7 +645,10 @@ async function executeAdmittedProductRound(
       continue;
     }
     try {
-      const result = await input.marketplaceGatewayForAccount(accountId).applyBulkListingPriceUpdates({ updates });
+      const result = await input.marketplaceGatewayForAccount(accountId).applyBulkListingPriceUpdates({
+        updates,
+        changeSource: "repricing-engine",
+      });
       result.items.forEach((outcome) => outcomesByListingId.set(outcome.listingId, outcome));
       for (const outcome of result.items) {
         if (

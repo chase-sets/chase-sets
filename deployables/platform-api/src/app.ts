@@ -113,6 +113,7 @@ import {
   getSellerCohortGmvSummary,
   getSellerCohortWeeklyGmv,
   getTopCatalogItemsByGmv,
+  getRepricingSourceShareReport,
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
   demandCurvePolicy,
@@ -123,6 +124,7 @@ import {
   providerObservationPolicy,
   repricingEnginePolicy,
   repricingManagementPolicy,
+  bulkRepriceSunsetPolicy,
   createRepricingAttentionSourceFromReadModel,
   type PricingServices,
 } from "@chase-sets/pricing/server";
@@ -369,6 +371,7 @@ export function createPlatformApiHost(
         getPlatformKpiSummary: (params) => getPlatformKpiSummary(pricingPool, params),
         getPlatformLiquiditySummary: (params) => getPlatformLiquiditySummary(pricingPool, params),
         getTopCatalogItemsByGmv: (params) => getTopCatalogItemsByGmv(pricingPool, params),
+        getRepricingSourceShare: (params) => getRepricingSourceShareReport(pricingPool, params),
       }
     : undefined;
   const commercialTermsResolver = commercialTermsPool
@@ -532,6 +535,7 @@ export function createPlatformApiHost(
         providerObservationPolicy,
         repricingEnginePolicy,
         repricingManagementPolicy,
+        bulkRepriceSunsetPolicy,
         forecastLedgerPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(

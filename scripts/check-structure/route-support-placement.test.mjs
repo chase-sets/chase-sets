@@ -93,6 +93,9 @@ describe("route support placement guard", () => {
     expect(isCanonicalBoundedContextRootFile("context.source.mjs")).toBe(true);
     expect(isCanonicalBoundedContextRootFile("helper.mjs")).toBe(false);
     expect(isAdmittedFeatureMetadataFile("metadata.json")).toBe(true);
+    expect(isAdmittedFeatureMetadataFile("REMOVAL.md")).toBe(true);
+    expect(isAdmittedFeatureMetadataFile("removal.md")).toBe(false);
+    expect(isAdmittedFeatureMetadataFile("arbitrary.md")).toBe(false);
     expect(isAdmittedFeatureMetadataFile("helper.mjs")).toBe(false);
   });
 

@@ -56,12 +56,13 @@ export function createOpsDashboardRoutes(services: OpsDashboardServices) {
     if (access.response) return access.response;
     const to = c.req.query("to") ?? todayUtc();
     const from = c.req.query("from") ?? daysAgoUtc(29, new Date(to));
-    const [summary, liquidity, topCatalogItems] = await Promise.all([
+    const [summary, liquidity, topCatalogItems, repricingSourceShare] = await Promise.all([
       services.getPlatformKpiSummary({ from, to }),
       services.getPlatformLiquiditySummary({ asOfDay: to }),
       services.getTopCatalogItemsByGmv({ from, to, limit: Number(c.req.query("limit") ?? 10) }),
+      services.getRepricingSourceShare({ from, to }),
     ]);
-    return c.json({ from, to, summary, liquidity, topCatalogItems });
+    return c.json({ from, to, summary, liquidity, topCatalogItems, repricingSourceShare });
   });
 
   app.get("/series", async (c) => {

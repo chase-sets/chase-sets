@@ -412,7 +412,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "bounded-contexts/ordering/README.md:5,73",
         ],
         openQuestions: [
-          "Pricing ships a Market-Following Offer Target (bounded-contexts/pricing/GLOSSARY.md:186-188): a proposed unit item amount for a buyer Offer, derived from the exact Product's fresh published Market Price and clamped to the buyer's maximum unit item amount. This subject's draft text does not describe it; whether these Terms must address Offers whose amount follows that target is a counsel question.",
+          "Pricing ships a Market-Following Offer Target (bounded-contexts/pricing/GLOSSARY.md:204-206): a proposed unit item amount for a buyer Offer, derived from the exact Product's fresh published Market Price and clamped to the buyer's maximum unit item amount. This subject's draft text does not describe it; whether these Terms must address Offers whose amount follows that target is a counsel question.",
         ],
         assumptions: [
           {

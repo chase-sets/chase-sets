@@ -18,6 +18,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { BulkRepriceJobStatus } from "../api/runtime";
+import type { MigrationNudge } from "../domain/nudge";
 
 function useBulkRepriceJob(
   jobId?: string | null,
@@ -71,15 +72,33 @@ export function PricingBulkRepricePage({
   initialActiveJob,
   message,
   errorMessage,
+  nudge,
 }: {
   activeJobId?: string | null;
   initialActiveJob?: BulkRepriceJobStatus | null;
   message?: string | null;
   errorMessage?: string | null;
+  nudge?: MigrationNudge;
 }) {
   const { job: activeJob, reconnecting } = useBulkRepriceJob(activeJobId, initialActiveJob);
   const hasActiveJob = activeJob?.status === "queued" || activeJob?.status === "running";
   const isTerminal = activeJob?.status === "completed" || activeJob?.status === "failed";
+  const nudgeReason = nudge?.reason;
+  const nudgeReasonKey = nudgeReason
+    ? (
+        {
+          "mixed-currency": "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.mixedCurrency",
+          "insufficient-estimates":
+            "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.insufficientEstimates",
+          "offset-out-of-range":
+            "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.offsetOutOfRange",
+          "no-samples": "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.noSamples",
+          "reliance-not-met": "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.relianceNotMet",
+          "policy-unknown": "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.policyUnknown",
+          unavailable: "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.unavailable",
+        } as const
+      )[nudgeReason]
+    : null;
 
   return (
     <Page>
@@ -112,6 +131,32 @@ export function PricingBulkRepricePage({
           tone="success"
           title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.bulk.reprice")}
           description={message}
+        />
+      ) : null}
+
+      {nudge?.status === "available" && nudge.currencyCode !== null && nudge.offsetPercent !== null ? (
+        <MarketplaceNotice
+          tone="info"
+          title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.title")}
+          description={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.description", {
+            offset: nudge.offsetPercent.toFixed(2),
+          })}
+          action={
+            <LinkButton
+              href={`/account/desk/repricing?create=1&prefill=market-offset&anchor=market-estimate&offsetPercent=${encodeURIComponent(String(nudge.offsetPercent))}&currency=${encodeURIComponent(nudge.currencyCode)}`}
+              tone="primary"
+            >
+              {t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.openEditor")}
+            </LinkButton>
+          }
+        />
+      ) : null}
+
+      {nudge?.status === "unavailable" && nudge.reason !== "reliance-not-met" ? (
+        <MarketplaceNotice
+          tone="info"
+          title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.unavailable")}
+          description={nudgeReasonKey ? t(nudgeReasonKey) : ""}
         />
       ) : null}
 

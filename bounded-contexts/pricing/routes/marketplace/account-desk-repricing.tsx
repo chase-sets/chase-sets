@@ -30,8 +30,60 @@ import {
   PricingRepricingPolicyListPage,
   type RepricingHaltState,
 } from "../../features/repricing-policies/ui/policy-list-page";
+import {
+  compileRepricingPreset,
+  REPRICING_PREFILL_OFFSET_CAP,
+  type PolicyEditorBody,
+} from "../../features/repricing-policies/ui/presets";
 
 export const REPRICING_DESK_HREF = "/account/desk/repricing";
+
+export type RepricingDeskPrefill = Readonly<{
+  body: PolicyEditorBody | null;
+  notice: string | null;
+}>;
+
+export function parseRepricingDeskPrefill(search: string): RepricingDeskPrefill {
+  const query = new URLSearchParams(search);
+  const prefillKeys = ["prefill", "anchor", "offsetPercent", "currency"];
+  if (!prefillKeys.some((key) => query.has(key))) return { body: null, notice: null };
+  const allowed = new Set(["create", ...prefillKeys]);
+  const anchor = query.get("anchor");
+  const rawOffset = query.get("offsetPercent");
+  const currency = query.get("currency")?.trim().toUpperCase() ?? "";
+  const offset = rawOffset === null ? NaN : Number(rawOffset);
+  if (
+    query.get("prefill") !== "market-offset" ||
+    [...query.keys()].some((key) => !allowed.has(key) || query.getAll(key).length !== 1) ||
+    anchor !== "market-estimate" ||
+    !/^[A-Z]{3}$/.test(currency) ||
+    rawOffset === null ||
+    !/^-?\d+(?:\.\d{1,2})?$/.test(rawOffset) ||
+    !Number.isFinite(offset)
+  ) {
+    return {
+      body: null,
+      notice: t("pricing.routes.marketplace.accountDeskRepricing.prefill.incomplete"),
+    };
+  }
+  if (Math.abs(offset) > REPRICING_PREFILL_OFFSET_CAP) {
+    return {
+      body: null,
+      notice: t("pricing.routes.marketplace.accountDeskRepricing.prefill.outOfRange"),
+    };
+  }
+  return {
+    body: compileRepricingPreset({
+      preset: "track-market",
+      name: t("pricing.routes.marketplace.accountDeskRepricing.prefill.policyName"),
+      knob: Math.round(offset * 100) / 100,
+      currencyCode: currency,
+      floor: { mode: "absolute", amount: "" },
+      scope: { kind: "all-listings" },
+    }),
+    notice: null,
+  };
+}
 
 const releasedHalt: RepricingHaltState = { engaged: false, engagedAt: null, releasedAt: null };
 
@@ -114,8 +166,10 @@ export const action = defineFormAction({
   authorization: { permission: "pricing.manage" },
   intents: {
     "create-policy": async ({ request, formData }) => {
+      const dryRunId = String(formData.get("dryRunId") ?? "").trim();
+      if (!dryRunId) throw new Error("Run a dry run before creating a repricing policy.");
       const result = await createPricingRequestApiClient(request).createRepricingPolicy({
-        dryRunId: String(formData.get("dryRunId") ?? ""),
+        dryRunId,
         name: String(formData.get("name") ?? ""),
       });
       return redirect(await navigateAfterWriteToRepricingDesk(result));
@@ -158,11 +212,14 @@ export default function MarketplaceSellerDeskRepricingRoute() {
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
-  const [editorOpen, setEditorOpen] = useState(() => new URLSearchParams(location.search).get("create") === "1");
+  const prefill = parseRepricingDeskPrefill(location.search);
+  const editorRequested =
+    new URLSearchParams(location.search).get("create") === "1" || prefill.body !== null || prefill.notice !== null;
+  const [editorOpen, setEditorOpen] = useState(editorRequested);
   const [openedAtKey, setOpenedAtKey] = useState(location.key);
   useEffect(() => {
-    if (!actionData?.error) setEditorOpen(new URLSearchParams(location.search).get("create") === "1");
-  }, [location.key]);
+    if (!actionData?.error) setEditorOpen(editorRequested);
+  }, [location.key, editorRequested]);
   useRepricingDeskCatchUp(data.catchingUp);
   const pendingPolicyId = navigation.formData ? repricingPolicyIdFrom(navigation.formData) : "";
   const submitIntent = (intent: string, policyId?: string) =>
@@ -195,17 +252,20 @@ export default function MarketplaceSellerDeskRepricingRoute() {
       />
       {editorOpen ? (
         <PolicyEditorDrawer
+          key={`${location.pathname}${location.search}`}
+          initialBody={prefill.body ?? undefined}
           onClose={() => setEditorOpen(false)}
           saving={navigation.state === "submitting"}
-          saveErrors={
-            location.key === openedAtKey
+          saveErrors={[
+            ...(prefill.notice ? [prefill.notice] : []),
+            ...(location.key === openedAtKey
               ? []
               : actionData?.details?.length
                 ? actionData.details
                 : actionData?.error
                   ? [actionData.error]
-                  : []
-          }
+                  : []),
+          ]}
           onSave={({ body, dryRunId }) =>
             submit({ intent: "create-policy", name: body.name, dryRunId: dryRunId ?? "" }, { method: "post" })
           }

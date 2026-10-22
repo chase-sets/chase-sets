@@ -7,6 +7,7 @@ import {
   type BcContextManifest,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import contextManifest from "./context.json" with { type: "json" };
 import { buildPricingApi } from "./api";
 import { buildPricingPriceSignalCatalogProjectionHandlers } from "./features/price-signals/integrations/catalog/projection";
@@ -36,6 +37,7 @@ import {
   buildMarketPriceRepricingReactionHandlers,
 } from "./features/repricing-engine/integrations/signal-reactions";
 import { composePricingInventoryEconomicsProjectionHandlers } from "./features/economics/integrations/inventory/projection";
+import { buildRepricingSourceShareProjectionHandlers } from "./features/repricing-engine/read-model/source-share";
 
 const pricingContextManifest = contextManifest as BcContextManifest;
 
@@ -54,6 +56,20 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const marketTradesHandlers = buildPricingMarketTradesProjectionHandlers(services.db);
+    const marketplaceInputHandlers = buildPricingMarketplaceInputProjectionHandlers(services.db);
+    const sourceShareHandlers = buildRepricingSourceShareProjectionHandlers(
+      services.db,
+      Object.keys(marketplaceInputHandlers),
+    );
+    const marketplaceInputHandlersWithSourceShare: ProjectorHandlerMap = Object.fromEntries(
+      Object.entries(marketplaceInputHandlers).map(([type, handler]) => [
+        type,
+        (async (event, context) => {
+          await handler(event, context);
+          await sourceShareHandlers[type]!(event, context);
+        }) satisfies ProjectorHandlerMap[string],
+      ]),
+    );
 
     return [
       ...buildEventSubscriptionsFromManifest({
@@ -69,8 +85,7 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
               ...buildPricingInventoryInputProjectionHandlers(services.db),
               ...buildPricingOwnSaleObservationProjectionHandlers(services.db),
             }),
-          "marketplace.pricing-market-input-projection": () =>
-            buildPricingMarketplaceInputProjectionHandlers(services.db),
+          "marketplace.pricing-market-input-projection": () => marketplaceInputHandlersWithSourceShare,
           "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),
           "fulfillment.pricing-fulfillment-input-projection": () =>
             buildPricingFulfillmentInputProjectionHandlers(services.db),

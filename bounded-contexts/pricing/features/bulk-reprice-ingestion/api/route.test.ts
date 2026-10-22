@@ -6,7 +6,7 @@ import { BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE } from "../domain/policy";
 import { createBulkRepriceIngestionRoutes } from "./route";
 import type { BulkRepriceIngestionServices, BulkRepriceJob } from "./runtime";
 
-function actor(): NonNullable<PricingApiEnv["Variables"]["actor"]> {
+function actor(permissions: readonly string[] = ["listings.manage"]): NonNullable<PricingApiEnv["Variables"]["actor"]> {
   return {
     sessionId: "ses_1",
     tenantId: "ten_1",
@@ -14,7 +14,7 @@ function actor(): NonNullable<PricingApiEnv["Variables"]["actor"]> {
     accountId: "acc_1",
     membershipId: "mbr_1",
     roleKey: "owner",
-    permissions: ["listings.manage"],
+    permissions,
   };
 }
 
@@ -74,14 +74,20 @@ function services(
     listJobRows: vi.fn(async () => []),
     getResultsCsv: vi.fn(async () => ""),
     pruneJobRetention: vi.fn(async () => 0),
+    getMigrationNudge: vi.fn(async () => ({
+      status: "unavailable" as const,
+      offsetPercent: null,
+      currencyCode: null,
+      reason: "no-samples" as const,
+    })),
     processNextBulkRepriceJob: vi.fn(async () => 0),
   };
 }
 
-function buildApp(featureServices: BulkRepriceIngestionServices) {
+function buildApp(featureServices: BulkRepriceIngestionServices, requestActor = actor()) {
   const app = new Hono<PricingApiEnv>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor());
+    c.set("actor", requestActor);
     c.set("context", eventContext());
     await next();
   });
@@ -118,5 +124,27 @@ describe("bulk reprice ingestion API route", () => {
     expect(second.headers.get("Retry-After")).toBe("60");
     expect(featureServices.enqueueJob).toHaveBeenCalledTimes(1);
     expect(featureServices.checkCreateJobRateLimit).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns the actor-scoped migration nudge for an authorized actor", async () => {
+    const featureServices = services({ enabled: true });
+    const nudge = { status: "available" as const, offsetPercent: 0, currencyCode: "USD" };
+    vi.mocked(featureServices.getMigrationNudge).mockResolvedValue(nudge);
+
+    const requestActor = { ...actor(), accountId: "acc_nudge_actor" };
+    const response = await buildApp(featureServices, requestActor).request("/account/bulk-reprice/nudge");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(nudge);
+    expect(featureServices.getMigrationNudge).toHaveBeenCalledExactlyOnceWith(requestActor.accountId);
+  });
+
+  it("refuses an actor without bulk-reprice access before loading the nudge", async () => {
+    const featureServices = services({ enabled: true });
+
+    const response = await buildApp(featureServices, actor([])).request("/account/bulk-reprice/nudge");
+
+    expect(response.status).toBe(403);
+    expect(featureServices.getMigrationNudge).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -12,6 +13,10 @@ import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommenda
 import { createBulkRepriceIngestionRuntime, type BulkRepriceMarketplaceListingGateway } from "../api/runtime";
 import { listBulkRepriceRows, upsertBulkRepriceRows } from "../read-model/queries";
 import { pricingBulkRepriceIngestionSchemaMigrations } from "../read-model/schema";
+import {
+  buildRepricingSourceShareProjectionHandlers,
+  pricingRepricingSourceShareCheckpointKey,
+} from "../../repricing-engine/read-model/source-share";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -130,6 +135,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
       calls: 0,
       applyBulkListingPriceUpdates: async (body: {
         updates: readonly { listingId: string; priceAmount: string; priceCurrencyCode: string }[];
+        changeSource: "bulk-reprice";
       }) => {
         gateway.calls += 1;
         return {
@@ -213,6 +219,88 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
 
     const csv = await runtime.getResultsCsv(job.jobId);
     expect(csv.split("\n")).toHaveLength(7); // header + 6 rows
+  });
+
+  it("derives the reliant seller nudge from the completed job and only fresh same-currency estimates", async () => {
+    const pool = pools.pricing;
+    await bootstrapContextDatabase(pricingModule, pool);
+    await seedListings(pool);
+    await pool.query(`UPDATE platform_policy_documents SET value = value || '{"nudgeMinEstimateSamples":1}'::jsonb`);
+    await pool.query(
+      `INSERT INTO platform_policy_documents
+       (document_id, policy_key, context_name, schema_summary, status, value, effective_from, created_at, updated_at)
+       VALUES ('doc_sunset', 'pricing.bulk-reprice-sunset', 'pricing', 'test', 'active',
+       '{"maxBulkSharePercent":0,"consecutiveCompleteWeeks":1,"relianceListingThreshold":0}', now() - interval '1 day', now(), now())`,
+    );
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    await runtime.enqueueJob(
+      { accountId: "acc_seller", rows: [{ listingId: "lst_1", newPriceAmount: "12.00" }], sourceFilename: "nudge.csv" },
+      eventContext("acc_seller"),
+    );
+    await runtime.processNextBulkRepriceJob({
+      claimOwnerId: "worker_nudge",
+      claimTtlMs: 30_000,
+      marketplaceListingGatewayForAccount: () => fakeMarketplaceGateway(),
+      inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+    });
+    const weekEnd = new Date();
+    weekEnd.setUTCHours(0, 0, 0, 0);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() - ((weekEnd.getUTCDay() + 6) % 7));
+    const occurredAt = new Date(weekEnd.getTime() - 86400000).toISOString();
+    const handlers = buildRepricingSourceShareProjectionHandlers(pool, [
+      "marketplace.listing.price-updated",
+      "marketplace.listing.paused",
+    ]);
+    await handlers["marketplace.listing.price-updated"]!({
+      id: "evt_nudge",
+      streamId: "marketplace.listing-lst_1",
+      globalPosition: "1",
+      data: { changeSource: "bulk-reprice" },
+      audit: { forAccountId: "acc_seller" },
+      timing: { occurredAt, recordedAt: occurredAt },
+    } as never);
+    await handlers["marketplace.listing.paused"]!({
+      globalPosition: "2",
+      timing: { recordedAt: weekEnd.toISOString() },
+    } as never);
+    await pool.query(
+      `INSERT INTO event_subscription_checkpoints
+       (checkpoint_key, projection_name, source_context_name, subscription_version, last_global_position, updated_at)
+       VALUES ($1, 'pricing-market-input-projection', 'marketplace', 3, 2, now())`,
+      [pricingRepricingSourceShareCheckpointKey],
+    );
+    await pool.query(
+      `INSERT INTO event_projection_recovery_markers (projection_kind, projection_key, last_global_position, updated_at)
+       VALUES ('subscription', $1, 2, now())`,
+      [pricingRepricingSourceShareCheckpointKey],
+    );
+    await pool.query(
+      `INSERT INTO pricing_market_price_estimates
+       (catalog_catalog_item_id, product_id, estimate_version, window_started_at, window_ended_at, amount,
+        currency_code, confidence, estimated_at, fresh_until, disclosure, updated_at)
+       VALUES ('cat_1', 'cat_1::', 1, now() - interval '1 day', now(), 12, 'USD', 'high', now(), now() + interval '1 day', 'internal', now())`,
+    );
+    expect(await runtime.getMigrationNudge("acc_seller")).toEqual({
+      status: "available",
+      offsetPercent: 0,
+      currencyCode: "USD",
+    });
+    expect(await runtime.getMigrationNudge("non_reliant")).toMatchObject({
+      status: "unavailable",
+      reason: "reliance-not-met",
+    });
+    await pool.query("UPDATE pricing_market_price_estimates SET currency_code = 'EUR'");
+    expect(await runtime.getMigrationNudge("acc_seller")).toMatchObject({
+      status: "unavailable",
+      reason: "insufficient-estimates",
+    });
+    await pool.query(
+      "UPDATE pricing_market_price_estimates SET currency_code = 'USD', fresh_until = now() - interval '1 second'",
+    );
+    expect(await runtime.getMigrationNudge("acc_seller")).toMatchObject({
+      status: "unavailable",
+      reason: "insufficient-estimates",
+    });
   });
 
   it("lets the Marketplace append path suppress unchanged rows authoritatively", async () => {

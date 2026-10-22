@@ -31,6 +31,8 @@ export type BulkRepriceIngestionPolicyValue = Readonly<{
   maxRowsPerUpload: number;
   createJobRateLimitMax: number;
   createJobRateLimitWindowMs: number;
+  /** Optional migration-nudge sample floor; absence intentionally means unavailable. */
+  nudgeMinEstimateSamples?: number;
 }>;
 
 export const BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE: BulkRepriceIngestionPolicyValue = {
@@ -68,6 +70,9 @@ export function decodeBulkRepriceIngestionPolicyValue(raw: JsonValue): BulkRepri
   if (typeof record.enabled !== "boolean") {
     throw new BulkRepriceIngestionPolicyError("enabled must be a boolean.");
   }
+  if (record.nudgeMinEstimateSamples !== undefined && typeof record.nudgeMinEstimateSamples !== "number") {
+    throw new BulkRepriceIngestionPolicyError("nudgeMinEstimateSamples must be an integer between 1 and 500.");
+  }
 
   return {
     enabled: record.enabled,
@@ -89,6 +94,16 @@ export function decodeBulkRepriceIngestionPolicyValue(raw: JsonValue): BulkRepri
       1_000,
       86_400_000,
     ),
+    ...(record.nudgeMinEstimateSamples === undefined
+      ? {}
+      : {
+          nudgeMinEstimateSamples: decodeBoundedInteger(
+            record.nudgeMinEstimateSamples,
+            "nudgeMinEstimateSamples",
+            1,
+            500,
+          ),
+        }),
   };
 }
 
@@ -96,7 +111,7 @@ export const bulkRepriceIngestionPolicy: PolicyDefinition<BulkRepriceIngestionPo
   policyKey: "pricing.bulk-reprice-ingestion",
   contextName: "pricing",
   schemaSummary:
-    "{ enabled: boolean, chunkSize: integer 1-500, yieldIntervalMs: integer 0-60000, maxActiveJobsPerAccount: integer 1, maxRowsPerUpload: integer 1-1000000, createJobRateLimitMax: integer 1-1000, createJobRateLimitWindowMs: integer 1000-86400000 }",
+    "{ enabled: boolean, chunkSize: integer 1-500, yieldIntervalMs: integer 0-60000, maxActiveJobsPerAccount: integer 1, maxRowsPerUpload: integer 1-1000000, createJobRateLimitMax: integer 1-1000, createJobRateLimitWindowMs: integer 1000-86400000, nudgeMinEstimateSamples?: integer 1-500 }",
   defaultValue: BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE,
   decodeValue: decodeBulkRepriceIngestionPolicyValue,
 });

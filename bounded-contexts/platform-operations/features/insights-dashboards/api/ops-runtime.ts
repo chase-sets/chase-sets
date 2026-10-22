@@ -6,6 +6,7 @@ import type {
   OpsKpiSummary,
   OpsLiquiditySummary,
   OpsMarketAnalyticsCrossContextPort,
+  OpsRepricingSourceShare,
   OpsTopCatalogItem,
 } from "./ops-contracts";
 
@@ -25,6 +26,7 @@ export type OpsDashboardServices = Readonly<{
   getTopCatalogItemsByGmv: (
     params: Readonly<{ from: string; to: string; limit?: number }>,
   ) => Promise<readonly OpsTopCatalogItem[]>;
+  getRepricingSourceShare: (params: Readonly<{ from: string; to: string }>) => Promise<OpsRepricingSourceShare>;
   /** Records a tape-vs-ledger drift check for one month. Called by the platform-worker scheduled job, which fetches both source amounts itself. */
   recordReconciliationRun: (
     params: Readonly<{ yearMonth: string; tapeGmvAmount: string; ledgerSaleAmount: string; now?: string }>,
@@ -69,6 +71,10 @@ export function createOpsDashboardRuntime(deps: OpsDashboardRuntimeDeps): OpsDas
         return [];
       }
       return deps.crossContext.getTopCatalogItemsByGmv(params);
+    },
+    getRepricingSourceShare: async (params) => {
+      if (!deps.crossContext) return { status: "unavailable", weeks: [], reason: "port-unavailable" };
+      return deps.crossContext.getRepricingSourceShare(params);
     },
     recordReconciliationRun: (params) => runGmvReconciliation(deps.db, params),
     listReconciliationRuns: (params) => listGmvReconciliationRuns(deps.db, params),

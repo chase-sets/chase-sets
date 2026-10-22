@@ -5,6 +5,36 @@ import { describe, expect, it } from "vitest";
 import { PricingBulkRepricePage } from "./bulk-reprice-page";
 
 describe("PricingBulkRepricePage", () => {
+  it("shows a reliant seller the exact prefilled editor URL, including zero", () => {
+    const html = renderToStaticMarkup(
+      <PricingBulkRepricePage nudge={{ status: "available", offsetPercent: 0, currencyCode: "USD" }} />,
+    );
+    const rendered = document.createElement("div");
+    rendered.innerHTML = html;
+    expect(rendered.querySelector('a[href^="/account/desk/repricing"]')?.getAttribute("href")).toBe(
+      "/account/desk/repricing?create=1&prefill=market-offset&anchor=market-estimate&offsetPercent=0&currency=USD",
+    );
+  });
+  it("hides the migration nudge for a non-reliant seller", () => {
+    const html = renderToStaticMarkup(
+      <PricingBulkRepricePage
+        nudge={{ status: "unavailable", offsetPercent: null, currencyCode: null, reason: "reliance-not-met" }}
+      />,
+    );
+    expect(html).not.toContain("/account/desk/repricing");
+    expect(html).not.toContain("A migration suggestion is unavailable");
+  });
+  it("shows unavailable without a CTA when estimates cannot support a suggestion", () => {
+    const html = renderToStaticMarkup(
+      <PricingBulkRepricePage
+        nudge={{ status: "unavailable", offsetPercent: null, currencyCode: null, reason: "mixed-currency" }}
+      />,
+    );
+    expect(html).toContain("A migration suggestion is unavailable");
+    expect(html).toContain("A migration suggestion could not be computed because the prices use multiple currencies.");
+    expect(html).not.toContain("mixed-currency");
+    expect(html).not.toContain("/account/desk/repricing");
+  });
   it("flattens upload furniture and outlines the populated reprice job entity", () => {
     const html = renderToStaticMarkup(
       <PricingBulkRepricePage

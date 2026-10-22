@@ -73,4 +73,13 @@ export const pricingBulkRepriceIngestionSchemaMigrations: readonly BcSchemaMigra
   WHERE job_kind = 'bulk-reprice' AND status IN ('queued', 'running')`,
     ],
   },
+  {
+    migrationId: "20261022_pricing_bulk_reprice_nudge_job_lookup",
+    description: "Bound migration-nudge lookup to the seller's latest completed bulk job.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_bulk_reprice_jobs_account_completed_idx
+         ON pricing_bulk_reprice_jobs ((payload->>'accountId'), completed_at DESC)
+         WHERE job_kind = 'bulk-reprice' AND status = 'completed'`,
+    ],
+  },
 ];

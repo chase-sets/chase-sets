@@ -116,6 +116,19 @@ function freshWriteReceiptOf(call: Call | undefined) {
 }
 
 describe("Seller Desk repricing routes", () => {
+  it("never sends create-policy without a dryRunId", async () => {
+    const calls = stubPricingApi({});
+    const result = await listAction({
+      request: formRequest("http://localhost/account/desk/repricing?create=1", {
+        intent: "create-policy",
+        name: "Unreviewed",
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(calls).toEqual([]);
+    expect(result).toMatchObject({ error: expect.any(String) });
+  });
   it("creates from the exact completed run and carries the receipt to the list", async () => {
     const calls = stubPricingApi({ "POST ": () => jsonResponse(policy, 201, commitHeaders("51")) });
     const response = (await listAction({

@@ -1,4 +1,19 @@
 export const pricingEnglishTranslations = {
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.unavailable": "A migration suggestion is unavailable",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.mixedCurrency":
+    "A migration suggestion could not be computed because the prices use multiple currencies.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.insufficientEstimates":
+    "A migration suggestion needs more complete market estimates.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.offsetOutOfRange":
+    "The suggested market offset is outside the supported policy range.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.noSamples":
+    "A migration suggestion is not available until a completed bulk reprice has been measured.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.relianceNotMet":
+    "A migration suggestion is not available for this seller yet.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.policyUnknown":
+    "A migration suggestion is unavailable while the sunset policy is unresolved.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.unavailable":
+    "A migration suggestion is unavailable for this seller.",
   "pricing.features.pricingHealth.title": "Pricing Health",
   "pricing.features.pricingHealth.description":
     "A stored verdict for one active policy, with disclosed platform-wide Forecast Grades.",
@@ -351,6 +366,10 @@ export const pricingEnglishTranslations = {
     "Upload a CSV of seller SKUs or listing IDs with new prices. Unchanged rows are skipped automatically.",
   "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.description":
     "Columns: sellerSku, listingId, newPrice. Provide either a sellerSku or a listingId per row.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.title":
+    "Your bulk repricing pattern is ready to migrate",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.description": "Suggested market offset: {offset}%",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.openEditor": "Open repricing editor",
   "pricing.features.marketRollups.api.route.from.and.to.must.be.iso.calendar":
     "from and to must be ISO calendar dates (YYYY-MM-DD).",
   "pricing.features.marketRollups.api.route.invalid.granularity": "granularity must be daily, weekly, or monthly.",
@@ -671,4 +690,9 @@ export const pricingEnglishTranslations = {
   "pricing.routes.marketplace.accountDeskRepricing.policy.meta.title": "Repricing policy | Seller Desk",
   "pricing.routes.marketplace.accountDeskRepricing.unknownAction": "Unknown repricing action.",
   "pricing.routes.marketplace.accountDeskRepricing.actionFailed": "The repricing change could not be saved. Try again.",
+  "pricing.routes.marketplace.accountDeskRepricing.prefill.incomplete":
+    "The migration suggestion was incomplete. Enter the policy values manually.",
+  "pricing.routes.marketplace.accountDeskRepricing.prefill.outOfRange":
+    "The migration suggestion is outside the supported policy range.",
+  "pricing.routes.marketplace.accountDeskRepricing.prefill.policyName": "Track market estimate",
 } as const;

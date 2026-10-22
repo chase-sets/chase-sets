@@ -263,7 +263,7 @@ export function isCanonicalBoundedContextRootFile(fileName) {
 }
 
 export function isAdmittedFeatureMetadataFile(fileName) {
-  return fileName === "metadata.json";
+  return fileName === "metadata.json" || fileName === "REMOVAL.md";
 }
 const allowedFeatureSubdirectories = new Set(["api", "domain", "integrations", "read-model", "tests", "ui"]);
 const singleSliceSupportFileAllowlist = [

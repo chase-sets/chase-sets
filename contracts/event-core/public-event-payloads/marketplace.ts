@@ -191,6 +191,7 @@ export type MarketplaceListingCreatedPayload = Readonly<{
 }>;
 
 export type MarketplaceListingPriceUpdatedPayload = Readonly<{
+  changeSource?: "seller" | "bulk-reprice" | "repricing-engine";
   priceAmount: string;
   /** Absent only when decoding historical amount-only listing events. */
   priceCurrencyCode?: string | null;

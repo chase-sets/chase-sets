@@ -440,6 +440,7 @@
     "bounded-contexts/pricing/features/repricing-engine/read-model/product-round-state.ts",
     "bounded-contexts/pricing/features/repricing-engine/read-model/projection.ts",
     "bounded-contexts/pricing/features/repricing-engine/read-model/queries.ts",
+    "bounded-contexts/pricing/features/repricing-engine/read-model/source-share.ts",
     "bounded-contexts/pricing/features/repricing-policies/api/activation.ts",
     "bounded-contexts/pricing/features/repricing-policies/read-model/controls.ts",
     "bounded-contexts/pricing/features/repricing-policies/read-model/halt-projection.ts",

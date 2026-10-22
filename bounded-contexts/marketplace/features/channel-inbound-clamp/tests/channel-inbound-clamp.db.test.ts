@@ -157,6 +157,7 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
         priceAmount: "12.00",
         priceCurrencyCode: "USD",
         feeLocks: edited.feeLocks,
+        changeSource: "seller",
       },
       context,
     });

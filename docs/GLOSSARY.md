@@ -44,6 +44,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 
 ## Term Ownership
 
+| Repricing Source Share | [Pricing](../bounded-contexts/pricing/GLOSSARY.md) | Marketplace event-source attribution rendered by Platform Operations. |
+
 | Term | Owning source | Notes |
 | --- | --- | --- |
 | Account | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Root identity for marketplace participation. |

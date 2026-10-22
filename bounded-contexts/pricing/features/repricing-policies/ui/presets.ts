@@ -37,6 +37,7 @@ export const repricingPresets = {
 } as const;
 export type RepricingPreset = keyof typeof repricingPresets;
 export type PolicyEditorBody = RepricingDryRunBody & Readonly<{ name: string }>;
+export const REPRICING_PREFILL_OFFSET_CAP = 1000;
 
 export function compileRepricingPreset(
   input: Readonly<{

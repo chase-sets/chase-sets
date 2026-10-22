@@ -52,6 +52,36 @@ function reconciliationStatusTone(status: GmvReconciliationRun["status"]) {
   return status === "drift-alarm" ? "danger" : "success";
 }
 
+function sunsetDecisionStatus(status: "eligible" | "ineligible" | "unknown"): string {
+  return t(`platformOperations.opsDashboard.repricingSunsetDecisionStatus.${status}`);
+}
+
+function sunsetDecisionReason(reason: string): string {
+  const separator = reason.indexOf(":");
+  const kind = separator === -1 ? reason : reason.slice(separator + 1);
+  const keys: Readonly<Record<string, string>> = {
+    "policy-not-configured": "platformOperations.opsDashboard.repricingDecisionReason.policyNotConfigured",
+    "insufficient-weeks": "platformOperations.opsDashboard.repricingDecisionReason.insufficientWeeks",
+    "nonconsecutive-or-stale-weeks":
+      "platformOperations.opsDashboard.repricingDecisionReason.nonconsecutiveOrStaleWeeks",
+    incomplete: "platformOperations.opsDashboard.repricingDecisionReason.incomplete",
+    "bulk-share-over-limit": "platformOperations.opsDashboard.repricingDecisionReason.bulkShareOverLimit",
+    "bulk-reliance": "platformOperations.opsDashboard.repricingDecisionReason.bulkReliance",
+  };
+  return t(keys[kind] ?? "platformOperations.opsDashboard.repricingDecisionReason.unknown", {
+    week: separator === -1 ? "" : reason.slice(0, separator),
+  });
+}
+
+function sourceShareWeekStatus(status: "complete" | "incomplete"): string {
+  return t(`platformOperations.opsDashboard.repricingSourceShareStatus.${status}`);
+}
+
+function sourceShareWeekReason(reason: "checkpoint-lag" | "unattributed-event" | null): string | null {
+  if (!reason) return null;
+  return t(`platformOperations.opsDashboard.repricingSourceShareReason.${reason}`);
+}
+
 export function OpsDashboardAdminPage({
   summary,
   series,
@@ -170,6 +200,89 @@ export function OpsDashboardAdminPage({
           emptyTitle={t("platformOperations.opsDashboard.topCatalogItemsEmptyTitle")}
           emptyDescription={t("platformOperations.opsDashboard.topCatalogItemsEmptyDescription")}
         />
+      </PageSection>
+
+      <PageSection title={t("platformOperations.opsDashboard.repricingSourceShare")}>
+        <Text>
+          {t("platformOperations.opsDashboard.repricingSunsetDecision", {
+            status: sunsetDecisionStatus(summary.repricingSourceShare.decision?.status ?? "unknown"),
+          })}
+        </Text>
+        {summary.repricingSourceShare.decision?.reasons.map((reason) => (
+          <Text key={reason} tone="secondary">
+            {sunsetDecisionReason(reason)}
+          </Text>
+        ))}
+        {summary.repricingSourceShare.status === "unavailable" ? (
+          <Text tone="secondary">{t("platformOperations.opsDashboard.repricingSourceShareUnavailable")}</Text>
+        ) : summary.repricingSourceShare.weeks.length === 0 ? (
+          <EmptyState
+            icon="chart"
+            title={t("platformOperations.opsDashboard.repricingSourceShareEmptyTitle")}
+            description={t("platformOperations.opsDashboard.repricingSourceShareEmptyDescription")}
+          />
+        ) : (
+          <DataTable
+            columns={[
+              {
+                key: "week",
+                header: t("platformOperations.opsDashboard.repricingSourceShareWeek"),
+                cell: (week) => week.weekStart,
+              },
+              {
+                key: "status",
+                header: t("platformOperations.opsDashboard.repricingSourceShareStatus"),
+                cell: (week) => (
+                  <>
+                    <Badge tone={week.status === "complete" ? "success" : "danger"}>
+                      {sourceShareWeekStatus(week.status)}
+                    </Badge>
+                    <Text tone="secondary">
+                      {sourceShareWeekReason(week.reason) ??
+                        (week.eventCount === 0
+                          ? t("platformOperations.opsDashboard.repricingSourceShareEmptyTitle")
+                          : null)}
+                    </Text>
+                  </>
+                ),
+              },
+              {
+                key: "bulk",
+                header: t("platformOperations.opsDashboard.repricingSourceShareBulk"),
+                cell: (week) => `${(week.shares.bulk * 100).toFixed(1)}% (${week.counts.bulk})`,
+              },
+              {
+                key: "policy",
+                header: t("platformOperations.opsDashboard.repricingSourceSharePolicy"),
+                cell: (week) => `${(week.shares.policy * 100).toFixed(1)}% (${week.counts.policy})`,
+              },
+              {
+                key: "manual",
+                header: t("platformOperations.opsDashboard.repricingSourceShareManual"),
+                cell: (week) => `${(week.shares.manual * 100).toFixed(1)}% (${week.counts.manual})`,
+              },
+              {
+                key: "unattributed",
+                header: t("platformOperations.opsDashboard.repricingSourceShareUnattributed"),
+                cell: (week) => week.counts.unattributed,
+              },
+              {
+                key: "sellers",
+                header: t("platformOperations.opsDashboard.repricingSourceShareSellers"),
+                cell: (week) =>
+                  week.topSellers.map((seller) => (
+                    <Text key={seller.accountId}>
+                      {seller.accountId}: {(seller.bulkShare * 100).toFixed(1)}% ({seller.bulkListingCount})
+                    </Text>
+                  )),
+              },
+            ]}
+            rows={[...summary.repricingSourceShare.weeks]}
+            getRowId={(week) => week.weekStart}
+            emptyTitle={t("platformOperations.opsDashboard.repricingSourceShareEmptyTitle")}
+            emptyDescription={t("platformOperations.opsDashboard.repricingSourceShareEmptyDescription")}
+          />
+        )}
       </PageSection>
 
       <PageSection title={t("platformOperations.opsDashboard.reconciliation")}>

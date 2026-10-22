@@ -5,6 +5,7 @@ import type {
   OpsKpiSummary,
   OpsLiquiditySummary,
   OpsTopCatalogItem,
+  OpsRepricingSourceShare,
 } from "./ops-contracts";
 import type { GmvReconciliationRun } from "../read-model/ops-queries";
 
@@ -23,6 +24,7 @@ export type OpsDashboardSummaryResponse = Readonly<{
   summary: OpsKpiSummary;
   liquidity: OpsLiquiditySummary;
   topCatalogItems: readonly OpsTopCatalogItem[];
+  repricingSourceShare: OpsRepricingSourceShare;
 }>;
 
 export type OpsDashboardSeriesResponse = Readonly<{

@@ -237,7 +237,7 @@ function userContentNoticeErrors(draftText: string): readonly string[] {
 const listingsDraftFixture =
   "A seller creates a Listing describing an item for sale. A buyer may purchase a Listing directly at checkout or submit an Offer that the seller may accept, counter, or decline. A binding sale contract between buyer and seller forms when Chase Sets' Ordering service records the Order, following direct-purchase checkout or Offer acceptance, a distinct and earlier step from payment capture, and the sale remains subject to the applicable cancellation, payment, and fulfillment terms described in these Terms and Chase Sets' published Help Center, including the buyer's limited self-service cancellation window before shipment. Chase Sets is not a party to the resulting sale contract and does not guarantee that a Listing or Offer is available, accurate, or free of error; sellers are solely responsible for honoring accepted Offers and completed purchases.";
 
-const marketFollowingGlossaryRef = "bounded-contexts/pricing/GLOSSARY.md:186-188";
+const marketFollowingGlossaryRef = "bounded-contexts/pricing/GLOSSARY.md:204-206";
 
 function marketFollowingQuestionErrors(section: ReturnType<typeof termsSection>): readonly string[] {
   const errors: string[] = [];
