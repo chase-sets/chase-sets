@@ -1175,6 +1175,25 @@ class MovingRunCensusError extends Error {}
 const productionWriterCensusPassLimit = 5;
 const productionWriterCensusRetryDelayMs = 1_000;
 
+function actionsRunRecord(run) {
+  return {
+    id: run.id,
+    name: run.name,
+    workflowId: run.workflow_id,
+    path: run.path,
+    status: run.status,
+    event: run.event,
+    headSha: run.head_sha,
+    headBranch: run.head_branch,
+    runAttempt: run.run_attempt,
+    actor: run.actor?.login ?? null,
+    createdAt: run.created_at,
+    runStartedAt: run.run_started_at,
+    updatedAt: run.updated_at,
+    htmlUrl: run.html_url,
+  };
+}
+
 async function readActiveRunCensusPass(readApi) {
   const runsById = new Map();
   for (const status of activeActionsRunStatuses) {
@@ -1197,26 +1216,10 @@ async function readActiveRunCensusPass(readApi) {
         if (!Number.isSafeInteger(run?.id) || run.id <= 0 || typeof run.name !== "string" || !run.name) {
           throw new Error(`GitHub Actions ${status} run census returned a malformed run identity.`);
         }
-        const record = {
-          id: run.id,
-          name: run.name,
-          workflowId: run.workflow_id,
-          path: run.path,
-          status: run.status,
-          event: run.event,
-          headSha: run.head_sha,
-          headBranch: run.head_branch,
-          runAttempt: run.run_attempt,
-          actor: run.actor?.login ?? null,
-          createdAt: run.created_at,
-          runStartedAt: run.run_started_at,
-          updatedAt: run.updated_at,
-          htmlUrl: run.html_url,
-        };
         if (runsById.has(String(run.id))) {
           throw new MovingRunCensusError(`GitHub Actions run census returned duplicate or moving run ${run.id}.`);
         }
-        runsById.set(String(run.id), record);
+        runsById.set(String(run.id), actionsRunRecord(run));
       }
       collected += body.workflow_runs.length;
       page += 1;
@@ -1267,6 +1270,32 @@ export async function readGitHubProductionWriterCensus(options = {}) {
   }
 
   const runs = await readStableActiveRunCensus(readApi, sleep);
+  if (!runs.some((run) => String(run.id) === String(currentRunId))) {
+    const run = await readApi(`actions/runs/${currentRunId}`, "current run census");
+    const contract = serializedProductionWriterWorkflows.get(env.GITHUB_WORKFLOW);
+    if (
+      !contract ||
+      !Number.isSafeInteger(run?.id) ||
+      run.id <= 0 ||
+      String(run.id) !== String(currentRunId) ||
+      run.name !== env.GITHUB_WORKFLOW ||
+      run.path !== contract.path ||
+      run.event !== "workflow_dispatch" ||
+      !Number.isSafeInteger(run.workflow_id) ||
+      run.workflow_id <= 0 ||
+      !Number.isSafeInteger(run.run_attempt) ||
+      run.run_attempt <= 0 ||
+      run.run_attempt !== Number(env.GITHUB_RUN_ATTEMPT) ||
+      typeof run.head_sha !== "string" ||
+      !/^[0-9a-f]{40}$/.test(run.head_sha ?? "") ||
+      run.head_branch !== "main" ||
+      !activeActionsRunStatuses.includes(run.status)
+    ) {
+      throw new Error("GitHub Actions current run census returned an unverified run identity.");
+    }
+    runs.push(actionsRunRecord(run));
+    runs.sort((left, right) => Number(left.id) - Number(right.id));
+  }
   const concurrencyQueuedRuns = await readConcurrencyQueuedWriters(runs, currentRunId, readApi);
   const queuedIds = new Set(concurrencyQueuedRuns.map((run) => run.id));
   return {
