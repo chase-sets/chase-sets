@@ -599,7 +599,7 @@ describe("source observation runtime: provider integration jobs", () => {
       expect.objectContaining({
         providerKey: "ygojson",
         value: "ygojson",
-        label: "YGOJSON Sealed Products",
+        label: "YGOJSON",
         metadata: expect.objectContaining({
           status: "active",
           connectorKind: "ygojson-json",
@@ -608,7 +608,7 @@ describe("source observation runtime: provider integration jobs", () => {
       expect.objectContaining({
         providerKey: "ygojson",
         value: "ygojson",
-        label: "YGOJSON",
+        label: "YGOJSON Sealed Products",
         metadata: expect.objectContaining({
           status: "active",
           connectorKind: "ygojson-json",

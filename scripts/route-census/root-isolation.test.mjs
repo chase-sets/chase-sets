@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { compareCaptures } from "./comparison.mts";
 import { loadTargetHonoAuthority } from "./target-authority.mts";
-import { makeCapture, repoRoot, syntheticContext } from "./test-support.mjs";
+import { makeCapture, repoRoot, syntheticContext, targetHonoVersion } from "./test-support.mjs";
 
 const execute = promisify(execFile);
 
@@ -18,7 +18,7 @@ describe("target-root isolation", () => {
       windowsHide: true,
     });
     const result = JSON.parse(stdout);
-    expect(result.v).toBe("4.12.18");
+    expect(result.v).toBe(targetHonoVersion);
     expect(result.p.toLowerCase()).toContain(repoRoot.toLowerCase());
   });
 

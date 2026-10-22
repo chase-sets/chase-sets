@@ -519,6 +519,9 @@
       "@chase-sets/inventory": [
         "./bounded-contexts/inventory/index.ts"
       ],
+      "@chase-sets/inventory-draft-listing": [
+        "./contracts/inventory-draft-listing/index.ts"
+      ],
       "@chase-sets/inventory/context": [
         "./bounded-contexts/inventory/context.json"
       ],
@@ -870,6 +873,9 @@
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
       ],
+      "@chase-sets/platform-runtime/web-server": [
+        "./infrastructure/platform-runtime/web-server.ts"
+      ],
       "@chase-sets/platform-runtime/work-signal-store": [
         "./infrastructure/platform-runtime/work-signal-store.ts"
       ],
@@ -887,6 +893,9 @@
       ],
       "@chase-sets/playwright-evidence": [
         "./infrastructure/playwright-evidence/index.ts"
+      ],
+      "@chase-sets/playwright-evidence/rendered-copy": [
+        "./infrastructure/playwright-evidence/rendered-copy.ts"
       ],
       "@chase-sets/postage-labels": [
         "./contracts/postage-labels/index.ts"

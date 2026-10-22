@@ -41,9 +41,8 @@ authority. Explicit performer-specific acceptance needs prospective repair and
 independent validation before agent execution; never relabel agent evidence as
 human evidence. This grants no provider or production authorization.
 `kind:*` remains the *nature* of the work (`product`, `tech-debt`, `security`,
-`test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The legacy
-`kind:epic` label is kept only as a fallback for tooling that predates types;
-where the two disagree, the type wins.
+`test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The native
+Epic issue type is the only Epic signal.
 
 Deliberately **not** adopted: *story*, *story points*, *velocity*, *sprints*.
 A slice already carries scope fence, acceptance criteria with evidence methods,
@@ -102,6 +101,21 @@ The shared parser and comparator in `scripts/milestone-policy.mjs` own this
 contract. Malformed or duplicate metadata is an explicit error, never a
 fallback to title interpretation. A milestone without outcome metadata is not
 an outcome, regardless of its title.
+
+Todd's active priority override is recorded separately beside the outcome
+marker:
+
+```html
+<!-- steering: {"version":1,"source":"https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123","until":"until the priority question is answered"} -->
+```
+
+The steering marker has exactly `version`, `source` and `until` keys. Version is
+`1`; `source` is the GitHub issue-comment URL holding Todd's ruling; and `until`
+is non-empty prose of at most 500 characters. A marked open committed outcome
+is ranked ahead of every unmarked outcome in its lane class. The `steering`
+section of `next-work/v1` lists those marked executable outcomes; a marker on a
+candidate, unmarked or otherwise non-executable open milestone is the
+`STEERING_ON_NON_EXECUTABLE` defect. Malformed metadata fails closed.
 
 Terminal gate references remain in the description's `Exit gates:` clause,
 ending at `Canonical sequencing:`. List current terminal evidence issues there;
@@ -170,9 +184,23 @@ Favor finishing the current usable outcome over starting adjacent improvements.
 Do not starve product work with general delivery-tooling improvements.
 
 Record explicit Todd steering in the roadmap with its scope and stated end
-condition. If no end condition is stated, preserve it until the requested
-outcome is achieved or Todd supersedes it. Agents translate that steering into
-outcome order and issue Dispatch rank; they do not ask Todd to edit either.
+condition, and put the ruling's comment URL in the outcome's steering marker.
+If no end condition is stated, preserve it until the requested outcome is
+achieved or Todd supersedes it. A clause that puts an outcome first, or requires
+it immediately after or ahead of a marked outcome, or says to prioritize it, is
+dispositioned `mark`;
+one that only orders unmarked outcomes is `order` and uses a unique outcome
+`order` without a marker. Never mark an `order` clause: a marker lifts the
+outcome above every unmarked outcome. Every marker's `source` is the comment
+holding Todd's ruling; a clause recorded only in a milestone description cites
+the #4129 placement comment that records it. Once its condition is met, it is
+`ended` only after the host files the priority question as a comment on
+#4388 under the milestone-orchestrator section 11 rule and Todd answers it.
+Remove the marker only after that answer and record the removal on #4129. Agents
+translate active steering into outcome order and issue Dispatch rank; they do
+not ask Todd to edit either.
+The milestone description must be a string; other shapes fail closed with
+`STEERING_DESCRIPTION_INVALID`, and an `until` value must not contain the HTML comment closing delimiter.
 A later calculated score or routine review cannot silently reverse steering.
 Only genuinely new product, legal, provider-authority, or similarly consequential
 choices outside accepted scope use the existing decision route.
@@ -241,9 +269,9 @@ battery can fail when the documentation, issue forms, or labeler drift.
 
 | Family | Purpose | Rule |
 |---|---|---|
-| **Control** | drives workflow, issue routing, or orchestrator behavior | `ci-circuit-repair`, `decision`, `dispatch:flush-window`, `full-ci`, `preview`. Load-bearing; never prune without changing the consumer. |
+| **Control** | drives workflow, issue routing, or orchestrator behavior | `ci-circuit-repair`, `decision`, `dispatch:flush-window`, `dispatch:platform`, `dispatch:platform-return`, `full-ci`, `preview`. Load-bearing; never prune without changing the consumer. |
 | `area:*` | owning bounded context | `area:auth`, `area:catalog`, `area:checkout`, `area:channels`, `area:collections`, `area:commercial-terms`, `area:design-system`, `area:discovery`, `area:fulfillment`, `area:identity`, `area:infrastructure`, `area:inventory`, `area:marketplace`, `area:marketplace-web`, `area:notifications`, `area:ops`, `area:ordering`, `area:payments`, `area:platform-runtime`, `area:pricing`, `area:public-presence`, `area:settlement`, `area:support`, `area:tax`. Operational ownership is advisory coverage, not a 1:1 context-directory map. |
-| `kind:*` | nature of the work | `kind:epic`, `kind:ops`, `kind:product`, `kind:security`, `kind:tech-debt`, `kind:test`. `kind:epic` remains only as the compatibility fallback for existing untyped issues; new epics use the native **Epic** type. |
+| `kind:*` | nature of the work | `kind:ops`, `kind:product`, `kind:security`, `kind:tech-debt`, `kind:test`. Epics use the native **Epic** type. |
 | `priority:*` | dispatch rank | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3`. On slices only. |
 | `risk:*` | a named risk to call out | `risk:data-quality`, `risk:policy`, `risk:provider`, `risk:semantic-authority`. |
 | `status:*` | lifecycle exceptions | `status:follow-up-after-first-slice`, `status:needs-operator`, `status:needs-replan`, `status:tracking-only`. |
@@ -272,8 +300,7 @@ definition used by the roadmap and delivery-board status jobs. An issue is
 classified only when all of these hold:
 
 - state is open;
-- native issue type is not `Epic` (an untyped legacy `kind:epic` label is the
-  fallback; a native type always wins);
+- native issue type is not `Epic`;
 - it has none of `status:tracking-only`;
 - it has an executable committed outcome milestone (not a candidate,
   `Deferred / Incubation`, or `Operations`); and
@@ -311,17 +338,15 @@ Precedence, first match wins:
 |---|---|---|
 | 1 | closed as completed | `Landed` |
 | 2 | closed as not planned or duplicate | `Canceled` |
-| 3 | native type **Epic** (or `kind:epic` on an untyped legacy issue) | `Epic` |
+| 3 | native type **Epic** | `Epic` |
 | 4 | non-Epic carrying `status:tracking-only` | `Tracking` |
 | 5 | open native blocking dependency | `Blocked` |
 | 6 | classified (`refined ≡ classified`) | `Refined` |
 | 7 | otherwise | `Backlog` |
 
 Any other closure reason fails closed rather than guessing. Row 3 outranks row
-4: the *form* of the work is authoritative, so a pathological untyped legacy
-epic that also carries `status:tracking-only` is an `Epic`. Because the native
-type wins over the legacy label, a native **Slice** carrying `kind:epic` takes
-the ordinary rows 5–7.
+4: the *form* of the work is authoritative. Labels never make an issue an
+Epic, so a native **Slice** takes rows 4–7 like any other non-Epic.
 
 `Epic` and `Tracking` are **non-executable** statuses. They are never dispatch
 candidates, and a normal slice wrongly placed in either is corrected back to
@@ -440,7 +465,7 @@ request against the file being split.
 `scripts/next-work.mjs` is the computed Selection. It reads live GitHub facts
 in one paced, read-only pass and reports the ranked runnable frontier as
 `next-work/v1` (text, or JSON with `--json <path>`). Every open issue is either ranked once or counted
-once under its first exclusion reason (`EPIC`, `TRACKING_ONLY`, `NO_MILESTONE`,
+once under its first exclusion reason (`EPIC`, `TRACKING_ONLY`, `PLATFORM_HELD`, `NO_MILESTONE`,
 `NOT_COMMITTED_OUTCOME`, `EXCLUDED_MILESTONE`, `BLOCKED`). Each ranked issue
 carries one action (`operator-wait`, `replan`, `planning-repair`, `decide`,
 `pr-open` or `implement`) and belongs to one **lane class**: `product` is
@@ -449,10 +474,12 @@ is everything else. `--exclude-milestone` takes the platform-owned milestones.
 `--check` exits 1 when the report has defects, such as an `OUTCOME_ORDER_TIE`;
 incomplete facts exit 2 and write no file.
 
-1. Exclude Epics, tracking-only records, candidates, Deferred / Incubation and
+1. Exclude Epics, tracking-only records, platform-held or platform-return issues
+   (`PLATFORM_HELD`), candidates, Deferred / Incubation and
    Operations. Preserve existing ownership for active lanes.
-2. Apply current Todd steering, then take the computed Selection: each lane
-   class is ranked by outcome order then milestone number, Dispatch rank
+2. Apply current Todd steering from each milestone's steering marker, then take
+   the computed Selection: each lane class is ranked by marked outcomes first,
+   then outcome order and milestone number, Dispatch rank
    (missing last), priority p0 to p3 (missing last), dependency unlock count
    (descending) and issue number. An evidenced p0 emergency may run ahead of
    its rank only with a recorded `p0-emergency` reason (#9946). The per-track

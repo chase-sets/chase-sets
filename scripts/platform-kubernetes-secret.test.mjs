@@ -120,6 +120,48 @@ describe("platform Kubernetes secret", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
   });
 
+  describe("optional evidence-window admission key", () => {
+    const windowKey = "EVIDENCE_WINDOW_ADMISSION_SECRET";
+    const optionalEntry = { name: windowKey, secret: true, secretKey: windowKey, optional: true };
+    const valuesWithWindowKey = {
+      ...sampleValues,
+      components: {
+        api: { env: [...sampleValues.components.api.env, optionalEntry] },
+        worker: { env: [...sampleValues.components.worker.env, optionalEntry] },
+      },
+    };
+    const deployEnv = { DATABASE_URL_CHECKOUT: "postgres-url-marker", STRIPE_SECRET_KEY: "stripe-key-marker" };
+
+    it("neither collects, supplies nor preserves the window key while unrelated secrets stay collected", () => {
+      expect(collectPlatformSecretKeys(valuesWithWindowKey)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
+      const manifest = buildPlatformSecretManifest({
+        values: valuesWithWindowKey,
+        env: { ...deployEnv, [windowKey]: "window-secret-marker" },
+      });
+      expect(Object.keys(manifest.data).sort()).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
+      expect(JSON.stringify(manifest)).not.toContain(Buffer.from("window-secret-marker").toString("base64"));
+      expect(summarizePlatformSecret({ values: valuesWithWindowKey, env: deployEnv }).keys).not.toContain(windowKey);
+    });
+
+    it("keeps every unflagged secret required", () => {
+      expect(() =>
+        buildPlatformSecretManifest({ values: valuesWithWindowKey, env: { [windowKey]: "window-secret-marker" } }),
+      ).toThrow("Missing Kubernetes secret environment value(s): DATABASE_URL_CHECKOUT, STRIPE_SECRET_KEY.");
+    });
+
+    it("flags the canonical api and worker entries optional and excludes them from the deploy inventory", () => {
+      const values = buildPlatformHelmValues();
+      for (const name of ["platform-api", "platform-worker"]) {
+        expect(values.components[name].env.filter((entry) => entry.name === windowKey)).toEqual([optionalEntry]);
+      }
+      const optionalNames = Object.values(values.components).flatMap((component) =>
+        component.env.filter((entry) => entry.optional !== undefined).map((entry) => entry.name),
+      );
+      expect(optionalNames).toEqual([windowKey, windowKey]);
+      expect(collectPlatformSecretKeys(values)).not.toContain(windowKey);
+    });
+  });
+
   it("preserves the canonical 54-key managed database URL inventory", () => {
     const urlKeys = collectPlatformSecretKeys(buildPlatformHelmValues()).filter(isDatabaseSecretKey);
     expect(urlKeys).toHaveLength(54);

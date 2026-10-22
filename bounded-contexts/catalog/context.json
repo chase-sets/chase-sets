@@ -878,6 +878,7 @@
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/final-notice",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/pre-confirm",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/freeze",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/complete",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /confirm",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/cancel",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/resume",

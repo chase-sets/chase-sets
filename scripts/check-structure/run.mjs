@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -45,7 +46,7 @@ import { validateChannelConnectionContractProvenance } from "./channel-connectio
 import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
-import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
+import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
 
@@ -250,12 +251,20 @@ const canonicalBoundedContextRootFiles = new Set([
   "api.ts",
   "client.ts",
   "context.json",
+  "context.source.mjs",
   "ids.ts",
   "index.ts",
   "package.json",
   "server.ts",
   "web.ts",
 ]);
+export function isCanonicalBoundedContextRootFile(fileName) {
+  return canonicalBoundedContextRootFiles.has(fileName);
+}
+
+export function isAdmittedFeatureMetadataFile(fileName) {
+  return fileName === "metadata.json";
+}
 const allowedFeatureSubdirectories = new Set(["api", "domain", "integrations", "read-model", "tests", "ui"]);
 const singleSliceSupportFileAllowlist = [
   // Temporary migration exceptions: remove entries once each file is relocated into its owning slice.
@@ -568,6 +577,15 @@ function extractImportSpecifiers(content) {
   return specifiers;
 }
 
+function extractLocalizationImportSpecifiers(content) {
+  return [
+    ...new Set([
+      ...extractImportSpecifiers(content),
+      ...[...content.matchAll(/(?:^|[\s;])import\s*["']([^"']+)["']/g)].map((match) => match[1]),
+    ]),
+  ];
+}
+
 export function isApprovedCrossContextTypeContractImport(relativeFile, specifier, content) {
   const contract = approvedCrossContextTypeContracts.get(specifier);
   if (!contract || !contract.importer.test(relativeFile.replaceAll("\\", "/"))) return false;
@@ -823,6 +841,7 @@ export function isAllowedPublicExportName(value) {
     value === "./context" ||
     value === "./client" ||
     value === "./host-config" ||
+    value === "./localization" ||
     value === "./seed-support/*" ||
     value === "./test-support" ||
     value === "./integration/link-intents" ||
@@ -830,6 +849,10 @@ export function isAllowedPublicExportName(value) {
     value === "./web" ||
     value === "./routes/*"
   );
+}
+
+export function singleSliceSupportSeverity({ sourceBacked, enforcementMode }) {
+  return sourceBacked || enforcementMode === "violation" ? "violation" : "warn";
 }
 
 export function findLinkIntentExportViolation(manifest, target) {
@@ -866,6 +889,32 @@ function resolveExistingModulePath(rootDir, relativeSpecifier) {
   for (const extension of moduleFileExtensions) {
     const candidate = path.join(absoluteBase, `index${extension}`);
     if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function resolveLocalizationModulePath(rootDir, relativeSpecifier) {
+  const normalized = relativeSpecifier.replace(/^\.\//, "");
+  const absoluteBase = path.join(rootDir, normalized);
+  const isFile = (candidate) => existsSync(candidate) && statSync(candidate).isFile();
+
+  if (isFile(absoluteBase)) {
+    return absoluteBase;
+  }
+
+  for (const extension of moduleFileExtensions) {
+    const candidate = `${absoluteBase}${extension}`;
+    if (isFile(candidate)) {
+      return candidate;
+    }
+  }
+
+  for (const extension of moduleFileExtensions) {
+    const candidate = path.join(absoluteBase, `index${extension}`);
+    if (isFile(candidate)) {
       return candidate;
     }
   }
@@ -987,7 +1036,21 @@ async function loadContextManifests() {
       continue;
     }
 
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const sourcePath = path.join(contextRootAbs, "context.source.mjs");
+    let manifest;
+    if (existsSync(sourcePath)) {
+      try {
+        manifest = loadContextSourceManifest(sourcePath);
+      } catch (error) {
+        addPathViolation(
+          `bounded-contexts/${entry.name}/context.source.mjs`,
+          error instanceof Error ? error.message : String(error),
+        );
+        manifest = {};
+      }
+    } else {
+      manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    }
     const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
     const relativeRoot = `bounded-contexts/${entry.name}`;
 
@@ -1195,6 +1258,7 @@ async function loadContextManifests() {
       manifest,
       packageJson,
       packageName: manifest.packageName,
+      sourceBacked: existsSync(sourcePath),
     });
   }
 
@@ -1458,6 +1522,57 @@ export function findRouteSupportPlacementViolation({ relativeFile, content, cont
   return `route loader/action modules must live under support/route-support/<route-name>/, not support/${supportDirectory}/`;
 }
 
+function hasBrowserUnsafeLocalizationSpecifier(content) {
+  const unsafePatterns = [
+    /(?:^|["'])node:[^"'\n]+/,
+    /(?:^|["'])(?:fs|path|crypto|pg|react-router\/node|\.\/server)(?:["'\/]|$)/,
+    /(?:^|["'])[^"'\n]*\/server(?:["'\/]|$)/,
+    /process\.env|globalThis\.process|window\.location\.assign/,
+  ];
+  return (
+    extractLocalizationImportSpecifiers(content).some((specifier) =>
+      unsafePatterns.some((pattern) => pattern.test(specifier)),
+    ) || /process\.env|globalThis\.process|window\.location\.assign/.test(content)
+  );
+}
+
+export function findBrowserUnsafeLocalizationExport(content) {
+  return hasBrowserUnsafeLocalizationSpecifier(content);
+}
+
+export function findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath }) {
+  const rootPath = path.resolve(contextRoot);
+  const visited = new Set();
+  const pending = [path.resolve(targetPath)];
+
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    if (visited.has(currentPath)) continue;
+    visited.add(currentPath);
+    const relativeToRoot = path.relative(rootPath, currentPath);
+    if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) continue;
+    const content = readFileSync(currentPath, "utf8");
+    if (hasBrowserUnsafeLocalizationSpecifier(content)) return currentPath;
+    for (const specifier of extractLocalizationImportSpecifiers(content)) {
+      if (!specifier.startsWith(".")) continue;
+      const nextPath = resolveLocalizationModulePath(path.dirname(currentPath), specifier);
+      if (nextPath) pending.push(nextPath);
+    }
+  }
+
+  return null;
+}
+
+export function isThinRouteAdapter(content) {
+  const withoutComments = content.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const withoutImports = withoutComments.replace(/^\s*import[\s\S]*?;\s*$/gm, "");
+  const withoutExports = withoutImports
+    .replace(/^\s*export\s+(?:type\s+)?\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, "")
+    .replace(/^\s*export\s+\{[^}]*\};?\s*$/gm, "")
+    .replace(/^\s*export\s+default\s+[^;]+;?\s*$/gm, "");
+  return withoutExports.trim().length === 0;
+}
+
 const catalogAdminMarker = ["catalog", "admin"].join("-");
 
 function resolveAdminWebSection(contextName, fileExportOrKey) {
@@ -1525,7 +1640,11 @@ function classifyShellManifest({ manifest, root, manifestPath = `${root}/context
 }
 
 export async function discoverShellContributionManifests({ repoRoot: rootDir = repoRoot } = {}) {
-  const files = execFileSync("git", ["ls-files", "-z", "--", "*.json"], { cwd: rootDir, encoding: "utf8" })
+  const files = execFileSync("git", ["ls-files", "-z", "--", "*.json"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean);
   const manifests = [];
@@ -2125,6 +2244,13 @@ export async function runStructureCheck(options = {}) {
             `${root}/package.json`,
             `package export ${publicExport} targets a missing file (${exportTarget})`,
           );
+        } else if (publicExport === "./localization") {
+          if (findBrowserUnsafeLocalizationReachability({ contextRoot: rootAbs, targetPath: resolvedTarget })) {
+            addPathViolation(
+              `${root}/package.json`,
+              "./localization must be browser-safe and must not import server/runtime modules",
+            );
+          }
         }
       }
     }
@@ -2662,7 +2788,7 @@ export async function runStructureCheck(options = {}) {
           );
         }
 
-        if (entry.isFile()) {
+        if (entry.isFile() && !isAdmittedFeatureMetadataFile(entry.name)) {
           addPathViolation(
             `${root}/features/${featureDirectory}/${entry.name}`,
             "feature roots must not contain loose files; place code under domain, read-model, api, ui, integrations, or tests",
@@ -2724,7 +2850,7 @@ export async function runStructureCheck(options = {}) {
         continue;
       }
 
-      if (!canonicalBoundedContextRootFiles.has(entry.name)) {
+      if (!isCanonicalBoundedContextRootFile(entry.name)) {
         addPathViolation(
           `${root}/${entry.name}`,
           "implemented bounded-context roots must keep top-level files canonical and avoid ad hoc helper files",
@@ -3444,6 +3570,18 @@ export async function runStructureCheck(options = {}) {
       const routeOrShellSupportClassification = classifyRouteOrShellSupportFile(normalizedFile);
       const contextRoot = getContextRoot(normalizedFile);
       const contextName = contextRoot ? (contextManifests.get(contextRoot)?.manifest.contextName ?? null) : null;
+      const context = contextRoot ? contextManifests.get(contextRoot) : null;
+      if (
+        context?.sourceBacked &&
+        normalizedFile.startsWith(`${contextRoot}/routes/`) &&
+        !isTestFile(normalizedFile) &&
+        !isThinRouteAdapter(content)
+      ) {
+        addViolation(
+          file,
+          "migrated contexts must keep routes/ modules as thin public adapters; route behavior belongs under features/<slice>",
+        );
+      }
       const routeSupportPlacementViolation = findRouteSupportPlacementViolation({
         relativeFile: normalizedFile,
         content,
@@ -3657,7 +3795,12 @@ export async function runStructureCheck(options = {}) {
       const message =
         `support file in ${usageRecord.supportDirectory} is imported by only one slice (${sliceName}); ` +
         `relocate it to bounded-contexts/.../${sliceName}/`;
-      if (singleSliceSupportEnforcementMode === "warn") {
+      if (
+        singleSliceSupportSeverity({
+          sourceBacked: contextManifests.get(usageRecord.contextRoot)?.sourceBacked === true,
+          enforcementMode: singleSliceSupportEnforcementMode,
+        }) === "warn"
+      ) {
         addPathWarning(supportFile, message);
       } else {
         addPathViolation(supportFile, message);

@@ -38,11 +38,15 @@ on:
         required: false
         default: false
         type: boolean
-      activate_agent_grant_revocation:
-        description: Activate Agent Grant revocation after support rollout with fresh serving-set proof.
+      agent_grant_revocation_activation:
+        description: Deploy job that activates Agent Grant revocation with a fresh serving-set proof after its release is healthy. Requires a deploy.
         required: false
-        default: false
-        type: boolean
+        default: none
+        type: choice
+        options:
+          - none
+          - staging
+          - production
       catalog_provider_send_window_enabled:
         description: Opt staging API and worker into the supervised Catalog provider-send window. Requires force_deploy.
         required: false
@@ -387,6 +391,18 @@ jobs:
             --force-deploy "${{ github.event_name == 'workflow_dispatch' && inputs.force_deploy == true && 'true' || 'false' }}" \
             --changed-files-out "${RUNNER_TEMP}/release-changed-files.json" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Require a deploy for Agent Grant revocation activation
+        env:
+          AGENT_GRANT_REVOCATION_ACTIVATION: ${{ inputs.agent_grant_revocation_activation }}
+          DEPLOYMENT_REQUIRED: ${{ steps.deployment_scope.outputs.deploy }}
+        run: |
+          set -euo pipefail
+          # A requested activation never succeeds by skipping the deploy jobs that own it.
+          if [ "$AGENT_GRANT_REVOCATION_ACTIVATION" != "none" ] && [ "$DEPLOYMENT_REQUIRED" != "true" ]; then
+            echo "revocation_activation_not_deployed" >&2
+            exit 1
+          fi
 
       - name: Resolve production recovery mode
         id: recovery_mode
@@ -1255,6 +1271,7 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ needs.build-image.outputs.platform_image_digest }}
           AUTOMATIC_RELEASE: ${{ inputs.dispatch_source == 'automatic' && 'true' || 'false' }}
+          AGENT_GRANT_REVOCATION_ACTIVATION: ${{ inputs.agent_grant_revocation_activation }}
         run: |
           set -euo pipefail
           if ! [[ "$RELEASE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
@@ -1267,6 +1284,11 @@ jobs:
             git fetch origin main
             latest_main="$(git rev-parse origin/main)"
             if [ "$RELEASE_COMMIT" != "$latest_main" ]; then
+              # Coalescing skips both deploy jobs, so it cannot carry a requested activation.
+              if [ "$AGENT_GRANT_REVOCATION_ACTIVATION" != "none" ]; then
+                echo "revocation_activation_not_deployed" >&2
+                exit 1
+              fi
               echo "Candidate ${RELEASE_COMMIT} was coalesced into latest pending ${latest_main} before staging mutation."
               {
                 echo "superseded=true"
@@ -1705,16 +1727,25 @@ jobs:
           namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}
 
       - name: Deploy staging Kubernetes release
+        id: staging_kubernetes_deploy
         if: env.SHOULD_DEPLOY != 'false'
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs prepare \
+            --environment staging \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --status-out artifacts/agent-grant-revocation/staging/prepare-status.json
+
           catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
           catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
           catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
@@ -2467,18 +2498,59 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 600
 
+      # Activation follows every staging gate and the abort step, so its refusal
+      # fails the run without aborting or rolling back the healthy release.
+      - name: Activate Agent Grant revocation in staging
+        id: agent_grant_revocation_activation
+        if: inputs.agent_grant_revocation_activation == 'staging'
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs activate \
+            --environment staging \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --out artifacts/agent-grant-revocation/staging/activation.json \
+            --status-out artifacts/agent-grant-revocation/staging/activation-status.json
+          # The in-run replay reconciles the fence at the same commit and digest without a new event.
+          node ./scripts/agent-grant-revocation-release.mjs activate \
+            --environment staging \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --out artifacts/agent-grant-revocation/staging/replay.json \
+            --status-out artifacts/agent-grant-revocation/staging/replay-status.json
+          jq -e '.replay == true or .receipt.state == "activated"' artifacts/agent-grant-revocation/staging/activation.json >/dev/null
+          if ! jq -e '.replay == true' artifacts/agent-grant-revocation/staging/replay.json >/dev/null; then
+            echo "revocation_replay_not_inert" >&2
+            exit 1
+          fi
+
+      - name: Upload staging Agent Grant revocation status
+        if: always() && steps.staging_kubernetes_deploy.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-grant-revocation-status-staging
+          path: artifacts/agent-grant-revocation/staging
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Classify staging deployment failure
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          DEPLOY_ROOT_CAUSE_PHASE: ${{ steps.agent_grant_revocation_activation.outcome == 'failure' && 'agent-grant-revocation-activation' || 'staging-deploy' }}
         if: failure() && env.SHOULD_DEPLOY != 'false'
         id: staging_failure_classification
         run: |
           set -euo pipefail
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
-            --phase staging-deploy \
+            --phase "$DEPLOY_ROOT_CAUSE_PHASE" \
+            --diagnostics artifacts/agent-grant-revocation/staging/activation-status.json \
+            --diagnostics artifacts/agent-grant-revocation/staging/replay-status.json \
             --diagnostics artifacts/release-health/staging-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/staging-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/staging-projection-convergence-gate.json \
@@ -3882,6 +3954,7 @@ jobs:
           echo "result=${result}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy production Kubernetes release
+        id: production_kubernetes_deploy
         if: env.SHOULD_DEPLOY != 'false'
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -3897,8 +3970,10 @@ jobs:
         run: |
           set -euo pipefail
           node ./scripts/agent-grant-revocation-release.mjs prepare \
+            --environment production \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST"
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --status-out artifacts/agent-grant-revocation/production/prepare-status.json
 
           # A transient DOKS admission-webhook loss (#9662) is retried once after an exact
           # restore of the captured source, so it is offered only under the workflow
@@ -4313,7 +4388,6 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE: ${{ steps.image.outputs.image }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-          ACTIVATE_AGENT_GRANT_REVOCATION: ${{ inputs.activate_agent_grant_revocation == true }}
         run: |
           set -euo pipefail
           pnpm run platform:kubernetes-deployment -- verify-deployment-transition \
@@ -4323,12 +4397,6 @@ jobs:
             --deploy-attempts "artifacts/release-health/production-kubernetes-deploy-attempts.json" \
             --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
           node ./scripts/production-release-marker.mjs retain-identity
-          if [ "$ACTIVATE_AGENT_GRANT_REVOCATION" = "true" ]; then
-            node ./scripts/agent-grant-revocation-release.mjs activate \
-              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-              --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
-              --out artifacts/release-health/agent-grant-revocation-activation.json
-          fi
 
       - name: Upload production Kubernetes deployment transition
         if: env.SHOULD_DEPLOY != 'false'
@@ -4505,6 +4573,44 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Activation follows abort, rollback, marker and handoff, so its refusal fails
+      # the run without aborting or rolling back the promoted release.
+      - name: Activate Agent Grant revocation in production
+        id: agent_grant_revocation_activation
+        if: inputs.agent_grant_revocation_activation == 'production'
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs activate \
+            --environment production \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --out artifacts/agent-grant-revocation/production/activation.json \
+            --status-out artifacts/agent-grant-revocation/production/activation-status.json
+          # The in-run replay reconciles the fence at the same commit and digest without a new event.
+          node ./scripts/agent-grant-revocation-release.mjs activate \
+            --environment production \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --out artifacts/agent-grant-revocation/production/replay.json \
+            --status-out artifacts/agent-grant-revocation/production/replay-status.json
+          jq -e '.replay == true or .receipt.state == "activated"' artifacts/agent-grant-revocation/production/activation.json >/dev/null
+          if ! jq -e '.replay == true' artifacts/agent-grant-revocation/production/replay.json >/dev/null; then
+            echo "revocation_replay_not_inert" >&2
+            exit 1
+          fi
+
+      - name: Upload production Agent Grant revocation status
+        if: always() && steps.production_kubernetes_deploy.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-grant-revocation-status-production
+          path: artifacts/agent-grant-revocation/production
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Resolve terminal release state
         id: release_state
         if: always()
@@ -4645,13 +4751,16 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          DEPLOY_ROOT_CAUSE_PHASE: ${{ steps.agent_grant_revocation_activation.outcome == 'failure' && 'agent-grant-revocation-activation' || 'production-deploy' }}
         if: failure()
         id: production_failure_classification
         run: |
           set -euo pipefail
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
-            --phase production-deploy \
+            --phase "$DEPLOY_ROOT_CAUSE_PHASE" \
+            --diagnostics artifacts/agent-grant-revocation/production/activation-status.json \
+            --diagnostics artifacts/agent-grant-revocation/production/replay-status.json \
             --diagnostics artifacts/release-health/production-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/production-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/production-readiness-gate.json \
@@ -4771,15 +4880,6 @@ jobs:
         with:
           name: served-marketplace-smoke
           path: artifacts/release-health/served-marketplace-smoke.json
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload Agent Grant revocation activation
-        if: always() && env.SHOULD_DEPLOY != 'false' && inputs.activate_agent_grant_revocation == true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: agent-grant-revocation-activation
-          path: artifacts/release-health/agent-grant-revocation-activation.json
           if-no-files-found: error
           retention-days: 30
 

@@ -514,16 +514,13 @@
       "surfaces": [
         "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#1",
         "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#2",
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#3",
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#4",
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#5",
         "route-action:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx"
       ],
       "visibleDestination": {
         "description": "The saved payment methods route renders action-returned Payments snapshots for default, remove, setup reconciliation, and reconcile results instead of depending on realtime or a stale loader after mutation."
       },
       "proof": {
-        "authoritativeResponse": "The route action returns the sanitized saved-method list from Payments immediately after the mutation, and the component prefers that action snapshot over stale loader data.",
+        "authoritativeResponse": "The route action returns the sanitized saved-method list from Payments immediately after the mutation, and the component prefers that action snapshot over stale loader data. Each setup, default and remove form carries its own Saved Checkout Instrument Attempt id and keeps an unconfirmed outcome across later revalidations.",
         "tests": ["bounded-contexts/payments/tests/account-payment-methods-route.test.tsx"]
       }
     },

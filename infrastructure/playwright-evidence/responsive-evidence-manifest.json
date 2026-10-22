@@ -3,6 +3,96 @@
   "schemaVersion": 1,
   "claims": [
     {
+      "kind": "claim",
+      "id": "pricing-health-populated-0",
+      "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
+      "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 360, "height": 800 },
+      "target": {
+        "identity": "stored-health-summary",
+        "selector": "[data-testid='pricing-health-summary']",
+        "populatedSelector": "[data-testid='health-s2']"
+      },
+      "measurements": [
+        {
+          "identity": "summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 360 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-populated-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-populated-1",
+      "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
+      "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "stored-health-summary",
+        "selector": "[data-testid='pricing-health-summary']",
+        "populatedSelector": "[data-testid='health-s2']"
+      },
+      "measurements": [
+        {
+          "identity": "summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-populated-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-health-populated-2",
+      "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
+      "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Health", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-health-real-worker" },
+      "viewport": { "width": 820, "height": 1180 },
+      "target": {
+        "identity": "stored-health-summary",
+        "selector": "[data-testid='pricing-health-summary']",
+        "populatedSelector": "[data-testid='health-s2']"
+      },
+      "measurements": [
+        {
+          "identity": "summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 820 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-health-populated-tablet"
+    },
+    {
       "kind": "negative-control",
       "id": "hidden-accordion-target",
       "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
@@ -5843,6 +5933,135 @@
         }
       ],
       "artifact": "marketplace-shell-search-row-desktop-768"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-create-360",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "submitted-create-validation-summary",
+        "selector": "section[role='alert']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "submitted-create-summary-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "submitted-create-summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-create-360"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-update-390",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "submitted-update-validation-summary",
+        "selector": "section[role='alert']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "submitted-update-summary-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "submitted-update-summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-update-390"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-removed-row-1024",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "target": {
+        "identity": "removed-row-controller-banner",
+        "selector": "[role='status'][tabindex='-1'] [role='alert']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "removed-row-controller-banner-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "removed-row-controller-banner-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-removed-row-1024"
     }
   ]
 }

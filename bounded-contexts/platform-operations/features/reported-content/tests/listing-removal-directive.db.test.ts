@@ -41,6 +41,16 @@ describeDb("listing removal directive atomic append", () => {
     const pool = pools["platform-operations"];
     return createReportedContentRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
   }
+  // A target is actionable only once a report has queued it.
+  async function queue(listingId: string) {
+    await pools["platform-operations"].query(
+      `INSERT INTO platform_operations_reported_content_queue_pages
+       (target_type, target_id, status, report_count, first_reported_at, last_reported_at, updated_at)
+       VALUES ('listing', $1, 'needs-review', 1, now(), now(), now())
+       ON CONFLICT DO NOTHING`,
+      [listingId],
+    );
+  }
   function params() {
     return {
       targetType: "listing",
@@ -61,6 +71,7 @@ describeDb("listing removal directive atomic append", () => {
 
   it("payload contract persists audit then the exact four-field directive together", async () => {
     const input = params();
+    await queue(input.targetId);
     const result = await runtime().recordModerationAction(input, context);
     expect(await rows(input.targetId)).toEqual([
       { event_type: "platform-operations.reported-content.action-recorded", payload: { ...input, ...result } },
@@ -84,6 +95,7 @@ describeDb("listing removal directive atomic append", () => {
       CREATE TRIGGER reject_listing_directive BEFORE INSERT ON event_store_events
       FOR EACH ROW EXECUTE FUNCTION reject_listing_directive()`);
     const input = params();
+    await queue(input.targetId);
     await expect(runtime().recordModerationAction(input, context)).rejects.toThrow();
     expect(await rows(input.targetId)).toEqual([]);
     const streams = await pool.query("SELECT * FROM event_store_streams WHERE stream_id = $1", [
@@ -105,6 +117,7 @@ describeDb("listing removal directive atomic append", () => {
       { action: "withdraw-review" as const },
     ]) {
       const input = { ...params(), ...change };
+      await queue(input.targetId);
       await expect(runtime().recordModerationAction(input, context)).rejects.toThrow();
       expect(await rows(input.targetId)).toEqual([]);
     }

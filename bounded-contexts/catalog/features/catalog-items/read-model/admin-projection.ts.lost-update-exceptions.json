@@ -1,0 +1,46 @@
+[
+  {
+    "id": "exception-692e253d53ee1aba",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/catalog-items/read-model/admin-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_admin_catalog_item_list_pages",
+      "digest": "3d7b06f9bfadb377ae5b53b66e8c18fe8c4105a9f267f583028846f8a8937049"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/catalog/features/catalog-items/read-model/admin-projection.ts:240 directly synchronizes catalog_admin_catalog_item_list_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-89e05522a4286dba",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/catalog-items/read-model/admin-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_admin_catalog_item_detail_pages",
+      "digest": "b7eaf00c9e607598a95cd460fc96e41fbbc37dee4ae00a3d1e2fe2703319e30b"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/catalog/features/catalog-items/read-model/admin-projection.ts:241 directly synchronizes catalog_admin_catalog_item_detail_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-9c3dd1f151e91c81",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/catalog-items/read-model/admin-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_admin_catalog_item_list_pages",
+      "digest": "d4511f9c90d2d26bc861779b7765737f1c6f12d7b78fbe13a6cb2da49df13dd3"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/catalog/features/catalog-items/read-model/admin-projection.ts:913 directly synchronizes catalog_admin_catalog_item_list_pages from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-0d97ecfaa753c800",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/catalog-items/read-model/admin-projection.ts",
+      "kind": "DELETE",
+      "table": "catalog_admin_catalog_item_detail_pages",
+      "digest": "591a29344d8d1df4ce1f31efa64cce80577ceb004c9a780a00b317e5bb58b2fa"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/catalog/features/catalog-items/read-model/admin-projection.ts:914 directly synchronizes catalog_admin_catalog_item_detail_pages from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { classified } from "./backlog-classify.mjs";
 import {
+  BACKLOG_RELEVANCE_KEEP_OPEN_MARKER,
+  collectBacklogRelevanceDelivered,
   collectEpicChildren,
   collectRoadmapIssueFacts,
   collectRoadmapWindowAuthority,
@@ -28,6 +31,7 @@ import {
   selectTimelineIssues,
   spliceIntoBody,
   START_MARKER,
+  summarizeBacklogRelevance,
   summarizeWaves,
   summarizePrioritizationHygiene,
   stabilizeRoadmapWindowAuthority,
@@ -79,7 +83,7 @@ function slice(number, milestone, state, labels, created_at = OLD, overrides = {
 }
 
 function epic(number, total, overrides = {}) {
-  return slice(number, null, "open", ["kind:epic"], OLD, {
+  return slice(number, null, "open", [], OLD, {
     issueTypeName: "Epic",
     sub_issues_summary: { total },
     ...overrides,
@@ -992,7 +996,7 @@ describe("roadmap publication authority", () => {
 });
 
 describe("roadmap status classification and preserved rollups", () => {
-  it("preserves every non-forecast cell and row order on a fixed tagged fixture", () => {
+  it("preserves every non-forecast cell and row order with native and closed untyped Epics", () => {
     const first = { ...WAVE_1, description: outcomeDescription("commerce", 100) };
     const later = { ...WAVE_2, description: outcomeDescription("commerce", 300) };
     const candidate = {
@@ -1009,6 +1013,7 @@ describe("roadmap status classification and preserved rollups", () => {
       slice(5, candidate, "open", ["kind:product"]),
       slice(6, later, "open", ["priority:p1", "area:ops", "kind:ops"], OLD, { hasParent: true }),
       epic(10, 1),
+      slice(11, null, "closed", ["kind:epic"], OLD, { issueTypeName: null }),
     ];
     const growth = knownGrowth(issues);
     growth.delete(6);
@@ -1111,7 +1116,7 @@ describe("roadmap status classification and preserved rollups", () => {
   });
 
   it("identifies epics and delegates classification to the shared predicate", () => {
-    expect(isEpic(slice(1, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: null }))).toBe(true);
+    expect(isEpic(slice(1, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: null }))).toBe(false);
     expect(isEpic(slice(2, WAVE_1, "open", ["kind:product"]))).toBe(false);
     expect(isEpic(slice(6, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: "Slice" }))).toBe(false);
 
@@ -2285,6 +2290,7 @@ describe("prioritization hygiene authority", () => {
     const backlogClassifyImport = ['from "./backlog-classify', '.mjs"'].join("");
     const dispatchWindowImport = ['from "./dispatch-window', '.mjs"'].join("");
     const milestonePolicyImport = ['from "./milestone-policy', '.mjs"'].join("");
+    const briefLintImport = ['from "./brief-lint', '.mjs"'].join("");
     const source = readFileSync(path.join(repoRoot, "scripts", "roadmap-status.mjs"), "utf8");
     expect(source).toContain(guard);
 
@@ -2316,7 +2322,8 @@ describe("prioritization hygiene authority", () => {
       .replaceAll(
         milestonePolicyImport,
         `from "${pathToFileURL(path.join(repoRoot, "scripts", "milestone-policy.mjs")).href}"`,
-      );
+      )
+      .replaceAll(briefLintImport, `from "${pathToFileURL(path.join(repoRoot, "scripts", "brief-lint.mjs")).href}"`);
     const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutantSource).toString("base64")}`);
     continuationCalls = 0;
     await expect(mutant.collectRoadmapWindowAuthority(loaders)).rejects.toThrow(
@@ -2741,7 +2748,11 @@ describe("prioritization hygiene authority", () => {
 
 describe("dispatch-window module boundary", () => {
   it("derives the tracked importer inventory and keeps the helper source network- and mutation-free", () => {
-    const trackedScripts = execFileSync("git", ["ls-files", "scripts"], { cwd: repoRoot, encoding: "utf8" })
+    const trackedScripts = execFileSync("git", ["ls-files", "scripts"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter((file) => file.endsWith(".mjs"));
     const importers = trackedScripts.filter((file) =>
@@ -2835,5 +2846,453 @@ describe("roadmap issue parent enumeration", () => {
         nodes: [issueNode(1, null)],
       })),
     ).rejects.toBeInstanceOf(RoadmapIssueEnumerationError);
+  });
+});
+
+describe("backlog relevance", () => {
+  const MERGE_1 = "2026-07-10T00:00:00Z";
+  const AFTER_1 = "2026-07-11T00:00:00Z";
+  const MERGE_2 = "2026-07-12T00:00:00Z";
+  const R1 = "**R1 Unhomed** — open non-Epic with no milestone";
+  const R2 = "**R2 Superseded** — open, named `full` in the `### Supersedes` of an issue not closed as not planned";
+  const R3 = "**R3 Delivered** — open with a merged closing pull request and no later keep-open marker";
+  const R4 = "**R4 Orphaned** — closed as not planned or duplicate, named `full` only by issues closed as not planned";
+
+  const supersedes = (...items) => `### Context\n\nFixture.\n\n### Supersedes\n\n${items.join("\n")}\n`;
+  const merged = (mergedAt) => ({ merged: true, mergedAt });
+  const comment = (createdAt, body = "Progress note.") => ({ createdAt, body });
+  const keepOpen = (createdAt) =>
+    comment(createdAt, `Population receipts pending. ${BACKLOG_RELEVANCE_KEEP_OPEN_MARKER}`);
+
+  function relevanceIssue(
+    number,
+    { state = "open", stateReason = null, milestone = WAVE_1, issueTypeName = "Slice", body = "" } = {},
+  ) {
+    return slice(number, milestone, state, [], OLD, { state_reason: stateReason, body, issueTypeName });
+  }
+
+  function connectionPages(nodes, size, totalCount = nodes.length) {
+    const pages = [];
+    for (let index = 0; index < Math.max(nodes.length, 1); index += size) pages.push(nodes.slice(index, index + size));
+    return (after) => {
+      const index = after == null ? 0 : Number(after.slice(1));
+      return {
+        totalCount,
+        pageInfo: { hasNextPage: index < pages.length - 1, endCursor: `c${index + 1}` },
+        nodes: pages[index],
+      };
+    };
+  }
+
+  function relevanceLoaders(issues) {
+    const references = new Map(issues.map((issue) => [issue.number, connectionPages(issue.references ?? [], 20)]));
+    const comments = new Map(issues.map((issue) => [issue.number, connectionPages(issue.comments ?? [], 100)]));
+    const issuePages = connectionPages(
+      issues.map((issue) => ({
+        number: issue.number,
+        closedByPullRequestsReferences: references.get(issue.number)(null),
+      })),
+      100,
+    );
+    const calls = { references: [], comments: [] };
+    return {
+      calls,
+      loadIssues: async (after) => issuePages(after),
+      loadReferences: async (number, after) => {
+        calls.references.push([number, after]);
+        return references.get(number)(after);
+      },
+      loadComments: async (number, after) => {
+        calls.comments.push([number, after]);
+        return comments.get(number)(after);
+      },
+    };
+  }
+
+  async function deliveredFrom(issues) {
+    return { status: "known", numbers: await collectBacklogRelevanceDelivered(relevanceLoaders(issues)) };
+  }
+
+  function relevanceSection(block) {
+    const start = block.indexOf("## Backlog relevance");
+    expect(start).toBeGreaterThan(-1);
+    return block.slice(start, block.indexOf(END_MARKER)).trimEnd();
+  }
+
+  function categoryLines(block) {
+    return relevanceSection(block)
+      .split("\n")
+      .slice(4)
+      .filter((line) => line !== "");
+  }
+
+  function renderRelevance(issues, delivered) {
+    return renderRoadmapStatus({
+      rows: [],
+      windowDays: 7,
+      backlogRelevance: summarizeBacklogRelevance({ issues, delivered }),
+    });
+  }
+
+  function categoryFixture() {
+    return [
+      relevanceIssue(101, { milestone: null }),
+      epic(102, 0),
+      relevanceIssue(201),
+      relevanceIssue(202),
+      relevanceIssue(203, { body: supersedes("- #201 full", "- #202 partial: keeps the export criterion") }),
+      relevanceIssue(204),
+      relevanceIssue(205, { body: supersedes("- #204 full") }),
+      relevanceIssue(401, { state: "closed", stateReason: "not_planned" }),
+      relevanceIssue(402, { state: "closed", stateReason: "not_planned", body: supersedes("- #401 full") }),
+      relevanceIssue(403, { state: "closed", stateReason: "not_planned" }),
+      relevanceIssue(404, { body: supersedes("- #403 full") }),
+      relevanceIssue(405, { state: "closed", stateReason: "duplicate" }),
+      relevanceIssue(406, { state: "closed", stateReason: "not_planned", body: supersedes("- #405 full") }),
+      relevanceIssue(407, { state: "closed", stateReason: "not_planned" }),
+      relevanceIssue(408, { state: "closed", stateReason: "not_planned", body: supersedes("- #407 full") }),
+    ];
+  }
+
+  const deliveredFixture = () => [
+    { number: 301, references: [merged(MERGE_1)] },
+    { number: 302, references: [merged(MERGE_1)], comments: [keepOpen(AFTER_1)] },
+    { number: 303, references: [merged(MERGE_1), merged(MERGE_2)], comments: [keepOpen(AFTER_1)] },
+    { number: 304, references: [{ merged: false, mergedAt: null }] },
+  ];
+
+  it("renders each qualifying issue once and no near miss in all four categories", async () => {
+    const block = renderRelevance(categoryFixture(), await deliveredFrom(deliveredFixture()));
+
+    expect(categoryLines(block)).toEqual([
+      `${R1}: **1**`,
+      "- #101",
+      `${R2}: **2**`,
+      "- #201 — named by #203",
+      "- #204 — named by #205",
+      `${R3}: **2**`,
+      "- #301",
+      "- #303",
+      `${R4}: **3**`,
+      "- #401 — named by #402",
+      "- #405 — named by #406",
+      "- #407 — named by #408",
+    ]);
+    // Near misses: an Epic without a milestone, a partial declaration, an R3
+    // marker after its only merge, an unmerged closing PR, and a predecessor
+    // with one open full successor.
+    for (const nearMiss of [102, 202, 302, 304, 403]) expect(block).not.toMatch(new RegExp(`#${nearMiss}\\b`));
+  });
+
+  it("drops every dispositioned row on the next run and advances the 25-row cap", async () => {
+    // #101 plus #1001-#1029: 30 qualifying R1 issues, of which the 25 shown are placed.
+    const unhomed = Array.from({ length: 29 }, (_, index) => relevanceIssue(1001 + index, { milestone: null }));
+    const first = renderRelevance([...categoryFixture(), ...unhomed], await deliveredFrom(deliveredFixture()));
+    expect(categoryLines(first).slice(0, 26)).toEqual([
+      `${R1}: **30** (first 25 shown)`,
+      "- #101",
+      ...Array.from({ length: 24 }, (_, index) => `- #${1001 + index}`),
+    ]);
+
+    const placed = new Set([101, ...Array.from({ length: 24 }, (_, index) => 1001 + index)]);
+    const dispositioned = [...categoryFixture(), ...unhomed].map((issue) => {
+      if (placed.has(issue.number)) return { ...issue, milestone: WAVE_1 };
+      if (issue.number === 201) return { ...issue, state: "closed", state_reason: "completed" };
+      if (issue.number === 205) return { ...issue, body: supersedes("- #204 partial: keeps the import criterion") };
+      if (issue.number === 401) return { ...issue, state: "open", state_reason: "reopened" };
+      return issue;
+    });
+    dispositioned.push(relevanceIssue(409, { body: supersedes("- #407 full") }));
+    const r3 = deliveredFixture().map((issue) =>
+      issue.number === 301 ? { ...issue, comments: [keepOpen(AFTER_1)] } : issue,
+    );
+    r3.find((issue) => issue.number === 303).comments.push(keepOpen("2026-07-13T00:00:00Z"));
+    const second = renderRelevance(dispositioned, await deliveredFrom(r3));
+
+    expect(categoryLines(second)).toEqual([
+      `${R1}: **5**`,
+      ...Array.from({ length: 5 }, (_, index) => `- #${1025 + index}`),
+      `${R2}: **0**`,
+      `${R3}: **0**`,
+      `${R4}: **1**`,
+      "- #405 — named by #406",
+    ]);
+  });
+
+  it("decides R3 on a newer merge at reference 21 and a marker at comment 150", async () => {
+    const twenty = Array.from({ length: 20 }, () => merged(MERGE_1));
+    const plain = Array.from({ length: 149 }, () => comment("2026-07-15T00:00:00Z"));
+    const loaders = relevanceLoaders([
+      { number: 501, references: [...twenty, merged(MERGE_2)], comments: [keepOpen(AFTER_1)] },
+      { number: 502, references: [merged(MERGE_1)], comments: [...plain, keepOpen("2026-07-16T00:00:00Z")] },
+    ]);
+
+    await expect(collectBacklogRelevanceDelivered(loaders)).resolves.toEqual([501]);
+    expect(loaders.calls.references).toEqual([[501, "c1"]]);
+    expect(loaders.calls.comments).toEqual([
+      [501, null],
+      [502, null],
+      [502, "c1"],
+    ]);
+  });
+
+  it.each([
+    ["an invalid issue page", { loadIssues: async () => null }, "ROADMAP_RELEVANCE_R3_ISSUES_PAGE_INVALID"],
+    [
+      "a malformed issue node",
+      { loadIssues: async () => windowPage([{ number: 1, closedByPullRequestsReferences: windowPage([]), extra: 1 }]) },
+      "ROADMAP_RELEVANCE_R3_ISSUES_NODE_INVALID",
+    ],
+    [
+      "a duplicate issue",
+      {
+        loadIssues: async () =>
+          windowPage([
+            { number: 1, closedByPullRequestsReferences: windowPage([]) },
+            { number: 1, closedByPullRequestsReferences: windowPage([]) },
+          ]),
+      },
+      "ROADMAP_RELEVANCE_R3_ISSUES_DUPLICATE",
+    ],
+    [
+      "a merged reference without mergedAt",
+      {
+        loadIssues: async () =>
+          windowPage([{ number: 1, closedByPullRequestsReferences: windowPage([{ merged: true, mergedAt: null }]) }]),
+      },
+      "ROADMAP_RELEVANCE_R3_REFERENCES_NODE_INVALID",
+    ],
+    [
+      "a short reference collection",
+      {
+        loadIssues: async () =>
+          windowPage([
+            {
+              number: 1,
+              closedByPullRequestsReferences: { ...windowPage([merged(MERGE_1)]), totalCount: 21 },
+            },
+          ]),
+      },
+      "ROADMAP_RELEVANCE_R3_REFERENCES_COUNT_MISMATCH",
+    ],
+    [
+      "a short comment collection",
+      {
+        loadIssues: async () =>
+          windowPage([{ number: 1, closedByPullRequestsReferences: windowPage([merged(MERGE_1)]) }]),
+        loadComments: async () => ({ ...windowPage([comment(AFTER_1)]), totalCount: 150 }),
+      },
+      "ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH",
+    ],
+    [
+      "a continuation page that makes no progress",
+      {
+        loadIssues: async () => ({
+          totalCount: 2,
+          pageInfo: { hasNextPage: true, endCursor: "c1" },
+          nodes: [],
+        }),
+      },
+      "ROADMAP_RELEVANCE_R3_ISSUES_COUNT_MISMATCH",
+    ],
+    [
+      "an open total that changes between pages",
+      {
+        loadIssues: async (after) => ({
+          totalCount: after === null ? 2 : 3,
+          pageInfo: { hasNextPage: after === null, endCursor: after === null ? "c1" : "c2" },
+          nodes: [{ number: after === null ? 1 : 2, closedByPullRequestsReferences: windowPage([]) }],
+        }),
+      },
+      "ROADMAP_RELEVANCE_R3_ISSUES_TOTAL_CHANGED",
+    ],
+  ])("refuses to decide R3 on %s", async (_name, overrides, code) => {
+    const loaders = {
+      loadReferences: async () => windowPage([]),
+      loadComments: async () => windowPage([]),
+      ...overrides,
+    };
+    await expect(collectBacklogRelevanceDelivered(loaders)).rejects.toMatchObject({ code });
+  });
+
+  it("renders R3 unknown without a count and lists an unparsed Supersedes body under R2 and R4", () => {
+    const issues = [
+      relevanceIssue(703),
+      relevanceIssue(704, { body: supersedes("- #703 full", "- #9 almost") }),
+      relevanceIssue(706, { state: "closed", stateReason: "not_planned", body: supersedes("- #707 full") }),
+      relevanceIssue(707, { state: "closed", stateReason: "duplicate" }),
+    ];
+    const block = renderRelevance(issues, {
+      status: "unknown",
+      reason: "ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH",
+    });
+
+    expect(categoryLines(block)).toEqual([
+      `${R1}: **0**`,
+      `${R2}: **1**`,
+      "- #703 — named by #704",
+      "- unparsed: #704",
+      `${R3}: unknown: ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH`,
+      `${R4}: **1**`,
+      "- #707 — named by #706",
+      "- unparsed: #704",
+    ]);
+  });
+
+  it("caps all four categories and their unparsed lists at 25 rows within a bounded section", () => {
+    const range = (start) => Array.from({ length: 30 }, (_, index) => start + index);
+    const issues = [
+      ...range(1).map((number) => relevanceIssue(number, { milestone: null })),
+      ...range(101).map((number) => relevanceIssue(number)),
+      relevanceIssue(200, { body: supersedes(...range(101).map((number) => `- #${number} full`)) }),
+      ...range(301).map((number) => relevanceIssue(number, { body: supersedes(`- #${number} almost`) })),
+      ...range(401).map((number) => relevanceIssue(number, { state: "closed", stateReason: "not_planned" })),
+      relevanceIssue(500, {
+        state: "closed",
+        stateReason: "not_planned",
+        body: supersedes(...range(401).map((number) => `- #${number} full`)),
+      }),
+    ];
+    const section = relevanceSection(renderRelevance(issues, { status: "known", numbers: range(601) }));
+    const lines = section.split("\n");
+
+    for (const label of [R1, R2, R3, R4]) expect(lines).toContain(`${label}: **30** (first 25 shown)`);
+    expect(lines.filter((line) => /^- #\d+/.test(line))).toHaveLength(100);
+    expect(lines.filter((line) => /^- unparsed: #\d+$/.test(line))).toHaveLength(50);
+    expect(lines.filter((line) => line === "- unparsed: 5 more")).toHaveLength(2);
+    expect(Buffer.byteLength(section, "utf8")).toBeLessThan(6_144);
+  });
+
+  function relevanceRequest(base, { issues = [], respond = () => null } = {}) {
+    const loaders = relevanceLoaders(issues);
+    return async (url, init = {}) => {
+      if (new URL(url).pathname === "/graphql") {
+        const { query, variables } = JSON.parse(init.body);
+        if (query.includes("BACKLOG_RELEVANCE_")) {
+          base.requests.push({ method: "POST", url, body: init.body });
+          const response = respond(query, variables);
+          if (response) return response;
+          if (query.includes("BACKLOG_RELEVANCE_ISSUES_SENTINEL")) {
+            return jsonResponse({ data: { repository: { issues: await loaders.loadIssues(variables.after) } } });
+          }
+          const connection = query.includes("BACKLOG_RELEVANCE_REFERENCES_SENTINEL")
+            ? { closedByPullRequestsReferences: await loaders.loadReferences(variables.number, variables.after) }
+            : { comments: await loaders.loadComments(variables.number, variables.after) };
+          return jsonResponse({ data: { repository: { issue: connection } } });
+        }
+      }
+      return base.request(url, init);
+    };
+  }
+
+  async function runRelevanceMain({ relevance, ...options }) {
+    const base = createMainRequest(options);
+    const generated = [];
+    const diagnostics = [];
+    const code = await runRoadmapStatus(
+      () =>
+        main({
+          env: mainEnv(),
+          request: relevanceRequest(base, relevance),
+          nowMs: NOW,
+          writeOutput: (message) => generated.push(message),
+          writeError: (message) => diagnostics.push(message),
+          appendSummary: async () => {},
+        }),
+      (message) => diagnostics.push(message),
+    );
+    return { ...base, code, generated, diagnostics, patches: base.requests.filter(({ method }) => method === "PATCH") };
+  }
+
+  const mainIssues = () => [
+    slice(701, WAVE_1, "open", ["priority:p1", "area:ops", "kind:ops"]),
+    relevanceIssue(702, { milestone: null }),
+    relevanceIssue(703),
+    relevanceIssue(704, { body: supersedes("- #703 full", "- #9 almost") }),
+    relevanceIssue(705, { state: "closed", stateReason: "not_planned" }),
+    relevanceIssue(706, { state: "closed", stateReason: "not_planned", body: supersedes("- #705 full") }),
+  ];
+  const delivered9101 = [{ number: 9101, references: [merged("2026-10-08T20:42:09Z")] }];
+
+  it.each([
+    ["a complete collection", {}, [`${R3}: **1**`, "- #9101"]],
+    [
+      "an R3 page error",
+      {
+        respond: (query) =>
+          query.includes("ISSUES_SENTINEL") ? jsonResponse({ message: "bad gateway" }, { status: 502 }) : null,
+      },
+      [`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_FAILED`],
+    ],
+    [
+      "a short reference collection",
+      {
+        respond: (query) =>
+          query.includes("ISSUES_SENTINEL")
+            ? jsonResponse({
+                data: {
+                  repository: {
+                    issues: windowPage([
+                      {
+                        number: 9101,
+                        closedByPullRequestsReferences: { ...windowPage([merged(MERGE_1)]), totalCount: 21 },
+                      },
+                    ]),
+                  },
+                },
+              })
+            : null,
+      },
+      [`${R3}: unknown: ROADMAP_RELEVANCE_R3_REFERENCES_COUNT_MISMATCH`],
+    ],
+    [
+      "a short comment collection",
+      {
+        respond: (query) =>
+          query.includes("COMMENTS_SENTINEL")
+            ? jsonResponse({
+                data: { repository: { issue: { comments: { ...windowPage([comment(AFTER_1)]), totalCount: 150 } } } },
+              })
+            : null,
+      },
+      [`${R3}: unknown: ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH`],
+    ],
+  ])("publishes every other section and the splice with %s", async (_name, relevance, r3Lines) => {
+    const result = await runRelevanceMain({ issues: mainIssues(), relevance: { issues: delivered9101, ...relevance } });
+    const patchedBody = JSON.parse(result.patches[0].body).body;
+
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.patches).toHaveLength(1);
+    expect(patchedBody).toBe(result.generated[0]);
+    expect(patchedBody).toContain("## Generated status");
+    expect(patchedBody).toContain("## Prioritization hygiene");
+    expect(patchedBody).toContain("Executable backlog: **");
+    expect(patchedBody.indexOf("## Prioritization hygiene")).toBeLessThan(patchedBody.indexOf("## Backlog relevance"));
+    expect(categoryLines(patchedBody)).toEqual([
+      `${R1}: **1**`,
+      "- #702",
+      `${R2}: **1**`,
+      "- #703 — named by #704",
+      "- unparsed: #704",
+      ...r3Lines,
+      `${R4}: **1**`,
+      "- #705 — named by #706",
+      "- unparsed: #704",
+    ]);
+  });
+
+  it("keeps a core-authority refusal byte-identical without reaching any relevance acquisition", async () => {
+    const future = capRecord(Date.parse("2026-08-28T00:00:00.000Z"));
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      roadmapBody: `${START_MARKER}\n${renderRefinedInventoryCapMarker(future)}\n${END_MARKER}`,
+      relevance: { issues: delivered9101 },
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.diagnostics).toEqual([expect.stringMatching(/^ROADMAP_REFINED_INVENTORY_MARKER_FUTURE:/)]);
+    expect(result.patches).toEqual([]);
+    expect(result.requests.some(({ body }) => body?.includes("BACKLOG_RELEVANCE_"))).toBe(false);
   });
 });

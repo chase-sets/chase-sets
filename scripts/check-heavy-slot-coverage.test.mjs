@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -70,12 +71,15 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
   const expectedEntrypoints = [
     "contracts/market-estimate-display/vitest.config.ts",
     "contracts/order-groups/vitest.config.ts",
+    "contracts/inventory-draft-listing/vitest.config.ts",
     "contracts/tcgplayer-market-observations/vitest.config.ts",
     "deployables/platform-api/vitest.config.ts",
     "deployables/tcgplayer-operator-extension/vitest.config.ts",
     "infrastructure/stripe-appearance/vitest.config.ts",
     "playwright.config.ts",
     "scripts/browser-e2e-probe.mjs",
+    // The handoff command performs two connector builds and therefore uses build admission.
+    "scripts/build-connector-extension-handoff.mjs",
     "scripts/check-structure/brand-foil-proof.mjs",
     "scripts/check-structure/browser-e2e-disclosure-guard.mjs",
     "scripts/check-structure/provider-scope-picker-shape-guard.mjs",
@@ -90,7 +94,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 84);
+  assert.equal(result.entrypoints.length, 86);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -466,7 +470,6 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/provider-object-disposition/test-window-browser-admission.test.mjs":
     "browser fixture does not spawn the guard",
   "scripts/provider-object-disposition/test-window-main.test.mjs": "browser fixture does not spawn the guard",
-  "scripts/public-web-help-category-response-budget.test.mjs": "budget test owns its direct probe admission",
   "scripts/route-census/admission.test.mjs": "route census does not spawn the guard",
   "scripts/route-census/partition-scope.test.mjs": "route census does not spawn the guard",
   "scripts/route-census/publication.test.mjs": "route census does not spawn the guard",
@@ -477,7 +480,10 @@ const inheritedOwnerWaivers = Object.freeze({
 });
 
 function deriveInheritedOwnerCandidates(root = repositoryRoot) {
-  const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" })
+  const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], {
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean)
     .map((file) => file.replaceAll("\\", "/"));
@@ -521,7 +527,7 @@ test("every script test that reaches a real heavy-slot acquisition is a declared
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
   assert.equal(candidates.length, 29);
-  assert.equal(inheritedOwnerScriptTests.length, 4);
+  assert.equal(inheritedOwnerScriptTests.length, 5);
   assert.deepEqual(classification, {
     unclassified: [],
     overlapping: [],

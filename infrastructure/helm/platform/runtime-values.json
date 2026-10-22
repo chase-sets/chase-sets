@@ -659,6 +659,17 @@
           "secretKey": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         },
         {
+          "name": "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          "secret": true,
+          "secretKey": "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          "optional": true
+        },
+        {
+          "name": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+          "secret": true,
+          "secretKey": "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        },
+        {
           "name": "DATABASE_URL_CHANNELS",
           "secret": true,
           "secretKey": "DATABASE_URL_CHANNELS"
@@ -940,6 +951,22 @@
           "value": "false"
         },
         {
+          "name": "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
+          "value": "2"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_RETRIES",
+          "value": "3"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
+          "value": "30000"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
+          "value": "250"
+        },
+        {
           "name": "UCP_BUSINESS_SIGNING_ALG",
           "secret": true,
           "secretKey": "UCP_BUSINESS_SIGNING_ALG"
@@ -1198,6 +1225,17 @@
           "name": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
           "secret": true,
           "secretKey": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+        },
+        {
+          "name": "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          "secret": true,
+          "secretKey": "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          "optional": true
+        },
+        {
+          "name": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+          "secret": true,
+          "secretKey": "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
         },
         {
           "name": "DATABASE_URL_CHANNELS",
@@ -1508,6 +1546,22 @@
           "name": "STRIPE_WEBHOOK_SECRET",
           "secret": true,
           "secretKey": "STRIPE_WEBHOOK_SECRET"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
+          "value": "2"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_RETRIES",
+          "value": "3"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
+          "value": "30000"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
+          "value": "250"
         },
         {
           "name": "VOYAGE_API_KEY",
@@ -1903,6 +1957,22 @@
         {
           "name": "TAX_PROVIDER_BACKED_QUOTES_REQUIRED",
           "value": "false"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
+          "value": "2"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_RETRIES",
+          "value": "3"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
+          "value": "30000"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
+          "value": "250"
         }
       ],
       "resources": {},
