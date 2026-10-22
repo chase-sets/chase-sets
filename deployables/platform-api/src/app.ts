@@ -172,6 +172,7 @@ import {
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
+import { createPlatformApiInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import {
   createEvidenceWindowRegistrationRoutes,
   createEvidenceWindowSourceAdmissionMiddleware,
@@ -425,6 +426,9 @@ export function createPlatformApiHost(
       };
     },
   };
+  const inventoryDraftListingConsumer = createPlatformApiInventoryDraftListingConsumer(
+    () => runtime?.services.marketplace as MarketplaceServices | undefined,
+  );
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const identityPool = getPlatformApiPool(options.pools.identity);
@@ -792,6 +796,7 @@ export function createPlatformApiHost(
     ...options,
     runtimeProfile,
     hostPorts: {
+      inventoryDraftListingConsumer,
       ...options.hostPorts,
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),

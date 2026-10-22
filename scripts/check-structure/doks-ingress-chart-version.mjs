@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDoksIngressChartVersion } from "../doks-cluster-addons.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 export const DOKS_INGRESS_CHART_ROOT = "infrastructure/helm/doks-ingress";
 export const DOKS_INGRESS_CHART_YAML = `${DOKS_INGRESS_CHART_ROOT}/Chart.yaml`;
@@ -127,6 +128,7 @@ function defaultExecGit(args, repoRoot) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   });
 }
 

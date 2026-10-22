@@ -13,6 +13,7 @@ import {
   type PublishListingCommand,
 } from "./domain";
 import { MarketplaceListingDomainError } from "./listing-error";
+import { AuthoredTextRejectedError, authoredTextRejectionCodes } from "../../reviews/domain/authored-text-safeguard";
 
 const shipFromAddress = {
   name: "Seller Shipping",
@@ -1273,5 +1274,140 @@ describe("listing enforcement actions", () => {
         fold([createdEvent, publishedEvent, stored("marketplace.listing.operator-unlisted", data)]),
       ).toThrow();
     });
+  });
+});
+
+describe("issue-5258-marketplace-ac2 Listing Evidence image description safeguard", () => {
+  const LEGACY_ALT_TEXT = "Legacy front \u202Ereversed";
+
+  function rejectionOf(run: () => unknown) {
+    try {
+      run();
+    } catch (error) {
+      return error instanceof AuthoredTextRejectedError ? { field: error.field, code: error.code } : error;
+    }
+    return null;
+  }
+
+  function createdWith(photos: readonly Record<string, unknown>[]) {
+    return decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      evidence: photos as never,
+    });
+  }
+
+  function legacyDraft() {
+    const [created] = createdWith([listingPhoto]);
+    if (created?.type !== "marketplace.listing.created") throw new Error("Expected a listing-created event.");
+    const legacyCreated = {
+      ...created,
+      data: {
+        ...created.data,
+        evidence: created.data.evidence.map((photo) => ({ ...photo, altText: LEGACY_ALT_TEXT })),
+      },
+    } satisfies MarketplaceListingEvent;
+    return [legacyCreated].reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+  }
+
+  const secondPhoto = {
+    ...listingPhoto,
+    photoId: "lpho_2",
+    assetSet: { ...listingPhoto.assetSet, sourceHash: "hash_2" },
+  };
+
+  it("rejects an unsafe description on created and added evidence with no event", () => {
+    expect(rejectionOf(() => createdWith([{ ...listingPhoto, altText: "Front javascript:alert(1)" }]))).toEqual({
+      field: "listing-evidence-alt-text",
+      code: "text_unsafe_link",
+    });
+    expect(createdWith([{ ...listingPhoto, altText: "Front of the card — near mint ✨" }])).toHaveLength(1);
+
+    const state = legacyDraft();
+    expect(
+      rejectionOf(() =>
+        decideMarketplaceListing(state, {
+          type: "AddListingPhotos",
+          photos: [{ ...secondPhoto, altText: "Back \u0000" }] as never,
+        }),
+      ),
+    ).toEqual({ field: "listing-evidence-alt-text", code: "text_control_character" });
+
+    const added = decideMarketplaceListing(state, {
+      type: "AddListingPhotos",
+      photos: [{ ...secondPhoto, altText: "Back of the card" }] as never,
+    }).reduce(evolveMarketplaceListing, state);
+    expect(added.evidence.map((photo) => photo.altText)).toEqual([LEGACY_ALT_TEXT, "Back of the card"]);
+  });
+
+  it("judges only a newly authored description on classification and replacement", () => {
+    const state = legacyDraft();
+    const classify = (altText?: string | null) =>
+      decideMarketplaceListing(state, {
+        type: "ClassifyListingPhoto",
+        photoId: "lpho_1",
+        slotId: null,
+        viewKind: null,
+        altText,
+      });
+
+    expect(rejectionOf(() => classify("Front https://x.example https://x.example"))).toEqual({
+      field: "listing-evidence-alt-text",
+      code: "text_duplicate_link",
+    });
+    expect(classify(LEGACY_ALT_TEXT)).toHaveLength(1);
+    expect(classify(undefined)).toHaveLength(1);
+
+    const replace = (altText: string | null) =>
+      decideMarketplaceListing(state, {
+        type: "ReplaceListingPhoto",
+        replacedPhotoId: "lpho_1",
+        photo: { ...secondPhoto, photoId: "lpho_3", altText } as never,
+      });
+    expect(replace(LEGACY_ALT_TEXT)).toHaveLength(1);
+    expect(rejectionOf(() => replace("New \u2066isolated\u2069"))).toEqual({
+      field: "listing-evidence-alt-text",
+      code: "text_direction_override",
+    });
+  });
+});
+
+describe("issue-5258-marketplace-ac3 legacy Listing Evidence and no semantic classification", () => {
+  it("replays stored evidence descriptions byte-for-byte without judging them", () => {
+    const [created] = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      evidence: [listingPhoto] as never,
+    });
+    if (created?.type !== "marketplace.listing.created") throw new Error("Expected a listing-created event.");
+    const legacyAltText = "Legacy http://old.example \u0007";
+    const state = [
+      created,
+      {
+        type: "marketplace.listing.photo-classified",
+        data: { photoId: "lpho_1", slotId: null, viewKind: null, altText: legacyAltText, capturedAt: null },
+      } satisfies MarketplaceListingEvent,
+    ].reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+
+    expect(state.evidence[0]?.altText).toBe(legacyAltText);
+  });
+
+  it("makes no semantic judgment: adversarial meaning and private file names are left to human Reports", () => {
+    expect(authoredTextRejectionCodes).toEqual([
+      "text_control_character",
+      "text_direction_override",
+      "text_unsafe_link",
+      "text_duplicate_link",
+    ]);
+    const events = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      evidence: [
+        {
+          ...listingPhoto,
+          originalFilename: "javascript:alert(1).png",
+          altText: "Replica card, definitely not authentic, buy off-platform",
+        },
+      ] as never,
+    });
+
+    expect(events).toHaveLength(1);
   });
 });

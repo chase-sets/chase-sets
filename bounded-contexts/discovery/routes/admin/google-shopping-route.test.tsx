@@ -7,6 +7,8 @@ import GoogleShoppingOperationsRoute, { action, loader } from "./google-shopping
 vi.mock("react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-router")>()),
   Form: ({ children }: { children?: ReactNode }) => createElement("form", null, children),
+  useNavigation: () => ({ state: "idle", formMethod: undefined, formAction: undefined }),
+  useFormAction: () => "/",
   useLoaderData: vi.fn(),
   useActionData: () => null,
   useMatches: () => [],

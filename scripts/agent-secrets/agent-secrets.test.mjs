@@ -1020,6 +1020,25 @@ describe("with-secrets.ps1 agent tier guard", { timeout: helperLaunchTimeoutMs }
     expect(rest).toEqual([""]);
   });
 
+  it("admits provider-shaped eBay Sandbox values, including an App ID with infix SBX", () => {
+    // Synthetic provider-shaped values; no real eBay credential is used.
+    const values = {
+      ...compliant(),
+      EBAY_SANDBOX_APP_ID: "SyntheticDev-SyntheticApp-SBX-000000000-00000000",
+      EBAY_SANDBOX_CERT_ID: `SBX-synthetic-${randomUUID()}`,
+      EBAY_SANDBOX_DEV_ID: randomUUID(),
+      EBAY_SANDBOX_RUNAME: "Synthetic_Dev-SyntheticDev-Synthe-synthetic",
+      EBAY_SANDBOX_SELLER_A: "synthetic_seller_a",
+    };
+    const seat = createSeat({ inventory: repositoryInventory, bws: { list: project(values) } });
+    const checked = runSeat(seat, "with-secrets.ps1", ["-Check"]);
+
+    expect(checked.status).toBe(0);
+    expect(unixLines(checked.stdout).split("\n")[0]).toBe(
+      `OK: account 'lanes' can read project ${projectId} (10 keys).`,
+    );
+  });
+
   it.each([
     ["a missing inventory", null],
     ["an unparseable inventory", '{"schemaVersion": 1, "agentTier": {'],

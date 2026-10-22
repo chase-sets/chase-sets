@@ -13,6 +13,10 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import type { ListingPhotoStorage } from "./index";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
+import {
+  createInventoryDraftListingConsumer,
+  type InventoryDraftListingConsumer,
+} from "../../features/listings/api/inventory-draft-consumer";
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";
 import { createMarketplaceReportRuntime } from "../../features/reports/api/runtime";
 import { createReviewRuntime } from "../../features/reviews/api/runtime";
@@ -44,6 +48,7 @@ export type MarketplaceServiceOptions = Readonly<{
 }>;
 
 export type MarketplaceServices = Readonly<{
+  inventoryDraftListingConsumer: InventoryDraftListingConsumer;
   reviewOpportunityPublication: ReturnType<typeof createReviewOpportunityPublication>;
   managedOfferWork: ReturnType<typeof createManagedOfferWork>;
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
@@ -126,6 +131,11 @@ export function createMarketplaceServices(
   ]);
   const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings);
   return {
+    inventoryDraftListingConsumer: createInventoryDraftListingConsumer({
+      pool,
+      eventStore,
+      createListings: (db, eventStore) => createMarketplaceListingRuntime({ ...deps, db, eventStore }),
+    }),
     managedOfferWork,
     listings,
     offers,

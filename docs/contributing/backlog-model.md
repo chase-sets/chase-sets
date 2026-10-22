@@ -269,7 +269,7 @@ battery can fail when the documentation, issue forms, or labeler drift.
 
 | Family | Purpose | Rule |
 |---|---|---|
-| **Control** | drives workflow, issue routing, or orchestrator behavior | `ci-circuit-repair`, `decision`, `dispatch:flush-window`, `full-ci`, `preview`. Load-bearing; never prune without changing the consumer. |
+| **Control** | drives workflow, issue routing, or orchestrator behavior | `ci-circuit-repair`, `decision`, `dispatch:flush-window`, `dispatch:platform`, `dispatch:platform-return`, `full-ci`, `preview`. Load-bearing; never prune without changing the consumer. |
 | `area:*` | owning bounded context | `area:auth`, `area:catalog`, `area:checkout`, `area:channels`, `area:collections`, `area:commercial-terms`, `area:design-system`, `area:discovery`, `area:fulfillment`, `area:identity`, `area:infrastructure`, `area:inventory`, `area:marketplace`, `area:marketplace-web`, `area:notifications`, `area:ops`, `area:ordering`, `area:payments`, `area:platform-runtime`, `area:pricing`, `area:public-presence`, `area:settlement`, `area:support`, `area:tax`. Operational ownership is advisory coverage, not a 1:1 context-directory map. |
 | `kind:*` | nature of the work | `kind:ops`, `kind:product`, `kind:security`, `kind:tech-debt`, `kind:test`. Epics use the native **Epic** type. |
 | `priority:*` | dispatch rank | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3`. On slices only. |
@@ -465,7 +465,7 @@ request against the file being split.
 `scripts/next-work.mjs` is the computed Selection. It reads live GitHub facts
 in one paced, read-only pass and reports the ranked runnable frontier as
 `next-work/v1` (text, or JSON with `--json <path>`). Every open issue is either ranked once or counted
-once under its first exclusion reason (`EPIC`, `TRACKING_ONLY`, `NO_MILESTONE`,
+once under its first exclusion reason (`EPIC`, `TRACKING_ONLY`, `PLATFORM_HELD`, `NO_MILESTONE`,
 `NOT_COMMITTED_OUTCOME`, `EXCLUDED_MILESTONE`, `BLOCKED`). Each ranked issue
 carries one action (`operator-wait`, `replan`, `planning-repair`, `decide`,
 `pr-open` or `implement`) and belongs to one **lane class**: `product` is
@@ -474,7 +474,8 @@ is everything else. `--exclude-milestone` takes the platform-owned milestones.
 `--check` exits 1 when the report has defects, such as an `OUTCOME_ORDER_TIE`;
 incomplete facts exit 2 and write no file.
 
-1. Exclude Epics, tracking-only records, candidates, Deferred / Incubation and
+1. Exclude Epics, tracking-only records, platform-held or platform-return issues
+   (`PLATFORM_HELD`), candidates, Deferred / Incubation and
    Operations. Preserve existing ownership for active lanes.
 2. Apply current Todd steering from each milestone's steering marker, then take
    the computed Selection: each lane class is ranked by marked outcomes first,

@@ -25,6 +25,10 @@ export {
   type MarketplaceChannelInboundClampResult,
 } from "./features/channel-inbound-clamp/domain/contracts";
 export type { MarketplaceServices } from "./support/runtime-support/services";
+export {
+  bindInventoryDraftListingConsumer,
+  type InventoryDraftListingConsumer,
+} from "./features/listings/api/inventory-draft-consumer";
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
   MarketplaceListingInventoryItemOption,

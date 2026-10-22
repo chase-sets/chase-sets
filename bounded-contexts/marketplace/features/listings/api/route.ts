@@ -1,5 +1,5 @@
 import { MarketplaceListingRequestError } from "./listing-request-error";
-import { listingErrorResponse } from "./listing-errors";
+import { authoredTextListingErrors, listingErrorResponse } from "./listing-errors";
 import { t } from "@chase-sets/localization";
 import {
   createPolicyBackedRateLimiter,
@@ -1118,6 +1118,7 @@ export function createAccountListingRoutes(
         "inventory-item-not-found",
         "command-rejected",
         "evidence-invalid",
+        ...authoredTextListingErrors,
       ]);
     }
   });
@@ -1249,6 +1250,7 @@ export function createAccountListingRoutes(
         "listing-not-found",
         "command-rejected",
         "evidence-invalid",
+        ...authoredTextListingErrors,
       ]);
     }
   });
@@ -1317,7 +1319,7 @@ export function createAccountListingRoutes(
       );
       return c.json({ id: result.listingId, version: result.version, status: "photo-classified" });
     } catch (error) {
-      return listingErrorResponse(error, ["listing-not-found", "command-rejected"]);
+      return listingErrorResponse(error, ["listing-not-found", "command-rejected", ...authoredTextListingErrors]);
     }
   });
 
@@ -1382,6 +1384,7 @@ export function createAccountListingRoutes(
         "listing-not-found",
         "command-rejected",
         "evidence-invalid",
+        ...authoredTextListingErrors,
       ]);
     }
   });

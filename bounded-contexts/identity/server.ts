@@ -194,7 +194,9 @@ export {
   createAgentGrantRevocations,
   createActiveAgentGrantFence,
   newRevocationAttemptId,
+  readAgentGrantRevocationStatus,
   type AgentGrantRevocations,
+  type AgentGrantRevocationStatus,
   type RevocationBinding,
   type RevocationState,
 } from "./features/agent-grants/api/revocation";
