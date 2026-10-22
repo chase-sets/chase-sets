@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 
 import {
   validateCatalogProviderExecutableMappingContract,
@@ -8,7 +9,9 @@ import {
   ygojsonYugiohMappingContractCentralTypeAdditions,
   ygojsonYugiohProviderGovernance,
   ygojsonYugiohReferenceDataMappingContracts,
+  ygojsonYugiohSealedProductReferenceProviderProfile,
   ygojsonYugiohSealedProductReferenceSourceObservationMappingContract,
+  ygojsonYugiohSetReferenceProviderProfile,
   ygojsonYugiohSetReferenceSourceObservationMappingContract,
 } from "../../ygojson-executable-mapping-contract";
 
@@ -41,7 +44,7 @@ describe("YGOJSON executable mapping contracts", () => {
       uses: expect.arrayContaining(["normalized-observation", "hash-material"]),
       redaction: "none",
     });
-    expect(ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.profileVersion).toBe("2026.07.14");
+    expect(ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.profileVersion).toBe("2026.10.18");
     expect(ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.promotionCommandPlan.commands).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ commandName: "CreateCatalogItem" }),
@@ -73,6 +76,27 @@ describe("YGOJSON executable mapping contracts", () => {
           contract as unknown as CatalogProviderExecutableMappingContract,
         ),
       ).toEqual([]);
+    }
+  });
+
+  it("resolves every Yu-Gi-Oh product-line rule to the seeded canonical record", () => {
+    for (const profile of [
+      ygojsonYugiohSetReferenceProviderProfile,
+      ygojsonYugiohSealedProductReferenceProviderProfile,
+    ]) {
+      const productLineRule = profile.referenceHierarchyMapping.referenceRecords.find(
+        (rule) => rule.ruleKey === "yugioh-product-line",
+      );
+      expect(productLineRule).toMatchObject({
+        typeKey: "product-line",
+        recordId: {
+          kind: "static",
+          referenceRecordId: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+        },
+        key: { kind: "static", value: "yu-gi-oh-official-card-game" },
+      });
+      expect(productLineRule?.recordId.kind).not.toBe("provider");
+      expect(productLineRule?.key).not.toMatchObject({ value: "yu-gi-oh" });
     }
   });
 });

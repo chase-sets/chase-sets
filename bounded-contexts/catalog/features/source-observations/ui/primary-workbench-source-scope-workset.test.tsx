@@ -588,7 +588,7 @@ describe("Catalog source-scope workset", () => {
     );
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=ygoprodeck&unitKey=ygoprodeck:yugioh:single-card:reference-data&importScope=ja:SV:SV8&profileVersion=2026.06.21",
+        "https://admin.example/catalog/integrations?providerKey=ygoprodeck&unitKey=ygoprodeck:yugioh:single-card:reference-data&importScope=ja:SV:SV8&profileVersion=2026.10.18",
       scopes: {
         items: [
           pokemonScope({
@@ -635,7 +635,7 @@ describe("Catalog source-scope workset", () => {
     const profile = yugiohSetNameProfile("ygojson", "YGOJSON Yu-Gi-Oh sets", "ygojson:yugioh:set:reference-data");
     const selectedSetId = "9baa1b43-8a60-44dd-a144-dbef99c8c7a4";
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl: `https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:set:reference-data&importScope=ja:SV:SV8&expansionName=${selectedSetId}&profileVersion=2026.06.21&filter.importScope=ja%3ASV%3ASV8`,
+      requestUrl: `https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:set:reference-data&importScope=ja:SV:SV8&expansionName=${selectedSetId}&profileVersion=2026.10.18&filter.importScope=ja%3ASV%3ASV8`,
       scopes: { items: [], total: 0, count: 0 },
       profileReviews: { items: [profile], total: 1, count: 1 },
       controlPlaneOverview: overviewForProfiles([profile], "yugioh"),
@@ -1343,7 +1343,7 @@ function yugiohSetNameProfile(providerKey: string, displayName: string, ingestio
   return profileReview({
     providerKey,
     profileKey: `${providerKey}-yugioh-set`,
-    profileVersion: "2026.06.21",
+    profileVersion: "2026.10.18",
     ingestionUnitKey,
     displayName,
     active: true,
