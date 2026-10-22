@@ -64,7 +64,7 @@ const OFFER_LIFECYCLE_CONSUMERS = [
   ["discovery", "discovery-market-projection", 3],
   ["discovery", "discovery-product-alert-notification-projection", 2],
   ["checkout", "checkout.sell-list-projection", 3],
-  ["pricing", "pricing-market-input-projection", 2],
+  ["pricing", "pricing-market-input-projection", 3],
 ] as const;
 
 const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
