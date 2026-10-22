@@ -474,7 +474,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     [
       [`${listingDomain}:995-998`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
       [
-        `${listingTests}:407-429`,
+        `${listingTests}:413-445`,
         /Withdrawn listings cannot be published/,
         /Withdrawn listings cannot be updated/,
         /Listing has already been created/,

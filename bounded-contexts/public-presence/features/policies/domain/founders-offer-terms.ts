@@ -131,7 +131,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:995-998; ${listingTests}:407-429; ${creationEvidence}; ${runtimeTests}:971-1097`,
+            evidenceRef: `${listingDomain}:995-998; ${listingTests}:413-445; ${creationEvidence}; ${runtimeTests}:971-1097`,
           },
           {
             assertion:
