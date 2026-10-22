@@ -53,7 +53,13 @@ function listingCreated() {
 }
 
 function reservation(assertCurrent = vi.fn(async () => undefined)) {
-  return { ownerContext: "test", streamId: "test.stream", expectedVersion: 1, assertCurrent };
+  return {
+    ownerContext: "test",
+    streamId: "test.stream",
+    expectedVersion: 1,
+    assertCurrent,
+    seal: { ownerContext: "test", streamId: "test.stream", version: 1, context },
+  };
 }
 
 function setup() {

@@ -7,10 +7,12 @@ import {
   createEventStoreError,
   type AppendToStreamsIndependentResult,
   type AppendToStreamsIndependentlyOptions,
+  type AppendToStreamsOptions,
   type AppendToStreamsResult,
   type EventStoreError,
   type EventStore,
 } from "@chase-sets/event-core/event-store";
+import { assertOwnerStreamCommitParticipants } from "@chase-sets/event-core/owner-seal";
 import {
   EVENT_STORE_READ_PAGE_SIZE_MAX,
   ZERO_GLOBAL_POSITION,
@@ -398,7 +400,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
         },
       );
     },
-    appendToStreams: async (inputs) => {
+    appendToStreams: async (inputs, options?: AppendToStreamsOptions) => {
       const appendInputs = inputs.filter((input) => input.events.length > 0);
       // A zero-event input is a version guard, not a skipped no-op: the
       // transaction still opens so its expected version is enforced.
@@ -418,8 +420,9 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
           try {
             return await withPgTransaction(
               pool,
-              async (client) =>
-                appendEventsToStreams({
+              async (client) => {
+                await assertOwnerStreamCommitParticipants(options?.commitParticipants ?? [], inputs[0]?.context);
+                return appendEventsToStreams({
                   client,
                   inputs,
                   now,
@@ -429,7 +432,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
                   eventsTable,
                   readEventsByIdsSql,
                   updateStreamVersionSql,
-                }),
+                });
+              },
               {
                 afterCommit: wakeNotifications
                   ? async (client, results) => {

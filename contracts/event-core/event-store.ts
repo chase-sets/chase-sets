@@ -1,4 +1,10 @@
 import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "./storage";
+import type { OwnerStreamCommitParticipant } from "./owner-seal";
+
+export type AppendToStreamsOptions = Readonly<{
+  /** Owner-local seals checked immediately before the atomic append. */
+  commitParticipants?: readonly OwnerStreamCommitParticipant[];
+}>;
 
 export type AppendToStreamsResult = Readonly<{
   streamId: string;
@@ -54,7 +60,10 @@ export type EventStore = Readonly<{
    * ignored. `appendToStream` keeps the single-stream shortcut -- with no other
    * participant in the transaction there is nothing for a guard to protect.
    */
-  appendToStreams?: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
+  appendToStreams?: (
+    inputs: readonly AppendToStreamInput[],
+    options?: AppendToStreamsOptions,
+  ) => Promise<readonly AppendToStreamsResult[]>;
   /**
    * Appends events for many streams in ONE transaction (one advisory-lock
    * acquisition window, one multi-row event INSERT spanning every stream),

@@ -1,6 +1,11 @@
 import { createId, type EventId } from "@chase-sets/primitives/typed-ids";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { assertOwnerStreamReservationShape, type OwnerStreamReservation } from "@chase-sets/event-core/owner-seal";
+import {
+  assertOwnerStreamReservationShape,
+  toOwnerStreamCommitParticipant,
+  type OwnerStreamCommitParticipant,
+  type OwnerStreamReservation,
+} from "@chase-sets/event-core/owner-seal";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { decideMarketplaceListing, type MarketplaceListingEvent, type MarketplaceListingState } from "../domain/domain";
@@ -55,6 +60,11 @@ export function createListingTargetRuntime(
       await reservation.assertCurrent();
     }
   }
+  function commitParticipants(
+    reservations: readonly OwnerStreamReservation[],
+  ): readonly OwnerStreamCommitParticipant[] {
+    return reservations.map((reservation) => toOwnerStreamCommitParticipant(reservation));
+  }
   const acceptListingTargetPrice: ListingTargetServices["acceptListingTargetPrice"] = async (raw, context) => {
     const input = acceptListingTargetPriceSchema.parse(raw) as AcceptListingTargetPriceInput;
     const pair = normalizeAcceptedListingPrice(input.priceAmount, input.priceCurrencyCode);
@@ -79,10 +89,13 @@ export function createListingTargetRuntime(
         }
         const resolved =
           input.target.kind === "channel-connection"
-            ? await deps.authority!.resolveConnection({
-                accountId: input.accountId,
-                connectionId: input.target.connectionId,
-              })
+            ? await deps.authority!.resolveConnection(
+                {
+                  accountId: input.accountId,
+                  connectionId: input.target.connectionId,
+                },
+                context,
+              )
             : null;
         if (input.target.kind === "channel-connection") {
           assert(resolved?.value, "Owned current connection authority is required.");
@@ -128,6 +141,7 @@ export function createListingTargetRuntime(
               events: events.map((event) => ({ ...codec.encode(event), eventId: accepted.sourceEventId as EventId })),
             },
           ],
+          commitParticipants: commitParticipants(grants),
         };
       },
     });
@@ -143,22 +157,28 @@ export function createListingTargetRuntime(
         const reservations = await manage(input, context);
         const loaded = await owned(input);
         assert(loaded.version === input.expectedListingVersion, "Listing revision changed.");
-        const connection = await deps.authority?.resolveConnection({
-          accountId: input.accountId,
-          connectionId: input.connectionId,
-        });
+        const connection = await deps.authority?.resolveConnection(
+          {
+            accountId: input.accountId,
+            connectionId: input.connectionId,
+          },
+          context,
+        );
         assert(connection?.value, "Current channel connection authority is required.");
         assert(
           connection.value.accountId === input.accountId && connection.value.connectionId === input.connectionId,
           "Channel connection authority identity mismatch.",
         );
-        const allocation = await deps.authority!.resolveAllocation({
-          accountId: input.accountId,
-          inventoryItemId: loaded.state.inventoryItemId!,
-          productId: loaded.state.productId!,
-          connectionId: input.connectionId,
-          allocationRevision: input.allocationRevision,
-        });
+        const allocation = await deps.authority!.resolveAllocation(
+          {
+            accountId: input.accountId,
+            inventoryItemId: loaded.state.inventoryItemId!,
+            productId: loaded.state.productId!,
+            connectionId: input.connectionId,
+            allocationRevision: input.allocationRevision,
+          },
+          context,
+        );
         assert(allocation.value, "Current Inventory allocation is required.");
         assert(
           allocation.value.accountId === input.accountId &&
@@ -186,6 +206,7 @@ export function createListingTargetRuntime(
               events: events.map(codec.encode),
             },
           ],
+          commitParticipants: commitParticipants(grants),
         };
       },
     });

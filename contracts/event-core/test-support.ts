@@ -4,6 +4,7 @@ import type { AccountId, EventId, TenantId, UserId } from "../primitives/typed-i
 import {
   createEventStoreError,
   type AppendToStreamsIndependentResult,
+  type AppendToStreamsOptions,
   type EventStore,
   type EventStoreError,
 } from "./event-store";
@@ -24,6 +25,7 @@ import type {
   StoredEvent,
 } from "./storage";
 import type { TransportEvent } from "./transport";
+import { assertOwnerStreamCommitParticipants } from "./owner-seal";
 
 export type TransportEventFixtureOverrides = Readonly<
   Partial<{
@@ -239,7 +241,7 @@ export function createInMemoryEventStore(): InMemoryEventStore {
 
   const eventStore: EventStore = {
     appendToStream: async (input) => appendToStream(input),
-    appendToStreams: async (inputs) => {
+    appendToStreams: async (inputs, options?: AppendToStreamsOptions) => {
       // Every input's expected version is enforced, including a zero-event
       // one: that input is a pure version guard on a stream this append does
       // not write to, and skipping it would silently drop the guard.
@@ -258,6 +260,7 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       const priorEventsById = new Map(eventsById);
 
       try {
+        await assertOwnerStreamCommitParticipants(options?.commitParticipants ?? [], inputs[0]?.context);
         return inputs.map((input) => ({
           streamId: input.streamId,
           storedEvents: input.events.length === 0 ? [] : appendToStream(input),

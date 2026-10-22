@@ -60,12 +60,18 @@ export function createListingActivationAuthority(
       return {
         value: true,
         reservations: [
-          reservation("identity", `identity.account-${accountId}`, accountLoaded.version, async () => {
-            const current = await identity.accounts.getAccountStateWithVersion?.(accountId);
-            if (!current || current.version !== accountLoaded.version || current.state.status !== "active") {
-              throw new Error("Identity account authority changed.");
-            }
-          }),
+          reservation(
+            "identity",
+            `identity.account-${accountId}`,
+            accountLoaded.version,
+            async () => {
+              const current = await identity.accounts.getAccountStateWithVersion?.(accountId);
+              if (!current || current.version !== accountLoaded.version || current.state.status !== "active") {
+                throw new Error("Identity account authority changed.");
+              }
+            },
+            context,
+          ),
           reservation(
             "identity",
             `identity.membership-${membership.membership_id}`,
@@ -83,6 +89,7 @@ export function createListingActivationAuthority(
                 throw new Error("Identity membership authority changed.");
               }
             },
+            context,
           ),
         ],
       };
@@ -95,6 +102,13 @@ function reservation(
   streamId: string,
   expectedVersion: number,
   assertCurrent: () => Promise<void>,
+  context: EventStoreContext,
 ): OwnerStreamReservation {
-  return { ownerContext, streamId, expectedVersion, assertCurrent };
+  return {
+    ownerContext,
+    streamId,
+    expectedVersion,
+    assertCurrent,
+    seal: { ownerContext, streamId, version: expectedVersion, context },
+  };
 }

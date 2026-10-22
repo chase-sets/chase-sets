@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { OwnerStreamCommitParticipant } from "@chase-sets/event-core/owner-seal";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { toJsonValue } from "@chase-sets/primitives/json";
 
@@ -26,7 +27,13 @@ export function createListingRequestExecutor(eventStore: EventStore) {
       idempotencyKey: string;
       command: Record<string, unknown>;
       context: EventStoreContext;
-      prepare: () => Promise<Readonly<{ result: Result; appends: readonly AppendToStreamInput[] }>>;
+      prepare: () => Promise<
+        Readonly<{
+          result: Result;
+          appends: readonly AppendToStreamInput[];
+          commitParticipants?: readonly OwnerStreamCommitParticipant[];
+        }>
+      >;
     }>,
   ): Promise<Result> {
     const streamId = `marketplace.listing-request-${createHash("sha256")
@@ -54,20 +61,26 @@ export function createListingRequestExecutor(eventStore: EventStore) {
     if (!eventStore.appendToStreams) throw new Error("Atomic listing request persistence is unavailable.");
     try {
       const prepared = await input.prepare();
-      const results = await eventStore.appendToStreams([
-        ...prepared.appends,
-        {
-          streamId,
-          expectedVersion: "no_stream",
-          context: input.context,
-          events: [
-            {
-              eventType: "marketplace.listing-request.completed",
-              payload: { schemaVersion: 1, fingerprint, result: toJsonValue(prepared.result) },
-            },
-          ],
-        },
-      ]);
+      if (!prepared.commitParticipants?.length) {
+        throw new Error("Owner stream commit participation is unavailable.");
+      }
+      const results = await eventStore.appendToStreams(
+        [
+          ...prepared.appends,
+          {
+            streamId,
+            expectedVersion: "no_stream",
+            context: input.context,
+            events: [
+              {
+                eventType: "marketplace.listing-request.completed",
+                payload: { schemaVersion: 1, fingerprint, result: toJsonValue(prepared.result) },
+              },
+            ],
+          },
+        ],
+        { commitParticipants: prepared.commitParticipants },
+      );
       recordCommittedEvents(results.flatMap((result) => result.storedEvents));
       return prepared.result;
     } catch (error) {

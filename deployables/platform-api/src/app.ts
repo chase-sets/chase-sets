@@ -330,14 +330,21 @@ export function createPlatformApiHost(
     streamId: string,
     expectedVersion: number,
     assertCurrent: () => Promise<void>,
-  ) => ({ ownerContext, streamId, expectedVersion, assertCurrent });
+    context: EventStoreContext,
+  ) => ({
+    ownerContext,
+    streamId,
+    expectedVersion,
+    assertCurrent,
+    seal: { ownerContext, streamId, version: expectedVersion, context },
+  });
   const listingTargetAuthority: ListingTargetAuthority = {
     authorizeManage: async ({ accountId }, context) => {
       const identity = runtime?.services.identity as IdentityServices | undefined;
       if (!identity) return { value: false, reservations: [] };
       return createListingActivationAuthority(identity).authorizeManage({ accountId }, context);
     },
-    resolveConnection: async ({ accountId, connectionId }) => {
+    resolveConnection: async ({ accountId, connectionId }, context) => {
       const channels = runtime?.services.channels;
       if (!isChannelsServices(channels)) return { value: null, reservations: [] };
       const loaded = await channels.connections.loadOwned?.(accountId, connectionId);
@@ -353,16 +360,22 @@ export function createPlatformApiHost(
           identityRevision: loaded.version,
         },
         reservations: [
-          reservation("channels", `channels.connection-${connectionId}`, loaded.version, async () => {
-            const current = await channels.connections.loadOwned?.(accountId, connectionId);
-            if (!current || current.version !== loaded.version || current.state.status !== "active") {
-              throw new Error("Channels connection authority changed.");
-            }
-          }),
+          reservation(
+            "channels",
+            `channels.connection-${connectionId}`,
+            loaded.version,
+            async () => {
+              const current = await channels.connections.loadOwned?.(accountId, connectionId);
+              if (!current || current.version !== loaded.version || current.state.status !== "active") {
+                throw new Error("Channels connection authority changed.");
+              }
+            },
+            context,
+          ),
         ],
       };
     },
-    resolveAllocation: async ({ accountId, inventoryItemId, productId, connectionId, allocationRevision }) => {
+    resolveAllocation: async ({ accountId, inventoryItemId, productId, connectionId, allocationRevision }, context) => {
       const inventory = runtime?.services.inventory as InventoryServices | undefined;
       const itemLoaded = await inventory?.items.loadItemWithVersion?.(inventoryItemId, accountId);
       const item = itemLoaded?.state;
@@ -389,39 +402,45 @@ export function createPlatformApiHost(
           eligibleQuantity,
         },
         reservations: [
-          reservation("inventory", `inventory.item-${inventoryItemId}`, itemLoaded.version, async () => {
-            const currentItem = await inventory!.items.loadItemWithVersion?.(inventoryItemId, accountId);
-            const currentAllocation = await inventory!.channelStockAllocations.readAuthoritative({
-              accountId,
-              inventoryItemId,
-            });
-            if (
-              !currentItem ||
-              currentItem.version !== itemLoaded.version ||
-              String(currentItem.state.productId) !== productId ||
-              !currentAllocation ||
-              "kind" in currentAllocation ||
-              currentAllocation.revision !== allocationRevision
-            ) {
-              throw new Error("Inventory allocation authority changed.");
-            }
-            const currentRead = await inventory!.items.getItem(inventoryItemId, accountId);
-            const currentPartition = currentAllocation.partitions.find(
-              (candidate) => candidate.channelConnectionId === connectionId,
-            );
-            const currentEligibleQuantity =
-              currentAllocation.mode === "shared-pool"
-                ? (currentRead?.available_quantity ?? 0)
-                : (currentPartition?.units ?? 0);
-            if (
-              !currentRead ||
-              currentRead.account_id !== accountId ||
-              currentRead.product_id !== productId ||
-              currentEligibleQuantity <= 0
-            ) {
-              throw new Error("Inventory allocation authority changed.");
-            }
-          }),
+          reservation(
+            "inventory",
+            `inventory.item-${inventoryItemId}`,
+            itemLoaded.version,
+            async () => {
+              const currentItem = await inventory!.items.loadItemWithVersion?.(inventoryItemId, accountId);
+              const currentAllocation = await inventory!.channelStockAllocations.readAuthoritative({
+                accountId,
+                inventoryItemId,
+              });
+              if (
+                !currentItem ||
+                currentItem.version !== itemLoaded.version ||
+                String(currentItem.state.productId) !== productId ||
+                !currentAllocation ||
+                "kind" in currentAllocation ||
+                currentAllocation.revision !== allocationRevision
+              ) {
+                throw new Error("Inventory allocation authority changed.");
+              }
+              const currentRead = await inventory!.items.getItem(inventoryItemId, accountId);
+              const currentPartition = currentAllocation.partitions.find(
+                (candidate) => candidate.channelConnectionId === connectionId,
+              );
+              const currentEligibleQuantity =
+                currentAllocation.mode === "shared-pool"
+                  ? (currentRead?.available_quantity ?? 0)
+                  : (currentPartition?.units ?? 0);
+              if (
+                !currentRead ||
+                currentRead.account_id !== accountId ||
+                currentRead.product_id !== productId ||
+                currentEligibleQuantity <= 0
+              ) {
+                throw new Error("Inventory allocation authority changed.");
+              }
+            },
+            context,
+          ),
         ],
       };
     },

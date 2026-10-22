@@ -40,6 +40,7 @@ export type ListingTargetAuthority = Readonly<{
   ): Promise<ListingAuthorityResult<boolean>>;
   resolveConnection(
     input: Readonly<{ accountId: string; connectionId: string }>,
+    context: EventStoreContext,
   ): Promise<
     ListingAuthorityResult<
       (NonNullable<AcceptedListingTargetPriceV1["connectionAuthority"]> & Readonly<{ accountId: string }>) | null
@@ -53,6 +54,7 @@ export type ListingTargetAuthority = Readonly<{
       connectionId: string;
       allocationRevision: number;
     }>,
+    context: EventStoreContext,
   ): Promise<
     ListingAuthorityResult<Readonly<{
       accountId: string;
