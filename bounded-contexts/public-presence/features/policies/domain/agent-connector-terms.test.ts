@@ -643,3 +643,67 @@ describe("agent connector terms: #6817 canonical claim consumption", () => {
     }
   });
 });
+
+/** The scope subject's draft text, byte-identical to its text before the Connector question was added. */
+const scopeDraftFixture =
+  "These Agent Connector Terms address automated access through the documented Chase Sets connector surfaces. The native `/mcp` bridge is a separate first-party and operator automation surface where Chase Sets controls the agent host and binds requests to a platform session or operator principal. External agent commerce uses the distinct `/.well-known/ucp` discovery profile and `/ucp/mcp` transport. The Developer Portal documents and links these surfaces; it is not an executable connector and does not imply that every API, tool, or resource is available.";
+
+const connectorGlossaryRef = "bounded-contexts/channels/GLOSSARY.md:21-32";
+
+function connectorPairingQuestionErrors(section: PublicPolicySection): readonly string[] {
+  const errors: string[] = [];
+  if (section.draftText !== scopeDraftFixture) errors.push("scope draft text changed");
+  const questions = section.reviewManifest.openQuestions.filter((question) => question.includes("Connector Pairing"));
+  if (questions.length !== 1) return [...errors, `expected one Connector Pairing question, found ${questions.length}`];
+  const question = questions[0]!;
+  if (!question.includes(`(${connectorGlossaryRef})`)) errors.push("Channels glossary ref missing");
+  if (
+    !question.includes("neither an agent nor a seller actor") ||
+    /Connector is an? (?:authorized )?(?:software )?(?:agent|seller)/i.test(question)
+  ) {
+    errors.push("Connector classified as an agent or seller");
+  }
+  for (const fragment of [
+    "Channels ships a Connector",
+    "do not describe Connectors or Connector Pairing",
+    "is a counsel question",
+  ]) {
+    if (!question.includes(fragment)) errors.push(`question lacks '${fragment}'`);
+  }
+  return errors;
+}
+
+describe("agent connector terms: Connector Pairing manifest question", () => {
+  it("connector pairing manifest question preserves connector distinction", () => {
+    const section = sectionOf(agentConnectorTermsPolicyArtifact, "scope-and-definitions");
+    expect(connectorPairingQuestionErrors(section)).toEqual([]);
+    const glossary = readCitedText(connectorGlossaryRef);
+    expect(glossary).toContain("## Connector\n");
+    expect(glossary).toContain("It is neither an agent nor a seller actor.");
+    expect(glossary).toContain("## Connector Pairing");
+    expect(glossary).toContain("consumes a one-use, ten-minute pairing code");
+
+    const omitted = {
+      ...section,
+      reviewManifest: {
+        ...section.reviewManifest,
+        openQuestions: section.reviewManifest.openQuestions.filter(
+          (question) => !question.includes("Connector Pairing"),
+        ),
+      },
+    };
+    expect(connectorPairingQuestionErrors(omitted)).toEqual(["expected one Connector Pairing question, found 0"]);
+    const misclassified = {
+      ...section,
+      reviewManifest: {
+        ...section.reviewManifest,
+        openQuestions: section.reviewManifest.openQuestions.map((question) =>
+          question.replace("neither an agent nor a seller actor", "so a Connector is an authorized agent"),
+        ),
+      },
+    };
+    expect(connectorPairingQuestionErrors(misclassified)).toEqual(["Connector classified as an agent or seller"]);
+    const draftChanged = { ...section, draftText: `${section.draftText} Connectors pair through Channels.` };
+    expect(connectorPairingQuestionErrors(draftChanged)).toEqual(["scope draft text changed"]);
+  });
+});
