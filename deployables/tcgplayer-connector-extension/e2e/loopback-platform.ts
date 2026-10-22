@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
+import { syntheticClaim } from "../__tests__/harness/claim";
 
 export const synthetic = {
   cookieName: "synthetic_connector_session",
@@ -11,12 +12,31 @@ export const synthetic = {
   clientId: "cc_client_synthetic",
 };
 export const closedErrors = ["authorization_refused", "pairing_code_missing", "pairing_code_ambiguous"] as const;
+export type SyntheticClaimResponse = "reservation" | "invalid-credential" | "empty";
+
+const connectorPath = "/channel-connector/oauth/connections/connection_synthetic";
+
+/** True when a report body carries outcomes and every one is `abandoned`. */
+function reportsAbandoned(raw: string) {
+  try {
+    const { outcomes } = JSON.parse(raw) as { outcomes?: unknown };
+    return (
+      Array.isArray(outcomes) &&
+      outcomes.length > 0 &&
+      outcomes.every((row: { outcome?: { kind?: unknown } } | null) => row?.outcome?.kind === "abandoned")
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function loopbackPlatform(
   options: {
     port?: number;
     requirePairingCode?: boolean;
     handle?: (request: IncomingMessage, reply: ServerResponse) => Promise<boolean>;
+    /** Opt-in claim responses, served in order and then `empty`; absent leaves claim and report unserved. */
+    claims?: readonly SyntheticClaimResponse[];
   } = {},
 ) {
   let response: "success" | "hold" | (typeof closedErrors)[number] = "success";
@@ -32,7 +52,23 @@ export async function loopbackPlatform(
   let pairingExpiresAt = 0;
   let authorizationExpiresAt = 0;
   let tokenConsumed = false;
+  // Drill counters are bumped only by the request handlers below.
+  const drill = {
+    requestCount: 0,
+    pairingCodeCount: 0,
+    tokenCookieArrived: false,
+    claimCount: 0,
+    reservationClaimCount: 0,
+    invalidCredentialClaimCount: 0,
+    claimCookieArrived: false,
+    reportCount: 0,
+    abandonedReportCount: 0,
+    channelPageServed: 0,
+    pageStatus: null as number | null,
+  };
+  const claims = [...(options.claims ?? [])];
   const server = createServer(async (request, reply) => {
+    drill.requestCount++;
     reply.setHeader("Connection", "close");
     if (await options.handle?.(request, reply)) return;
     const url = new URL(request.url!, "http://127.0.0.1");
@@ -49,6 +85,7 @@ export async function loopbackPlatform(
         return;
       }
       pairingExpiresAt = Date.now() + 600000;
+      drill.pairingCodeCount++;
       reply.writeHead(200, { "Content-Type": "application/json" }).end(
         JSON.stringify({
           pairingId: "synthetic-pairing",
@@ -104,6 +141,7 @@ export async function loopbackPlatform(
     }
     if (url.pathname === "/channel-connector/oauth/token") {
       tokenCount++;
+      if (request.headers.cookie) drill.tokenCookieArrived = true;
       let raw = "";
       for await (const chunk of request) raw += chunk;
       const body = JSON.parse(raw);
@@ -137,8 +175,42 @@ export async function loopbackPlatform(
       );
       return;
     }
+    if (options.claims && [`${connectorPath}/claim`, `${connectorPath}/report`].includes(url.pathname)) {
+      const claim = url.pathname.endsWith("/claim");
+      if (claim) drill.claimCount++;
+      if (claim && request.headers.cookie) drill.claimCookieArrived = true;
+      let raw = "";
+      for await (const chunk of request) raw += chunk;
+      const next =
+        request.method !== "POST" || request.headers.authorization !== `Bearer ${synthetic.access}`
+          ? "invalid-credential"
+          : claim
+            ? (claims.shift() ?? "empty")
+            : "report";
+      reply.setHeader("Content-Type", "application/json");
+      if (next === "invalid-credential") {
+        if (claim) drill.invalidCredentialClaimCount++;
+        reply.writeHead(401).end(JSON.stringify({ error: "invalid-credential" }));
+        return;
+      }
+      if (next === "report") {
+        drill.reportCount++;
+        if (reportsAbandoned(raw)) drill.abandonedReportCount++;
+        reply.writeHead(200).end("{}");
+        return;
+      }
+      if (next === "reservation") drill.reservationClaimCount++;
+      reply
+        .writeHead(200)
+        .end(JSON.stringify({ reservation: next === "reservation" ? syntheticClaim() : null, pollWindowSeconds: 30 }));
+      return;
+    }
     if (url.pathname.startsWith("/account/channels")) {
       reply.end("<!doctype html><title>Channels</title>");
+      if (url.pathname === "/account/channels/connection_synthetic") {
+        drill.channelPageServed++;
+        drill.pageStatus = reply.statusCode;
+      }
       return;
     }
     reply.writeHead(404);
@@ -167,6 +239,7 @@ export async function loopbackPlatform(
       release?.();
     },
     observation: () => ({ authorizeCount, tokenCount, cookieArrived, queryClosed, tokenClosed }),
+    drillObservation: () => ({ ...drill }),
     forbidden: () => [
       synthetic.cookieName,
       synthetic.cookieValue,
@@ -184,7 +257,8 @@ export async function loopbackPlatform(
   };
 }
 
-export async function createSyntheticPairingCode(origin: string) {
+/** Issues a synthetic pairing code and returns the served `pairingId`. */
+export async function createSyntheticPairingCode(origin: string): Promise<string> {
   const response = await fetch(`${origin}/api/channels/connections/connection_synthetic/connector-pairing/code`, {
     method: "POST",
     redirect: "error",
@@ -192,4 +266,8 @@ export async function createSyntheticPairingCode(origin: string) {
     body: "{}",
   });
   if (!response.ok) throw new Error("synthetic-pairing-code-refused");
+  const body: unknown = await response.json();
+  if (!body || typeof body !== "object" || !("pairingId" in body) || typeof body.pairingId !== "string")
+    throw new Error("synthetic-pairing-code-refused");
+  return body.pairingId;
 }

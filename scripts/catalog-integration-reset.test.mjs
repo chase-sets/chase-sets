@@ -35,11 +35,11 @@ function assertImmutableProviderUatAdmission(document) {
   });
   expect(resolver.needs).toBe("admit-reviewed-sha");
   expect(resolver.if).toBe(
-    "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture'",
+    "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-force-refresh-bounded'",
   );
   expect(worker.needs).toEqual(["admit-reviewed-sha", "resolve-provider-uat-plan"]);
   expect(worker.if).toBe(
-    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture'",
+    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-force-refresh-bounded'",
   );
   expect(gate.steps.some((step) => /checkout|setup|playwright/i.test(step.uses ?? step.run ?? ""))).toBe(false);
   const sha = "a".repeat(40);

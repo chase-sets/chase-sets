@@ -27,11 +27,6 @@ const trackedFiles = new Set(
 
 const boundedSites = [
   {
-    id: "bounded-contexts/auth/support/request-support/csat-outcome-facts.ts#readStream#1",
-    pointer: "bounded-contexts/auth/support/request-support/csat-outcome-facts.test.ts",
-    consumption: "first-event",
-  },
-  {
     id: "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts#readStream#1",
     pointer:
       "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.test.ts",
@@ -54,19 +49,9 @@ const boundedSites = [
     consumption: "presence",
   },
   {
-    id: "bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts#readStream#1",
-    pointer: "bounded-contexts/discovery/support/request-support/csat-outcome-facts.test.ts",
-    consumption: "first-event",
-  },
-  {
     id: "bounded-contexts/identity/api.ts#readStream#1",
     pointer: "bounded-contexts/identity/tests/registration-operation-recovery.db.test.ts",
     consumption: "presence",
-  },
-  {
-    id: "bounded-contexts/identity/support/request-support/csat-outcome-facts.ts#readStream#1",
-    pointer: "bounded-contexts/identity/support/request-support/csat-outcome-facts.test.ts",
-    consumption: "first-event",
   },
 ];
 
@@ -121,7 +106,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twenty-one-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact eighteen-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });
@@ -191,25 +176,26 @@ describe("bounded-stream-contracts-acceptance-control", () => {
   });
 
   it("rejects missing, duplicate, nonexistent, cross-workspace, and scripts-only pointers", () => {
-    const authFile = "bounded-contexts/auth/support/request-support/csat-outcome-facts.ts";
-    const authPointer = boundedSites[0].pointer;
-    const source = readSource(authFile);
+    const identityFile = "bounded-contexts/identity/api.ts";
+    const identitySite = boundedSites.find((site) => site.id === "bounded-contexts/identity/api.ts#readStream#1");
+    const identityPointer = identitySite.pointer;
+    const source = readSource(identityFile);
 
     expect(
       errorCodes(
         mutatedInventory(
-          authFile,
-          source.replace(`// @stream-read-contract ${authPointer}`, "// pointer intentionally removed"),
+          identityFile,
+          source.replace(`// @stream-read-contract ${identityPointer}`, "// pointer intentionally removed"),
         ),
       ),
     ).toContain("pointer-missing");
     expect(
       errorCodes(
         mutatedInventory(
-          authFile,
+          identityFile,
           source.replace(
-            `// @stream-read-contract ${authPointer}`,
-            `// @stream-read-contract ${authPointer}\n      // @stream-read-contract ${authPointer}`,
+            `// @stream-read-contract ${identityPointer}`,
+            `// @stream-read-contract ${identityPointer}\n      // @stream-read-contract ${identityPointer}`,
           ),
         ),
       ),
@@ -217,41 +203,37 @@ describe("bounded-stream-contracts-acceptance-control", () => {
     expect(
       errorCodes(
         mutatedInventory(
-          authFile,
-          source.replace(authPointer, "bounded-contexts/auth/support/request-support/not-a-test.test.ts"),
+          identityFile,
+          source.replace(identityPointer, "bounded-contexts/identity/support/request-support/not-a-test.test.ts"),
         ),
       ),
     ).toContain("pointer-nonexistent");
     expect(
       errorCodes(
         mutatedInventory(
-          authFile,
-          source.replace(authPointer, "bounded-contexts/discovery/support/request-support/csat-outcome-facts.test.ts"),
+          identityFile,
+          source.replace(identityPointer, "bounded-contexts/auth/support/api-support/password-routes.test.ts"),
         ),
       ),
     ).toContain("pointer-cross-workspace");
     expect(
-      errorCodes(mutatedInventory(authFile, source.replace(authPointer, "scripts/check-structure/example.test.ts"))),
+      errorCodes(
+        mutatedInventory(identityFile, source.replace(identityPointer, "scripts/check-structure/example.test.ts")),
+      ),
     ).toContain("pointer-scripts-only");
   });
 
   it("rejects a pointed owning test that omits its literal derived site ID", () => {
-    const site = boundedSites[0];
+    const site = boundedSites.find((candidate) => candidate.id === "bounded-contexts/identity/api.ts#readStream#1");
     const target = readSource(site.pointer).replace(site.id, `${site.id}-missing`);
     expect(errorCodes(candidateInventory, new Map([[site.pointer, target]]))).toContain("pointer-site-id-missing");
   });
 
   it("rejects bound, result-binding, later-event, and whole-page consumption mutants", () => {
-    const authFile = "bounded-contexts/auth/support/request-support/csat-outcome-facts.ts";
-    const authSource = readSource(authFile);
-    expect(errorCodes(mutatedInventory(authFile, authSource.replace(", limit: 1", "")))).toContain(
+    const identityFile = "bounded-contexts/identity/api.ts";
+    const identitySource = readSource(identityFile);
+    expect(errorCodes(mutatedInventory(identityFile, identitySource.replace("limit: 1,", "")))).toContain(
       "bounded-limit-not-one",
-    );
-    expect(
-      errorCodes(mutatedInventory(authFile, authSource.replace("existing[0]?.payload", "existing.at(0)?.payload"))),
-    ).toContain("first-event-consumption-changed");
-    expect(errorCodes(mutatedInventory(authFile, authSource.replaceAll("existing[0]", "existing[1]")))).toContain(
-      "first-event-consumption-changed",
     );
 
     const catalogFile =
@@ -376,9 +358,6 @@ function validateConsumption(site, expectedConsumption, errors) {
     }
   });
 
-  if (expectedConsumption === "first-event" && (indices.length !== 2 || indices.some((index) => index !== "0"))) {
-    errors.push({ code: "first-event-consumption-changed", siteId: site.id });
-  }
   if (
     expectedConsumption === "presence" &&
     (indices.length !== 0 || lengthComparisons.length !== 1 || !lengthComparisons[0])

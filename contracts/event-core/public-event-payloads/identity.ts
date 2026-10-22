@@ -6,6 +6,7 @@ import {
   type SupportRequestId,
   type TypedUlid,
 } from "../../primitives/typed-ids";
+import type { UserId } from "../../primitives/typed-ids";
 import type { EmptyEventPayload } from "./event-core";
 
 /** Closed provenance for suspension/closure; `operator-other` means a manual action with no more-specific cause. */
@@ -64,6 +65,25 @@ export type IdentityFounderNumberClaimedPayload = Readonly<{
   qualifyingActId: string;
   claimedAt: string;
 }>;
+
+export type IdentityRegistrationCompletedPayload = Readonly<{
+  accountId: AccountId;
+  userId: UserId;
+}>;
+
+export type IdentityOnboardingCompletedPayload =
+  | Readonly<{
+      accountId: AccountId;
+      userId: UserId;
+      onboardingPath: "guest-account";
+      invitationId?: never;
+    }>
+  | Readonly<{
+      accountId: AccountId;
+      userId: UserId;
+      onboardingPath: "invitation";
+      invitationId: string;
+    }>;
 
 export type IdentityAccountBadgeAssignedPayload = Readonly<{
   badgeKey: string;
@@ -208,6 +228,8 @@ function isAccountProfileReportInstant(value: unknown): value is string {
 }
 
 export type IdentityEventPayloads = Readonly<{
+  "identity.registration.completed": IdentityRegistrationCompletedPayload;
+  "identity.onboarding.completed": IdentityOnboardingCompletedPayload;
   "identity.account-profile.report-submitted": IdentityAccountProfileReportSubmittedPayload;
   "identity.account.suspended": IdentityAccountSuspendedPayload;
   "identity.account.reactivated": IdentityAccountReactivatedPayload;
