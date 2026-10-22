@@ -589,7 +589,7 @@ async function readJson(root, path) {
 }
 
 async function trackSources(root) {
-  await execFileAsync("git", ["add", "-A", "--", AUTHORITY_ROOT], { cwd: root });
+  await execFileAsync("git", ["-c", "core.ignorecase=false", "add", "-A", "--", AUTHORITY_ROOT], { cwd: root });
 }
 
 async function materializeImmutableMigrationInput(original) {
@@ -778,7 +778,7 @@ describe("managed Postgres authority source generator", () => {
         ...collectionsCutoverAuthorityCaptureDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1689);
+    expect(expected.grants).toHaveLength(1692);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
