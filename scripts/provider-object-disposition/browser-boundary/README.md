@@ -195,8 +195,10 @@ is never refreshed to hide loss. Functional `newPage` and installation/refusal
 checks remain separate. The full descendant confinement observer and production
 ownership census are unchanged. The synthetic identity-loss negatives exercise
 each required role; startup-helper churn is a separate discovery fixture.
-The complete AC-D3 matrix is not yet discharged. A green subset is not
-AC-B1..B5 PASS; exact-head hosted logs, not this inventory, provide proof.
+The full hosted step executes the complete AC-D3 matrix and emits
+`installed-boundary controls: PROVEN` only after every control completes. A
+green diagnostic subset is still not AC-B1..B5 PASS; exact-head hosted logs,
+not this inventory, provide the governing proof.
 
 The 13c orphan helper samples its own generated tree (PID, start and
 executable) at readiness and again at EOF, before signalling. It reports closed

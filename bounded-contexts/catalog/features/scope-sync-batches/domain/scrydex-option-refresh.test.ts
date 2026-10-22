@@ -92,13 +92,14 @@ describe("Scrydex bounded option refresh", () => {
   });
 
   it("rejects an impossible complete receipt and enforces exact spend", () => {
-    const units = [
+    const unitKeys = [
       "scrydex:one-piece:set:reference-data",
       "scrydex:one-piece:single-card:source-observation-import",
       "scrydex:one-piece:sealed-product:source-observation-import",
       "scrydex:lorcana:set:reference-data",
       "scrydex:lorcana:single-card:source-observation-import",
-    ].map((unitKey) => ({
+    ] as const;
+    const units = unitKeys.map((unitKey) => ({
       unitKey,
       status: "live" as const,
       httpStatus: 500,
