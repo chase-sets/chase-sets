@@ -188,11 +188,36 @@ describe("marketplace SSR routes", () => {
       if (url.pathname === "/api/marketplace/guest/cart/bulk") {
         expect(method).toBe("POST");
         expect(new Headers(init?.headers).get("x-checkout-anonymous-cart-id")).toBe("anon_cart_1");
+        const body = JSON.parse(String(init?.body ?? (await request?.text()) ?? "{}")) as { attemptId?: unknown };
+        expect(body.attemptId).toEqual(expect.stringMatching(/^[A-Za-z0-9_-]{22,128}$/));
         return Response.json({
+          status: "completed",
           addedLineCount: 1,
           mergedLineCount: 0,
           failedLineCount: 0,
           requestedLineCount: 1,
+          lines: [],
+          // The committed Checkout attempt that decides the bulk add.
+          attempt: {
+            schemaVersion: 1,
+            kind: "cart.add-lines",
+            fingerprint: "a".repeat(64),
+            actorBinding: { kind: "anonymous", digest: "b".repeat(64) },
+            target: "cart",
+            requestHash: "c".repeat(64),
+            ownerStatus: "committed",
+            vector: [
+              {
+                index: 0,
+                command: "add",
+                outcome: "succeeded",
+                lineId: "cli_pikachu",
+                status: "added",
+                version: 1,
+                message: null,
+              },
+            ],
+          },
         });
       }
 

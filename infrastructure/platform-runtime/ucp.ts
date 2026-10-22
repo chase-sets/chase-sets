@@ -28,6 +28,7 @@ import {
   UCP_MCP_APP_RESOURCE_MIME_TYPE,
   UCP_MCP_TOOLS,
   UCP_VERSION,
+  ucpErrorSeverity,
   unsupportedUcpOperation,
   type UcpBusinessProfile,
   type UcpEnvelope,
@@ -66,9 +67,11 @@ export {
   UCP_SHOPPING_SERVICE,
   UCP_SPEC_BASE_URL,
   UCP_VERSION,
+  ucpErrorSeverity,
   unsupportedUcpOperation,
   type UcpBusinessProfile,
   type UcpCapabilityDeclaration,
+  type UcpErrorSeverity,
   type UcpEnvelope,
   type UcpMcpResourceDescriptor,
   type UcpMcpSecurityScheme,
@@ -1048,8 +1051,8 @@ async function verifyHttpMessageSignature(
     const base = signatureBase(request, input.components, input.params);
     const verified = verifySignatureBytes(publicKeyAlgorithm(jwk), Buffer.from(base), key, signature);
     return verified ? null : "HTTP Message Signature verification failed.";
-  } catch (error) {
-    return error instanceof Error ? error.message : "HTTP Message Signature verification failed.";
+  } catch {
+    return "HTTP Message Signature verification failed.";
   }
 }
 

@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -15,8 +17,10 @@ import {
   consumeIssueReadinessReceipt,
   controllerTreeFootprintPaths,
   evaluateProspectiveIssueReadiness,
+  extractReceipt,
   main,
   parseIssueFormBody,
+  renderIssueReadinessComment,
   scanIssueFormStructure,
   validateIssueReadinessReceipt,
 } from "./issue-readiness.mjs";
@@ -205,7 +209,10 @@ const FUTURE_MANIFEST_NEEDLE = `${["chase-sets", "dispatch-brief-manifest", "v2"
 const OWNED_SCANNER_PATHS = Object.freeze(["scripts/issue-readiness.mjs", "scripts/issue-readiness.test.mjs"]);
 
 function trackedTreeEntries() {
-  const trackedPaths = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot })
+  const trackedPaths = execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .toString("utf8")
     .split("\0")
     .filter(Boolean);
@@ -444,7 +451,10 @@ function createHarness(scenario, { comments = [] } = {}) {
       body: scenarioBody(scenario),
       type: issueType,
       milestone: currentMilestone(),
-      comments: commentState.length,
+      comments:
+        scenario.commentsRestTotalByIssueRead?.[issueReads] ??
+        scenario.commentsRestTotalOverride ??
+        commentState.length,
       issue_dependencies_summary: {
         blocked_by: dependencies.filter((item) => item.state === "open").length,
         total_blocked_by: dependencies.length,
@@ -462,7 +472,8 @@ function createHarness(scenario, { comments = [] } = {}) {
             id: ISSUE_NODE_ID,
             number: ISSUE_NUMBER,
             state: "OPEN",
-            updatedAt: authorityUpdatedAt,
+            updatedAt:
+              issueReads >= 2 && scenario.finalGraphUpdatedAt ? scenario.finalGraphUpdatedAt : authorityUpdatedAt,
             issueType: issueType
               ? { id: issueType.node_id, name: issueType.name, isEnabled: issueType.is_enabled }
               : null,
@@ -476,7 +487,10 @@ function createHarness(scenario, { comments = [] } = {}) {
               pageInfo: { hasNextPage: dependencies.length > 1, endCursor: "cursor" },
             },
             comments: {
-              totalCount: commentState.length,
+              totalCount:
+                issueReads >= 2 && scenario.finalGraphCommentsTotalOverride !== undefined
+                  ? scenario.finalGraphCommentsTotalOverride
+                  : (scenario.commentsGraphTotalOverride ?? commentState.length),
               pageInfo: { hasNextPage: commentState.length > 1, endCursor: "cursor" },
             },
           },
@@ -1185,6 +1199,92 @@ describe("bounded complete GitHub authority collection", () => {
     expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
   });
 
+  it("reconciles a stale REST comment counter against the complete list and GraphQL total", async () => {
+    const comments = [botComment(101, "comment 101"), botComment(102, "comment 102"), botComment(103, "comment 103")];
+    const { result } = await runScenario({ ...fixtureScenario("ready"), commentsRestTotalOverride: 1 }, { comments });
+
+    expect(result.receipt.status).toBe("ready");
+    expect(result.receipt.coverage.comments).toEqual({
+      pages: 1,
+      collected: 3,
+      total: 3,
+      complete: true,
+      reasonCode: null,
+    });
+  });
+
+  it("ignores a stale REST counter transition when authoritative revisions remain stable", async () => {
+    const comments = [botComment(111, "comment 111"), botComment(112, "comment 112"), botComment(113, "comment 113")];
+    const { result } = await runScenario(
+      { ...fixtureScenario("ready"), commentsRestTotalByIssueRead: { 1: 1, 2: 3 } },
+      { comments },
+    );
+
+    expect(result.receipt.status).toBe("ready");
+    expect(result.receipt.reasonCodes).toEqual([]);
+    expect(result.receipt.coverage.comments).toEqual({
+      pages: 1,
+      collected: 3,
+      total: 3,
+      complete: true,
+      reasonCode: null,
+    });
+  });
+
+  it("returns unknown when the complete REST comment list differs from the GraphQL total", async () => {
+    const comments = [botComment(201, "comment 201"), botComment(202, "comment 202")];
+    const { result } = await runScenario(
+      { ...fixtureScenario("ready"), commentsRestTotalOverride: 1, commentsGraphTotalOverride: 3 },
+      { comments },
+    );
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("COMMENT_COUNT_MISMATCH");
+    expect(result.receipt.coverage.comments).toMatchObject({ collected: 2, total: 3, complete: false });
+    expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
+  });
+
+  it("returns unknown when GraphQL comment totals and issue revision move while REST count stays unchanged", async () => {
+    const comments = [botComment(301, "comment 301"), botComment(302, "comment 302")];
+    const { result } = await runScenario(
+      {
+        ...fixtureScenario("ready"),
+        finalUpdatedAt: "2026-07-29T19:03:27.000Z",
+        finalGraphUpdatedAt: "2026-07-29T19:03:27.000Z",
+        finalGraphCommentsTotalOverride: 3,
+      },
+      { comments },
+    );
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("ISSUE_REVISION_MOVED");
+    expect(result.receipt.coverage.issue).toEqual({
+      initialRead: true,
+      finalRead: true,
+      revisionStable: false,
+    });
+    expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
+  });
+
+  it("fails closed when a decisive comment exists just beyond the collection cap", async () => {
+    const comments = Array.from({ length: 10_001 }, (_, index) => botComment(400 + index, `comment ${index}`));
+    const { result } = await runScenario({ ...fixtureScenario("ready") }, { comments });
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("COLLECTION_BOUNDED");
+    expect(result.receipt.coverage.comments).toMatchObject({ collected: 10_000, total: 10_001, complete: false });
+    expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
+  });
+
+  it("rejects duplicate comment identities after complete collection", async () => {
+    const duplicate = botComment(501, "duplicate");
+    const { result } = await runScenario({ ...fixtureScenario("ready") }, { comments: [duplicate, { ...duplicate }] });
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("COMMENT_DUPLICATE");
+    expect(result.receipt.checkedRules.every((entry) => entry.status === "unknown")).toBe(true);
+  });
+
   it("binds the receipt across the final issue reread and returns unknown on mid-read mutation", async () => {
     const { result } = await runScenario(fixtureScenario("mid-read-mutation"));
 
@@ -1711,6 +1811,684 @@ describe("stable comment state machine", () => {
     expect(run.harness.comments()).toHaveLength(2);
     expect(run.harness.comments().find((comment) => comment.id === 77).body).toBe(spoof.body);
     expect(run.harness.comments().find((comment) => comment.id !== 77).user.login).toBe("github-actions[bot]");
+  });
+});
+
+const PRE_WRITE_AT = "2026-07-29T19:02:27Z";
+const WRITE_AT = "2026-07-29T19:04:00Z";
+const THIRD_PARTY_AT = "2026-07-29T19:04:01Z";
+const AFTER_UPLOAD_AT = "2026-07-29T19:05:00Z";
+const DAY_AFTER_AT = "2026-07-30T09:00:00Z";
+const DAY_AFTER_WRITE_AT = "2026-07-30T09:00:06Z";
+const PRIOR_REVISION_AT = "2026-07-28T07:59:58Z";
+const PRIOR_COMMENT_AT = "2026-07-28T08:00:00Z";
+const SILENT_LOGGER = Object.freeze({ log() {}, error() {} });
+
+function memberComment(id, body, at) {
+  return { ...botComment(id, body, at), user: { login: "synthetic-member", type: "User" } };
+}
+
+function syntheticDependency(number, at) {
+  return {
+    url: `https://api.github.com/repos/${REPOSITORY}/issues/${number}`,
+    node_id: `I_synthetic_dependency_${number}`,
+    number,
+    state: "closed",
+    updated_at: at,
+    type: { id: TYPE.id, node_id: TYPE.nodeId, name: "Slice", is_enabled: true },
+  };
+}
+
+// Production-shaped GitHub fake for the publication path: whole-second
+// timestamps, the full comment object in every write response, and
+// read-after-write lag. Each committed revision becomes visible from a chosen
+// issue read; GraphQL and collection reads see what the latest issue read saw,
+// as one replica would.
+function createIssueRevisionFake({ comments = [] } = {}) {
+  const revisions = [
+    {
+      updatedAt: PRE_WRITE_AT,
+      body: fixture.readyBody,
+      labels: [...LABELS],
+      milestone: { ...MILESTONE },
+      dependencies: [],
+      comments: structuredClone(comments),
+      visibleFrom: 0,
+    },
+  ];
+  const writes = [];
+  const afterPostWriteRead = new Map();
+  const pinnedPostWriteReads = new Map();
+  const hooks = { issuePayload: null, graphPayload: null, page: null, writeFailure: null, writeResponse: null };
+  let nextWrite = { at: WRITE_AT, lag: 0 };
+  let issueReads = 0;
+  let readsBeforeWrite = null;
+  let sleeps = 0;
+  let clockMs = 0;
+  let sleepAdvanceMs = null;
+  let nextCommentId = 9001;
+
+  const latest = () => revisions.at(-1);
+  const postWriteRead = () => (readsBeforeWrite === null ? null : issueReads - readsBeforeWrite);
+  const visible = () =>
+    pinnedPostWriteReads.has(postWriteRead())
+      ? revisions[pinnedPostWriteReads.get(postWriteRead())]
+      : revisions.filter((revision) => revision.visibleFrom <= issueReads).at(-1);
+
+  function commit(change, { updatedAt, lag = 0 }) {
+    const current = structuredClone(latest());
+    revisions.push({ ...current, ...change(current), updatedAt, visibleFrom: issueReads + lag + 1 });
+  }
+
+  function issuePayload(revision) {
+    return {
+      node_id: ISSUE_NODE_ID,
+      number: ISSUE_NUMBER,
+      state: "open",
+      updated_at: revision.updatedAt,
+      body: revision.body,
+      type: { id: TYPE.id, node_id: TYPE.nodeId, name: "Slice", is_enabled: true },
+      milestone: {
+        node_id: revision.milestone.id,
+        number: revision.milestone.number,
+        title: revision.milestone.title,
+        description: revision.milestone.description,
+        state: revision.milestone.state,
+      },
+      comments: revision.comments.length,
+      issue_dependencies_summary: {
+        blocked_by: revision.dependencies.filter((dependency) => dependency.state === "open").length,
+        total_blocked_by: revision.dependencies.length,
+      },
+    };
+  }
+
+  function graphPayload(revision) {
+    const connection = (totalCount) => ({ totalCount, pageInfo: { hasNextPage: false, endCursor: null } });
+    return {
+      data: {
+        repository: {
+          databaseId: REPOSITORY_DATABASE_ID,
+          issue: {
+            id: ISSUE_NODE_ID,
+            number: ISSUE_NUMBER,
+            state: "OPEN",
+            updatedAt: revision.updatedAt,
+            issueType: { id: TYPE.nodeId, name: "Slice", isEnabled: true },
+            parent: { number: 5496 },
+            labels: connection(revision.labels.length),
+            blockedBy: connection(revision.dependencies.length),
+            comments: connection(revision.comments.length),
+          },
+        },
+      },
+    };
+  }
+
+  function writeComment(id, text) {
+    writes.push(id === null ? "POST" : "PATCH");
+    const failure = hooks.writeFailure?.();
+    if (failure) return failure;
+    const { at, lag } = nextWrite;
+    let written;
+    commit(
+      (current) => {
+        if (id === null) {
+          written = botComment(nextCommentId, text, at);
+          nextCommentId += 1;
+          return { comments: [...current.comments, written] };
+        }
+        written = current.comments.find((comment) => comment.id === id);
+        Object.assign(written, { body: text, updated_at: at });
+        return { comments: current.comments };
+      },
+      { updatedAt: at, lag },
+    );
+    readsBeforeWrite = issueReads;
+    const payload = structuredClone(written);
+    return response(hooks.writeResponse ? hooks.writeResponse(payload) : payload, { status: id === null ? 201 : 200 });
+  }
+
+  async function client(url, init = {}) {
+    const method = init.method ?? "GET";
+    if (url === "https://api.github.com/graphql") {
+      const payload = graphPayload(visible());
+      return hooks.graphPayload?.(payload) ?? response(payload);
+    }
+    if (url === `https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+      issueReads += 1;
+      const payload = issuePayload(visible());
+      afterPostWriteRead.get(postWriteRead())?.();
+      return hooks.issuePayload?.(payload, postWriteRead()) ?? response(payload, { url });
+    }
+    const collection = url.match(/\/issues\/\d+\/(labels|dependencies\/blocked_by|comments)\?/)?.[1];
+    if (collection) {
+      const revision = visible();
+      const items = structuredClone(
+        collection === "labels"
+          ? revision.labels.map((name) => ({ name }))
+          : collection === "comments"
+            ? revision.comments
+            : revision.dependencies,
+      );
+      return hooks.page?.(collection, items) ?? response(items);
+    }
+    if (method === "POST" && url === `https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}/comments`) {
+      return writeComment(null, JSON.parse(init.body).body);
+    }
+    const patch = method === "PATCH" ? url.match(/\/issues\/comments\/(\d+)$/) : null;
+    if (patch) return writeComment(Number(patch[1]), JSON.parse(init.body).body);
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  }
+
+  return {
+    client,
+    hooks,
+    commit,
+    async sleep(milliseconds) {
+      sleeps += 1;
+      clockMs += sleepAdvanceMs ?? milliseconds;
+    },
+    monotonicNow: () => clockMs,
+    afterPostWriteRead: (read, action) => afterPostWriteRead.set(read, action),
+    pinPostWriteRead: (read, revisionIndex) => pinnedPostWriteReads.set(read, revisionIndex),
+    nextWrite(write) {
+      nextWrite = { ...nextWrite, ...write };
+    },
+    slowSleeps(milliseconds) {
+      sleepAdvanceMs = milliseconds;
+    },
+    live: () => latest(),
+    stableCommentBody: () =>
+      latest().comments.findLast((comment) => comment.user.type === "Bot" && comment.body.includes(COMMENT_MARKER))
+        ?.body,
+    counters: () => ({ issueReads, sleeps, writes: [...writes] }),
+  };
+}
+
+async function publishWith(fake, { publish = true, output = null } = {}) {
+  const before = fake.counters();
+  const result = await main({
+    env: {
+      GITHUB_REPOSITORY: REPOSITORY,
+      GITHUB_TOKEN: "test-token",
+      ISSUE_NUMBER: String(ISSUE_NUMBER),
+      ISSUE_READINESS_CHECKER_SHA: CHECKER_SHA,
+      ISSUE_READINESS_PUBLISH: publish ? "true" : "false",
+      ...(output ? { ISSUE_READINESS_OUTPUT: output } : {}),
+    },
+    client: fake.client,
+    logger: SILENT_LOGGER,
+    now: () => CHECKED_AT,
+    sleep: fake.sleep,
+    monotonicNow: fake.monotonicNow,
+  });
+  const after = fake.counters();
+  return {
+    result,
+    issueReads: after.issueReads - before.issueReads,
+    sleeps: after.sleeps - before.sleeps,
+    writes: after.writes.slice(before.writes.length),
+  };
+}
+
+function consumeLive(fake, receipt) {
+  const live = fake.live();
+  return consumeIssueReadinessReceipt({
+    receipt,
+    currentRevision: {
+      repository: REPOSITORY,
+      number: ISSUE_NUMBER,
+      nodeId: ISSUE_NODE_ID,
+      updatedAt: live.updatedAt,
+      milestone: live.milestone,
+    },
+    trustedCheckerSha: CHECKER_SHA,
+    semanticPressureTest: "pass",
+  }).reasonCode;
+}
+
+function publicationOutcome(fake, run) {
+  return {
+    commentAction: run.result.commentAction,
+    writes: run.writes,
+    sleeps: run.sleeps,
+    issueReads: run.issueReads,
+    status: run.result.receipt.status,
+    reasonCodes: run.result.receipt.reasonCodes,
+    boundRevision: run.result.receipt.subject.updatedAt,
+    consumer: consumeLive(fake, run.result.receipt),
+  };
+}
+
+async function priorReadyCommentBody() {
+  const earlier = await runScenario({ ...fixtureScenario("ready"), initialUpdatedAt: PRIOR_REVISION_AT });
+  return renderIssueReadinessComment(earlier.result.receipt);
+}
+
+describe("historical comment publication convergence", () => {
+  // Issue reads per publishing run: two before the write, the convergence
+  // reads, then the complete collection's initial and final reads.
+  const convergedOutcome = (commentAction, writes, lag, boundRevision = WRITE_AT) => ({
+    commentAction,
+    writes,
+    sleeps: lag,
+    issueReads: 2 + (lag + 1) + 2,
+    status: "ready",
+    reasonCodes: [],
+    boundRevision,
+    consumer: "READY_RECEIPT_CURRENT",
+  });
+
+  it("created comment converges before artifact binding", async () => {
+    const outcomes = [];
+    for (const lag of [1, 10]) {
+      const fake = createIssueRevisionFake();
+      fake.nextWrite({ lag });
+      outcomes.push({ lag, ...publicationOutcome(fake, await publishWith(fake)) });
+    }
+
+    expect(outcomes).toEqual([1, 10].map((lag) => ({ lag, ...convergedOutcome("created", ["POST"], lag) })));
+  });
+
+  it("updated comment converges before artifact binding", async () => {
+    const priorBody = await priorReadyCommentBody();
+    const outcomes = [];
+    for (const lag of [1, 10]) {
+      const fake = createIssueRevisionFake({ comments: [botComment(42, priorBody, PRIOR_COMMENT_AT)] });
+      fake.nextWrite({ lag });
+      outcomes.push({ lag, ...publicationOutcome(fake, await publishWith(fake)) });
+    }
+
+    expect(outcomes).toEqual([1, 10].map((lag) => ({ lag, ...convergedOutcome("updated", ["PATCH"], lag) })));
+  });
+
+  it("later movement past the comment instant converges by greater-or-equal", async () => {
+    const fake = createIssueRevisionFake();
+    fake.nextWrite({ lag: 3 });
+    // A member comments one second after the write. The first read that shows
+    // the write shows that later revision, so equality would never converge.
+    fake.afterPostWriteRead(1, () =>
+      fake.commit(
+        (current) => ({ comments: [...current.comments, memberComment(501, "Looks good.", THIRD_PARTY_AT)] }),
+        { updatedAt: THIRD_PARTY_AT },
+      ),
+    );
+
+    expect(publicationOutcome(fake, await publishWith(fake))).toEqual({
+      ...convergedOutcome("created", ["POST"], 1, THIRD_PARTY_AT),
+    });
+  });
+
+  it("comment revision non-convergence is bounded unknown", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "issue-readiness-artifact-"));
+    try {
+      const outcomes = [];
+      for (const [bound, lag, sleepAdvanceMs] of [
+        ["eleven stale reads", 11, 1_000],
+        ["ten-second bound", 7, 1_500],
+      ]) {
+        const fake = createIssueRevisionFake();
+        fake.nextWrite({ lag });
+        fake.slowSleeps(sleepAdvanceMs);
+        const output = path.join(directory, `${lag}.json`);
+        const run = await publishWith(fake, { output });
+        const { receipt } = JSON.parse(readFileSync(output, "utf8"));
+        outcomes.push({
+          bound,
+          ...publicationOutcome(fake, run),
+          artifact: {
+            status: receipt.status,
+            reasonCodes: receipt.reasonCodes,
+            ruleStatuses: [...new Set(receipt.checkedRules.map((entry) => entry.status))],
+            validationErrors: validateIssueReadinessReceipt(receipt),
+          },
+        });
+      }
+
+      const notConverged = { status: "unknown", reasonCodes: ["COMMENT_REVISION_NOT_CONVERGED"] };
+      const withheld = {
+        commentAction: "created",
+        writes: ["POST"],
+        ...notConverged,
+        boundRevision: PRE_WRITE_AT,
+        consumer: "RECEIPT_STALE",
+        artifact: { ...notConverged, ruleStatuses: ["unknown"], validationErrors: [] },
+      };
+      expect(outcomes).toEqual([
+        { bound: "eleven stale reads", ...withheld, sleeps: 10, issueReads: 2 + 11 },
+        { bound: "ten-second bound", ...withheld, sleeps: 7, issueReads: 2 + 7 },
+      ]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("convergence failures stay unknown", async () => {
+    const failOnRead = (target, respond) => (payload, read) => (read === target ? respond(payload) : null);
+    const rows = [
+      [
+        "convergence read HTTP failure",
+        (fake) => {
+          fake.hooks.issuePayload = failOnRead(1, () => response({ message: "Bad Gateway" }, { status: 502 }));
+        },
+      ],
+      [
+        "convergence read network failure",
+        (fake) => {
+          fake.hooks.issuePayload = failOnRead(2, () => {
+            throw new TypeError("fetch failed");
+          });
+        },
+      ],
+      [
+        "convergence read without updated_at",
+        (fake) => {
+          fake.hooks.issuePayload = failOnRead(1, (payload) => response({ ...payload, updated_at: null }));
+        },
+      ],
+      [
+        "convergence read with malformed updated_at",
+        (fake) => {
+          fake.hooks.issuePayload = failOnRead(2, (payload) => response({ ...payload, updated_at: "yesterday" }));
+        },
+      ],
+      [
+        "write response without updated_at",
+        (fake) => {
+          fake.hooks.writeResponse = (payload) => ({ ...payload, updated_at: null });
+        },
+      ],
+      [
+        "collection pagination failure after convergence",
+        (fake) => {
+          // Only the post-write comments page holds the new comment.
+          fake.hooks.page = (collection, items) =>
+            collection === "comments" && items.length > 0
+              ? response(items, {
+                  link: '<https://attacker.invalid/repos/chase-sets/chase-sets/issues/6253/comments?per_page=100&page=2>; rel="next"',
+                })
+              : null;
+        },
+      ],
+      [
+        "collection regresses below the write",
+        (fake) => {
+          fake.pinPostWriteRead(4, 0);
+          fake.pinPostWriteRead(5, 0);
+        },
+      ],
+    ];
+    const outcomes = {};
+    for (const [failure, arrange] of rows) {
+      const fake = createIssueRevisionFake();
+      fake.nextWrite({ lag: 2 });
+      arrange(fake);
+      const run = await publishWith(fake);
+      outcomes[failure] = {
+        ...publicationOutcome(fake, run),
+        validationErrors: validateIssueReadinessReceipt(run.result.receipt),
+      };
+    }
+
+    const unknown = (reasonCode, overrides) => ({
+      commentAction: "created",
+      writes: ["POST"],
+      status: "unknown",
+      reasonCodes: [reasonCode],
+      boundRevision: PRE_WRITE_AT,
+      consumer: "RECEIPT_STALE",
+      validationErrors: [],
+      ...overrides,
+    });
+    expect(outcomes).toEqual({
+      "convergence read HTTP failure": unknown("ISSUE_READ_FAILED", { sleeps: 0, issueReads: 3 }),
+      "convergence read network failure": unknown("INTERNAL_FAILURE", { sleeps: 1, issueReads: 4 }),
+      "convergence read without updated_at": unknown("ISSUE_SHAPE_INVALID", { sleeps: 0, issueReads: 3 }),
+      "convergence read with malformed updated_at": unknown("ISSUE_SHAPE_INVALID", { sleeps: 1, issueReads: 4 }),
+      "write response without updated_at": unknown("COMMENT_SHAPE_INVALID", {
+        commentAction: "write-unconfirmed",
+        sleeps: 0,
+        issueReads: 2,
+      }),
+      "collection pagination failure after convergence": unknown("PAGINATION_NEXT_UNSAFE", {
+        sleeps: 2,
+        issueReads: 7,
+        boundRevision: WRITE_AT,
+        consumer: "RECEIPT_UNKNOWN",
+      }),
+      "collection regresses below the write": unknown("COMMENT_REVISION_NOT_CONVERGED", { sleeps: 2, issueReads: 7 }),
+    });
+  });
+
+  it("publication convergence and external movement remain distinct", async () => {
+    const outcomes = {};
+
+    // Lifecycle of one issue: create, immediate rerun, an unrelated member
+    // comment the next day, that day's refresh, then its rerun.
+    const lifecycle = createIssueRevisionFake();
+    lifecycle.nextWrite({ lag: 2 });
+    outcomes.create = publicationOutcome(lifecycle, await publishWith(lifecycle));
+    outcomes.rerun = publicationOutcome(lifecycle, await publishWith(lifecycle));
+    lifecycle.commit(
+      (current) => ({ comments: [...current.comments, memberComment(502, "Picking this up.", DAY_AFTER_AT)] }),
+      { updatedAt: DAY_AFTER_AT },
+    );
+    lifecycle.nextWrite({ at: DAY_AFTER_WRITE_AT, lag: 3 });
+    outcomes["day after"] = publicationOutcome(lifecycle, await publishWith(lifecycle));
+    outcomes["day-after rerun"] = publicationOutcome(lifecycle, await publishWith(lifecycle));
+
+    const unknownEarlier = await runScenario({
+      ...fixtureScenario("count-mismatch"),
+      initialUpdatedAt: PRIOR_REVISION_AT,
+    });
+    const update = createIssueRevisionFake({
+      comments: [botComment(42, renderIssueReadinessComment(unknownEarlier.result.receipt), PRIOR_COMMENT_AT)],
+    });
+    update.nextWrite({ lag: 1 });
+    outcomes.update = publicationOutcome(update, await publishWith(update));
+
+    const steady = (await publishWith(createIssueRevisionFake(), { publish: false })).result.receipt;
+    const unchanged = createIssueRevisionFake({
+      comments: [botComment(42, renderIssueReadinessComment(steady), PRE_WRITE_AT)],
+    });
+    outcomes.unchanged = publicationOutcome(unchanged, await publishWith(unchanged));
+
+    const movements = {
+      body: { change: (current) => ({ body: `${current.body}\n\nThird-party clarification.` }), moves: true },
+      label: { change: (current) => ({ labels: [...current.labels, "status:needs-replan"] }), moves: true },
+      milestone: {
+        change: (current) => ({
+          milestone: {
+            ...current.milestone,
+            description: '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"candidate"} -->',
+          },
+        }),
+        moves: false,
+      },
+      dependency: {
+        change: (current) => ({ dependencies: [...current.dependencies, syntheticDependency(7001, THIRD_PARTY_AT)] }),
+        moves: true,
+      },
+    };
+    for (const [kind, { change, moves }] of Object.entries(movements)) {
+      // Lands while the run converges and first shows at the final stability read.
+      const during = createIssueRevisionFake();
+      during.nextWrite({ lag: 2 });
+      during.afterPostWriteRead(4, () => during.commit(change, { updatedAt: moves ? THIRD_PARTY_AT : WRITE_AT }));
+      outcomes[`${kind} during convergence`] = publicationOutcome(during, await publishWith(during));
+
+      const after = createIssueRevisionFake();
+      after.nextWrite({ lag: 2 });
+      const run = await publishWith(after);
+      after.commit(change, { updatedAt: moves ? AFTER_UPLOAD_AT : WRITE_AT });
+      outcomes[`${kind} after upload`] = publicationOutcome(after, run);
+    }
+
+    // Accepted-residual control, not a detection claim: an edit in the write's
+    // own whole second carries the write's revision, so convergence cannot tell
+    // it apart. Only the mandatory final stability read can still catch it.
+    const sameSecond = createIssueRevisionFake();
+    sameSecond.nextWrite({ lag: 2 });
+    sameSecond.afterPostWriteRead(4, () => sameSecond.commit(movements.body.change, { updatedAt: WRITE_AT }));
+    outcomes["same-second body edit"] = publicationOutcome(sameSecond, await publishWith(sameSecond));
+
+    const noWrite = (boundRevision) => ({
+      commentAction: "unchanged",
+      writes: [],
+      sleeps: 0,
+      issueReads: 2,
+      status: "ready",
+      reasonCodes: [],
+      boundRevision,
+      consumer: "READY_RECEIPT_CURRENT",
+    });
+    const moved = (consumer) => ({
+      ...convergedOutcome("created", ["POST"], 2),
+      status: "unknown",
+      reasonCodes: ["ISSUE_REVISION_MOVED"],
+      consumer,
+    });
+    const staleAtConsumer = { ...convergedOutcome("created", ["POST"], 2), consumer: "RECEIPT_STALE" };
+    expect(outcomes).toEqual({
+      create: convergedOutcome("created", ["POST"], 2),
+      rerun: noWrite(WRITE_AT),
+      "day after": convergedOutcome("updated", ["PATCH"], 3, DAY_AFTER_WRITE_AT),
+      "day-after rerun": noWrite(DAY_AFTER_WRITE_AT),
+      update: convergedOutcome("updated", ["PATCH"], 1),
+      unchanged: noWrite(PRE_WRITE_AT),
+      "body during convergence": moved("RECEIPT_STALE"),
+      "body after upload": staleAtConsumer,
+      "label during convergence": moved("RECEIPT_STALE"),
+      "label after upload": staleAtConsumer,
+      "milestone during convergence": moved("RECEIPT_STALE"),
+      "milestone after upload": staleAtConsumer,
+      "dependency during convergence": moved("RECEIPT_STALE"),
+      "dependency after upload": staleAtConsumer,
+      "same-second body edit": moved("RECEIPT_UNKNOWN"),
+    });
+  });
+
+  it("historical publication failures remain unknown and non-authoritative", async () => {
+    const priorBody = await priorReadyCommentBody();
+    const unsafeNext =
+      '<https://attacker.invalid/repos/chase-sets/chase-sets/issues/6253/dependencies/blocked_by?per_page=100&page=2>; rel="next"';
+    const rows = {
+      "successful create": { comments: [], arrange() {} },
+      "comment write failure": {
+        arrange(fake) {
+          fake.hooks.writeFailure = () => response({ message: "Server Error" }, { status: 500 });
+        },
+      },
+      "unsafe pagination": {
+        arrange(fake) {
+          fake.hooks.page = (collection, items) =>
+            collection === "dependencies/blocked_by" ? response(items, { link: unsafeNext }) : null;
+        },
+      },
+      "incomplete pagination": {
+        arrange(fake) {
+          fake.hooks.page = (collection, items) => (collection === "labels" ? response(items.slice(1)) : null);
+        },
+      },
+      "independent-total mismatch": {
+        arrange(fake) {
+          fake.hooks.graphPayload = (payload) =>
+            response({
+              ...payload,
+              data: {
+                ...payload.data,
+                repository: {
+                  ...payload.data.repository,
+                  issue: {
+                    ...payload.data.repository.issue,
+                    comments: { ...payload.data.repository.issue.comments, totalCount: 2 },
+                  },
+                },
+              },
+            });
+        },
+      },
+      "malformed provider output": {
+        arrange(fake) {
+          fake.hooks.page = (collection, items) =>
+            collection === "labels" ? response([...items, { name: "" }]) : null;
+        },
+      },
+    };
+    const outcomes = {};
+    for (const [name, { comments = [botComment(42, priorBody, PRIOR_COMMENT_AT)], arrange }] of Object.entries(rows)) {
+      const fake = createIssueRevisionFake({ comments });
+      fake.nextWrite({ lag: 1 });
+      arrange(fake);
+      const { result } = await publishWith(fake);
+      const body = fake.stableCommentBody();
+      outcomes[name] = {
+        commentAction: result.commentAction,
+        status: result.receipt.status,
+        reasonCodes: result.receipt.reasonCodes,
+        boundRevision: result.receipt.subject.updatedAt,
+        consumer: consumeLive(fake, result.receipt),
+        comment: {
+          historyNotice: body.includes(
+            "Dispatch authority is the exact workflow artifact, not this historical comment.",
+          ),
+          unknownDisplay: body.includes("No current `ready` claim is published."),
+          priorMarkedNotCurrent: body.includes("Last verified receipt (historical evidence only; **not current**)"),
+          receiptRevision: extractReceipt(body)?.subject.updatedAt ?? null,
+        },
+      };
+    }
+
+    const priorUntouched = {
+      historyNotice: true,
+      unknownDisplay: false,
+      priorMarkedNotCurrent: false,
+      receiptRevision: PRIOR_REVISION_AT,
+    };
+    const unknownDisplay = {
+      historyNotice: true,
+      unknownDisplay: true,
+      priorMarkedNotCurrent: true,
+      receiptRevision: PRIOR_REVISION_AT,
+    };
+    const rewritten = (reasonCode) => ({
+      commentAction: "updated",
+      status: "unknown",
+      reasonCodes: [reasonCode],
+      boundRevision: WRITE_AT,
+      consumer: "RECEIPT_UNKNOWN",
+      comment: unknownDisplay,
+    });
+    expect(outcomes).toEqual({
+      "successful create": {
+        commentAction: "created",
+        status: "ready",
+        reasonCodes: [],
+        boundRevision: WRITE_AT,
+        consumer: "READY_RECEIPT_CURRENT",
+        comment: { ...priorUntouched, receiptRevision: PRE_WRITE_AT },
+      },
+      "comment write failure": {
+        commentAction: "write-unconfirmed",
+        status: "unknown",
+        reasonCodes: ["COMMENT_WRITE_FAILED"],
+        boundRevision: PRE_WRITE_AT,
+        consumer: "RECEIPT_UNKNOWN",
+        comment: priorUntouched,
+      },
+      "unsafe pagination": rewritten("PAGINATION_NEXT_UNSAFE"),
+      "incomplete pagination": rewritten("LABEL_COUNT_MISMATCH"),
+      "independent-total mismatch": {
+        commentAction: "skipped-comment-authority-unknown",
+        status: "unknown",
+        reasonCodes: ["COMMENT_COUNT_MISMATCH"],
+        boundRevision: PRE_WRITE_AT,
+        consumer: "RECEIPT_UNKNOWN",
+        comment: priorUntouched,
+      },
+      "malformed provider output": rewritten("LABEL_SHAPE_INVALID"),
+    });
   });
 });
 

@@ -138,6 +138,7 @@ const productLineId = catalogSeedIds.referenceRecords.productLines.pokemonTradin
 const magicProductLineId = catalogSeedIds.referenceRecords.productLines.magicTheGathering;
 const onePieceProductLineId = catalogSeedIds.referenceRecords.productLines.onePieceCardGame;
 const lorcanaProductLineId = catalogSeedIds.referenceRecords.productLines.disneyLorcana;
+const yuGiOhProductLineId = catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame;
 const seriesIds = catalogSeedIds.referenceRecords.series;
 const expansionIds = catalogSeedIds.referenceRecords.expansions;
 const setIds = catalogSeedIds.referenceRecords.sets;
@@ -230,6 +231,17 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
       "short-name": "Lorcana",
     },
     relationships: [{ relationshipType: "published-by", referenceId: lorcanaManufacturerId }],
+  },
+  {
+    referenceRecordId: yuGiOhProductLineId,
+    typeKey: "product-line",
+    key: "yu-gi-oh-official-card-game",
+    name: "Yu-Gi-Oh! Official Card Game",
+    description: "The Yu-Gi-Oh! Official Card Game product line.",
+    attributes: {
+      "official-name": "Yu-Gi-Oh! Official Card Game",
+      "short-name": "Yu-Gi-Oh!",
+    },
   },
   {
     referenceRecordId: seriesIds.base,

@@ -77,18 +77,27 @@ The Discovery search projection rebuild runs inside the projection runtime's sup
 
 ## Relevance evaluation harness
 
-Run the rollout gate against a dedicated, per-context test database:
+Run the live retrieval evaluation against a dedicated, per-context test database:
 
     pnpm run evaluate:discovery-search-relevance
 
-When a local database is unavailable, the same checked-in fixtures and fusion policy can produce unit-level rollout evidence without weakening the gate:
+The fixture seeds isolated Catalog and market mirrors. The production projection writes the weighted English/simple vectors, aliases, filters and market facts; every mode calls `retrieveDiscoveryItems` with the same request and fixtures. Only rescue/hybrid enablement changes: lexical-only disables both, semantic-fallback enables live Rescue only, and hybrid enables both. The baseline still includes structured lookup, synonyms, spelling correction and Search Interpretation, without calling a provider.
 
-    pnpm run evaluate:discovery-search-relevance -- --in-memory
+GoldenQuery requests allow language, stock, nonnegative price bounds, the six live sort orders and at most ten dimension selections (five options per group). Search text is bounded to 256 code points and the live page limit is 50. Reports retain IDs/order, retrieval mode, interpretation, totals, facets and per-ID price/currency/stock/Buy summaries, including null summaries. Unknown request properties and out-of-bound inputs are rejected.
 
-The command seeds the checked-in representative Search Index fixture, runs lexical-only, semantic-fallback, and hybrid retrieval, then writes JSON and Markdown reports under `artifacts/discovery-search-relevance/`. It fails when hybrid exact-title top-1 is below 100% or when hybrid pass rate, recall@10, or MRR regresses for the exact or lexical categories. Semantic-category gains and negative-query pass rates are reported but do not weaken those protections.
+A **gated golden case** constrains the applicable mode; a **report-only cross-mode delta** records unsupported relevance behavior without vetoing that mode. Baseline gates cover accepted exact/title-plus-subtitle, lexical, negative, typo, partial, nickname, attribute, identifier and variant-price cases. Rescue uses the same gates except unprotected extra-term negatives. Hybrid gates protect identifiers, explicit filters and variant summaries; all other categories are deltas. Pure semantic-intent cases are reported in every mode. Gate failures remain distinct from deltas even with real snapshots and `--report-only`, which writes failures without enforcing the process exit. The synthetic title-plus-subtitle counterexample demonstrates unchanged hybrid title-only exactness: live lexical ranks the exact title/subtitle first while hybrid can reorder it, reported as a delta rather than a ranking repair.
 
-The 63 golden queries and 24 catalog items live in `bounded-contexts/discovery/tests/fixtures/search-relevance/`. Fixture embeddings use the injected deterministic provider model `deterministic-relevance-v1`; neither evaluation nor regeneration reads `VOYAGE_API_KEY` or makes a network call. Regenerate them after editing either source fixture:
+The 72 golden queries and 24 catalog items live in `bounded-contexts/discovery/tests/fixtures/search-relevance/`. The default snapshot uses the deterministic model `deterministic-relevance-v1`, requires no key and makes no network calls. Regenerate it after editing either source fixture:
 
     pnpm run generate:discovery-search-relevance-embeddings
 
-The embedding fixture records a source hash, and the evaluation command rejects stale vectors. Use `--report-only` only while tuning a candidate; the default command is the rollout comparison gate.
+Snapshots bind the fixture source hash, model, production document text/hash and exact provider-boundary `(model, input_type, text)` tuples. Queries use `normalizeQueryForEmbedding`; golden IDs are never vector lookup keys. Missing effective-query vectors fail visibly rather than borrowing another query's vector. Search Interpretation never sends reduced text to Rescue. Every vector is finite, normalized and 1024-dimensional; stale snapshots are rejected.
+
+Opt-in real-model generation uses the production Voyage adapter and an environment-only `VOYAGE_API_KEY`. It requires an ignored repository output file, never changes the deterministic default and never writes credentials:
+
+    pnpm run generate:discovery-search-relevance-embeddings -- --provider=voyage --out=artifacts/discovery-search-relevance/voyage.json
+    pnpm run evaluate:discovery-search-relevance -- --embedding-fixture=artifacts/discovery-search-relevance/voyage.json --report-only
+
+Real capture is separate from deterministic CI proof; fixture vectors prove harness mechanics, not public relevance lift. Optional `--ranked-input=<file>` scores explicit, already-ranked inputs only. It performs no retrieval, ranking or rescue and cannot substitute for live DB proof. The retired `--in-memory` matcher is rejected.
+
+The relevance DB suite remains in Discovery's `test:db`/`test:relevance`, excluded from `test:fast`/`test:unit` and non-DB root/workflow callers. Exact-head hosted **DB Profile Tests** owns product DB proof; a local DB harness is an optional diagnostic, never a publication prerequisite. Similar Items keeps self, delisted and missing-embedding exclusions in that suite.

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "exception-15e7be68f32f8beb",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/integrations/source/affected-line-amount-projection.ts",
+      "kind": "DELETE",
+      "table": "support_order_affected_line_amounts",
+      "digest": "45b7f7e254f825c39343adc83f276cda5e8c69747486a740d01ed69f4df3dd32"
+    },
+    "classification": "key-only but safe",
+    "reason": "DELETE at bounded-contexts/platform-operations/features/support-requests/integrations/source/affected-line-amount-projection.ts:19 directly synchronizes support_order_affected_line_amounts from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-27acbf7dcafa359b",
+    "binding": {
+      "module": "bounded-contexts/platform-operations/features/support-requests/integrations/source/affected-line-amount-projection.ts",
+      "kind": "UPDATE",
+      "table": "support_order_affected_line_amounts",
+      "digest": "abab72f9113aa4ce50a95c89795a029d1bef3e73941b03be2ce76e7a6c92a2a8"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/platform-operations/features/support-requests/integrations/source/affected-line-amount-projection.ts:77 directly synchronizes support_order_affected_line_amounts from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

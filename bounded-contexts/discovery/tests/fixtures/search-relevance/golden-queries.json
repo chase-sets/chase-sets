@@ -402,7 +402,7 @@
     "id": "negative-03",
     "query": "sealed soccer hobby case",
     "category": "negative",
-    "coverage": ["en", "zero-result"],
+    "coverage": ["en", "zero-result", "unprotected-extra-term"],
     "expected": { "kind": "no-results" }
   },
   {
@@ -423,7 +423,7 @@
     "id": "negative-06",
     "query": "topps chrome baseball box",
     "category": "negative",
-    "coverage": ["en", "zero-result"],
+    "coverage": ["en", "zero-result", "unprotected-extra-term"],
     "expected": { "kind": "no-results" }
   },
   {
@@ -437,7 +437,86 @@
     "id": "negative-08",
     "query": "vintage hockey goalie rookie",
     "category": "negative",
-    "coverage": ["en", "zero-result"],
+    "coverage": ["en", "zero-result", "unprotected-extra-term"],
     "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "attribute-typo",
+    "query": "english charzard",
+    "category": "lexical",
+    "coverage": ["en", "attribute", "misspelling"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "nickname",
+    "query": "zard",
+    "category": "lexical",
+    "coverage": ["en", "nickname"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "protected-wrong-printing",
+    "query": "Charizard 5/102",
+    "category": "negative",
+    "coverage": ["en", "protected-identifier", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "extra-term",
+    "query": "Charizard absent",
+    "category": "negative",
+    "coverage": ["en", "unprotected-extra-term", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "nonfoil-max3",
+    "query": "Charizard",
+    "category": "lexical",
+    "coverage": ["en", "variant-summary", "explicit-filters"],
+    "request": {
+      "dimensionFilters": [{ "dimensionId": "relevance-finish", "optionId": "relevance-nonfoil" }],
+      "priceMax": "3",
+      "inStock": true,
+      "sort": "price_asc"
+    },
+    "expected": {
+      "kind": "items",
+      "itemIds": ["charizard-base-4"],
+      "summaries": { "charizard-base-4": { "price": "2.00", "currency": "USD", "inStock": true, "buy": true } }
+    }
+  },
+  {
+    "id": "foil-max3",
+    "query": "Charizard",
+    "category": "negative",
+    "coverage": ["en", "variant-summary", "explicit-filters", "zero-result"],
+    "request": {
+      "dimensionFilters": [{ "dimensionId": "relevance-finish", "optionId": "relevance-foil" }],
+      "priceMax": "3",
+      "inStock": true
+    },
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "null-summary",
+    "query": "Pikachu",
+    "category": "exact",
+    "coverage": ["en", "variant-summary"],
+    "expected": { "kind": "items", "itemIds": ["pikachu-jungle-60"], "summaries": { "pikachu-jungle-60": null } }
+  },
+  {
+    "id": "provider-failure",
+    "query": "Charizard",
+    "category": "exact",
+    "scenario": "provider-failure",
+    "coverage": ["en", "provider-failure"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "structured",
+    "query": "BS 4/102",
+    "category": "lexical",
+    "coverage": ["en", "protected-identifier", "structured"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
   }
 ]

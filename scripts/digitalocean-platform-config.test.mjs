@@ -2374,8 +2374,12 @@ describe("DigitalOcean platform configuration", () => {
       '2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)',
     );
     expect(productionClassificationStep).toContain("artifacts/release-health/production-terraform-diagnostics.txt");
-    expect(productionClassificationStep).toContain("--phase production-deploy");
-    expect(productionClassificationStep).not.toContain("--phase production-verification");
+    // Only an Agent Grant revocation activation failure changes the default production-deploy phase.
+    expect(productionClassificationStep).toContain('--phase "$DEPLOY_ROOT_CAUSE_PHASE"');
+    expect(productionClassificationStep).toContain(
+      "DEPLOY_ROOT_CAUSE_PHASE: ${{ steps.agent_grant_revocation_activation.outcome == 'failure' && 'agent-grant-revocation-activation' || 'production-deploy' }}",
+    );
+    expect(productionClassificationStep).not.toContain("production-verification");
 
     expect(stagingCaptureStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(stagingCaptureStep).toContain("id: capture_staging_terraform_errored_state");
@@ -3411,14 +3415,20 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPreviewCleanupWorkflow).toContain(
       "matrix: ${{ fromJSON(needs.discover-preview-cleanup.outputs.matrix) }}",
     );
-    expect(platformPreviewCleanupWorkflow).toContain("group: platform-preview-pr-${{ matrix.pr_number }}");
-    expect(platformPreviewCleanupWorkflow).toContain("TF_VAR_preview_identifier: pr-${{ matrix.pr_number }}");
-    expect(platformPreviewCleanupWorkflow).toContain(
-      "TF_VAR_platform_image_tag: pr-${{ matrix.pr_number }}-${{ matrix.image_sha }}",
+    const previewCleanup = parse(platformPreviewCleanupWorkflow);
+    const destroyPreview = previewCleanup.jobs["destroy-preview"];
+    expect(destroyPreview.concurrency.group).toContain("platform-preview-pr-");
+    expect(destroyPreview.steps.find((step) => step.name === "Terraform destroy").run).toContain(
+      'TF_VAR_preview_identifier="pr-${pr_number}"',
     );
-    expect(platformPreviewCleanupWorkflow).toContain("ref: ${{ matrix.checkout_ref }}");
-    expect(platformPreviewCleanupWorkflow).toContain(
-      "-backend-config=key=platform/previews/pr-${{ matrix.pr_number }}.tfstate",
+    expect(destroyPreview.steps.find((step) => step.name === "Terraform destroy").run).toContain(
+      'TF_VAR_platform_image_tag="pr-${pr_number}-${{ matrix.image_sha }}"',
+    );
+    expect(destroyPreview.steps.find((step) => step.uses?.startsWith("actions/checkout@")).with.ref).toBe(
+      "${{ matrix.checkout_ref }}",
+    );
+    expect(destroyPreview.steps.find((step) => step.name === "Terraform init").run).toContain(
+      '"-backend-config=key=platform/previews/pr-${pr_number}.tfstate"',
     );
     expect(platformPreviewCleanupWorkflow).not.toContain("Wait for active App Platform deployment");
     expect(platformPreviewCleanupWorkflow).not.toContain("digitalocean-app-deployment.mjs");

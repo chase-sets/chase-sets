@@ -33,6 +33,7 @@ import {
   trackListingEvidenceEvent,
   type ListingEvidenceAnalyticsEventName,
 } from "../features/listings/ui/listing-evidence-analytics";
+import { authoredTextRecoveryFromApiError } from "../features/reviews/ui/authored-text-recovery";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
 const ACCOUNT_LISTING_POST_WRITE_TELEMETRY = {
@@ -289,7 +290,15 @@ async function handleAction(intent: string, { request, params, formData }: FormA
     if (error instanceof MarketplaceApiError) {
       const currentQuote = staleQuoteFromError(error);
       const currentEvidenceReadiness = evidenceReadinessFromError(error);
+      const altTextRecovery = intent === "classify-photo" ? authoredTextRecoveryFromApiError(error.body) : null;
       return {
+        evidenceAltTextRecovery: altTextRecovery
+          ? {
+              photoId: String(formData.get("photoId") ?? ""),
+              altText: String(formData.get("altText") ?? ""),
+              recovery: altTextRecovery,
+            }
+          : null,
         priceDraftAmount,
         priceDraftCurrencyCode,
         pricePreview: currentQuote,
@@ -381,6 +390,7 @@ export default function MarketplaceAccountListingRoute() {
       priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
       pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
+      evidenceAltTextRecovery={actionData?.evidenceAltTextRecovery ?? null}
     />
   );
 }

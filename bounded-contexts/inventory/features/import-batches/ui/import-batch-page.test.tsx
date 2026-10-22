@@ -24,7 +24,6 @@ function batch(overrides: Partial<InventoryImportBatch> = {}): InventoryImportBa
     adapter_version: 1,
     quantity_mode: "add",
     default_storage_location_id: "loc_1",
-    source_filename: "stock.csv",
     total_count: 1,
     accepted_count: 1,
     rejected_count: 0,
@@ -132,6 +131,19 @@ describe("InventoryImportBatchPage", () => {
     expect(html).toContain("Export current inventory");
     expect(html).toContain("/api/inventory/import-batches/exports/native-csv");
     expect(html).toContain("No imports yet");
+  });
+
+  it("references each recent import by its batch id", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[batch({ batch_id: "imb_recent_synthetic" })]}
+        storageLocations={[]}
+        detail={null}
+      />,
+    );
+
+    expect(html).toContain("Recent imports");
+    expect(html).toMatch(/>imb_recent_synthetic</);
   });
 
   it("renders accepted, rejected, and committed row outcomes", () => {

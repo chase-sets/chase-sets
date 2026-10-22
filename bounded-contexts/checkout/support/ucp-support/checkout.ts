@@ -6,6 +6,7 @@ import {
   type UcpOperationHandlerInput,
 } from "@chase-sets/platform-runtime/ucp";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
+import { sumMoneyAmounts } from "@chase-sets/primitives/money";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { UcpPaymentHandlerHandoff } from "@chase-sets/payments/server";
 import {
@@ -15,6 +16,7 @@ import {
 import type { CheckoutServices } from "../runtime-support/services";
 import { CheckoutDomainError } from "../runtime-support/common";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
+import type { CheckoutFulfillmentPreview } from "../../features/sessions/domain/fulfillment-preview";
 import { prepareBuyNowCheckout } from "../../features/sessions/api/buy-now-preparation";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
@@ -26,6 +28,16 @@ export type CheckoutUcpOrderFact = Readonly<{
   readyForFulfillmentAt?: string | null;
   label?: string;
   permalinkUrl?: string;
+  totals?: Readonly<{ itemSubtotal: string; shipping: string; tax: string; total: string }>;
+  lines?: readonly Readonly<{ listingId: string; unitPrice: string }>[];
+}>;
+
+export type CheckoutUcpQuote = Readonly<{
+  subtotal: string;
+  fulfillment: string;
+  tax: string;
+  total: string;
+  linePrice: (listingId: string) => string | null;
 }>;
 
 export type CheckoutUcpListing = Readonly<{
@@ -370,6 +382,79 @@ export function checkoutUcpState(
     continue: true,
     messages: [message("payment_required", "requires_buyer_input")],
   };
+}
+
+/**
+ * Decision D1, "an honest quote source for every Checkout state", cells C1-C10. With orders,
+ * Ordering's purchase facts are summed once every order has one (C8); the retained quote answers
+ * until then (C9). An orderless session uses its snapshot, else `preview`, else the retained quote
+ * (C1-C7). No source returns null (C10). The retained quote is loaded only in C3, C5, C7 and C9;
+ * C10 is that load finding none.
+ */
+export async function resolveCheckoutUcpQuote({
+  session,
+  orderFacts,
+  preview,
+  loadRetainedQuote,
+}: Readonly<{
+  session: CheckoutSessionRow;
+  orderFacts: readonly CheckoutUcpOrderFact[];
+  preview: CheckoutFulfillmentPreview | null;
+  loadRetainedQuote: () => Promise<CheckoutFulfillmentPreview | null>;
+}>): Promise<CheckoutUcpQuote | null> {
+  const offerPrice = (listingId: string) =>
+    session.lines.find((line) => line.listingId === listingId)?.offerPriceAmount ?? null;
+  if (session.order_ids.length > 0) {
+    const purchases = session.order_ids.flatMap((orderId) => {
+      const fact = orderFacts.find((candidate) => candidate.id === orderId);
+      return fact?.totals ? [{ totals: fact.totals, lines: fact.lines ?? [] }] : [];
+    });
+    if (purchases.length < session.order_ids.length) return quoteFromPreview(await loadRetainedQuote(), offerPrice);
+    const sum = (amount: keyof NonNullable<CheckoutUcpOrderFact["totals"]>) =>
+      sumMoneyAmounts(purchases.map(({ totals }) => totals[amount]));
+    const lines = purchases.flatMap((purchase) => purchase.lines);
+    return {
+      subtotal: sum("itemSubtotal"),
+      fulfillment: sum("shipping"),
+      tax: sum("tax"),
+      total: sum("total"),
+      linePrice: (listingId) =>
+        offerPrice(listingId) ?? lines.find((line) => line.listingId === listingId)?.unitPrice ?? null,
+    };
+  }
+  const snapshot = session.fulfillment_preview_snapshot;
+  const source = snapshot ?? preview;
+  if (!source) return quoteFromPreview(await loadRetainedQuote(), offerPrice);
+  // C3: the same-request preview omits an unavailable line, which only the retained quote still prices.
+  const unpriced =
+    !snapshot &&
+    session.lines.some(
+      ({ listingId }) => listingId && offerPrice(listingId) === null && previewLinePrice(source, listingId) === null,
+    );
+  return quoteFromPreview(source, offerPrice, unpriced ? await loadRetainedQuote() : null);
+}
+
+function quoteFromPreview(
+  source: CheckoutFulfillmentPreview | null,
+  offerPrice: (listingId: string) => string | null,
+  fallback: CheckoutFulfillmentPreview | null = null,
+): CheckoutUcpQuote | null {
+  if (!source) return null;
+  return {
+    subtotal: source.totals.itemSubtotalAmount,
+    fulfillment: source.totals.shippingAmount,
+    tax: source.totals.salesTaxAmount,
+    total: source.totals.totalAmount,
+    linePrice: (listingId) =>
+      offerPrice(listingId) ?? previewLinePrice(source, listingId) ?? previewLinePrice(fallback, listingId),
+  };
+}
+
+function previewLinePrice(preview: CheckoutFulfillmentPreview | null, listingId: string) {
+  return (
+    preview?.sellerGroups.flatMap((group) => group.lines).find((line) => line.listingId === listingId)
+      ?.estimatedUnitPriceAmount ?? null
+  );
 }
 
 function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {

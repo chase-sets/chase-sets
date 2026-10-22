@@ -1,0 +1,68 @@
+[
+  {
+    "id": "exception-1b1d15ea7ace2397",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/components/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_components",
+      "digest": "08760cf5913ead79f8b9e19460a3e782212f2817d994ae01eb1f7ead4810aab1"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/components/read-model/projection.ts:41 directly synchronizes catalog_components from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-7a25546b9c85d11d",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/components/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_components",
+      "digest": "8d3ba8fb07671f6805a13d00d0d345cbdc0d9bb218b2877c71f0ad4c94af0548"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/components/read-model/projection.ts:69 directly synchronizes catalog_components from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-660b31e63ff4b414",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/components/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_components",
+      "digest": "ebf4ec38d9b0a45f15af698b7fb10e048898e78e724799709d339215a2520eee"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/components/read-model/projection.ts:105 directly synchronizes catalog_components from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-144ed136db600a01",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/components/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_components",
+      "digest": "38a2dd70c0eceab4ad36fbc0b3caf1779658c1c8c7f4afb88e6703e29e661176"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/components/read-model/projection.ts:125 directly synchronizes catalog_components from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-57284a7a9042c848",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/components/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_components",
+      "digest": "af9f280edee7c315ee3cca983dad63f493fdde02122be6d403e5851fb22cbeb5"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/components/read-model/projection.ts:134 directly synchronizes catalog_components from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-a11474a64ef96f3c",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/components/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_components",
+      "digest": "1cb3a1d032100136afff2a5ea527141e047d77d32db771c7f362da3391bf593c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/components/read-model/projection.ts:143 directly synchronizes catalog_components from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

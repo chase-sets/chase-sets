@@ -7,12 +7,13 @@
     "testProfile": "db"
   },
   "scripts": {
+    "build": "node ../../scripts/bundle-node-service.mjs platform-worker",
     "bootstrap": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/bootstrap.ts",
     "bootstrap:production": "tsx src/bootstrap.ts",
     "dev": "tsx watch --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
     "dev:ci": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
     "start": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
-    "start:production": "tsx src/main.ts",
+    "start:production": "node --enable-source-maps dist/main.js",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts --exclude __tests__/scheduled-runners.db.test.ts --exclude __tests__/channels-reconciliation-runners.db.test.ts --exclude __tests__/channel-connector-liveness-hold-path.db.test.ts --exclude __tests__/channel-connector-liveness-rebuild-fence.db.test.ts",
     "test:fast": "vitest run --config ./vitest.config.ts --exclude __tests__/scheduled-runners.db.test.ts --exclude __tests__/channels-reconciliation-runners.db.test.ts --exclude __tests__/channel-connector-liveness-hold-path.db.test.ts --exclude __tests__/channel-connector-liveness-rebuild-fence.db.test.ts",

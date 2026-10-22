@@ -8,9 +8,17 @@ import {
   assertRevocationActivationProof,
   revocationActivationProofDigest,
   createAgentGrantRevocations,
+  readAgentGrantRevocationStatus,
   type AgentGrantRevocations,
   type RevocationActivationProof,
 } from "@chase-sets/identity/server";
+
+// Only a bounded code crosses this boundary; raw errors can carry connection strings.
+export function activationRefusalCode(error: unknown): string {
+  return error instanceof Error && /^revocation_[a-z_]{1,64}$/.test(error.message)
+    ? error.message
+    : "revocation_activation_refused";
+}
 
 export async function runActivationCommand(
   input: Readonly<{
@@ -59,14 +67,13 @@ async function main() {
   const lines = createInterface({ input: process.stdin });
   const iterator = lines[Symbol.asyncIterator]();
   try {
-    const owner = createAgentGrantRevocations(pool, createPostgresEventStore({ pool }));
+    const eventStore = createPostgresEventStore({ pool });
     if (process.argv[2] === "--status") {
-      const proof = await owner.activationProof();
-      process.stdout.write(`${JSON.stringify({ state: proof ? "activated" : "dormant", proof })}\n`);
+      process.stdout.write(`${JSON.stringify(await readAgentGrantRevocationStatus(pool, eventStore))}\n`);
       return;
     }
     await runActivationCommand({
-      owner,
+      owner: createAgentGrantRevocations(pool, eventStore),
       environment: process.env.DEPLOYMENT_ENVIRONMENT ?? "",
       readProof: async () => {
         const line = await iterator.next();
@@ -83,8 +90,8 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch(() => {
-    process.stderr.write("revocation_activation_refused\n");
+  main().catch((error: unknown) => {
+    process.stderr.write(`${activationRefusalCode(error)}\n`);
     process.exitCode = 1;
   });
 }

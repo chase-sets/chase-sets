@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { ygoprodeckYugiohSetReferenceProviderProfile } from "../providers/ygoprodeck/executable-mapping-contract";
+import { ygojsonYugiohSetReferenceProviderProfile } from "../providers/ygojson/executable-mapping-contract";
 import {
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
@@ -11,6 +13,43 @@ import {
 } from "./provider-reference-hierarchy-provisioner";
 
 describe("provisionCatalogProviderReferenceHierarchy", () => {
+  it("uses the seeded Yu-Gi-Oh product line for both provider set inputs", async () => {
+    for (const [profile, payload] of [
+      [
+        ygoprodeckYugiohSetReferenceProviderProfile,
+        {
+          productLineName: "Yu-Gi-Oh!",
+          selectedPrint: { set_code: "SDY", set_name: "Starter Deck: Yugi" },
+        },
+      ],
+      [
+        ygojsonYugiohSetReferenceProviderProfile,
+        {
+          productLineName: "Yu-Gi-Oh!",
+          set: { id: "000f0093-1847-4db7-a315-5bd07f055c7a", name: { en: "Beginner's Edition 2" } },
+        },
+      ],
+    ] as const) {
+      const harness = createProvisioningHarness();
+      const result = await provisionCatalogProviderReferenceHierarchy({
+        profile,
+        payload,
+        provisioner: harness.provisioner,
+      });
+
+      expect(harness.referenceRecords.filter((record) => record.typeKey === "product-line")).toEqual([
+        expect.objectContaining({
+          referenceRecordId: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+          key: "yu-gi-oh-official-card-game",
+        }),
+      ]);
+      expect(harness.referenceRecords.some((record) => record.referenceRecordId.includes("product_line"))).toBe(false);
+      expect(result.referenceRecordIdsByRuleKey.get("yugioh-product-line")).toBe(
+        catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+      );
+    }
+  });
+
   it("provisions the TCGdex Pokemon hierarchy from profile rules with existing deterministic ids", async () => {
     const harness = createProvisioningHarness();
 

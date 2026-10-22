@@ -1,0 +1,46 @@
+[
+  {
+    "id": "exception-4800fe29187f56cf",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/categories/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_categories",
+      "digest": "206a8bc07c72662676513a44c41d16fd1cf8b6f88316e6b4f6bfc3ccba5e2d28"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/categories/read-model/projection.ts:54 directly synchronizes catalog_categories from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-2f5b5782089aba14",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/categories/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_categories",
+      "digest": "d2aeb59d10e1cd9c7b67a4bbfe90be07aaf187c366e5611b7240c4709e01d857"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/categories/read-model/projection.ts:74 directly synchronizes catalog_categories from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-5a843a5104039cf2",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/categories/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_categories",
+      "digest": "7281b81e818c2ca3565d3ce0dbff8f601a3661737c02cbd41fbd8610707b0c9c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/categories/read-model/projection.ts:83 directly synchronizes catalog_categories from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-69242712e90600db",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/categories/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_categories",
+      "digest": "a8952b338b691bdbea81b719faf61591b86fe28fae11dfa703b74df367f6df8c"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/categories/read-model/projection.ts:92 directly synchronizes catalog_categories from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

@@ -98,7 +98,14 @@ const productionIndex = {
 
 describe("release-tuple support deployment instance", () => {
   const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
-  function render(release, namespace, extra = [], chart = "infrastructure/helm/platform", component = "platform-api") {
+  function render(
+    release,
+    namespace,
+    extra = [],
+    chart = "infrastructure/helm/platform",
+    component = "platform-api",
+    plantApiEnv = true,
+  ) {
     const env = ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].map((name) => ({
       name,
       secret: true,
@@ -116,8 +123,7 @@ describe("release-tuple support deployment instance", () => {
       "global.fullnameOverride=shared",
       "--set-string",
       `global.image.tag=${"a".repeat(40)}`,
-      "--set-json",
-      `components.platform-api.env=${JSON.stringify(env)}`,
+      ...(plantApiEnv ? ["--set-json", `components.platform-api.env=${JSON.stringify(env)}`] : []),
       "--set-json",
       'global.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
       "--set-json",
@@ -176,6 +182,28 @@ describe("release-tuple support deployment instance", () => {
     expect(helper).toContain(
       'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson',
     );
+  });
+  it("renders the evidence-window admission key optional for api and worker and leaves other secrets required", () => {
+    const keep = (name) => ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].includes(name);
+    for (const component of ["platform-api", "platform-worker"]) {
+      const env = render("release-a", "preview-a", [], undefined, component, false).filter((item) => !keep(item.name));
+      const windowKey = env.filter((item) => item.name === "EVIDENCE_WINDOW_ADMISSION_SECRET");
+      expect(windowKey).toEqual([
+        {
+          name: "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          valueFrom: {
+            secretKeyRef: {
+              name: "chase-sets-platform-runtime",
+              key: "EVIDENCE_WINDOW_ADMISSION_SECRET",
+              optional: true,
+            },
+          },
+        },
+      ]);
+      const required = env.filter((item) => item.valueFrom?.secretKeyRef && item.name !== windowKey[0].name);
+      expect(required.map((item) => item.name)).toContain("STRIPE_SECRET_KEY");
+      expect(required.filter((item) => "optional" in item.valueFrom.secretKeyRef)).toEqual([]);
+    }
   });
   it("scopes the worker's Support evidence cleanup binding by the same release tuple", () => {
     const pick = (env, name) => env.find((item) => item.name === name);

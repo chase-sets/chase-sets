@@ -412,7 +412,7 @@ describe("Catalog primary workbench source options", () => {
     const profile = profileReview({
       providerKey: "ygojson",
       profileKey: "yugioh-set-reference-data",
-      profileVersion: "2026.06.21",
+      profileVersion: "2026.10.18",
       ingestionUnitKey: "ygojson:yugioh:set:reference-data",
       displayName: "YGOJSON Yu-Gi-Oh Set Reference Data",
       active: true,
@@ -431,7 +431,7 @@ describe("Catalog primary workbench source options", () => {
       expansion_name: "25th Anniversary Ultimate Kaiba Set",
     });
     const requestUrl =
-      "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:set:reference-data&profileVersion=2026.06.21";
+      "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:set:reference-data&profileVersion=2026.10.18";
     const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
       requestUrl,
       scopes: [ygojsonScope],

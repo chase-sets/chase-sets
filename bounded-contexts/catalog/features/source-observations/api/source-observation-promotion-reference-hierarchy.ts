@@ -27,6 +27,7 @@ import {
   type SourceObservationOnePieceCardPrintNormalized,
   type SourceObservationOnePieceSetReferenceNormalized,
   type SourceObservationOnePieceSealedProductNormalized,
+  type SourceObservationYugiohSetReferenceNormalized,
   type SourceObservationPokemonCardNormalized,
   type SourceObservationPokemonSealedProductNormalized,
   type SourceObservationYugiohSealedProductNormalized,
@@ -53,7 +54,8 @@ export type ReferenceHierarchySourceObservationNormalized =
   | CatalogItemPromotableSourceObservationNormalized
   | SourceObservationMagicSetReferenceNormalized
   | SourceObservationLorcanaSetReferenceNormalized
-  | SourceObservationOnePieceSetReferenceNormalized;
+  | SourceObservationOnePieceSetReferenceNormalized
+  | SourceObservationYugiohSetReferenceNormalized;
 
 export async function ensurePokemonReferenceHierarchy(input: {
   deps: CatalogRuntimeDeps;
@@ -238,7 +240,8 @@ export async function resolveReferenceDataPromotionHierarchy(input: {
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized;
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized;
   context: EventStoreContext;
 }): Promise<{
   targetReferenceRecordId: ReferenceRecordId;
@@ -354,6 +357,25 @@ function promotionReferenceHierarchyPayload(normalized: ReferenceHierarchySource
             }
           : null,
       },
+    });
+  }
+
+  if (normalized.kind === "yugioh-set-reference") {
+    return toJsonValue({
+      ...normalized,
+      set: {
+        id: normalized.ygojsonId ?? normalized.setCode,
+        code: normalized.setCode,
+        set_code: normalized.setCode,
+        set_name: normalized.setName,
+        name: { en: normalized.setName },
+      },
+      selectedPrint: {
+        set_code: normalized.setCode,
+        set_name: normalized.setName,
+      },
+      set_name: normalized.setName,
+      productLineName: normalized.productLineName,
     });
   }
 

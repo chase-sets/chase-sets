@@ -158,10 +158,10 @@ export default function MarketplaceSellerDeskRepricingRoute() {
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(() => new URLSearchParams(location.search).get("create") === "1");
   const [openedAtKey, setOpenedAtKey] = useState(location.key);
   useEffect(() => {
-    if (!actionData?.error) setEditorOpen(false);
+    if (!actionData?.error) setEditorOpen(new URLSearchParams(location.search).get("create") === "1");
   }, [location.key]);
   useRepricingDeskCatchUp(data.catchingUp);
   const pendingPolicyId = navigation.formData ? repricingPolicyIdFrom(navigation.formData) : "";

@@ -1,22 +1,37 @@
 import { type PgQueryable, type PgTransactionalPool, withPgTransaction } from "@chase-sets/event-core-postgres";
-import { readAnonymousOwnerActivation } from "../../../support/runtime-support/anonymous-owner-activation";
+import {
+  anonymousOwnerActivationReadSql,
+  readAnonymousOwnerActivation,
+} from "../../../support/runtime-support/anonymous-owner-activation";
 import { savedListCanonicalIdentifier, savedListFingerprint } from "./anonymous-owner";
 
-async function observe(db: PgQueryable) {
-  try {
-    const activation = await readAnonymousOwnerActivation(db);
-    const ledger = await db.query<{ migration_id: string }>(
-      "SELECT migration_id FROM bounded_context_schema_migrations ORDER BY migration_id",
-    );
-    const fence = await db.query<{ present: boolean }>(`SELECT EXISTS (
+const schemaLedgerSql = "SELECT migration_id FROM bounded_context_schema_migrations ORDER BY migration_id";
+const rawOwnerFenceSql = `SELECT EXISTS (
     SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_proc p ON p.oid = t.tgfoid
     WHERE n.nspname = 'public' AND c.relname = 'collections_anonymous_saved_list_intents'
       AND t.tgname = 'collections_anonymous_owner_raw_fence' AND t.tgenabled IN ('O', 'A')
       AND p.proname = 'collections_anonymous_owner_raw_fence' AND NOT t.tgisinternal
-  ) AS present`);
-    const count = await db.query<{ remaining: string }>(`SELECT count(*)::text AS remaining
-    FROM collections_anonymous_saved_list_intents WHERE anonymous_owner_id IS NOT NULL`);
+  ) AS present`;
+
+/** The legacy raw-owner count `observe()` runs; capture tooling explains this exact statement. */
+export const legacyAnonymousOwnerCountSql = `SELECT count(*)::text AS remaining
+    FROM collections_anonymous_saved_list_intents WHERE anonymous_owner_id IS NOT NULL`;
+
+/** Every statement `observe()` runs, in order; capture tooling admits exactly these and no other SELECT. */
+export const anonymousOwnerObservationSql: readonly string[] = Object.freeze([
+  anonymousOwnerActivationReadSql,
+  schemaLedgerSql,
+  rawOwnerFenceSql,
+  legacyAnonymousOwnerCountSql,
+]);
+
+async function observe(db: PgQueryable) {
+  try {
+    const activation = await readAnonymousOwnerActivation(db, "none");
+    const ledger = await db.query<{ migration_id: string }>(schemaLedgerSql);
+    const fence = await db.query<{ present: boolean }>(rawOwnerFenceSql);
+    const count = await db.query<{ remaining: string }>(legacyAnonymousOwnerCountSql);
     return {
       activation,
       schemaLedger: ledger.rows.map((row) => row.migration_id),
