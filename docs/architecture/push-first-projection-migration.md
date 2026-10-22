@@ -177,7 +177,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `platform-operations:commercial-terms-effective-date-attention-projection` | Platform Operations | **commercial-terms** | push-enabled | 1/1 |
 | `platform-operations:platform-policy-document-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
-| `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
+| `platform-operations:reported-content-queue-projection` | Platform Operations | **identity**, **marketplace**, **platform-operations** | push-enabled | 3/3 |
 | `platform-operations:risk-alert-queue-projection` | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations** | push-enabled | 4/4 |
 | `platform-operations:seller-compliance-sales-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
 | `platform-operations:support-evidence-cleanup-locator-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |

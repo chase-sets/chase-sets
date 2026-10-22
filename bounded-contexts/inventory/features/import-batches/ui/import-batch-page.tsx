@@ -973,7 +973,7 @@ export function InventoryImportBatchPage({
                 header: t("inventory.features.importBatches.ui.importBatchPage.batch"),
                 cell: (row) => (
                   <Stack gap={1}>
-                    <Text weight="semibold">{row.source_filename ?? row.batch_id}</Text>
+                    <Text weight="semibold">{row.batch_id}</Text>
                     <Text size="sm" tone="secondary">
                       {formatDateTime(row.updated_at)}
                     </Text>

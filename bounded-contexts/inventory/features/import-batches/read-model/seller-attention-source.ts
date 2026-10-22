@@ -65,13 +65,11 @@ export function createImportResolutionAttentionSourceFromReadModel(db: PgQueryab
     loadImportResolutionRows: async (context) => {
       const result = await db.query<{
         batch_id: string;
-        source_filename: string | null;
         unresolved_count: number;
         observed_at: string;
       }>(
         `SELECT
            batch.batch_id,
-           NULL::text AS source_filename,
            COUNT(*)::integer AS unresolved_count,
            MIN(row.updated_at) AS observed_at
          FROM inventory_import_batches AS batch
@@ -86,7 +84,7 @@ export function createImportResolutionAttentionSourceFromReadModel(db: PgQueryab
 
       return result.rows.map((row) => ({
         batchId: row.batch_id,
-        reference: row.source_filename ?? row.batch_id,
+        reference: row.batch_id,
         unresolvedCount: row.unresolved_count,
         observedAt: row.observed_at,
       }));
