@@ -263,8 +263,10 @@ describe("promotion target retained-reference exclusion", () => {
     }
 
     const chunkedHistory = await eventStore.readStream({ streamId: "catalog.source-observation-chunked-source" });
-    const finalNormalizedChunk = chunkedHistory.findLastIndex(
-      (event) => event.eventType === "catalog.source-observation.normalized-evidence-chunk-recorded",
+    const finalNormalizedChunk = chunkedHistory.reduce(
+      (lastIndex, event, index) =>
+        event.eventType === "catalog.source-observation.normalized-evidence-chunk-recorded" ? index : lastIndex,
+      -1,
     );
     expect(finalNormalizedChunk).toBeGreaterThan(0);
     const invalidHistory = [
