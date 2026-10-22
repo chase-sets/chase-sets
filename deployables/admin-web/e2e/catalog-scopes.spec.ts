@@ -35,7 +35,7 @@ test.describe.serial("catalog admin scopes", () => {
     // facets live behind the overflow panel like other catalog list surfaces.
     await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
-    await page.getByRole("button", { name: /More filters/ }).click();
+    await page.getByRole("button", { name: "More filters (2)", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "Product domain" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Language" })).toBeVisible();
     await page.getByRole("button", { name: "Close filters" }).click();
