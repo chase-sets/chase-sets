@@ -9,6 +9,7 @@ import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
+import { selectVerifyStaticGuardTests } from "./verify-static-scoped.mjs";
 
 describe("rendered-copy real-provider selection corpus", () => {
   it("preserves current-main owning selection for modified, added, deleted and --no-renames paths", async () => {
@@ -116,6 +117,48 @@ describe("rendered-copy real-provider selection corpus", () => {
   });
 });
 
+it.each(["sidecar-only", "renamed-source", "removed-source"])(
+  "lost-update selection survives real Git %s changes",
+  (kind) => {
+    const directory = mkdtempSync(path.join(tmpdir(), "lost-update-selection-"));
+    const source = "bounded-contexts/pricing/features/market-estimates/read-model/queries.ts";
+    const sidecar = `${source}.lost-update-exceptions.json`;
+    const git = (...args) =>
+      execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args], {
+        cwd: directory,
+        encoding: "utf8",
+        timeout: 10000,
+      });
+    try {
+      git("init", "--quiet", "--initial-branch=main");
+      mkdirSync(path.dirname(path.join(directory, source)), { recursive: true });
+      writeFileSync(path.join(directory, source), "const sql = `DELETE FROM rows WHERE id = $1`;\n");
+      writeFileSync(path.join(directory, sidecar), "[]\n");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "seed owner pair");
+      const base = git("rev-parse", "HEAD").trim();
+      if (kind === "sidecar-only") writeFileSync(path.join(directory, sidecar), "[{}]\n");
+      else if (kind === "removed-source") git("rm", source, sidecar);
+      else {
+        mkdirSync(path.join(directory, "archive"));
+        git("mv", source, "archive/queries.ts");
+        git("mv", sidecar, "archive/queries.ts.lost-update-exceptions.json");
+      }
+      git("add", ".");
+      git("commit", "--quiet", "-m", kind);
+      const changedFiles = listChangedFiles(base, "HEAD", { cwd: directory });
+      expect(changedFiles).toContain(sidecar);
+      if (kind !== "sidecar-only") expect(changedFiles).toContain(source);
+      expect(selectVerifyStaticGuardTests({ changedFiles })).toContain(
+        "scripts/check-structure/lost-update-write-guard.test.mjs",
+      );
+      expect(classifyChanges({ changedFiles }).changedFiles).toContain(sidecar);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
+
 const priorProductionIntegrationRules = [
   {
     reason: "Bounded-context metadata, including event subscriptions, changed",
@@ -207,6 +250,7 @@ const schedulerVocabularyLookalikePaths = [
 // Accepted dependency delta: #7274 declares Notifications' owner-builder imports,
 // adding Notifications to the Ordering and Pricing cases' affected sets.
 // Accepted inventory delta: #9919 adds @chase-sets/tcgplayer-market-observations.
+// Accepted inventory delta adds @chase-sets/inventory-draft-listing.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-marketplace-web",
@@ -241,6 +285,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/identity",
   "@chase-sets/identity-seed",
   "@chase-sets/inventory",
+  "@chase-sets/inventory-draft-listing",
   "@chase-sets/local-email-capture",
   "@chase-sets/localization",
   "@chase-sets/market-estimate-display",

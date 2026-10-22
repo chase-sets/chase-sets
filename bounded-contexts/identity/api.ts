@@ -109,7 +109,7 @@ import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
 import { buildCurrentActorDisplay } from "./support/shell-support/current-actor-display";
-import { publishIdentityCsatOutcomeFact } from "./support/request-support/csat-outcome-facts";
+import { appendOnboardingCompleted, appendRegistrationCompleted } from "./support/request-support/lifecycle-events";
 
 export type IdentityApiEnv = {
   Variables: {
@@ -1131,34 +1131,15 @@ async function appendPersonalIdentityRegistration(
   // Strictly after the registration commits, and never able to convert a
   // committed registration into a failed response. Its idempotency key is
   // stable per operation because the account id now is.
-  await publishRegistrationOutcomeFact(args.services, params.context, accountId);
+  if (args.services.eventStore) {
+    try {
+      await appendRegistrationCompleted(args.services.eventStore, params.context, { accountId, userId });
+    } catch {
+      // Cross-context outcome publication is outside the registration atom.
+    }
+  }
 
   return { userId, accountId, membershipId, snapshots };
-}
-
-async function publishRegistrationOutcomeFact(
-  services: IdentityServices,
-  context: EventStoreContext,
-  accountId: AccountId,
-) {
-  if (!services.eventStore) {
-    return;
-  }
-
-  try {
-    await publishIdentityCsatOutcomeFact(services.eventStore, context, {
-      outcomeCode: "registration.completed",
-      subjectAccountId: accountId,
-      subjectKind: "account",
-      subject: { entityType: "account", entityId: accountId },
-      idempotencyKey: `identity:registration:${accountId}`,
-    });
-  } catch {
-    // A cross-context outcome fact is not part of the registration atom. The
-    // account, user, membership and consent bundle are already committed, and
-    // reporting a failure here would tell the caller to retry work that
-    // succeeded.
-  }
 }
 
 async function createGuestAccountForAuth(
@@ -1235,15 +1216,13 @@ async function grantGuestAccountForAuth(
     context: params.context,
   });
 
-  if (services.eventStore) {
-    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
-      outcomeCode: "onboarding.completed",
-      subjectAccountId: params.accountId,
-      subjectKind: "account",
-      subject: { entityType: "account", entityId: params.accountId },
+  if (services.eventStore)
+    await appendOnboardingCompleted(services.eventStore, params.context, {
+      accountId: params.accountId as AccountId,
+      userId: params.userId as UserId,
+      onboardingPath: "guest-account",
       idempotencyKey: `identity:onboarding:guest-account:${params.accountId}:${params.userId}`,
     });
-  }
 
   return { membershipId, snapshots: [mutationSnapshot("membership", membershipId, result)] };
 }
@@ -1439,15 +1418,14 @@ async function acceptInvitationForUserFromAuth(
     },
     context: params.context,
   });
-  if (services.eventStore) {
-    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
-      outcomeCode: "onboarding.completed",
-      subjectAccountId: invitation.accountId,
-      subjectKind: "account",
-      subject: { entityType: "invitation", entityId: params.invitationId },
+  if (services.eventStore)
+    await appendOnboardingCompleted(services.eventStore, params.context, {
+      accountId: invitation.accountId,
+      userId: params.userId as UserId,
+      onboardingPath: "invitation",
+      invitationId: params.invitationId,
       idempotencyKey: `identity:onboarding:invitation:${params.invitationId}:${params.userId}`,
     });
-  }
   return {
     membershipId,
     snapshots: [
@@ -1825,11 +1803,11 @@ export function buildIdentityApi(
           acceptanceTokenHash: String(body.acceptanceTokenHash ?? ""),
           context: getBootstrapContext(c),
         });
-        await publishIdentityCsatOutcomeFact(services.eventStore, getBootstrapContext(c), {
-          outcomeCode: "onboarding.completed",
-          subjectAccountId: operation.accountId,
-          subjectKind: "account",
-          subject: { entityType: "invitation", entityId: operation.invitationId },
+        await appendOnboardingCompleted(services.eventStore, getBootstrapContext(c), {
+          accountId: operation.accountId as AccountId,
+          userId: operation.userId as UserId,
+          onboardingPath: "invitation",
+          invitationId: operation.invitationId,
           idempotencyKey: `identity:onboarding:invitation:${operation.invitationId}:${operation.userId}`,
         });
         return c.json(result);

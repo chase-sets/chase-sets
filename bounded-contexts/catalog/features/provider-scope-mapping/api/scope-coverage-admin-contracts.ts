@@ -167,6 +167,7 @@ export type ScopeCoverageProviderRow = Readonly<{
   state: ScopeCoverageState;
   /** The mapping this row's state was computed from (latest, any status). */
   mapping: ProviderScopeMappingCandidateSummary | null;
+  acceptedMappings: readonly ProviderScopeMappingCandidateSummary[];
   syncedObservations: number;
   promotedObservations: number;
 }>;
@@ -248,6 +249,13 @@ export async function buildScopeCoverageMatrix(input: {
             promotedObservations: syncStatus.promotedObservations,
           }),
           mapping,
+          acceptedMappings: rows
+            .filter((row) => row.review_status === "accepted" || row.review_status === "auto-accepted")
+            .map(mapProviderScopeMappingCandidate)
+            .sort(
+              (left, right) =>
+                left.unitKey.localeCompare(right.unitKey) || left.mappingId.localeCompare(right.mappingId),
+            ),
           syncedObservations: syncStatus.totalObservations,
           promotedObservations: syncStatus.promotedObservations,
         };

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exception-f3e86d7e355098d7",
+    "binding": {
+      "module": "bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_shipping_addresses",
+      "digest": "1e66f31e7dc5afac26974092059aac8f1d803e48b921ba07d4e8fee8eecfa7e3"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts:26 directly synchronizes identity_shipping_addresses from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c804fa900faf6b82",
+    "binding": {
+      "module": "bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_shipping_addresses",
+      "digest": "1b7642633e3f5804b295da7cb5eb25ef51275f45665cf8068f3fdfce9de26ecd"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts:108 directly synchronizes identity_shipping_addresses from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-4319a0eee37b76ac",
+    "binding": {
+      "module": "bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_shipping_addresses",
+      "digest": "21a42263201403802c2950c789b10568b10e594c995a2e246011141e3f225a05"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts:153 directly synchronizes identity_shipping_addresses from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-06fd16a58eb2b339",
+    "binding": {
+      "module": "bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_shipping_addresses",
+      "digest": "6ff4fff595c67643c32ab79c2950126e983e05ed759e7b18184b3250ddbb37f3"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts:170 directly synchronizes identity_shipping_addresses from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-c1bcff2500023f81",
+    "binding": {
+      "module": "bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "identity_shipping_addresses",
+      "digest": "1777f232c4389ca6dc03692fa32ddab2778f059cd2ad271c3964a34027693f9e"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/identity/features/shipping-addresses/read-model/projection.ts:181 directly synchronizes identity_shipping_addresses from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

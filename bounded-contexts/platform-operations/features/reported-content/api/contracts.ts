@@ -1,3 +1,14 @@
+import {
+  isPlatformOperationsReportedContentActionFor,
+  isPlatformOperationsReportedContentTargetType,
+  platformOperationsReportedContentActionRequiresNote,
+  platformOperationsReportedContentActionsByTargetType,
+  type PlatformOperationsReportedContentModerationAction,
+  type PlatformOperationsReportedContentModerationActionFor,
+  type PlatformOperationsReportedContentTargetType,
+} from "@chase-sets/event-core/public-event-payloads";
+import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
+
 export type ReportedContentQueueStatus =
   | "needs-review"
   | "auto-unlisted"
@@ -7,51 +18,109 @@ export type ReportedContentQueueStatus =
   | "suspension-escalated"
   | "review-withdrawn"
   | "review-feedback-redacted"
-  | "review-reply-withdrawn";
-export type ReportedContentTargetType = "listing" | "review";
-export type ReportedContentModerationAction =
-  | "dismiss"
-  | "contact-seller"
-  | "unlist"
-  | "escalate-account-suspension"
-  // Review-scoped moderation (m108): the review domain commands these
-  // dispatch (withdraw / redact-feedback / withdraw the subject reply) live
-  // in marketplace, not platform-operations -- see the
-  // `marketplace-review-moderation-reaction`.
-  | "withdraw-review"
-  | "redact-review-feedback"
-  | "withdraw-review-reply";
+  | "review-reply-withdrawn"
+  | "account-contact-requested"
+  | "profile-display-name-redacted";
+export type ReportedContentTargetType = PlatformOperationsReportedContentTargetType;
+export type ReportedContentModerationAction = PlatformOperationsReportedContentModerationAction;
 
-// Actions valid for each target type -- rejecting a listing action against a
-// review target (or vice versa) at the runtime boundary, before the event is
-// ever appended.
-export const REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE: Readonly<
-  Record<ReportedContentTargetType, readonly ReportedContentModerationAction[]>
+// The published contract table: each target accepts exactly its actions. The runtime,
+// the HTTP route, the admin route and the admin page all derive from it. Review-scoped
+// domain commands live in marketplace (`marketplace-review-moderation-reaction`).
+export const REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE: Readonly<{
+  [TargetType in ReportedContentTargetType]: readonly PlatformOperationsReportedContentModerationActionFor<TargetType>[];
+}> = platformOperationsReportedContentActionsByTargetType;
+
+export const REPORTED_CONTENT_TARGET_TYPES = Object.keys(
+  REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE,
+) as readonly ReportedContentTargetType[];
+
+export const REPORTED_CONTENT_STATUS_BY_ACTION: Readonly<
+  Record<ReportedContentModerationAction, ReportedContentQueueStatus>
 > = {
-  listing: ["dismiss", "contact-seller", "unlist", "escalate-account-suspension"],
-  review: [
-    "dismiss",
-    "contact-seller",
-    "escalate-account-suspension",
-    "withdraw-review",
-    "redact-review-feedback",
-    "withdraw-review-reply",
-  ],
+  dismiss: "dismissed",
+  "contact-seller": "seller-contact-requested",
+  unlist: "manually-unlisted",
+  "escalate-account-suspension": "suspension-escalated",
+  "withdraw-review": "review-withdrawn",
+  "redact-review-feedback": "review-feedback-redacted",
+  "withdraw-review-reply": "review-reply-withdrawn",
+  "contact-account": "account-contact-requested",
+  "redact-profile-display-name": "profile-display-name-redacted",
 };
 
-// Review-scoped moderation actions must always carry a reason -- the event is
-// the audit trail ("every moderation action is an event with actor/reason").
-export const REPORTED_CONTENT_ACTIONS_REQUIRING_NOTE: readonly ReportedContentModerationAction[] = [
-  "withdraw-review",
-  "redact-review-feedback",
-  "withdraw-review-reply",
-];
+export function isReportedContentModerationAction(value: unknown): value is ReportedContentModerationAction {
+  return typeof value === "string" && Object.hasOwn(REPORTED_CONTENT_STATUS_BY_ACTION, value);
+}
 
+/** Bounded reasons an operator action is refused before anything is appended. */
+export const reportedContentActionRejectionCodes = [
+  "invalid-request",
+  "unknown-target-type",
+  "invalid-target-id",
+  "unknown-action",
+  "action-not-allowed",
+  "note-required",
+  "target-not-queued",
+  "invalid-listing-removal-directive",
+] as const;
+
+export type ReportedContentActionRejectionCode = (typeof reportedContentActionRejectionCodes)[number];
+
+/** A refused operator action; it carries only its bounded code, never request text. */
+export class ReportedContentActionRejectedError extends Error {
+  constructor(readonly code: ReportedContentActionRejectionCode) {
+    super(`Reported content action rejected: ${code}.`);
+    this.name = "ReportedContentActionRejectedError";
+  }
+}
+
+export type ReportedContentModerationCommand = {
+  [TargetType in ReportedContentTargetType]: Readonly<{
+    targetType: TargetType;
+    targetId: string;
+    action: PlatformOperationsReportedContentModerationActionFor<TargetType>;
+    note: string | null;
+  }>;
+}[ReportedContentTargetType];
+
+/** Validates an operator action against the contract table; rejects with a bounded code. */
+export function parseReportedContentModerationCommand(
+  input: Readonly<{ targetType: string; targetId: string; action: string; note: string | null }>,
+): ReportedContentModerationCommand {
+  const { targetType, targetId, action, note } = input;
+  if (!isPlatformOperationsReportedContentTargetType(targetType)) {
+    throw new ReportedContentActionRejectedError("unknown-target-type");
+  }
+  if (!targetId || targetId.trim() !== targetId || !isTargetIdFor(targetType, targetId)) {
+    throw new ReportedContentActionRejectedError("invalid-target-id");
+  }
+  if (!isReportedContentModerationAction(action)) {
+    throw new ReportedContentActionRejectedError("unknown-action");
+  }
+  if (!isPlatformOperationsReportedContentActionFor(targetType, action)) {
+    throw new ReportedContentActionRejectedError("action-not-allowed");
+  }
+  if (platformOperationsReportedContentActionRequiresNote(action) && !note?.trim()) {
+    throw new ReportedContentActionRejectedError("note-required");
+  }
+  return { targetType, targetId, action, note } as ReportedContentModerationCommand;
+}
+
+function isTargetIdFor(targetType: ReportedContentTargetType, targetId: string): boolean {
+  if (targetType !== "account-profile") return true;
+  try {
+    parseStrictTypedUlid(targetId, "acc");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Minimum reporter evidence an operator sees: never the reporter's account, user or key. */
 export type ReportedContentReportSummary = Readonly<{
   reportId: string;
-  reporterKind: string;
-  reporterKey: string;
-  reporterAccountId: string | null;
+  reporterKind: "account" | "visitor";
   reason: string;
   details: string | null;
   submittedAt: string;
@@ -64,7 +133,6 @@ export type ReportedContentQueueItem = Readonly<{
   status: ReportedContentQueueStatus;
   report_count: number;
   reasons: readonly { reason: string; count: number }[];
-  reports: readonly ReportedContentReportSummary[];
   first_reported_at: string;
   last_reported_at: string;
   auto_unlisted_at: string | null;
@@ -77,7 +145,11 @@ export type ReportedContentQueueItem = Readonly<{
   updated_at: string;
 }>;
 
-export type ReportedContentQueueDetail = ReportedContentQueueItem;
+export type ReportedContentQueueDetail = ReportedContentQueueItem &
+  Readonly<{
+    reports: readonly ReportedContentReportSummary[];
+    distinct_reporter_count: number;
+  }>;
 
 export type ReportedContentQueueMetrics = Readonly<{
   total_count: number;

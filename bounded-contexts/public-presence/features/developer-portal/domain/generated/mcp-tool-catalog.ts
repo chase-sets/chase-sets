@@ -5350,7 +5350,7 @@ export const mcpToolCatalog = [
         matchInputField: "confirmationText",
       },
       idempotencyKey: "required",
-      idempotencyAuthority: "platform",
+      idempotencyAuthority: "owner",
       dryRunSupported: false,
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
