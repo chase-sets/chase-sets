@@ -1156,11 +1156,18 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 135,
-      "platform-bootstrap": 63,
-      "platform-worker": 137,
+      "platform-api": 130,
+      "platform-bootstrap": 59,
+      "platform-worker": 132,
       "public-web": 13,
     });
+    const retiredNames = Object.values(values.components).flatMap((component) =>
+      component.env.filter(
+        (entry) =>
+          entry.name === "CATALOG_OPERATOR_SESSION_KEYRING_JSON" || entry.name.startsWith("TCGPLAYER_AUTOMATION_"),
+      ),
+    );
+    expect(retiredNames).toEqual([]);
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
     expect(componentEnvKeys(values.components["platform-api"])).toContain("DATABASE_URL_COMMERCIAL_TERMS");
     expect(componentEnvKeys(values.components["platform-api"])).toContain("DATABASE_URL_INVENTORY_WAITER");
