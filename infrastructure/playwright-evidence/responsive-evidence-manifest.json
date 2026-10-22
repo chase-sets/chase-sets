@@ -6062,6 +6062,135 @@
         }
       ],
       "artifact": "marketplace-shell-search-row-desktop-768"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-create-360",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "submitted-create-validation-summary",
+        "selector": "section[role='alert']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "submitted-create-summary-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "submitted-create-summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-create-360"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-update-390",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "submitted-update-validation-summary",
+        "selector": "section[role='alert']",
+        "populatedSelector": ":scope a"
+      },
+      "measurements": [
+        {
+          "identity": "submitted-update-summary-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "submitted-update-summary-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-update-390"
+    },
+    {
+      "kind": "claim",
+      "id": "shipping-field-errors-removed-row-1024",
+      "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "route": {
+        "name": "shipping addresses",
+        "path": "/account/shipping-addresses"
+      },
+      "fixture": {
+        "identity": "browser-e2e-synthetic-account:shipping-addresses:v1"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "target": {
+        "identity": "removed-row-controller-banner",
+        "selector": "[role='status'][tabindex='-1'] [role='alert']",
+        "populatedSelector": ":scope"
+      },
+      "measurements": [
+        {
+          "identity": "removed-row-controller-banner-visible",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "removed-row-controller-banner-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        }
+      ],
+      "artifact": "shipping-field-errors-removed-row-1024"
     }
   ]
 }
