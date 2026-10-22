@@ -37,22 +37,16 @@ describe("toImportResolutionAttentionItems", () => {
 });
 
 describe("createImportResolutionAttentionSourceFromReadModel", () => {
-  it("queries unresolved rows for only the requested seller account", async () => {
+  it("queries unresolved rows for only the requested seller account and references each batch by id", async () => {
     const query = vi.fn(async () => ({
-      rows: [
-        {
-          batch_id: "batch-1",
-          source_filename: "inventory.csv",
-          unresolved_count: 2,
-          observed_at: "2026-07-13T00:00:00.000Z",
-        },
-      ],
+      rows: [{ batch_id: "batch-1", unresolved_count: 2, observed_at: "2026-07-13T00:00:00.000Z" }],
     }));
 
     const items = await createImportResolutionAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining("row.resolution_status = 'unresolved'"), ["acct-1"]);
-    expect(items[0]?.summary.params).toEqual({ reference: "inventory.csv", count: 2 });
+    expect(query).toHaveBeenCalledWith(expect.not.stringContaining("source_filename"), ["acct-1"]);
+    expect(items[0]?.summary.params).toEqual({ reference: "batch-1", count: 2 });
   });
 });
 

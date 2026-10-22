@@ -269,9 +269,11 @@ function inspectGovernedProductionOwnership(source) {
 async function loadSqlExecutionModuleFromSource(source) {
   const compilerApiUrl = import.meta.resolve("@chase-sets/typescript-compiler-api");
   const moduleResolutionUrl = new URL("./module-resolution.mjs", import.meta.url).href;
+  const gitListingUrl = new URL("../lib/git-listing.mjs", import.meta.url).href;
   const runnableSource = source
     .replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerApiUrl))
-    .replace('"./module-resolution.mjs"', JSON.stringify(moduleResolutionUrl));
+    .replace('"./module-resolution.mjs"', JSON.stringify(moduleResolutionUrl))
+    .replace('"../lib/git-listing.mjs"', JSON.stringify(gitListingUrl));
   return import(`data:text/javascript;base64,${Buffer.from(runnableSource).toString("base64")}`);
 }
 

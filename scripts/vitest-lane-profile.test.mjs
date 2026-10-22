@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "vitest";
 import { configDefaults } from "vitest/config";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   boundedContextTestInclude,
   defineBoundedContextTestConfig,
@@ -92,6 +93,7 @@ test("keeps the exact 69+1 tracked Vitest config topology on the shared lane res
   const trackedConfigs = execFileSync("git", ["ls-files", "--", "*vitest*.config.*"], {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   })
     .split(/\r?\n/)
     .filter(Boolean)

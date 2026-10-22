@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const guardFile = "scripts/lib/heavy-slot.mjs";
@@ -124,7 +125,10 @@ function normalize(relativePath) {
 }
 
 function trackedFiles(root) {
-  return execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" })
+  return execFileSync("git", ["-C", root, "ls-files", "-z"], {
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean)
     .map(normalize);
