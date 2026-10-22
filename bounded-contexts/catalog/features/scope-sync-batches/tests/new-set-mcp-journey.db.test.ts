@@ -160,7 +160,7 @@ describe("new set over MCP journey", () => {
         referenceRecordId: "ref_time_spiral",
         typeKey: "set",
         key: "time-spiral",
-        name: { en: "Time Spiral" },
+        name: { defaultLocale: "en", values: { en: "Time Spiral" } },
         attributes: {
           "product-domain": "magic",
           "release-date": "2006-10-06",
