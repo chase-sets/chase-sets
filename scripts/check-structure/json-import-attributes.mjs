@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { listWorkspacePackages, repoRoot } from "../lib/repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts"];
 const sourceExtensionSet = new Set(sourceExtensions);
@@ -45,7 +46,10 @@ function sourceFile(relativeFile, content, work) {
 function trackedPaths(rootDir, work) {
   work.gitSubprocesses += 1;
   return new Set(
-    execFileSync("git", ["-C", rootDir, "ls-files"], { encoding: "utf8" })
+    execFileSync("git", ["-C", rootDir, "ls-files"], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter(Boolean)
       .map(normalizePath),

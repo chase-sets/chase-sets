@@ -1,6 +1,7 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { contractInventoryImportSources } from "../api/source-migration";
 
 export const inventoryImportSnapshotSchemaSql = `
 ALTER TABLE inventory_import_batch_job_inputs
@@ -167,6 +168,21 @@ export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] 
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_jobs_batch_state_idx
         ON inventory_import_batch_jobs ((payload->>'accountId'), (payload->>'batchId'), job_kind, status)`,
     ],
+  },
+  // Runs after the safe-snapshot readers it converts into; the runner applies this array in order.
+  {
+    migrationId: "20261020_inventory_import_raw_source_contraction",
+    description:
+      "Convert leftover legacy import sources, re-sanitize retained history and drop the raw-source columns.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s'",
+      `ALTER TABLE inventory_import_batch_job_inputs
+  DROP COLUMN IF EXISTS csv_text,
+  DROP COLUMN IF EXISTS parsed_rows,
+  DROP COLUMN IF EXISTS source_filename`,
+      "ALTER TABLE inventory_import_batches DROP COLUMN IF EXISTS source_filename",
+    ],
+    dataStep: contractInventoryImportSources,
   },
   {
     migrationId: "20261006_inventory_import_product_resolution_scan",

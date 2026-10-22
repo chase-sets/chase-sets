@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -2747,7 +2748,11 @@ describe("prioritization hygiene authority", () => {
 
 describe("dispatch-window module boundary", () => {
   it("derives the tracked importer inventory and keeps the helper source network- and mutation-free", () => {
-    const trackedScripts = execFileSync("git", ["ls-files", "scripts"], { cwd: repoRoot, encoding: "utf8" })
+    const trackedScripts = execFileSync("git", ["ls-files", "scripts"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter((file) => file.endsWith(".mjs"));
     const importers = trackedScripts.filter((file) =>
