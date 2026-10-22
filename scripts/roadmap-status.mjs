@@ -78,6 +78,9 @@ const EPIC_SUB_ISSUE_WARNING_THRESHOLD = 90;
 const MILESTONE_EVENTS = new Set(["milestoned", "demilestoned"]);
 export const BACKLOG_RELEVANCE_KEEP_OPEN_MARKER = "<!-- backlog-relevance:R3 keep-open -->";
 const BACKLOG_RELEVANCE_ROW_CAP = 25;
+const BACKLOG_RELEVANCE_MAX_REQUESTS = 256;
+const RATE_LIMIT_RETRY_ATTEMPTS = 3;
+const RATE_LIMIT_BACKOFF_CAP_MS = 5_000;
 function authorityError(code, message = code) {
   return new RoadmapIssueEnumerationError(code, message);
 }
@@ -1649,21 +1652,46 @@ export function spliceIntoBody(body, block) {
   return `${text.slice(0, start)}${block}${text.slice(end + END_MARKER.length)}`;
 }
 
-async function gh(pathname, token, init = {}, request = globalThis.fetch) {
+function rateLimitBackoffMs(response, attempt) {
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+    return Math.min(RATE_LIMIT_BACKOFF_CAP_MS, retryAfter * 1_000);
+  }
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  if (Number.isFinite(reset) && reset > 0) {
+    return Math.min(RATE_LIMIT_BACKOFF_CAP_MS, Math.max(0, reset * 1_000 - Date.now()));
+  }
+  return Math.min(RATE_LIMIT_BACKOFF_CAP_MS, 250 * 2 ** (attempt - 1));
+}
+
+function isRateLimited(response) {
+  return response.status === 429 || response.status === 403;
+}
+
+async function waitForRateLimit(response, attempt) {
+  const delay = rateLimitBackoffMs(response, attempt);
+  await new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+async function gh(pathname, token, init = {}, request = globalThis.fetch, { retryRateLimit = false } = {}) {
   const url = pathname.startsWith("http") ? pathname : `https://api.github.com${pathname}`;
-  const response = await request(url, {
-    ...init,
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "x-github-api-version": "2022-11-28",
-      ...(init.headers ?? {}),
-    },
-  });
-  if (!response.ok) {
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await request(url, {
+      ...init,
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${token}`,
+        "x-github-api-version": "2022-11-28",
+        ...(init.headers ?? {}),
+      },
+    });
+    if (response.ok) return response;
+    if (retryRateLimit && isRateLimited(response) && attempt < RATE_LIMIT_RETRY_ATTEMPTS) {
+      await waitForRateLimit(response, attempt);
+      continue;
+    }
     throw new Error(`GitHub request failed: ${response.status} ${pathname} ${await response.text()}`);
   }
-  return response;
 }
 
 function nextPageUrl(response) {
@@ -1846,7 +1874,7 @@ query($owner:String!, $name:String!, $number:Int!, $after:String) {
   }
 }`;
 
-async function graphql(query, variables, token, request) {
+async function graphql(query, variables, token, request, options = { retryRateLimit: false }) {
   const response = await gh(
     "https://api.github.com/graphql",
     token,
@@ -1856,6 +1884,7 @@ async function graphql(query, variables, token, request) {
       body: JSON.stringify({ query, variables }),
     },
     request,
+    options,
   );
   const payload = await response.json();
   if (payload.errors) throw new Error(`GraphQL failed: ${JSON.stringify(payload.errors)}`);
@@ -1895,8 +1924,14 @@ export async function collectLiveMonthlyRefinedInventory({ repository, token, re
 // Never throws: any R3 failure becomes its `unknown` reason so the rest of the
 // block still renders and the splice still runs.
 async function collectLiveBacklogRelevanceDelivered({ owner, name, token, request }) {
-  const load = async (query, variables, path) =>
-    path(await graphql(query, { owner, name, ...variables }, token, request));
+  let requests = 0;
+  const load = async (query, variables, path) => {
+    requests += 1;
+    if (requests > BACKLOG_RELEVANCE_MAX_REQUESTS) {
+      throw relevanceError("ROADMAP_RELEVANCE_R3_REQUEST_BUDGET_EXCEEDED");
+    }
+    return path(await graphql(query, { owner, name, ...variables }, token, request, { retryRateLimit: true }));
+  };
   try {
     const numbers = await collectBacklogRelevanceDelivered({
       loadIssues: (after) => load(BACKLOG_RELEVANCE_ISSUES_QUERY, { after }, (data) => data?.repository?.issues),

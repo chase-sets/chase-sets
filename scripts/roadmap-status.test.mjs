@@ -3282,6 +3282,49 @@ describe("backlog relevance", () => {
     ]);
   });
 
+  it("retries a secondary rate limit using retry-after before deciding R3", async () => {
+    let limited = true;
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      relevance: {
+        issues: delivered9101,
+        respond: (query) => {
+          if (!query.includes("ISSUES_SENTINEL") || !limited) return null;
+          limited = false;
+          return new Response(JSON.stringify({ message: "secondary rate limit" }), {
+            status: 403,
+            headers: { "retry-after": "0" },
+          });
+        },
+      },
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.generated[0]).toContain(`${R3}: **1**`);
+  });
+
+  it("renders R3 unknown after bounded rate-limit retries without failing the splice", async () => {
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      relevance: {
+        issues: delivered9101,
+        respond: (query) =>
+          query.includes("ISSUES_SENTINEL")
+            ? new Response(JSON.stringify({ message: "secondary rate limit" }), {
+                status: 403,
+                headers: { "retry-after": "0" },
+              })
+            : null,
+      },
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.generated[0]).toContain(`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_FAILED`);
+    expect(result.patches).toHaveLength(1);
+  });
+
   it("keeps a core-authority refusal byte-identical without reaching any relevance acquisition", async () => {
     const future = capRecord(Date.parse("2026-08-28T00:00:00.000Z"));
     const result = await runRelevanceMain({
