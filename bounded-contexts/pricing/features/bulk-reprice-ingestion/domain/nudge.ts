@@ -2,8 +2,8 @@ import { REPRICING_POLICY_PERCENT_MAGNITUDE_CAP } from "../../repricing-policies
 
 export type MigrationNudgeRow = Readonly<{
   appliedPriceAmount: string;
-  marketEstimateAmount: string;
-  currencyCode: string;
+  marketEstimateAmount: string | null;
+  currencyCode: string | null;
 }>;
 
 export type MigrationNudge = Readonly<{
@@ -20,7 +20,7 @@ export type MigrationNudge = Readonly<{
     | "unavailable";
 }>;
 
-function money(value: string): number | null {
+function money(value: string | null): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
@@ -31,8 +31,8 @@ export function deriveMigrationNudge(
 ): MigrationNudge {
   if (rows.length === 0)
     return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "no-samples" };
-  const currencies = new Set(rows.map((row) => row.currencyCode.trim().toUpperCase()).filter(Boolean));
-  if (currencies.size !== 1)
+  const currencies = new Set(rows.map((row) => row.currencyCode?.trim().toUpperCase() ?? ""));
+  if (currencies.size !== 1 || !/^[A-Z]{3}$/.test([...currencies][0]!))
     return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "mixed-currency" };
   const ratios = rows.flatMap((row) => {
     const applied = money(row.appliedPriceAmount);
@@ -52,7 +52,7 @@ export function deriveMigrationNudge(
   const median = ratios.length % 2 ? ratios[middle]! : (ratios[middle - 1]! + ratios[middle]!) / 2;
   const offsetPercent = Math.round(median * 100) / 100;
   const cap = params.magnitudeCap ?? REPRICING_POLICY_PERCENT_MAGNITUDE_CAP;
-  if (Math.abs(offsetPercent) > cap) {
+  if (Math.abs(median) > cap) {
     return {
       status: "unavailable",
       offsetPercent: null,

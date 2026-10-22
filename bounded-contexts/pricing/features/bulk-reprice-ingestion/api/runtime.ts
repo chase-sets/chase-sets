@@ -24,7 +24,7 @@ import {
 } from "../domain/csv";
 import { bulkRepriceIngestionPolicy, type BulkRepriceIngestionPolicyValue } from "../domain/policy";
 import { deriveMigrationNudge, type MigrationNudge } from "../domain/nudge";
-import { bulkRepriceSunsetPolicy } from "../../repricing-engine/domain/sunset";
+import { resolveBulkRepriceSunsetPolicy } from "../../repricing-engine/api/source-share";
 import { listRepricingSourceShareWeeks } from "../../repricing-engine/read-model/source-share";
 import {
   checkBulkRepriceCreateRateLimit,
@@ -434,29 +434,33 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
     if (policy.nudgeMinEstimateSamples === undefined) {
       return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "insufficient-estimates" };
     }
-    const sunsetPolicy = await policyResolver.resolvePolicy(bulkRepriceSunsetPolicy);
-    if (sunsetPolicy.source !== "policy") {
+    const sunsetPolicy = await resolveBulkRepriceSunsetPolicy(policyResolver);
+    if (!sunsetPolicy) {
       return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "policy-unknown" };
     }
     const now = new Date();
-    const from = new Date(now.getTime() - 26 * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const to = now.toISOString().slice(0, 10);
+    now.setUTCHours(0, 0, 0, 0);
+    now.setUTCDate(now.getUTCDate() - now.getUTCDay());
+    const from = new Date(now.getTime() - 26 * 7 * 86400000).toISOString().slice(0, 10);
+    const to = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
     const weeks = await listRepricingSourceShareWeeks(deps.db, { from, to, sellerAccountId: accountId });
     const latestCompleteWeek = [...weeks].reverse().find((week) => week.status === "complete");
-    const sellerReliance = latestCompleteWeek?.topSellers.find(
-      (seller) =>
-        seller.accountId === accountId &&
-        seller.bulkListingCount > sunsetPolicy.value.relianceListingThreshold &&
-        seller.bulkCount > seller.policyCount &&
-        seller.bulkCount > seller.manualCount,
-    );
-    if (!sellerReliance) {
+    if (!latestCompleteWeek) {
+      return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "unavailable" };
+    }
+    const seller = latestCompleteWeek.requestedSeller;
+    if (
+      !seller ||
+      seller.bulkListingCount <= sunsetPolicy.relianceListingThreshold ||
+      seller.bulkCount <= seller.policyCount ||
+      seller.bulkCount <= seller.manualCount
+    ) {
       return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "reliance-not-met" };
     }
     const result = await deps.db.query<{
       applied_price_amount: string;
-      market_estimate_amount: string;
-      currency_code: string;
+      market_estimate_amount: string | null;
+      currency_code: string | null;
     }>(
       `WITH latest_job AS (
          SELECT job_id
@@ -466,22 +470,21 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
             AND (payload->>'accountId') = $1
           ORDER BY completed_at DESC, job_id DESC
           LIMIT 1
+       ), applied_rows AS (
+         SELECT rows.* FROM latest_job JOIN pricing_bulk_reprice_rows AS rows USING (job_id)
+          WHERE rows.outcome = 'applied' ORDER BY rows.row_number ASC LIMIT 500
        )
        SELECT rows.requested_price_amount::text AS applied_price_amount,
               estimate.amount::text AS market_estimate_amount,
-              estimate.currency_code
-         FROM latest_job
-         JOIN pricing_bulk_reprice_jobs AS job ON job.job_id = latest_job.job_id
-         JOIN pricing_bulk_reprice_rows AS rows ON rows.job_id = job.job_id
-         JOIN pricing_market_listing_inputs AS listing ON listing.listing_id = rows.resolved_listing_id
-         JOIN pricing_market_price_estimates AS estimate
+              listing.price_currency_code AS currency_code
+         FROM applied_rows AS rows
+         LEFT JOIN pricing_market_listing_inputs AS listing ON listing.listing_id = rows.resolved_listing_id
+         LEFT JOIN pricing_market_price_estimates AS estimate
            ON estimate.catalog_catalog_item_id = listing.catalog_catalog_item_id
           AND estimate.product_id = listing.product_id
           AND estimate.currency_code = listing.price_currency_code
           AND estimate.fresh_until >= CURRENT_TIMESTAMP
-        WHERE rows.outcome = 'applied'
-        ORDER BY rows.row_number ASC
-        LIMIT 500`,
+        ORDER BY rows.row_number ASC`,
       [accountId],
     );
     return deriveMigrationNudge(

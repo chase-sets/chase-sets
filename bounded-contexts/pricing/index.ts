@@ -7,6 +7,7 @@ import {
   type BcContextManifest,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import contextManifest from "./context.json" with { type: "json" };
 import { buildPricingApi } from "./api";
 import { buildPricingPriceSignalCatalogProjectionHandlers } from "./features/price-signals/integrations/catalog/projection";
@@ -56,19 +57,19 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
   buildSubscriptions: (services) => {
     const marketTradesHandlers = buildPricingMarketTradesProjectionHandlers(services.db);
     const marketplaceInputHandlers = buildPricingMarketplaceInputProjectionHandlers(services.db);
-    const sourceShareHandlers = buildRepricingSourceShareProjectionHandlers(services.db);
-    const existingPriceUpdateHandler = marketplaceInputHandlers["marketplace.listing.price-updated"];
-    const sourceSharePriceUpdateHandler = sourceShareHandlers["marketplace.listing.price-updated"];
-    const marketplaceInputHandlersWithSourceShare = {
-      ...marketplaceInputHandlers,
-      "marketplace.listing.price-updated": async (
-        event: Parameters<typeof existingPriceUpdateHandler>[0],
-        context: Parameters<typeof existingPriceUpdateHandler>[1],
-      ) => {
-        await existingPriceUpdateHandler(event, context);
-        await sourceSharePriceUpdateHandler(event, context);
-      },
-    };
+    const sourceShareHandlers = buildRepricingSourceShareProjectionHandlers(
+      services.db,
+      Object.keys(marketplaceInputHandlers),
+    );
+    const marketplaceInputHandlersWithSourceShare: ProjectorHandlerMap = Object.fromEntries(
+      Object.entries(marketplaceInputHandlers).map(([type, handler]) => [
+        type,
+        (async (event, context) => {
+          await handler(event, context);
+          await sourceShareHandlers[type]!(event, context);
+        }) satisfies ProjectorHandlerMap[string],
+      ]),
+    );
 
     return [
       ...buildEventSubscriptionsFromManifest({

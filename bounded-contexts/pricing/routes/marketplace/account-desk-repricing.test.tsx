@@ -22,10 +22,22 @@ describe("repricing desk migration prefill", () => {
   });
 
   it.each([
+    "?anchor=market-estimate&offsetPercent=1&currency=USD",
+    "?prefill=other&anchor=market-estimate&offsetPercent=1&currency=USD",
+    "?prefill=market-offset&anchor=market-estimate&offsetPercent=&currency=USD",
+    "?prefill=market-offset&anchor=market-estimate&offsetPercent=1&currency=USD&extra=1",
+    "?prefill=market-offset&anchor=market-estimate&offsetPercent=1&offsetPercent=2&currency=USD",
     "?prefill=market-offset&anchor=wrong&offsetPercent=1&currency=USD",
     "?prefill=market-offset&anchor=market-estimate&offsetPercent=nope&currency=USD",
     "?prefill=market-offset&anchor=market-estimate&offsetPercent=1",
   ])("opens an unfilled editor for malformed or partial input: %s", (search) => {
     expect(parseRepricingDeskPrefill(search)).toMatchObject({ body: null, notice: expect.any(String) });
+  });
+  it("populates a nonzero offset without filling the required floor", () => {
+    expect(
+      parseRepricingDeskPrefill(
+        "?create=1&prefill=market-offset&anchor=market-estimate&offsetPercent=-2.45&currency=USD",
+      ).body?.rules[0]?.directive,
+    ).toMatchObject({ offset: { mode: "percent", percent: -2.45 }, floor: { mode: "absolute", amount: "" } });
   });
 });

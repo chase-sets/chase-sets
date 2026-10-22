@@ -2058,7 +2058,7 @@ describe("marketplace listing runtime", () => {
       );
       const mutation = {
         accountId: "acc_seller",
-        changeSource: "seller",
+        changeSource: "seller" as const,
         updates: [
           {
             listingId: "lst_retry_once",

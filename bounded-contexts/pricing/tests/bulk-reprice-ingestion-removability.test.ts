@@ -91,6 +91,23 @@ function countFeatureRouteRegistrations(source: string): number {
 }
 
 describe("bulk reprice ingestion removability", () => {
+  it("keeps every allowed file and mounted route in the pre-authored removal artifact", () => {
+    const removal = readFileSync(
+      path.join(repoRoot, "bounded-contexts/pricing/features/bulk-reprice-ingestion/REMOVAL.md"),
+      "utf8",
+    );
+    const api = readFileSync(path.join(repoRoot, "bounded-contexts/pricing/api.ts"), "utf8");
+    const mounts = [...api.matchAll(/\.route\(\s*"([^"]+)"\s*,\s*createBulkRepriceIngestionRoutes/g)].map(
+      (match) => match[1]!,
+    );
+    expect(mounts).toEqual(["/account/bulk-reprice"]);
+    const inventory = [...allowedReferencingFiles].map((file) => file.split(path.sep).join("/"));
+    const omissions = (text: string) => [...inventory, ...mounts].filter((entry) => !text.includes(`\`${entry}\``));
+    expect(omissions(removal)).toEqual([]);
+    for (const entry of [...inventory, ...mounts]) {
+      expect(omissions(removal.replace(`\`${entry}\``, "omitted"))).toContain(entry);
+    }
+  });
   it("is referenced only from the documented mount points", () => {
     const violations: string[] = [];
 

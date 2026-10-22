@@ -31,6 +31,7 @@ export type {
 } from "./features/own-sale-observations/read-model/queries";
 export { createPricingRequestApiClient } from "./support/request-support/api-client";
 export type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
+export { getRepricingSourceShareReport } from "./features/repricing-engine/api/source-share";
 export {
   listRepricingSourceShareWeeks,
   type RepricingSourceShareWeek,

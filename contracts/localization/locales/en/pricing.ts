@@ -1,4 +1,5 @@
 export const pricingEnglishTranslations = {
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.unavailable": "A migration suggestion is unavailable",
   "pricing.features.pricingHealth.title": "Pricing Health",
   "pricing.features.pricingHealth.description":
     "A stored verdict for one active policy, with disclosed platform-wide Forecast Grades.",

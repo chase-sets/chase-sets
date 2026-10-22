@@ -74,6 +74,12 @@ function services(
     listJobRows: vi.fn(async () => []),
     getResultsCsv: vi.fn(async () => ""),
     pruneJobRetention: vi.fn(async () => 0),
+    getMigrationNudge: vi.fn(async () => ({
+      status: "unavailable" as const,
+      offsetPercent: null,
+      currencyCode: null,
+      reason: "no-samples" as const,
+    })),
     processNextBulkRepriceJob: vi.fn(async () => 0),
   };
 }

@@ -32,8 +32,16 @@ export function decodeBulkRepriceSunsetPolicyValue(raw: JsonValue): BulkRepriceS
   if (unknownKey) {
     throw new BulkRepriceSunsetPolicyError(`Unknown bulk reprice sunset policy field: ${unknownKey}.`);
   }
+  if (
+    typeof value.maxBulkSharePercent !== "number" ||
+    !Number.isFinite(value.maxBulkSharePercent) ||
+    value.maxBulkSharePercent < 0 ||
+    value.maxBulkSharePercent > 100
+  ) {
+    throw new BulkRepriceSunsetPolicyError("maxBulkSharePercent must be between 0 and 100.");
+  }
   return {
-    maxBulkSharePercent: integer(value.maxBulkSharePercent, "maxBulkSharePercent", 0, 100),
+    maxBulkSharePercent: value.maxBulkSharePercent,
     consecutiveCompleteWeeks: integer(value.consecutiveCompleteWeeks, "consecutiveCompleteWeeks", 1, 26),
     relianceListingThreshold: integer(
       value.relianceListingThreshold,
@@ -48,7 +56,7 @@ export const bulkRepriceSunsetPolicy: PolicyDefinition<BulkRepriceSunsetPolicyVa
   policyKey: "pricing.bulk-reprice-sunset",
   contextName: "pricing",
   schemaSummary:
-    "{ maxBulkSharePercent: integer 0-100, consecutiveCompleteWeeks: integer 1-26, relianceListingThreshold: integer >=0 }",
+    "{ maxBulkSharePercent: number 0-100, consecutiveCompleteWeeks: integer 1-26, relianceListingThreshold: integer >=0 }",
   defaultValue: { maxBulkSharePercent: 100, consecutiveCompleteWeeks: 1, relianceListingThreshold: 0 },
   decodeValue: decodeBulkRepriceSunsetPolicyValue,
 });
@@ -57,24 +65,28 @@ export function evaluateBulkRepriceSunset(
   weeks: readonly RepricingSourceShareWeek[],
   policy: BulkRepriceSunsetPolicyValue | null,
   policyConfigured = policy !== null,
+  asOf = new Date().toISOString(),
 ): BulkRepriceSunsetDecision {
   if (!policy || !policyConfigured) return { status: "unknown", reasons: ["policy-not-configured"] };
-  const recent = weeks.slice(-policy.consecutiveCompleteWeeks);
+  const currentWeek = new Date(asOf);
+  currentWeek.setUTCHours(0, 0, 0, 0);
+  currentWeek.setUTCDate(currentWeek.getUTCDate() - currentWeek.getUTCDay());
+  const recent = weeks
+    .filter((week) => Date.parse(week.weekStart) < currentWeek.getTime())
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+    .slice(-policy.consecutiveCompleteWeeks);
   if (recent.length < policy.consecutiveCompleteWeeks) {
     return { status: "unknown", reasons: ["insufficient-weeks"] };
   }
   const reasons: string[] = [];
-  for (const week of recent) {
+  for (const [index, week] of recent.entries()) {
+    if (Date.parse(week.weekStart) !== currentWeek.getTime() - (recent.length - index) * 7 * 86400000) {
+      return { status: "unknown", reasons: ["nonconsecutive-or-stale-weeks"] };
+    }
     if (week.status !== "complete") reasons.push(`${week.weekStart}:incomplete`);
     if (week.shares.bulk * 100 > policy.maxBulkSharePercent) reasons.push(`${week.weekStart}:bulk-share-over-limit`);
-    for (const seller of week.topSellers) {
-      if (
-        seller.bulkListingCount > policy.relianceListingThreshold &&
-        seller.bulkCount > seller.policyCount &&
-        seller.bulkCount > seller.manualCount
-      ) {
-        reasons.push(`${week.weekStart}:${seller.accountId}:bulk-reliance`);
-      }
+    if (week.maxReliantBulkListingCount > policy.relianceListingThreshold) {
+      reasons.push(`${week.weekStart}:bulk-reliance`);
     }
   }
   if (recent.some((week) => week.status !== "complete")) return { status: "unknown", reasons };

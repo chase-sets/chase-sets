@@ -60,6 +60,7 @@ export type OpsRepricingSourceShare = Readonly<{
   status: "available" | "unavailable";
   weeks: readonly OpsRepricingSourceShareWeek[];
   reason?: string;
+  decision?: Readonly<{ status: "eligible" | "ineligible" | "unknown"; reasons: readonly string[] }>;
 }>;
 
 export type OpsMarketAnalyticsCrossContextPort = Readonly<{

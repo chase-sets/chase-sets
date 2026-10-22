@@ -2,12 +2,19 @@ import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-st
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { pricingListingOutcomeSchemaSql, pricingRepricingDigestSchemaSql } from "./migrations";
 
+const sourceShareWatermarkSql = `CREATE TABLE IF NOT EXISTS pricing_repricing_source_share_watermark (
+  singleton boolean PRIMARY KEY CHECK (singleton),
+  global_position bigint NOT NULL,
+  recorded_at timestamptz NOT NULL
+);`;
+
 /**
  * Durable signal work, seller-visible evaluation facts, and the two small
  * coordination ledgers owned by the reactive repricing engine.
  */
 export const pricingRepricingEngineSchemaSql = `
 ${pricingListingOutcomeSchemaSql}
+${sourceShareWatermarkSql}
 ${pricingRepricingDigestSchemaSql}
 ${durableJobSchemaSql({
   jobsTable: "pricing_repricing_evaluation_jobs",
@@ -102,6 +109,7 @@ export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[
     migrationId: "20261022_pricing_repricing_source_share",
     description: "Ledger Marketplace listing price sources by event id for bounded sunset adoption weeks.",
     statements: [
+      sourceShareWatermarkSql,
       `CREATE TABLE IF NOT EXISTS pricing_repricing_source_share_events (
         event_id text PRIMARY KEY,
         week_start date NOT NULL,

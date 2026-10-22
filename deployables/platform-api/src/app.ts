@@ -113,7 +113,7 @@ import {
   getSellerCohortGmvSummary,
   getSellerCohortWeeklyGmv,
   getTopCatalogItemsByGmv,
-  listRepricingSourceShareWeeks,
+  getRepricingSourceShareReport,
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
   demandCurvePolicy,
@@ -371,10 +371,7 @@ export function createPlatformApiHost(
         getPlatformKpiSummary: (params) => getPlatformKpiSummary(pricingPool, params),
         getPlatformLiquiditySummary: (params) => getPlatformLiquiditySummary(pricingPool, params),
         getTopCatalogItemsByGmv: (params) => getTopCatalogItemsByGmv(pricingPool, params),
-        getRepricingSourceShare: async (params) => ({
-          status: "available" as const,
-          weeks: await listRepricingSourceShareWeeks(pricingPool, params),
-        }),
+        getRepricingSourceShare: (params) => getRepricingSourceShareReport(pricingPool, params),
       }
     : undefined;
   const commercialTermsResolver = commercialTermsPool

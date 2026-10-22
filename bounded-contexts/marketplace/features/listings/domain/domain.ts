@@ -581,8 +581,6 @@ export type ListingCreatedEvent = DomainEvent<
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
     feeLocks: MarketplaceListingFeeLock[];
-    /** Missing only on historical price events emitted before source attribution shipped. */
-    changeSource?: ListingPriceChangeSource;
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
     evidenceRequirements: ListingEvidenceRequirementSnapshot;
@@ -603,6 +601,8 @@ export type ListingPriceUpdatedEvent = DomainEvent<
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
     feeLocks: MarketplaceListingFeeLock[];
+    /** Absent on historical events; never interpreted as seller. */
+    changeSource?: ListingPriceChangeSource;
   }>
 >;
 export type ListingQuantityCapUpdatedEvent = DomainEvent<

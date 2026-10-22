@@ -1,4 +1,7 @@
 export const platformOperationsEnglishTranslations = {
+  "platformOperations.opsDashboard.repricingSunsetDecision": "Bulk sunset eligibility: {status}",
+  "platformOperations.opsDashboard.repricingSourceShareUnattributed": "Unattributed",
+  "platformOperations.opsDashboard.repricingSourceShareSellers": "Top sellers by bulk share (distinct bulk listings)",
   "support.participantAttempt.checkBeforeRetry": "Check status before retrying this support action.",
   "support.participantAttempt.ambiguous":
     "We could not confirm whether your support action completed. Do not submit it again yet.",

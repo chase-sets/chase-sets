@@ -719,7 +719,7 @@
       "handlerKind": "projection",
       "sourceContextName": "marketplace",
       "projectionName": "pricing-market-input-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "handlers": {
         "marketplace.offer.paused": "<function>",
         "marketplace.offer.resumed": "<function>",

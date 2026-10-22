@@ -45,12 +45,22 @@ export type RepricingDeskPrefill = Readonly<{
 
 export function parseRepricingDeskPrefill(search: string): RepricingDeskPrefill {
   const query = new URLSearchParams(search);
-  if (query.get("prefill") !== "market-offset") return { body: null, notice: null };
+  const prefillKeys = ["prefill", "anchor", "offsetPercent", "currency"];
+  if (!prefillKeys.some((key) => query.has(key))) return { body: null, notice: null };
+  const allowed = new Set(["create", ...prefillKeys]);
   const anchor = query.get("anchor");
   const rawOffset = query.get("offsetPercent");
   const currency = query.get("currency")?.trim().toUpperCase() ?? "";
   const offset = rawOffset === null ? NaN : Number(rawOffset);
-  if (anchor !== "market-estimate" || !/^[A-Z]{3}$/.test(currency) || !Number.isFinite(offset)) {
+  if (
+    query.get("prefill") !== "market-offset" ||
+    [...query.keys()].some((key) => !allowed.has(key) || query.getAll(key).length !== 1) ||
+    anchor !== "market-estimate" ||
+    !/^[A-Z]{3}$/.test(currency) ||
+    rawOffset === null ||
+    !/^-?\d+(?:\.\d{1,2})?$/.test(rawOffset) ||
+    !Number.isFinite(offset)
+  ) {
     return { body: null, notice: "The migration suggestion was incomplete. Enter the policy values manually." };
   }
   if (Math.abs(offset) > REPRICING_PREFILL_OFFSET_CAP) {
@@ -150,8 +160,10 @@ export const action = defineFormAction({
   authorization: { permission: "pricing.manage" },
   intents: {
     "create-policy": async ({ request, formData }) => {
+      const dryRunId = String(formData.get("dryRunId") ?? "").trim();
+      if (!dryRunId) throw new Error("Run a dry run before creating a repricing policy.");
       const result = await createPricingRequestApiClient(request).createRepricingPolicy({
-        dryRunId: String(formData.get("dryRunId") ?? ""),
+        dryRunId,
         name: String(formData.get("name") ?? ""),
       });
       return redirect(await navigateAfterWriteToRepricingDesk(result));

@@ -136,6 +136,14 @@ export function PricingBulkRepricePage({
         />
       ) : null}
 
+      {nudge?.status === "unavailable" && nudge.reason !== "reliance-not-met" ? (
+        <MarketplaceNotice
+          tone="info"
+          title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.unavailable")}
+          description={nudge.reason}
+        />
+      ) : null}
+
       <PageSection title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload")}>
         <Form spacing="none" method="post" encType="multipart/form-data">
           <Stack data-testid="bulk-reprice-upload-furniture" gap={4}>

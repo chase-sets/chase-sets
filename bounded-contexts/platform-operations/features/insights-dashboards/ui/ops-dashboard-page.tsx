@@ -173,6 +173,16 @@ export function OpsDashboardAdminPage({
       </PageSection>
 
       <PageSection title={t("platformOperations.opsDashboard.repricingSourceShare")}>
+        <Text>
+          {t("platformOperations.opsDashboard.repricingSunsetDecision", {
+            status: summary.repricingSourceShare.decision?.status ?? "unknown",
+          })}
+        </Text>
+        {summary.repricingSourceShare.decision?.reasons.map((reason) => (
+          <Text key={reason} tone="secondary">
+            {reason}
+          </Text>
+        ))}
         {summary.repricingSourceShare.status === "unavailable" ? (
           <Text tone="secondary">{t("platformOperations.opsDashboard.repricingSourceShareUnavailable")}</Text>
         ) : summary.repricingSourceShare.weeks.length === 0 ? (
@@ -192,7 +202,17 @@ export function OpsDashboardAdminPage({
               {
                 key: "status",
                 header: t("platformOperations.opsDashboard.repricingSourceShareStatus"),
-                cell: (week) => <Badge tone={week.status === "complete" ? "success" : "danger"}>{week.status}</Badge>,
+                cell: (week) => (
+                  <>
+                    <Badge tone={week.status === "complete" ? "success" : "danger"}>{week.status}</Badge>
+                    <Text tone="secondary">
+                      {week.reason ??
+                        (week.eventCount === 0
+                          ? t("platformOperations.opsDashboard.repricingSourceShareEmptyTitle")
+                          : null)}
+                    </Text>
+                  </>
+                ),
               },
               {
                 key: "bulk",
@@ -208,6 +228,21 @@ export function OpsDashboardAdminPage({
                 key: "manual",
                 header: t("platformOperations.opsDashboard.repricingSourceShareManual"),
                 cell: (week) => `${(week.shares.manual * 100).toFixed(1)}% (${week.counts.manual})`,
+              },
+              {
+                key: "unattributed",
+                header: t("platformOperations.opsDashboard.repricingSourceShareUnattributed"),
+                cell: (week) => week.counts.unattributed,
+              },
+              {
+                key: "sellers",
+                header: t("platformOperations.opsDashboard.repricingSourceShareSellers"),
+                cell: (week) =>
+                  week.topSellers.map((seller) => (
+                    <Text key={seller.accountId}>
+                      {seller.accountId}: {(seller.bulkShare * 100).toFixed(1)}% ({seller.bulkListingCount})
+                    </Text>
+                  )),
               },
             ]}
             rows={[...summary.repricingSourceShare.weeks]}

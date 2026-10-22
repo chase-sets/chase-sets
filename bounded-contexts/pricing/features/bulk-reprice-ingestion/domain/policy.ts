@@ -70,6 +70,9 @@ export function decodeBulkRepriceIngestionPolicyValue(raw: JsonValue): BulkRepri
   if (typeof record.enabled !== "boolean") {
     throw new BulkRepriceIngestionPolicyError("enabled must be a boolean.");
   }
+  if (record.nudgeMinEstimateSamples !== undefined && typeof record.nudgeMinEstimateSamples !== "number") {
+    throw new BulkRepriceIngestionPolicyError("nudgeMinEstimateSamples must be an integer between 1 and 500.");
+  }
 
   return {
     enabled: record.enabled,

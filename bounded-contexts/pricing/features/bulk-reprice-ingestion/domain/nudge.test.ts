@@ -27,6 +27,18 @@ describe("migration nudge derivation", () => {
     ["too few estimates", [row("10.00", "10.00")], { minEstimateSamples: 2 }, "insufficient-estimates"],
     ["out of range", [row("200.00", "100.00")], { minEstimateSamples: 1, magnitudeCap: 50 }, "offset-out-of-range"],
     ["no samples", [], { minEstimateSamples: 1 }, "no-samples"],
+    [
+      "missing estimates",
+      [{ ...row("10.00", "10.00"), marketEstimateAmount: null }],
+      { minEstimateSamples: 1 },
+      "insufficient-estimates",
+    ],
+    [
+      "beyond cap before rounding",
+      [row("150.004", "100")],
+      { minEstimateSamples: 1, magnitudeCap: 50 },
+      "offset-out-of-range",
+    ],
   ] as const)("returns unavailable for %s", (_name, rows, params, reason) => {
     expect(deriveMigrationNudge(rows, params)).toMatchObject({
       status: "unavailable",
