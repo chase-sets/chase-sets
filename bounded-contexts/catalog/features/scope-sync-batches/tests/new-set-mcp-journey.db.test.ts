@@ -73,7 +73,7 @@ describe("new set over MCP journey", () => {
             await handler({
               streamId: event.streamId,
               data: event.payload,
-              timing: { recordedAt: event.recordedAt },
+              timing: { recordedAt: event.recordedAt, globalPosition: event.globalPosition },
             } as never);
           }
         }
