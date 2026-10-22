@@ -206,12 +206,14 @@ export default function MarketplaceSellerDeskRepricingRoute() {
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
-  const [editorOpen, setEditorOpen] = useState(() => new URLSearchParams(location.search).get("create") === "1");
-  const [openedAtKey, setOpenedAtKey] = useState(location.key);
   const prefill = parseRepricingDeskPrefill(location.search);
+  const editorRequested =
+    new URLSearchParams(location.search).get("create") === "1" || prefill.body !== null || prefill.notice !== null;
+  const [editorOpen, setEditorOpen] = useState(editorRequested);
+  const [openedAtKey, setOpenedAtKey] = useState(location.key);
   useEffect(() => {
-    if (!actionData?.error) setEditorOpen(new URLSearchParams(location.search).get("create") === "1");
-  }, [location.key]);
+    if (!actionData?.error) setEditorOpen(editorRequested);
+  }, [location.key, editorRequested]);
   useRepricingDeskCatchUp(data.catchingUp);
   const pendingPolicyId = navigation.formData ? repricingPolicyIdFrom(navigation.formData) : "";
   const submitIntent = (intent: string, policyId?: string) =>
@@ -244,25 +246,25 @@ export default function MarketplaceSellerDeskRepricingRoute() {
       />
       {editorOpen ? (
         <PolicyEditorDrawer
-          key={location.key}
+          key={`${location.pathname}${location.search}`}
           initialBody={prefill.body ?? undefined}
           onClose={() => setEditorOpen(false)}
           saving={navigation.state === "submitting"}
-          saveErrors={
-            location.key === openedAtKey
+          saveErrors={[
+            ...(prefill.notice ? [prefill.notice] : []),
+            ...(location.key === openedAtKey
               ? []
               : actionData?.details?.length
                 ? actionData.details
                 : actionData?.error
                   ? [actionData.error]
-                  : []
-          }
+                  : []),
+          ]}
           onSave={({ body, dryRunId }) =>
             submit({ intent: "create-policy", name: body.name, dryRunId: dryRunId ?? "" }, { method: "post" })
           }
         />
       ) : null}
-      {prefill.notice ? <div role="status">{prefill.notice}</div> : null}
     </>
   );
 }

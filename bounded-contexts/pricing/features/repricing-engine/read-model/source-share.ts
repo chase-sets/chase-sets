@@ -28,7 +28,7 @@ export type RepricingSourceShareWeek = Readonly<{
 function weekStartUtc(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw new Error("Source-share dates must be valid UTC timestamps.");
-  date.setUTCDate(date.getUTCDate() - date.getUTCDay());
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
   return date.toISOString().slice(0, 10);
 }
 
@@ -77,6 +77,7 @@ export function buildRepricingSourceShareProjectionHandlers(
 
 function dateRange(from: string, to: string): string[] {
   if (
+    from > to ||
     ![from, to].every(
       (value) =>
         /^\d{4}-\d{2}-\d{2}$/.test(value) &&

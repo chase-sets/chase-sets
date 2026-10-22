@@ -440,7 +440,7 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
     }
     const now = new Date();
     now.setUTCHours(0, 0, 0, 0);
-    now.setUTCDate(now.getUTCDate() - now.getUTCDay());
+    now.setUTCDate(now.getUTCDate() - ((now.getUTCDay() + 6) % 7));
     const from = new Date(now.getTime() - 26 * 7 * 86400000).toISOString().slice(0, 10);
     const to = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
     const weeks = await listRepricingSourceShareWeeks(deps.db, { from, to, sellerAccountId: accountId });

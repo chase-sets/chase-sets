@@ -70,7 +70,7 @@ export function evaluateBulkRepriceSunset(
   if (!policy || !policyConfigured) return { status: "unknown", reasons: ["policy-not-configured"] };
   const currentWeek = new Date(asOf);
   currentWeek.setUTCHours(0, 0, 0, 0);
-  currentWeek.setUTCDate(currentWeek.getUTCDate() - currentWeek.getUTCDay());
+  currentWeek.setUTCDate(currentWeek.getUTCDate() - ((currentWeek.getUTCDay() + 6) % 7));
   const recent = weeks
     .filter((week) => Date.parse(week.weekStart) < currentWeek.getTime())
     .sort((a, b) => a.weekStart.localeCompare(b.weekStart))

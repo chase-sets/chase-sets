@@ -4,7 +4,7 @@ import type { RepricingSourceShareWeek } from "../read-model/source-share";
 
 function week(overrides: Partial<RepricingSourceShareWeek> = {}): RepricingSourceShareWeek {
   return {
-    weekStart: "2026-10-04",
+    weekStart: "2026-10-05",
     status: "complete",
     reason: null,
     eventCount: 10,
@@ -20,7 +20,7 @@ function week(overrides: Partial<RepricingSourceShareWeek> = {}): RepricingSourc
 }
 
 function evaluateBulkRepriceSunset(weeks: Parameters<typeof evaluate>[0], policy: Parameters<typeof evaluate>[1]) {
-  return evaluate(weeks, policy, true, "2026-10-11T00:00:00Z");
+  return evaluate(weeks, policy, true, "2026-10-12T00:00:00Z");
 }
 
 describe("bulk reprice sunset policy", () => {
@@ -49,7 +49,7 @@ describe("bulk reprice sunset policy", () => {
   it("keeps missing, stale, gapped, and unconfigured evidence unknown", () => {
     const policy = { maxBulkSharePercent: 100, consecutiveCompleteWeeks: 1, relianceListingThreshold: 1 };
     expect(evaluateBulkRepriceSunset([], policy).status).toBe("unknown");
-    expect(evaluateBulkRepriceSunset([week({ weekStart: "2026-09-27" })], policy).status).toBe("unknown");
+    expect(evaluateBulkRepriceSunset([week({ weekStart: "2026-09-28" })], policy).status).toBe("unknown");
     expect(evaluate([week()], policy, false).status).toBe("unknown");
     expect(evaluateBulkRepriceSunset([week()], null).status).toBe("unknown");
   });

@@ -73,7 +73,7 @@ function assertSaving() {
   expect(within(editor()).queryByText(validationMessage)).toBeNull();
 }
 
-async function fixture(detail: boolean) {
+async function fixture(detail: boolean, search = "") {
   let saved = false;
   let write: HeldWrite | undefined;
   const run = {
@@ -153,7 +153,7 @@ async function fixture(detail: boolean) {
               },
       },
     ],
-    { initialEntries: [path] },
+    { initialEntries: [`${path}${search}`] },
   );
   const subscribe = router.subscribe.bind(router);
   type Notification = Parameters<Parameters<typeof router.subscribe>[0]>;
@@ -260,6 +260,39 @@ async function fixture(detail: boolean) {
 }
 
 describe("rendered repricing editor write lifecycle", () => {
+  it.each(["0", "-2.45"])(
+    "opens the migration offset %s in the real drawer without a default floor",
+    async (offset) => {
+      const test = await fixture(
+        false,
+        `?create=1&prefill=market-offset&anchor=market-estimate&offsetPercent=${offset}&currency=USD`,
+      );
+      try {
+        expect((within(editor()).getByLabelText("Adjustment (%)") as HTMLInputElement).value).toBe(offset);
+        expect((within(editor()).getByLabelText("Minimum price", { exact: true }) as HTMLInputElement).value).toBe("");
+        expect((screen.getByRole("button", { name: "Activate policy" }) as HTMLButtonElement).disabled).toBe(true);
+      } finally {
+        await test.dispose();
+      }
+    },
+  );
+
+  it.each([
+    "?prefill=market-offset&anchor=wrong&offsetPercent=1&currency=USD",
+    "?prefill=market-offset&anchor=market-estimate&offsetPercent=1",
+  ])("opens an unfilled drawer with an in-drawer notice for malformed/partial prefill: %s", async (search) => {
+    const test = await fixture(false, search);
+    try {
+      expect(
+        within(editor()).getByText("The migration suggestion was incomplete. Enter the policy values manually."),
+      ).toBeTruthy();
+      expect((within(editor()).getByLabelText("Minimum price", { exact: true }) as HTMLInputElement).value).toBe("");
+      expect((screen.getByRole("button", { name: "Activate policy" }) as HTMLButtonElement).disabled).toBe(true);
+    } finally {
+      await test.dispose();
+    }
+  });
+
   it.each([false, true])(
     "preserves edits/details on rejected save, clears reopened errors and closes only on receipt redirect (detail=%s)",
     async (detail) => {

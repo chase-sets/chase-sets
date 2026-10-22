@@ -1709,7 +1709,7 @@ function createPricingJobRunners(
                 applyBulkListingPriceUpdates: async (body) => ({
                   items: await marketplace.listings!.applyBulkListingPriceUpdates!(
                     { accountId: accountId as never, updates: body.updates, changeSource: body.changeSource },
-                    SYSTEM_CONTEXT,
+                    { ...SYSTEM_CONTEXT, audit: { ...SYSTEM_CONTEXT.audit, forAccountId: accountId as never } },
                   ),
                 }),
                 createListing: async (body) => {
@@ -1748,7 +1748,7 @@ function createPricingJobRunners(
                   applyBulkListingPriceUpdates: async (body) => ({
                     items: await marketplace.listings!.applyBulkListingPriceUpdates!(
                       { accountId, updates: body.updates, changeSource: body.changeSource },
-                      SYSTEM_CONTEXT,
+                      { ...SYSTEM_CONTEXT, audit: { ...SYSTEM_CONTEXT.audit, forAccountId: accountId as never } },
                     ),
                   }),
                   pauseListing: (listingId, body) =>
@@ -1818,7 +1818,10 @@ function createBulkRepriceIngestionJobRunners(
         laneName: lane.laneName,
         marketplaceListingGatewayForAccount: (accountId) => ({
           applyBulkListingPriceUpdates: async (body) => ({
-            items: await marketplace.listings!.applyBulkListingPriceUpdates!({ accountId, ...body }, SYSTEM_CONTEXT),
+            items: await marketplace.listings!.applyBulkListingPriceUpdates!(
+              { accountId, ...body },
+              { ...SYSTEM_CONTEXT, audit: { ...SYSTEM_CONTEXT.audit, forAccountId: accountId as never } },
+            ),
           }),
         }),
         inventorySkuGatewayForAccount: (accountId) => ({

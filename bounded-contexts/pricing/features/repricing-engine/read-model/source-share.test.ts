@@ -16,7 +16,7 @@ describe("repricing source-share projection", () => {
       } as never);
       expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT (event_id) DO NOTHING"), [
         "evt_1",
-        "2026-10-04",
+        "2026-10-05",
         "acc_1",
         "lst_1",
         source === undefined || source === "invalid" ? "unattributed" : source,
@@ -46,14 +46,32 @@ describe("repricing source-share projection", () => {
         }),
     };
     expect(
-      (await listRepricingSourceShareWeeks(db as never, { from: "2026-10-04", to: "2026-10-04" }))[0],
+      (await listRepricingSourceShareWeeks(db as never, { from: "2026-10-05", to: "2026-10-05" }))[0],
     ).toMatchObject({ status: "incomplete", reason: "checkpoint-lag", eventCount: 0 });
+  });
+
+  it.each([
+    ["2026-10-11T23:59:59Z", "2026-10-05"],
+    ["2026-10-12T00:00:00Z", "2026-10-12"],
+  ])("partitions %s into the canonical Monday-start week %s", async (occurredAt, weekStart) => {
+    const db = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+    await buildRepricingSourceShareProjectionHandlers(db as never)["marketplace.listing.price-updated"]!({
+      id: "boundary",
+      streamId: "marketplace.listing-lst_1",
+      globalPosition: "1",
+      audit: { forAccountId: "seller" },
+      data: { changeSource: "seller" },
+      timing: { occurredAt, recordedAt: occurredAt },
+    } as never);
+    expect(db.query.mock.calls[0]?.[1]?.[1]).toBe(weekStart);
   });
 
   it.each([
     { from: "2026-01-01", to: "2026-10-01" },
     { from: "bad", to: "2026-10-01" },
     { from: "2026-10-01", to: "2026-01-01" },
+    { from: "2026-10-06", to: "2026-10-05" },
+    { from: "2026-02-30", to: "2026-03-01" },
   ])("rejects an invalid/unbounded range before querying: %s", async (range) => {
     const db = { query: vi.fn() };
     await expect(listRepricingSourceShareWeeks(db as never, range)).rejects.toThrow();

@@ -72,10 +72,10 @@ describeDb("repricing source-share synthetic matrix", () => {
     const handlers = buildRepricingSourceShareProjectionHandlers(pools.pricing, ["marketplace.listing.paused"]);
     await handlers["marketplace.listing.paused"]!({
       globalPosition: position,
-      timing: { recordedAt: "2026-10-11T00:00:00Z" },
+      timing: { recordedAt: "2026-10-12T00:00:00Z" },
     } as never);
   }
-  const range = { from: "2026-10-04", to: "2026-10-04" };
+  const range = { from: "2026-10-05", to: "2026-10-05" };
 
   it("partitions bulk/policy/manual/unattributed, counts redelivery once, and rebuilds identical replay totals", async () => {
     const project = async () => {
@@ -117,7 +117,7 @@ describeDb("repricing source-share synthetic matrix", () => {
     await checkpoint("9007199254740993");
     expect((await listRepricingSourceShareWeeks(pools.pricing, range))[0]?.status).toBe("complete");
     expect(
-      (await listRepricingSourceShareWeeks(pools.pricing, { from: "2026-09-27", to: "2026-09-27" }))[0],
+      (await listRepricingSourceShareWeeks(pools.pricing, { from: "2026-09-28", to: "2026-09-28" }))[0],
     ).toMatchObject({ status: "complete", eventCount: 0, shares: { bulk: 0, policy: 0, manual: 0 } });
   });
 
@@ -156,11 +156,11 @@ describeDb("repricing source-share synthetic matrix", () => {
         weeks,
         { maxBulkSharePercent: 100, consecutiveCompleteWeeks: 1, relianceListingThreshold: 1 },
         true,
-        "2026-10-11T00:00:00Z",
+        "2026-10-12T00:00:00Z",
       ),
-    ).toEqual({ status: "ineligible", reasons: ["2026-10-04:bulk-reliance"] });
+    ).toEqual({ status: "ineligible", reasons: ["2026-10-05:bulk-reliance"] });
     const plan = await pools.pricing.query(
-      "EXPLAIN (FORMAT JSON) SELECT * FROM pricing_repricing_source_share_events WHERE week_start = '2026-10-04' AND seller_account_id = 'reliant'",
+      "EXPLAIN (FORMAT JSON) SELECT * FROM pricing_repricing_source_share_events WHERE week_start = '2026-10-05' AND seller_account_id = 'reliant'",
     );
     expect(plan.rows).toHaveLength(1);
     const indexes = await pools.pricing.query(

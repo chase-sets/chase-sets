@@ -245,7 +245,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     });
     const weekEnd = new Date();
     weekEnd.setUTCHours(0, 0, 0, 0);
-    weekEnd.setUTCDate(weekEnd.getUTCDate() - weekEnd.getUTCDay());
+    weekEnd.setUTCDate(weekEnd.getUTCDate() - ((weekEnd.getUTCDay() + 6) % 7));
     const occurredAt = new Date(weekEnd.getTime() - 86400000).toISOString();
     const handlers = buildRepricingSourceShareProjectionHandlers(pool, [
       "marketplace.listing.price-updated",
