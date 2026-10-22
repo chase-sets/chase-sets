@@ -111,7 +111,7 @@ export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[
         occurred_at timestamptz NOT NULL,
         global_position bigint NOT NULL CHECK (global_position >= 0)
       )`,
-      `CREATE INDEX IF NOT EXISTS pricing_repricing_source_share_week_seller_idx
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_repricing_source_share_week_seller_idx
         ON pricing_repricing_source_share_events (week_start, seller_account_id)`,
     ],
   },
