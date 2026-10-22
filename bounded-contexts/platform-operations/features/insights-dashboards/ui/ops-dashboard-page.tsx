@@ -52,6 +52,36 @@ function reconciliationStatusTone(status: GmvReconciliationRun["status"]) {
   return status === "drift-alarm" ? "danger" : "success";
 }
 
+function sunsetDecisionStatus(status: "eligible" | "ineligible" | "unknown"): string {
+  return t(`platformOperations.opsDashboard.repricingSunsetDecisionStatus.${status}`);
+}
+
+function sunsetDecisionReason(reason: string): string {
+  const separator = reason.indexOf(":");
+  const kind = separator === -1 ? reason : reason.slice(separator + 1);
+  const keys: Readonly<Record<string, string>> = {
+    "policy-not-configured": "platformOperations.opsDashboard.repricingDecisionReason.policyNotConfigured",
+    "insufficient-weeks": "platformOperations.opsDashboard.repricingDecisionReason.insufficientWeeks",
+    "nonconsecutive-or-stale-weeks":
+      "platformOperations.opsDashboard.repricingDecisionReason.nonconsecutiveOrStaleWeeks",
+    incomplete: "platformOperations.opsDashboard.repricingDecisionReason.incomplete",
+    "bulk-share-over-limit": "platformOperations.opsDashboard.repricingDecisionReason.bulkShareOverLimit",
+    "bulk-reliance": "platformOperations.opsDashboard.repricingDecisionReason.bulkReliance",
+  };
+  return t(keys[kind] ?? "platformOperations.opsDashboard.repricingDecisionReason.unknown", {
+    week: separator === -1 ? "" : reason.slice(0, separator),
+  });
+}
+
+function sourceShareWeekStatus(status: "complete" | "incomplete"): string {
+  return t(`platformOperations.opsDashboard.repricingSourceShareStatus.${status}`);
+}
+
+function sourceShareWeekReason(reason: "checkpoint-lag" | "unattributed-event" | null): string | null {
+  if (!reason) return null;
+  return t(`platformOperations.opsDashboard.repricingSourceShareReason.${reason}`);
+}
+
 export function OpsDashboardAdminPage({
   summary,
   series,
@@ -175,12 +205,12 @@ export function OpsDashboardAdminPage({
       <PageSection title={t("platformOperations.opsDashboard.repricingSourceShare")}>
         <Text>
           {t("platformOperations.opsDashboard.repricingSunsetDecision", {
-            status: summary.repricingSourceShare.decision?.status ?? "unknown",
+            status: sunsetDecisionStatus(summary.repricingSourceShare.decision?.status ?? "unknown"),
           })}
         </Text>
         {summary.repricingSourceShare.decision?.reasons.map((reason) => (
           <Text key={reason} tone="secondary">
-            {reason}
+            {sunsetDecisionReason(reason)}
           </Text>
         ))}
         {summary.repricingSourceShare.status === "unavailable" ? (
@@ -204,9 +234,11 @@ export function OpsDashboardAdminPage({
                 header: t("platformOperations.opsDashboard.repricingSourceShareStatus"),
                 cell: (week) => (
                   <>
-                    <Badge tone={week.status === "complete" ? "success" : "danger"}>{week.status}</Badge>
+                    <Badge tone={week.status === "complete" ? "success" : "danger"}>
+                      {sourceShareWeekStatus(week.status)}
+                    </Badge>
                     <Text tone="secondary">
-                      {week.reason ??
+                      {sourceShareWeekReason(week.reason) ??
                         (week.eventCount === 0
                           ? t("platformOperations.opsDashboard.repricingSourceShareEmptyTitle")
                           : null)}

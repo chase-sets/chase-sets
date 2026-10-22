@@ -61,15 +61,21 @@ export function parseRepricingDeskPrefill(search: string): RepricingDeskPrefill 
     !/^-?\d+(?:\.\d{1,2})?$/.test(rawOffset) ||
     !Number.isFinite(offset)
   ) {
-    return { body: null, notice: "The migration suggestion was incomplete. Enter the policy values manually." };
+    return {
+      body: null,
+      notice: t("pricing.routes.marketplace.accountDeskRepricing.prefill.incomplete"),
+    };
   }
   if (Math.abs(offset) > REPRICING_PREFILL_OFFSET_CAP) {
-    return { body: null, notice: "The migration suggestion is outside the supported policy range." };
+    return {
+      body: null,
+      notice: t("pricing.routes.marketplace.accountDeskRepricing.prefill.outOfRange"),
+    };
   }
   return {
     body: compileRepricingPreset({
       preset: "track-market",
-      name: "Track market estimate",
+      name: t("pricing.routes.marketplace.accountDeskRepricing.prefill.policyName"),
       knob: Math.round(offset * 100) / 100,
       currencyCode: currency,
       floor: { mode: "absolute", amount: "" },

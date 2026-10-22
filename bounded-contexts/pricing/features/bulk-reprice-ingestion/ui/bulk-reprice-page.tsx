@@ -83,6 +83,22 @@ export function PricingBulkRepricePage({
   const { job: activeJob, reconnecting } = useBulkRepriceJob(activeJobId, initialActiveJob);
   const hasActiveJob = activeJob?.status === "queued" || activeJob?.status === "running";
   const isTerminal = activeJob?.status === "completed" || activeJob?.status === "failed";
+  const nudgeReason = nudge?.reason;
+  const nudgeReasonKey = nudgeReason
+    ? (
+        {
+          "mixed-currency": "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.mixedCurrency",
+          "insufficient-estimates":
+            "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.insufficientEstimates",
+          "offset-out-of-range":
+            "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.offsetOutOfRange",
+          "no-samples": "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.noSamples",
+          "reliance-not-met": "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.relianceNotMet",
+          "policy-unknown": "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.policyUnknown",
+          unavailable: "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.reason.unavailable",
+        } as const
+      )[nudgeReason]
+    : null;
 
   return (
     <Page>
@@ -140,7 +156,7 @@ export function PricingBulkRepricePage({
         <MarketplaceNotice
           tone="info"
           title={t("pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.nudge.unavailable")}
-          description={nudge.reason}
+          description={nudgeReasonKey ? t(nudgeReasonKey) : ""}
         />
       ) : null}
 

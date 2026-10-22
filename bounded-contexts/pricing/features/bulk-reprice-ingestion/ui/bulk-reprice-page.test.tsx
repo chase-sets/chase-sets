@@ -31,7 +31,8 @@ describe("PricingBulkRepricePage", () => {
       />,
     );
     expect(html).toContain("A migration suggestion is unavailable");
-    expect(html).toContain("mixed-currency");
+    expect(html).toContain("A migration suggestion could not be computed because the prices use multiple currencies.");
+    expect(html).not.toContain("mixed-currency");
     expect(html).not.toContain("/account/desk/repricing");
   });
   it("flattens upload furniture and outlines the populated reprice job entity", () => {

@@ -31,7 +31,15 @@ describe("repricing desk migration prefill", () => {
     "?prefill=market-offset&anchor=market-estimate&offsetPercent=nope&currency=USD",
     "?prefill=market-offset&anchor=market-estimate&offsetPercent=1",
   ])("opens an unfilled editor for malformed or partial input: %s", (search) => {
-    expect(parseRepricingDeskPrefill(search)).toMatchObject({ body: null, notice: expect.any(String) });
+    expect(parseRepricingDeskPrefill(search)).toMatchObject({
+      body: null,
+      notice: "The migration suggestion was incomplete. Enter the policy values manually.",
+    });
+  });
+  it("localizes the out-of-range prefill notice and leaves the editor unfilled", () => {
+    expect(
+      parseRepricingDeskPrefill("?prefill=market-offset&anchor=market-estimate&offsetPercent=1001&currency=USD"),
+    ).toEqual({ body: null, notice: "The migration suggestion is outside the supported policy range." });
   });
   it("populates a nonzero offset without filling the required floor", () => {
     expect(

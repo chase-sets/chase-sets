@@ -1966,6 +1966,9 @@ describe("marketplace listing runtime", () => {
         { accountId: "acc_seller", listingId: "lst_manual_wins", priceAmount: "22.00", priceCurrencyCode: "USD" },
         context,
       );
+      await expect(readPriceUpdatedPayload(eventStore, "lst_manual_wins")).resolves.toMatchObject({
+        changeSource: "seller",
+      });
 
       const outcomes = await services.applyBulkListingPriceUpdates(
         {

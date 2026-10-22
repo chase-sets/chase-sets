@@ -50,7 +50,7 @@ describe("ops source-share panel", () => {
     const html = render({ status: "available", weeks: [week] });
     expect(html).toContain("No repricing activity");
     expect(html).toContain("0.0% (0)");
-    expect(html).toContain("complete");
+    expect(html).toContain(">Complete<");
   });
   it("renders incompleteness reasons, shares, top sellers and eligibility", () => {
     const html = render({
@@ -69,12 +69,37 @@ describe("ops source-share panel", () => {
       decision: { status: "unknown", reasons: ["2026-10-04:incomplete"] },
     });
     for (const text of [
-      "incomplete",
-      "unattributed-event",
+      ">Incomplete<",
+      "Unattributed event",
+      "Week 2026-10-04 is incomplete.",
       "50.0% (1)",
       "synthetic-seller",
-      "Bulk sunset eligibility: unknown",
+      "Bulk sunset eligibility: Unknown",
     ])
       expect(html).toContain(text);
+    expect(html).not.toContain("unattributed-event");
+    expect(html).not.toContain("2026-10-04:incomplete");
+  });
+  it.each([
+    ["policy-not-configured", "Sunset policy is not configured."],
+    ["insufficient-weeks", "Not enough complete weeks are available."],
+    ["nonconsecutive-or-stale-weeks", "The measured weeks are not consecutive or are stale."],
+    ["2026-10-04:bulk-share-over-limit", "Week 2026-10-04 exceeds the allowed bulk share."],
+    ["2026-10-04:bulk-reliance", "Week 2026-10-04 shows reliance on bulk repricing."],
+  ])("localizes the decision reason %s", (reason, message) => {
+    const html = render({ status: "available", weeks: [week], decision: { status: "ineligible", reasons: [reason] } });
+    expect(html).toContain(message);
+    expect(html).toContain("Bulk sunset eligibility: Ineligible");
+    expect(html).not.toContain(reason);
+  });
+  it("localizes eligible status and checkpoint lag without raw tokens", () => {
+    const html = render({
+      status: "available",
+      weeks: [{ ...week, status: "incomplete", reason: "checkpoint-lag" }],
+      decision: { status: "eligible", reasons: [] },
+    });
+    expect(html).toContain("Bulk sunset eligibility: Eligible");
+    expect(html).toContain("Checkpoint lag");
+    expect(html).not.toContain("checkpoint-lag");
   });
 });

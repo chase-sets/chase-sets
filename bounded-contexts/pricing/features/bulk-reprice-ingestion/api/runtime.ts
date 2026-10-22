@@ -431,9 +431,6 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
 
   const getMigrationNudge: BulkRepriceIngestionServices["getMigrationNudge"] = async (accountId) => {
     const policy = await resolvePolicy();
-    if (policy.nudgeMinEstimateSamples === undefined) {
-      return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "insufficient-estimates" };
-    }
     const sunsetPolicy = await resolveBulkRepriceSunsetPolicy(policyResolver);
     if (!sunsetPolicy) {
       return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "policy-unknown" };
@@ -456,6 +453,9 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       seller.bulkCount <= seller.manualCount
     ) {
       return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "reliance-not-met" };
+    }
+    if (policy.nudgeMinEstimateSamples === undefined) {
+      return { status: "unavailable", offsetPercent: null, currencyCode: null, reason: "insufficient-estimates" };
     }
     const result = await deps.db.query<{
       applied_price_amount: string;
