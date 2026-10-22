@@ -492,7 +492,7 @@ describe("Git listing buffer contract", () => {
   it("derives a complete tracked scripts inventory without noncompliant rows", () => {
     const inventory = listingSiteInventory();
     expect(inventory.length).toBeGreaterThan(0);
-    expect(inventory.filter((site) => site.status === "noncompliant")).toEqual([]);
+    expect(inventory.filter((site) => site.status !== "compliant")).toEqual([]);
   }, 60_000);
   it("fails closed for direct and wrapper/default planted violations", () => {
     const cases = [
