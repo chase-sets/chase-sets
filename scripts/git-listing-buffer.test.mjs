@@ -87,7 +87,8 @@ function sourceRows(sf, relativePath) {
     if (!fnScopes.has(fn)) {
       const scope = makeScope(parent, fn.body);
       for (const parameter of fn.parameters) {
-        if (ts.isIdentifier(parameter.name)) scope.bindings.set(parameter.name.text, { node: parameter.initializer, scope });
+        if (ts.isIdentifier(parameter.name))
+          scope.bindings.set(parameter.name.text, { node: parameter.initializer, scope });
         else if (ts.isObjectBindingPattern(parameter.name))
           for (const element of parameter.name.elements)
             if (ts.isBindingElement(element) && ts.isIdentifier(element.name))
@@ -137,7 +138,10 @@ function sourceRows(sf, relativePath) {
         node.operatorToken.kind === ts.SyntaxKind.BarBarToken
       )
         return true;
-      return containsFallback(node.left, scope, depth + 1, visited) || containsFallback(node.right, scope, depth + 1, visited);
+      return (
+        containsFallback(node.left, scope, depth + 1, visited) ||
+        containsFallback(node.right, scope, depth + 1, visited)
+      );
     }
     if (!ts.isIdentifier(node)) return false;
     const b = binding(node, scope);
