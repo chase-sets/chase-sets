@@ -2,6 +2,7 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import type { McpToolHandler } from "@chase-sets/platform-runtime/mcp";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { ProviderScopeDiscoveryServices } from "./runtime";
+import { scopeObservationListParams, scopeRecordProposalListParams } from "./route";
 
 export type ProviderScopeDiscoveryMcpHandlers = Readonly<{ toolHandlers: Readonly<Record<string, McpToolHandler>> }>;
 
@@ -15,14 +16,6 @@ function operator(actor: ResolvedActor | null, permission: string): ResolvedActo
 function optionalString(args: Readonly<Record<string, unknown>>, key: string): string | undefined {
   const value = args[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function optionalPositiveInteger(args: Readonly<Record<string, unknown>>, key: string): number | undefined {
-  const value = args[key];
-  if (value === undefined || value === null || value === "") return undefined;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${key} must be a positive integer.`);
-  return parsed;
 }
 
 export function createProviderScopeDiscoveryMcpHandlers(
@@ -58,21 +51,12 @@ export function createProviderScopeDiscoveryMcpHandlers(
     };
   const listScopeObservations: McpToolHandler = async ({ actor, arguments: args }) => {
     operator(actor, "catalog.view");
-    const items = await services.listScopeObservations({
-      providerKey: optionalString(args, "providerKey"),
-      unitKey: optionalString(args, "unitKey"),
-      scopeKind: optionalString(args, "scopeKind") as never,
-      limit: optionalPositiveInteger(args, "limit"),
-    });
+    const items = await services.listScopeObservations(scopeObservationListParams(args));
     return { items, total: items.length, count: items.length };
   };
   const listProposals: McpToolHandler = async ({ actor, arguments: args }) => {
     operator(actor, "catalog.view");
-    const items = await services.listCanonicalScopeRecordProposals({
-      reviewStatus: optionalString(args, "reviewStatus") as never,
-      productDomain: optionalString(args, "productDomain") as never,
-      limit: optionalPositiveInteger(args, "limit"),
-    });
+    const items = await services.listCanonicalScopeRecordProposals(scopeRecordProposalListParams(args));
     return { items, total: items.length, count: items.length };
   };
   return {

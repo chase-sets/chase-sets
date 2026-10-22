@@ -2,6 +2,7 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { McpToolHandler } from "@chase-sets/platform-runtime/mcp";
 import { createReferenceRecord } from "./route";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { ReferenceDataServices } from "./runtime";
 
 export type ReferenceDataMcpHandlers = Readonly<{ toolHandlers: Readonly<Record<string, McpToolHandler>> }>;
@@ -24,7 +25,7 @@ export function createReferenceDataMcpHandlers(services: ReferenceDataServices):
   };
   const publish: McpToolHandler = async ({ actor, arguments: args }) => {
     const scoped = operator(actor);
-    const referenceRecordId = required(args, "referenceRecordId");
+    const referenceRecordId = parseTypedIdBoundary(required(args, "referenceRecordId"), "ref", "referenceRecordId");
     const result = await services.referenceRecordCommandHandler({
       streamId: `catalog.reference-record-${referenceRecordId}`,
       command: { type: "PublishReferenceRecord" },

@@ -49,6 +49,18 @@ export type ProviderScopeMappingReviewInput = Readonly<{
   reason?: string | null;
 }>;
 
+export class ProviderScopeMappingReviewInputError extends Error {
+  constructor(
+    readonly code:
+      | "provider_scope_mapping_invalid_intent"
+      | "provider_scope_mapping_no_candidates"
+      | "provider_scope_mapping_reason_required",
+  ) {
+    super(code);
+    this.name = "ProviderScopeMappingReviewInputError";
+  }
+}
+
 function isReviewIntent(value: string): value is ReviewIntent {
   return REVIEW_INTENTS.has(value);
 }
@@ -60,15 +72,26 @@ function parseMappingIds(value: unknown): readonly string[] {
   return [...new Set(value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0))];
 }
 
+export function parseProviderScopeMappingReviewInput(
+  body: Readonly<Record<string, unknown>>,
+): ProviderScopeMappingReviewInput {
+  const intent = String(body.intent ?? "").trim();
+  if (!isReviewIntent(intent)) throw new ProviderScopeMappingReviewInputError("provider_scope_mapping_invalid_intent");
+  const mappingIds = parseMappingIds(body.mappingIds);
+  if (mappingIds.length === 0) throw new ProviderScopeMappingReviewInputError("provider_scope_mapping_no_candidates");
+  const reason = String(body.reason ?? "").trim();
+  if ((intent === "reject" || intent === "revoke") && !reason) {
+    throw new ProviderScopeMappingReviewInputError("provider_scope_mapping_reason_required");
+  }
+  return { intent, mappingIds, reason };
+}
+
 export async function reviewProviderScopeMappings(
   services: ProviderScopeMappingServices,
   input: ProviderScopeMappingReviewInput,
   context: Parameters<ProviderScopeMappingServices["commandHandler"]>[0]["context"],
 ) {
   const reason = input.reason?.trim() ?? "";
-  if ((input.intent === "reject" || input.intent === "revoke") && !reason) {
-    throw new Error("provider_scope_mapping_reason_required");
-  }
   const actor = context.audit.performedByUserId;
   const applied: Array<{ mappingId: string; reviewStatus: string | null; version: number }> = [];
   for (const mappingId of input.mappingIds) {
@@ -144,12 +167,7 @@ export function providerScopeMappingRoutes(services: ProviderScopeMappingService
       return permissionError;
     }
 
-    const limit = Number(c.req.query("limit")) || undefined;
-    const requestedProductDomain = c.req.query("productDomain")?.trim();
-    const productDomain = catalogScopeProductDomains.includes(requestedProductDomain as CatalogScopeProductDomain)
-      ? (requestedProductDomain as CatalogScopeProductDomain)
-      : undefined;
-    const inbox = await services.getUnmappedScopeInbox({ limit, ...(productDomain ? { productDomain } : {}) });
+    const inbox = await services.getUnmappedScopeInbox(unmappedScopeInboxParams(c.req.query()));
     return c.json(inbox);
   });
 
@@ -185,46 +203,30 @@ export function providerScopeMappingRoutes(services: ProviderScopeMappingService
       mappingIds?: unknown;
       reason?: unknown;
     };
-    const intent = String(body.intent ?? "").trim();
-    if (!isReviewIntent(intent)) {
+    let input: ProviderScopeMappingReviewInput;
+    try {
+      input = parseProviderScopeMappingReviewInput(body);
+    } catch (error) {
+      const code =
+        error instanceof ProviderScopeMappingReviewInputError ? error.code : "provider_scope_mapping_invalid_intent";
+      const message =
+        code === "provider_scope_mapping_invalid_intent"
+          ? t("catalog.features.providerScopeMapping.api.route.invalid.intent")
+          : code === "provider_scope_mapping_no_candidates"
+            ? t("catalog.features.providerScopeMapping.api.route.no.candidates")
+            : t("catalog.features.providerScopeMapping.api.route.reason.required");
       return c.json(
         {
           error: {
-            code: "provider_scope_mapping_invalid_intent",
-            message: t("catalog.features.providerScopeMapping.api.route.invalid.intent"),
+            code,
+            message,
           },
         },
         400,
       );
     }
 
-    const mappingIds = parseMappingIds(body.mappingIds);
-    if (mappingIds.length === 0) {
-      return c.json(
-        {
-          error: {
-            code: "provider_scope_mapping_no_candidates",
-            message: t("catalog.features.providerScopeMapping.api.route.no.candidates"),
-          },
-        },
-        400,
-      );
-    }
-
-    const reason = String(body.reason ?? "").trim();
-    if ((intent === "reject" || intent === "revoke") && !reason) {
-      return c.json(
-        {
-          error: {
-            code: "provider_scope_mapping_reason_required",
-            message: t("catalog.features.providerScopeMapping.api.route.reason.required"),
-          },
-        },
-        400,
-      );
-    }
-
-    return c.json(await reviewProviderScopeMappings(services, { intent, mappingIds, reason }, c.get("context")));
+    return c.json(await reviewProviderScopeMappings(services, input, c.get("context")));
   });
 
   app.post("/propose", async (c) => {
@@ -263,6 +265,15 @@ export function providerScopeMappingRoutes(services: ProviderScopeMappingService
   });
 
   return app;
+}
+
+export function unmappedScopeInboxParams(record: Readonly<Record<string, unknown>>) {
+  const limit = Number(record.limit) || undefined;
+  const requestedProductDomain = typeof record.productDomain === "string" ? record.productDomain.trim() : undefined;
+  const productDomain = catalogScopeProductDomains.includes(requestedProductDomain as CatalogScopeProductDomain)
+    ? (requestedProductDomain as CatalogScopeProductDomain)
+    : undefined;
+  return { limit, ...(productDomain ? { productDomain } : {}) };
 }
 
 function reviewCommand(intent: ReviewIntent, actor: string, reason: string) {

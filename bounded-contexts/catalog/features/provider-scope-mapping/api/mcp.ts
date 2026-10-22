@@ -1,7 +1,12 @@
 import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { McpToolHandler } from "@chase-sets/platform-runtime/mcp";
-import { proposeProviderScopeMapping, reviewProviderScopeMappings } from "./route";
+import {
+  parseProviderScopeMappingReviewInput,
+  proposeProviderScopeMapping,
+  reviewProviderScopeMappings,
+  unmappedScopeInboxParams,
+} from "./route";
 import type { ProviderScopeMappingServices } from "./runtime";
 
 export type ProviderScopeMappingMcpHandlers = Readonly<{ toolHandlers: Readonly<Record<string, McpToolHandler>> }>;
@@ -23,11 +28,8 @@ export function createProviderScopeMappingMcpHandlers(
   services: ProviderScopeMappingServices,
 ): ProviderScopeMappingMcpHandlers {
   const inbox: McpToolHandler = async ({ actor, arguments: args }) => {
-    const scoped = operator(actor);
-    return services.getUnmappedScopeInbox({
-      limit: args.limit === undefined ? undefined : Number(args.limit),
-      productDomain: stringArg(args, "productDomain") as never,
-    });
+    operator(actor);
+    return services.getUnmappedScopeInbox(unmappedScopeInboxParams(args));
   };
   const coverage: McpToolHandler = async ({ actor, arguments: args }) => {
     operator(actor);
@@ -42,17 +44,8 @@ export function createProviderScopeMappingMcpHandlers(
   };
   const review: McpToolHandler = async ({ actor, arguments: args }) => {
     const scoped = operator(actor);
-    const raw = args.mappingIds;
-    if (!Array.isArray(raw) || raw.some((value) => typeof value !== "string" || !value.trim())) {
-      throw new Error("mappingIds must be an array of strings.");
-    }
-    const intent = stringArg(args, "intent", true);
-    if (intent !== "accept" && intent !== "reject" && intent !== "revoke") throw new Error("Invalid review intent.");
-    return reviewProviderScopeMappings(
-      services,
-      { intent, mappingIds: raw.map((value) => value.trim()), reason: stringArg(args, "reason") },
-      createActorEventStoreContext(scoped),
-    );
+    const input = parseProviderScopeMappingReviewInput(args);
+    return reviewProviderScopeMappings(services, input, createActorEventStoreContext(scoped));
   };
   return {
     toolHandlers: {

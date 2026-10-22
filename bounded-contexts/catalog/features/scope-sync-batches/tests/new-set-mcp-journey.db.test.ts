@@ -143,9 +143,14 @@ describe("new set over MCP journey", () => {
     globalThis.fetch = catalogFixtureTransports.mtgjson;
     try {
       const refresh = await invoke(discoveryHandlers["catalog.run-provider-refresh"], { providerKey: "mtgjson" });
-      expect(refresh).toMatchObject({ providerKey: "mtgjson", status: "succeeded", newObservationCount: 1 });
+      expect(refresh).toMatchObject({ providerKey: "mtgjson", status: "succeeded", newObservationCount: 2 });
       expect(
-        (await invoke(discoveryHandlers["catalog.list-scope-observations"], { providerKey: "mtgjson" })).items,
+        (
+          await invoke(discoveryHandlers["catalog.list-scope-observations"], {
+            providerKey: "mtgjson",
+            unitKey: MTGJSON_SET_UNIT,
+          })
+        ).items,
       ).toHaveLength(1);
       expect(
         (await invoke(discoveryHandlers["catalog.list-scope-record-proposals"], { productDomain: "magic" })).items,

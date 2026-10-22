@@ -208,8 +208,14 @@
     "integrations-health": { "pending": "#9238" },
     "integrations-observation-evidence": { "pending": "#9238" },
     "source-observations-detail": { "pending": "#9238" },
-    "scope-coverage": { "tools": ["catalog.get-scope-coverage"] },
-    "scope-coverage-detail": { "tools": ["catalog.get-scope-coverage"] },
+    "scope-coverage": { "tools": ["catalog.get-scope-mapping-inbox"] },
+    "scope-coverage-detail": {
+      "tools": [
+        "catalog.get-scope-coverage",
+        "catalog.review-scope-mappings",
+        "catalog.propose-scope-mapping"
+      ]
+    },
     "scope-landing": { "tools": ["catalog.list-scope-records"] },
     "scope-sync-batches": { "pending": "#9822" },
     "scope-detail": { "pending": "#9822" }
