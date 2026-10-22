@@ -60,6 +60,40 @@ export function refreshReadByteCap() {
   return 1_000_000;
 }
 
+export function classifyScrydexOptionRefreshRouteRequest(request) {
+  const method = typeof request.method === "function" ? request.method() : request.method;
+  const requestUrl = typeof request.url === "function" ? request.url() : request.url;
+  let url;
+  try {
+    url = new URL(requestUrl, scrydexOptionRefreshOrigin);
+  } catch {
+    return { allowed: false, reason: "unparseable-url" };
+  }
+  if (url.origin !== scrydexOptionRefreshOrigin) return { allowed: false, reason: "cross-origin" };
+  if (String(method).toUpperCase() !== "GET") return { allowed: false, reason: "mutation" };
+  if (url.pathname === "/api/catalog/source-observations/integration-control-plane/overview") {
+    const keys = [...url.searchParams.keys()];
+    return keys.length === 1 && url.searchParams.get("audience") === "daily"
+      ? { allowed: true, reason: "overview-preflight" }
+      : { allowed: false, reason: "overview-query" };
+  }
+  if (url.pathname === "/api/catalog/source-observations/provider-profiles") {
+    return url.search === ""
+      ? { allowed: true, reason: "provider-profiles-preflight" }
+      : { allowed: false, reason: "profiles-query" };
+  }
+  return classifyScrydexOptionRefreshRequest({ method: String(method), url: url.href });
+}
+
+export function applyScrydexOptionRefreshRouteFence(route, phase) {
+  const request = route.request();
+  const url = new URL(request.url());
+  if (url.origin !== scrydexOptionRefreshOrigin || /tcgplayer/i.test(url.href)) return route.abort("blockedbyclient");
+  if (phase === "refresh" && !classifyScrydexOptionRefreshRouteRequest(request).allowed)
+    return route.abort("blockedbyclient");
+  return route.continue();
+}
+
 export async function runScrydexOptionRefresh(input) {
   const startedAt = input.now();
   const identity = input.runner;
@@ -242,18 +276,7 @@ export async function capture(env = process.env, workspace = process.cwd()) {
       const { chromium } = await import("@playwright/test");
       browser = await chromium.launch();
       const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false });
-      await context.route("**/*", async (route) => {
-        const request = route.request();
-        const url = new URL(request.url());
-        if (url.origin !== scrydexOptionRefreshOrigin || /tcgplayer/i.test(url.href))
-          return route.abort("blockedbyclient");
-        if (phase === "refresh") {
-          const verdict = classifyScrydexOptionRefreshRequest({ method: request.method(), url: request.url() });
-          if (!verdict.allowed && !url.pathname.startsWith("/api/catalog/source-observations/"))
-            return route.abort("blockedbyclient");
-        }
-        return route.continue();
-      });
+      await context.route("**/*", (route) => applyScrydexOptionRefreshRouteFence(route, phase));
       page = await context.newPage();
       await page.goto(`${scrydexOptionRefreshOrigin}/access/sign-in?returnTo=%2Fcatalog%2Fintegrations`);
       await page.getByRole("textbox", { name: /email|phone/i }).fill(env.CATALOG_ADMIN_E2E_EMAIL);

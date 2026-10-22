@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { scrydexCacheCaptureUnits } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-cache-capture.ts";
-import { runScrydexOptionRefresh, writeRefreshArtifact } from "./catalog-staging-scrydex-option-refresh.mjs";
+import {
+  applyScrydexOptionRefreshRouteFence,
+  runScrydexOptionRefresh,
+  writeRefreshArtifact,
+} from "./catalog-staging-scrydex-option-refresh.mjs";
 import {
   classifyScrydexOptionRefreshRequest,
   evaluateScrydexUsagePreflight,
@@ -251,6 +255,47 @@ describe("refresh artifact contract", () => {
 });
 
 describe("hosted Scrydex option refresh contract", () => {
+  it("fences refresh routes to the two preflights and five forced reads", () => {
+    const overview =
+      "https://admin.staging.chasesets.com/api/catalog/source-observations/integration-control-plane/overview?audience=daily";
+    const profiles = "https://admin.staging.chasesets.com/api/catalog/source-observations/provider-profiles";
+    const forced = scrydexCacheCaptureUnits.map(
+      ({ unitKey }, index) =>
+        `https://admin.staging.chasesets.com/api/catalog/source-observations/integration-options?providerKey=scrydex&profileKey=p${index}&profileVersion=v&ingestionUnitKey=${encodeURIComponent(unitKey)}&queryKind=sets&limit=100&forceRefresh=true`,
+    );
+    const requests = [
+      { method: "GET", url: overview },
+      { method: "GET", url: profiles },
+      ...forced.map((url) => ({ method: "GET", url })),
+    ];
+    const routeOutcomes = requests.map((request) => {
+      const calls = [];
+      applyScrydexOptionRefreshRouteFence(
+        {
+          request: () => ({ method: () => request.method, url: () => request.url }),
+          abort: (reason) => calls.push(["abort", reason]),
+          continue: () => calls.push(["continue"]),
+        },
+        "refresh",
+      );
+      return calls[0][0];
+    });
+    expect(routeOutcomes).toEqual(["continue", "continue", "continue", "continue", "continue", "continue", "continue"]);
+    const rejected = [];
+    applyScrydexOptionRefreshRouteFence(
+      {
+        request: () => ({
+          method: () => "POST",
+          url: () => "https://admin.staging.chasesets.com/api/catalog/source-observations/provider-transport",
+        }),
+        abort: (reason) => rejected.push(["abort", reason]),
+        continue: () => rejected.push(["continue"]),
+      },
+      "refresh",
+    );
+    expect(rejected).toEqual([["abort", "blockedbyclient"]]);
+  });
+
   it("uses the bounded page arithmetic", () => {
     expect([0, 100, 101].map(providerPagesUpperBound)).toEqual([2, 2, 3]);
     expect(providerPagesUpperBound(1001)).toBeNull();
