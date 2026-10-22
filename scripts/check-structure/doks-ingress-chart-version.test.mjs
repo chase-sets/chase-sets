@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
+
 import { parseDoksIngressChartVersion } from "../doks-cluster-addons.mjs";
 import {
   DOKS_INGRESS_CHART_ROOT,
@@ -16,6 +18,11 @@ import {
   scanDoksIngressChartSurface,
   validateDoksIngressChartVersion,
 } from "./doks-ingress-chart-version.mjs";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, execFileSync: vi.fn(actual.execFileSync) };
+});
 
 const baseVersion = "0.1.0";
 const baseChartSource = `apiVersion: v2\nname: chase-sets-doks-ingress\ndescription: fixture\ntype: application\nversion: ${baseVersion}\nappVersion: "0.1.0"\n`;
@@ -93,8 +100,10 @@ function createRecordingGitSeam({
   failAt,
 } = {}) {
   const calls = [];
-  const execGit = (_file, args) => {
+  const callRecords = [];
+  const execGit = (file, args, options) => {
     calls.push([...args]);
+    callRecords.push({ file, args: [...args], options });
     if (args[0] === failAt) throw new Error(`${failAt} unavailable`);
     if (args[0] === "rev-parse") return worktree;
     if (args[0] === "merge-base") return mergeBase;
@@ -103,7 +112,7 @@ function createRecordingGitSeam({
     if (args[0] === "show") return chartSource;
     throw new Error(`unexpected Git invocation: ${args.join(" ")}`);
   };
-  return { calls, execGit };
+  return { calls, callRecords, execGit };
 }
 
 function explicitEnvironment(changedFiles) {
@@ -363,12 +372,34 @@ describe("doks ingress chart version guard", () => {
     ]);
   });
 
-  it("contains exactly one execFileSync call in the default Git seam factory", async () => {
-    const source = await readFile(
-      path.join(process.cwd(), "scripts/check-structure/doks-ingress-chart-version.mjs"),
-      "utf8",
-    );
-    expect(source).toContain("execGit = execFileSync");
+  it("routes every Git call through the injected seam with listing options and spawns nothing itself", async () => {
+    const repoRoot = await createFixtureChart({ version: "0.1.1" });
+    const { callRecords, execGit } = createRecordingGitSeam({
+      changedFiles: [deepTemplate, DOKS_INGRESS_CHART_YAML],
+    });
+    vi.mocked(execFileSync).mockClear();
+
+    const result = await validateDoksIngressChartVersion({ repoRoot, environment: {}, execGit });
+
+    expect(result.violations).toEqual([]);
+    expect(result.passShape).toBe("version-increased");
+    expect(callRecords.map(({ args }) => args)).toEqual([
+      ["rev-parse", "--is-inside-work-tree"],
+      ["merge-base", "HEAD", "refs/remotes/origin/main"],
+      ["diff", "--name-only", "-z", "--diff-filter=ACMRTD", "base-sha...HEAD", "--"],
+      ["ls-tree", "-r", "--name-only", "base-sha", "--", DOKS_INGRESS_CHART_ROOT],
+      ["show", `base-sha:${DOKS_INGRESS_CHART_YAML}`],
+    ]);
+    for (const { file, options } of callRecords) {
+      expect(file).toBe("git");
+      expect(options).toEqual({
+        cwd: repoRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: GIT_LISTING_MAX_BUFFER,
+      });
+    }
+    expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
   });
 
   it("distinguishes a failing worktree probe from merge-base failure in both environments", () => {
