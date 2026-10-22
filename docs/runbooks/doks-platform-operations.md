@@ -164,10 +164,22 @@ Do not combine the lanes unless evidence shows both compute and database failure
 Record an incident URL as `INCIDENT_REFERENCE`, record the current production marker with `git rev-parse origin/production`, and preserve the failing workflow URL and its `production-release-health` artifact. Generate and execute the repository-owned production lock command before making a recovery mutation:
 
 ```powershell
-pnpm run ops release-lock:commands --action lock --environment production --reason "DOKS catastrophe recovery" --reference $env:INCIDENT_REFERENCE
+$exitRoute = @{ kind = "host-revert"; reference = $env:LOCK_EXIT_ISSUE_URL } | ConvertTo-Json -Compress
+$deadline = [DateTimeOffset]::UtcNow.AddHours(2).ToString("o")
+pnpm run ops release-lock:commands --action lock --environment production --reason "DOKS catastrophe recovery" --reference $env:INCIDENT_REFERENCE --exit-route $exitRoute --deadline $deadline
 ```
 
-Capture the production Environment's pre-incident lock values first so they can be restored exactly. Leave the lock active until the recovered topology is reconciled and the incident owner authorizes normal promotion. An audited emergency Platform Deploy may bypass the lock only with `emergency_release=true` and this same incident reference.
+The host first captures all five production Environment fields and current protection/branch policy, confirms no active/queued production writer, and verifies that `LOCK_EXIT_ISSUE_URL` names an existing owned Chase Sets issue (not a PR or another repository). Creation writes reason/reference/exit-route/deadline, then TRUE LAST; the deadline is timezone RFC3339, future and at most seven days ahead. The generator prints only, and the lane never changes live state. Capture all five values again after the host executes the commands. Do not restore a historical true lock: new authority needs a new deadline. Leave the lock active until the recovered topology is reconciled and the incident owner authorizes normal promotion. An audited emergency Platform Deploy may bypass a valid lock only with `emergency_release=true` and its separate incident reference; the lifecycle changes grant no emergency authority.
+
+The release-independent `platform-production-lock-monitor.yml` observes production every five minutes. The first executed overdue observation, or first legacy/invalid true observation, creates/reopens one identity-deduplicated **Production release lock** incident for host/orchestrator triage; no retry comments or success alerts. Scheduled runs may be delayed/dropped, so a missing receipt is unknown. The host can manually run `gh workflow run platform-production-lock-monitor.yml --ref main`; inspect its executed monitor job/step, issue URL/id/tuple identity and artifact. Delivery failures stay red, retry on the next run and never unlock. Route only operator-only actions to Todd. See [Release Locks](release-process-evolution.md#release-locks) for the staging-only alternate exit and complete contract.
+
+After host authorization, generate the five-field clear and read back all five values:
+
+```powershell
+pnpm run ops release-lock:commands --action unlock --environment production
+```
+
+This sets FALSE FIRST, then clears reason, reference, exit route and deadline. False stale fields are ignored everywhere; historical artifacts remain evidence, not authority.
 
 Configure the production cluster context in an approved operator shell. The default Terraform name is `chase-sets-production-doks`; if the live cluster has an override, use the `cluster_name` output from `doks/production.tfstate` instead.
 

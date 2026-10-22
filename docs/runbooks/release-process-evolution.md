@@ -125,9 +125,11 @@ Required production GitHub Environment variables:
 
 | Variable | Purpose |
 | --- | --- |
-| `PRODUCTION_RELEASE_LOCKED` | `true` blocks normal production promotion; omit or set `false` for the normal release path. |
+| `PRODUCTION_RELEASE_LOCKED` | `true` blocks normal production promotion; set `false` for the normal release path. A missing monitor source is unknown, never healthy. |
 | `PRODUCTION_RELEASE_LOCK_REASON` | Required when locked; explain the incident, maintenance, or unsafe condition. |
 | `PRODUCTION_RELEASE_LOCK_REFERENCE` | Optional but expected; point to an incident, maintenance ticket, or production evidence record. |
+| `PRODUCTION_RELEASE_LOCK_EXIT_ROUTE` | Required JSON: `{"kind":"host-revert","reference":"<issue URL>"}` or `{"kind":"staging-workflow","workflow":"platform-staging-cluster-addons.yml","reference":"<issue URL>"}`. Closed keys, at most 2 KiB; never a production-dependent exit. |
+| `PRODUCTION_RELEASE_LOCK_DEADLINE` | Required RFC3339 timestamp with timezone. Creation must be in the future and no more than seven days ahead. Expiry escalates; it never unlocks. |
 
 Manual emergency dispatch inputs:
 
@@ -141,11 +143,19 @@ Unlock only after the incident owner confirms production is ready for normal pro
 Generate the exact GitHub Environment commands from the repo root:
 
 ```powershell
-pnpm run ops release-lock:commands --action lock --environment production --reason "Payment provider incident" --reference "INC-2026-05-31-001"
+$exitRoute = @{ kind = "host-revert"; reference = $env:LOCK_EXIT_ISSUE_URL } | ConvertTo-Json -Compress
+$deadline = [DateTimeOffset]::UtcNow.AddHours(2).ToString("o")
+pnpm run ops release-lock:commands --action lock --environment production --reason "Payment provider incident" --reference $env:INCIDENT_REFERENCE --exit-route $exitRoute --deadline $deadline
 pnpm run ops release-lock:commands --action unlock --environment production
 ```
 
-The generator reads the current production lock inputs, validates lock reason requirements, and produces the `gh variable set` shape to run against the production GitHub Environment. Release locks are GitHub Environment state operated from CI and `scripts/`; the application does not host a release-lock console.
+The generator only prints commands; it never executes them. Lock writes reason, reference, exit route and deadline before setting `PRODUCTION_RELEASE_LOCKED=true` **last**. Unlock writes `PRODUCTION_RELEASE_LOCKED=false` **first**, then clears the other four fields. False state ignores even malformed stale metadata in the gate, monitor and health record. Preserve historical artifacts, not stale Environment authority. New gate records are `release-lock-check/v2`; the additive `releaseLock.schemaVersion` is `production-release-lock/v2` inside the unchanged `release-health/v1` envelope, so historical v1 health remains readable without inferred exit authority.
+
+Before a future lock, the host reads all five production Environment values and current protection/branch policy, confirms no active/queued production writer, and checks the exit issue's existence and ownership. The generator and gate validate the issue URL offline only: `https://github.com/chase-sets/chase-sets/issues/<positive integer>`; other repositories, pull requests, suffixes and non-numeric references are refused. No lane may mutate live Environment state. The host verifies five-field readback after creation and after clearing. Do not restore an old true tuple: a new valid lock requires a new deadline.
+
+`platform-production-lock-monitor.yml` runs on main, scheduled every five minutes (`*/5 * * * *`) or manually dispatched, without any release dependency or provider credential. The first **executed** observation at/after the deadline escalates; legacy/invalid true state escalates on its first observation and never permits a normal release. GitHub may delay or drop scheduled runs: there is no wall-clock guarantee, and a missing observation is unknown, not healthy. The host may dispatch `gh workflow run platform-production-lock-monitor.yml --ref main` and inspect the executed `Monitor Production Release Lock` job, notification step and `production-release-lock-monitor` receipt, not just the parent run conclusion.
+
+The issue channel is a deduplicated **Production release lock** incident (`notify-production-deploy-incident`), keyed by SHA-256 of the raw five-field tuple. Lookup is bounded to 1,000 title-matching issues; overflow, incomplete data or issue-authority failure refuses visibly rather than blindly creating. Identical retries add no duplicate issue or comments; a closed match is reopened while the lock remains active. Delivery failure is red and retried on the next observation, with the lock still closed. The gate reports invalid/overdue state and host escalation but never creates a monitor issue. There is no success alert or automatic unlock. The host/orchestrator triages the issue and routes only operator-only actions to Todd. Existing audited emergency authority and its separate emergency reference remain unchanged; a refusal grants no bypass. Only the host clears a lock after the incident owner authorizes normal promotion.
 
 ## Post-Deploy Production Verification
 
@@ -251,7 +261,7 @@ Minimum schema:
     "flakyFailureCount": 0,
     "topFlakyJobs": [{ "name": "verify:static", "retryCount": 0, "flakyFailureCount": 0 }]
   },
-  "releaseLock": { "locked": false, "bypassed": false, "reference": null },
+  "releaseLock": { "schemaVersion": "production-release-lock/v2", "locked": false, "bypassed": false, "reason": null, "reference": null, "exitRoute": null, "deadline": null, "emergencyReference": null },
   "verification": {
     "platformSmoke": "success|failure|skipped",
     "criticalFlows": "success|failure|skipped",

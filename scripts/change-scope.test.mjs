@@ -2941,4 +2941,12 @@ describe("change-scope", () => {
     ]);
     expect(JSON.parse(toOutputMap(scope).exposure_posture_categories_json)).toEqual(scope.exposurePostureCategories);
   });
+
+  it.each([
+    "scripts/release-lock-monitor.mjs",
+    "scripts/release-lock-monitor.test.mjs",
+    ".github/workflows/platform-production-lock-monitor.yml",
+  ])("classifies %s as rollout policy", (file) => {
+    expect(classifyChanges({ changedFiles: [file] }).exposurePostureCategories).toContain("rollout-policy");
+  });
 });

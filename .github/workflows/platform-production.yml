@@ -2970,6 +2970,8 @@ jobs:
       PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
       PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
       PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+      PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
     steps:
       - name: Configure Git defaults
         env:
@@ -3023,7 +3025,16 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           EMERGENCY_RELEASE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
-        run: node ./scripts/release-lock.mjs
+        run: node ./scripts/release-lock.mjs --out artifacts/release-health/production-release-lock.json
+
+      - name: Upload production release lock check
+        if: always() && steps.release_lock.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-release-lock
+          path: artifacts/release-health/production-release-lock.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Validate production configuration
         if: env.SHOULD_DEPLOY != 'false'
@@ -4828,6 +4839,11 @@ jobs:
           CI_TOP_FLAKY_JOBS: ${{ steps.ci_metadata.outputs.ci_top_flaky_jobs }}
           MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}
           MAIN_TO_PRODUCTION_DRIFT_SECONDS: ${{ steps.release_health_metadata.outputs.drift_seconds }}
+          PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
+          PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
+          PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+          PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+          PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}
           RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback' || github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'fix-forward' || 'none' }}
           RECOVERY_REFERENCE: ${{ steps.production_rollback.outputs.rollback_reference || steps.release_lock.outputs.emergency_reference }}
