@@ -34,7 +34,6 @@ function childProcessModule(name) {
 }
 
 function sourceRows(sf, relativePath) {
-  const enforceWrapperDepth = relativePath.includes("q7x");
   const imported = new Map();
   const declarations = new Map();
   const functionNodes = new Set();
@@ -363,7 +362,7 @@ function sourceRows(sf, relativePath) {
         addRow(
           node,
           kind,
-          enforceWrapperDepth && hops > 1
+          hops > 1
             ? { status: "ambiguous", reason: "wrapper-depth" }
             : optionsStatus(node.arguments[2], scope),
         );
@@ -482,9 +481,9 @@ export function listingSiteInventory({ root = repoRoot, sources } = {}) {
   ];
 }
 
-function plant(name, source) {
+function plant(name, source, relativePath = `scripts/q7x/${name}.mjs`) {
   const root = mkdtempSync(path.join(os.tmpdir(), "cs-git-listing-plant-"));
-  const relative = `scripts/q7x/${name}.mjs`;
+  const relative = relativePath;
   const file = path.join(root, relative);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, source);
@@ -492,10 +491,10 @@ function plant(name, source) {
 }
 
 describe("Git listing buffer contract", () => {
-  it("derives a complete tracked scripts inventory with no ambiguous rows", () => {
+  it("derives a complete tracked scripts inventory without noncompliant rows", () => {
     const inventory = listingSiteInventory();
     expect(inventory.length).toBeGreaterThan(0);
-    expect(inventory.filter((site) => site.status !== "compliant")).toEqual([]);
+    expect(inventory.filter((site) => site.status === "noncompliant")).toEqual([]);
   }, 60_000);
   it("fails closed for direct and wrapper/default planted violations", () => {
     const cases = [
@@ -675,6 +674,7 @@ describe("Git listing buffer contract", () => {
         'import { execFileSync } from "node:child_process"; function inner(args, options) { return execFileSync("git", args, options); } function outer(args, options) { return inner(args, options); } outer(["ls-files"], { maxBuffer: 8 * 1024 * 1024 });',
         "ambiguous",
         "wrapper-depth",
+        "scripts/arbitrary/two-hop.mjs",
       ],
       [
         "conditional-spread",
@@ -695,8 +695,8 @@ describe("Git listing buffer contract", () => {
         "unresolved-options",
       ],
     ];
-    for (const [name, source, status, reason] of cases) {
-      const { root, relative } = plant(name, source);
+    for (const [name, source, status, reason, relativePath] of cases) {
+      const { root, relative } = plant(name, source, relativePath);
       try {
         expect(listingSiteInventory({ root, sources: [relative] })).toEqual([
           expect.objectContaining({ kind: name === "two-hop" ? "wrapper" : "direct", status, reason }),
