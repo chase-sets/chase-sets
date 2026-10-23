@@ -283,7 +283,7 @@ export function validateScrydexCoordinatePreviewReceipt(value: unknown): readonl
   if (receipt.rows.length !== 5) errors.push("rows: expected exactly five");
   if (new Set(receipt.rows.map((row) => `${row.scopeRecordId}:${row.unitKey}`)).size !== receipt.rows.length)
     errors.push("rows: duplicate join");
-  const expected = new Set(scrydexCoordinatePreviewUnits.map((unit) => unit.unitKey));
+  const expected = new Set<string>(scrydexCoordinatePreviewUnits.map((unit) => unit.unitKey));
   if (
     new Set(receipt.rows.map((row) => row.unitKey)).size !== expected.size ||
     receipt.rows.some((row) => !expected.has(row.unitKey))

@@ -137,12 +137,12 @@ export async function runScrydexCoordinatePreview(
           })),
           samples: fallbackPreview.samples.map((sample) => ({
             scopeRecordId: sample.scopeRecordId,
-            mappingVersions: sample.mappingVersions,
-            profileVersions: sample.profileVersions,
+            mappingVersions: [...sample.mappingVersions],
+            profileVersions: [...sample.profileVersions],
           })),
         }
       : null,
-    rows: producer?.rows ?? [],
+    rows: [...(producer?.rows ?? [])],
     phases,
     requests,
     forbiddenCalls,
