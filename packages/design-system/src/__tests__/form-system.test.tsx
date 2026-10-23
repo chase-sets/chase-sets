@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, isInaccessible, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, useState, type FormEvent } from "react";
+import { createRef, Profiler, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -1439,9 +1439,64 @@ describe("form system", () => {
     ]);
     render(<RouterProvider router={router} />);
     await userEvent.setup().click(screen.getByRole("button", { name: "Second" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Second" }).getAttribute("aria-busy")).toBe("true"));
-    expect(screen.getByRole("button", { name: "First" }).getAttribute("aria-busy")).toBeNull();
+    const first = screen.getByRole("button", { name: "First" });
+    const second = screen.getByRole("button", { name: "Second" });
+    await waitFor(() => expect(second.getAttribute("aria-busy")).toBe("true"));
+    expect(first.getAttribute("aria-busy")).toBeNull();
+    expect(first.querySelector(".animate-spin")).toBeNull();
+    expect(second.querySelector(".animate-spin")).not.toBeNull();
+    expect(second.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(second);
     gate.resolve(null);
+    await waitFor(() => expect(second.getAttribute("aria-busy")).toBeNull());
+    expect(second.querySelector(".animate-spin")).toBeNull();
+    expect(second.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(second);
+  });
+
+  it("records its committed node without a mount-time state rerender", () => {
+    let buttonNode: HTMLButtonElement | null = null;
+    const objectRef = createRef<HTMLButtonElement>();
+    const renderPhases: string[] = [];
+    const recordNode = (node: HTMLButtonElement | null) => {
+      buttonNode = node;
+    };
+
+    const view = (pendingSubmitter: HTMLButtonElement | null) => (
+      <FormProvider pendingSubmitter={pendingSubmitter}>
+        <Profiler id="button" onRender={(_, phase) => renderPhases.push(phase)}>
+          <Button ref={recordNode} type="submit">
+            Save
+          </Button>
+        </Profiler>
+        <Button ref={objectRef} type="submit">
+          Other
+        </Button>
+      </FormProvider>
+    );
+
+    const { rerender, unmount } = render(view(null));
+
+    expect(renderPhases).toEqual(["mount"]);
+    expect(buttonNode).not.toBeNull();
+
+    rerender(view(buttonNode));
+
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBe("true");
+
+    expect(objectRef.current).toBe(screen.getByRole("button", { name: "Other" }));
+    expect(objectRef.current?.getAttribute("aria-busy")).toBeNull();
+
+    rerender(view(objectRef.current));
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBeNull();
+    expect(objectRef.current?.getAttribute("aria-busy")).toBe("true");
+
+    rerender(view(document.createElement("button")));
+    expect(objectRef.current?.getAttribute("aria-busy")).toBeNull();
+
+    unmount();
+    expect(buttonNode).toBeNull();
+    expect(objectRef.current).toBeNull();
   });
 
   it("caller-written field keeps pending and reaches the action", async () => {

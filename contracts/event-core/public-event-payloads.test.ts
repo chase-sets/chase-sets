@@ -12,6 +12,7 @@ import {
   inventoryRestockDecisionOutcomes,
   marketplaceListingEnforcementSources,
   parseMarketplaceListingAutoUnlistedPayload,
+  parseMarketplaceListingCreatedPayload,
   parseMarketplaceListingOperatorUnlistedPayload,
   parseCollectionsSavedListReportSubmittedPayload,
   parsePlatformOperationsListingRemovalDirectedPayload,
@@ -86,6 +87,175 @@ import type {
 } from "./public-event-payloads/platform-operations";
 import type { PublicPresenceEventPayloads } from "./public-event-payloads/public-presence";
 import type { SettlementEventPayloads } from "./public-event-payloads/settlement";
+
+describe("versioned channel-only Listing creation payload", () => {
+  const payload = {
+    schemaVersion: 2,
+    publicationScope: "channel-only",
+    nativeVisibility: "disabled",
+    nativeFeeState: "not-enrolled",
+    listingId: "lst_channel",
+    accountId: "acc_seller",
+    inventoryItemId: "inv_card",
+    catalogItemId: "cat_card",
+    productId: "cat_card::",
+    itemLanguageCode: null,
+    itemTitle: "Card",
+    itemSubtitle: null,
+    selectedOptions: [],
+    productSummary: null,
+    productMeasureSnapshot: null,
+    gradedCard: null,
+    storageLocationName: null,
+    shipFromCode: "US",
+    shipFromAddress: {
+      name: "Seller",
+      company: null,
+      line1: "1 Main",
+      line2: null,
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      country: "US",
+      phone: null,
+      email: null,
+    },
+    priceAmount: "10.00",
+    priceCurrencyCode: "USD",
+    marketplaceSalesFeeUnitAmount: null,
+    sellerNetUnitAmount: null,
+    shippingAllowancePercentageBps: 0,
+    termsScheduleId: null,
+    termsAgreementId: null,
+    termsResolvedAt: null,
+    feeQuoteFingerprint: null,
+    feeLocks: [],
+    quantityCap: 3,
+    purchaseLimits: { maxUnitsPerOrder: null, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+    evidenceRequirements: null,
+    evidence: [],
+  };
+  it("reads schema 2 before a writer needs it", () =>
+    expect(parseMarketplaceListingCreatedPayload(payload)).toBe(payload));
+  it("reads closed nested shipping measures, graded details, address verification and evidence", () => {
+    const asset = {
+      role: "source",
+      width: 600,
+      height: 840,
+      density: null,
+      mediaType: "image/webp",
+      storageKey: "listing/source.webp",
+      publicUrl: "https://assets.test/source.webp",
+      byteSize: 1234,
+      generatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const nested = {
+      ...payload,
+      shipFromAddress: {
+        ...payload.shipFromAddress,
+        verification: {
+          status: "verified",
+          source: "test",
+          checkedAt: "2026-01-01T00:00:00.000Z",
+          suggestedAddress: payload.shipFromAddress,
+          messages: ["Verified"],
+        },
+      },
+      productMeasureSnapshot: {
+        catalogItemId: "cat_card",
+        productId: "cat_card::",
+        selectedOptions: [],
+        measureVersion: "pm_1",
+        unitLengthInches: 3.5,
+        unitWidthInches: 2.5,
+        unitHeightInches: 0.01,
+        unitWeightOunces: 0.1,
+        physicalFlags: ["raw-card"],
+        stackBehavior: "stackable-thickness",
+        source: "profile",
+        confidence: "measured",
+      },
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: null,
+        population: { populationAtGrade: 1, populationHigher: 0, source: null, asOf: null },
+        conditionDescriptors: [],
+      },
+      evidence: [
+        {
+          photoId: "lpho_1",
+          originalFilename: null,
+          altText: "Front",
+          slotId: null,
+          viewKind: null,
+          status: "active",
+          sortOrder: 0,
+          capturedAt: null,
+          uploadedAt: asset.generatedAt,
+          assetRevision: "rev_1",
+          replacesPhotoId: null,
+          assetSet: { kind: "listing-photo", sourceHash: "hash_1", source: asset, variants: [] },
+        },
+      ],
+    };
+    expect(parseMarketplaceListingCreatedPayload(nested)).toBe(nested);
+    for (const poison of [
+      { ...nested, productMeasureSnapshot: { ...nested.productMeasureSnapshot, guessed: true } },
+      { ...nested, productMeasureSnapshot: { ...nested.productMeasureSnapshot, unitWeightOunces: NaN } },
+      {
+        ...nested,
+        gradedCard: { ...nested.gradedCard, population: { ...nested.gradedCard.population, guessed: true } },
+      },
+      {
+        ...nested,
+        shipFromAddress: {
+          ...nested.shipFromAddress,
+          verification: { ...nested.shipFromAddress.verification, status: { guessed: true } },
+        },
+      },
+      {
+        ...nested,
+        evidence: [
+          { ...nested.evidence[0], assetSet: { ...nested.evidence[0]!.assetSet, source: { ...asset, guessed: true } } },
+        ],
+      },
+    ])
+      expect(() => parseMarketplaceListingCreatedPayload(poison)).toThrow();
+  });
+  it("leaves prior-schema events byte-identical", () => {
+    const {
+      schemaVersion: _version,
+      publicationScope: _scope,
+      nativeVisibility: _visibility,
+      nativeFeeState: _fees,
+      ...legacy
+    } = payload;
+    expect(parseMarketplaceListingCreatedPayload(legacy)).toBe(legacy);
+    expect(JSON.stringify(parseMarketplaceListingCreatedPayload(legacy))).toBe(JSON.stringify(legacy));
+  });
+  it.each([
+    { ...payload, schemaVersion: 3 },
+    { ...payload, nativeVisibility: "enabled" },
+    { ...payload, publicationScope: undefined },
+    { ...payload, termsAgreementId: "native-terms" },
+    { ...payload, feeLocks: [{}] },
+    { ...payload, guessed: true },
+    { ...payload, priceCurrencyCode: "ZZZ" },
+    { ...payload, priceAmount: "10" },
+    { ...payload, priceAmount: 10 },
+    { ...payload, priceCurrencyCode: undefined },
+    { ...payload, quantityCap: Number.MAX_SAFE_INTEGER + 1 },
+    { ...payload, quantityCap: Infinity },
+    { ...payload, purchaseLimits: { ...payload.purchaseLimits, guessed: 1 } },
+    { ...payload, purchaseLimits: { ...payload.purchaseLimits, maxUnitsPerOrder: NaN } },
+    { ...payload, shipFromAddress: { ...payload.shipFromAddress, guessed: true } },
+    { ...payload, selectedOptions: [{ dimensionId: "form", optionId: "raw", guessed: true }] },
+    { ...payload, productMeasureSnapshot: { unitWeightOunces: Infinity } },
+  ])("refuses partial, poisoned, recursively open or unsafe schema 2 facts: %j", (poisoned) => {
+    expect(() => parseMarketplaceListingCreatedPayload(poisoned)).toThrow();
+  });
+});
 
 const modernSuspendedPayload: IdentityAccountSuspendedPayload = {
   enforcement: {
