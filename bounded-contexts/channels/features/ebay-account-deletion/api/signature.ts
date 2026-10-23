@@ -73,6 +73,18 @@ function base64(value: unknown): Buffer {
   return bytes;
 }
 
+function normalizeAlgorithm(value: unknown) {
+  if (typeof value !== "string") return null;
+  const normalized = value.toUpperCase();
+  return normalized === "ECDSA" || normalized === "EC" ? "ECDSA" : null;
+}
+
+function normalizeDigest(value: unknown) {
+  if (typeof value !== "string") return null;
+  const normalized = value.toUpperCase();
+  return normalized === "SHA256" || normalized === "SHA-256" ? "sha256" : null;
+}
+
 export function parseEbayDeletionSignature(header: string | undefined) {
   try {
     if (!header || Buffer.byteLength(header) > 8 * 1024) return null;
@@ -82,8 +94,8 @@ export function parseEbayDeletionSignature(header: string | undefined) {
       typeof value !== "object" ||
       Array.isArray(value) ||
       Object.keys(value).sort().join(",") !== "alg,digest,kid,signature" ||
-      value.alg !== "ECDSA" ||
-      value.digest !== "sha256" ||
+      normalizeAlgorithm(value.alg) === null ||
+      normalizeDigest(value.digest) === null ||
       typeof value.kid !== "string" ||
       value.kid === "." ||
       value.kid === ".." ||
@@ -175,7 +187,11 @@ export function createEbayDeletionKeyAuthority(
                   headers: { Authorization: `Bearer ${accessToken}` },
                 },
               );
-              if (result.algorithm !== "ECDSA" || result.digest !== "sha256" || typeof result.key !== "string")
+              if (
+                normalizeAlgorithm(result.algorithm) === null ||
+                normalizeDigest(result.digest) === null ||
+                typeof result.key !== "string"
+              )
                 throw new Error();
               const der = base64(result.key.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, ""));
               const fetched = createPublicKey({ key: der, format: "der", type: "spki" });

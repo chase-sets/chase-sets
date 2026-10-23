@@ -133,4 +133,19 @@ describe("ebay-account-deletion-key-bootstrap", () => {
       expect(fixture.recordReceipt).not.toHaveBeenCalled();
     },
   );
+  it.each([
+    ["lowercase algorithm", "ecdsa", "sha256"],
+    ["EC algorithm", "EC", "sha256"],
+    ["uppercase digest", "ECDSA", "SHA256"],
+    ["hyphenated digest", "ECDSA", "SHA-256"],
+  ])("accepts %s key identifiers", async (_label, algorithm, digest) => {
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).includes("/oauth2/token"))
+        return Response.json({ access_token: "synthetic-token", expires_in: 7200 });
+      return Response.json({ algorithm, digest, key: syntheticKey().publicKey });
+    });
+    const fixture = signedApp({}, fetcher);
+    expect((await post(fixture.app)).status).toBe(200);
+    expect(fixture.recordReceipt).toHaveBeenCalledOnce();
+  });
 });

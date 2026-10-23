@@ -71,6 +71,20 @@ describe("ebay-account-deletion-authentication", () => {
     expect(fixture.recordReceipt).not.toHaveBeenCalled();
   });
   it.each([
+    ["lowercase algorithm", "ecdsa", "sha256"],
+    ["EC algorithm", "EC", "sha256"],
+    ["uppercase digest", "ECDSA", "SHA256"],
+    ["hyphenated digest", "ECDSA", "SHA-256"],
+  ])("accepts %s identifiers", async (_label, alg, digest) => {
+    const fixture = signedApp();
+    const decoded = JSON.parse(Buffer.from(signedHeader(), "base64").toString());
+    decoded.alg = alg;
+    decoded.digest = digest;
+    const response = await post(fixture.app, payload, Buffer.from(JSON.stringify(decoded)).toString("base64"));
+    expect(response.status).toBe(200);
+    expect(fixture.recordReceipt).toHaveBeenCalledOnce();
+  });
+  it.each([
     "top",
     "metadata",
     "notification",
