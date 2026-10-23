@@ -19,10 +19,6 @@ import {
   runProviderSendJob,
 } from "./provider-send-runtime";
 import {
-  createInMemoryTcgplayerAutomationHttpConfigStore,
-  TcgplayerAutomationDomainHttpClient,
-} from "./tcgplayer-automation-client";
-import {
   createScrydexOnePieceProviderAdapter,
   SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./scrydex/adapter";
@@ -281,58 +277,6 @@ describe("Catalog provider-send admission", () => {
       ).rejects.toThrow("quota-exhausted");
       expect(debit).toHaveBeenCalledTimes(1);
       expect(debit.mock.calls[0]![0]).toMatchObject({ provider, category: "discovery", binding });
-    },
-  );
-
-  it.each(["scrydex", "tcgplayer"] as const)(
-    "production %s transport refuses a directly supplied closed fixture identity",
-    async (provider) => {
-      for (const wrapped of [true, false]) {
-        const fixture: typeof fetch = catalogFixtureTransports.tcgdex;
-        const wrapper = vi.fn<typeof fetch>((...args) => fixture(...args));
-        const supplied = wrapped ? wrapper : fixture;
-        const debit = vi
-          .fn<ProviderSendLedger["debit"]>()
-          .mockResolvedValue({ state: "refused", code: "quota-exhausted" });
-        const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
-        const adapter = new ProviderAdapterRegistry([
-          createScrydexOnePieceProviderAdapter({
-            fetch: supplied,
-            credentials: { apiKey: "SYNTHETIC_TEST_ONLY", teamId: "SYNTHETIC_TEST_ONLY" },
-          }),
-        ]).require("scrydex");
-        const client = new TcgplayerAutomationDomainHttpClient(
-          "infiniteApi",
-          "https://api.tcgdex.net/v2/en",
-          createInMemoryTcgplayerAutomationHttpConfigStore(),
-          { fetch: supplied, sleep: async () => undefined },
-        );
-        const OriginalResponse = globalThis.Response;
-        const response = vi.spyOn(globalThis, "Response").mockImplementation(function (body, init) {
-          return new OriginalResponse(body, init);
-        });
-        const network = vi.fn<typeof fetch>();
-        vi.stubGlobal("fetch", network);
-        try {
-          await expect(
-            runCatalogProviderWork(admission, () =>
-              provider === "scrydex" ? adapter.getCredentialReadiness() : client.get("/sets/swsh3"),
-            ),
-          ).rejects.toMatchObject({ name: "ProviderSendStoppedError", code: "quota-exhausted" });
-          expect(debit).toHaveBeenCalledTimes(1);
-          expect(debit.mock.calls[0]![0]).toMatchObject({
-            provider,
-            category: provider === "scrydex" ? "usage" : "discovery",
-            binding,
-          });
-          expect(wrapper).not.toHaveBeenCalled();
-          expect(response).not.toHaveBeenCalled();
-          expect(network).not.toHaveBeenCalled();
-        } finally {
-          response.mockRestore();
-          vi.unstubAllGlobals();
-        }
-      }
     },
   );
 
@@ -650,131 +594,6 @@ describe("Catalog provider-send admission", () => {
     await admission.send({ provider: "scrydex", category: "usage" }, fetch, "https://synthetic.invalid/usage");
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0]).toEqual(["https://synthetic.invalid/usage", undefined]);
-  });
-
-  it("C1 Pricing cannot inherit a Catalog binding or terminate its window", async () => {
-    const debit = vi.fn(async () => ({ state: "refused" as const, code: "terminal" as const }));
-    const stop = vi.fn();
-    const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit, stop }) });
-    const fetch = vi.fn(async () => Response.json({ synthetic: true }));
-    const store = createInMemoryTcgplayerAutomationHttpConfigStore();
-    const pricing = new TcgplayerAutomationDomainHttpClient("infiniteApi", "https://synthetic.invalid", store, {
-      fetch,
-      ownership: "pricing-non-window",
-      sleep: async () => undefined,
-    });
-    await expect(runCatalogProviderWork(admission, () => pricing.get("/synthetic"))).resolves.toEqual({
-      synthetic: true,
-    });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(debit).not.toHaveBeenCalled();
-    expect(stop).not.toHaveBeenCalled();
-  });
-
-  it("C1 legacy TCGplayer retries each debit immediately before its fetch", async () => {
-    const order: string[] = [];
-    let attempt = 0;
-    const debit = vi.fn(async () => {
-      order.push("debit");
-      return { state: "admitted" as const, windowId: binding.windowId, sequence: ++attempt };
-    });
-    const fetch = vi.fn(async () => {
-      order.push("fetch");
-      return new Response("{}", { status: attempt === 1 ? 502 : 200 });
-    });
-    const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
-    const client = new TcgplayerAutomationDomainHttpClient(
-      "infiniteApi",
-      "https://synthetic.invalid",
-      createInMemoryTcgplayerAutomationHttpConfigStore({ maxRetries: 3 }),
-      { fetch, sleep: async () => undefined },
-    );
-    await runCatalogProviderWork(admission, () => client.get("/synthetic"));
-    expect(order).toEqual(["debit", "fetch", "debit", "fetch"]);
-    expect(debit).toHaveBeenCalledTimes(2);
-  });
-
-  it.each([false, true])("C1 authenticated TCGplayer STOP survives custody redaction (durable=%s)", async (durable) => {
-    const store = {
-      ...createInMemoryTcgplayerAutomationHttpConfigStore({
-        auth: { tcgAuthCookie: "SYNTHETIC_STORED_CREDENTIAL", userAgent: "synthetic" },
-        maxRetries: 3,
-      }),
-    };
-    const release = vi.fn(async () => undefined);
-    if (durable) {
-      store.admitDomainRequest = async () => ({
-        domainKey: "infiniteApi",
-        requestDelayMs: 200,
-        floorRequestDelayMs: 200,
-        granted: true,
-        leaseId: "synthetic-lease",
-        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-        admittedAt: new Date().toISOString(),
-        notBefore: new Date().toISOString(),
-        epoch: 0,
-      });
-      store.renewDomainLease = async () => true;
-      store.releaseDomainLease = release;
-      store.recordDomainRateLimit = store.loadDomainConfig;
-      store.recordDomainSuccess = store.loadDomainConfig;
-    }
-    const debit = vi.fn(async () => ({ state: "refused" as const, code: "quota-exhausted" as const }));
-    const stop = vi.fn(async () => undefined);
-    const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit, stop }) });
-    const fetch = vi.fn();
-    const client = new TcgplayerAutomationDomainHttpClient("infiniteApi", "https://synthetic.invalid", store, {
-      fetch,
-    });
-    await expect(runCatalogProviderWork(admission, () => client.get("/synthetic"))).rejects.toMatchObject({
-      name: "ProviderSendStoppedError",
-      code: "quota-exhausted",
-      message: "Catalog provider-send window stopped (quota-exhausted).",
-    });
-    expect(fetch).not.toHaveBeenCalled();
-    expect(debit).toHaveBeenCalledTimes(1);
-    expect(stop).toHaveBeenCalledExactlyOnceWith(binding.windowId, "quota-exhausted");
-    expect(release).toHaveBeenCalledTimes(durable ? 1 : 0);
-  });
-
-  it("C1 durable TCGplayer refusal releases the pacing lease without fetch or retry", async () => {
-    const events: string[] = [];
-    const store = {
-      ...createInMemoryTcgplayerAutomationHttpConfigStore(),
-      admitDomainRequest: vi.fn(async () => {
-        events.push("lease");
-        return {
-          domainKey: "infiniteApi" as const,
-          requestDelayMs: 200,
-          floorRequestDelayMs: 200,
-          granted: true,
-          leaseId: "synthetic-lease",
-          leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-          admittedAt: new Date().toISOString(),
-          notBefore: new Date().toISOString(),
-          epoch: 0,
-        };
-      }),
-      renewDomainLease: vi.fn(async () => true),
-      releaseDomainLease: vi.fn(async () => {
-        events.push("release");
-      }),
-      recordDomainRateLimit: vi.fn(),
-      recordDomainSuccess: vi.fn(),
-    };
-    const debit = vi.fn(async () => {
-      events.push("debit");
-      return { state: "refused" as const, code: "quota-exhausted" as const };
-    });
-    const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
-    const fetch = vi.fn();
-    const client = new TcgplayerAutomationDomainHttpClient("infiniteApi", "https://synthetic.invalid", store, {
-      fetch,
-    });
-    await expect(runCatalogProviderWork(admission, () => client.get("/synthetic"))).rejects.toThrow("quota-exhausted");
-    expect(events).toEqual(["lease", "debit", "release"]);
-    expect(fetch).not.toHaveBeenCalled();
-    expect(debit).toHaveBeenCalledTimes(1);
   });
 
   it("redirects cannot create hidden sends and outstanding charges are retained", async () => {

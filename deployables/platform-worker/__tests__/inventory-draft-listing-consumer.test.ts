@@ -41,8 +41,6 @@ describe("issue-7169-c4-consumer-rollout platform-worker", () => {
           resolveWebhookTargets: async () => [],
         },
         channelSaleRecorder: createPlatformChannelSaleRecorder({ query, connect: query }),
-        tcgplayerMarketTransport: { kind: "not-mounted" },
-        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: createNoopCommercialTermsResolver(),
         channelConnectionIdentityReader: { resolve: async () => null },
       },

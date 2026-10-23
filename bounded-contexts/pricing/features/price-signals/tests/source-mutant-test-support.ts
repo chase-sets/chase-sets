@@ -153,8 +153,6 @@ const lines = (...text: readonly string[]) => text.join("\n");
 const runtime = "api/market-capture.ts";
 const writes = "read-model/provider-observation-writes.ts";
 const mapper = "domain/provider-observation-mapper.ts";
-const client = "integrations/tcgplayer/market-client.ts";
-const decoders = "integrations/tcgplayer/response-decoders.ts";
 const queries = "read-model/provider-observation-queries.ts";
 
 const signalLoopStart = "    const perProductCounts = new Map<string, { recorded: number; unresolved: number }>();";
@@ -328,34 +326,6 @@ export const captureSourceMutants = {
       },
     ],
   },
-  ignoredCeiling: {
-    id: "F2-ignored-ceiling",
-    defect: "delivered-ceiling page stop disabled",
-    mutations: [
-      {
-        file: client,
-        find: "      ceilingReached = decoded.results.some((row) => row.price + row.sellerShippingPrice > ceiling);",
-        replace: "      ceilingReached = false;",
-      },
-    ],
-  },
-  receiptLeak: {
-    id: "F2-client-to-receipt-leak",
-    defect: "history failure copies the thrown error message into the receipt diagnostics",
-    mutations: [
-      {
-        file: client,
-        find: "    return { observation: unavailableHistory(requestedAt, statusClass(error)), responseSummary, failurePhase };",
-        replace: lines(
-          "    return {",
-          "      observation: unavailableHistory(requestedAt, statusClass(error)),",
-          "      responseSummary: { diagnostic: String((error as Error).message) },",
-          "      failurePhase,",
-          "    };",
-        ),
-      },
-    ],
-  },
   selectorOmitsMapping: {
     id: "F4-selector-omits-target-mapping",
     defect: "selectMarketCaptureSignalWork returns catalogProductKey null for every selected SKU",
@@ -375,26 +345,6 @@ export const captureSourceMutants = {
         file: runtime,
         find: "        catalogProductKeysBySku: new Map(item.skus.map((sku) => [sku.skuId, sku.catalogProductKey])),",
         replace: "        catalogProductKeysBySku: new Map(),",
-      },
-    ],
-  },
-  decoderBypass: {
-    id: "F5-sales-decoder-bypass",
-    defect: "sales envelope array check and strict sale-item decoding accept input unchanged",
-    mutations: [
-      {
-        file: decoders,
-        find: '  if (!Array.isArray(envelope.data)) throw new Error("sales-envelope-invalid");\n',
-        replace: "",
-      },
-      {
-        file: decoders,
-        find: '      const row = exactRecord(item, SALE_KEYS, "sale-item-invalid");',
-        replace: lines(
-          "      data.push(item);",
-          "      continue;",
-          '      const row = exactRecord(item, SALE_KEYS, "sale-item-invalid");',
-        ),
       },
     ],
   },

@@ -34,43 +34,7 @@ const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
 // appends its literal reviewed records to this delta; a slice that removes grants lists them as an explicit reviewed
 // removal list, in that slice's own PR. Never derive either list from the candidate. Re-baselining needs its own slice.
-// #8449 delta: the five baseline Channels keyring Apply-step grants with only `secretName` changed.
 const reviewedCatalogDelta = [
-  {
-    file: ".github/workflows/platform-ephemeral-verification.yml",
-    jobId: "verify-release",
-    stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-merge-gate-verification.yml",
-    jobId: "verify",
-    stepAnchor: "name:Apply gate Kubernetes runtime secrets#11",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-pr.yml",
-    jobId: "preview-deploy-smoke",
-    stepAnchor: "name:Apply preview Kubernetes runtime secrets#13",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-production.yml",
-    jobId: "deploy-production",
-    stepAnchor: "name:Apply production Kubernetes runtime secrets#33",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-production.yml",
-    jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#31",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
   // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
   {
     file: ".github/workflows/catalog-completion-report.yml",
@@ -910,14 +874,9 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1705);
+    expect(expected.grants).toHaveLength(1700);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
-    expect(generated.grants.filter(isCatalogKeyring)).toEqual(
-      reviewedCatalogDelta
-        .map(applyReviewedStepInsertions)
-        .map(applyQualificationStepInsertions)
-        .filter(isCatalogKeyring),
-    );
+    expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
     expectParity(expected, canonical);
     expect(canonical).toEqual(generated);
