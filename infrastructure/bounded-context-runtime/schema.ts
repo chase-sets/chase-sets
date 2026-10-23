@@ -4,6 +4,7 @@ import {
   eventStoreEventsReadIndexStatements,
   type PgPoolClient,
   type PgTransactionalPool,
+  configurationEpochSchemaSql,
 } from "@chase-sets/event-core-postgres";
 
 const DATABASE_RETRY_DELAY_MS = 1_000;
@@ -115,11 +116,21 @@ const projectionRecoveryMarkerBackfillMigration = {
   ],
 };
 
+const configurationEpochMigration = {
+  migrationId: "20261022_configuration_epoch_closure",
+  description: "Create acknowledged configuration epoch guard, topology and CLOSED-THROUGH receipt tables.",
+  statements: configurationEpochSchemaSql
+    .split(/;\s*(?=CREATE|ALTER|INSERT|UPDATE|DELETE|SET)/i)
+    .map((statement) => statement.trim())
+    .filter(Boolean),
+};
+
 const contextSchemaMigrations = [
   contextBackfillMigration,
   concurrentEventStoreIndexesMigration,
   eventStoreWriteHotFillfactorMigration,
   projectionRecoveryMarkerBackfillMigration,
+  configurationEpochMigration,
   {
     migrationId: "20261015_subscription_reaction_output_positions",
     description: "Record reaction output positions atomically with completed applications.",

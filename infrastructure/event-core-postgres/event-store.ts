@@ -28,6 +28,7 @@ import type {
   ReadStreamInput,
   StoredEvent,
 } from "@chase-sets/event-core/storage";
+import { validateConfigurationGrantVectorInTransaction } from "./configuration-epoch";
 import {
   isPgRetryableTransientError,
   withPgTransaction,
@@ -735,6 +736,9 @@ function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
 }
 
 async function appendEventsToStream(args: AppendInTransactionArgs): Promise<readonly StoredEvent[]> {
+  if (args.input.configurationGrants?.length) {
+    await validateConfigurationGrantVectorInTransaction(args.client, args.input.configurationGrants, args.now());
+  }
   const now = args.now();
 
   await args.client.query(args.upsertStreamSql, [args.input.streamId, now]);
@@ -848,6 +852,9 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
   const results: AppendToStreamsResult[] = [];
 
   for (const input of args.inputs) {
+    if (input.configurationGrants?.length) {
+      await validateConfigurationGrantVectorInTransaction(args.client, input.configurationGrants, args.now());
+    }
     if (input.events.length === 0) {
       await assertStreamExpectedVersionInTransaction({
         client: args.client,

@@ -4,6 +4,41 @@ CREATE TABLE IF NOT EXISTS event_store_streams (
   updated_at timestamptz NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS event_configuration_guard_history (
+  key text NOT NULL,
+  epoch bigint NOT NULL CHECK (epoch >= 0),
+  store_incarnation text NOT NULL,
+  key_creation_epoch bigint NOT NULL CHECK (key_creation_epoch >= 0),
+  state text NOT NULL CHECK (state IN ('OPEN', 'CLOSING', 'APPLIED')),
+  topology_revision bigint NOT NULL CHECK (topology_revision >= 0),
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (key, epoch, store_incarnation)
+);
+
+CREATE TABLE IF NOT EXISTS event_configuration_source_topology (
+  key text NOT NULL,
+  topology_revision bigint NOT NULL CHECK (topology_revision >= 0),
+  consumer_store_id text NOT NULL,
+  store_incarnation text NOT NULL,
+  state text NOT NULL CHECK (state IN ('REGISTERED', 'RETIRED')),
+  initialized_closed_through_epoch bigint NULL CHECK (initialized_closed_through_epoch IS NULL OR initialized_closed_through_epoch >= 0),
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (key, consumer_store_id)
+);
+
+CREATE TABLE IF NOT EXISTS event_configuration_closed_through (
+  key text NOT NULL,
+  epoch bigint NOT NULL CHECK (epoch >= 0),
+  topology_revision bigint NOT NULL CHECK (topology_revision >= 0),
+  consumer_store_id text NOT NULL,
+  store_incarnation text NOT NULL,
+  acknowledged_at timestamptz NOT NULL,
+  PRIMARY KEY (key, epoch, topology_revision, consumer_store_id, store_incarnation)
+);
+
+CREATE INDEX IF NOT EXISTS event_configuration_closed_through_lookup_idx
+  ON event_configuration_closed_through (key, epoch, topology_revision);
+
 CREATE TABLE IF NOT EXISTS event_store_events (
   global_position bigserial PRIMARY KEY,
   event_id text NOT NULL UNIQUE,

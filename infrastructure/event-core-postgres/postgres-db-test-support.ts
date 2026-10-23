@@ -68,6 +68,9 @@ function withSearchPath(databaseUrl: string, schemaName: string): string {
 async function resetEventCorePostgresSchema(pool: PgTransactionalPool): Promise<void> {
   await pool.query(`
     TRUNCATE TABLE
+      event_configuration_closed_through,
+      event_configuration_source_topology,
+      event_configuration_guard_history,
       event_projection_measure_publication_parts,
       event_projection_blocked_streams,
       event_projection_poison_events,

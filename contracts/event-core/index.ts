@@ -8,6 +8,7 @@ export * from "./complete-stream";
 export * from "./consistency";
 export * from "./domain";
 export * from "./event-store";
+export * from "./configuration-epoch";
 export * from "./platform-coverage-facts";
 export * from "./projector";
 export * from "./public-event-payloads";

@@ -88,6 +88,17 @@ place, foreign-keyed to `event_store_streams` with `ON DELETE CASCADE`).
 
 Apply `infrastructure/event-core-postgres/schema.sql` before using Postgres adapters.
 
+## Acknowledged Configuration Epochs
+
+Class-C owner configuration uses an acknowledged epoch closure protocol. A
+fully-qualified key is `OPEN` at one store incarnation, transitions to
+`CLOSING`, and becomes `APPLIED` only after every registered consumer has
+durably acknowledged `CLOSED-THROUGH`. Consumers capture grants while holding
+the source `SHARED` guard; the Postgres adapter keeps that lock through commit,
+so a closure cannot install ahead of a terminal append. Missing, partial,
+corrupt, stale-incarnation, duplicate, and expired grants fail closed. The
+in-memory implementation is parity test support, not an authority cache.
+
 ## Import Surface
 
 Core contracts and composition helpers:

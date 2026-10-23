@@ -24,6 +24,7 @@ import type {
   StoredEvent,
 } from "./storage";
 import type { TransportEvent } from "./transport";
+import type { ConfigurationEpochStore } from "./configuration-epoch";
 
 export type TransportEventFixtureOverrides = Readonly<
   Partial<{
@@ -104,6 +105,10 @@ export type InMemoryEventStore = Readonly<{
   streams: Map<string, StoredEvent[]>;
 }>;
 
+export type InMemoryEventStoreOptions = Readonly<{
+  configurationEpoch?: ConfigurationEpochStore;
+}>;
+
 export type BoundedStreamReadContractInput = Readonly<{
   streamId: string;
   bound: number;
@@ -152,7 +157,7 @@ export function assertBoundedStreamReadContract(input: BoundedStreamReadContract
  * versions are enforced, explicit event ids are idempotent, and global reads
  * apply the same cursor, tenant, event-type, prefix, and page-size filters.
  */
-export function createInMemoryEventStore(): InMemoryEventStore {
+export function createInMemoryEventStore(options: InMemoryEventStoreOptions = {}): InMemoryEventStore {
   let globalPosition = 0n;
   const streams = new Map<string, StoredEvent[]>();
   const allEvents: StoredEvent[] = [];
@@ -221,6 +226,7 @@ export function createInMemoryEventStore(): InMemoryEventStore {
   }
 
   function appendToStream(input: AppendToStreamInput): readonly StoredEvent[] {
+    options.configurationEpoch?.validateGrantVector(input.configurationGrants ?? []);
     if (input.events.length === 0) {
       return [];
     }
@@ -240,6 +246,7 @@ export function createInMemoryEventStore(): InMemoryEventStore {
   const eventStore: EventStore = {
     appendToStream: async (input) => appendToStream(input),
     appendToStreams: async (inputs) => {
+      options.configurationEpoch?.validateGrantVector(inputs.flatMap((input) => input.configurationGrants ?? []));
       // Every input's expected version is enforced, including a zero-event
       // one: that input is a pure version guard on a stream this append does
       // not write to, and skipping it would silently drop the guard.
