@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { extname, relative, resolve } from "node:path";
+import { extname, posix, relative, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -57,13 +57,20 @@ function normalizeLiteralPath(value) {
     .replaceAll("\\", "/");
 }
 
-export function literalOutPaths(run) {
-  const pattern =
-    /--out(?:(?:=)(?:"([^"$\r\n]+)"|'([^'$\r\n]+)'|([^\s\\'"$]+))|\s+(?:"([^"$\r\n]+)"|'([^'$\r\n]+)'|([^\s\\'"$]+)))/g;
+// Upload paths are workspace-relative, so a producer path is literal only when
+// it is workspace-anchored or relative to a literal step working directory.
+const workspaceAnchor = /^\$(?:GITHUB_WORKSPACE|\{GITHUB_WORKSPACE\})\//;
+
+export function literalOutPaths(run, { workingDirectory = null } = {}) {
+  const pattern = /--out(?:=|\s+)(?:"([^"\r\n]+)"|'([^'$\r\n]+)'|([^\s\\'"$]+))/g;
   const paths = new Set();
-  for (const match of run.matchAll(pattern)) {
-    const value = match.slice(1).find(Boolean);
-    if (value) paths.add(normalizeLiteralPath(value));
+  for (const [, doubleQuoted, singleQuoted, unquoted] of run.matchAll(pattern)) {
+    const anchored = doubleQuoted?.match(workspaceAnchor);
+    const value = anchored ? doubleQuoted.slice(anchored[0].length) : (doubleQuoted ?? singleQuoted ?? unquoted);
+    if (value.includes("$")) continue;
+    const path = normalizeLiteralPath(value);
+    if (anchored || path.startsWith("/") || workingDirectory === null) paths.add(path);
+    else if (!workingDirectory.includes("$")) paths.add(posix.join(workingDirectory, path));
   }
   return [...paths].sort();
 }
@@ -120,7 +127,8 @@ export function checkWorkflowCanonicalArtifacts(source, { workflowFile = "workfl
   for (const step of steps) {
     const run = runBlock(step.source);
     if (run && executableProducerPattern.test(run) && !bestEffortProducerPattern.test(run)) {
-      for (const outPath of literalOutPaths(run)) {
+      const workingDirectory = scalarStepField(step.source, "working-directory");
+      for (const outPath of literalOutPaths(run, { workingDirectory })) {
         if (extname(outPath) === ".json") producers.push({ ...step, outPath });
       }
     }

@@ -1,0 +1,113 @@
+{
+  "observedAt": "2026-07-22T04:20:00.000Z",
+  "sources": {
+    "run": "repos/chase-sets/chase-sets/actions/runs/29890726423",
+    "mergeQueue": "graphql repository(owner:\"chase-sets\",name:\"chase-sets\").mergeQueue(branch:\"main\").entries(first:100){totalCount nodes{position state solo enqueuedAt headCommit{oid} baseCommit{oid} pullRequest{number headRefOid}}}",
+    "commitPullsWhileQueued": "repos/chase-sets/chase-sets/commits/5ea980a0c5284861c46989bc721958939b465e65/pulls?per_page=100"
+  },
+  "commitPullsWhileQueued": [],
+  "queueBaseSha": "a1b53e777a87e00cf3727fa6566c8500fbccc0d1",
+  "run": {
+    "id": 29890726423,
+    "name": "Platform PR",
+    "head_branch": "gh-readonly-queue/main/pr-5886-a1b53e777a87e00cf3727fa6566c8500fbccc0d1",
+    "head_sha": "5ea980a0c5284861c46989bc721958939b465e65",
+    "path": ".github/workflows/platform-pr.yml",
+    "event": "merge_group",
+    "status": "in_progress",
+    "conclusion": null,
+    "workflow_id": 274293632,
+    "run_attempt": 1,
+    "created_at": "2026-07-22T04:18:43Z",
+    "updated_at": "2026-07-22T04:19:40Z",
+    "pull_requests": [],
+    "head_commit": {
+      "id": "5ea980a0c5284861c46989bc721958939b465e65",
+      "tree_id": "5a1a95e6d9a68ef35d3fca09bcf5bfbdeba60018"
+    },
+    "repository": {
+      "full_name": "chase-sets/chase-sets"
+    }
+  },
+  "mergeQueueSnapshot": {
+    "data": {
+      "repository": {
+        "mergeQueue": {
+          "entries": {
+            "totalCount": 1,
+            "nodes": [
+              {
+                "position": 1,
+                "state": "AWAITING_CHECKS",
+                "solo": false,
+                "enqueuedAt": "2026-07-22T04:18:25Z",
+                "headCommit": {
+                  "oid": "5ea980a0c5284861c46989bc721958939b465e65"
+                },
+                "baseCommit": {
+                  "oid": "a1b53e777a87e00cf3727fa6566c8500fbccc0d1"
+                },
+                "pullRequest": {
+                  "number": 5886,
+                  "headRefOid": "657bcb36a73dd488b769847a862a9b443b5d212b"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "afterMerge": {
+    "observedAt": "2026-07-22T04:27:00.000Z",
+    "sources": {
+      "run": "repos/chase-sets/chase-sets/actions/runs/29890726423",
+      "commitPulls": "repos/chase-sets/chase-sets/commits/5ea980a0c5284861c46989bc721958939b465e65/pulls?per_page=100",
+      "mergeQueue": "graphql repository(owner:\"chase-sets\",name:\"chase-sets\").mergeQueue(branch:\"main\").entries(first:100)",
+      "pull": "repos/chase-sets/chase-sets/pulls/5886",
+      "timeline": "repos/chase-sets/chase-sets/issues/5886/timeline?per_page=100"
+    },
+    "mergeQueueEntriesTotalCount": 0,
+    "pullCreatedAt": "2026-07-21T20:51:52Z",
+    "addedToMergeQueueAt": "2026-07-22T04:18:25Z",
+    "mergedAt": "2026-07-22T04:25:43Z",
+    "run": {
+      "id": 29890726423,
+      "name": "Platform PR",
+      "head_branch": "gh-readonly-queue/main/pr-5886-a1b53e777a87e00cf3727fa6566c8500fbccc0d1",
+      "head_sha": "5ea980a0c5284861c46989bc721958939b465e65",
+      "path": ".github/workflows/platform-pr.yml",
+      "event": "merge_group",
+      "status": "completed",
+      "conclusion": "success",
+      "workflow_id": 274293632,
+      "run_attempt": 1,
+      "created_at": "2026-07-22T04:18:43Z",
+      "updated_at": "2026-07-22T04:25:15Z",
+      "pull_requests": [],
+      "head_commit": {
+        "id": "5ea980a0c5284861c46989bc721958939b465e65",
+        "tree_id": "5a1a95e6d9a68ef35d3fca09bcf5bfbdeba60018"
+      },
+      "repository": {
+        "full_name": "chase-sets/chase-sets"
+      }
+    },
+    "associatedPullRequestPages": [
+      [
+        {
+          "number": 5886,
+          "state": "closed",
+          "merged_at": "2026-07-22T04:25:43Z",
+          "merge_commit_sha": "5ea980a0c5284861c46989bc721958939b465e65",
+          "head": {
+            "sha": "657bcb36a73dd488b769847a862a9b443b5d212b"
+          },
+          "base": {
+            "sha": "a1b53e777a87e00cf3727fa6566c8500fbccc0d1"
+          }
+        }
+      ]
+    ]
+  }
+}

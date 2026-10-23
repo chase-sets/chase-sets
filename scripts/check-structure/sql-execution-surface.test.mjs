@@ -76,7 +76,7 @@ function discoverBoth(files, module = { deriveChangedSqlExecutionFiles, listNonT
       changedFilesJson: JSON.stringify(files),
     }),
     inventory: module.listNonTestTypeScriptModules(repoRoot, {
-      execGit: (args) => {
+      execGit: (_file, args) => {
         expect(args).toEqual(["ls-files", "-z", "--cached"]);
         return `${files.join("\0")}\0`;
       },
@@ -855,7 +855,7 @@ describe("repository-wide SQL execution partition", () => {
   it("enumerates only cached Git index entries", () => {
     const calls = [];
     const files = listNonTestTypeScriptModules(repoRoot, {
-      execGit: (args) => {
+      execGit: (_file, args) => {
         calls.push(args);
         return [
           "src/tracked.ts",
@@ -882,7 +882,7 @@ describe("repository-wide SQL execution partition", () => {
     }
     const calls = [];
     const partition = partitionFromTrackedInventory(root, {
-      execGit: (args) => {
+      execGit: (_file, args) => {
         calls.push(args);
         return `${trackedFile}\0`;
       },

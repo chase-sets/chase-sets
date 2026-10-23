@@ -5,6 +5,7 @@
 // published contract: the types are Platform-Operations-owned, their membership here is not.
 import type { AddressSnapshot } from "../../primitives/address-snapshot";
 import type { JsonValue } from "../../primitives/json";
+import { centsToMoneyAmount, tryMoneyToCents } from "../../primitives/money";
 import {
   parseStrictTypedUlid,
   type AccountId,
@@ -162,11 +163,17 @@ export type MarketplaceListingFeeLockPayload = Readonly<{
 }>;
 
 export type MarketplaceListingCreatedPayload = Readonly<{
+  schemaVersion?: 2;
+  /** Added in the channel-only Listing schema; absent historical events replay as native. */
+  publicationScope?: "native" | "channel-only";
+  nativeVisibility?: "enabled" | "disabled";
+  nativeFeeState?: "enrolled" | "not-enrolled";
   listingId: string;
   accountId: AccountId;
   inventoryItemId: string;
   catalogItemId: string;
   productId: string;
+  itemLanguageCode?: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
@@ -179,15 +186,18 @@ export type MarketplaceListingCreatedPayload = Readonly<{
   priceAmount: string;
   /** Absent only when decoding historical amount-only listing events. */
   priceCurrencyCode?: string | null;
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string | null;
+  sellerNetUnitAmount: string | null;
   shippingAllowancePercentageBps?: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
-  termsResolvedAt: string;
+  termsResolvedAt: string | null;
+  feeQuoteFingerprint?: string | null;
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
   quantityCap: number;
   purchaseLimits?: MarketplacePurchaseLimitsPayload;
+  evidenceRequirements?: JsonValue | null;
+  evidence?: readonly JsonValue[];
 }>;
 
 export type MarketplaceListingPriceUpdatedPayload = Readonly<{
@@ -202,6 +212,277 @@ export type MarketplaceListingPriceUpdatedPayload = Readonly<{
   termsResolvedAt: string;
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
 }>;
+
+/** Historical creation facts are unchanged; channel-only facts use a closed, versioned record. */
+export function parseMarketplaceListingCreatedPayload(value: unknown): MarketplaceListingCreatedPayload {
+  const input = listingEnforcementRecord(value, "Listing creation");
+  const versionFields = ["schemaVersion", "publicationScope", "nativeVisibility", "nativeFeeState"];
+  if (!versionFields.some((key) => Object.hasOwn(input, key))) {
+    return input as MarketplaceListingCreatedPayload;
+  }
+  assertListingEnforcementKeys(
+    input,
+    [
+      ...versionFields,
+      "listingId",
+      "accountId",
+      "inventoryItemId",
+      "catalogItemId",
+      "productId",
+      "itemLanguageCode",
+      "itemTitle",
+      "itemSubtitle",
+      "selectedOptions",
+      "productSummary",
+      "productMeasureSnapshot",
+      "gradedCard",
+      "storageLocationName",
+      "shipFromCode",
+      "shipFromAddress",
+      "priceAmount",
+      "priceCurrencyCode",
+      "marketplaceSalesFeeUnitAmount",
+      "sellerNetUnitAmount",
+      "shippingAllowancePercentageBps",
+      "termsScheduleId",
+      "termsAgreementId",
+      "termsResolvedAt",
+      "feeQuoteFingerprint",
+      "feeLocks",
+      "quantityCap",
+      "purchaseLimits",
+      "evidenceRequirements",
+      "evidence",
+    ],
+    "Channel-only Listing creation",
+  );
+  if (
+    input.schemaVersion !== 2 ||
+    input.publicationScope !== "channel-only" ||
+    input.nativeVisibility !== "disabled" ||
+    input.nativeFeeState !== "not-enrolled"
+  ) {
+    throw new Error("Channel-only Listing creation requires schema 2, disabled visibility and not-enrolled fee state.");
+  }
+  for (const key of [
+    "marketplaceSalesFeeUnitAmount",
+    "sellerNetUnitAmount",
+    "termsScheduleId",
+    "termsAgreementId",
+    "termsResolvedAt",
+    "feeQuoteFingerprint",
+    "evidenceRequirements",
+  ]) {
+    if (input[key] !== null) throw new Error(`Channel-only Listing creation cannot carry ${key}.`);
+  }
+  if (!Array.isArray(input.feeLocks) || input.feeLocks.length !== 0 || input.shippingAllowancePercentageBps !== 0) {
+    throw new Error("Channel-only Listing creation cannot carry native fee locks or shipping allowance.");
+  }
+  const cents = typeof input.priceAmount === "string" ? tryMoneyToCents(input.priceAmount) : null;
+  if (
+    cents === null ||
+    cents <= 0n ||
+    centsToMoneyAmount(cents) !== input.priceAmount ||
+    typeof input.priceCurrencyCode !== "string" ||
+    !Intl.supportedValuesOf("currency").includes(input.priceCurrencyCode)
+  ) {
+    throw new Error("Channel-only Listing creation requires a normalized reference amount and ISO-4217 currency.");
+  }
+  for (const key of ["listingId", "accountId", "inventoryItemId", "catalogItemId", "productId"]) {
+    listingEnforcementText(input[key], `Listing creation ${key}`);
+  }
+  listingEnforcementPositiveInteger(input.quantityCap, "Listing quantity cap");
+  const limits = listingEnforcementRecord(input.purchaseLimits, "Listing purchase limits");
+  assertListingEnforcementKeys(
+    limits,
+    ["maxUnitsPerOrder", "maxUnitsPerDay", "maxUnitsPerCustomerAccount"],
+    "Listing purchase limits",
+  );
+  for (const limit of Object.values(limits)) {
+    if (
+      limit !== null &&
+      (!Number.isSafeInteger(limit) || Number(limit) <= 0 || Number(limit) > Number(input.quantityCap))
+    )
+      throw new Error("Listing purchase limits must be safe positive integers within the quantity cap.");
+  }
+  if (!Array.isArray(input.selectedOptions) || !Array.isArray(input.evidence))
+    throw new Error("Listing selections and evidence must be arrays.");
+  for (const option of input.selectedOptions) {
+    const selected = listingEnforcementRecord(option, "Listing selected option");
+    assertListingEnforcementKeys(selected, ["dimensionId", "optionId"], "Listing selected option");
+    listingEnforcementText(selected.dimensionId, "Listing dimension id");
+    listingEnforcementText(selected.optionId, "Listing option id");
+  }
+  assertListingCreationSafeNumbers(input);
+  assertClosedListingCreationDetails(input);
+  return input as MarketplaceListingCreatedPayload;
+}
+
+function assertClosedListingCreationDetails(input: Readonly<Record<string, unknown>>): void {
+  function nullableText(value: unknown) {
+    if (value !== null && typeof value !== "string") throw new Error("Listing detail must be text or null.");
+  }
+  function record(value: unknown, required: readonly string[], optional: readonly string[] = []) {
+    const result = listingEnforcementRecord(value, "Listing creation detail");
+    if (
+      required.some((key) => !Object.hasOwn(result, key)) ||
+      Reflect.ownKeys(result).some((key) => typeof key !== "string" || ![...required, ...optional].includes(key))
+    )
+      throw new Error("Listing creation detail has missing or unknown fields.");
+    return result;
+  }
+  function address(value: unknown, withVerification: boolean) {
+    const result = record(
+      value,
+      ["name", "company", "line1", "line2", "city", "state", "postalCode", "country", "phone", "email"],
+      withVerification ? ["verification"] : [],
+    );
+    for (const [key, field] of Object.entries(result)) {
+      if (key !== "verification" && field !== null && typeof field !== "string")
+        throw new Error("Listing address fields must be text or null.");
+    }
+    for (const key of ["name", "line1", "city", "state", "postalCode", "country"])
+      listingEnforcementText(result[key], `Listing address ${key}`);
+    if (result.verification !== undefined && result.verification !== null) {
+      const verification = record(
+        result.verification,
+        ["status", "source", "checkedAt"],
+        ["buyerDecision", "suggestedAddress", "messages"],
+      );
+      for (const key of ["status", "source", "checkedAt"])
+        listingEnforcementText(verification[key], `Listing address verification ${key}`);
+      if (verification.buyerDecision !== undefined)
+        listingEnforcementText(verification.buyerDecision, "Listing address buyer decision");
+      if (verification.suggestedAddress !== undefined) address(verification.suggestedAddress, false);
+      if (
+        verification.messages !== undefined &&
+        (!Array.isArray(verification.messages) || verification.messages.some((value) => typeof value !== "string"))
+      )
+        throw new Error("Listing address messages must be text.");
+    }
+  }
+  function selections(value: unknown) {
+    if (!Array.isArray(value)) throw new Error("Listing selections must be an array.");
+    for (const option of value) {
+      const selected = record(option, ["dimensionId", "optionId"]);
+      listingEnforcementText(selected.dimensionId, "Listing dimension id");
+      listingEnforcementText(selected.optionId, "Listing option id");
+    }
+  }
+  for (const key of [
+    "itemLanguageCode",
+    "itemTitle",
+    "itemSubtitle",
+    "productSummary",
+    "storageLocationName",
+    "shipFromCode",
+  ]) {
+    if (input[key] !== null && typeof input[key] !== "string") throw new Error(`Listing ${key} must be text or null.`);
+  }
+  address(input.shipFromAddress, true);
+  selections(input.selectedOptions);
+  if (input.productMeasureSnapshot !== null) {
+    const measure = record(input.productMeasureSnapshot, [
+      "catalogItemId",
+      "productId",
+      "selectedOptions",
+      "measureVersion",
+      "unitLengthInches",
+      "unitWidthInches",
+      "unitHeightInches",
+      "unitWeightOunces",
+      "physicalFlags",
+      "stackBehavior",
+      "source",
+      "confidence",
+    ]);
+    selections(measure.selectedOptions);
+    for (const key of ["unitLengthInches", "unitWidthInches", "unitHeightInches", "unitWeightOunces"])
+      if (typeof measure[key] !== "number" || Number(measure[key]) <= 0)
+        throw new Error("Listing measures must be positive numbers.");
+    if (!Array.isArray(measure.physicalFlags) || measure.physicalFlags.some((value) => typeof value !== "string"))
+      throw new Error("Listing physical flags must be text.");
+    for (const key of ["catalogItemId", "productId", "measureVersion", "stackBehavior", "source", "confidence"])
+      listingEnforcementText(measure[key], `Listing measure ${key}`);
+  }
+  if (input.gradedCard !== null) {
+    const graded = record(input.gradedCard, [
+      "gradingCompany",
+      "grade",
+      "certificationNumber",
+      "population",
+      "conditionDescriptors",
+    ]);
+    for (const key of ["gradingCompany", "grade"]) listingEnforcementText(graded[key], `Listing graded card ${key}`);
+    nullableText(graded.certificationNumber);
+    if (graded.population !== null) {
+      const population = record(graded.population, ["populationAtGrade", "populationHigher", "source", "asOf"]);
+      nullableText(population.source);
+      nullableText(population.asOf);
+      for (const key of ["populationAtGrade", "populationHigher"])
+        if (population[key] !== null && (!Number.isSafeInteger(population[key]) || Number(population[key]) < 0))
+          throw new Error("Listing populations must be safe nonnegative integers.");
+    }
+    if (
+      !Array.isArray(graded.conditionDescriptors) ||
+      graded.conditionDescriptors.some((value) => typeof value !== "string")
+    )
+      throw new Error("Listing condition descriptors must be text.");
+  }
+  if (!Array.isArray(input.evidence)) throw new Error("Listing evidence must be an array.");
+  for (const value of input.evidence) {
+    const photo = record(value, [
+      "photoId",
+      "originalFilename",
+      "altText",
+      "slotId",
+      "viewKind",
+      "status",
+      "sortOrder",
+      "capturedAt",
+      "uploadedAt",
+      "assetRevision",
+      "replacesPhotoId",
+      "assetSet",
+    ]);
+    for (const key of ["originalFilename", "altText", "slotId", "viewKind", "capturedAt", "replacesPhotoId"])
+      nullableText(photo[key]);
+    for (const key of ["photoId", "status", "uploadedAt", "assetRevision"])
+      listingEnforcementText(photo[key], `Listing evidence ${key}`);
+    if (!Number.isSafeInteger(photo.sortOrder) || Number(photo.sortOrder) < 0)
+      throw new Error("Listing evidence order must be a safe nonnegative integer.");
+    const assets = record(photo.assetSet, ["kind", "sourceHash", "source", "variants"]);
+    listingEnforcementText(assets.sourceHash, "Listing asset source hash");
+    if (assets.kind !== "listing-photo" || !Array.isArray(assets.variants))
+      throw new Error("Listing photo assets are invalid.");
+    for (const variant of [assets.source, ...assets.variants]) {
+      const asset = record(variant, [
+        "role",
+        "width",
+        "height",
+        "density",
+        "mediaType",
+        "storageKey",
+        "publicUrl",
+        "byteSize",
+        "generatedAt",
+      ]);
+      for (const key of ["width", "height", "byteSize"])
+        listingEnforcementPositiveInteger(asset[key], `Listing asset ${key}`);
+      if (asset.density !== null && asset.density !== 1 && asset.density !== 2)
+        throw new Error("Listing asset density is invalid.");
+      for (const key of ["role", "mediaType", "storageKey", "publicUrl", "generatedAt"])
+        listingEnforcementText(asset[key], `Listing asset ${key}`);
+    }
+  }
+}
+
+function assertListingCreationSafeNumbers(value: unknown): void {
+  if (typeof value === "number" && (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER))
+    throw new Error("Listing creation numbers must be finite and safe.");
+  if (Array.isArray(value)) value.forEach(assertListingCreationSafeNumbers);
+  else if (value !== null && typeof value === "object") Object.values(value).forEach(assertListingCreationSafeNumbers);
+}
 
 export type MarketplaceListingQuantityCapUpdatedPayload = MarketplaceListingPriceUpdatedPayload &
   Readonly<{
@@ -426,6 +707,66 @@ export type MarketplaceReportSubmittedPayload = Readonly<{
   sourceRoutePath: string;
   submittedAt: string;
 }>;
+
+const marketplaceReportSubmittedKeys = [
+  "reportId",
+  "targetType",
+  "targetId",
+  "targetOwnerAccountId",
+  "reporterKind",
+  "reporterKey",
+  "reporterAccountId",
+  "reporterUserId",
+  "reason",
+  "details",
+  "sourceRoutePath",
+  "submittedAt",
+] as const;
+
+/**
+ * Reads a stored Marketplace Report. The record is closed to the twelve keys every
+ * historical report carries; the reason vocabulary stays Marketplace-owned, so any
+ * nonempty reason is returned unchanged.
+ */
+export function parseMarketplaceReportSubmittedPayload(value: unknown): MarketplaceReportSubmittedPayload {
+  const input = listingEnforcementRecord(value, "Marketplace Report");
+  if (
+    Reflect.ownKeys(input).length !== marketplaceReportSubmittedKeys.length ||
+    marketplaceReportSubmittedKeys.some((key) => !Object.hasOwn(input, key))
+  ) {
+    throw new Error(`Marketplace Report requires exactly: ${marketplaceReportSubmittedKeys.join(", ")}.`);
+  }
+  if (input.targetType !== "listing" && input.targetType !== "review") {
+    throw new Error("Marketplace Report target type must be listing or review.");
+  }
+  if (input.reporterKind !== "account" && input.reporterKind !== "visitor") {
+    throw new Error("Marketplace Report reporter kind must be account or visitor.");
+  }
+  for (const key of ["reportId", "targetId", "reporterKey", "reason", "sourceRoutePath"] as const) {
+    if (typeof input[key] !== "string" || input[key].length === 0) {
+      throw new Error(`Marketplace Report ${key} must be a nonempty string.`);
+    }
+  }
+  for (const key of ["targetOwnerAccountId", "reporterAccountId", "reporterUserId", "details"] as const) {
+    if (input[key] !== null && (typeof input[key] !== "string" || input[key].length === 0)) {
+      throw new Error(`Marketplace Report ${key} must be a nonempty string or null.`);
+    }
+  }
+  return {
+    reportId: input.reportId as string,
+    targetType: input.targetType,
+    targetId: input.targetId as string,
+    targetOwnerAccountId: input.targetOwnerAccountId as string | null,
+    reporterKind: input.reporterKind,
+    reporterKey: input.reporterKey as string,
+    reporterAccountId: input.reporterAccountId as string | null,
+    reporterUserId: input.reporterUserId as string | null,
+    reason: input.reason as string,
+    details: input.details as string | null,
+    sourceRoutePath: input.sourceRoutePath as string,
+    submittedAt: listingEnforcementInstant(input.submittedAt, "Marketplace Report time"),
+  };
+}
 
 export type MarketplaceEventPayloads = Readonly<{
   "marketplace.review-opportunity.changed.v1": ReviewOpportunityChangedV1;

@@ -452,7 +452,6 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       authenticationMethod: providerName as AuthMethod,
       context: getBootstrapContext(c),
       membershipsOverride,
-      publishAuthenticationOutcome: true,
     });
 
     return completeSocialLoginAuthentication(c.req.raw, authResult, stateRecord.return_to, journey);

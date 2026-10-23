@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { repoRoot } from "../lib/repo.mjs";
+import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
 
 const registeredCallers = new Map([
   [
@@ -28,11 +29,20 @@ const registeredCallers = new Map([
   ],
   [
     "bounded-contexts/marketplace/features/listings/api/route.ts",
-    ["assertPriceCurrencyInput(body.priceCurrencyCode)", "assertPriceCurrencyInput(priceCurrencyCode)"],
+    [
+      "assertPriceCurrencyInput(body.priceCurrencyCode)",
+      "assertPriceCurrencyInput(priceCurrencyCode)",
+      "publicationScope: body.publicationScope",
+    ],
   ],
   [
     "bounded-contexts/marketplace/features/listings/api/runtime.ts",
-    ["priceCurrencyCode: params.priceCurrencyCode", "priceCurrencyCode: update.priceCurrencyCode"],
+    [
+      "priceCurrencyCode: params.priceCurrencyCode",
+      "priceCurrencyCode: update.priceCurrencyCode",
+      "publicationScope: params.publicationScope",
+      "assertNativeListingCommand(listing)",
+    ],
   ],
   ["bounded-contexts/marketplace/routes/account-listing.tsx", ["priceCurrencyCode: priceDraftCurrencyCode"]],
   ["bounded-contexts/marketplace/routes/account-listings-new.tsx", ["priceCurrencyCode: createForm.priceCurrencyCode"]],
@@ -210,9 +220,59 @@ function sourceDerivedSelectedListingSnapshotConsumers() {
 }
 
 describe("marketplace-listing-price-pair-caller-closure", () => {
+  it("HOST-STATIC-01 detects removal of the Listing create snapshot-return classification", async () => {
+    const root = "bounded-contexts/marketplace";
+    const manifest = JSON.parse(source(`${root}/context.json`));
+    const id = "marketplace.listing-api-command-snapshots";
+    const row = manifest.mutationConsistencyInventory.find((entry) => entry.id === id);
+    const surface = "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings";
+    expect(row).toMatchObject({
+      strategy: "snapshot-return",
+      proof: {
+        authoritativeResponse: expect.stringContaining("committed Listing aggregate state"),
+        tests: expect.arrayContaining([
+          "bounded-contexts/marketplace/features/listings/api/route.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
+        ]),
+      },
+    });
+    expect(row.surfaces).toContain(surface);
+    for (const removed of [false, true]) {
+      const candidate = {
+        ...manifest,
+        mutationConsistencyInventory: manifest.mutationConsistencyInventory.filter(
+          (entry) => !removed || entry.id !== id,
+        ),
+      };
+      const result = await validateReadAfterWriteRouteInventory({
+        repoRoot,
+        contextManifests: new Map([
+          [root, { root, rootAbs: path.join(repoRoot, root), packageName: manifest.packageName, manifest: candidate }],
+        ]),
+        reportOutputPath: "artifacts/10403-listing-create-inventory.md",
+      });
+      const discovered = result.mutationSurfaces.find((entry) => entry.id === surface);
+      expect(discovered).toBeDefined();
+      expect(
+        result.violations.some(
+          (violation) => violation.startsWith(discovered.location + ":") && /unclassified/i.test(violation),
+        ),
+      ).toBe(removed);
+    }
+  });
+
   it("registers every source-derived production authoring caller", () => {
     const unregistered = sourceDerivedCallers().filter((file) => !registeredCallers.has(file));
     expect(unregistered).toEqual([]);
+  });
+
+  it("detects removal of any creation caller from the currency-pair inventory", () => {
+    const callers = sourceDerivedCallers();
+    for (const removed of callers) {
+      const registered = new Map(registeredCallers);
+      registered.delete(removed);
+      expect(callers.filter((file) => !registered.has(file))).toContain(removed);
+    }
   });
 
   it.each([...registeredCallers.entries()])("keeps explicit currency evidence in %s", (file, evidence) => {

@@ -1,45 +1,39 @@
-# TCGplayer Automation Operations
+# TCGplayer Automation Operations (Retired Server Transport)
 
-TCGplayer integration calls use the automation-app client behavior reviewed from
-`todd-skelton/tcgplayer-automation-app` at commit `bf42aa8`. Do not replace this
-runbook with assumptions from the official TCGplayer API docs.
+Chase Sets does not make TCGplayer integration calls. The server transport,
+credential configuration, cookie custody, and market-capture jobs are retired.
+Browser extensions relay provider data and no extension code reads or pushes
+TCGplayer cookies.
 
-Catalog owns product-line, set-name, product-detail, Source Observation, and
-external reference ingestion. Pricing owns market price, latest sales, active
-listing, and price-history signals. Inventory consumes Catalog-owned references
-for import resolution. Provider transport configuration belongs in operations
-and infrastructure, not deployable-local code.
+Catalog retains provider-neutral Source Observation and external-reference
+records. Any queued TCGplayer integration job is terminally failed without a
+request; new server enqueue and preview commands return an explicit retired-
+provider refusal.
 
-## Secret Provisioning
+## Secret Provisioning (Prohibited)
 
-The [TCGplayer Operator Extension](../../deployables/tcgplayer-operator-extension/README.md)
-is the primary path for Todd's operator session. It forwards the applicable
-`TCGAuthTicket_Production` cookie into encrypted Catalog custody; it never takes
-a password or another user's credentials. Use the configured provider user agent
-with the resolved cookie. No secret edit, deploy, or restart is needed to adopt a
-stored revision: Catalog and Pricing resolve custody on each automation request.
-
-The environment cookie is retired. A stored session is required; unreadable
-custody refuses requests instead of silently falling back. Local fixture-backed
-development needs no provider credential. Live jobs need a usable resolved
-operator session.
+The extension never accepts, reads, stores, or forwards a TCGplayer cookie or
+credential. Do not provision `TCGPLAYER_AUTOMATION_*` or
+`CATALOG_OPERATOR_SESSION_KEYRING_JSON`; those settings are removed. Pairing
+grants contain no provider credential and are used only for browser handoff.
 
 ### Pairing
 
-For production packages, use the shared [Operator-Package Target Reachability](../../.agents/skills/delivery/SKILL.md#operator-package-target-reachability) gate before package READY, at host signal and at window-open re-verification. The #9374-production inventory includes Admin `/catalog/providers/tcgplayer`, the extension's `/api/public/catalog/operator-session/grant` and `/api/public/catalog/operator-session/tcgplayer` on that Admin origin, and permitted provider entry/sign-in routes. Do not mint, revoke or push a grant to probe reachability. Staging remains independently gated; existing custody, recovery and G1-G7 authority below is unchanged, and routing proof grants no execution GO.
+For production packages, use the shared [Operator-Package Target Reachability](../../.agents/skills/delivery/SKILL.md#operator-package-target-reachability) gate before package READY, at host signal and at window-open re-verification. The #9374-production inventory includes Admin `/catalog/providers/tcgplayer`, the extension's `/api/public/catalog/operator-session/grant` and `/api/public/catalog/operator-session/tcgplayer` on that Admin origin, and permitted provider entry/sign-in routes. Do not mint, revoke or push a grant to probe reachability. Staging remains independently gated; retired custody and server recovery are not restored, and routing proof grants no execution GO.
 
-Complete the [passive recovery gate](#rate-limits-and-recovery) before pairing,
-re-pairing, or changing the provider login for a rotation drill. Pairing can push
-the current session immediately. A cookie change is forwarded to every paired
-environment, so leave environments whose gate says `not-needed`, `held`, or
-`unknown` unpaired for the drill. Proceed staging first, then independently gate
-production; do not force a second login to manufacture production evidence.
+Complete the [passive recovery gate](#rate-limits-and-recovery) before pairing
+or re-pairing. Pairing transfers only a browser-handoff grant; it never pushes a
+provider session, forwards a cookie, or proves provider acceptance. Leave
+environments whose gate says `not-needed`, `held`, or `unknown` unpaired for the
+drill. Proceed staging first, then independently gate production; do not force a
+second login to manufacture production evidence.
 Each environment's one-time first pairing for #9374 instead follows
 [Initial Cutover (#9374)](#initial-cutover-9374), which keeps every hard stop.
 
-1. The host confirms `CATALOG_OPERATOR_SESSION_KEYRING_JSON` exists in the target
-   environment using secret metadata only and supplies the independently
-   reviewed unpacked extension artifact with its exact-head handoff inventory.
+1. The host confirms `CATALOG_OPERATOR_SESSION_KEYRING_JSON` has been removed
+   from the target environment using secret metadata only and supplies the
+   independently reviewed unpacked extension artifact with its exact-head
+   handoff inventory.
 2. Todd uses his authorized normal, non-incognito operator browser, never the
    shared `Pokebash TCG` or work profile. In Chrome Extensions, enable Developer
    mode and choose Load unpacked for the supplied `dist` directory. Updates use
@@ -62,23 +56,18 @@ Each environment's one-time first pairing for #9374 instead follows
    into the extension popup's Pairing grant field, choose Staging or Production
    to match Admin, and choose Pair. Dismiss grant in Admin. In either path,
    never record the grant or inspect/export extension storage.
-6. If the gate permits a provider session change, sign in to TCGplayer in that
-   paired browser. Refresh the popup and reload Admin. Record only Revision,
-   Stored at, Custody available, and Extension grant metadata. A new stored
-   session advances Revision; an identical cookie under the same active key is
-   `unchanged`, not revision-increment proof. Do not rotate again for evidence.
+6. Do not sign in to TCGplayer or change a provider session for this workflow.
+   Refresh the popup and reload Admin. Record only extension grant metadata and
+   the handoff outcome; never record cookies, stored sessions, or custody state.
 7. Follow [Verification](#verification) through the next already-scheduled
    ordinary capture, without manual provider queries, deploys, or restarts.
 
 ### Initial Cutover (#9374)
 
-Todd's 2026-10-11 ruling on #4388 makes operator-session custody the required
-TCGplayer credential path and retires the manual env cookie; #9374 pairs staging,
-then production. Until an environment is paired, its runtime still resolves the
-env fallback above; #9375 owns removing it. This subsection covers only the
-first pairing of each previously unpaired environment. It replaces the rotation
-justification of the [recovery gate](#rate-limits-and-recovery) for that one
-pairing and relaxes no other stop, privacy bound, or traffic rule here.
+The server credential and custody paths are retired. #9374 pairs staging, then
+production, for browser handoff only. This subsection covers only the first
+pairing of each previously unpaired environment and relaxes no stop, privacy
+bound, or no-provider-traffic rule here.
 
 - **Scope.** With G1-G7 clear, pair and push even when the historical baseline
   is `not-needed`, or `unknown` solely because no usable baseline or only a lone
@@ -90,12 +79,9 @@ pairing and relaxes no other stop, privacy bound, or traffic rule here.
   custody or pairing goes to G3 reconciliation; later grant replacement,
   Disconnect or re-pair, staging-reset re-pair, rotation, and retry after a
   failed ordinary pass follow the recovery gate and drill unchanged.
-- **Current session.** Push the TCGplayer session already signed in to Todd's
-  normal operator profile. Do not log out or log in again. If that profile is
-  signed out, tell the host; one manual sign-in follows only after the target
-  and every already-paired receiving environment clear their gates. Never log in
-  again for production evidence; a provider challenge or failed login is not
-  authority to retry or automate. Admin step-up sign-in is separate.
+- **Current session.** The extension may be paired to the intended environment,
+  but the server never receives or stores a provider session. Do not log in,
+  refresh, or retry for evidence. Admin step-up sign-in is separate.
 - **Evidence timing.** Every fact is per environment: record context, UTC,
   image digest and commit, deploy run, pod UID/start/restart identity, and
   snapshot time, gathered fresh immediately before that environment's Pair. A
@@ -106,7 +92,7 @@ Hard stops are per environment; an unknown result is STOP.
 
 | Gate | Required proof; anything else stops |
 | --- | --- |
-| G1 Keyring and custody | A normal Platform Deploy after 2026-10-11T21:49Z applied runtime secrets successfully in BOTH environments with a masked non-empty `CATALOG_OPERATOR_SESSION_KEYRING_JSON` (run/job and timestamps). Secret-name existence is insufficient. Target Admin shows Custody available before minting. Never redeploy just for proof. |
+| G1 Retired custody | `CATALOG_OPERATOR_SESSION_KEYRING_JSON` and the server custody store are absent in BOTH environments, confirmed by the host's named keyring-deletion action and secret metadata. No target may show server custody as available; never redeploy or restore the retired keyring just for proof. |
 | G2 Artifact and operator | The [extension](../../deployables/tcgplayer-operator-extension/README.md) is the independently reviewed exact head and installed byte inventory; Todd's normal non-incognito profile; intended environment selected; recent platform-admin authentication. Local tests are not installation authority. |
 | G3 First pair | Admin metadata and the operator record show no completed initial pairing; record Revision, Stored at, and grant metadata without custody SQL reads. A missing outcome row alone does not prove no custody. Unexpected custody or pairing goes to host reconciliation, not grant replacement. |
 | G4 One authority, no predecessor | Every API, worker, or other platform TCGplayer caller sharing the egress, across environments too, uses one Catalog limiter authority, bound to pod/controller census (UID, deletion, owners, readiness, container state/restarts, imageID, actual replicas), Catalog Secret refs in pods and templates (no literals, duplicates, or unexpected `envFrom`), and non-secret database-authority evidence. No old sender may be running, terminating, restarting, pending, or schedulable by an old controller; Ready or zero ready replicas proves nothing alone. Todd's separate automation app is out of scope. |
@@ -144,9 +130,6 @@ SELECT r.domain_key, r.effective_request_delay_ms AS request_delay_ms,
   FROM catalog_tcgplayer_automation_domain_rate_limits r
  WHERE r.domain_key IN ('mpApi', 'mpSearchApi', 'infiniteApi', 'mpGateway')
  ORDER BY r.domain_key;
-SELECT source, revision, custody_revision, state, state_since, ever_succeeded, updated_at,
-       clock_timestamp() AS snapshot_at
-  FROM catalog_tcgplayer_operator_session_outcomes WHERE provider_key = 'tcgplayer';
 ROLLBACK;
 ```
 
@@ -158,22 +141,13 @@ capture tables are rejected as baseline or source proof: status classes cannot
 separate `401`/`403`/`429`, and the authenticated flag names no custody
 revision. Correlate with existing sanitized scheduled-job/capture evidence.
 
-Post-push proof follows [Verification](#verification) steps 1 and 3-5. Admin
-shows Revision > 0, Stored at, an active grant, and Custody available. The
-outcome row read after the push and after the next already-scheduled ordinary
-request shows `source=operator-session`, `revision` and `custody_revision` equal
-to the stored revision, `state=healthy`, `ever_succeeded=true`, and
-`state_since` after Stored at; readiness is `configured`. Retain the scheduled
-job/capture identity and the request, status, domain, rate, and timing facts that
-support the correlation; the row has no capture id, so its health alone is not a
-job join. An absent row, `untested`, an env or older success, or an unbound
-capture is not PASS. No deploy, restart, or secret change between push and
-success: compare pod UID, container restart count, and container start times,
-not pod start time alone. An identical cookie need not advance an existing
-revision and never justifies a forced login. Post metadata-only evidence per
-environment on #9374. If no scheduled pass arrives in the signaled window,
-verification stays pending and production waits; never start a capture to meet
-it.
+Post-pairing proof follows [Verification](#verification) steps 1 and 3-5.
+Admin may show only grant metadata; it must not claim server custody or a
+provider session. Record the extension handoff and the next already-scheduled
+ordinary pass as metadata-only evidence. A missing or ambiguous handoff is
+`unknown`, not permission to retry, mint again, or contact the provider. If no
+scheduled pass arrives in the signaled window, verification stays pending and
+production waits; never start a capture to meet it.
 
 ### Grant And Custody Lifecycle
 
@@ -187,26 +161,20 @@ it.
   mints again or rolls back automatically, and the grant is never recorded.
 - Re-pair staging after every staging integration-data reset; do not assume a
   locally retained grant survived the reset. Unpair the old local pairing first.
-- Disconnect in the target Admin Operator session panel is break-glass: it
-  revokes all push grants before a fresh fenced custody clear. Confirm the
-  Disconnect result and refresh metadata. Conflict or incomplete completion is
-  not a successful clear; inspect the refreshed state before retrying. Cleared
-  custody retains its revision fence and restores the env fallback only if that
-  fallback is configured. Disconnect does not end the browser/provider session.
+- Disconnect in the target Admin Operator session panel revokes push grants.
+  Confirm the result and refresh grant metadata. Conflict or incomplete
+  completion is not a successful clear; inspect the refreshed state before
+  retrying. Disconnect does not end any browser session, and there is no server
+  custody or environment fallback to restore.
 - Offboarding or suspected exposure: stop unsafe traffic with the approved
   provider/unit emergency-stop controls, confirm Admin Disconnect, and Unpair
   that environment in the extension. Unpair alone does not clear custody;
   uninstall alone cannot revoke a grant. Any provider-side session revocation
   is a separate operator action, not part of the rotation drill. Never test live
   logout or expiry on the seller session.
-- For keyring rotation, retain keys needed by stored custody until a permitted
-  next push re-encrypts under the new usable active key. For key loss or
-  `operator-session-custody-unavailable`, hold requests and recover the keyring
-  through the approved secret-management path, or confirm Disconnect to clear
-  custody. A later permitted push can re-encrypt only with a usable active key;
-  it cannot repair a missing write key. Use the popup's Retry current session after
-  recovery if its permanent-error state needs an explicit retry. Never export
-  custody or grant material to recover it.
+- There is no keyring rotation or server custody recovery. For
+  `operator-session-custody-unavailable`, hold and confirm the retired keyring
+  remains absent; never restore a key, export custody, or retry provider traffic.
 
 Never commit cookies, copied request headers, local `.env` overrides, grant
 values, screenshots containing values, or raw provider request captures.
@@ -299,7 +267,7 @@ Apply readiness diagnostics within that gate, not as a bypass:
 | --- | --- |
 | `credential-refresh-needed` / `operator-session-expired` | Once the gate permits rotation, check the browser is paired to the intended environment and sign in to TCGplayer there. Confirm a newly stored revision in Admin, then verify the next ordinary pass. |
 | `rejected-after-refresh` | Not expiry proof: the new stored revision has not succeeded. Preserve cooldown/rate state and escalate with sanitized status, revision, and pacing evidence; do not repeatedly rotate. |
-| `operator-session-custody-unavailable` | Requests fail closed. Recover the keyring or confirm Disconnect as described in Grant And Custody Lifecycle; do not assume env fallback or successful pairing. |
+| `operator-session-custody-unavailable` | The retired server path remains fail-closed. Confirm keyring absence; do not restore custody, assume a fallback, or retry provider traffic. |
 | `adapter-authentication-failed` / `credential-missing` | Unknown authentication/rate context or no usable resolved credential. Inspect passive metadata and the baseline; do not infer expiry or issue test traffic. |
 
 The integration-data reset may clear learned delay values back to conservative
@@ -318,7 +286,7 @@ Catalog import jobs and Pricing signal jobs should report:
 - latest successful provider call by domain;
 - latest retryable failure status by domain;
 - learned request delay and learned minimum delay by domain;
-- stale or missing cookie symptoms, expressed without the cookie value;
+- retired server-transport state, expressed without any provider credential;
 - unresolved Catalog Product or SKU references for Pricing signal jobs.
 
 Inspect `lastHttpStatus` in transport stage facts and Pricing capture endpoint
@@ -348,21 +316,16 @@ For a session drill, staging first and then production:
    `not-needed`, `held`, or `unknown` and stop without pairing or login changes,
    unless [Initial Cutover (#9374)](#initial-cutover-9374) permits the
    environment's first pairing.
-3. When justified, record before/after revisions and `storedAt` from Pairing.
-   The host reads only the #8455 outcome row through the approved passive
-   read-only route after the push and after the next already-scheduled capture:
-   `catalog_tcgplayer_operator_session_outcomes` fields `source`, `revision`,
-   `custody_revision`, `state`, `state_since`, `ever_succeeded`, `updated_at`,
-   plus the snapshot UTC. Never read `catalog_tcgplayer_operator_sessions`.
-4. Bind that capture's success to `source=operator-session`, with `revision` and
-   `custody_revision` equal to the newly stored revision, `state=healthy`,
-   `ever_succeeded=true`, and `state_since` after `storedAt`; readiness must be
-   `configured`. `untested`, an old/env success, or missing attribution is not
-   success. Compare one bounded pass only; failure means hold and escalate, not
-   another rotation. Do not deploy, restart, edit secrets, reset budgets, issue
-   manual queries, or start an extra capture between push and success.
-5. Record snapshot/baseline/push/capture UTC instants, status/rate/readiness
-   context, revision-bound outcome metadata, image/deploy-history identifiers,
+3. When justified, record the grant revision and handoff metadata from Pairing.
+   Do not query server custody or outcome tables. Never read or recreate
+   `catalog_tcgplayer_operator_sessions` or any former outcome table.
+4. Bind the browser handoff only to the extension's declared grant metadata.
+   It is not provider-session custody or provider acceptance. Compare one
+   bounded pass only; failure means hold and escalate, not another pairing.
+   Do not deploy, restart, edit secrets, reset budgets, issue manual queries, or
+   start an extra capture between pairing and review.
+5. Record snapshot/baseline/pairing/capture UTC instants, status/rate/readiness
+   context, grant metadata, image/deploy-history identifiers,
    and unchanged API/worker pod start times spanning push to success. Paste a
    sanitized ops-check comment on #8456 separately for staging and production;
    include no cookies, grants, headers, account facts, raw payloads, or screenshots

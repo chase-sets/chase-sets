@@ -8,7 +8,7 @@ import {
 import { ProviderAdapterRegistry } from "../provider-adapters/registry";
 
 describe("Pokemon sealed-product integration", () => {
-  it("offers the TCGplayer sealed unit as an eligible Pokemon expansion participant", async () => {
+  it("blocks the TCGplayer sealed unit when server-side transport is unavailable", async () => {
     const profileVersion = catalogProviderIntegrationProfileVersions.find(
       (candidate) => candidate.providerKey === "tcgplayer" && candidate.profileKey === "pokemon-sealed-product-sku",
     );
@@ -48,23 +48,18 @@ describe("Pokemon sealed-product integration", () => {
       ]),
     });
 
-    expect(preview.status).toBe("ready");
-    expect(preview.startAllowed).toBe(true);
+    expect(preview.status).toBe("blocked");
+    expect(preview.startAllowed).toBe(false);
     expect(preview.units).toEqual([
       expect.objectContaining({
         providerKey: "tcgplayer",
         unitKey: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
         profileKey: "pokemon-sealed-product-sku",
         role: "primary-source-observation",
-        eligibility: "eligible",
+        eligibility: "ineligible",
         selected: true,
-        childExecutionScope: expect.objectContaining({
-          provider: "tcgplayer",
-          ingestionUnitKey: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-          productLineId: "3",
-          setName: "Scarlet & Violet",
-        }),
-        blockers: [],
+        childExecutionScope: null,
+        blockers: [expect.objectContaining({ code: "provider-transport-unavailable" })],
       }),
     ]);
   });

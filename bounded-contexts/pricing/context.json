@@ -393,16 +393,6 @@
       "portName": "channelConnectionIdentityReader",
       "providedBy": "channels",
       "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
-    },
-    {
-      "portName": "tcgplayerMarketTransport",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Supply Pricing's concrete TCGplayer price-point and market-evidence transport; non-worker hosts mount not-mounted."
-    },
-    {
-      "portName": "tcgplayerMarketCaptureReceiptSink",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Retain privacy-safe TCGplayer market-capture receipts whose field summaries are captured before decoding; non-worker hosts mount not-mounted."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -522,8 +512,10 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/compute",
+        "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/compare",
         "route-action:bounded-contexts/pricing/support/route-support/pricing-health.tsx",
-        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:H52c9743ac335#1"
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:H52c9743ac335#1",
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#1"
       ],
       "visibleDestination": {
         "description": "Compute verdict returns the persisted dry-run snapshot and redirects to direct durable request/summary reads; queued work is visibly pending and revalidated without waiting for an event projection."
@@ -967,7 +959,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["repricing-policies"],
+      "expectedConsumers": ["pricing-health", "repricing-policies"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {

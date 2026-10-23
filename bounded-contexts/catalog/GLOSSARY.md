@@ -442,6 +442,8 @@ Catalog does not define:
 
 Catalog sync decision vocabulary:
 
+- `scrydex-option-refresh/v1` is the bounded hosted staging receipt for exactly five Scrydex `sets` option-cache force reads. A complete receipt proves five live/bypass responses; refused or stopped runs are diagnostic only and never imply zero spend.
+
 - `split` means one provider-sourced candidate should become more than one Catalog candidate.
 - `update` means an approved candidate refreshes existing Catalog Item/Product facts through Catalog commands.
 - `delete` means a candidate is rejected, ignored, or withdrawn from the merged candidate set. It is not canonical Catalog Item/Product removal.

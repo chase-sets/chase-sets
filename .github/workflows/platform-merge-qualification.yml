@@ -1,0 +1,308 @@
+name: Platform Merge Qualification Advisory
+run-name: Merge Qualification producer ${{ inputs.producer_run_id }}-${{ inputs.producer_run_attempt }}
+
+# Separately dispatched advisory evaluation. Only the enabled Platform PR
+# merge-group producer dispatches it, so each producer attempt starts at most
+# one advisory attempt and a disabled policy starts none. Qualification
+# outcomes can make this advisory run red, but can never change the completed
+# Platform PR run or its required rollup. The checked-in policy remains
+# default-off; #5881 owns any later operator activation.
+on:
+  workflow_dispatch:
+    inputs:
+      producer_run_id:
+        required: true
+        type: string
+      producer_run_attempt:
+        required: true
+        type: string
+      candidate_sha:
+        required: true
+        type: string
+      candidate_tree:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: platform-merge-qualification-${{ inputs.producer_run_id }}-${{ inputs.producer_run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Merge Qualification Plan
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      enabled: ${{ steps.decision.outputs.enabled }}
+      route: ${{ steps.decision.outputs.route }}
+      candidate_sha: ${{ steps.decision.outputs.candidate_sha }}
+      candidate_tree: ${{ steps.decision.outputs.candidate_tree }}
+      built_image_digest: ${{ steps.decision.outputs.built_image_digest }}
+      classifier_class: ${{ steps.decision.outputs.classifier_class }}
+      classifier_reason_codes: ${{ steps.decision.outputs.classifier_reason_codes }}
+      started_at: ${{ steps.decision.outputs.started_at }}
+      workflow_id: ${{ steps.decision.outputs.workflow_id }}
+      workflow_path: ${{ steps.decision.outputs.workflow_path }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Read original attempt authority
+        id: self
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          own_json="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
+          if [ "$(jq -r '.repository.full_name' <<<"$own_json")" != "${{ github.repository }}" ] || \
+             [ "$(jq -r '.path' <<<"$own_json")" != ".github/workflows/platform-merge-qualification.yml" ] || \
+             [ "$(jq -r '.run_attempt' <<<"$own_json")" != "${{ github.run_attempt }}" ] || \
+             [ "$(jq -r '.head_sha' <<<"$own_json")" != "${{ github.workflow_sha }}" ]; then
+            echo "Original advisory attempt authority is unavailable." >&2
+            exit 1
+          fi
+          {
+            echo "workflow_id=$(jq -r '.workflow_id' <<<"$own_json")"
+            echo "workflow_path=$(jq -r '.path' <<<"$own_json")"
+            echo "started_at=$(jq -r '.run_started_at' <<<"$own_json")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate original run-attempt policy decision
+        id: policy
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification.mjs policy \
+            --policy scripts/merge-qualification-policy.json \
+            --now "${{ steps.self.outputs.started_at }}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Inspect exact parent run and candidate artifact
+        id: parent
+        if: steps.policy.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.producer_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.producer_run_attempt }}
+          DISPATCH_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/merge-qualification
+          parent_json="$(gh api "repos/${{ github.repository }}/actions/runs/${PARENT_RUN_ID}")"
+          if [ "$(printf '%s' "$parent_json" | jq -r '.repository.full_name')" != "${{ github.repository }}" ] || \
+             [ "$(printf '%s' "$parent_json" | jq -r '.path')" != ".github/workflows/platform-pr.yml" ] || \
+             [ "$(printf '%s' "$parent_json" | jq -r '.id')" != "$PARENT_RUN_ID" ] || \
+             [ "$(printf '%s' "$parent_json" | jq -r '.run_attempt')" != "$PARENT_RUN_ATTEMPT" ] || \
+             [ "$(printf '%s' "$parent_json" | jq -r '.event')" != "merge_group" ]; then
+            echo "Parent workflow repository/path/run/attempt/event binding failed." >&2
+            exit 1
+          fi
+          if [ "$(jq -r '.head_sha' <<<"$parent_json")" != "$DISPATCH_CANDIDATE_SHA" ]; then
+            echo "Dispatch candidate SHA does not match the producer run." >&2
+            exit 1
+          fi
+          printf '%s\n' "$parent_json" > artifacts/merge-qualification/parent-run.json
+          gh api --paginate --slurp \
+            "repos/${{ github.repository }}/actions/runs/${PARENT_RUN_ID}/artifacts?per_page=100" \
+            | jq '{total_count: .[0].total_count, artifacts: [.[].artifacts[]]}' \
+            > artifacts/merge-qualification/parent-artifacts.json
+          total="$(jq -r '.total_count' artifacts/merge-qualification/parent-artifacts.json)"
+          observed="$(jq -r '.artifacts | length' artifacts/merge-qualification/parent-artifacts.json)"
+          if [ "$total" != "$observed" ]; then
+            echo "Parent artifact pagination returned ${observed}/${total} artifacts." >&2
+            exit 1
+          fi
+          artifact_name="merge-qualification-candidate-${PARENT_RUN_ID}-${PARENT_RUN_ATTEMPT}"
+          if jq -e --arg name "$artifact_name" '.artifacts[] | select(.name == $name and .expired == false)' \
+            artifacts/merge-qualification/parent-artifacts.json >/dev/null; then
+            gh run download "$PARENT_RUN_ID" --name "$artifact_name" --dir artifacts/merge-qualification/candidate
+            {
+              echo "candidate_record=artifacts/merge-qualification/candidate/candidate.json"
+              echo "candidate_sha=$(jq -r '.candidateSha' artifacts/merge-qualification/candidate/candidate.json)"
+              echo "candidate_tree=$(jq -r '.candidateTreeSha' artifacts/merge-qualification/candidate/candidate.json)"
+              echo "built_image_digest=$(jq -r '.builtImageDigest' artifacts/merge-qualification/candidate/candidate.json)"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "candidate_record="
+              echo "candidate_sha="
+              echo "candidate_tree="
+              echo "built_image_digest="
+            } >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "parent_workflow_id=$(printf '%s' "$parent_json" | jq -r '.workflow_id')"
+            echo "parent_workflow_path=$(printf '%s' "$parent_json" | jq -r '.path')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Classify enabled candidate
+        if: steps.policy.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          if [ -z "${{ steps.parent.outputs.candidate_sha }}" ]; then
+            echo "Enabled qualification requires exact upstream candidate evidence." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "${{ steps.parent.outputs.candidate_sha }}"
+          node ./scripts/release-qualification-scope.mjs classify \
+            --candidate "${{ steps.parent.outputs.candidate_sha }}" \
+            --out artifacts/merge-qualification/scope.json
+
+      - name: Upload original classifier observation
+        if: steps.policy.outputs.enabled == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-scope-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification/scope.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Resolve enabled route
+        id: route
+        if: steps.policy.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          node ./scripts/merge-qualification.mjs route \
+            --classifier-record artifacts/merge-qualification/scope.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Persist original run-attempt decision
+        id: decision
+        if: always() && steps.policy.outputs.enabled == 'true' && steps.parent.outcome == 'success'
+        env:
+          CANDIDATE_RECORD: ${{ steps.parent.outputs.candidate_record }}
+          PARENT_RUN_ID: ${{ inputs.producer_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.producer_run_attempt }}
+        run: |
+          set -euo pipefail
+          candidate_args=()
+          if [ -n "$CANDIDATE_RECORD" ]; then
+            candidate_args=(--candidate-record "$CANDIDATE_RECORD")
+          fi
+          node ./scripts/merge-qualification.mjs decision \
+            --repository "${{ github.repository }}" \
+            --workflow-id "${{ steps.self.outputs.workflow_id }}" \
+            --workflow-path "${{ steps.self.outputs.workflow_path }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --parent-workflow-id "${{ steps.parent.outputs.parent_workflow_id }}" \
+            --parent-workflow-path "${{ steps.parent.outputs.parent_workflow_path }}" \
+            --parent-run-id "$PARENT_RUN_ID" \
+            --parent-run-attempt "$PARENT_RUN_ATTEMPT" \
+            --policy-enabled "${{ steps.policy.outputs.enabled }}" \
+            --policy-revision "${{ github.workflow_sha }}" \
+            --observed-at "${{ steps.self.outputs.started_at }}" \
+            --policy-reason-code "${{ steps.policy.outputs.reason_code }}" \
+            --classifier-class "${{ steps.route.outputs.classifier_class }}" \
+            --classifier-reason-codes "${{ steps.route.outputs.classifier_reason_codes }}" \
+            "${candidate_args[@]}" \
+            --out artifacts/merge-qualification/decision.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload original run-attempt decision
+        if: always() && steps.policy.outputs.enabled == 'true' && steps.decision.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-decision-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification/decision.json
+          if-no-files-found: error
+          retention-days: 30
+
+  gate:
+    name: Merge Qualification Gate
+    needs: plan
+    if: >
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.enabled == 'true' &&
+      needs.plan.outputs.route == 'isolated' &&
+      needs.plan.outputs.built_image_digest != ''
+    uses: ./.github/workflows/platform-merge-gate-verification.yml
+    with:
+      candidate_ref: ${{ needs.plan.outputs.candidate_sha }}
+      image_digest: ${{ needs.plan.outputs.built_image_digest }}
+      qualification_parent_run_id: ${{ inputs.producer_run_id }}
+      qualification_parent_run_attempt: ${{ inputs.producer_run_attempt }}
+
+  publish:
+    name: Merge Qualification (advisory)
+    if: always() && needs.plan.outputs.enabled == 'true'
+    needs: [plan, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Download original run-attempt decision
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: merge-qualification-decision-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification
+
+      - name: Download durable namespace creation observation
+        if: needs.gate.outputs.provisioned == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: merge-gate-provisioning-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification/provisioning
+
+      - name: Record advisory observation
+        id: publish
+        env:
+          GATE_RESULT: ${{ needs.gate.result }}
+          GATE_IMAGE_DIGEST: ${{ needs.gate.outputs.image_digest }}
+          GATE_CANDIDATE_SHA: ${{ needs.gate.outputs.candidate_sha }}
+          GATE_CANDIDATE_TREE: ${{ needs.gate.outputs.candidate_tree_sha }}
+          GATE_HEADROOM_RUNS: ${{ needs.gate.outputs.headroom_runs }}
+        run: |
+          set -euo pipefail
+          provisioning_args=()
+          if [ "${{ needs.gate.outputs.provisioned }}" = "true" ]; then
+            provisioning_args=(--provisioning-observation artifacts/merge-qualification/provisioning/provisioning-observation.json)
+          fi
+          node ./scripts/merge-qualification.mjs observe \
+            --decision artifacts/merge-qualification/decision.json \
+            --plan-result "${{ needs.plan.result }}" \
+            --classifier-class "${{ needs.plan.outputs.classifier_class }}" \
+            --classifier-reason-codes "${{ needs.plan.outputs.classifier_reason_codes }}" \
+            --gate-result "$GATE_RESULT" \
+            --image-result "${{ needs.plan.outputs.built_image_digest != '' && 'success' || 'failure' }}" \
+            --image-available "${{ needs.plan.outputs.built_image_digest != '' }}" \
+            --candidate-sha "${{ needs.plan.outputs.candidate_sha }}" \
+            --candidate-tree "${{ needs.plan.outputs.candidate_tree }}" \
+            --built-image-digest "${{ needs.plan.outputs.built_image_digest }}" \
+            --gate-image-digest "$GATE_IMAGE_DIGEST" \
+            --gate-candidate-sha "$GATE_CANDIDATE_SHA" \
+            --gate-candidate-tree "$GATE_CANDIDATE_TREE" \
+            --provider-headroom-runs "$GATE_HEADROOM_RUNS" \
+            --started-at "${{ needs.plan.outputs.started_at }}" \
+            --workflow-id "${{ needs.plan.outputs.workflow_id }}" \
+            --workflow-path "${{ needs.plan.outputs.workflow_path }}" \
+            "${provisioning_args[@]}" \
+            --out artifacts/merge-qualification/observation.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload merge qualification advisory observation
+        if: steps.publish.outputs.record_written == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification/observation.json
+          if-no-files-found: error
+          retention-days: 30

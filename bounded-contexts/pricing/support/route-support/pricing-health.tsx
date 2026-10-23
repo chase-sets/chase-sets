@@ -32,6 +32,11 @@ export const action = defineFormAction({
       await createPricingRequestApiClient(request).computePricingHealth(policyId);
       return redirect(`${PRICING_HEALTH_HREF}?${new URLSearchParams({ policyId })}`);
     },
+    compare: async ({ request, formData }) => {
+      const policyId = String(formData.get("policyId") ?? "");
+      await createPricingRequestApiClient(request).comparePricingHealth(policyId);
+      return redirect(`${PRICING_HEALTH_HREF}?${new URLSearchParams({ policyId })}`);
+    },
   },
   onUnknownIntent: () => ({ error: copy("computeError") }),
   onError: (error) => {
@@ -84,6 +89,17 @@ export default function PricingHealthRoute() {
               loading={navigation.state === "submitting"}
             >
               {copy("compute")}
+            </Button>
+          </RouterForm>
+        ) : null
+      }
+      compareAction={
+        data?.target && data.branch === "comparison" && data.canCompute ? (
+          <RouterForm method="post">
+            <input type="hidden" name="intent" value="compare" />
+            <input type="hidden" name="policyId" value={data.target.policyId} />
+            <Button type="submit" disabled={navigation.state !== "idle"} loading={navigation.state === "submitting"}>
+              {copy("goals.compare")}
             </Button>
           </RouterForm>
         ) : null

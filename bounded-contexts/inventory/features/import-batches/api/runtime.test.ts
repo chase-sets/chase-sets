@@ -19,6 +19,7 @@ import { inventoryImportBatchSchemaSql, inventoryImportBatchSchemaMigrations } f
 import { inventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
 import { readFileSync } from "node:fs";
 import { prepareInventoryImportSnapshot } from "./safe-snapshot";
+import { contractInventoryImportSources } from "./source-migration";
 
 type StoredBatch = Readonly<{
   batch_id: string;
@@ -28,7 +29,6 @@ type StoredBatch = Readonly<{
   adapter_version: number;
   quantity_mode: "add" | "replace";
   default_storage_location_id: string | null;
-  source_filename: string | null;
   total_count: number;
   accepted_count: number;
   rejected_count: number;
@@ -266,7 +266,6 @@ class ImportBatchDb implements PgQueryable {
         adapter_version: Number(values[3]),
         quantity_mode: values[4] as StoredBatch["quantity_mode"],
         default_storage_location_id: typeof values[5] === "string" ? values[5] : null,
-        source_filename: typeof values[6] === "string" ? values[6] : null,
         total_count: 0,
         accepted_count: 0,
         rejected_count: 0,
@@ -438,7 +437,6 @@ class ImportBatchDb implements PgQueryable {
 
 function catalogServices(): InventoryCatalogItemServices {
   return {
-    searchCatalogItems: async () => ({ items: [], total: 0 }),
     getExternalProductReference: async (providerKey, externalKey) => {
       if (
         (providerKey === "tcgplayer" && externalKey === "sku:tcg_sku_1") ||
@@ -610,7 +608,6 @@ function runtime(
         adapter_version: snapshot.header.adapterVersion,
         quantity_mode: snapshot.header.quantityMode,
         default_storage_location_id: snapshot.header.defaultStorageLocationId,
-        source_filename: null,
         total_count: rows.length,
         accepted_count: rows.filter((row) => row.status === "accepted").length,
         rejected_count: rows.filter((row) => row.status === "rejected").length,
@@ -991,6 +988,56 @@ describe("inventory import batch runtime", () => {
     expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS committed_listing_id text NULL");
     expect(inventoryImportBatchSchemaSql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_account_sku_mappings");
     expect(inventoryImportBatchSchemaSql).toContain("inventory_import_account_sku_mappings_lookup_idx");
+  });
+
+  it("drops the raw-source columns only in the ledgered contraction after the safe-snapshot readers", () => {
+    const migrationIds = inventoryImportBatchSchemaMigrations.map(({ migrationId }) => migrationId);
+    const contraction =
+      inventoryImportBatchSchemaMigrations[migrationIds.indexOf("20261016_inventory_import_safe_snapshots") + 1];
+    expect(contraction?.migrationId).toBe("20261020_inventory_import_raw_source_contraction");
+    expect(contraction?.dataStep).toBe(contractInventoryImportSources);
+    expect(contraction?.statements.map((sql) => sql.replace(/\s+/g, " ").trim())).toEqual([
+      "SET LOCAL lock_timeout = '5s'",
+      "ALTER TABLE inventory_import_batch_job_inputs DROP COLUMN IF EXISTS csv_text, DROP COLUMN IF EXISTS parsed_rows, DROP COLUMN IF EXISTS source_filename",
+      "ALTER TABLE inventory_import_batches DROP COLUMN IF EXISTS source_filename",
+    ]);
+    for (const migration of inventoryImportBatchSchemaMigrations.filter((candidate) => candidate !== contraction))
+      expect(migration.statements.join("\n")).not.toMatch(/\b(?:csv_text|parsed_rows|source_filename)\b/);
+  });
+
+  it("names a dropped raw-source column in no runtime SQL", () => {
+    for (const file of [
+      "./runtime.ts",
+      "./source-migration.ts",
+      "../read-model/queries.ts",
+      "../read-model/seller-attention-source.ts",
+    ]) {
+      const literals = readFileSync(new URL(file, import.meta.url), "utf8").match(/`[^`]*`|"(?:[^"\\\n]|\\.)*"/g) ?? [];
+      expect(
+        literals.filter(
+          (text) =>
+            /\b(?:SELECT|INSERT|UPDATE|DELETE|ALTER)\b/.test(text) &&
+            /\b(?:csv_text|parsed_rows|source_filename)\b/.test(text),
+        ),
+        file,
+      ).toEqual([]);
+    }
+  });
+
+  it("never contracts import sources from a worker poll", async () => {
+    const statements: string[] = [];
+    const query = (async (sql: string) => {
+      statements.push(sql);
+      return { rows: [], rowCount: 0 };
+    }) as PgQueryable["query"];
+    const services = runtime({ query, connect: async () => ({ query, release: () => undefined }) } as never);
+
+    expect(await services.processNextImportBatchJob({ claimOwnerId: "poll-synthetic", claimTtlMs: 30_000 })).toBe(0);
+
+    expect(statements.length).toBeGreaterThan(0);
+    expect(
+      statements.filter((sql) => /inventory-import-source-cutover|information_schema|\bLOCK\s+TABLE\b/i.test(sql)),
+    ).toEqual([]);
   });
 
   it("only defers parent job reconciliation while create work-unit capacity is exhausted", () => {

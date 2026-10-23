@@ -6,10 +6,8 @@ import {
   type NotificationChannelAdapter,
   type NotificationPreferenceResolver,
 } from "@chase-sets/outbound-messaging";
-import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
-  createObjectStorageTcgplayerMarketCaptureReceiptSink,
   createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
@@ -246,20 +244,6 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
-  pool: pools.catalog,
-  config: config.tcgplayerAutomation,
-  keyring: config.catalogOperatorSessionKeyring,
-});
-const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
-const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(
-  {
-    pool: pools.catalog,
-    config: config.tcgplayerAutomation,
-    keyring: config.catalogOperatorSessionKeyring,
-  },
-  { ownership: "pricing-non-window" },
-)?.httpClients;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
@@ -276,8 +260,6 @@ const commercialTermsResolver = pools["commercial-terms"]
   : undefined;
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
-      tcgplayerMarketTransport: pricingTcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
-      tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
       channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
         const services = runtime?.services.channels;
@@ -337,7 +319,6 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       postageLabelProvider,
       addressVerificationProvider: postageLabelProvider,
       catalogAssetStorage,
-      ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
       ...(pricingHostPorts ?? {}),
       sourceObservationTelemetry,
       evidenceWindowCorrelation,

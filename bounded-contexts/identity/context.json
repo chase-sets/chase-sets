@@ -44,7 +44,7 @@
     "ui-support"
   ],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
+  "allowedContextDependencies": [],
   "seedRequirements": [],
   "eventReactions": [
     {
@@ -320,6 +320,42 @@
       {
         "name": "identity.get-account",
         "ownerSlice": "accounts"
+      },
+      {
+        "name": "identity.add-user-contact-method",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.disable-user-auth-method",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.enable-user-auth-method",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.get-user-account-link",
+        "ownerSlice": "access-hub"
+      },
+      {
+        "name": "identity.list-users",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.reactivate-user",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.suspend-user",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.update-user-profile",
+        "ownerSlice": "users"
+      },
+      {
+        "name": "identity.verify-user-contact-method",
+        "ownerSlice": "users"
       }
     ],
     "resources": [
@@ -1616,8 +1652,19 @@
     "invitations-detail": { "pending": "#9238" },
     "memberships": { "pending": "#9238" },
     "memberships-detail": { "pending": "#9238" },
-    "users": { "pending": "#9238" },
-    "users-detail": { "pending": "#9238" }
+    "users": { "tools": ["identity.list-users"] },
+    "users-detail": {
+      "tools": [
+        "identity.get-user-account-link",
+        "identity.update-user-profile",
+        "identity.suspend-user",
+        "identity.reactivate-user",
+        "identity.add-user-contact-method",
+        "identity.verify-user-contact-method",
+        "identity.enable-user-auth-method",
+        "identity.disable-user-auth-method"
+      ]
+    }
   },
   "deployableContributions": [
     {
