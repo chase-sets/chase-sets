@@ -19,7 +19,7 @@ const writeJson = (file, value) => writeFileSync(file, JSON.stringify(value, nul
 const git = (args) =>
   execFileSync("git", args, {
     encoding: "utf8",
-    ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   }).trim();
 const required = (value, name) => {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required.`);
