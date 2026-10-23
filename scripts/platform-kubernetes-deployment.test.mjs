@@ -968,7 +968,8 @@ describe("platform Kubernetes deployment", () => {
     );
   });
 
-  it("loads the environment-specific Helm overlays for staging and production", () => {
+  it("loads the environment-specific Helm overlays for preview, staging and production", () => {
+    expect(platformValuesPathForEnvironment("preview")).toBe("infrastructure/helm/platform/values.preview.yaml");
     expect(platformValuesPathForEnvironment("staging")).toBe("infrastructure/helm/platform/values.staging.yaml");
     expect(platformValuesPathForEnvironment("production")).toBe("infrastructure/helm/platform/values.production.yaml");
     expect(
@@ -2021,12 +2022,14 @@ describe("platform Kubernetes deployment", () => {
         const request = new URL(url);
         let body;
         if (request.pathname.endsWith("/actions/runs")) {
-          const workflow_runs = [current, successor].filter(
+          const workflow_runs = (overrides.omitCurrent ? [successor] : [current, successor]).filter(
             (run) =>
               (run === successor ? (overrides.listStatus ?? run.status) : run.status) ===
               request.searchParams.get("status"),
           );
           body = overrides.runsBody ?? { total_count: workflow_runs.length, workflow_runs };
+        } else if (request.pathname === `/repos/synthetic/repository/actions/runs/${current.id}`) {
+          body = current;
         } else if (request.pathname.includes("/contents/")) {
           if (overrides.sourceFailure) return { ok: false, status: 403 };
           const path = request.pathname.split("/contents/")[1];
@@ -2057,6 +2060,8 @@ describe("platform Kubernetes deployment", () => {
           GITHUB_TOKEN: "synthetic-token",
           GITHUB_REPOSITORY: "synthetic/repository",
           GITHUB_RUN_ID: String(current.id),
+          GITHUB_RUN_ATTEMPT: String(current.run_attempt),
+          GITHUB_WORKFLOW: current.name,
           GITHUB_API_URL: "https://api.example.invalid",
         },
       });
@@ -2093,6 +2098,17 @@ describe("platform Kubernetes deployment", () => {
         current: { name: "Platform Production Stale Helm Recovery", path: recoveryPath },
       });
       expect(assertExclusiveProductionHelmWriter(census, { currentRunId: "91001" }).id).toBe(91001);
+    });
+
+    it("preserves concurrency-queued successor classification when the current rerun is absent from lists", async () => {
+      const { census } = await collect({
+        omitCurrent: true,
+        current: { run_attempt: 2 },
+        successor: { run_attempt: 1 },
+      });
+      expect(census.runs.map(({ id }) => id)).toEqual([91001, 91002]);
+      expect(census.concurrencyQueuedRuns.map(({ id }) => id)).toEqual([91002]);
+      expect(() => assertExclusiveMarkerWriter(census, "91001")).not.toThrow();
     });
 
     it.each([
@@ -2271,7 +2287,11 @@ describe("platform Kubernetes deployment", () => {
           Object.entries(parseYaml(source).jobs)
             .filter(([, job]) => !Object.hasOwn(job, "needs"))
             .map(([id]) => id);
-        expect(withoutNeeds(deploySource)).toEqual(["decommission-live-plan", "resolve-release"]);
+        expect(withoutNeeds(deploySource)).toEqual([
+          "decommission-live-plan",
+          "resolve-release",
+          "reconcile-production-marker",
+        ]);
         expect(withoutNeeds(recoverySource)).toEqual(["refuse-unconfirmed"]);
         await expectDriftControlAdmitted();
         const result = await collect({ current: recovery, source: revise(recoveryDocument, driftRecovery) });
@@ -2453,6 +2473,155 @@ describe("platform Kubernetes deployment", () => {
           );
         },
       );
+    });
+  });
+
+  describe("current rerun production writer census", () => {
+    // Synthetic identities, not retained production authority.
+    const current = {
+      id: 98301,
+      name: "Platform Deploy",
+      workflow_id: 983,
+      path: ".github/workflows/platform-production.yml",
+      status: "in_progress",
+      event: "workflow_dispatch",
+      head_sha: "a".repeat(40),
+      head_branch: "main",
+      run_attempt: 2,
+    };
+    const env = {
+      GITHUB_TOKEN: "synthetic-token",
+      GITHUB_REPOSITORY: "synthetic/repository",
+      GITHUB_RUN_ID: String(current.id),
+      GITHUB_RUN_ATTEMPT: "2",
+      GITHUB_WORKFLOW: current.name,
+      GITHUB_API_URL: "https://api.example.invalid",
+    };
+
+    async function collect({ listed = [], direct = current, httpStatus = 200, environment = {} } = {}) {
+      const fetch = vi.fn(async (url) => {
+        const request = new URL(url);
+        if (request.pathname.endsWith("/actions/runs")) {
+          const workflow_runs = listed.filter((run) => run.status === request.searchParams.get("status"));
+          return { ok: true, json: async () => ({ total_count: workflow_runs.length, workflow_runs }) };
+        }
+        expect(request.pathname).toBe(`/repos/synthetic/repository/actions/runs/${current.id}`);
+        return { ok: httpStatus === 200, status: httpStatus, json: async () => direct };
+      });
+      const sleep = vi.fn(async () => {});
+      const census = await readGitHubProductionWriterCensus({ fetch, sleep, env: { ...env, ...environment } });
+      return { census, fetch, sleep };
+    }
+
+    it("current rerun absent from status lists is admitted from direct GET", async () => {
+      const { census, fetch, sleep } = await collect();
+      expect(census.runs).toEqual([
+        expect.objectContaining({ id: current.id, workflowId: 983, runAttempt: 2, headSha: current.head_sha }),
+      ]);
+      expect(census.writerRuns).toEqual(census.runs);
+      expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).not.toThrow();
+      expect(fetch.mock.calls.map(([url]) => new URL(url).search)).toEqual([
+        "?status=requested&per_page=100&page=1",
+        "?status=pending&per_page=100&page=1",
+        "?status=queued&per_page=100&page=1",
+        "?status=in_progress&per_page=100&page=1",
+        "?status=waiting&per_page=100&page=1",
+        "",
+      ]);
+      expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it.each(["Platform Deploy", "Platform Production Stale Helm Recovery"])(
+      "direct-GET fallback preserves a listed conflicting writer (%s)",
+      async (name) => {
+        const conflicting = { ...current, id: current.id - 1, name };
+        const { census } = await collect({ listed: [conflicting] });
+        expect(census.runs.map(({ id }) => id)).toEqual([conflicting.id, current.id]);
+        expect(census.writerRuns).toEqual(census.runs);
+        expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).toThrow(
+          "active or conflicting production writer",
+        );
+      },
+    );
+
+    it("does not direct-GET or duplicate the current run already in the stable lists", async () => {
+      const { census, fetch } = await collect({ listed: [current], direct: null });
+      expect(census.runs).toHaveLength(1);
+      expect(fetch).toHaveBeenCalledTimes(5);
+      expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).not.toThrow();
+    });
+
+    it("admits the matching stale Helm recovery workflow without granting marker authority", async () => {
+      const name = "Platform Production Stale Helm Recovery";
+      const { census } = await collect({
+        direct: { ...current, name, path: ".github/workflows/platform-production-stale-helm-recovery.yml" },
+        environment: { GITHUB_WORKFLOW: name },
+      });
+      expect(assertExclusiveProductionHelmWriter(census, { currentRunId: env.GITHUB_RUN_ID }).id).toBe(current.id);
+      expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).toThrow(
+        "active or conflicting production writer",
+      );
+    });
+
+    it.each([
+      ["null", null],
+      ["an array", []],
+      ["missing identity", {}],
+      ["a string ID", { ...current, id: String(current.id) }],
+      ["a mismatched ID", { ...current, id: current.id + 1 }],
+      ["a mismatched name", { ...current, name: "Synthetic CI" }],
+      ["a mismatched path", { ...current, path: ".github/workflows/synthetic.yml" }],
+      [
+        "another writer workflow",
+        {
+          ...current,
+          name: "Platform Production Stale Helm Recovery",
+          path: ".github/workflows/platform-production-stale-helm-recovery.yml",
+        },
+      ],
+      ["a wrong event", { ...current, event: "push" }],
+      ["a wrong branch", { ...current, head_branch: "synthetic" }],
+      ["a malformed SHA", { ...current, head_sha: "stale" }],
+      ["a non-string SHA", { ...current, head_sha: ["a".repeat(40)] }],
+      ["a missing SHA", { ...current, head_sha: undefined }],
+      ["a zero workflow ID", { ...current, workflow_id: 0 }],
+      ["a string workflow ID", { ...current, workflow_id: "983" }],
+      ["an unsafe workflow ID", { ...current, workflow_id: Number.MAX_SAFE_INTEGER + 1 }],
+      ["a missing workflow ID", { ...current, workflow_id: undefined }],
+      ["a zero attempt", { ...current, run_attempt: 0 }],
+      ["a string attempt", { ...current, run_attempt: "2" }],
+      ["a stale attempt", { ...current, run_attempt: 1 }],
+      ["a newer attempt", { ...current, run_attempt: 3 }],
+      ["a missing attempt", { ...current, run_attempt: undefined }],
+      ["a terminal run", { ...current, status: "completed" }],
+      ["a missing status", { ...current, status: undefined }],
+      ["an unknown status", { ...current, status: "synthetic" }],
+    ])("refuses a direct GET with %s", async (_label, direct) => {
+      await expect(collect({ direct })).rejects.toThrow("current run census returned an unverified run identity");
+    });
+
+    it.each(["requested", "pending", "queued", "waiting"])(
+      "retains an active %s current run without fabricating an in-progress marker writer",
+      async (status) => {
+        const { census } = await collect({ direct: { ...current, status } });
+        expect(census.writerRuns).toEqual([expect.objectContaining({ id: current.id, status })]);
+        expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).toThrow(
+          "active or conflicting production writer",
+        );
+      },
+    );
+
+    it.each([
+      { GITHUB_RUN_ATTEMPT: undefined },
+      { GITHUB_RUN_ATTEMPT: "0" },
+      { GITHUB_WORKFLOW: undefined },
+      { GITHUB_WORKFLOW: "Synthetic CI" },
+    ])("refuses absent or invalid execution identity %j", async (environment) => {
+      await expect(collect({ environment })).rejects.toThrow("current run census returned an unverified run identity");
+    });
+
+    it("fails closed when the direct GET is unavailable", async () => {
+      await expect(collect({ httpStatus: 503 })).rejects.toThrow("current run census failed with HTTP 503");
     });
   });
 
@@ -6026,6 +6195,83 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
         "-c",
         `superuser_reserved_connections=${settings.superuser_reserved_connections}`,
       ]);
+    }
+  });
+
+  it("reserves memory and requires single-node, cross-namespace release isolation for PR, gate and verify", () => {
+    const memoryByComponent = {
+      "public-web": "1024Mi",
+      marketplace: "1152Mi",
+      "admin-web": "832Mi",
+      "platform-api": "640Mi",
+      "platform-worker": "832Mi",
+      "platform-bootstrap": "1152Mi",
+      "preview-postgres": "448Mi",
+    };
+    for (const release of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
+      const args = deployArgs("preview", release);
+      expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.preview.yaml"]));
+      const pods = documents(helmTemplate(templateArgs(args))).filter((item) => item.spec?.template);
+      expect(pods).toHaveLength(7);
+      expect(pods.map((item) => item.metadata.labels["app.kubernetes.io/component"]).sort()).toEqual(
+        Object.keys(memoryByComponent).sort(),
+      );
+      for (const pod of pods) {
+        const component = pod.metadata.labels["app.kubernetes.io/component"];
+        const { spec, metadata } = pod.spec.template;
+        expect(spec.containers).toHaveLength(1);
+        expect(spec.containers[0].resources).toEqual({ requests: { memory: memoryByComponent[component] } });
+        const selector = (operator) => ({
+          matchExpressions: [
+            { key: "app.kubernetes.io/name", operator: "In", values: ["chase-sets-platform"] },
+            { key: "app.kubernetes.io/instance", operator, values: [release] },
+          ],
+        });
+        expect(spec.affinity).toEqual({
+          podAffinity: {
+            requiredDuringSchedulingIgnoredDuringExecution: [
+              { topologyKey: "kubernetes.io/hostname", labelSelector: selector("In") },
+            ],
+          },
+          podAntiAffinity: {
+            requiredDuringSchedulingIgnoredDuringExecution: [
+              { topologyKey: "kubernetes.io/hostname", namespaceSelector: {}, labelSelector: selector("NotIn") },
+            ],
+          },
+        });
+        for (const expression of selector("In").matchExpressions) {
+          expect(expression.values).toContain(metadata.labels[expression.key]);
+        }
+        if (component === "preview-postgres") {
+          expect(pod.kind).toBe("Deployment");
+          expect(pod.metadata.annotations["helm.sh/hook"]).toBe("pre-install,pre-upgrade");
+          expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-40");
+        } else if (component === "platform-bootstrap") {
+          expect(pod.kind).toBe("Job");
+          expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-20");
+          expect(pod.spec.activeDeadlineSeconds).toBe(890);
+        } else {
+          expect(pod.kind).toBe("Deployment");
+        }
+      }
+    }
+  });
+
+  it("refuses conflicting global affinity when preview stack isolation is enabled", () => {
+    expect(() =>
+      helmTemplate([
+        ...templateArgs(deployArgs("preview", "chase-sets-pr-123")),
+        "--set",
+        "global.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key=pool",
+      ]),
+    ).toThrow(/global.affinity cannot be set when global.previewStackIsolation is enabled/);
+  });
+
+  it("does not add pod affinity or anti-affinity to staging or production", () => {
+    for (const environment of ["staging", "production"]) {
+      const rendered = helmTemplate(templateArgs(deployArgs(environment, "chase-sets-platform")));
+      expect(rendered).not.toContain("podAffinity:");
+      expect(rendered).not.toContain("podAntiAffinity:");
     }
   });
 

@@ -24,7 +24,6 @@ on:
         options:
           - one-piece-launch
           - lorcana-launch
-          - tcgplayer-pokemon-targeted
           - all-provider-regression
           - staging-representative-catalog
           - pokemon-matrix
@@ -148,7 +147,7 @@ jobs:
             full-matrix-uat)
               journey_matrix='{"include":[{"journey_scope":"pokemon-matrix"},{"journey_scope":"mtg-matrix"},{"journey_scope":"yugioh-matrix"},{"journey_scope":"one-piece-matrix"},{"journey_scope":"lorcana-matrix"}]}'
               ;;
-            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe)
+            one-piece-launch|lorcana-launch|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)

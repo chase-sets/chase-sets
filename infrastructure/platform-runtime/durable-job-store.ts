@@ -661,6 +661,7 @@ export function createPostgresDurableJobStore<
          SET status = 'failed',
              progress = $3::jsonb,
              error_message = $4,
+             claim_owner_id = NULL,
              claimed_until = NULL,
              completed_at = now(),
              updated_at = now()

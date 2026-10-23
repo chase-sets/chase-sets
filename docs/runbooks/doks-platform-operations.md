@@ -22,6 +22,8 @@ Staging has a separate `runtime-xl` node pool for migrations that need more memo
 
 PR previews use the staging cluster's dedicated preview pool. Nodes carry the `chase-sets.com/preview-only=true:NoSchedule` taint, and preview workloads supply the matching toleration plus the `chase-sets.com/pool=preview` nodeSelector. The pool uses `min_nodes = 0`, so it scales to zero when no preview pods are pending. Staging runtime workloads must never tolerate the preview-only taint.
 
+The interim `values.preview.yaml` reserves memory only (no CPU requests or limits): public-web 1024Mi, marketplace 1152Mi, admin-web 832Mi, platform-api 640Mi, platform-worker 832Mi, preview-postgres 448Mi, and platform-bootstrap 1152Mi. Required same-release pod affinity and cross-namespace, other-release pod anti-affinity enforce one stack per node for PR, gate, and verify previews; `max_nodes = 3` gives a three-stack ceiling. The postgres Deployment hook (-40) stays running while the bootstrap Job hook (-20) executes: hook-phase requests total 1600Mi and steady-state requests total 4928Mi, both below 6002Mi usable per node. A fourth stack stays Pending: postgres does not block Helm, but the bootstrap Job fails on its `activeDeadlineSeconds: 890` inside the 15m Helm timeout, triggering atomic rollback (a Helm version that waits on postgres instead times out and rolls back). Required `IgnoredDuringExecution` terms do not evict running previews. The Pending postgres hook survives rollback and can take the next freed node until the next PR deploy resets its namespace or `platform-preview-cleanup.yml -f pr_number=<n>` destroys it. The advisory merge-gate preflight counts only scheduled pods' committed requests; two full steady-state stacks already leave less than its configured 10752Mi headroom, so it refuses, but it is not a required check. Older BestEffort previews remain first to be evicted until their next push. [#9963 Reserve each preview workload's measured memory so previews cannot evict each other](https://github.com/chase-sets/chase-sets/issues/9963) owns the measured-memory handover; limits remain deferred, and rollback for this interim is a revert.
+
 ### Idle Draft Retirement (#9964)
 
 Every live preview reserves pool memory until its namespace is deleted, so an idle draft preview holds a pool slot. `Platform Preview Cleanup` retires idle drafts; open non-draft previews are never retired because reviewers may use their URLs.
@@ -440,6 +442,7 @@ Cluster-scoped ingress-nginx, cert-manager, issuers, Argo Rollouts, and preview 
 
 ```bash
 node scripts/doks-cluster-addons.mjs --environment staging --dry-run
+gh workflow run platform-staging-cluster-addons.yml --ref main -f confirm="apply staging cluster addons" -f release_ref=<main-sha> -f preflight_only=true  # false runs the full staging plan
 kubectl --namespace ingress-nginx get service ingress-nginx-controller
 kubectl --namespace chase-sets-platform get ingress
 ```

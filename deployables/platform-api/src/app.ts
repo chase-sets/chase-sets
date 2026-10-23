@@ -671,8 +671,6 @@ export function createPlatformApiHost(
   };
   const pricingHostPorts: PricingHostPorts | undefined = pricingPool
     ? {
-        tcgplayerMarketTransport: { kind: "not-mounted" },
-        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
         channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
           const services = runtime?.services.channels;

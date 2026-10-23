@@ -43,8 +43,6 @@
     "bounded-contexts/catalog/features/fields/read-model/queries.ts",
     "bounded-contexts/catalog/features/operator-session/api/grants.ts",
     "bounded-contexts/catalog/features/operator-session/api/operation.ts",
-    "bounded-contexts/catalog/features/operator-session/api/outcomes.ts",
-    "bounded-contexts/catalog/features/operator-session/api/store.ts",
     "bounded-contexts/catalog/features/product-contents/api/runtime.ts",
     "bounded-contexts/catalog/features/product-contents/api/seed.ts",
     "bounded-contexts/catalog/features/product-contents/read-model/queries.ts",
@@ -79,7 +77,6 @@
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-ledger.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-runtime.ts",
-    "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
     "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.ts",
     "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts",
     "bounded-contexts/catalog/features/source-observations/api/seeding/synthetic-display-identity-queryable.ts",
@@ -526,7 +523,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 299,
+    "count": 294,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -540,9 +537,10 @@
       "bounded-contexts/catalog/features/dimensions/api/route.ts": 1,
       "bounded-contexts/catalog/features/display-templates/api/route.ts": 1,
       "bounded-contexts/catalog/features/fields/api/route.ts": 1,
-      "bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts": 7,
-      "bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts": 2,
+      "bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts": 2,
+      "bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts": 1,
       "bounded-contexts/catalog/features/reference-data/api/route.ts": 2,
+      "bounded-contexts/catalog/features/scope-registry/api/route.ts": 1,
       "bounded-contexts/catalog/features/scope-sync-batches/api/route.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts": 14,
