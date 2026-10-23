@@ -35,6 +35,7 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/seller-attention-queue": "workspace:*",
+    "@chase-sets/tcgplayer-market-observations": "workspace:*",
     "hono": "^4.13.13"
   },
   "devDependencies": {

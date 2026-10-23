@@ -1,17 +1,14 @@
 import { createHash } from "node:crypto";
+import type { SecondaryProduct, TcgplayerMarketObservationPosture } from "@chase-sets/tcgplayer-market-observations";
 import type { ProviderObservationPolicyRevision } from "./provider-observation-policy";
 import type { PriceSignalPolicyRevision } from "./price-signal-policy";
-import type {
-  HistoryObservation,
-  ListingsCoverage,
-  ListingsObservation,
-  SalesObservation,
-  TcgplayerSecondaryObservation,
-} from "./provider-observation-types";
 
-type SalesMetadata = Omit<SalesObservation, "rows">;
-type ListingsMetadata = Omit<ListingsObservation, "rows">;
-type HistoryMetadata = Omit<HistoryObservation, "rows">;
+type SalesMetadata = Omit<SecondaryProduct["sales"], "rows" | "credentialsMode">;
+type ListingsMetadata = Omit<SecondaryProduct["listings"], "rows" | "credentialsMode"> & {
+  ownSellerExclusionApplied: false;
+};
+type HistoryMetadata = Omit<SecondaryProduct["history"], "rows" | "credentialsMode">;
+export type ExecutedMarketObservationPosture = Omit<TcgplayerMarketObservationPosture, "timeoutMs">;
 
 export type ProviderMarketCaptureOutcome =
   | "recorded"
@@ -42,21 +39,7 @@ export type ProviderMarketCaptureHeader = Readonly<{
   outcomeKind: ProviderMarketCaptureOutcome;
   reasonCode: string | null;
   rejectedRowCount: number;
-  requestPosture: Readonly<{
-    salesOffset: 0;
-    salesLimit: number;
-    salesPageSize: number;
-    salesPageBudget: number;
-    salesConditions: readonly number[];
-    salesLanguages: readonly number[];
-    salesVariants: readonly number[];
-    salesListingType: string;
-    listingsVerifiedOnly: boolean;
-    listingsPageSize: number;
-    listingsPageBudget: number;
-    listingsDeliveredCeiling: string;
-    historyRange: "annual";
-  }> | null;
+  requestPosture: ExecutedMarketObservationPosture | null;
   sales: SalesMetadata | null;
   listings: ListingsMetadata | null;
   history: HistoryMetadata | null;
@@ -115,7 +98,7 @@ export type ProviderListingAskDepthRow = Readonly<{
   anonymousCaptureSellerOrdinal: number;
   providerCondition: string;
   deliveredAmount: string;
-  coverage: ListingsCoverage;
+  coverage: SecondaryProduct["listings"]["coverage"];
 }>;
 
 export type ProviderObservationCapture = Readonly<{
@@ -137,31 +120,28 @@ export type ProviderObservationMappingInput = Readonly<{
   captureCompletedAt: string;
   observationPolicy: ProviderObservationPolicyRevision;
   statHygienePolicyRevisionId: string;
-  authenticatedRequest: boolean;
   recordedSignalCount: number;
   unresolvedSignalCount: number;
-  observation: TcgplayerSecondaryObservation;
+  executedPosture: TcgplayerMarketObservationPosture;
+  observation: SecondaryProduct;
 }>;
 
 export function mapProviderObservationCapture(input: ProviderObservationMappingInput): ProviderObservationCapture {
+  const observation = input.observation;
+  const executedPosture = input.executedPosture;
+  const adaptedInput = input;
   const captureId = providerCaptureId(
     input.providerKey,
     input.catalogItemId,
     input.productExternalKey,
     input.captureStartedAt,
   );
-  const sales = mapSales(captureId, input);
-  const weekly = mapWeekly(captureId, input);
-  const { snapshots, askDepth } = mapListings(captureId, input);
+  const sales = mapSales(captureId, adaptedInput);
+  const weekly = mapWeekly(captureId, adaptedInput);
+  const { snapshots, askDepth } = mapListings(captureId, adaptedInput);
   const rejectedRowCount =
-    input.observation.sales.rejectedRows +
-    input.observation.listings.rejectedRows +
-    input.observation.history.rejectedRows;
-  const statuses = [
-    input.observation.sales.status,
-    input.observation.listings.status,
-    input.observation.history.status,
-  ];
+    observation.sales.rejectedRows + observation.listings.rejectedRows + observation.history.rejectedRows;
+  const statuses = [observation.sales.status, observation.listings.status, observation.history.status];
   const outcomeKind: ProviderMarketCaptureOutcome = statuses.every((status) => status === "unavailable")
     ? "provider-unavailable"
     : statuses.every((status) => status !== "observed")
@@ -184,30 +164,19 @@ export function mapProviderObservationCapture(input: ProviderObservationMappingI
       statHygienePolicyRevisionId: input.statHygienePolicyRevisionId,
       capturesPerPass: input.observationPolicy.value.capturesPerPass,
       currency: input.observationPolicy.value.currency,
-      authenticatedRequest: input.authenticatedRequest,
+      authenticatedRequest: authenticatedRequest(observation),
       recordedSignalCount: input.recordedSignalCount,
       unresolvedSignalCount: input.unresolvedSignalCount,
       outcomeKind,
       reasonCode: null,
       rejectedRowCount,
-      requestPosture: {
-        salesOffset: 0,
-        salesLimit: input.observationPolicy.value.sales.limit,
-        salesPageSize: input.observationPolicy.value.sales.pageSize,
-        salesPageBudget: input.observationPolicy.value.sales.pageBudget,
-        salesConditions: input.observationPolicy.value.sales.conditions,
-        salesLanguages: input.observationPolicy.value.sales.languages,
-        salesVariants: input.observationPolicy.value.sales.variants,
-        salesListingType: input.observationPolicy.value.sales.listingType,
-        listingsVerifiedOnly: input.observationPolicy.value.listings.verifiedSellersOnly,
-        listingsPageSize: input.observationPolicy.value.listings.pageSize,
-        listingsPageBudget: input.observationPolicy.value.listings.pageBudget,
-        listingsDeliveredCeiling: input.observationPolicy.value.listings.deliveredCeiling,
-        historyRange: "annual",
+      requestPosture: withoutTimeout(executedPosture),
+      sales: endpointMetadata(observation.sales),
+      listings: {
+        ...endpointMetadata(observation.listings),
+        ownSellerExclusionApplied: false,
       },
-      sales: withoutRows(input.observation.sales),
-      listings: withoutRows(input.observation.listings),
-      history: withoutRows(input.observation.history),
+      history: endpointMetadata(observation.history),
     },
     sales,
     weekly,
@@ -283,16 +252,18 @@ export function providerCaptureId(
     .digest("hex");
 }
 
-function withoutRows<T extends Readonly<{ rows: readonly unknown[] }>>(value: T): Omit<T, "rows"> {
-  const { rows: _discarded, ...metadata } = value;
+function endpointMetadata<T extends Readonly<{ rows: readonly unknown[]; credentialsMode: unknown }>>(
+  value: T,
+): Omit<T, "rows" | "credentialsMode"> {
+  const { rows: _rows, credentialsMode: _credentialsMode, ...metadata } = value;
   return metadata;
 }
 
 function mapSales(captureId: string, input: ProviderObservationMappingInput): ProviderSaleObservationRow[] {
   const grouped = new Map<string, ProviderSaleObservationRow>();
   for (const sale of input.observation.sales.rows) {
-    const unitPrice = sale.purchasePrice.toFixed(2);
-    const orderShipping = sale.shippingPrice.toFixed(2);
+    const unitPrice = sale.purchasePrice;
+    const orderShipping = sale.shippingPrice;
     const fingerprint = createHash("sha256")
       .update(
         [
@@ -368,22 +339,14 @@ function mapListings(
   snapshots: ProviderListingSnapshotRow[];
   askDepth: ProviderListingAskDepthRow[];
 } {
-  const sellerOrdinals = new Map<string, number>();
   const cheapestBySellerCondition = new Map<string, { ordinal: number; condition: string; amount: number }>();
   const cheapestBySellerSnapshotGrain = new Map<
     string,
     { ordinal: number; condition: string; amount: number; variant: string; language: string }
   >();
   for (const listing of input.observation.listings.rows) {
-    // Provider identity is used only inside this reduction and never leaves it.
-    const transientSellerIdentity = listing.sellerKey || listing.sellerId || listing.sellerName;
-    if (!transientSellerIdentity) continue;
-    let ordinal = sellerOrdinals.get(transientSellerIdentity);
-    if (ordinal === undefined) {
-      ordinal = sellerOrdinals.size + 1;
-      sellerOrdinals.set(transientSellerIdentity, ordinal);
-    }
-    const delivered = listing.price + listing.sellerShippingPrice;
+    const ordinal = listing.sellerOrdinal;
+    const delivered = moneyToCents(listing.price) + moneyToCents(listing.sellerShippingPrice);
     const key = `${ordinal}\u001f${listing.condition}`;
     const existing = cheapestBySellerCondition.get(key);
     if (!existing || delivered < existing.amount) {
@@ -405,15 +368,13 @@ function mapListings(
       });
     }
   }
-  sellerOrdinals.clear();
-
   const jointAsks = [...cheapestBySellerCondition.values()];
   const askDepth = jointAsks
     .map((ask) => ({
       captureId,
       anonymousCaptureSellerOrdinal: ask.ordinal,
       providerCondition: ask.condition,
-      deliveredAmount: ask.amount.toFixed(2),
+      deliveredAmount: centsToMoney(ask.amount),
       coverage: input.observation.listings.coverage,
     }))
     .sort(
@@ -442,11 +403,31 @@ function mapListings(
       providerCondition: first.condition,
       observedOn: input.captureStartedAt.slice(0, 10),
       distinctSellerCount: new Set(ordered.map((entry) => entry.ordinal)).size,
-      cheapestDeliveredAmount: ordered[0]?.amount.toFixed(2) ?? null,
-      secondCheapestDeliveredAmount: ordered[1]?.amount.toFixed(2) ?? null,
+      cheapestDeliveredAmount: ordered[0] ? centsToMoney(ordered[0].amount) : null,
+      secondCheapestDeliveredAmount: ordered[1] ? centsToMoney(ordered[1].amount) : null,
       captureId,
       observedAt: input.captureStartedAt,
     };
   });
   return { snapshots, askDepth };
+}
+
+function authenticatedRequest(observation: SecondaryProduct): boolean {
+  return [observation.sales, observation.listings, observation.history].some(
+    (endpoint) => endpoint.credentialsMode === "include",
+  );
+}
+
+function withoutTimeout(posture: TcgplayerMarketObservationPosture): ExecutedMarketObservationPosture {
+  const { timeoutMs: _timeoutMs, ...requestPosture } = posture;
+  return requestPosture;
+}
+
+function moneyToCents(value: string): number {
+  const [whole, fraction] = value.split(".");
+  return Number(whole) * 100 + Number(fraction);
+}
+
+function centsToMoney(value: number): string {
+  return `${Math.floor(value / 100)}.${String(value % 100).padStart(2, "0")}`;
 }
