@@ -1253,6 +1253,7 @@ describe("registration contract drift (fail-closed registration)", () => {
   });
 
   it("registers every workflow, action, deployable, and infrastructure directory", () => {
+    expect(releaseQualificationScopeRegistry.workflows["browser-boundary-timeout-verifier.yml"]).toBe("ci");
     const tracked = execFileSync("git", ["ls-files"], {
       cwd: repoRoot,
       encoding: "utf8",
