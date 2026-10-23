@@ -419,12 +419,6 @@ components:
       - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         secret: true
         secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
-      - name: "EBAY_APPLICATION_CLIENT_ID"
-        secret: true
-        secretKey: "EBAY_APPLICATION_CLIENT_ID"
-      - name: "EBAY_APPLICATION_CLIENT_SECRET"
-        secret: true
-        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
       - name: "EVIDENCE_WINDOW_ADMISSION_SECRET"
         secret: true
         secretKey: "EVIDENCE_WINDOW_ADMISSION_SECRET"
@@ -603,6 +597,12 @@ components:
       - name: "VOYAGE_API_KEY"
         secret: true
         secretKey: "VOYAGE_API_KEY"
+      - name: "EBAY_APPLICATION_CLIENT_ID"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_ID"
+      - name: "EBAY_APPLICATION_CLIENT_SECRET"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
     resources: {}
     podAnnotations: {}
     podLabels: {}
@@ -750,12 +750,6 @@ components:
       - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         secret: true
         secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
-      - name: "EBAY_APPLICATION_CLIENT_ID"
-        secret: true
-        secretKey: "EBAY_APPLICATION_CLIENT_ID"
-      - name: "EBAY_APPLICATION_CLIENT_SECRET"
-        secret: true
-        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
       - name: "EVIDENCE_WINDOW_ADMISSION_SECRET"
         secret: true
         secretKey: "EVIDENCE_WINDOW_ADMISSION_SECRET"
@@ -980,6 +974,12 @@ components:
         value: "1"
       - name: "WORKER_WAKE_STATEMENT_TIMEOUT_MS"
         value: "30000"
+      - name: "EBAY_APPLICATION_CLIENT_ID"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_ID"
+      - name: "EBAY_APPLICATION_CLIENT_SECRET"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
     resources: {}
     podAnnotations: {}
     podLabels: {}

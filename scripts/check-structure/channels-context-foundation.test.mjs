@@ -246,7 +246,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
         portName: "ebayAccountDeletionConfiguration",
         providedBy: "platform-api",
         purpose:
-          "Supply deployment-only eBay account-deletion challenge and application key authority configuration; absent configuration disables the webhook.",
+          "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
       },
       {
         portName: "webhookTelemetry",
@@ -450,7 +450,7 @@ describe("channels-context-foundation", () => {
           portName: "ebayAccountDeletionConfiguration",
           providedBy: "platform-api",
           purpose:
-            "Supply deployment-only eBay account-deletion challenge and application key authority configuration; absent configuration disables the webhook.",
+            "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
         },
         {
           portName: "webhookTelemetry",
