@@ -84,4 +84,25 @@ describe("acknowledged configuration epochs in memory", () => {
     oracle(false);
     expect(() => oracle(true)).toThrow();
   });
+  it("AC2 corrupt populated history before key creation refuses", () => {
+    const { owner, consumer } = setup();
+    const grant = owner.captureGrant("owner/key", identity);
+    consumer.guards.set(grant.key, {
+      sourceIncarnation: grant.sourceIncarnation,
+      keyCreationEpoch: grant.keyCreationEpoch,
+      closedThroughEpoch: grant.keyCreationEpoch - 1,
+      topologyRevision: grant.topologyRevision,
+    });
+    expect(() => consumer.validateGrantVector([grant])).toThrow();
+  });
+  it("AC2 corrupt negative topology revision refuses", () => {
+    const { owner, consumer } = setup();
+    owner.beginClosure("owner/key");
+    owner.driveClosure("owner/key", [consumer]);
+    owner.installClosure("owner/key");
+    const grant = owner.captureGrant("owner/key", identity);
+    const guard = consumer.guards.get(grant.key)!;
+    consumer.guards.set(grant.key, { ...guard, topologyRevision: -1 });
+    expect(() => consumer.validateGrantVector([grant])).toThrow();
+  });
 });

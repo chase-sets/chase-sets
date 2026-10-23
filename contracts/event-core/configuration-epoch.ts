@@ -232,7 +232,9 @@ export function assertConfigurationGrantCurrent(
   if (
     guard.sourceIncarnation !== grant.sourceIncarnation ||
     guard.keyCreationEpoch !== grant.keyCreationEpoch ||
+    guard.closedThroughEpoch < guard.keyCreationEpoch ||
     guard.closedThroughEpoch + 1 !== grant.epoch ||
+    guard.topologyRevision < 0 ||
     guard.topologyRevision > grant.topologyRevision
   )
     throw new ConfigurationEpochError("closed-through, partial or stale source history");
