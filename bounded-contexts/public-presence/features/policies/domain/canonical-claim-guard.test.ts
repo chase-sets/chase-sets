@@ -836,7 +836,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.privacyPolicy]: "591d12627c7c74e539d502b8fc36d79bd276c8adf90ea690645e583c2538d27a",
   [citationFencePaths.authenticityTest]: "373914b5510020641186b833c170ccd3e9ed072d541573ade9306e1216124873",
   // #10176 repin after the JSON import census evidence-citation update.
-  [citationFencePaths.staticSurfaces]: "91ec9ed71392f151fa951bc745c66b2452cdc2b5a846819ae716670d8ee934df",
+  [citationFencePaths.staticSurfaces]: "6b11b68f806dc051eb651f6f7a6a17d67ad450f8568b0af311af9c3766f6faa5",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {
