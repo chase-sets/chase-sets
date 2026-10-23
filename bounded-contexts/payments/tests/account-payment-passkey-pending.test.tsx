@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -65,56 +65,94 @@ const guestData = {
   paymentElementDefaultValues: null,
 };
 
-describe("account payment passkey pending", () => {
-  afterEach(() => {
-    vi.resetAllMocks();
-  });
+describe.each(["normal completion", "assertion failure", "pending unmount"])(
+  "account payment passkey pending: %s",
+  (cleanupCase) => {
+    afterEach(() => {
+      vi.resetAllMocks();
+    });
 
-  it("passkey claim posts once", async () => {
-    createPasskeyCredential.mockResolvedValue({
-      challengeId: "challenge_1",
-      challenge: "challenge",
-      externalCredentialId: "credential_1",
-      label: "This device",
-      webauthnResponse: "response",
-    });
-    let release!: () => void;
-    const response = new Promise<null>((resolve) => {
-      release = () => resolve(null);
-    });
-    let posts = 0;
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/account/payments/:paymentId",
-          loader: () => guestData,
-          action: async () => {
-            posts += 1;
-            return response;
+    it("passkey claim posts once", async () => {
+      createPasskeyCredential.mockResolvedValue({
+        challengeId: "challenge_1",
+        challenge: "challenge",
+        externalCredentialId: "credential_1",
+        label: "This device",
+        webauthnResponse: "response",
+      });
+      let release!: () => void;
+      const response = new Promise<null>((resolve) => {
+        release = () => resolve(null);
+      });
+      let posts = 0;
+      const router = createMemoryRouter(
+        [
+          {
+            path: "/account/payments/:paymentId",
+            loader: () => guestData,
+            action: async () => {
+              posts += 1;
+              return response;
+            },
+            element: <MarketplaceAccountPaymentRoute />,
           },
-          element: <MarketplaceAccountPaymentRoute />,
-        },
-      ],
-      { initialEntries: ["/account/payments/pay_pending"] },
-    );
-    // Match the established guest-claim route harness: initialize the data
-    // router before rendering the route component so the claim surface, not
-    // the router's hydration fallback, is the evidence under test.
-    await router.initialize();
-    render(
-      <ChaseRoot>
-        <RouterProvider router={router} />
-      </ChaseRoot>,
-    );
-    const user = userEvent.setup();
-    expect(await screen.findByText("Save this order")).toBeTruthy();
-    const submit = await screen.findByRole("button", { name: "Save with passkey" });
-    await user.click(submit);
-    await waitFor(() => expect(posts).toBe(1));
-    await user.click(submit);
-    expect(posts).toBe(1);
-    release();
-    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
-    router.dispose();
-  });
-});
+        ],
+        { initialEntries: ["/account/payments/pay_pending"] },
+      );
+      // Match the established guest-claim route harness: initialize the data
+      // router before rendering the route component so the claim surface, not
+      // the router's hydration fallback, is the evidence under test.
+      const dispose = vi.spyOn(router, "dispose");
+      let view: ReturnType<typeof render> | undefined;
+      const claim = async () => {
+        try {
+          await router.initialize();
+          view = render(
+            <ChaseRoot>
+              <RouterProvider router={router} />
+            </ChaseRoot>,
+          );
+          const user = userEvent.setup();
+          expect(await screen.findByText("Save this order")).toBeTruthy();
+          const submit = await screen.findByRole("button", { name: "Save with passkey" });
+          await user.click(submit);
+          await waitFor(() => expect(posts).toBe(1));
+          expect(router.state.navigation.state).toBe("submitting");
+          await user.click(submit);
+          expect(posts).toBe(1);
+          if (cleanupCase === "assertion failure") {
+            expect(posts, "intentional pending assertion failure").toBe(2);
+          }
+          if (cleanupCase === "pending unmount") {
+            await act(async () => view?.unmount());
+            expect(view.container.innerHTML).toBe("");
+            expect(router.state.navigation.state).toBe("submitting");
+          }
+        } finally {
+          try {
+            await act(async () => {
+              release();
+              await response;
+              await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+            });
+          } finally {
+            try {
+              await act(async () => view?.unmount());
+            } finally {
+              router.dispose();
+            }
+          }
+        }
+      };
+
+      if (cleanupCase === "assertion failure") {
+        await expect(claim()).rejects.toThrow("intentional pending assertion failure");
+      } else {
+        await claim();
+      }
+      expect(router.state.navigation.state).toBe("idle");
+      expect(view?.container.innerHTML).toBe("");
+      expect(dispose).toHaveBeenCalledOnce();
+    });
+  },
+);
