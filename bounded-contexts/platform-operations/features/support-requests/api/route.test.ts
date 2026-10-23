@@ -13,7 +13,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { File as NodeFile } from "node:buffer";
 import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
 import { guestCheckoutActorThroughAuth, mintEvidenceActorThroughIdentity } from "../tests/evidence-access-identity";
 import {
@@ -387,7 +386,7 @@ describe("support attachment capability x role x participation", () => {
     form.append('note; filename="not-a-file"', "ordinary text");
     const photo = readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg");
     for (let index = 0; index < 5; index++)
-      form.append("attachments", new NodeFile([photo], `${index}.jpg`, { type: "image/jpeg" }) as File);
+      form.append("attachments", new File([photo], `${index}.jpg`, { type: "image/jpeg" }));
     const request = await multipartRequest("http://localhost/support-requests/sup_case/attachments", form, {
       "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     });
@@ -557,11 +556,11 @@ describe("support attachment capability x role x participation", () => {
               const form = await nativeFormData();
               form.append(
                 "attachments",
-                new NodeFile(
+                new File(
                   [readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg")],
                   "photo.jpg",
                   { type: "image/jpeg" },
-                ) as File,
+                ),
               );
               const intakeRequest =
                 action === "upload"
