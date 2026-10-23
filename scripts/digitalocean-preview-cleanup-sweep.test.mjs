@@ -129,7 +129,8 @@ describe("digitalocean-preview-cleanup-sweep", () => {
             return stateList;
           }
           if (command === "terraform") return "initialized";
-          if (args.includes("get-bucket-versioning")) return JSON.stringify({ Status: versioningMode === "enabled" ? "Enabled" : "Suspended" });
+          if (args.includes("get-bucket-versioning"))
+            return JSON.stringify({ Status: versioningMode === "enabled" ? "Enabled" : "Suspended" });
           if (args.includes("head-object")) return JSON.stringify({ VersionId: "version-18" });
           return "deleted";
         },

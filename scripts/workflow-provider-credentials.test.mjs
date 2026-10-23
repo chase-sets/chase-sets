@@ -97,7 +97,9 @@ describe("preview state retirement provider credential contract", () => {
     const result = checkWorkflowProviderCredentials(previewCleanupWorkflow, {
       workflowFile: previewCleanupWorkflowFile,
     });
-    expect(result.violations.filter((violation) => violation.includes("Retire empty preview Terraform state"))).toEqual([]);
+    expect(result.violations.filter((violation) => violation.includes("Retire empty preview Terraform state"))).toEqual(
+      [],
+    );
     expect(result.checkedSteps).toContainEqual(
       expect.objectContaining({
         name: "Retire empty preview Terraform state",
@@ -111,11 +113,9 @@ describe("preview state retirement provider credential contract", () => {
     (credential) => {
       const stripped = stripStepEnvKey(previewCleanupWorkflow, "Retire empty preview Terraform state", credential);
       const result = checkWorkflowProviderCredentials(stripped, { workflowFile: previewCleanupWorkflowFile });
-      expect(result.violations.filter((violation) => violation.includes("Retire empty preview Terraform state"))).toEqual([
-        expect.stringContaining(
-          `provider-touching step 'Retire empty preview Terraform state' invokes`,
-        ),
-      ]);
+      expect(
+        result.violations.filter((violation) => violation.includes("Retire empty preview Terraform state")),
+      ).toEqual([expect.stringContaining(`provider-touching step 'Retire empty preview Terraform state' invokes`)]);
     },
   );
 });

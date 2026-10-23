@@ -809,7 +809,7 @@ jobs:
 
       - name: Upload preview state retirement record
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         with:
           name: platform-preview-state-retirement-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.batch_index != null && format('batch-{0}', matrix.batch_index) || format('pr-{0}', matrix.pr_number) }}
           path: ${{ runner.temp }}/preview-state-retirement

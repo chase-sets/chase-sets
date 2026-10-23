@@ -467,9 +467,12 @@ export async function retirePreviewTerraformState(options = {}, dependencies = {
     return record;
   }
 
-  const timeoutMs = normalizeTimeout(dependencies.commandTimeoutMs ?? options.commandTimeoutMs) ?? PREVIEW_STATE_RETIREMENT_COMMAND_TIMEOUT_MS;
+  const timeoutMs =
+    normalizeTimeout(dependencies.commandTimeoutMs ?? options.commandTimeoutMs) ??
+    PREVIEW_STATE_RETIREMENT_COMMAND_TIMEOUT_MS;
   const output = dependencies.commandOutput ?? commandOutput;
-  const json = dependencies.commandJson ?? ((command, args) => commandJson(command, args, dependencies, { timeout: timeoutMs }));
+  const json =
+    dependencies.commandJson ?? ((command, args) => commandJson(command, args, dependencies, { timeout: timeoutMs }));
   const aws = (args) => output("aws", [...args, "--endpoint-url", record.endpointUrl], { timeout: timeoutMs });
   const awsJson = (args) => json("aws", [...args, "--endpoint-url", record.endpointUrl]);
   const terraform = (args) => output("terraform", args, { timeout: timeoutMs });
@@ -512,7 +515,10 @@ export async function retirePreviewTerraformState(options = {}, dependencies = {
 
   try {
     const listed = await terraform(["-chdir=" + record.terraformDirectory, "state", "list", "-no-color"]);
-    const resources = String(listed ?? "").split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+    const resources = String(listed ?? "")
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
     record.stateList = { status: "success", empty: resources.length === 0, resourceCount: resources.length };
     if (resources.length > 0) {
       record.errors.push("Terraform state list is non-empty; state was left untouched.");
