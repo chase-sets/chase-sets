@@ -23,6 +23,26 @@ describe("release health summary", () => {
       });
     },
   );
+
+  it("fails the health gate for a legacy true lock without route or deadline", () => {
+    const result = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      releaseLocked: true,
+      releaseLockReason: "legacy lock",
+      releaseLockReference: "INC-1",
+      releaseLockExitRoute: "",
+      releaseLockDeadline: "",
+    });
+
+    expect(result.passesReleaseHealthGate).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        "PRODUCTION_RELEASE_LOCK_EXIT_ROUTE is required when PRODUCTION_RELEASE_LOCKED=true.",
+        "PRODUCTION_RELEASE_LOCK_DEADLINE is required when PRODUCTION_RELEASE_LOCKED=true.",
+      ]),
+    );
+  });
+
   it("records effective true lock metadata and a separate emergency reference in a versioned nested artifact", () => {
     const route = JSON.stringify({
       kind: "host-revert",

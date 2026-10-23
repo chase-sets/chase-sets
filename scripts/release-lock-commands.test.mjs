@@ -170,4 +170,15 @@ describe("release lock GitHub Environment commands", () => {
       }).commands[0],
     ).toContain("hold `$(Write-Output unsafe) `$env:NAME");
   });
+
+  it("escapes typographic PowerShell quotes in synthetic command text", () => {
+    const result = buildReleaseLockCommands({
+      action: "lock",
+      reason: 'x”; Write-Output SYNTHETIC; “y „z',
+      exitRoute,
+      deadline: futureDeadline(),
+    });
+
+    expect(result.commands[0]).toContain('x`”; Write-Output SYNTHETIC; `“y `„z');
+  });
 });

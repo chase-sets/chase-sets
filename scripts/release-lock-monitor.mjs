@@ -51,7 +51,7 @@ export function evaluateLockMonitorDecision(options) {
     return {
       schemaVersion: RELEASE_LOCK_MONITOR_VERSION,
       ...identity,
-      state: "ignored",
+      state: "unlocked",
       shouldNotify: false,
       reason: null,
       reference: null,
@@ -195,18 +195,21 @@ async function listMatchingIssues(client, repository) {
       pageItems.some(
         (issue) =>
           !Number.isInteger(issue.number) ||
-          typeof issue.body !== "string" ||
           !["open", "closed"].includes(issue.state),
       )
     ) {
       throw new Error("Production release lock issue lookup contains invalid issue metadata.");
     }
-    for (const issue of pageItems) {
+    const normalizedPageItems = pageItems.map((issue) => ({
+      ...issue,
+      body: typeof issue.body === "string" ? issue.body : "",
+    }));
+    for (const issue of normalizedPageItems) {
       if (seen.has(issue.number))
         throw new Error("Production release lock issue lookup repeated an issue during pagination.");
       seen.add(issue.number);
     }
-    issues.push(...pageItems);
+    issues.push(...normalizedPageItems);
     if (issues.length === values.total_count) return issues;
     if (pageItems.length < RELEASE_LOCK_MONITOR_PAGE_SIZE)
       throw new Error("Production release lock issue lookup is truncated.");

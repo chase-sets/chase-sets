@@ -55,7 +55,7 @@ describe("production release lock monitor", () => {
     { incomplete_results: false, total_count: 1001, items: [] },
     { items: [] },
     { incomplete_results: false, total_count: 1, items: [] },
-    { incomplete_results: false, total_count: 1, items: [{ number: 1, state: "open" }] },
+    { incomplete_results: false, total_count: 1, items: [{ number: 1, state: "pending", body: null }] },
   ])("refuses unknown, truncated or overflowing lookup rather than blind creation %j", async (payload) => {
     let requests = 0;
     await expect(
@@ -88,7 +88,7 @@ describe("production release lock monitor", () => {
     });
     expect(
       evaluateLockMonitorDecision({ ...options, lockValue: "false", exitRoute: "bad json", deadline: "bad" }),
-    ).toMatchObject({ state: "ignored", shouldNotify: false });
+    ).toMatchObject({ state: "unlocked", shouldNotify: false });
   });
 
   it("binds identity to the raw five-field tuple, never run id or updated_at", () => {
@@ -152,6 +152,19 @@ describe("production release lock monitor", () => {
     });
     expect(result.issue.state).toBe("open");
     expect(calls).toEqual(["GET", "PATCH"]);
+  });
+
+  it("treats a null issue body as having no lock marker", async () => {
+    let created = false;
+    const result = await monitorReleaseLock(options, {
+      fetch: async (url, init) => {
+        if (!init.method) return searchResponse([{ number: 101, state: "open", body: null }]);
+        created = true;
+        return response({ id: 102, number: 102, state: "open", body: init.body, html_url: "url" });
+      },
+    });
+    expect(created).toBe(true);
+    expect(result.issue.number).toBe(102);
   });
 
   it("fails visibly on delivery failure and leaves the lock closed for next retry", async () => {

@@ -138,7 +138,7 @@ Manual emergency dispatch inputs:
 | `emergency_release` | Set `true` only for an audited fix-forward or revert that must pass an active production release lock. |
 | `emergency_reference` | Required when `emergency_release=true`; point to the incident, PR, or rollback evidence record. |
 
-Unlock only after the incident owner confirms production is ready for normal promotion, current `main` is safe to deploy, and any queued release has a clear owner.
+Unlock only after the incident owner confirms production is ready for normal promotion, current `main` is safe to deploy, and any queued release has a clear owner. A legacy true lock missing a valid exit route or deadline fails the release-health gate and requires host triage; it never gains bypass authority.
 
 Generate the exact GitHub Environment commands from the repo root:
 
