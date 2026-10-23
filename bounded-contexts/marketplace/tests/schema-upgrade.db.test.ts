@@ -29,6 +29,8 @@ import { managedFixture } from "../features/offers/tests/managed-fixture";
 import { buildManagedOfferProjectionHandlers } from "../features/offers/read-model/managed-projection";
 import { buildMarketplaceOfferProjectionHandlers } from "../features/offers/read-model/projection";
 import { getOfferMatch, listOfferMatches } from "../features/offers/read-model/queries";
+import { createMarketplaceListingRuntime } from "../features/listings/api/runtime";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -66,6 +68,69 @@ describeDb("marketplace schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it.each(["amount-only", "price-pair"] as const)(
+    "replays prior-schema %s Listing creation as native without rewriting stored payloads",
+    async (schema) => {
+      const pool = pools.marketplace;
+      await bootstrapContextDatabase(marketplaceModule, pool);
+      const store = createPostgresEventStore({ pool });
+      const payload = {
+        listingId: "lst_prior_schema",
+        accountId: "acc_seller",
+        inventoryItemId: "inv_card",
+        catalogItemId: "cat_card",
+        productId: "cat_card::",
+        itemLanguageCode: "en",
+        itemTitle: "Card",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        productMeasureSnapshot: null,
+        gradedCard: null,
+        storageLocationName: null,
+        shipFromCode: "US",
+        shipFromAddress: null,
+        priceAmount: "10.00",
+        ...(schema === "price-pair" ? { priceCurrencyCode: "USD" } : {}),
+        marketplaceSalesFeeUnitAmount: "0.50",
+        sellerNetUnitAmount: "9.50",
+        shippingAllowancePercentageBps: 500,
+        termsScheduleId: "cts_native",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-01-01T00:00:00.000Z",
+        feeQuoteFingerprint: "prior-schema-native",
+        feeLocks: [],
+        quantityCap: 1,
+        purchaseLimits: { maxUnitsPerOrder: null, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+        evidenceRequirements: null,
+        evidence: [],
+      };
+      const streamId = "marketplace.listing-lst_prior_schema";
+      await store.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context,
+        events: [{ eventType: "marketplace.listing.created", payload }],
+      });
+      const runtime = createMarketplaceListingRuntime({
+        db: pool,
+        eventStore: store,
+        checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+        commercialTermsResolver: {} as never,
+      });
+      expect(await runtime.loadListingState("lst_prior_schema")).toMatchObject({
+        publicationScope: "native",
+        nativeVisibility: "enabled",
+        nativeFeeState: "enrolled",
+        status: "draft",
+        priceAmount: "10.00",
+        priceCurrencyCode: schema === "price-pair" ? "USD" : null,
+        feeQuoteFingerprint: "prior-schema-native",
+      });
+      expect((await store.readStream({ streamId }))[0]?.payload).toEqual(payload);
+    },
+  );
 
   it("keeps fixed demand actionable and managed Match queries closed across target, held, pause, projection lag and stop", async () => {
     const pool = pools.marketplace;
