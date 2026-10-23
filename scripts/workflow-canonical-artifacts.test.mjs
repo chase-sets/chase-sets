@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 import {
   checkWorkflowCanonicalArtifacts,
@@ -16,6 +17,25 @@ const registryWorkflowFile = ".github/workflows/platform-registry-cleanup.yml";
 const registryWorkflow = readFileSync(resolve(registryWorkflowFile), "utf8");
 
 describe("workflow canonical artifact guard (#5952)", () => {
+  it("keeps the real Linux timeout verifier path-filtered, bounded and nongoverning", () => {
+    const source = readFileSync(".github/workflows/browser-boundary-timeout-verifier.yml", "utf8");
+    const workflow = parse(source);
+    expect(Object.keys(workflow.on)).toEqual(["pull_request"]);
+    expect(workflow.on.pull_request.paths).toContain("scripts/provider-browser-install-*.mjs");
+    const job = workflow.jobs.timeout;
+    expect(job["runs-on"]).toBe("ubuntu-24.04");
+    expect(job["timeout-minutes"]).toBe(15);
+    expect(job.env.INSTALLER_TIMEOUT_SECONDS).toBe("600");
+    const timeout = job.steps.find((step) => step.id === "timeout");
+    expect(timeout.run).toBe("node scripts/provider-browser-install-timeout-verifier.mjs");
+    expect(job.steps.find((step) => step.id === "controls").if).toBe("steps.timeout.outcome == 'success'");
+    const guard = job.steps.at(-1);
+    expect(guard.if).toBe("always()");
+    expect(guard.run).toContain('test "$TIMEOUT_PROVEN" = true');
+    expect(guard.run).toContain('test "$CONTROLS_OUTCOME" = skipped');
+    expect(checkWorkflowCanonicalArtifacts(source).violations).toEqual([]);
+  });
+
   it("parses both supported CLI output forms used by executable producers", () => {
     expect(
       literalOutPaths(`node ./producer.mjs --out evidence/split.json
@@ -211,7 +231,7 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 77, scannedSurfaces: 44, totalSurfaces: 44 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 79, scannedSurfaces: 44, totalSurfaces: 44 });
     expect(current.findings).toHaveLength(21);
     expect(
       current.findings.filter((finding) => /platform-merge-qualification(?:-observer)?\.yml/.test(finding.message)),

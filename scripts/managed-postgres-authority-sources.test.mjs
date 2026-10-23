@@ -34,43 +34,7 @@ const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
 // appends its literal reviewed records to this delta; a slice that removes grants lists them as an explicit reviewed
 // removal list, in that slice's own PR. Never derive either list from the candidate. Re-baselining needs its own slice.
-// #8449 delta: the five baseline Channels keyring Apply-step grants with only `secretName` changed.
 const reviewedCatalogDelta = [
-  {
-    file: ".github/workflows/platform-ephemeral-verification.yml",
-    jobId: "verify-release",
-    stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-merge-gate-verification.yml",
-    jobId: "verify",
-    stepAnchor: "name:Apply gate Kubernetes runtime secrets#11",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-pr.yml",
-    jobId: "preview-deploy-smoke",
-    stepAnchor: "name:Apply preview Kubernetes runtime secrets#13",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-production.yml",
-    jobId: "deploy-production",
-    stepAnchor: "name:Apply production Kubernetes runtime secrets#33",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-production.yml",
-    jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#31",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
   // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
   {
     file: ".github/workflows/catalog-completion-report.yml",
@@ -669,6 +633,30 @@ const qualificationCleanupDelta = [
     purpose: "digitalocean-ops",
   },
 ];
+// #10396: deploy-production's inline Kubernetes context step moved into the shared marker recovery
+// composite, and the isolated marker-only job receives only the composite and registry-identity grants.
+const productionMarkerRecoveryRetiredAnchor = "name:Configure production Kubernetes context#25";
+const productionMarkerRecoveryDelta = [
+  ...["DIGITALOCEAN_ACCESS_TOKEN", "SPACES_ACCESS_ID", "SPACES_SECRET_KEY"].flatMap((secretName) =>
+    ["deploy-production", "reconcile-production-marker"].map((jobId) => ({
+      file: ".github/workflows/platform-production.yml",
+      jobId,
+      stepAnchor: "uses:./.github/actions/production-marker-recovery-context",
+      secretName,
+      purpose: "terraform-infra",
+    })),
+  ),
+  ...[
+    "name:Derive source registry identity#6",
+    "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+  ].map((stepAnchor) => ({
+    file: ".github/workflows/platform-production.yml",
+    jobId: "reconcile-production-marker",
+    stepAnchor,
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "terraform-infra",
+  })),
+];
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -874,16 +862,21 @@ describe("managed Postgres authority source generator", () => {
         ...stagingEvidenceWindowDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
         ...qualificationCleanupDelta,
-      ].map(applyQualificationStepInsertions),
-    };
-    expect(expected.grants).toHaveLength(1703);
-    const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
-    expect(generated.grants.filter(isCatalogKeyring)).toEqual(
-      reviewedCatalogDelta
-        .map(applyReviewedStepInsertions)
+      ]
         .map(applyQualificationStepInsertions)
-        .filter(isCatalogKeyring),
-    );
+        .filter(
+          (record) =>
+            !(
+              record.file === ".github/workflows/platform-production.yml" &&
+              record.jobId === "deploy-production" &&
+              record.stepAnchor === productionMarkerRecoveryRetiredAnchor
+            ),
+        )
+        .concat(productionMarkerRecoveryDelta),
+    };
+    expect(expected.grants).toHaveLength(1700);
+    const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
+    expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
     expectParity(expected, canonical);
     expect(canonical).toEqual(generated);

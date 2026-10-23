@@ -3,10 +3,12 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { ygojsonYugiohSetReferenceProviderProfile } from "../../source-observations/api/providers/ygojson/executable-mapping-contract";
 import { ygoprodeckYugiohSetReferenceProviderProfile } from "../../source-observations/api/providers/ygoprodeck/executable-mapping-contract";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CatalogServices } from "../../../support/authoring-support/services";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createCatalogServices, type CatalogServices } from "../../../support/authoring-support/services";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import type { ReferenceRecordId } from "../../../ids";
 import { seedContext } from "../../../support/seed-support/context";
+import { createCatalogAliasRuntime } from "../../alias-equivalence/api/runtime";
 import { createProviderScopeMappingRuntime } from "../../provider-scope-mapping/api/runtime";
 import { providerScopeMappingStreamId } from "../../provider-scope-mapping/domain/domain";
 import { buildProviderScopeMappingCandidate } from "../../provider-scope-mapping/domain/mapping";
@@ -595,7 +597,7 @@ async function createReconciliationHarness() {
   const { eventStore } = createInMemoryEventStore();
   const known = new Set<string>();
   const canonicalId = catalogSeedIds.referenceRecords.expansions.surgingSparks;
-  const duplicateId = "ref_tcgdex_expansion_sv08";
+  const duplicateId = "ref_tcgdex_expansion_sv08" as ReferenceRecordId;
   const canonicalStream = `catalog.reference-record-${canonicalId}`;
   const duplicateStream = `catalog.reference-record-${duplicateId}`;
   const rowsFor = async (streamId: string) =>
@@ -638,7 +640,18 @@ async function createReconciliationHarness() {
       return { rows: rows as Row[], rowCount: rows.length };
     },
   };
-  const deps = { eventStore, db } as CatalogRuntimeDeps;
+  const deps: CatalogRuntimeDeps = {
+    eventStore,
+    db,
+    checkpointStore: {
+      loadCheckpoint: async () => {
+        throw new Error("Reconciliation harness does not run projections");
+      },
+      saveCheckpoint: async () => {
+        throw new Error("Reconciliation harness does not run projections");
+      },
+    },
+  };
   const referenceData = createReferenceDataRuntime(deps);
   const providerScopeMappings = createProviderScopeMappingRuntime(deps);
   const command = async (id: string, command: ReferenceRecordCommand) => {
@@ -665,9 +678,15 @@ async function createReconciliationHarness() {
       attributes,
     });
   };
-  const services = {
-    db,
-    pool: {},
+  const pool: PgTransactionalPool = {
+    query: db.query,
+    connect: async () => {
+      throw new Error("Reconciliation harness does not open Postgres transactions");
+    },
+  };
+  const defaults = createCatalogServices(pool);
+  const services: CatalogServices = {
+    ...defaults,
     referenceData: {
       ...referenceData,
       referenceTypeCommandHandler: async (input) => {
@@ -680,17 +699,19 @@ async function createReconciliationHarness() {
       },
     },
     providerScopeMappings,
-    catalogAliases: { catalogAliasCommandHandler: async () => undefined },
-  } as CatalogServices;
+    catalogAliases: createCatalogAliasRuntime(deps, {
+      catalogItemCommandHandler: defaults.items.commandHandler,
+      referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
+    }),
+  };
   await seedReferenceData(services);
   const createDuplicate = async (publish = true) => {
     await command(duplicateId, {
       type: "CreateReferenceRecord",
-      referenceRecordId: duplicateId as never,
+      referenceRecordId: duplicateId,
       typeKey: "expansion",
       key: "sv08",
       name: { defaultLocale: "en", values: { en: "Synthetic Surging Sparks duplicate" } },
-      description: null,
       attributes: { "tcgdex-set-id": "sv08" },
       relationships: [],
     });

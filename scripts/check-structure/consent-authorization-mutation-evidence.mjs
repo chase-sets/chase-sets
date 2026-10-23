@@ -456,7 +456,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       cwd,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
-      ...(args.includes("ls-files") || args.includes("ls-tree") ? { maxBuffer: GIT_LISTING_MAX_BUFFER } : {}),
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     });
   }
 

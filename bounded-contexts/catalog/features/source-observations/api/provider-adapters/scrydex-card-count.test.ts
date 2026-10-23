@@ -335,7 +335,6 @@ describe("Scrydex exact cached card estimate", () => {
           { query },
           null,
           undefined,
-          undefined,
           new ProviderAdapterRegistry([subject]),
         );
       if (mode === "inconsistent") {

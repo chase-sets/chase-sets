@@ -374,6 +374,7 @@ describeDb("English Pokemon reference data seed against the TCGdex English set l
   });
 
   it("preserves the canonical record through Catalog bootstrap, provider promotion and read-only preview", async () => {
+    if (!catalogModule.seed) throw new Error("Catalog bootstrap seed must be registered");
     await stagingShapedPreChangeState();
     await catalogModule.seed(pool, undefined, { enabledDataProfiles: ["catalog-integration-bootstrap"] });
     await drain();

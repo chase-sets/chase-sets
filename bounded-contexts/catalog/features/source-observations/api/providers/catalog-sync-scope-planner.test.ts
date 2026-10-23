@@ -20,8 +20,6 @@ import {
   classifyProviderScopeDiscoveryTarget,
   providerScopeMappingCoordinates,
 } from "../../../provider-scope-discovery/api/scope-observation-matcher";
-import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
-import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
 import { buildProviderScopeMappingCandidate } from "../../../provider-scope-mapping/domain/mapping";
 import { createMtgjsonProviderAdapter, createMtgjsonValidationProviderAdapter } from "./mtgjson/adapter";
 
@@ -499,38 +497,13 @@ describe("Catalog sync scope planner", () => {
   it("resolves a fully mapped scope with no manually supplied provider coordinates", async () => {
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
-    const target = listProviderScopeDiscoveryTargets([tcgplayer], classifyProviderScopeDiscoveryTarget).find(
-      (candidate) => candidate.queryKind === "set-names",
-    )!;
-    const [mappedOption] = await listCatalogProviderIntegrationOptionsFromProfiles({
-      profiles: [tcgplayer.profile],
-      providerKey: "tcgplayer",
-      queryKind: "set-names",
-      languageCode: "en",
-      parentValue: "3",
-      defaultProviderKey: "tcgplayer",
-      transports: {
-        listTcgplayerSetNames: async () => tcgplayerAutomationResponseFixtures.catalogSetNames.results,
-      },
-    });
-    const coordinates = providerScopeMappingCoordinates(target, {
-      providerKey: "tcgplayer",
-      unitKey: tcgplayerUnitKey,
-      scopeKind: target.scopeKind,
-      sourceQueryKind: target.queryKind,
-      languageCode: "en",
-      externalId: mappedOption!.value,
-      label: mappedOption!.label,
-      parents: [mappedOption!.parentValue!],
-      imageUrl: mappedOption!.imageUrl,
-      metadata: mappedOption!.metadata,
-      scanId: "scan-planner-coordinate-proof",
-      scannedAt: "2026-08-27T00:00:00.000Z",
-      firstObservedAt: "2026-08-27T00:00:00.000Z",
-      observationHash: "planner-coordinate-proof",
-      newlyObserved: true,
-      changed: true,
-    });
+    const coordinates = {
+      productLineId: "3",
+      seriesId: null,
+      setId: null,
+      setName: "Prismatic Evolutions",
+      language: null,
+    };
     expect(coordinates).toEqual({
       productLineId: "3",
       seriesId: null,
@@ -551,19 +524,20 @@ describe("Catalog sync scope planner", () => {
         }),
       ],
       providerProfileVersions: [tcgplayer],
-      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205)))]),
+      providerAdapterRegistry: new ProviderAdapterRegistry([
+        {
+          ...fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205))),
+          capabilities: { supportsOptionQueries: false, supportsImportPlanning: false, supportsPayloadFetch: false },
+        },
+      ]),
     });
 
-    expect(preview.status).toBe("ready");
+    expect(preview.status).toBe("degraded");
     expect(preview.startAllowed).toBe(true);
     expect(preview.units[0]).toMatchObject({
-      eligibility: "eligible",
-      blockers: [],
-      childExecutionScope: {
-        provider: "tcgplayer",
-        productLineId: "3",
-        setName: "Prismatic Evolutions",
-      },
+      eligibility: "ineligible",
+      blockers: [expect.objectContaining({ code: "provider-transport-unavailable" })],
+      childExecutionScope: null,
     });
     // The scope reference carries no raw provider coordinates or names.
     expect(preview.scope.reference).toEqual({ kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID });

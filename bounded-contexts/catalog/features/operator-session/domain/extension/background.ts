@@ -1,18 +1,15 @@
 import {
   closed,
-  cookieExpiry,
   isCommand,
   isGrant,
-  isOperatorCookie,
   operatorEnvironments,
   operatorOrigins,
   type OperatorCommand,
-  type OperatorCookie,
   type OperatorEnvironment,
   type OperatorStatus,
 } from "./protocol";
 import { emptyOperatorRecord, isOperatorRecord, operatorRecordKey, type OperatorRecord } from "./record";
-import { createOperatorTransport, type OperatorResult } from "./transport";
+import { createOperatorTransport } from "./transport";
 
 export type OperatorAdapters = {
   storage: {
@@ -20,54 +17,31 @@ export type OperatorAdapters = {
     read(key: string): Promise<unknown>;
     write(key: string, value: OperatorRecord): Promise<void>;
   };
-  readCookie(): Promise<OperatorCookie | null>;
-  schedule(environment: OperatorEnvironment, when: number): Promise<void>;
   badge(required: boolean): Promise<void>;
   fetch: typeof fetch;
-  now(): number;
 };
-type Slot = {
-  record: OperatorRecord;
-  blocked: boolean;
-  queue: Promise<unknown>;
-  flight: Promise<void> | null;
-  cookieGeneration: number;
-  cookiePresent: boolean;
-  browserExpiresAt: string | null;
-};
+
+type Slot = { record: OperatorRecord; blocked: boolean; queue: Promise<unknown> };
 
 export function createOperatorBackground(adapters: OperatorAdapters) {
   const transport = createOperatorTransport(adapters.fetch);
   const slots = new Map<OperatorEnvironment, Slot>(
     operatorEnvironments.map((environment) => [
       environment,
-      {
-        record: emptyOperatorRecord(environment),
-        blocked: false,
-        queue: Promise.resolve(),
-        flight: null,
-        cookieGeneration: 0,
-        cookiePresent: false,
-        browserExpiresAt: null,
-      },
+      { record: emptyOperatorRecord(environment), blocked: false, queue: Promise.resolve() },
     ]),
   );
-  function slot(environment: OperatorEnvironment) {
-    return slots.get(environment)!;
-  }
-  function status(environment: OperatorEnvironment): OperatorStatus {
+  const slot = (environment: OperatorEnvironment) => slots.get(environment)!;
+  const status = (environment: OperatorEnvironment): OperatorStatus => {
     const current = slot(environment);
-    const record = current.record;
     return {
-      paired: !current.blocked && record.grant !== null,
-      state: current.blocked ? "upgrade-required" : record.state,
-      lastOutcome: record.lastOutcome,
-      lastPushedAt: record.lastPushedAt,
-      serverRevision: record.lastRevision,
-      cookiePresent: current.cookiePresent,
-      browserExpiresAt: current.browserExpiresAt,
+      paired: !current.blocked && current.record.grant !== null,
+      state: current.blocked ? "upgrade-required" : current.record.state,
+      lastOutcome: current.record.lastOutcome,
+      lastPushedAt: null,
+      serverRevision: current.record.lastRevision,
     };
-  }
+  };
   const ready = adapters.storage
     .trust()
     .then(async () => {
@@ -102,179 +76,36 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     await adapters.storage.write(operatorRecordKey(record.environment), record);
     current.record = record;
   }
-  async function schedule(current: Slot) {
-    if (!current.blocked && current.record.grant && current.record.dirty) {
-      await adapters.schedule(
-        current.record.environment,
-        Math.max(adapters.now() + 1000, current.record.nextAttemptAt),
-      );
-    }
-  }
   async function badge() {
     await adapters.badge([...slots.values()].some((current) => current.record.state === "re-pair-required"));
   }
-  async function applyResponse(environment: OperatorEnvironment, fence: number, result: OperatorResult) {
-    await serial(environment, async (current) => {
-      if (current.blocked || current.record.profileRevision !== fence || !current.record.grant) return;
-      const record = { ...current.record };
-      if ("revision" in result && result.revision < record.lastRevision) result = { outcome: "invalid-response" };
-      if (result.outcome === "stored" || result.outcome === "unchanged") {
-        record.lastRevision = result.revision;
-        record.lastPushedAt = new Date(adapters.now()).toISOString();
-        record.state = "idle";
-        record.staleRetries = 0;
-      } else if (result.outcome === "stale-revision") {
-        record.lastRevision = result.revision;
-        record.state = record.staleRetries < 3 ? "retrying" : "error";
-        record.dirty = record.staleRetries < 3;
-        record.staleRetries = Math.min(3, record.staleRetries + 1);
-      } else if (result.outcome === "grant-invalid") {
-        if (record.profileRevision === Number.MAX_SAFE_INTEGER) {
-          current.blocked = true;
-          return;
-        }
-        record.profileRevision++;
-        record.grant = null;
-        record.state = "re-pair-required";
-        record.dirty = false;
-      } else if (result.outcome === "unavailable" || result.outcome === "rate-limited") {
-        record.state = "retrying";
-        record.dirty = true;
-        record.nextAttemptAt = Math.max(
-          record.nextAttemptAt,
-          adapters.now() + (result.outcome === "rate-limited" ? result.retryAfterMs : 300_000),
-        );
-      } else {
-        record.state = "error";
-        record.dirty = false;
-      }
-      record.lastOutcome = result.outcome === "revoked" ? "refused" : result.outcome;
-      await write(current, record);
-      await schedule(current);
-      await badge();
-    });
-  }
-  async function push(environment: OperatorEnvironment) {
-    const fence = await serial(environment, async (current) => {
-      const record = current.record;
-      if (current.blocked || !record.grant || !record.dirty || record.state === "error") return null;
-      if (adapters.now() < record.nextAttemptAt) {
-        await schedule(current);
-        return null;
-      }
-      // Reserve the rate slot durably before reading or sending. Eviction can only delay work.
-      await write(current, { ...record, state: "pushing", dirty: true, nextAttemptAt: adapters.now() + 60_000 });
-      return { profileRevision: record.profileRevision, cookieGeneration: current.cookieGeneration };
-    });
-    if (fence === null) return;
-    let cookie: OperatorCookie | null;
-    let observedAt: string;
-    try {
-      cookie = await adapters.readCookie();
-      observedAt = new Date(adapters.now()).toISOString();
-    } catch {
-      await applyResponse(environment, fence.profileRevision, { outcome: "unavailable" });
-      return;
-    }
-    const call = await serial(environment, async (current) => {
-      if (current.blocked || current.record.profileRevision !== fence.profileRevision || !current.record.grant)
-        return null;
-      if (current.cookieGeneration !== fence.cookieGeneration) return null;
-      current.cookiePresent = cookie !== null && isOperatorCookie(cookie);
-      current.browserExpiresAt = current.cookiePresent && cookie ? cookieExpiry(cookie) : null;
-      if (!current.cookiePresent || !cookie) {
-        await write(current, { ...current.record, state: "idle", dirty: false, lastOutcome: "cookie-absent" });
-        return null;
-      }
-      await write(current, { ...current.record, dirty: false });
-      return {
-        response: transport.push(environment, current.record.grant!, {
-          expectedRevision: current.record.lastRevision,
-          value: cookie.value,
-          observedAt,
-          browserExpiresAt: current.browserExpiresAt,
-        }),
-      };
-    });
-    if (call) await applyResponse(environment, fence.profileRevision, await call.response);
-  }
-  async function kick(environment: OperatorEnvironment): Promise<void> {
-    const current = slot(environment);
-    if (current.flight) return current.flight;
-    const flight = push(environment)
-      .catch(() => {
-        current.blocked = true;
-      })
-      .finally(() => {
-        current.flight = null;
-      });
-    current.flight = flight;
-    await flight;
-    await serial(environment, async (active) => {
-      await schedule(active);
-    }).catch(() => undefined);
-  }
-  async function trigger(environment: OperatorEnvironment, recovery = false) {
-    await serial(environment, async (current) => {
-      if (current.blocked || !current.record.grant || (current.record.state === "error" && !recovery)) return;
-      await write(current, {
-        ...current.record,
-        dirty: true,
-        ...(recovery ? ({ state: "idle", staleRetries: 0 } as const) : {}),
-      });
-    });
-    await kick(environment);
-  }
-  async function commitPair(current: Slot, grant: string): Promise<boolean> {
-    if (current.blocked) return false;
-    if (current.record.profileRevision === Number.MAX_SAFE_INTEGER) {
-      current.blocked = true;
-      return false;
-    }
-    await write(current, {
-      ...emptyOperatorRecord(current.record.environment),
-      profileRevision: current.record.profileRevision + 1,
-      nextAttemptAt: current.record.nextAttemptAt,
-      grant,
-      state: "idle",
-      dirty: true,
-    });
-    return true;
-  }
   async function command(command: OperatorCommand): Promise<OperatorStatus> {
     const environment = command.environment;
-    if (command.action === "status") {
+    if (command.action === "status" || command.action === "recover") {
       await serial(environment, async () => undefined);
-      return status(environment);
-    }
-    if (command.action === "recover") {
-      await trigger(environment, true);
       return status(environment);
     }
     if (command.action === "pair") {
       await serial(environment, async (current) => {
-        if (await commitPair(current, command.grant)) await badge();
+        if (current.blocked || current.record.profileRevision === Number.MAX_SAFE_INTEGER) return;
+        await write(current, {
+          ...emptyOperatorRecord(environment),
+          profileRevision: current.record.profileRevision + 1,
+          grant: command.grant,
+          state: "idle",
+          dirty: false,
+        });
+        await badge();
       });
-      await kick(environment);
       return status(environment);
     }
     const revoke = await serial(environment, async (current) => {
-      if (current.blocked) return null;
-      if (current.record.profileRevision === Number.MAX_SAFE_INTEGER) {
-        current.blocked = true;
-        return null;
-      }
+      if (current.blocked || !current.record.grant) return null;
       const prior = current.record;
-      const next = {
-        ...emptyOperatorRecord(environment),
-        profileRevision: prior.profileRevision + 1,
-        nextAttemptAt: prior.nextAttemptAt,
-      };
-      await write(current, next);
+      await write(current, { ...emptyOperatorRecord(environment), profileRevision: prior.profileRevision + 1 });
       await badge();
       return prior.grant;
     });
-    // The old grant is already removed and fenced. Revoke completion has no writer.
     if (revoke) await transport.revoke(environment, revoke);
     return status(environment);
   }
@@ -283,17 +114,18 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       value: unknown,
       sender: { id?: string; url?: string; origin?: string; frameId?: number; hasTab: boolean },
       extensionId: string,
-    ): Promise<{ outcome: "paired" | "refused" }> {
-      const refused = { outcome: "refused" } as const;
+    ) {
+      const refused = { outcome: "refused" as const };
       if (
         !closed(value, ["action", "grant"]) ||
         value.action !== "pair-handoff" ||
-        !isGrant(value.grant) ||
         (sender.id !== undefined && sender.id !== extensionId) ||
         sender.frameId !== 0 ||
         sender.hasTab !== true
       )
         return refused;
+      const grant = value.grant;
+      if (!isGrant(grant)) return refused;
       const environment = operatorEnvironments.find((candidate) => operatorOrigins[candidate] === sender.origin);
       if (!environment || typeof sender.url !== "string") return refused;
       try {
@@ -302,20 +134,22 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       } catch {
         return refused;
       }
-      const grant = value.grant;
       try {
         const result = await serial(environment, async (current) => {
           if (current.blocked) return "refused";
           if (current.record.grant === grant) return "unchanged";
-          return (await commitPair(current, grant)) ? "committed" : "refused";
+          if (current.record.profileRevision === Number.MAX_SAFE_INTEGER) return "refused";
+          await write(current, {
+            ...emptyOperatorRecord(environment),
+            profileRevision: current.record.profileRevision + 1,
+            grant,
+            state: "idle",
+            dirty: false,
+          });
+          await badge();
+          return "committed";
         });
-        if (result === "refused") return refused;
-        if (result === "committed") {
-          // The page acknowledgement is local custody only, independent of downstream work.
-          void badge().catch(() => undefined);
-          void kick(environment).catch(() => undefined);
-        }
-        return { outcome: "paired" };
+        return result === "refused" ? refused : { outcome: "paired" as const };
       } catch {
         return refused;
       }
@@ -324,7 +158,7 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       value: unknown,
       sender: { id?: string; url?: string; origin?: string; hasTab: boolean },
       extensionId: string,
-    ): Promise<OperatorStatus | null> {
+    ) {
       const origin = `chrome-extension://${extensionId}`;
       if (
         sender.id !== extensionId ||
@@ -339,28 +173,6 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       } catch {
         return status(value.environment);
       }
-    },
-    async resume() {
-      for (const environment of operatorEnvironments) await trigger(environment);
-      await badge();
-    },
-    async alarm(environment: OperatorEnvironment) {
-      await trigger(environment);
-    },
-    async cookieChanged(change: { removed: boolean; cookie: OperatorCookie }) {
-      if (!isOperatorCookie(change.cookie)) return;
-      await Promise.all(
-        operatorEnvironments.map(async (environment) => {
-          await serial(environment, async (current) => {
-            current.cookieGeneration++;
-            if (change.removed) {
-              current.cookiePresent = false;
-              current.browserExpiresAt = null;
-            }
-          });
-          if (!change.removed) await trigger(environment, true);
-        }),
-      );
     },
   };
 }
