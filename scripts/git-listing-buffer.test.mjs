@@ -149,7 +149,7 @@ function sourceRows(sf, relativePath) {
   };
   const numberValue = (value, scope, depth = 0) => {
     const r = resolve(value, scope, depth);
-    if (r.exceeded || r.fallback) return undefined;
+    if (r.exceeded || r.fallback || !r.node) return undefined;
     if (ts.isNumericLiteral(r.node)) return Number(r.node.text);
     if (ts.isBinaryExpression(r.node)) {
       const a = numberValue(r.node.left, r.scope, depth + 1),
@@ -223,13 +223,11 @@ function sourceRows(sf, relativePath) {
       if (ts.isSpreadAssignment(p)) {
         if (found) laterSpread = true;
         const spread = resolve(p.expression, r.scope, depth + 1);
-        if (!spread.node) {
-          found = undefined;
+        if (!spread.node || spread.fallback) {
           ambiguous = true;
           continue;
         }
         if (ts.isConditionalExpression(spread.node)) {
-          found = undefined;
           ambiguous = true;
           conditionalAmbiguous = true;
         } else {
@@ -237,7 +235,6 @@ function sourceRows(sf, relativePath) {
           if (result.status === "compliant") found = result;
           else if (result.status === "noncompliant") found = result;
           else {
-            found = undefined;
             ambiguous = true;
           }
         }
@@ -252,6 +249,7 @@ function sourceRows(sf, relativePath) {
       const initializer = ts.isShorthandPropertyAssignment(p) ? p.name : p.initializer;
       const v = resolve(initializer, r.scope, depth + 1);
       if (v.fallback) found = { status: "ambiguous", reason: "unresolved-options" };
+      else if (!v.node) found = { status: "ambiguous", reason: "unresolved-options" };
       else if (ts.isIdentifier(v.node) && v.node.text === "GIT_LISTING_MAX_BUFFER")
         found = { status: "compliant", reason: "constant" };
       else if (
@@ -362,7 +360,7 @@ function sourceRows(sf, relativePath) {
     return undefined;
   };
   const buildParams = (fn, args, callerScope, calleeScope) => {
-    const next = { parent: calleeScope.parent, bindings: new Map(calleeScope.bindings), fn };
+    const next = { parent: calleeScope.parent.parent, bindings: new Map() };
     fn.parameters.forEach((p, i) => {
       const arg = args[i];
       if (ts.isIdentifier(p.name))
@@ -382,7 +380,9 @@ function sourceRows(sf, relativePath) {
             });
           }
     });
-    return next;
+    const body = makeScope(next, fn.body);
+    body.fn = fn;
+    return body;
   };
   const inspect = (node, scope, kind, hops = 0) => {
     if (!node) return;
@@ -963,6 +963,83 @@ describe("Git listing buffer contract", () => {
         "ambiguous",
         "unresolved-options",
       ],
+      [
+        "wrapper-body-alias-callback",
+        'import { execFileSync } from "node:child_process"; function list(roots, opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { const o = opts; return roots.map((root) => execFileSync("git", ["ls-files", "-z"], o)); } list(["."], { maxBuffer: 1024 });',
+        "wrapper",
+        "noncompliant",
+        "small-capacity",
+      ],
+      [
+        "wrapper-body-spread-alias",
+        'import { execFileSync } from "node:child_process"; function list(root, opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { const o = { cwd: root, ...opts }; return execFileSync("git", ["ls-files"], o); } list(".", { maxBuffer: 1024 });',
+        "wrapper",
+        "noncompliant",
+        "small-capacity",
+      ],
+      [
+        "wrapper-body-helper-default-alias",
+        'import { execFileSync } from "node:child_process"; function run(args, options = gitListingOptions({ encoding: "utf8" })) { const o = options; return execFileSync("git", args, o); } run(["ls-files"], { maxBuffer: 1024 });',
+        "wrapper",
+        "noncompliant",
+        "small-capacity",
+      ],
+      [
+        "wrapper-body-options-alias",
+        'import { execFileSync } from "node:child_process"; function run(args, options = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { const o = options; return execFileSync("git", args, o); } run(["ls-files"], { maxBuffer: 1024 });',
+        "wrapper",
+        "noncompliant",
+        "small-capacity",
+      ],
+      [
+        "wrapper-body-destructured-alias",
+        'import { execFileSync } from "node:child_process"; function run(args, { maxBuffer = GIT_LISTING_MAX_BUFFER } = {}) { const capacity = maxBuffer; return execFileSync("git", args, { maxBuffer: capacity }); } run(["ls-files"], { maxBuffer: 1024 });',
+        "wrapper",
+        "noncompliant",
+        "small-capacity",
+      ],
+      [
+        "wrapper-body-args-alias",
+        'import { execFileSync } from "node:child_process"; function run(args, options = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { const a = args; return execFileSync("git", a, options); } run(["ls-files"], { maxBuffer: 1024 });',
+        "wrapper",
+        "noncompliant",
+        "small-capacity",
+      ],
+      [
+        "spread-fallback-small-caller",
+        'import { execFileSync } from "node:child_process"; function list(root, options) { const o = options ?? { maxBuffer: GIT_LISTING_MAX_BUFFER }; return execFileSync("git", ["ls-files", "-z"], { ...o, cwd: root }); } list(".", { maxBuffer: 1024 });',
+        "direct",
+        "ambiguous",
+        "unresolved-options",
+      ],
+      [
+        "parameter-capacity-without-default",
+        'import { execFileSync } from "node:child_process"; export function list(cap) { return execFileSync("git", ["ls-files"], { maxBuffer: cap }); }',
+        "direct",
+        "ambiguous",
+        "unresolved-options",
+      ],
+      [
+        "parameter-shorthand-capacity-without-default",
+        'import { execFileSync } from "node:child_process"; export function list(maxBuffer) { return execFileSync("git", ["ls-files"], { maxBuffer }); }',
+        "direct",
+        "ambiguous",
+        "unresolved-options",
+      ],
+      [
+        "parameter-options-capacity-without-default",
+        'import { execFileSync } from "node:child_process"; export function list(cap, o = { maxBuffer: cap }) { return execFileSync("git", ["ls-files"], o); }',
+        "injected-default",
+        "ambiguous",
+        "unresolved-options",
+      ],
+      [
+        "parameter-capacity-product-without-default",
+        'import { execFileSync } from "node:child_process"; export function list(cap) { return execFileSync("git", ["ls-files"], { maxBuffer: cap * 1024 }); }',
+        "direct",
+        "ambiguous",
+        "unresolved-options",
+      ],
     ];
     for (const [name, source, kind, status, reason] of failClosedPlants) {
       const { root, relative } = plant(name, source);
@@ -975,6 +1052,8 @@ describe("Git listing buffer contract", () => {
         } else
           expect(rows).toEqual([
             expect.objectContaining({
+              file: relative,
+              line: expect.any(Number),
               kind,
               status,
               ...(reason ? { reason } : {}),
@@ -1051,6 +1130,24 @@ describe("Git listing buffer contract", () => {
         "one-hop-wrapper",
         'function run(args, options) { return execFileSync("git", args, options); } run(["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
         "wrapper",
+        "constant",
+      ],
+      [
+        "wrapper-body-options-alias-constant",
+        'function run(args, options = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { const o = options; return execFileSync("git", args, o); } run(["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "wrapper",
+        "constant",
+      ],
+      [
+        "wrapper-body-options-alias-no-default",
+        'function run(args, options) { const o = options; return execFileSync("git", args, o); } run(["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "wrapper",
+        "constant",
+      ],
+      [
+        "leading-fallback-spread",
+        'export function list(root, options) { return execFileSync("git", ["ls-files"], { ...(options ?? {}), cwd: root, maxBuffer: GIT_LISTING_MAX_BUFFER }); }',
+        "direct",
         "constant",
       ],
       [
@@ -1192,6 +1289,26 @@ describe("Git listing buffer contract", () => {
       [
         "capacity-fallback",
         'import { execFileSync } from "node:child_process"; const options = {}; execFileSync("git", ["ls-files"], { maxBuffer: options.maxBuffer ?? GIT_LISTING_MAX_BUFFER });',
+        "ambiguous",
+      ],
+      [
+        "spread-nullish-fallback",
+        'import { execFileSync } from "node:child_process"; export function list(root, options) { return execFileSync("git", ["ls-files", "-z"], { cwd: root, ...(options ?? { maxBuffer: GIT_LISTING_MAX_BUFFER }) }); }',
+        "ambiguous",
+      ],
+      [
+        "spread-bound-nullish-fallback",
+        'import { execFileSync } from "node:child_process"; export function list(root, options) { const o = options ?? { maxBuffer: GIT_LISTING_MAX_BUFFER }; return execFileSync("git", ["ls-files", "-z"], { ...o, cwd: root }); }',
+        "ambiguous",
+      ],
+      [
+        "spread-logical-fallback",
+        'import { execFileSync } from "node:child_process"; export function list(root, options) { return execFileSync("git", ["ls-files", "-z"], { cwd: root, ...(options || { maxBuffer: GIT_LISTING_MAX_BUFFER }) }); }',
+        "ambiguous",
+      ],
+      [
+        "spread-property-fallback",
+        'import { execFileSync } from "node:child_process"; export function list(root, options) { const presets = { listing: options ?? { maxBuffer: GIT_LISTING_MAX_BUFFER } }; return execFileSync("git", ["ls-files", "-z"], { ...presets.listing, cwd: root }); }',
         "ambiguous",
       ],
       [
