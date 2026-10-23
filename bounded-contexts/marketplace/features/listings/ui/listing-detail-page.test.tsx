@@ -112,6 +112,40 @@ const cardChromeExcluded = [
 ] as const;
 
 describe("MarketplaceListingDetailPage", () => {
+  it.each([
+    [null, null],
+    [null, "9.50"],
+    ["0.50", null],
+  ])("shows not-set rather than a fabricated native summary for fee %s and net %s", (fee, net) => {
+    const { container } = render(
+      <MarketplaceListingDetailPage
+        listing={{
+          ...listing,
+          price_amount: "10.01",
+          status: "draft",
+          marketplace_sales_fee_unit_amount: fee,
+          seller_net_unit_amount: net,
+          fee_quote_fingerprint: null,
+          terms_schedule_id: null,
+          terms_resolved_at: null,
+          shipping_allowance_percentage_bps: 0,
+        }}
+        feeHistory={[]}
+      />,
+    );
+    expect(screen.getAllByText("Not set").length).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("0.00");
+    expect(screen.queryByText(/Marketplace \$.*\. Net/)).toBeNull();
+    for (const input of container.querySelectorAll<HTMLInputElement>('input[name="feeQuoteFingerprint"]')) {
+      expect(input.value).toBe("");
+    }
+  });
+
+  it("preserves the native fee summary", () => {
+    render(<MarketplaceListingDetailPage listing={listing} feeHistory={[]} />);
+    expect(screen.getByText(/Marketplace \$0.00\. Net \$20.00\./)).toBeTruthy();
+  });
+
   it("pins all six listing-detail roots to their ratified chrome", () => {
     const { container } = render(
       <MarketplaceListingDetailPage

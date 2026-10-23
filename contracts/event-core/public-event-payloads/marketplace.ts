@@ -173,6 +173,7 @@ export type MarketplaceListingCreatedPayload = Readonly<{
   inventoryItemId: string;
   catalogItemId: string;
   productId: string;
+  itemLanguageCode?: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
@@ -191,9 +192,12 @@ export type MarketplaceListingCreatedPayload = Readonly<{
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string | null;
+  feeQuoteFingerprint?: string | null;
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
   quantityCap: number;
   purchaseLimits?: MarketplacePurchaseLimitsPayload;
+  evidenceRequirements?: JsonValue | null;
+  evidence?: readonly JsonValue[];
 }>;
 
 export type MarketplaceListingPriceUpdatedPayload = Readonly<{
