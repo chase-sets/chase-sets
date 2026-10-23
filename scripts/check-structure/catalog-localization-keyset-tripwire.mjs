@@ -169,13 +169,13 @@ function loadTrackedTypeScriptFiles(rootDir) {
   return files;
 }
 
-function git(rootDir, args, { allowFailure = false, maxBuffer } = {}) {
+function git(rootDir, args, { allowFailure = false, maxBuffer: _maxBuffer } = {}) {
   try {
     return execFileSync("git", args, {
       cwd: rootDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-      ...(maxBuffer === undefined ? {} : { maxBuffer }),
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     }).trim();
   } catch (error) {
     if (allowFailure) return null;

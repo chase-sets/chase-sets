@@ -119,7 +119,7 @@ function verifyScope({ indexBytes, partition, testSources }) {
   assert.deepEqual(rawModules, expectedProductionModules, "raw route-census TypeScript set drifted");
   assert.deepEqual(filteredModules, expectedProductionModules, "canonical route-census module set drifted");
   const inventory = listNonTestTypeScriptModules(repoRoot, {
-    execGit: (args) => {
+    execGit: (_file, args) => {
       assert.deepEqual(args, ["ls-files", "-z", "--cached"]);
       return indexBytes.toString("utf8");
     },

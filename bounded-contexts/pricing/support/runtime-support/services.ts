@@ -23,12 +23,8 @@ import { pricingGoalDefinitions } from "../../features/repricing-policies/domain
 import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { ChannelConnectionIdentityReader } from "../../features/economics/domain/contracts";
 import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
-import type { TcgplayerMarketTransportCapability } from "../../features/price-signals/integrations/tcgplayer/transport-port";
-import type { TcgplayerMarketCaptureReceiptSinkCapability } from "../../features/price-signals/integrations/tcgplayer/capture-sanitizer";
 
 export type PricingHostPorts = Readonly<{
-  tcgplayerMarketTransport: TcgplayerMarketTransportCapability;
-  tcgplayerMarketCaptureReceiptSink: TcgplayerMarketCaptureReceiptSinkCapability;
   commercialTermsResolver: CommercialTermsResolver;
   channelConnectionIdentityReader: ChannelConnectionIdentityReader;
 }>;
@@ -81,12 +77,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     commercialTermsResolver: ports.commercialTermsResolver,
     channelConnectionIdentityReader: ports.channelConnectionIdentityReader,
   });
-  const priceSignals = createPriceSignalRuntime({
-    db,
-    pool,
-    tcgplayerMarketTransport: ports.tcgplayerMarketTransport,
-    tcgplayerMarketCaptureReceiptSink: ports.tcgplayerMarketCaptureReceiptSink,
-  });
+  const priceSignals = createPriceSignalRuntime({ db });
   const recommendations = createPricingRecommendationRuntime({
     eventStore,
     checkpointStore,

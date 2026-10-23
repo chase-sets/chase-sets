@@ -123,18 +123,16 @@ function parseExplicitChangedFiles(value) {
   return parsed.map(normalizeRepoPath);
 }
 
-function defaultExecGit(args, repoRoot) {
-  return execFileSync("git", args, {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: GIT_LISTING_MAX_BUFFER,
-  });
-}
-
-function execGitOrThrow(execGit, args, code, message) {
+function execGitOrThrow(args, code, message, repoRoot, execGit = execFileSync) {
   try {
-    return String(execGit(args));
+    return String(
+      execGit("git", args, {
+        cwd: repoRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: GIT_LISTING_MAX_BUFFER,
+      }),
+    );
   } catch {
     throw guardError(code, message);
   }
@@ -144,11 +142,7 @@ function parseNullSeparatedPaths(output) {
   return String(output).split("\0").filter(Boolean).map(normalizeRepoPath);
 }
 
-export function discoverDoksIngressChangedFiles({
-  repoRoot,
-  environment = process.env,
-  execGit = (args) => defaultExecGit(args, repoRoot),
-} = {}) {
+export function discoverDoksIngressChangedFiles({ repoRoot, environment = process.env, execGit = execFileSync } = {}) {
   // Keep the same fail-closed stage order as scripts/format-check.mjs: explicit
   // input is parsed first, then Git identity, merge-base, and diff discovery.
   const hasExplicitInput =
@@ -156,20 +150,22 @@ export function discoverDoksIngressChangedFiles({
   const explicitChangedFiles = hasExplicitInput ? parseExplicitChangedFiles(environment.CHANGED_FILES_JSON) : null;
 
   const insideWorkTree = execGitOrThrow(
-    execGit,
     ["rev-parse", "--is-inside-work-tree"],
     "DOKS_INGRESS_NOT_A_GIT_WORKTREE",
     "could not confirm that the guard is running inside a Git worktree.",
+    repoRoot,
+    execGit,
   ).trim();
   if (insideWorkTree !== "true") {
     throw guardError("DOKS_INGRESS_NOT_A_GIT_WORKTREE", "the guard is not running inside a Git worktree.");
   }
 
   const mergeBase = execGitOrThrow(
-    execGit,
     ["merge-base", "HEAD", "refs/remotes/origin/main"],
     "DOKS_INGRESS_MERGE_BASE_UNAVAILABLE",
     "could not derive the merge base for HEAD and refs/remotes/origin/main.",
+    repoRoot,
+    execGit,
   ).trim();
   if (!mergeBase) {
     throw guardError(
@@ -184,21 +180,23 @@ export function discoverDoksIngressChangedFiles({
 
   const changedFiles = parseNullSeparatedPaths(
     execGitOrThrow(
-      execGit,
       ["diff", "--name-only", "-z", "--diff-filter=ACMRTD", `${mergeBase}...HEAD`, "--"],
       "DOKS_INGRESS_DIFF_UNAVAILABLE",
       "could not derive changed files from the merge-base diff.",
+      repoRoot,
+      execGit,
     ),
   );
   return { source: "git merge-base", changedFiles, mergeBase };
 }
 
-function readBaseChartSurface({ mergeBase, execGit }) {
+function readBaseChartSurface({ mergeBase, execGit, repoRoot }) {
   const output = execGitOrThrow(
-    execGit,
     ["ls-tree", "-r", "--name-only", mergeBase, "--", DOKS_INGRESS_CHART_ROOT],
     "DOKS_INGRESS_CHART_SURFACE_UNAVAILABLE",
     "could not read the base chart surface.",
+    repoRoot,
+    execGit,
   );
   const files = output.split(/\r?\n/).filter(Boolean).map(normalizeRepoPath).sort();
   if (files.length === 0) {
@@ -207,12 +205,13 @@ function readBaseChartSurface({ mergeBase, execGit }) {
   return files;
 }
 
-function readBaseChartSource({ mergeBase, execGit }) {
+function readBaseChartSource({ mergeBase, execGit, repoRoot }) {
   const source = execGitOrThrow(
-    execGit,
     ["show", `${mergeBase}:${DOKS_INGRESS_CHART_YAML}`],
     "DOKS_INGRESS_BASE_CHART_UNREADABLE",
     "could not read the base Chart.yaml through Git.",
+    repoRoot,
+    execGit,
   );
   if (!source.trim()) {
     throw guardError("DOKS_INGRESS_BASE_CHART_UNREADABLE", "the base Chart.yaml was empty.");
@@ -314,7 +313,7 @@ function readCurrentChartSource(repoRoot) {
 export async function validateDoksIngressChartVersion({
   repoRoot,
   environment = process.env,
-  execGit = (args) => defaultExecGit(args, repoRoot),
+  execGit = execFileSync,
 } = {}) {
   let discovery;
   let surface;
@@ -322,9 +321,9 @@ export async function validateDoksIngressChartVersion({
   let currentVersion;
   let changedChartFiles = [];
   try {
-    discovery = discoverDoksIngressChangedFiles({ repoRoot, environment, execGit });
-    const baseChartFiles = readBaseChartSurface({ mergeBase: discovery.mergeBase, execGit });
-    const baseChartSource = readBaseChartSource({ mergeBase: discovery.mergeBase, execGit });
+    discovery = discoverDoksIngressChangedFiles({ repoRoot, environment, execGit: execGit });
+    const baseChartFiles = readBaseChartSurface({ mergeBase: discovery.mergeBase, execGit: execGit, repoRoot });
+    const baseChartSource = readBaseChartSource({ mergeBase: discovery.mergeBase, execGit: execGit, repoRoot });
     baseVersion = parseDoksIngressChartVersion(baseChartSource);
 
     surface = scanDoksIngressChartSurface({ repoRoot });
