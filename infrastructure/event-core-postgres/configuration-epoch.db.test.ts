@@ -4,7 +4,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   createPostgresConfigurationEpochStore,
   initializeConfigurationConsumer,
-  CONFIGURATION_EPOCH_LOCK_SQL,
   validateConfigurationGrantVectorInTransaction,
 } from "./configuration-epoch";
 import { createPostgresEventStore } from "./event-store";
@@ -94,7 +93,6 @@ describeDb("A-S separate owner and consumer database protocol", () => {
     let closure: ReturnType<typeof source.driveClosure> | undefined;
     try {
       await terminal.query("BEGIN");
-      if (mutant !== "REMOVE_SHARED_LOCK") await terminal.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
       // Candidate adapter actually takes and verifies its lock; the lock mutant
       // is a terminal bypass, not a production switch.
       if (mutant === "REMOVE_SHARED_LOCK")
