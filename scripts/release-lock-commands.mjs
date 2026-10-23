@@ -103,7 +103,11 @@ function requireString(value, label) {
 }
 
 function escapePowerShellDoubleQuoted(value) {
-  return `"${String(value).replaceAll("`", "``").replace(/[“”„]/g, (quote) => `\`${quote}`).replaceAll("$", "`$").replaceAll('"', '`"')}"`;
+  return `"${String(value)
+    .replaceAll("`", "``")
+    .replace(/[“”„]/g, (quote) => `\`${quote}`)
+    .replaceAll("$", "`$")
+    .replaceAll('"', '`"')}"`;
 }
 
 function isNonEmptyString(value) {

@@ -191,13 +191,7 @@ async function listMatchingIssues(client, repository) {
     if (totalCount !== values.total_count)
       throw new Error("Production release lock issue lookup changed during pagination.");
     const pageItems = values.items;
-    if (
-      pageItems.some(
-        (issue) =>
-          !Number.isInteger(issue.number) ||
-          !["open", "closed"].includes(issue.state),
-      )
-    ) {
+    if (pageItems.some((issue) => !Number.isInteger(issue.number) || !["open", "closed"].includes(issue.state))) {
       throw new Error("Production release lock issue lookup contains invalid issue metadata.");
     }
     const normalizedPageItems = pageItems.map((issue) => ({
