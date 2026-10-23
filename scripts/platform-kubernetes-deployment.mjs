@@ -8,6 +8,7 @@ import {
   buildDoksIngressValues,
   buildPlatformHelmValues,
   buildPreviewDoksIngressValues,
+  chartPreviewValuesRelativePath,
   managedPostgresCaDigestAnnotation,
   managedPostgresCaItemPath,
   managedPostgresCaMountPath,
@@ -61,6 +62,7 @@ const chartName = "chase-sets-platform";
 const chartPath = "infrastructure/helm/platform";
 const stagingValuesPath = `${chartPath}/values.staging.yaml`;
 const productionValuesPath = `${chartPath}/values.production.yaml`;
+const previewValuesPath = chartPreviewValuesRelativePath;
 const defaultRelease = "chase-sets-platform";
 const defaultNamespace = "chase-sets-platform";
 const defaultTimeout = "10m";
@@ -315,6 +317,7 @@ export function buildWaveExposureHelmSetArgs(options = {}) {
 export function platformValuesPathForEnvironment(environmentName) {
   if (environmentName === "staging") return stagingValuesPath;
   if (environmentName === "production") return productionValuesPath;
+  if (environmentName === "preview") return previewValuesPath;
   return null;
 }
 
