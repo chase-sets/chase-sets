@@ -419,6 +419,12 @@ components:
       - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         secret: true
         secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+      - name: "EBAY_APPLICATION_CLIENT_ID"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_ID"
+      - name: "EBAY_APPLICATION_CLIENT_SECRET"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
       - name: "EVIDENCE_WINDOW_ADMISSION_SECRET"
         secret: true
         secretKey: "EVIDENCE_WINDOW_ADMISSION_SECRET"
@@ -744,6 +750,12 @@ components:
       - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         secret: true
         secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+      - name: "EBAY_APPLICATION_CLIENT_ID"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_ID"
+      - name: "EBAY_APPLICATION_CLIENT_SECRET"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
       - name: "EVIDENCE_WINDOW_ADMISSION_SECRET"
         secret: true
         secretKey: "EVIDENCE_WINDOW_ADMISSION_SECRET"

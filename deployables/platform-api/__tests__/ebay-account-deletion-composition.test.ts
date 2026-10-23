@@ -17,6 +17,7 @@ describe("ebay-account-deletion-composition", () => {
     const query = vi.fn(async () => ({ rows: [] }));
     const pool = { query, connect: async () => ({ query, release: () => {} }) };
     const record = vi.fn();
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
     const runtime = createPlatformApiHost({
       pools: Object.fromEntries(apiContextRegistry.map((entry) => [entry.contextName, pool])),
       runtimeProfile: "public",
@@ -27,6 +28,7 @@ describe("ebay-account-deletion-composition", () => {
           ? parseEbayAccountDeletionConfiguration(
               "https://Example.com:443/api/channels-webhooks/ebay/account-deletion",
               "synthetic_verification_token_0123456789",
+              { clientId: "synthetic-client", clientSecret: "synthetic-secret", environment: "sandbox" },
             )
           : null,
         webhookTelemetry: { record },
@@ -50,11 +52,17 @@ describe("ebay-account-deletion-composition", () => {
           challengeResponse: "2f0e4dfc1e2fe419ee360cce032d9103077c870455ceb04b1ef0e1d756be53d2",
         });
     }
-    for (const method of ["HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+    expect((await app.request(CHANNELS_EBAY_ACCOUNT_DELETION_PATH, { method: "POST" })).status).toBe(
+      enabled ? 415 : 503,
+    );
+    for (const method of ["HEAD", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
       expect((await app.request(CHANNELS_EBAY_ACCOUNT_DELETION_PATH, { method })).status).toBe(405);
     }
     expect((await app.request("/api/channels/connections")).status).toBe(401);
     expect(record).toHaveBeenCalledTimes(8);
     expect(query).not.toHaveBeenCalled();
+    await app.request("/health");
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes("ebay.com"))).toEqual([]);
+    fetcher.mockRestore();
   });
 });

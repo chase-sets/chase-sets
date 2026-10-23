@@ -1,4 +1,5 @@
 import "./observability-prelude";
+import type { ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
@@ -171,7 +172,10 @@ const settlementOperationsRecorder = {
   },
 };
 const webhookTelemetry = {
-  record(event: Parameters<typeof recordProviderWebhookIngestion>[0]) {
+  record(
+    event: Parameters<typeof recordProviderWebhookIngestion>[0] &
+      Pick<ProviderWebhookTelemetryEvent, "tokenMint" | "keyFetch">,
+  ) {
     recordProviderWebhookIngestion(event);
     const fields = {
       type: "provider.webhook.ingestion",
@@ -182,6 +186,8 @@ const webhookTelemetry = {
       retryable: event.retryable,
       provider_event_id: event.providerEventId ?? null,
       event_kind: event.eventKind ?? null,
+      token_mint: event.tokenMint ?? "not-attempted",
+      key_fetch: event.keyFetch ?? "not-attempted",
     };
     if (event.outcome === "failed") {
       logger.error("Provider webhook ingestion failed.", fields);

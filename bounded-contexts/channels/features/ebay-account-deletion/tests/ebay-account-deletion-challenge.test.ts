@@ -32,24 +32,21 @@ describe("ebay-account-deletion-challenge", () => {
       expect(await response.text()).not.toContain(fixture.verificationToken);
     },
   );
-  it.each(["HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "PROPFIND"])(
-    "rejects %s before GET",
-    async (method) => {
-      for (const config of [fixture, null]) {
-        const response = await createEbayAccountDeletionRoutes({ config }).request(`${path}?challenge_code=a`, {
-          method,
-        });
-        expect(response.status).toBe(405);
-        expect(response.headers.get("allow")).toBe("GET");
-      }
-    },
-  );
+  it.each(["HEAD", "PUT", "PATCH", "DELETE", "OPTIONS", "PROPFIND"])("rejects %s before GET", async (method) => {
+    for (const config of [fixture, null]) {
+      const response = await createEbayAccountDeletionRoutes({ config }).request(`${path}?challenge_code=a`, {
+        method,
+      });
+      expect(response.status).toBe(405);
+      expect(response.headers.get("allow")).toBe("GET, POST");
+    }
+  });
   it("records only bounded telemetry for success and each refusal", async () => {
     const record = vi.fn();
     for (const [config, query, method, status] of [
       [fixture, "?challenge_code=private-challenge", "GET", 200],
       [fixture, "", "GET", 400],
-      [fixture, "", "POST", 405],
+      [fixture, "", "PUT", 405],
       [null, "?challenge_code=private-challenge", "GET", 503],
     ] as const) {
       const response = await createEbayAccountDeletionRoutes({ config, telemetry: { record } }).request(path + query, {

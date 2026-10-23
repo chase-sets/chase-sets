@@ -47,7 +47,7 @@
     {
       "portName": "ebayAccountDeletionConfiguration",
       "providedBy": "platform-api",
-      "purpose": "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET."
+      "purpose": "Supply deployment-only eBay account-deletion challenge and application key authority configuration; absent configuration disables the webhook."
     },
     {
       "portName": "webhookTelemetry",
@@ -650,6 +650,27 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "channels.ebay-account-deletion-signed-receipt",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/ebay-account-deletion/api/route.ts:POST /ebay/account-deletion",
+        "api-client:bounded-contexts/channels/features/ebay-account-deletion/api/signature.ts:POST H30a7428cc6e1#1"
+      ],
+      "visibleDestination": {
+        "description": "The provider receives 200 only after the verified receipt transaction commits; token mint returns memory-only application authority without a projected read."
+      },
+      "proof": {
+        "authoritativeResponse": "The public route awaits the transactional receipt result. Mint and key lookup use bounded complete responses, fixed deployment authority and no persistent or UI state.",
+        "tests": [
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-authentication.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-key-bootstrap.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-signed-receipt.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "channels.ebay-account-deletion-lookup-snapshot",
       "owner": "channels",
