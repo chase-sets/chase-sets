@@ -359,14 +359,13 @@ export const captureSourceMutants = {
     mutations: [
       {
         file: writes,
-        find: '    if (headerDisposition === "existing") return "replayed";',
-        replace: '    const replayedHeader = headerDisposition === "existing";',
+        find: '  if (headerDisposition === "existing") return "replayed";',
+        replace: '  const replayedHeader = headerDisposition === "existing";',
       },
-      { file: writes, find: cursorUpsert, replace: lines("    if (!replayedHeader)", cursorUpsert) },
       {
         file: writes,
-        find: commitEnd,
-        replace: lines('    return replayedHeader ? "replayed" : "committed";', "  });", "}"),
+        find: '  return "committed";',
+        replace: '  return replayedHeader ? "replayed" : "committed";',
       },
     ],
   },
