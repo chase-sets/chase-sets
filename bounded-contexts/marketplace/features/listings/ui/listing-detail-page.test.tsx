@@ -134,6 +134,11 @@ describe("MarketplaceListingDetailPage", () => {
       />,
     );
     expect(screen.getAllByText("Not set").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Incomplete price")).toBeNull();
+    expect(screen.getByText("Marketplace sales fee:").nextElementSibling?.textContent).toBe(
+      fee === null ? "Not set" : "$0.50",
+    );
+    expect(screen.getByText("Seller net:").nextElementSibling?.textContent).toBe(net === null ? "Not set" : "$9.50");
     expect(container.textContent).not.toContain("0.00");
     expect(screen.queryByText(/Marketplace \$.*\. Net/)).toBeNull();
     for (const input of container.querySelectorAll<HTMLInputElement>('input[name="feeQuoteFingerprint"]')) {

@@ -43,6 +43,12 @@ function formatOptionalMoney(amount: string | null, currencyCode: string | null)
     : t("marketplace.features.listings.ui.listingDetailPage.price.incomplete");
 }
 
+function formatBreakdownMoney(amount: string | null, currencyCode: string | null) {
+  return amount === null
+    ? t("marketplace.features.listings.ui.listingDetailPage.not.set")
+    : formatOptionalMoney(amount, currencyCode);
+}
+
 function renderPreviewSummary(
   preview: Pick<
     MarketplaceListingTermsPreview,
@@ -280,7 +286,7 @@ export function MarketplaceListingDetailPage({
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee"),
-                value: formatOptionalMoney(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
+                value: formatBreakdownMoney(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
@@ -291,7 +297,7 @@ export function MarketplaceListingDetailPage({
                 value: listing.quantity_cap,
               },
             ]}
-            total={formatOptionalMoney(listing.seller_net_unit_amount, listing.price_currency_code)}
+            total={formatBreakdownMoney(listing.seller_net_unit_amount, listing.price_currency_code)}
             totalLabel={t("marketplace.features.listings.ui.listingDetailPage.seller.net")}
           />
 
