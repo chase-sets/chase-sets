@@ -459,7 +459,7 @@ function emptySales(at: string): SecondaryProduct["sales"] {
 
 function listing(sellerKey: string, condition: string, price: number, printing = "Normal") {
   return {
-    sellerOrdinal: sellerKey.charCodeAt(sellerKey.length - 1) - 96,
+    sellerOrdinal: sellerKey.toLowerCase().charCodeAt(sellerKey.length - 1) - 96,
     condition,
     printing,
     language: "English",
