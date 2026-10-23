@@ -846,10 +846,9 @@ describe("UCP REST routes", () => {
   it.each(
     unusableResolverJwks.flatMap((jwk) => JWK_REPRESENTATIONS.map((representation) => ({ jwk, representation }))),
   )(
-    "reports the Node key error for unusable $jwk.kty resolver JWK members held as $representation",
+    "returns fixed signature failure content for unusable $jwk.kty resolver JWK members held as $representation",
     async ({ jwk, representation }) => {
       const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-      const expected = thrownBy(() => createPublicKey({ key: { ...jwk }, format: "jwk" }));
       const resolvedJwk = representJwk(jwk, representation);
       const shapeBefore = jwkShape(resolvedJwk);
 
@@ -858,7 +857,7 @@ describe("UCP REST routes", () => {
       expect(response.status).toBe(400);
       expect(handler).not.toHaveBeenCalled();
       await expect(response.json()).resolves.toMatchObject({
-        messages: [{ message: expected.message }],
+        messages: [{ message: "HTTP Message Signature verification failed." }],
       });
       expect(jwkShape(resolvedJwk)).toEqual(shapeBefore);
     },
@@ -893,7 +892,7 @@ describe("UCP REST routes", () => {
   );
 
   it.each(ACCESSOR_PLACEMENTS)(
-    "reports the accessor error Node raises while reading the resolver JWK's %s member (synthetic)",
+    "returns fixed signature failure content when reading the resolver JWK's %s member fails (synthetic)",
     async (placement) => {
       const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
       const accessorError = new Error("synthetic public member read");
@@ -905,7 +904,7 @@ describe("UCP REST routes", () => {
       expect(response.status).toBe(400);
       expect(handler).not.toHaveBeenCalled();
       await expect(response.json()).resolves.toMatchObject({
-        messages: [{ message: accessorError.message }],
+        messages: [{ message: "HTTP Message Signature verification failed." }],
       });
     },
   );
