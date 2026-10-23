@@ -523,6 +523,9 @@ const previewStateRetirementDelta = [
   ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
   ["SPACES_ACCESS_ID", "terraform-infra"],
   ["SPACES_SECRET_KEY", "terraform-infra"],
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
 ].map(([secretName, purpose]) => ({
   file: ".github/workflows/platform-preview-cleanup.yml",
   jobId: "destroy-preview",
@@ -886,7 +889,7 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1703);
+    expect(expected.grants).toHaveLength(1706);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);

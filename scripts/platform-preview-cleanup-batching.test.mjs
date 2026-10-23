@@ -262,9 +262,9 @@ describe("scheduled preview cleanup batching", () => {
     const source = readFileSync(workflowPath, "utf8");
     const retirement = step("destroy-preview", "Retire empty preview Terraform state");
     expect(retirement.if).toBe("${{ !cancelled() && steps.batch-targets.outcome == 'success' }}");
-    expect(retirement.run).toContain("grep -Fxq \"$pr_number\" \"$failed_targets\"");
-    expect(retirement.run).toContain("--cleanup-succeeded \"$cleanup_succeeded\"");
-    expect(retirement.run).toContain("--out \"$record_path\"");
+    expect(retirement.run).toContain('grep -Fxq "$pr_number" "$failed_targets"');
+    expect(retirement.run).toContain('--cleanup-succeeded "$cleanup_succeeded"');
+    expect(retirement.run).toContain('--out "$record_path"');
     expect(source).toContain('echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"');
     expect(step("destroy-preview", "Upload preview state retirement record").if).toBe("always()");
   });
