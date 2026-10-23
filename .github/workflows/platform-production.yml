@@ -476,6 +476,8 @@ jobs:
       PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
       PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
       PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+      PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
       DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
       CIRCUIT_ISSUE_NUMBER: ${{ inputs.circuit_issue_number }}
       CIRCUIT_REASON: ${{ inputs.circuit_reason }}
@@ -3075,6 +3077,8 @@ jobs:
       PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
       PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
       PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+      PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
     steps:
       - name: Configure Git defaults
         env:
@@ -3128,7 +3132,7 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           EMERGENCY_RELEASE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
-        run: node ./scripts/release-lock.mjs
+        run: node ./scripts/release-lock.mjs --out artifacts/release-health/production-release-lock.json
 
       - name: Validate production configuration
         if: env.SHOULD_DEPLOY != 'false'
@@ -4847,6 +4851,11 @@ jobs:
           CI_TOP_FLAKY_JOBS: ${{ steps.ci_metadata.outputs.ci_top_flaky_jobs }}
           MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}
           MAIN_TO_PRODUCTION_DRIFT_SECONDS: ${{ steps.release_health_metadata.outputs.drift_seconds }}
+          PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
+          PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
+          PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+          PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+          PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}
           RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback' || github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'fix-forward' || 'none' }}
           RECOVERY_REFERENCE: ${{ steps.production_rollback.outputs.rollback_reference || steps.release_lock.outputs.emergency_reference }}
@@ -4884,6 +4893,7 @@ jobs:
           name: production-release-health
           path: |
             artifacts/release-health/production-release.json
+            artifacts/release-health/production-release-lock.json
             artifacts/release-health/production-db-restore-point.json
             artifacts/release-health/production-readiness-gate.json
             artifacts/release-health/production-rollback.json

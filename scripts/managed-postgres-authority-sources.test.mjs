@@ -899,6 +899,7 @@ describe("managed Postgres authority source generator", () => {
       const owner = `${AUTHORITY_ROOT}/${basename(record.file).replace(/\.ya?ml$/, "")}/${record.jobId}.json`;
       expectedOwners.set(owner, [...(expectedOwners.get(owner) ?? []), record]);
     }
+    expectedOwners.set(`${AUTHORITY_ROOT}/platform-production-lock-monitor/monitor-production-release-lock.json`, []);
     const sources = await snapshot(repositoryRoot, AUTHORITY_ROOT);
     expect(Object.keys(sources).sort()).toEqual([...expectedOwners.keys()].sort());
     for (const [owner, records] of expectedOwners) {
