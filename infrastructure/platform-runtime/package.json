@@ -58,6 +58,7 @@
     "./realtime-web": "./realtime-web.ts",
     "./web": "./web.ts",
     "./web-assets": "./web-assets.ts",
+    "./web-entry-server": "./web-entry-server.ts",
     "./web-route-config": "./web-route-config.ts",
     "./web-server": "./web-server.ts",
     "./work-signal-store": "./work-signal-store.ts",
@@ -91,8 +92,10 @@
     "compression": "^1.8.2",
     "express": "^4.22.3",
     "hono": "^4.13.13",
+    "isbot": "^5",
     "morgan": "^1.12.1",
     "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "react-router": "^7.18.4"
   },
   "devDependencies": {

@@ -876,6 +876,9 @@
       "@chase-sets/platform-runtime/web-assets": [
         "./infrastructure/platform-runtime/web-assets.ts"
       ],
+      "@chase-sets/platform-runtime/web-entry-server": [
+        "./infrastructure/platform-runtime/web-entry-server.ts"
+      ],
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
       ],

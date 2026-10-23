@@ -16,6 +16,28 @@ const seedPacksWorkflow = readFileSync(resolve(seedPacksWorkflowFile), "utf8");
 const registryCleanupWorkflowFile = ".github/workflows/platform-registry-cleanup.yml";
 const registryCleanupWorkflow = readFileSync(resolve(registryCleanupWorkflowFile), "utf8");
 
+describe("production release lock monitor provider isolation", () => {
+  const workflowFile = ".github/workflows/platform-production-lock-monitor.yml";
+  const source = readFileSync(resolve(workflowFile), "utf8");
+  it("registers a credential-free monitor with no provider execution", () => {
+    expect(checkWorkflowProviderCredentials(source, { workflowFile })).toMatchObject({
+      passed: true,
+      checkedSteps: [],
+      violations: [],
+    });
+  });
+  it("refuses provider credentials or operations even when fully wired", () => {
+    expect(
+      checkWorkflowProviderCredentials(source + "\n# ${{ secrets.PROVIDER_TOKEN }}\n", { workflowFile }).passed,
+    ).toBe(false);
+    expect(
+      checkWorkflowProviderCredentials(source.replace("node ./scripts/release-lock-monitor.mjs", "terraform plan"), {
+        workflowFile,
+      }).passed,
+    ).toBe(false);
+  });
+});
+
 function stripStepEnvKey(source, stepName, envKey) {
   const stepStart = source.indexOf(`      - name: ${stepName}`);
   expect(stepStart, `expected workflow step '${stepName}'`).toBeGreaterThanOrEqual(0);

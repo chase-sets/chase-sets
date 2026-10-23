@@ -7,6 +7,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { SecondaryProduct } from "@chase-sets/tcgplayer-market-observations";
 import {
   countProviderCompetingSellersAt,
   listProviderListingAskDepth,
@@ -15,16 +16,9 @@ import {
 import { module as pricingModule } from "../../../index";
 import { mapProviderObservationCapture } from "../domain/provider-observation-mapper";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
-import type {
-  EndpointStatus,
-  ListingsCoverage,
-  TcgplayerSecondaryObservation,
-} from "../domain/provider-observation-types";
+import type { EndpointStatus, ListingsCoverage } from "../domain/provider-observation-types";
 import { latestProviderMarketCapture, listProviderListingSnapshots } from "../read-model/provider-observation-queries";
-import {
-  commitProviderObservationCapture,
-  type MarketCaptureWorkItem,
-} from "../read-model/provider-observation-writes";
+import { commitProviderObservationCapture } from "../read-model/provider-observation-writes";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required in CI.");
@@ -56,7 +50,7 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
       ["Normal", "Unrecognized Provider Condition"],
     ]);
     expect(first.askDepth).toHaveLength(3);
-    await commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:7001", 1), first);
+    await commitProviderObservationCapture(pool, first);
 
     const firstSnapshots = await listProviderListingSnapshots(pool, {
       providerKey: "tcgplayer",
@@ -74,7 +68,7 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
     ).resolves.toEqual({ count: 2, coverage: "complete" });
 
     const empty = capture("2026-09-01T16:00:00.000Z", []);
-    await commitProviderObservationCapture(pool, "tcgplayer", work("product:7001", 1, "", 2), empty);
+    await commitProviderObservationCapture(pool, empty);
     await expect(
       listProviderListingSnapshots(pool, {
         providerKey: "tcgplayer",
@@ -102,7 +96,6 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
   it.each([
     ["observed-empty", "observed", "complete"],
     ["unavailable", "unavailable", "unknown"],
-    ["disabled", "disabled", "unknown"],
     ["truncated", "observed", "page-budget-truncated"],
     ["ceiling-truncated", "observed", "ceiling-truncated"],
     ["inconsistent", "observed", "inconsistent"],
@@ -110,7 +103,7 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
   ] as const)("preserves %s header truth when child rows are omitted", async (_label, status, coverage) => {
     const providerKey = `synthetic-${_label}`;
     const empty = capture("2026-09-01T15:00:00.000Z", [], status, coverage, providerKey);
-    await commitProviderObservationCapture(pool, providerKey, work("", 0, "", 1), empty);
+    await commitProviderObservationCapture(pool, empty);
     await expect(
       listProviderListingAskDepth(pool, {
         providerKey,
@@ -177,7 +170,7 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
         "complete",
         providerKey,
       );
-      await commitProviderObservationCapture(pool, providerKey, work("", 0, "", 1), captured);
+      await commitProviderObservationCapture(pool, captured);
       const params = { providerKey, catalogItemId: "cat_synthetic", captureId: captured.header.captureId };
       const depth = await listProviderListingAskDepth(pool, params);
       expect(depth).toMatchObject({ captureId: captured.header.captureId, coverage: "complete", product: expected });
@@ -249,14 +242,14 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
       listing("D", "Unrecognized Provider Condition", 5),
     ]);
     const second = capture("2026-09-01T16:00:00.000Z", [
-      listing("C", "NM", 7),
-      listing("B", "NM", 6),
-      listing("A", "NM", 5),
-      listing("A", "MP", 5),
-      listing("D", "Unrecognized Provider Condition", 5),
+      { ...listing("C", "NM", 7), sellerOrdinal: 1 },
+      { ...listing("B", "NM", 6), sellerOrdinal: 2 },
+      { ...listing("A", "NM", 5), sellerOrdinal: 3 },
+      { ...listing("A", "MP", 5), sellerOrdinal: 3 },
+      { ...listing("D", "Unrecognized Provider Condition", 5), sellerOrdinal: 4 },
     ]);
-    await commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:7001", 1), first);
-    await commitProviderObservationCapture(pool, "tcgplayer", work("product:7001", 1, "", 2), second);
+    await commitProviderObservationCapture(pool, first);
+    await commitProviderObservationCapture(pool, second);
     const firstGroups = await listProviderListingAskGroups(pool, {
       providerKey: "tcgplayer",
       catalogItemId: "cat_synthetic",
@@ -363,7 +356,7 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
       listing("seller-b", "Near Mint", 6),
       listing("seller-c", "Near Mint", 7),
     ]);
-    await commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "", 1), captured);
+    await commitProviderObservationCapture(pool, captured);
     await expect(
       countProviderCompetingSellersAt(pool, {
         providerKey: "tcgplayer",
@@ -378,14 +371,16 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
 function capture(
   captureStartedAt: string,
   listings: ReturnType<typeof listing>[],
-  status: EndpointStatus = "observed",
+  status: Exclude<EndpointStatus, "disabled"> = "observed",
   coverage: ListingsCoverage = "complete",
   providerKey = "tcgplayer",
 ) {
-  const observation: TcgplayerSecondaryObservation = {
+  const observation: SecondaryProduct = {
+    productId: 7001,
     sales: emptySales(captureStartedAt),
     listings: {
       status,
+      credentialsMode: status === "observed" ? "omit" : null,
       requestedAt: captureStartedAt,
       responseObservedAt: status === "observed" ? captureStartedAt : null,
       rows: listings,
@@ -394,11 +389,11 @@ function capture(
       pagesFetched: status === "observed" ? 1 : 0,
       returnedCount: listings.length,
       reportedTotal: status === "observed" ? listings.length : null,
-      ownSellerExclusionApplied: false,
       httpStatusClass: status === "unavailable" ? "5xx" : "none",
     },
     history: {
       status: "not-requested",
+      credentialsMode: null,
       requestedAt: captureStartedAt,
       responseObservedAt: null,
       rows: [],
@@ -420,16 +415,32 @@ function capture(
     captureCompletedAt: captureStartedAt,
     observationPolicy: { revisionId: "synthetic-observation-r1", value: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE },
     statHygienePolicyRevisionId: "synthetic-stat-r1",
-    authenticatedRequest: false,
     recordedSignalCount: 1,
     unresolvedSignalCount: 0,
+    executedPosture: {
+      salesOffset: 0,
+      salesLimit: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.limit,
+      salesPageSize: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.pageSize,
+      salesPageBudget: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.pageBudget,
+      salesConditions: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.conditions,
+      salesLanguages: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.languages,
+      salesVariants: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.variants,
+      salesListingType: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.listingType,
+      listingsVerifiedOnly: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings.verifiedSellersOnly,
+      listingsPageSize: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings.pageSize,
+      listingsPageBudget: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings.pageBudget,
+      listingsDeliveredCeiling: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings.deliveredCeiling,
+      historyRange: "annual",
+      timeoutMs: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.secondaryTimeoutMs,
+    },
     observation,
   });
 }
 
-function emptySales(at: string): TcgplayerSecondaryObservation["sales"] {
+function emptySales(at: string): SecondaryProduct["sales"] {
   return {
     status: "not-requested",
+    credentialsMode: null,
     requestedAt: at,
     responseObservedAt: null,
     rows: [],
@@ -448,31 +459,11 @@ function emptySales(at: string): TcgplayerSecondaryObservation["sales"] {
 
 function listing(sellerKey: string, condition: string, price: number, printing = "Normal") {
   return {
+    sellerOrdinal: sellerKey.toLowerCase().charCodeAt(sellerKey.length - 1) - 96,
     condition,
     printing,
     language: "English",
-    verifiedSeller: true,
-    sellerKey,
-    sellerId: sellerKey,
-    sellerName: sellerKey,
-    listingId: price,
-    price,
-    sellerShippingPrice: 0,
-  };
-}
-
-function work(
-  afterExternalKey: string,
-  generation: number,
-  nextAfter: string,
-  nextGeneration: number,
-): MarketCaptureWorkItem {
-  return {
-    productExternalKey: "product:7001",
-    productId: 7001,
-    catalogItemId: "cat_synthetic",
-    skus: [],
-    expectedCursor: { afterExternalKey, generation },
-    nextCursor: { afterExternalKey: nextAfter, generation: nextGeneration },
+    price: price.toFixed(2),
+    sellerShippingPrice: "0.00",
   };
 }
