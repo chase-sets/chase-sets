@@ -17,15 +17,18 @@ export async function setupScriptBatteryTempCensus() {
   return async function teardownScriptBatteryTempCensus() {
     let survivors = [];
     try {
-      survivors = await readdir(privateDirectory);
+      survivors = (await readdir(privateDirectory)).sort();
       if (survivors.length > 0) {
         throw new Error(`script battery temporary census found surviving entries: ${survivors.join(", ")}`);
       }
     } finally {
-      await rm(privateDirectory, { recursive: true, force: true });
-      for (const [key, value] of previous) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
+      try {
+        await rm(privateDirectory, { recursive: true, force: true });
+      } finally {
+        for (const [key, value] of previous) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
       }
     }
   };
@@ -34,5 +37,13 @@ export async function setupScriptBatteryTempCensus() {
 export const scriptBatteryTempCensusGlobalSetupPath = censusModulePath;
 
 export default async function setupScriptBatteryTempCensusGlobalSetup() {
-  return setupScriptBatteryTempCensus();
+  const teardown = await setupScriptBatteryTempCensus();
+  return async () => {
+    try {
+      await teardown();
+    } catch (error) {
+      process.exitCode = 1;
+      throw error;
+    }
+  };
 }
