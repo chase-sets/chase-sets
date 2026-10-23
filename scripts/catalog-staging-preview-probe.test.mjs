@@ -324,6 +324,7 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
       if (
         option === "scope-sync-count-lifecycle" ||
         option === "scrydex-cache-capture" ||
+        option === "scrydex-coordinate-preview" ||
         option === "scrydex-force-refresh-bounded"
       )
         continue;
@@ -372,6 +373,8 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
       ["artifacts/catalog-count-lifecycle/receipt.json"],
       ["artifacts/catalog-scrydex-cache-capture/capture.json"],
       ["artifacts/catalog-scrydex-cache-capture/capture.json"],
+      ["artifacts/catalog-scrydex-coordinate-preview/receipt.json"],
+      ["artifacts/catalog-scrydex-coordinate-preview/receipt.json"],
       ["artifacts/catalog-scrydex-option-refresh/receipt.json"],
       ["artifacts/catalog-scrydex-option-refresh-diagnostic/receipt.json"],
     ]);

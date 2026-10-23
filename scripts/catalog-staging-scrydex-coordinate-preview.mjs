@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +5,7 @@ import { chromium } from "@playwright/test";
 import { runScrydexCoordinatePreview } from "../bounded-contexts/catalog/features/scope-sync-batches/api/scrydex-coordinate-preview-runner.ts";
 import {
   classifyScrydexCoordinatePreviewRequest,
+  buildScrydexCoordinatePreviewReceipt,
   scrydexCoordinatePreviewUnits,
   scrydexCoordinatePreviewArtifactPath,
   scrydexCoordinatePreviewJourneyScope,
@@ -13,6 +13,17 @@ import {
   scrydexCoordinatePreviewOrigin,
   validateScrydexCoordinatePreviewReceipt,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-coordinate-preview.ts";
+import {
+  decodeScrydexAcceptedMappings,
+  decodeScrydexCacheCaptureOptionPage,
+  decodeScrydexCacheCaptureProfiles,
+  decodeScrydexCacheCaptureScopePage,
+  scrydexCacheCaptureContinuationPath,
+  scrydexCacheCaptureCoordinate,
+  scrydexCacheCaptureQueryHrefUnit,
+  scrydexCacheCaptureCoveragePath,
+  scrydexCacheCaptureClockSkewToleranceMs,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-cache-capture.ts";
 import { buildCatalogPrimaryWorkbenchSourceOptionRequests } from "../bounded-contexts/catalog/features/source-observations/ui/primary-workbench-source-options.ts";
 import { selectStagingDeployGeneration } from "./staging-deploy-generation.mjs";
 
@@ -20,7 +31,6 @@ export const coordinatePreviewReadDeadlineMs = 30_000;
 export const coordinatePreviewDeployWindowSeconds = 86_400;
 const origin = scrydexCoordinatePreviewOrigin;
 const refused = (reason) => new Error(`scrydex-coordinate-preview-refused:${reason}`);
-const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
 export function coordinatePreviewRunnerIdentity(env) {
   if (
@@ -83,7 +93,7 @@ async function readJson(page, path) {
   return response.body;
 }
 
-async function buildProducer(page) {
+export async function buildProducer(page, observed = {}) {
   const profilesEnvelope = await readJson(page, "/api/catalog/source-observations/provider-profiles");
   const usage = await readJson(
     page,
@@ -91,32 +101,128 @@ async function buildProducer(page) {
   );
   if (!usage?.providerReadiness?.providers?.some((provider) => provider.providerKey === "scrydex"))
     throw refused("usage-unavailable");
-  const profiles = profilesEnvelope.items ?? [];
+  const decodedProfiles = decodeScrydexCacheCaptureProfiles(profilesEnvelope);
+  if (!decodedProfiles.ok) throw refused(decodedProfiles.reason);
+  const profiles = decodedProfiles.profiles;
   const inventories = {};
   for (const productDomain of ["one-piece", "lorcana"]) {
     const body = await readJson(
       page,
       `/api/catalog/scope-records?productDomain=${productDomain}&scopeKind=set&status=active&limit=200&offset=0`,
     );
-    inventories[productDomain] = body.items ?? [];
+    const decoded = decodeScrydexCacheCaptureScopePage(body, { productDomain });
+    if (!decoded.ok) throw refused(decoded.reason);
+    inventories[productDomain] = decoded.scopeRecordIds;
   }
-  const selected = [inventories["one-piece"]?.[0], inventories.lorcana?.[0]].filter(Boolean);
+  const selected = [
+    inventories["one-piece"]?.[0] && { scopeRecordId: inventories["one-piece"][0], productDomain: "one-piece" },
+    inventories.lorcana?.[0] && { scopeRecordId: inventories.lorcana[0], productDomain: "lorcana" },
+  ].filter(Boolean);
   if (selected.length !== 2) throw refused("two-scopes-unavailable");
-  const coverage = await Promise.all(
-    selected.map(async (scope) => ({
-      scope,
-      body: await readJson(
-        page,
-        `/api/catalog/provider-scope-mappings/coverage/${encodeURIComponent(scope.scopeRecordId)}`,
-      ),
-    })),
-  );
-  const mappings = coverage.flatMap(
-    ({ body }) => (body.providers ?? []).find((p) => p.providerKey === "scrydex")?.acceptedMappings ?? [],
-  );
-  const selectedMappings = mappings.filter(
-    (mapping) => mapping.reviewStatus === "accepted" || mapping.reviewStatus === "auto-accepted",
-  );
+  async function readSnapshot() {
+    const coverage = await Promise.all(
+      selected.map(async (scope) => {
+        const body = await readJson(page, scrydexCacheCaptureCoveragePath(scope.scopeRecordId));
+        const decoded = decodeScrydexAcceptedMappings(body, {
+          scopeRecordId: scope.scopeRecordId,
+          productDomain: scope.productDomain,
+        });
+        if (!decoded.ok) throw refused(decoded.reason);
+        return {
+          scope,
+          mappings: decoded.mappings.map((mapping) => ({ ...mapping, scopeRecordId: scope.scopeRecordId })),
+        };
+      }),
+    );
+    const mappings = coverage.flatMap(({ mappings }) => mappings);
+    const selectedMappings = mappings.filter((mapping) =>
+      scrydexCoordinatePreviewUnits.some((unit) => unit.unitKey === mapping.unitKey),
+    );
+    if (new Set(selectedMappings.map((mapping) => mapping.unitKey)).size !== scrydexCoordinatePreviewUnits.length)
+      throw refused("mapping-unresolved");
+    const rows = [];
+    for (const { unitKey: unit, productDomain } of scrydexCoordinatePreviewUnits) {
+      const mapping = selectedMappings.find((candidate) => candidate.unitKey === unit);
+      const scope =
+        selected.find((candidate) => candidate.scopeRecordId === mapping?.scopeRecordId) ??
+        selected.find((candidate) => candidate.productDomain === productDomain);
+      if (!mapping || !scope) throw refused(`mapping-unresolved:${unit}`);
+      const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+        requestUrl: `${origin}/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(unit)}`,
+        scopes: [],
+        profiles,
+        cacheOnly: true,
+      }).find((candidate) => candidate.scope === "set-name" && candidate.parentScope === null);
+      if (!request || !request.profileKey || scrydexCacheCaptureQueryHrefUnit(request.queryHref) !== unit)
+        throw refused(`option-request-unresolved:${unit}`);
+      let response = await readJson(page, request.queryHref);
+      let decoded = decodeScrydexCacheCaptureOptionPage(response, { cursor: null });
+      if (!decoded.ok) throw refused(decoded.reason);
+      const first = decoded.page;
+      const values = [...first.values];
+      const pages = [first];
+      let cursor = first.nextCursor;
+      while (cursor !== null) {
+        if (pages.length > 100) throw refused(`cache-continuation-cap:${unit}`);
+        response = await readJson(page, scrydexCacheCaptureContinuationPath(request.queryHref, cursor));
+        decoded = decodeScrydexCacheCaptureOptionPage(response, { cursor });
+        if (!decoded.ok) throw refused(decoded.reason);
+        if (decoded.page.cache.cacheKey !== first.cache.cacheKey) throw refused(`cache-identity-changed:${unit}`);
+        pages.push(decoded.page);
+        values.push(...decoded.page.values);
+        cursor = decoded.page.nextCursor;
+      }
+      if (values.length !== first.total) throw refused(`cache-incomplete:${unit}`);
+      const coordinate = scrydexCacheCaptureCoordinate(mapping, scope.scopeRecordId);
+      if (!coordinate || !values.includes(coordinate)) throw refused(`cache-membership:${unit}`);
+      const completedAt = new Date().toISOString();
+      if (Date.parse(completedAt) >= Date.parse(first.cache.staleUntil) - scrydexCacheCaptureClockSkewToleranceMs)
+        throw refused(`cache-stale:${unit}`);
+      rows.push({
+        scopeRecordId: scope.scopeRecordId,
+        productDomain,
+        previewFingerprint: "",
+        resolvedAt: "",
+        previewRevision: "",
+        unitKey: unit,
+        mapping: {
+          mappingId: mapping.mappingId,
+          unitKey: unit,
+          version: mapping.version,
+          reviewStatus: mapping.reviewStatus,
+          setId: mapping.setId,
+          setName: mapping.setName,
+          coordinate,
+          membership: "member",
+        },
+        profileKey: request.profileKey,
+        profileVersion: request.profileVersion,
+        setId: mapping.setId,
+        setName: mapping.setName,
+        cacheKey: first.cache.cacheKey,
+        cacheFetchedAt: first.cache.fetchedAt,
+        cacheExpiresAt: first.cache.expiresAt,
+        cacheStaleUntil: first.cache.staleUntil,
+      });
+    }
+    return {
+      rows,
+      coverage,
+      cacheIdentity: rows
+        .map((row) => ({
+          unitKey: row.unitKey,
+          cacheKey: row.cacheKey,
+          cacheFetchedAt: row.cacheFetchedAt,
+          cacheExpiresAt: row.cacheExpiresAt,
+          cacheStaleUntil: row.cacheStaleUntil,
+          mappingId: row.mapping.mappingId,
+          version: row.mapping.version,
+          reviewStatus: row.mapping.reviewStatus,
+        }))
+        .sort((a, b) => a.unitKey.localeCompare(b.unitKey)),
+    };
+  }
+  const beforeEvidence = await readSnapshot();
   const previewResponse = await page.evaluate(
     async (scopeRecordIds) => {
       const response = await fetch("/api/catalog/scope-sync-batches/preview", {
@@ -125,9 +231,6 @@ async function buildProducer(page) {
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
           selection: { mode: "ids", scopeRecordIds },
-          // Preview only: the high planning ceiling prevents a local quote
-          // blocker; it is not an admission or a provider-send reservation.
-          budget: { maxScopesPerTurn: 2, creditedProviderRequestLimits: { scrydex: 50_000 } },
         }),
       });
       return { status: response.status, body: await response.json().catch(() => null) };
@@ -136,77 +239,21 @@ async function buildProducer(page) {
   );
   if (previewResponse.status !== 200) throw refused(`preview:${previewResponse.status}`);
   const preview = previewResponse.body;
-  const rows = [];
-  for (const { unitKey: unit } of scrydexCoordinatePreviewUnits) {
-    const mapping = selectedMappings.find((candidate) => candidate.unitKey === unit);
-    if (!mapping) throw refused(`mapping-unresolved:${unit}`);
-    const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
-      requestUrl: `${origin}/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(unit)}`,
-      scopes: [],
-      profiles,
-      cacheOnly: true,
-    }).find((candidate) => candidate.scope === "set-name" && candidate.parentScope === null);
-    if (!request || !request.profileKey) throw refused(`option-request-unresolved:${unit}`);
-    let cache = await readJson(page, new URL(request.queryHref).pathname + new URL(request.queryHref).search);
-    const cacheIdentity = JSON.stringify(cache.cache ?? null);
-    const values = [...(cache.items ?? [])];
-    let cursor = cache.page?.nextCursor ?? null;
-    let pages = 1;
-    while (cursor !== null) {
-      if (pages++ > 100) throw refused(`cache-continuation-cap:${unit}`);
-      const next = new URL(request.queryHref);
-      next.searchParams.set("cursor", cursor);
-      next.searchParams.set("limit", "200");
-      next.searchParams.set("cacheOnly", "true");
-      next.searchParams.delete("forceRefresh");
-      cache = await readJson(page, next.pathname + next.search);
-      if (JSON.stringify(cache.cache ?? null) !== cacheIdentity) throw refused(`cache-identity-changed:${unit}`);
-      values.push(...(cache.items ?? []));
-      cursor = cache.page?.nextCursor ?? null;
-    }
-    if (!Number.isInteger(cache.total) || values.length !== cache.total) throw refused(`cache-incomplete:${unit}`);
-    const coordinate = mapping.coordinates?.setId ?? mapping.coordinates?.setName ?? null;
-    if (!coordinate || !values.some((item) => item.value === coordinate)) throw refused(`cache-membership:${unit}`);
-    rows.push({
-      scopeRecordId: mapping.scopeRecordId,
-      productDomain: selected.find((scope) => scope.scopeRecordId === mapping.scopeRecordId)?.productDomain,
-      previewFingerprint: preview.planFingerprint,
-      resolvedAt: preview.resolvedAt,
-      previewRevision: preview.previewVersion,
-      unitKey: unit,
-      mapping: {
-        mappingId: mapping.mappingId,
-        unitKey: unit,
-        version: mapping.updatedAt,
-        reviewStatus: mapping.reviewStatus,
-        setId: mapping.coordinates?.setId ?? null,
-        setName: mapping.coordinates?.setName ?? null,
-        coordinate,
-        membership: "member",
-      },
-      profileKey: request.profileKey,
-      profileVersion: request.profileVersion,
-      setId: mapping.coordinates?.setId ?? null,
-      setName: mapping.coordinates?.setName ?? null,
-      cacheKey: cache.cache?.cacheKey,
-      cacheFetchedAt: cache.cache?.fetchedAt,
-      cacheExpiresAt: cache.cache?.expiresAt,
-      cacheStaleUntil: cache.cache?.staleUntil,
-    });
-  }
+  const afterEvidence = await readSnapshot();
+  if (JSON.stringify(beforeEvidence.cacheIdentity) !== JSON.stringify(afterEvidence.cacheIdentity))
+    throw refused("bracket-changed");
+  const rows = afterEvidence.rows.map((row) => ({
+    ...row,
+    previewFingerprint: preview.planFingerprint,
+    resolvedAt: preview.resolvedAt,
+    previewRevision: preview.previewVersion ?? "scope-sync-batch-preview-v1",
+  }));
   return {
     preview,
     rows,
-    requests: {
-      profileReads: 1,
-      scopeInventoryReads: 2,
-      coverageReads: coverage.length,
-      cacheOptionReads: rows.length,
-      usageReads: 1,
-      previewPosts: 1,
-    },
-    usageRead: { count: 1, allowed: true },
-    phases: ["deployment-before", "sign-in", "readiness", "preview", "coverage", "cache", "pre-confirm"],
+    observedRequests: observed,
+    observedUsageRead: { count: observed.usageReads ?? 0, allowed: (observed.usageReads ?? 0) === 1 },
+    phases: ["coverage", "cache", "preview", "coverage", "cache", "pre-confirm"],
   };
 }
 
@@ -216,11 +263,42 @@ export async function captureCoordinatePreview(env = process.env) {
   const context = await browser.newContext({ recordHar: undefined });
   const page = await context.newPage();
   const requests = [];
+  const observed = {
+    signIn: 0,
+    profileReads: 0,
+    scopeInventoryReads: 0,
+    coverageReads: 0,
+    cacheOptionReads: 0,
+    usageReads: 0,
+    previewPosts: 0,
+    forbidden: 0,
+  };
   let phase = "sign-in";
   await page.route("**/*", async (route) => {
     const verdict = classifyScrydexCoordinatePreviewRouteRequest(route.request(), phase);
+    if (verdict.allowed) {
+      if (
+        (verdict.requestClass === "preview" || verdict.requestClass === "usage-read") &&
+        observed[verdict.requestClass === "preview" ? "previewPosts" : "usageReads"] >= 1
+      ) {
+        const reason = `duplicate-${verdict.requestClass}`;
+        requests.push(reason);
+        observed.forbidden += 1;
+        return route.abort("blockedbyclient");
+      }
+      const key = {
+        "profile-read": "profileReads",
+        "scope-inventory-read": "scopeInventoryReads",
+        "coverage-read": "coverageReads",
+        "cache-option-read": "cacheOptionReads",
+        "usage-read": "usageReads",
+        preview: "previewPosts",
+      }[verdict.requestClass];
+      if (key) observed[key] += 1;
+    }
     if (!verdict.allowed) {
       requests.push(verdict.reason);
+      observed.forbidden += 1;
       return route.abort("blockedbyclient");
     }
     return route.continue();
@@ -246,20 +324,20 @@ export async function captureCoordinatePreview(env = process.env) {
       produce: async () => {
         phase = "pre-confirm";
         try {
-          return await buildProducer(page);
+          return await buildProducer(page, observed);
         } finally {
           phase = "capture";
         }
       },
       now: () => new Date().toISOString(),
     });
-    const finalReceipt = {
+    const finalReceipt = buildScrydexCoordinatePreviewReceipt({
       ...receipt,
-      requests: { ...receipt.requests, forbidden: receipt.requests.forbidden + requests.length },
+      requests: { ...receipt.requests, ...observed, forbidden: observed.forbidden },
       forbiddenCalls: [...receipt.forbiddenCalls, ...requests],
-      outcome: requests.length > 0 ? "governed-unknown" : receipt.outcome,
-      reasons: requests.length > 0 ? [...new Set([...receipt.reasons, "forbidden-call"])] : receipt.reasons,
-    };
+      outcome: receipt.outcome,
+      reasons: receipt.reasons,
+    });
     await writeCoordinatePreviewArtifact(finalReceipt, env);
     return finalReceipt;
   } finally {

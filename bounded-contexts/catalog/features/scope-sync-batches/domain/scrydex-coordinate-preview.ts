@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { scrydexCacheCaptureUnits } from "./scrydex-cache-capture";
+import { scrydexCacheCaptureClockSkewToleranceMs, scrydexCacheCaptureUnits } from "./scrydex-cache-capture";
 
 /** The five Scrydex units that make up the coordinate proof. */
 export const scrydexCoordinatePreviewUnits = scrydexCacheCaptureUnits;
@@ -219,7 +219,7 @@ const receiptSchema = z
               .object({
                 scopeRecordId: id,
                 mappingVersions: z
-                  .array(z.object({ mappingId: id, version: instant, reviewStatus: z.string() }).strict())
+                  .array(z.object({ mappingId: id, version: instant, reviewStatus: safeText }).strict())
                   .max(50),
                 profileVersions: z
                   .array(z.object({ providerKey: safeText, unitKey, profileKey: id, profileVersion: id }).strict())
@@ -237,89 +237,115 @@ const receiptSchema = z
       .max(20),
     requests: z
       .object({
-        signIn: z.number().int().nonnegative(),
-        profileReads: z.number().int().nonnegative(),
-        scopeInventoryReads: z.number().int().nonnegative(),
-        coverageReads: z.number().int().nonnegative(),
-        cacheOptionReads: z.number().int().nonnegative(),
-        usageReads: z.number().int().nonnegative(),
-        previewPosts: z.number().int().nonnegative(),
-        forbidden: z.number().int().nonnegative(),
+        signIn: z.number().int().nonnegative().max(1000),
+        profileReads: z.number().int().nonnegative().max(1000),
+        scopeInventoryReads: z.number().int().nonnegative().max(1000),
+        coverageReads: z.number().int().nonnegative().max(1000),
+        cacheOptionReads: z.number().int().nonnegative().max(1000),
+        usageReads: z.number().int().nonnegative().max(1000),
+        previewPosts: z.number().int().nonnegative().max(1000),
+        forbidden: z.number().int().nonnegative().max(1000),
       })
       .strict(),
     forbiddenCalls: z.array(safeText).max(100),
-    usageRead: z.object({ count: z.number().int().min(1).max(1), allowed: z.literal(true) }).strict(),
+    usageRead: z.object({ count: z.number().int().nonnegative().max(1000), allowed: z.boolean() }).strict(),
   })
   .strict();
 export type ScrydexCoordinatePreviewReceipt = z.infer<typeof receiptSchema>;
 export type ScrydexCoordinatePreviewRow = z.infer<typeof rowSchema>;
 
-export function buildScrydexCoordinatePreviewReceipt(
-  input: ScrydexCoordinatePreviewReceipt,
-): ScrydexCoordinatePreviewReceipt {
-  const reasons = new Set(input.reasons);
-  if (input.deployment.before === null || input.deployment.after === null) reasons.add("deployment-unbound");
-  if (
-    input.deployment.before &&
-    input.deployment.after &&
-    input.deployment.before.deployedHead !== input.deployment.after.deployedHead
-  )
-    reasons.add("deployment-mismatch");
-  if (input.rows.length !== scrydexCoordinatePreviewMaxRows) reasons.add("rows-not-exactly-five");
-  if (!input.preview || input.preview.status !== "ready" || !input.preview.confirmAllowed)
-    reasons.add("preview-not-confirmable");
-  if (input.forbiddenCalls.length > 0 || input.requests.forbidden > 0) reasons.add("forbidden-call");
-  const outcome = reasons.size === 0 ? "complete" : "governed-unknown";
-  return { ...input, outcome, reasons: [...reasons].sort() };
+const requiredPhases: readonly ScrydexCoordinatePreviewReceipt["phases"][number][] = [
+  "deployment-before",
+  "sign-in",
+  "readiness",
+  "coverage",
+  "cache",
+  "preview",
+  "coverage",
+  "cache",
+  "pre-confirm",
+];
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
 }
 
-export function validateScrydexCoordinatePreviewReceipt(value: unknown): readonly string[] {
-  const parsed = receiptSchema.safeParse(value);
-  if (!parsed.success)
-    return parsed.error.issues.slice(0, 30).map((issue) => `${issue.path.join(".") || "receipt"}: ${issue.code}`);
-  const receipt = parsed.data;
-  const errors: string[] = [];
-  if (Date.parse(receipt.startedAt) > Date.parse(receipt.finishedAt)) errors.push("finishedAt: precedes startedAt");
-  if (receipt.rows.length !== 5) errors.push("rows: expected exactly five");
-  if (new Set(receipt.rows.map((row) => `${row.scopeRecordId}:${row.unitKey}`)).size !== receipt.rows.length)
-    errors.push("rows: duplicate join");
-  const expected = new Set<string>(scrydexCoordinatePreviewUnits.map((unit) => unit.unitKey));
-  if (
-    new Set(receipt.rows.map((row) => row.unitKey)).size !== expected.size ||
-    receipt.rows.some((row) => !expected.has(row.unitKey))
-  )
-    errors.push("rows: unit membership mismatch");
-  const byDomain = new Map<string, Set<string>>();
-  for (const row of receipt.rows) {
-    const units = byDomain.get(row.productDomain) ?? new Set<string>();
-    units.add(row.unitKey);
-    byDomain.set(row.productDomain, units);
+/** Re-derives completeness from evidence instead of trusting producer fields. */
+export function deriveScrydexCoordinatePreviewReasons(receipt: ScrydexCoordinatePreviewReceipt): readonly string[] {
+  const reasons = new Set<string>();
+  const { before, after } = receipt.deployment;
+  if (!before || !after) reasons.add("deployment-unbound");
+  if ((before && before.deployedHead !== receipt.runner.sha) || (after && after.deployedHead !== receipt.runner.sha))
+    reasons.add("deployment-head-mismatch");
+  if (before && after && canonical(before) !== canonical(after)) reasons.add("deployment-generation-changed");
+  if (Date.parse(receipt.startedAt) > Date.parse(receipt.finishedAt)) reasons.add("finished-before-started");
+  if (!receipt.preview) reasons.add("preview-missing");
+  if (receipt.preview) {
+    if (
+      receipt.preview.blockers.some(
+        (blocker) =>
+          blocker.code === "scope-planning-blocked" &&
+          blocker.providerKey === "scrydex" &&
+          (blocker.scopeRecordId === null || receipt.rows.some((row) => row.scopeRecordId === blocker.scopeRecordId)),
+      )
+    )
+      reasons.add("scrydex-scope-planning-blocked");
+    if (
+      receipt.preview.status === "empty" ||
+      (receipt.preview.confirmAllowed === false && receipt.preview.blockers.length === 0)
+    )
+      reasons.add("preview-not-confirmable");
+    if (
+      Date.parse(receipt.preview.resolvedAt) < Date.parse(receipt.startedAt) ||
+      Date.parse(receipt.preview.resolvedAt) > Date.parse(receipt.finishedAt)
+    )
+      reasons.add("preview-time-out-of-range");
   }
-  if (byDomain.get("one-piece")?.size !== 3 || byDomain.get("lorcana")?.size !== 2)
-    errors.push("rows: product-domain membership mismatch");
+  if (receipt.rows.length !== scrydexCoordinatePreviewMaxRows) reasons.add("rows-not-exactly-five");
+  const expectedUnits = new Set<string>(scrydexCoordinatePreviewUnits.map(({ unitKey }) => unitKey));
+  if (
+    new Set(receipt.rows.map((row) => row.unitKey)).size !== expectedUnits.size ||
+    receipt.rows.some((row) => !expectedUnits.has(row.unitKey))
+  )
+    reasons.add("rows-unit-membership");
+  if (new Set(receipt.rows.map((row) => `${row.scopeRecordId}:${row.unitKey}`)).size !== receipt.rows.length)
+    reasons.add("rows-duplicate");
+  const byDomain = new Map<string, number>();
+  for (const row of receipt.rows) byDomain.set(row.productDomain, (byDomain.get(row.productDomain) ?? 0) + 1);
+  if (byDomain.get("one-piece") !== 3 || byDomain.get("lorcana") !== 2) reasons.add("rows-domain-membership");
   for (const row of receipt.rows) {
-    if (row.mapping.membership !== "member") errors.push(`rows.${row.unitKey}: cache membership`);
-    if (
-      row.mapping.coordinate !== null &&
-      row.mapping.coordinate !== row.setId &&
-      row.mapping.coordinate !== row.setName
-    )
-      errors.push(`rows.${row.unitKey}: coordinate mismatch`);
-    if (
-      Date.parse(row.cacheFetchedAt) > Date.parse(row.cacheExpiresAt) ||
-      Date.parse(row.cacheExpiresAt) > Date.parse(row.cacheStaleUntil)
-    )
-      errors.push(`rows.${row.unitKey}: cache interval`);
+    if (row.mapping.membership !== "member") reasons.add(`cache-membership:${row.unitKey}`);
+    if (!row.mapping.coordinate) reasons.add(`coordinate-missing:${row.unitKey}`);
+    if (row.mapping.coordinate !== row.setId && row.mapping.coordinate !== row.setName)
+      reasons.add(`coordinate-mismatch:${row.unitKey}`);
     if (row.mapping.setId !== row.setId || row.mapping.setName !== row.setName)
-      errors.push(`rows.${row.unitKey}: mapping coordinate mismatch`);
+      reasons.add(`mapping-coordinate-mismatch:${row.unitKey}`);
+    const fetchedAt = Date.parse(row.cacheFetchedAt);
+    const expiresAt = Date.parse(row.cacheExpiresAt);
+    const staleUntil = Date.parse(row.cacheStaleUntil);
+    if (!(fetchedAt <= expiresAt && expiresAt <= staleUntil)) reasons.add(`cache-interval:${row.unitKey}`);
+    if (receipt.preview && fetchedAt > Date.parse(receipt.preview.resolvedAt))
+      reasons.add(`cache-fetched-after-preview:${row.unitKey}`);
+    if (Date.parse(receipt.finishedAt) >= staleUntil - scrydexCacheCaptureClockSkewToleranceMs)
+      reasons.add(`cache-stale:${row.unitKey}`);
     const sample = receipt.preview?.samples.find((candidate) => candidate.scopeRecordId === row.scopeRecordId);
     if (
       !sample ||
       !sample.mappingVersions.some(
-        (candidate) => candidate.mappingId === row.mapping.mappingId && candidate.version === row.mapping.version,
+        (candidate) =>
+          candidate.mappingId === row.mapping.mappingId &&
+          candidate.version === row.mapping.version &&
+          candidate.reviewStatus === row.mapping.reviewStatus &&
+          (candidate.reviewStatus === "accepted" || candidate.reviewStatus === "auto-accepted"),
       )
     )
-      errors.push(`rows.${row.unitKey}: mapping absent from preview sample`);
+      reasons.add(`mapping-sample-missing:${row.unitKey}`);
     if (
       !sample ||
       !sample.profileVersions.some(
@@ -329,21 +355,48 @@ export function validateScrydexCoordinatePreviewReceipt(value: unknown): readonl
           candidate.profileVersion === row.profileVersion,
       )
     )
-      errors.push(`rows.${row.unitKey}: profile absent from preview sample`);
+      reasons.add(`profile-sample-missing:${row.unitKey}`);
   }
-  const expectedOutcome = receipt.reasons.length === 0 ? "complete" : "governed-unknown";
-  if (receipt.outcome !== expectedOutcome) errors.push("outcome: not derived from reasons");
-  if (receipt.requests.previewPosts > 1) errors.push("requests.previewPosts: more than one");
-  if (receipt.requests.forbidden !== receipt.forbiddenCalls.length) errors.push("requests.forbidden: tally mismatch");
+  if (receipt.requests.previewPosts !== 1) reasons.add("preview-post-count");
+  if (receipt.requests.usageReads !== 1 || receipt.usageRead.count !== 1 || receipt.usageRead.allowed !== true)
+    reasons.add("usage-read-count");
+  if (receipt.requests.forbidden !== receipt.forbiddenCalls.length || receipt.forbiddenCalls.length > 0)
+    reasons.add("forbidden-call");
+  if (canonical(receipt.phases) !== canonical(requiredPhases)) reasons.add("phases-incomplete");
   if (
     receipt.preview &&
     receipt.rows.some(
       (row) =>
-        row.previewFingerprint !== receipt.preview?.fingerprint ||
-        row.resolvedAt !== receipt.preview?.resolvedAt ||
-        row.previewRevision !== receipt.preview?.revision,
+        row.previewFingerprint !== receipt.preview!.fingerprint ||
+        row.resolvedAt !== receipt.preview!.resolvedAt ||
+        row.previewRevision !== receipt.preview!.revision,
     )
   )
-    errors.push("rows: preview join mismatch");
+    reasons.add("preview-join-mismatch");
+  return [...reasons].sort();
+}
+
+export function buildScrydexCoordinatePreviewReceipt(
+  input: ScrydexCoordinatePreviewReceipt,
+): ScrydexCoordinatePreviewReceipt {
+  const reasons = new Set([...input.reasons, ...deriveScrydexCoordinatePreviewReasons(input)]);
+  return { ...input, outcome: reasons.size === 0 ? "complete" : "governed-unknown", reasons: [...reasons].sort() };
+}
+
+export function validateScrydexCoordinatePreviewReceipt(value: unknown): readonly string[] {
+  const parsed = receiptSchema.safeParse(value);
+  if (!parsed.success)
+    return parsed.error.issues.slice(0, 30).map((issue) => `${issue.path.join(".") || "receipt"}: ${issue.code}`);
+  const receipt = parsed.data;
+  const derived = deriveScrydexCoordinatePreviewReasons(receipt);
+  const errors: string[] = [];
+  if (receipt.outcome === "governed-unknown" && receipt.reasons.length === 0) errors.push("reasons: required");
+  for (const reason of derived) if (!receipt.reasons.includes(reason)) errors.push(`reasons: missing ${reason}`);
+  if (receipt.outcome === "complete" && derived.length > 0) errors.push(...derived);
+  if (receipt.outcome !== (receipt.reasons.length === 0 && derived.length === 0 ? "complete" : "governed-unknown"))
+    errors.push("outcome: not derived from evidence");
+  if (derived.includes("rows-not-exactly-five")) errors.push("rows: expected exactly five");
+  if (derived.includes("rows-unit-membership")) errors.push("rows: unit membership mismatch");
+  if (receipt.requests.forbidden !== receipt.forbiddenCalls.length) errors.push("requests.forbidden: tally mismatch");
   return errors;
 }

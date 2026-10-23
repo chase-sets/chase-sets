@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto";
 import {
   buildScrydexCoordinatePreviewReceipt,
-  scrydexCoordinatePreviewUnits,
   type ScrydexCoordinatePreviewReceipt,
   type ScrydexCoordinatePreviewRow,
 } from "../domain/scrydex-coordinate-preview";
@@ -28,8 +26,8 @@ type Producer = Readonly<{
   }>;
   rows: readonly ScrydexCoordinatePreviewRow[];
   forbiddenCalls?: readonly string[];
-  requests?: Partial<ScrydexCoordinatePreviewReceipt["requests"]>;
-  usageRead?: { count: number; allowed: true };
+  observedRequests?: Partial<ScrydexCoordinatePreviewReceipt["requests"]>;
+  observedUsageRead?: { count: number; allowed: boolean };
   phases?: readonly ScrydexCoordinatePreviewReceipt["phases"][number][];
 }>;
 
@@ -40,14 +38,8 @@ export type ScrydexCoordinatePreviewRunnerInput = Readonly<{
   signIn: () => Promise<void>;
   /** The producer must call the real planner/adapter chain; tests inject a denied transport producer. */
   produce?: () => Promise<Producer>;
-  /** Alias retained for callers that name the operation preview. */
-  preview?: () => Promise<Producer>;
   now: () => string;
 }>;
-
-function digest(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
 
 const emptyRequests = () => ({
   signIn: 0,
@@ -81,8 +73,8 @@ export async function runScrydexCoordinatePreview(
       await input.signIn();
       requests.signIn = 1;
       phases.push("sign-in", "readiness");
-      producer = await (input.produce ?? input.preview ?? (() => Promise.reject(new Error("producer-missing"))))();
-      phases.push("preview", "coverage", "cache", "pre-confirm");
+      producer = await (input.produce ?? (() => Promise.reject(new Error("producer-missing"))))();
+      phases.push(...(producer.phases ?? ["preview", "coverage", "cache", "pre-confirm"]));
     }
   } catch {
     reasons.add("producer-failed");
@@ -94,22 +86,13 @@ export async function runScrydexCoordinatePreview(
   } catch {
     reasons.add("deployment-after:unavailable");
   }
-  if (before && after && before.deployedHead !== after.deployedHead) reasons.add("deployment-mismatch");
+  if ((before && before.deployedHead !== input.runner.sha) || (after && after.deployedHead !== input.runner.sha))
+    reasons.add("deployment-head-mismatch");
+  if (before && after && JSON.stringify(before) !== JSON.stringify(after)) reasons.add("deployment-generation-changed");
   if (producer) {
     for (const reason of producer.forbiddenCalls ?? []) forbiddenCalls.push(reason.slice(0, 300));
-    Object.assign(requests, producer.requests ?? {});
+    Object.assign(requests, producer.observedRequests ?? {});
     requests.forbidden = forbiddenCalls.length;
-    if ((producer.usageRead?.count ?? 1) !== 1 || producer.usageRead?.allowed !== true)
-      reasons.add("usage-read-invalid");
-    if (producer.preview.confirmAllowed === false || producer.preview.status !== "ready")
-      reasons.add("preview-blocked");
-    if (
-      producer.preview.blockers.some(
-        (blocker) => blocker.code === "scope-planning-blocked" && blocker.providerKey === "scrydex",
-      )
-    )
-      reasons.add("scrydex-scope-planning-blocked");
-    if (producer.rows.length !== scrydexCoordinatePreviewUnits.length) reasons.add("rows-not-exactly-five");
   } else {
     reasons.add("preview-missing");
   }
@@ -146,33 +129,7 @@ export async function runScrydexCoordinatePreview(
     phases,
     requests,
     forbiddenCalls,
-    usageRead: producer?.usageRead ?? { count: 1, allowed: true },
+    usageRead: producer?.observedUsageRead ?? { count: 0, allowed: false },
   });
   return receipt;
-}
-
-/** Builds the five joined rows from planner samples and cache/mapping evidence. */
-export function buildScrydexCoordinatePreviewRows(
-  input: Readonly<{
-    preview: Readonly<{ planFingerprint: string; resolvedAt: string; previewVersion?: string }>;
-    rows: readonly Omit<ScrydexCoordinatePreviewRow, "previewFingerprint" | "resolvedAt" | "previewRevision">[];
-  }>,
-): readonly ScrydexCoordinatePreviewRow[] {
-  return input.rows.map((row) => ({
-    ...row,
-    previewFingerprint: input.preview.planFingerprint,
-    resolvedAt: input.preview.resolvedAt,
-    previewRevision: input.preview.previewVersion ?? "scope-sync-batch-preview-v1",
-  }));
-}
-
-/** A compact executable-mapper coordinate helper shared by fixtures and the hosted producer. */
-export function scrydexCoordinateFromMapping(
-  mapping: Readonly<{ setId?: string | null; setName?: string | null }>,
-): string | null {
-  return mapping.setId?.trim() || mapping.setName?.trim() || null;
-}
-
-export function scrydexCoordinatePreviewInputFingerprint(input: unknown): string {
-  return digest(input);
 }
