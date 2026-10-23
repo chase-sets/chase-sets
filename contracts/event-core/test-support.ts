@@ -24,7 +24,11 @@ import type {
   StoredEvent,
 } from "./storage";
 import type { TransportEvent } from "./transport";
-import type { ConfigurationEpochStore } from "./configuration-epoch";
+import type { InMemoryConfigurationConsumer } from "./configuration-epoch-memory";
+export {
+  createInMemoryConfigurationConsumer,
+  createInMemoryConfigurationEpochStore,
+} from "./configuration-epoch-memory";
 
 export type TransportEventFixtureOverrides = Readonly<
   Partial<{
@@ -106,7 +110,7 @@ export type InMemoryEventStore = Readonly<{
 }>;
 
 export type InMemoryEventStoreOptions = Readonly<{
-  configurationEpoch?: ConfigurationEpochStore;
+  configurationEpoch?: InMemoryConfigurationConsumer;
 }>;
 
 export type BoundedStreamReadContractInput = Readonly<{
@@ -226,7 +230,6 @@ export function createInMemoryEventStore(options: InMemoryEventStoreOptions = {}
   }
 
   function appendToStream(input: AppendToStreamInput): readonly StoredEvent[] {
-    options.configurationEpoch?.validateGrantVector(input.configurationGrants ?? []);
     if (input.events.length === 0) {
       return [];
     }
@@ -244,9 +247,14 @@ export function createInMemoryEventStore(options: InMemoryEventStoreOptions = {}
   }
 
   const eventStore: EventStore = {
-    appendToStream: async (input) => appendToStream(input),
+    appendToStream: async (input) => {
+      if (input.configurationGrants?.length) throw new Error("Class-C grants require appendToStreams.");
+      return appendToStream(input);
+    },
     appendToStreams: async (inputs) => {
-      options.configurationEpoch?.validateGrantVector(inputs.flatMap((input) => input.configurationGrants ?? []));
+      const grants = inputs.flatMap((input) => input.configurationGrants ?? []);
+      if (grants.length && !options.configurationEpoch) throw new Error("Configuration consumer is not configured.");
+      options.configurationEpoch?.validateGrantVector(grants);
       // Every input's expected version is enforced, including a zero-event
       // one: that input is a pure version guard on a stream this append does
       // not write to, and skipping it would silently drop the guard.
@@ -280,6 +288,8 @@ export function createInMemoryEventStore(options: InMemoryEventStoreOptions = {}
       }
     },
     appendToStreamsIndependently: async (inputs) => {
+      if (inputs.some((input) => input.configurationGrants?.length))
+        throw new Error("Class-C grants require appendToStreams.");
       const results: AppendToStreamsIndependentResult[] = [];
       for (const input of inputs) {
         if (input.events.length === 0) {

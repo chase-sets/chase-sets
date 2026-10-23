@@ -1,112 +1,87 @@
 import { describe, expect, it } from "vitest";
-import { createInMemoryConfigurationEpochStore, ConfigurationEpochError } from "./configuration-epoch";
+import { assertConfigurationGrantCurrent, replayConfigurationEpoch } from "./configuration-epoch";
+import {
+  createInMemoryConfigurationConsumer,
+  createInMemoryConfigurationEpochStore,
+} from "./configuration-epoch-memory";
 import { createInMemoryEventStore } from "./test-support";
 
-describe("acknowledged configuration epoch closure", () => {
-  it("keeps the owner OPEN until every CLOSED-THROUGH receipt is durable", async () => {
-    const store = createInMemoryConfigurationEpochStore();
-    await store.open({ key: "channels.connection:acct_1", storeIncarnation: "owner-1", keyCreationEpoch: 3 });
-    await store.registerConsumer("channels.connection:acct_1", {
-      consumerStoreId: "consumer-a",
-      storeIncarnation: "consumer-1",
-    });
-    await store.registerConsumer("channels.connection:acct_1", {
-      consumerStoreId: "consumer-b",
-      storeIncarnation: "consumer-1",
-    });
-    const grant = await store.captureGrant({
-      key: "channels.connection:acct_1",
-      consumerStoreId: "consumer-a",
-      storeIncarnation: "consumer-1",
-    });
-    const closing = await store.beginClosure("channels.connection:acct_1", 3);
-    expect(closing.pendingConsumerStoreIds).toEqual(["consumer-a", "consumer-b"]);
-    expect(() => store.validateGrantVector([grant])).toThrow("not acknowledged");
-    await store.acknowledgeClosedThrough({
-      key: grant.key,
-      epoch: 3,
-      topologyRevision: closing.topologyRevision,
-      consumerStoreId: "consumer-a",
-      storeIncarnation: "consumer-1",
-    });
-    await expect(store.installClosure(grant.key, 3, closing.topologyRevision)).rejects.toMatchObject({
-      details: { missingConsumerStoreIds: ["consumer-b"] },
-    });
-    await store.acknowledgeClosedThrough({
-      key: grant.key,
-      epoch: 3,
-      topologyRevision: closing.topologyRevision,
-      consumerStoreId: "consumer-b",
-      storeIncarnation: "consumer-1",
-    });
-    await store.installClosure(grant.key, 3, closing.topologyRevision);
-    const next = await store.captureGrant({
-      key: grant.key,
-      consumerStoreId: "consumer-a",
-      storeIncarnation: "consumer-1",
-    });
-    expect(next.epoch).toBe(4);
-  });
-
-  it("rejects unknown, duplicate, expired and old-incarnation grants", async () => {
-    const store = createInMemoryConfigurationEpochStore();
-    await store.open({ key: "inventory.item:item_1", storeIncarnation: "owner-1", keyCreationEpoch: 0 });
-    expect(() =>
-      store.validateGrantVector([{ key: "inventory.item:item_1", epoch: 9, storeIncarnation: "owner-1" }]),
-    ).toThrow(ConfigurationEpochError);
-    const grant = await store.captureGrant({
-      key: "inventory.item:item_1",
-      consumerStoreId: "consumer",
-      storeIncarnation: "consumer-1",
-      validUntil: "2999-01-01T00:00:00.000Z",
-    });
-    expect(() => store.validateGrantVector([grant, grant])).toThrow("duplicate");
-    expect(() => store.validateGrantVector([{ ...grant, validUntil: "2000-01-01T00:00:00.000Z" }])).toThrow("validity");
-    expect(() => store.validateGrantVector([{ ...grant, storeIncarnation: "owner-2" }])).toThrow("not acknowledged");
-  });
-
-  it("does not allow registration or retirement to race CLOSING", async () => {
-    const store = createInMemoryConfigurationEpochStore();
-    await store.open({ key: "identity.account:acct_1", storeIncarnation: "owner-1" });
-    await store.registerConsumer("identity.account:acct_1", {
-      consumerStoreId: "consumer",
-      storeIncarnation: "consumer-1",
-    });
-    await store.beginClosure("identity.account:acct_1", 0);
+const identity = { storeId: "consumer", incarnation: "consumer-1" };
+const context = {
+  tenantId: "tenant" as never,
+  audit: { performedByUserId: "user" as never, forAccountId: "account" as never },
+};
+const input = {
+  streamId: "terminal",
+  expectedVersion: "no_stream" as const,
+  context,
+  events: [{ eventType: "test.committed", payload: {} }],
+};
+function setup() {
+  const owner = createInMemoryConfigurationEpochStore("source-1");
+  const consumer = createInMemoryConfigurationConsumer(identity, () => "2026-01-01T00:00:00Z");
+  owner.open("owner/key", 3);
+  owner.registerConsumer("owner/key", consumer);
+  return { owner, consumer, memory: createInMemoryEventStore({ configurationEpoch: consumer }) };
+}
+describe("acknowledged configuration epochs in memory", () => {
+  it("AC1 terminal first commits; CLOSED-THROUGH first refuses; next installed epoch commits", async () => {
+    const { owner, consumer, memory } = setup();
+    const grant = owner.captureGrant("owner/key", identity);
+    owner.beginClosure("owner/key");
+    // CLOSING stops capture, not already captured consumer-local terminals.
+    await memory.eventStore.appendToStreams!([{ ...input, configurationGrants: [grant] }]);
+    expect(() => owner.captureGrant("owner/key", identity)).toThrow();
+    expect(() => owner.installClosure("owner/key")).toThrow("every CLOSED-THROUGH");
+    owner.driveClosure("owner/key", [consumer]);
     await expect(
-      store.registerConsumer("identity.account:acct_1", { consumerStoreId: "late", storeIncarnation: "late-1" }),
-    ).rejects.toThrow("CLOSING");
-    await expect(store.retireConsumer("identity.account:acct_1", "consumer", "consumer-1")).rejects.toThrow("CLOSING");
+      memory.eventStore.appendToStreams!([{ ...input, streamId: "stale", configurationGrants: [grant] }]),
+    ).rejects.toThrow("closed-through");
+    owner.installClosure("owner/key");
+    const next = owner.captureGrant("owner/key", identity);
+    await memory.eventStore.appendToStreams!([{ ...input, streamId: "new", configurationGrants: [next] }]);
+    expect(memory.allEvents).toHaveLength(2);
   });
-
-  it("retains an acknowledged append when a later guarded append refuses", async () => {
-    const configurationEpoch = createInMemoryConfigurationEpochStore();
-    await configurationEpoch.open({ key: "channels.connection:acct_2", storeIncarnation: "owner-1" });
-    const memory = createInMemoryEventStore({ configurationEpoch });
-    const context = {
-      tenantId: "tenant" as never,
-      audit: { performedByUserId: "user" as never, forAccountId: "account" as never },
+  it("AC2 unavailable registered consumer blocks only its key and time releases nothing", () => {
+    const { owner } = setup();
+    owner.open("other/key");
+    owner.beginClosure("owner/key");
+    expect(owner.driveClosure("owner/key", []).status).toBe("BLOCKED");
+    expect(owner.status("owner/key").pendingConsumers).toEqual([identity]);
+    expect(() => owner.installClosure("owner/key")).toThrow();
+    expect(owner.status("other/key").status).toBe("OPEN");
+  });
+  it("AC2 registration and retirement wait throughout CLOSING", () => {
+    const { owner, consumer } = setup();
+    owner.beginClosure("owner/key");
+    expect(() => owner.retireConsumer("owner/key", identity)).toThrow();
+    expect(() => owner.registerConsumer("owner/key", consumer)).toThrow();
+  });
+  it("AC2 absent history only admits the named creation epoch and incarnation", () => {
+    const { owner, consumer } = setup();
+    const grant = owner.captureGrant("owner/key", identity);
+    consumer.validateGrantVector([grant]);
+    expect(() => consumer.validateGrantVector([{ ...grant, epoch: 4 }])).toThrow();
+    expect(() => consumer.validateGrantVector([{ ...grant, consumer: { ...identity, incarnation: "old" } }])).toThrow();
+    expect(() => consumer.validateGrantVector([{ ...grant, validUntil: "2000-01-01" }])).toThrow();
+    expect(() => consumer.validateGrantVector([grant, grant])).toThrow();
+    expect(() => consumer.validateGrantVector(Array(33).fill(grant))).toThrow("32");
+    expect(() => consumer.validateGrantVector([{ ...grant, validUntil: "unknown" }])).toThrow();
+    expect(() => replayConfigurationEpoch([{ kind: "APPLIED", epoch: 3, topologyRevision: 1 }])).toThrow();
+  });
+  it("guard-bypass mutant is caught by the stale-terminal oracle", () => {
+    const { owner, consumer } = setup();
+    const grant = owner.captureGrant("owner/key", identity);
+    owner.beginClosure("owner/key");
+    owner.driveClosure("owner/key", [consumer]);
+    const oracle = (bypassGuard: boolean) => {
+      const terminal = () => {
+        if (!bypassGuard)
+          assertConfigurationGrantCurrent(grant, identity, consumer.guards.get(grant.key), "2026-01-01");
+      };
+      expect(terminal).toThrow();
     };
-    await memory.eventStore.appendToStream({
-      streamId: "stream",
-      expectedVersion: "no_stream",
-      context,
-      events: [{ eventType: "created", payload: {} }],
-    });
-    expect(() =>
-      configurationEpoch.validateGrantVector([
-        { key: "channels.connection:acct_2", epoch: 7, storeIncarnation: "owner-1" },
-      ]),
-    ).toThrow();
-    await expect(
-      memory.eventStore.appendToStream({
-        streamId: "stream",
-        expectedVersion: 1,
-        configurationGrants: [{ key: "channels.connection:acct_2", epoch: 7, storeIncarnation: "owner-1" }],
-        context,
-        events: [{ eventType: "changed", payload: {} }],
-      }),
-    ).rejects.toThrow();
-    await expect(memory.eventStore.readStream({ streamId: "stream" })).resolves.toHaveLength(1);
+    oracle(false);
+    expect(() => oracle(true)).toThrow();
   });
 });

@@ -91,13 +91,33 @@ Apply `infrastructure/event-core-postgres/schema.sql` before using Postgres adap
 ## Acknowledged Configuration Epochs
 
 Class-C owner configuration uses an acknowledged epoch closure protocol. A
-fully-qualified key is `OPEN` at one store incarnation, transitions to
-`CLOSING`, and becomes `APPLIED` only after every registered consumer has
-durably acknowledged `CLOSED-THROUGH`. Consumers capture grants while holding
-the source `SHARED` guard; the Postgres adapter keeps that lock through commit,
-so a closure cannot install ahead of a terminal append. Missing, partial,
-corrupt, stale-incarnation, duplicate, and expired grants fail closed. The
-in-memory implementation is parity test support, not an authority cache.
+fully-qualified key is `OPEN(e)` at one source store incarnation. The business
+writer records `CLOSING(e, topology)` in its own transaction using
+`beginClosureInTransaction`. New grants stop on that key, but existing grants
+can still commit until the consumer receives `CLOSED-THROUGH(e)`.
+
+`driveClosure` writes each consumer's canonical guard journal under its local
+EXCLUSIVE transaction lock, then records the durable receipt in the source
+journal. `installClosureInTransaction` permits the owner's business change
+only after all receipts; its `APPLIED(e)` record opens `e+1` in that same
+transaction. Lost replies and unavailable stores remain pending or blocked;
+restart the driver against the same journal. Elapsed time releases nothing.
+
+Grant capture checks registered consumer identity under the source SHARED
+guard. Terminal `appendToStreams` takes ordered consumer-local SHARED key
+locks, then sorted stream locks, then the global append lock. It reads only
+consumer-local histories and the consumer database clock after locking and
+holds the locks through COMMIT. An absent history admits only the named
+creation epoch and consumer incarnation; partial histories refuse. Canonical
+journal anchors and linked records detect missing, changed and corrupt history.
+
+Registration and retirement refuse while CLOSING. Registration at a later
+epoch initializes the new consumer closed-through; retirement fences all old
+grants before removing membership. Every participation query uses a bounded
+timeout. No-grant callers retain their existing behavior. Single-stream and
+independent append APIs refuse class-C grants; they cannot silently bypass the
+atomic adapter. The in-memory critical section validates synchronously without
+await between version pre-check, snapshot, append and restore.
 
 ## Import Surface
 

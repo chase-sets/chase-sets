@@ -4,40 +4,31 @@ CREATE TABLE IF NOT EXISTS event_store_streams (
   updated_at timestamptz NOT NULL
 );
 
+-- configuration-epoch-schema:start
+CREATE TABLE IF NOT EXISTS event_configuration_store_identity (
+  singleton boolean PRIMARY KEY CHECK (singleton),
+  store_id text NOT NULL,
+  incarnation text NOT NULL
+);
+
+-- These heads are canonical journal anchors, not projections or snapshots.
+CREATE TABLE IF NOT EXISTS event_configuration_journal_heads (
+  role text NOT NULL CHECK (role IN ('source', 'consumer')),
+  key text NOT NULL,
+  sequence bigint NOT NULL CHECK (sequence > 0),
+  digest text NOT NULL CHECK (length(digest) = 64),
+  PRIMARY KEY (role, key)
+);
+
 CREATE TABLE IF NOT EXISTS event_configuration_guard_history (
+  role text NOT NULL CHECK (role IN ('source', 'consumer')),
   key text NOT NULL,
-  epoch bigint NOT NULL CHECK (epoch >= 0),
-  store_incarnation text NOT NULL,
-  key_creation_epoch bigint NOT NULL CHECK (key_creation_epoch >= 0),
-  state text NOT NULL CHECK (state IN ('OPEN', 'CLOSING', 'APPLIED')),
-  topology_revision bigint NOT NULL CHECK (topology_revision >= 0),
-  updated_at timestamptz NOT NULL,
-  PRIMARY KEY (key, epoch, store_incarnation)
+  sequence bigint NOT NULL CHECK (sequence > 0),
+  record json NOT NULL,
+  digest text NOT NULL CHECK (length(digest) = 64),
+  PRIMARY KEY (role, key, sequence)
 );
-
-CREATE TABLE IF NOT EXISTS event_configuration_source_topology (
-  key text NOT NULL,
-  topology_revision bigint NOT NULL CHECK (topology_revision >= 0),
-  consumer_store_id text NOT NULL,
-  store_incarnation text NOT NULL,
-  state text NOT NULL CHECK (state IN ('REGISTERED', 'RETIRED')),
-  initialized_closed_through_epoch bigint NULL CHECK (initialized_closed_through_epoch IS NULL OR initialized_closed_through_epoch >= 0),
-  updated_at timestamptz NOT NULL,
-  PRIMARY KEY (key, consumer_store_id)
-);
-
-CREATE TABLE IF NOT EXISTS event_configuration_closed_through (
-  key text NOT NULL,
-  epoch bigint NOT NULL CHECK (epoch >= 0),
-  topology_revision bigint NOT NULL CHECK (topology_revision >= 0),
-  consumer_store_id text NOT NULL,
-  store_incarnation text NOT NULL,
-  acknowledged_at timestamptz NOT NULL,
-  PRIMARY KEY (key, epoch, topology_revision, consumer_store_id, store_incarnation)
-);
-
-CREATE INDEX IF NOT EXISTS event_configuration_closed_through_lookup_idx
-  ON event_configuration_closed_through (key, epoch, topology_revision);
+-- configuration-epoch-schema:end
 
 CREATE TABLE IF NOT EXISTS event_store_events (
   global_position bigserial PRIMARY KEY,

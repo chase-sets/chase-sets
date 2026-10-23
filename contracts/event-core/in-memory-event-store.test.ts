@@ -5,6 +5,8 @@ import {
   assertBoundedStreamReadContract,
   createInMemoryEventStore,
   EVENT_STORE_READ_ALL_PAGE_SIZE_BOUNDARIES,
+  createInMemoryConfigurationConsumer,
+  createInMemoryConfigurationEpochStore,
 } from "./test-support";
 
 const context = {
@@ -20,6 +22,34 @@ function event(eventType: string, eventId?: string) {
 }
 
 describe("shared in-memory event store", () => {
+  it("AC3 failed guarded append never erases a concurrent acknowledged append", async () => {
+    const consumer = createInMemoryConfigurationConsumer({ storeId: "consumer", incarnation: "one" });
+    const source = createInMemoryConfigurationEpochStore("source-one");
+    source.open("owner/key");
+    source.registerConsumer("owner/key", consumer);
+    const grant = source.captureGrant("owner/key", consumer.identity);
+    const { eventStore } = createInMemoryEventStore({ configurationEpoch: consumer });
+    await eventStore.appendToStream({
+      streamId: "existing",
+      expectedVersion: 0,
+      context,
+      events: [event("original", "collision")],
+    });
+    const guarded = eventStore.appendToStreams!([
+      { streamId: "rollback", expectedVersion: 0, context, configurationGrants: [grant], events: [event("new")] },
+      { streamId: "existing", expectedVersion: 1, context, events: [event("changed", "collision")] },
+    ]);
+    const refusal = expect(guarded).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await eventStore.appendToStream({
+      streamId: "acknowledged",
+      expectedVersion: 0,
+      context,
+      events: [event("committed")],
+    });
+    await refusal;
+    expect(await eventStore.readStream({ streamId: "acknowledged" })).toHaveLength(1);
+    expect(await eventStore.readStream({ streamId: "rollback" })).toHaveLength(0);
+  });
   it("validates bounded-prefix request evidence without reading the stream", () => {
     expect(() =>
       assertBoundedStreamReadContract({

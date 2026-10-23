@@ -1,332 +1,239 @@
-import type { EventStore, EventStoreError } from "./event-store";
-import type { AppendToStreamInput } from "./storage";
-
-/** The lifecycle of one owner key at one store incarnation. */
-export type ConfigurationGuardState = "OPEN" | "CLOSING" | "APPLIED";
-
-export type ConfigurationEpoch = number;
-
-export type ConfigurationKey = Readonly<{
-  /** A fully-qualified owner key. The value is never inferred from a cache. */
-  key: string;
-  /** The incarnation of the owner store that created the key. */
-  storeIncarnation: string;
-  /** The epoch at which this key first existed. */
-  keyCreationEpoch?: ConfigurationEpoch;
-}>;
-
+/** A configuration source and final consumer are distinct store incarnations. */
+export type ConfigurationConsumer = Readonly<{ storeId: string; incarnation: string }>;
 export type ConfigurationEpochGrant = Readonly<{
   key: string;
-  epoch: ConfigurationEpoch;
-  storeIncarnation: string;
-  /** A consumer-clock validity bound. Grants without a bound do not expire. */
+  sourceIncarnation: string;
+  keyCreationEpoch: number;
+  epoch: number;
+  consumer: ConfigurationConsumer;
+  topologyRevision: number;
   validUntil?: string;
 }>;
-
 export type ConfigurationGrantVector = readonly ConfigurationEpochGrant[];
-
-export type ConfigurationConsumerRegistration = Readonly<{
-  consumerStoreId: string;
-  storeIncarnation: string;
-  /** A new store may join a closing key only when it starts closed-through. */
-  initializedClosedThroughEpoch?: ConfigurationEpoch;
-}>;
-
-export type ConfigurationGuardRecord = Readonly<{
-  key: string;
-  epoch: ConfigurationEpoch;
-  storeIncarnation: string;
-  keyCreationEpoch: ConfigurationEpoch;
-  state: ConfigurationGuardState;
-  topologyRevision: number;
-}>;
-
+export type ConfigurationEpochRecord =
+  | Readonly<{ kind: "CREATED"; sourceIncarnation: string; keyCreationEpoch: number }>
+  | Readonly<{ kind: "REGISTERED"; consumer: ConfigurationConsumer }>
+  | Readonly<{ kind: "RETIRED"; consumer: ConfigurationConsumer }>
+  | Readonly<{ kind: "CLOSING"; epoch: number; topologyRevision: number }>
+  | Readonly<{ kind: "RECEIPT"; epoch: number; topologyRevision: number; consumer: ConfigurationConsumer }>
+  | Readonly<{ kind: "BLOCKED"; reason: string }>
+  | Readonly<{ kind: "APPLIED"; epoch: number; topologyRevision: number }>;
 export type ConfigurationClosureStatus = Readonly<{
   key: string;
-  epoch: ConfigurationEpoch;
+  epoch: number;
   topologyRevision: number;
-  status: "PENDING" | "BLOCKED" | "APPLIED";
-  pendingConsumerStoreIds: readonly string[];
+  status: "OPEN" | "PENDING" | "BLOCKED";
+  pendingConsumers: readonly ConfigurationConsumer[];
+  reason?: string;
 }>;
-
-export type ConfigurationEpochStore = Readonly<{
-  open: (input: ConfigurationKey) => Promise<ConfigurationGuardRecord>;
-  registerConsumer: (
-    key: string,
-    registration: ConfigurationConsumerRegistration,
-  ) => Promise<Readonly<{ topologyRevision: number }>>;
-  retireConsumer: (key: string, consumerStoreId: string, storeIncarnation: string) => Promise<void>;
-  beginClosure: (key: string, epoch: ConfigurationEpoch) => Promise<ConfigurationClosureStatus>;
-  acknowledgeClosedThrough: (
-    input: Readonly<{
-      key: string;
-      epoch: ConfigurationEpoch;
-      topologyRevision: number;
-      consumerStoreId: string;
-      storeIncarnation: string;
-    }>,
-  ) => Promise<void>;
-  installClosure: (
-    key: string,
-    epoch: ConfigurationEpoch,
-    topologyRevision: number,
-  ) => Promise<ConfigurationGuardRecord>;
-  recover: (key: string, epoch: ConfigurationEpoch) => Promise<ConfigurationClosureStatus>;
-  captureGrant: (
-    input: Readonly<{
-      key: string;
-      consumerStoreId: string;
-      storeIncarnation: string;
-      now?: string;
-      validUntil?: string;
-    }>,
-  ) => Promise<ConfigurationEpochGrant>;
-  validateGrantVector: (grants: ConfigurationGrantVector, now?: string) => void;
+export type ConfigurationEpochHistory = Readonly<{
+  sourceIncarnation: string;
+  keyCreationEpoch: number;
+  epoch: number;
+  topologyRevision: number;
+  consumers: readonly ConfigurationConsumer[];
+  receipts: readonly ConfigurationConsumer[];
+  state: "OPEN" | "CLOSING";
+  blockedReason?: string;
 }>;
-
-export class ConfigurationEpochError extends Error implements Partial<EventStoreError> {
-  readonly code = "concurrency_conflict" as const;
-  readonly details: Record<string, unknown>;
-
-  constructor(message: string, details: Record<string, unknown> = {}) {
-    super(message);
-    this.details = details;
+export class ConfigurationEpochError extends Error {
+  readonly code = "concurrency_conflict";
+  constructor(message: string) {
+    super(`Configuration epoch: ${message}`);
     this.name = "ConfigurationEpochError";
   }
 }
-
-function guardIdentity(key: string, epoch: number, incarnation: string): string {
-  return `${key}\u0000${epoch}\u0000${incarnation}`;
+export function assertConfigurationText(value: string): void {
+  if (typeof value !== "string" || !value.length || value.length > 512 || value.includes("\u0000"))
+    throw new ConfigurationEpochError("invalid key or incarnation");
+}
+export function assertConfigurationEpoch(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value >= Number.MAX_SAFE_INTEGER)
+    throw new ConfigurationEpochError("invalid epoch or topology revision");
+}
+export function sameConfigurationConsumer(left: ConfigurationConsumer, right: ConfigurationConsumer): boolean {
+  return left.storeId === right.storeId && left.incarnation === right.incarnation;
+}
+function assertConsumer(consumer: ConfigurationConsumer): void {
+  if (!consumer) throw new ConfigurationEpochError("missing consumer");
+  assertConfigurationText(consumer.storeId);
+  assertConfigurationText(consumer.incarnation);
 }
 
-function assertKey(value: string, name: string): void {
-  if (typeof value !== "string" || value.length === 0 || value.length > 512) {
-    throw new ConfigurationEpochError(`${name} must be a non-empty bounded string.`);
-  }
-}
-
-function assertEpoch(value: number, name: string): void {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new ConfigurationEpochError(`${name} must be a non-negative safe integer.`);
-  }
-}
-
-function assertValidity(now: string, validUntil: string | undefined): void {
-  if (validUntil !== undefined && Date.parse(validUntil) <= Date.parse(now)) {
-    throw new ConfigurationEpochError("Configuration epoch grant is past its scheduled validity bound.");
-  }
-}
-
-/**
- * In-memory parity for the class-C protocol. Mutations are synchronous once a
- * method enters its critical section; no await is placed between validation and
- * the caller's append, which keeps the snapshot/append operation indivisible.
- */
-export function createInMemoryConfigurationEpochStore(): ConfigurationEpochStore &
-  Readonly<{
-    guards: ReadonlyMap<string, ConfigurationGuardRecord>;
-    closureStatus: (key: string, epoch: number) => ConfigurationClosureStatus;
-  }> {
-  const guards = new Map<string, ConfigurationGuardRecord>();
-  const consumers = new Map<string, Map<string, ConfigurationConsumerRegistration>>();
-  const receipts = new Set<string>();
-  const pending = new Map<string, ConfigurationClosureStatus>();
-  const revisions = new Map<string, number>();
-  const consumerRevisions = new Map<string, Map<string, number>>();
-
-  function current(key: string, epoch?: number): ConfigurationGuardRecord | undefined {
-    const matches = [...guards.values()].filter(
-      (guard) => guard.key === key && (epoch === undefined || guard.epoch === epoch),
-    );
-    return matches.sort((left, right) => right.epoch - left.epoch)[0];
-  }
-
-  function status(key: string, epoch: number): ConfigurationClosureStatus {
-    const guard = guards.get(guardIdentity(key, epoch, current(key, epoch)?.storeIncarnation ?? ""));
-    const closure = pending.get(`${key}\u0000${epoch}`);
-    if (closure) return closure;
-    const topologyRevision = guard?.topologyRevision ?? revisions.get(key) ?? 0;
-    const registered = consumers.get(key);
-    return {
-      key,
-      epoch,
-      topologyRevision,
-      status: guard?.state === "APPLIED" ? "APPLIED" : "PENDING",
-      pendingConsumerStoreIds: registered ? [...registered.keys()] : [],
-    };
-  }
-
-  const store: ConfigurationEpochStore &
-    Readonly<{ guards: ReadonlyMap<string, ConfigurationGuardRecord>; closureStatus: typeof status }> = {
-    guards,
-    closureStatus: status,
-    async open(input) {
-      assertKey(input.key, "key");
-      assertKey(input.storeIncarnation, "storeIncarnation");
-      const epoch = input.keyCreationEpoch ?? 0;
-      assertEpoch(epoch, "keyCreationEpoch");
-      const identity = guardIdentity(input.key, epoch, input.storeIncarnation);
-      const existing = guards.get(identity);
-      if (existing) return existing;
-      const record: ConfigurationGuardRecord = {
-        key: input.key,
-        epoch,
-        storeIncarnation: input.storeIncarnation,
-        keyCreationEpoch: epoch,
-        state: "OPEN",
-        topologyRevision: revisions.get(input.key) ?? 0,
-      };
-      guards.set(identity, record);
-      consumers.set(input.key, consumers.get(input.key) ?? new Map());
-      return record;
-    },
-    async registerConsumer(key, registration) {
-      assertKey(key, "key");
-      assertKey(registration.consumerStoreId, "consumerStoreId");
-      assertKey(registration.storeIncarnation, "storeIncarnation");
-      const existing = current(key);
-      const revision = (revisions.get(key) ?? existing?.topologyRevision ?? 0) + 1;
-      if (existing?.state === "CLOSING" && registration.initializedClosedThroughEpoch === undefined) {
-        throw new ConfigurationEpochError("Cannot register a consumer while configuration closure is CLOSING.");
-      }
-      const registered = consumers.get(key) ?? new Map<string, ConfigurationConsumerRegistration>();
-      registered.set(registration.consumerStoreId, registration);
-      consumers.set(key, registered);
-      revisions.set(key, revision);
-      const registeredAt = consumerRevisions.get(key) ?? new Map<string, number>();
-      registeredAt.set(registration.consumerStoreId, revision);
-      consumerRevisions.set(key, registeredAt);
-      return { topologyRevision: revision };
-    },
-    async retireConsumer(key, consumerStoreId, storeIncarnation) {
-      const existing = current(key);
-      if (existing?.state === "CLOSING") {
-        throw new ConfigurationEpochError("Cannot retire a consumer while configuration closure is CLOSING.");
-      }
-      consumers.get(key)?.delete(consumerStoreId);
-      revisions.set(key, (revisions.get(key) ?? 0) + 1);
-      void storeIncarnation;
-    },
-    async beginClosure(key, epoch) {
-      assertKey(key, "key");
-      assertEpoch(epoch, "epoch");
-      const guard = current(key, epoch);
-      if (!guard) throw new ConfigurationEpochError("Configuration guard history is unknown.");
-      if (guard.state === "CLOSING") return status(key, epoch);
-      if (guard.state !== "OPEN") throw new ConfigurationEpochError("Only OPEN configuration guards may close.");
-      const topologyRevision = revisions.get(key) ?? guard.topologyRevision;
-      const closing = { ...guard, state: "CLOSING" as const, topologyRevision };
-      guards.set(guardIdentity(key, epoch, guard.storeIncarnation), closing);
-      const pendingStores = [...(consumers.get(key)?.keys() ?? [])].filter(
-        (consumerStoreId) => (consumerRevisions.get(key)?.get(consumerStoreId) ?? 0) <= topologyRevision,
-      );
-      const result: ConfigurationClosureStatus = {
-        key,
-        epoch,
-        topologyRevision,
-        status: "PENDING",
-        pendingConsumerStoreIds: pendingStores,
-      };
-      pending.set(`${key}\u0000${epoch}`, result);
-      return result;
-    },
-    async acknowledgeClosedThrough(input) {
-      const guard = current(input.key, input.epoch);
-      if (!guard || guard.state !== "CLOSING")
-        throw new ConfigurationEpochError("Configuration closure is not CLOSING.");
-      if (guard.topologyRevision !== input.topologyRevision)
-        throw new ConfigurationEpochError("Topology revision is stale.");
-      const registered = consumers.get(input.key)?.get(input.consumerStoreId);
-      if (!registered || registered.storeIncarnation !== input.storeIncarnation)
-        throw new ConfigurationEpochError("Consumer store incarnation is unknown.");
-      receipts.add(
-        `${input.key}\u0000${input.epoch}\u0000${input.topologyRevision}\u0000${input.consumerStoreId}\u0000${input.storeIncarnation}`,
-      );
-      const currentStatus = status(input.key, input.epoch);
-      pending.set(`${input.key}\u0000${input.epoch}`, {
-        ...currentStatus,
-        pendingConsumerStoreIds: currentStatus.pendingConsumerStoreIds.filter((id) => id !== input.consumerStoreId),
-      });
-    },
-    async installClosure(key, epoch, topologyRevision) {
-      const guard = current(key, epoch);
-      if (!guard || guard.state !== "CLOSING")
-        throw new ConfigurationEpochError("Configuration closure is not CLOSING.");
-      const registered = consumers.get(key) ?? new Map();
-      const missing = [...registered.entries()]
-        .filter(
-          ([consumerStoreId, registration]) =>
-            (consumerRevisions.get(key)?.get(consumerStoreId) ?? 0) <= topologyRevision &&
-            !receipts.has(
-              `${key}\u0000${epoch}\u0000${topologyRevision}\u0000${consumerStoreId}\u0000${registration.storeIncarnation}`,
-            ),
-        )
-        .map(([id]) => id);
-      if (missing.length) {
-        const result = { key, epoch, topologyRevision, status: "BLOCKED" as const, pendingConsumerStoreIds: missing };
-        pending.set(`${key}\u0000${epoch}`, result);
-        throw new ConfigurationEpochError("Configuration closure is pending CLOSED-THROUGH receipts.", {
-          missingConsumerStoreIds: missing,
-        });
-      }
-      const applied = { ...guard, state: "APPLIED" as const, topologyRevision };
-      guards.set(guardIdentity(key, epoch, guard.storeIncarnation), applied);
-      pending.set(`${key}\u0000${epoch}`, {
-        key,
-        epoch,
-        topologyRevision,
-        status: "APPLIED",
-        pendingConsumerStoreIds: [],
-      });
-      await store.open({ key, storeIncarnation: guard.storeIncarnation, keyCreationEpoch: epoch + 1 });
-      return applied;
-    },
-    async recover(key, epoch) {
-      return status(key, epoch);
-    },
-    async captureGrant(input) {
-      const guard = current(input.key);
-      if (!guard || guard.state !== "OPEN")
-        throw new ConfigurationEpochError("Configuration guard is not OPEN; new grants are refused.");
-      assertKey(input.consumerStoreId, "consumerStoreId");
-      assertKey(input.storeIncarnation, "storeIncarnation");
-      const now = input.now ?? new Date().toISOString();
-      assertValidity(now, input.validUntil);
-      return {
-        key: input.key,
-        epoch: guard.epoch,
-        storeIncarnation: guard.storeIncarnation,
-        ...(input.validUntil === undefined ? {} : { validUntil: input.validUntil }),
-      };
-    },
-    validateGrantVector(grants, now = new Date().toISOString()) {
-      const seen = new Set<string>();
-      for (const grant of grants) {
-        assertKey(grant.key, "grant.key");
-        assertKey(grant.storeIncarnation, "grant.storeIncarnation");
-        assertEpoch(grant.epoch, "grant.epoch");
-        const identity = guardIdentity(grant.key, grant.epoch, grant.storeIncarnation);
-        if (seen.has(identity))
-          throw new ConfigurationEpochError("Configuration grant vector contains a duplicate key.");
-        seen.add(identity);
-        const guard = guards.get(identity);
-        if (!guard || guard.state !== "OPEN")
-          throw new ConfigurationEpochError("Configuration grant is not acknowledged at its installed epoch.");
-        assertValidity(now, grant.validUntil);
-      }
-    },
+/** Replays the complete canonical journal. Never accepts a cached state as authority. */
+export function replayConfigurationEpoch(records: readonly ConfigurationEpochRecord[]): ConfigurationEpochHistory {
+  const first = records[0];
+  if (!first || first.kind !== "CREATED") throw new ConfigurationEpochError("partial or absent source history");
+  assertConfigurationText(first.sourceIncarnation);
+  assertConfigurationEpoch(first.keyCreationEpoch);
+  let state: ConfigurationEpochHistory = {
+    sourceIncarnation: first.sourceIncarnation,
+    keyCreationEpoch: first.keyCreationEpoch,
+    epoch: first.keyCreationEpoch,
+    topologyRevision: 0,
+    consumers: [],
+    receipts: [],
+    state: "OPEN",
   };
-  return store;
+  for (const record of records.slice(1)) {
+    if (!record || typeof record !== "object") throw new ConfigurationEpochError("corrupt history record");
+    switch (record.kind) {
+      case "REGISTERED": {
+        assertConsumer(record.consumer);
+        if (state.state !== "OPEN" || state.consumers.some((c) => c.storeId === record.consumer.storeId))
+          throw new ConfigurationEpochError("registration is duplicate or CLOSING");
+        state = {
+          ...state,
+          topologyRevision: state.topologyRevision + 1,
+          consumers: [...state.consumers, record.consumer],
+        };
+        break;
+      }
+      case "RETIRED": {
+        assertConsumer(record.consumer);
+        if (state.state !== "OPEN" || !state.consumers.some((c) => sameConfigurationConsumer(c, record.consumer)))
+          throw new ConfigurationEpochError("retirement is unknown or CLOSING");
+        state = {
+          ...state,
+          topologyRevision: state.topologyRevision + 1,
+          consumers: state.consumers.filter((c) => !sameConfigurationConsumer(c, record.consumer)),
+        };
+        break;
+      }
+      case "CLOSING": {
+        if (
+          state.state !== "OPEN" ||
+          record.epoch !== state.epoch ||
+          record.topologyRevision !== state.topologyRevision
+        )
+          throw new ConfigurationEpochError("invalid CLOSING transition");
+        state = { ...state, state: "CLOSING", receipts: [] };
+        break;
+      }
+      case "RECEIPT": {
+        assertConsumer(record.consumer);
+        if (
+          state.state !== "CLOSING" ||
+          record.epoch !== state.epoch ||
+          record.topologyRevision !== state.topologyRevision ||
+          !state.consumers.some((c) => sameConfigurationConsumer(c, record.consumer)) ||
+          state.receipts.some((c) => sameConfigurationConsumer(c, record.consumer))
+        )
+          throw new ConfigurationEpochError("unknown, stale or duplicate receipt");
+        state = { ...state, receipts: [...state.receipts, record.consumer] };
+        break;
+      }
+      case "BLOCKED": {
+        assertConfigurationText(record.reason);
+        if (state.state !== "CLOSING") throw new ConfigurationEpochError("blocked outside CLOSING");
+        state = { ...state, blockedReason: record.reason };
+        break;
+      }
+      case "APPLIED": {
+        if (
+          state.state !== "CLOSING" ||
+          record.epoch !== state.epoch ||
+          record.topologyRevision !== state.topologyRevision ||
+          state.receipts.length !== state.consumers.length
+        )
+          throw new ConfigurationEpochError("installation requires every CLOSED-THROUGH receipt");
+        const { blockedReason: _reason, ...rest } = state;
+        state = { ...rest, epoch: state.epoch + 1, state: "OPEN", receipts: [] };
+        break;
+      }
+      default:
+        throw new ConfigurationEpochError("unknown or duplicate creation record");
+    }
+  }
+  assertConfigurationEpoch(state.epoch);
+  assertConfigurationEpoch(state.topologyRevision);
+  return state;
 }
 
-/** Validates grants on an EventStore append while retaining no-grant compatibility. */
-export function validateConfigurationGrantsOnAppend(
-  eventStore: EventStore,
-  inputs: readonly AppendToStreamInput[],
-  grantsByInput: readonly ConfigurationGrantVector[] | undefined,
+export function configurationClosureStatus(key: string, state: ConfigurationEpochHistory): ConfigurationClosureStatus {
+  return {
+    key,
+    epoch: state.epoch,
+    topologyRevision: state.topologyRevision,
+    status: state.state === "OPEN" ? "OPEN" : state.blockedReason ? "BLOCKED" : "PENDING",
+    pendingConsumers:
+      state.state === "OPEN"
+        ? []
+        : state.consumers.filter((c) => !state.receipts.some((r) => sameConfigurationConsumer(c, r))),
+    ...(state.blockedReason === undefined ? {} : { reason: state.blockedReason }),
+  };
+}
+
+export function captureConfigurationGrant(
+  key: string,
+  state: ConfigurationEpochHistory,
+  consumer: ConfigurationConsumer,
+  validUntil?: string,
+): ConfigurationEpochGrant {
+  assertConfigurationText(key);
+  assertConsumer(consumer);
+  if (state.state !== "OPEN" || !state.consumers.some((c) => sameConfigurationConsumer(c, consumer)))
+    throw new ConfigurationEpochError("source is CLOSING or consumer incarnation is not registered");
+  if (validUntil !== undefined && !Number.isFinite(Date.parse(validUntil)))
+    throw new ConfigurationEpochError("invalid validity bound");
+  return {
+    key,
+    sourceIncarnation: state.sourceIncarnation,
+    keyCreationEpoch: state.keyCreationEpoch,
+    epoch: state.epoch,
+    consumer,
+    topologyRevision: state.topologyRevision,
+    ...(validUntil === undefined ? {} : { validUntil }),
+  };
+}
+
+export function assertConfigurationGrantVector(grants: ConfigurationGrantVector): readonly ConfigurationEpochGrant[] {
+  if (grants.length > 32) throw new ConfigurationEpochError("at most 32 class-C keys per append");
+  const seen = new Set<string>();
+  for (const grant of grants) {
+    assertConfigurationText(grant.key);
+    assertConfigurationText(grant.sourceIncarnation);
+    assertConsumer(grant.consumer);
+    assertConfigurationEpoch(grant.epoch);
+    assertConfigurationEpoch(grant.keyCreationEpoch);
+    assertConfigurationEpoch(grant.topologyRevision);
+    if (grant.epoch < grant.keyCreationEpoch || seen.has(grant.key))
+      throw new ConfigurationEpochError("duplicate or invalid grant");
+    if (grant.validUntil !== undefined && !Number.isFinite(Date.parse(grant.validUntil)))
+      throw new ConfigurationEpochError("invalid validity bound");
+    seen.add(grant.key);
+  }
+  return [...grants].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+export type ConfigurationConsumerGuard = Readonly<{
+  sourceIncarnation: string;
+  keyCreationEpoch: number;
+  closedThroughEpoch: number;
+  topologyRevision: number;
+}>;
+/** Synchronous consumer-local terminal validation; absence never synthesizes guard rows. */
+export function assertConfigurationGrantCurrent(
+  grant: ConfigurationEpochGrant,
+  consumer: ConfigurationConsumer,
+  guard: ConfigurationConsumerGuard | undefined,
+  consumerClock: string,
 ): void {
-  void eventStore;
-  if (!grantsByInput) return;
-  if (grantsByInput.length !== inputs.length)
-    throw new ConfigurationEpochError("Grant vector must align with append inputs.");
+  if (!sameConfigurationConsumer(grant.consumer, consumer))
+    throw new ConfigurationEpochError("old consumer incarnation");
+  const now = Date.parse(consumerClock);
+  if (!Number.isFinite(now) || (grant.validUntil !== undefined && Date.parse(grant.validUntil) <= now))
+    throw new ConfigurationEpochError("invalid consumer clock or expired validity bound");
+  if (!guard) {
+    if (grant.epoch !== grant.keyCreationEpoch)
+      throw new ConfigurationEpochError("absent history at non-creation epoch");
+    return;
+  }
+  if (
+    guard.sourceIncarnation !== grant.sourceIncarnation ||
+    guard.keyCreationEpoch !== grant.keyCreationEpoch ||
+    guard.closedThroughEpoch + 1 !== grant.epoch ||
+    guard.topologyRevision > grant.topologyRevision
+  )
+    throw new ConfigurationEpochError("closed-through, partial or stale source history");
 }
