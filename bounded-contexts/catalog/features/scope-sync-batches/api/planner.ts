@@ -262,6 +262,17 @@ function scopePlanBlockers(
       message: t("catalog.features.scopeSyncBatches.api.planner.accepted.provider.scope.mapping.missing"),
     });
   }
+  // Enqueue refuses a scope with no selected provider unit, so such a plan is
+  // blocked rather than counted ready (for example, a scope mapped only to
+  // providers whose adapters cannot plan imports).
+  if (!preview.units.some((unit) => unit.selected)) {
+    blockers.push({
+      code: "scope-planning-blocked",
+      scopeRecordId: record.scope_record_id,
+      providerKey: null,
+      message: t("catalog.features.scopeSyncBatches.api.planner.selected.provider.units.missing"),
+    });
+  }
   const planningBlockers = [...preview.blockers, ...preview.units.flatMap((unit) => unit.blockers)].filter(
     (blocker, index, all) =>
       all.findIndex(
