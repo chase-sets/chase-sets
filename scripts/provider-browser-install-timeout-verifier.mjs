@@ -36,7 +36,8 @@ const identity = {
   headSha: job.head_sha,
 };
 const grandchild = 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);';
-const synthetic = `const {spawn}=require("node:child_process"); process.on("SIGTERM",()=>{}); spawn(process.execPath,["-e",${JSON.stringify(grandchild)}],{stdio:"inherit"}); setInterval(()=>{},1000);`;
+const synthetic =
+  'const { spawn } = require("node:child_process"); process.on("SIGTERM", () => {}); spawn(process.execPath, ["-e", process.argv[1]], { stdio: "inherit" }); setInterval(() => {}, 1000);';
 let group;
 let termAt;
 let killAt;
@@ -62,7 +63,7 @@ try {
     identity,
     env,
     spawnImpl: (_command, _args, options) => {
-      const child = spawn(process.execPath, ["-e", synthetic], options);
+      const child = spawn(process.execPath, ["-e", synthetic, grandchild], options);
       group = child.pid;
       return child;
     },
