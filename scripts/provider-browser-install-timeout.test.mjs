@@ -8,6 +8,7 @@ import { consumeTimingRecords } from "./provider-browser-install-timing.mjs";
 import {
   INSTALLER_TIMEOUT_SECONDS,
   resolveInstallerIdentity,
+  runHostedInstaller,
   runInstaller,
   superviseInstaller,
 } from "./provider-browser-install-timeout.mjs";
@@ -295,11 +296,335 @@ describe("owning hosted job identity", () => {
   it.each([
     { ...job, runner_name: "sibling" },
     { ...job, head_sha: "b".repeat(40) },
+    { ...job, run_id: 124 },
     { ...job, run_attempt: 2 },
     { ...job, status: "cancelled" },
+    { ...job, status: "completed" },
+    { ...job, status: "unknown-PRIVATE_PROVIDER" },
+    { ...job, status: "queued", runner_name: "sibling" },
+    { ...job, status: "queued", head_sha: "b".repeat(40), runner_name: null },
+    { ...job, id: "456" },
+    { ...job, id: 0 },
+    { ...job, id: Number.MAX_SAFE_INTEGER + 1 },
   ])("refuses wrong authority without retry", async (wrong) => {
     const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => ({ total_count: 1, jobs: [wrong] }) }));
     await expect(resolveInstallerIdentity(authority, fetchImpl)).rejects.toThrow(/owning job/);
     expect(fetchImpl).toHaveBeenCalledOnce();
+    const f = discovery([
+      { total_count: 1, jobs: [wrong] },
+      { total_count: 1, jobs: [job] },
+    ]);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(await f.result).toEqual({ status: 1 });
+    expect(f.fetchImpl).toHaveBeenCalledOnce();
+    expect(f.spawnImpl).not.toHaveBeenCalled();
+    expect(f.lines.join("\n")).not.toContain("PRIVATE_PROVIDER");
+  });
+
+  function discovery(payloads = [{ total_count: 1, jobs: [job] }], options = {}) {
+    vi.useFakeTimers();
+    const started = Date.now();
+    const lines = [];
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => payloads[Math.min(fetchImpl.mock.calls.length - 1, payloads.length - 1)],
+    }));
+    const loadPlaywright = vi.fn(async () => ({ chromium: { executablePath: () => "synthetic-absent-browser" } }));
+    const child = Object.assign(new EventEmitter(), {
+      pid: 4567,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      send: vi.fn(),
+    });
+    const spawnImpl = vi.fn(() => child);
+    const result = runHostedInstaller({
+      env: authority,
+      fetchImpl,
+      now: () => Date.now() - started,
+      write: (line) => lines.push(line),
+      loadPlaywright,
+      installerOptions: { spawnImpl },
+      ...options,
+    });
+    return { fetchImpl, loadPlaywright, spawnImpl, child, lines, result };
+  }
+
+  it("observes absent then queued/null then in-progress/null before exactly one authoritative spawn", async () => {
+    const f = discovery([
+      { total_count: 0, jobs: [] },
+      { total_count: 1, jobs: [{ ...job, status: "queued", runner_name: null }] },
+      { total_count: 1, jobs: [{ ...job, runner_name: null }] },
+      { total_count: 1, jobs: [job] },
+    ]);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(f.fetchImpl).toHaveBeenCalledTimes(3);
+    expect(f.spawnImpl).not.toHaveBeenCalled();
+    expect(f.loadPlaywright).not.toHaveBeenCalled();
+    expect(f.lines.filter((line) => line.startsWith("provider-browser-install-timing/v1 "))).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.fetchImpl).toHaveBeenCalledTimes(4);
+    expect(f.spawnImpl).toHaveBeenCalledOnce();
+    expect(f.loadPlaywright).toHaveBeenCalledOnce();
+    const observations = f.lines
+      .filter((line) => line.startsWith("provider-browser-install-authority-observation "))
+      .map((line) => JSON.parse(line.slice(line.indexOf("{"))));
+    expect(observations.map(({ reason }) => reason)).toEqual([
+      "pending-visibility",
+      "pending-visibility",
+      "pending-visibility",
+      "authority-resolved",
+    ]);
+    expect(observations[0]).toMatchObject({ observation: 1, elapsedMs: 0, jobCount: 0, candidateCount: 0 });
+    expect(observations[1]).toMatchObject({ status: "queued", runnerPending: true, runnerMatch: false });
+    expect(f.lines).toContain(
+      `provider-browser-install-authority-resolved ${JSON.stringify({ ...identity, runId: 123, jobId: 456, elapsedMs: 15_000, observation: 4 })}`,
+    );
+    f.child.stdout.write(stage("install-chromium") + stage("complete"));
+    f.child.emit("message", { installerStatus: 0 });
+    f.child.emit("close", 0);
+    expect((await f.result).status).toBe(0);
+    expect(consumeTimingRecords(f.lines, authorityForTiming())).toHaveLength(1);
+    expect(f.spawnImpl).toHaveBeenCalledOnce();
+  });
+
+  function authorityForTiming() {
+    return {
+      headSha: identity.headSha,
+      owningJob: {
+        ...job,
+        steps: [
+          {
+            name: "Install provider browser boundary",
+            status: "completed",
+            conclusion: "success",
+            started_at: "2026-01-01T00:00:00Z",
+            completed_at: "2027-01-01T00:00:00Z",
+          },
+        ],
+      },
+    };
+  }
+
+  it.each([null, "runner-1"])(
+    "never accepts queued authority with runner %s through the last observation",
+    async (runner_name) => {
+      const f = discovery([{ total_count: 1, jobs: [{ ...job, status: "queued", runner_name }] }]);
+      await vi.advanceTimersByTimeAsync(175_000);
+      expect(f.fetchImpl).toHaveBeenCalledTimes(36);
+      expect(f.spawnImpl).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(f.loadPlaywright).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await f.result).toEqual({ status: 1 });
+      expect(f.fetchImpl).toHaveBeenCalledTimes(36);
+      expect(f.lines.at(-1)).toContain('"reason":"visibility-deadline"');
+      expect(f.lines.at(-1)).toContain('"elapsedMs":180000');
+      expect(f.lines.some((line) => line.startsWith("provider-browser-install-timing/v1 "))).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("never-visible identity exhausts the total bound without a spawn", async () => {
+    const f = discovery([{ total_count: 0, jobs: [] }]);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(await f.result).toEqual({ status: 1 });
+    expect(f.fetchImpl.mock.calls.length).toBeLessThanOrEqual(37);
+    expect(f.spawnImpl).not.toHaveBeenCalled();
+    expect(f.lines.at(-1)).toContain("visibility-deadline");
+  });
+
+  it("charges request and body reads to the same deadline and never overlaps observations", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 4_000));
+      return {
+        ok: true,
+        json: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 7_000));
+          return { total_count: 0, jobs: [] };
+        },
+      };
+    });
+    const f = discovery(undefined, { fetchImpl });
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(calls).toBe(1);
+    expect(f.spawnImpl).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await f.result).toEqual({ status: 1 });
+    expect(f.lines.at(-1)).toContain("body-timeout");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls).toBe(1);
+  });
+
+  it("accepts an exact owner at the last observation, not its preceding pending state", async () => {
+    const pending = { total_count: 1, jobs: [{ ...job, status: "queued", runner_name: null }] };
+    const f = discovery([...Array(35).fill(pending), { total_count: 1, jobs: [job] }], {
+      loadPlaywright: async () => {
+        throw new Error("PRIVATE import");
+      },
+    });
+    await vi.advanceTimersByTimeAsync(174_999);
+    expect(f.spawnImpl).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await f.result).toEqual({ status: 1 });
+    expect(f.fetchImpl).toHaveBeenCalledTimes(36);
+    expect(f.lines.some((line) => line.includes('"reason":"authority-resolved"'))).toBe(true);
+    expect(f.lines.at(-1)).toBe("provider-browser-install-refused:playwright-import");
+  });
+
+  it.each(["request", "body"])(
+    "bounds a stalled %s by 10 seconds and aborts without overlapping requests",
+    async (phase) => {
+      let signal;
+      const f = discovery(undefined, {
+        fetchImpl: vi.fn(async (_url, options) => {
+          signal = options.signal;
+          if (phase === "request") return await new Promise(() => {});
+          return { ok: true, json: () => new Promise(() => {}) };
+        }),
+      });
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(signal.aborted).toBe(false);
+      expect(f.spawnImpl).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await f.result).toEqual({ status: 1 });
+      expect(signal.aborted).toBe(true);
+      expect(f.lines.at(-1)).toContain(`${phase}-timeout`);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each(["request", "body"])("clips the final %s timeout to the remaining total ceiling", async (phase) => {
+    let count = 0;
+    let signal;
+    const fetchImpl = vi.fn(async (_url, options) => {
+      count += 1;
+      if (count < 36) return { ok: true, json: async () => ({ total_count: 0, jobs: [] }) };
+      signal = options.signal;
+      if (phase === "request") return await new Promise(() => {});
+      return { ok: true, json: () => new Promise(() => {}) };
+    });
+    const f = discovery(undefined, { fetchImpl });
+    await vi.advanceTimersByTimeAsync(179_999);
+    expect(signal.aborted).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(36);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await f.result).toEqual({ status: 1 });
+    expect(signal.aborted).toBe(true);
+    expect(f.spawnImpl).not.toHaveBeenCalled();
+    expect(f.lines.at(-1)).toContain("visibility-deadline");
+  });
+
+  it.each([
+    null,
+    {},
+    { total_count: 0 },
+    { total_count: 1, jobs: [] },
+    { jobs: [job] },
+    { total_count: "1", jobs: [job] },
+    { total_count: -1, jobs: [] },
+    { total_count: 101, jobs: Array(101).fill({ name: "synthetic sibling" }) },
+    { total_count: 1, jobs: [null] },
+    { total_count: 1, jobs: [{}] },
+  ])("rejects malformed/incomplete/capped lists before spawn: %j", async (payload) => {
+    const f = discovery([payload]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await f.result).toEqual({ status: 1 });
+    expect(f.fetchImpl).toHaveBeenCalledOnce();
+    expect(f.spawnImpl).not.toHaveBeenCalled();
+    expect(f.lines.at(-1)).toContain("malformed-incomplete-list");
+  });
+
+  it("does not hide duplicate canonical owners behind a runner filter", async () => {
+    const f = discovery([{ total_count: 2, jobs: [job, { ...job, id: 457, runner_name: null, status: "queued" }] }]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await f.result).toEqual({ status: 1 });
+    expect(f.fetchImpl).toHaveBeenCalledOnce();
+    expect(f.spawnImpl).not.toHaveBeenCalled();
+    expect(f.lines.at(-1)).toContain("duplicate-owner");
+  });
+
+  it.each(["GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_REPOSITORY", "BOUNDARY_HEAD_SHA", "GH_TOKEN", "RUNNER_NAME"])(
+    "rejects invalid %s before any request or spawn",
+    async (key) => {
+      const f = discovery(undefined, { env: { ...authority, [key]: "" } });
+      expect(await f.result).toEqual({ status: 1 });
+      expect(f.fetchImpl).not.toHaveBeenCalled();
+      expect(f.spawnImpl).not.toHaveBeenCalled();
+      expect(f.lines.at(-1)).toContain("invalid-environment");
+    },
+  );
+
+  it.each(["http", "transport", "body", "payload", "import", "pre-spawn"])(
+    "keeps %s failure output fixed and free of secrets, bodies and exception text",
+    async (phase) => {
+      const secret = "SENTINEL_PRIVATE_TOKEN_BODY_EXCEPTION";
+      const f = discovery(undefined, {
+        env: { ...authority, GH_TOKEN: secret },
+        ...(phase === "http"
+          ? { fetchImpl: async () => ({ ok: false, statusText: secret, json: async () => secret }) }
+          : {}),
+        ...(phase === "transport"
+          ? {
+              fetchImpl: async () => {
+                throw new Error(secret);
+              },
+            }
+          : {}),
+        ...(phase === "body"
+          ? {
+              fetchImpl: async () => ({
+                ok: true,
+                json: async () => {
+                  throw new Error(secret);
+                },
+              }),
+            }
+          : {}),
+        ...(phase === "payload" ? { fetchImpl: async () => ({ ok: true, json: async () => secret }) } : {}),
+        ...(phase === "import"
+          ? {
+              loadPlaywright: async () => {
+                throw new Error(secret);
+              },
+            }
+          : {}),
+        ...(phase === "pre-spawn" ? { env: { ...authority, GH_TOKEN: secret, INSTALLER_TIMEOUT_SECONDS: "601" } } : {}),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await f.result).toEqual({ status: 1 });
+      expect(f.spawnImpl).not.toHaveBeenCalled();
+      expect(f.lines.join("\n")).not.toContain(secret);
+      expect(f.lines.join("\n")).not.toContain("PRIVATE");
+      expect(f.lines.at(-1)).toContain(
+        {
+          http: "http-failure",
+          transport: "transport-failure",
+          body: "body-failure",
+          payload: "malformed-incomplete-list",
+          import: "playwright-import",
+          "pre-spawn": "pre-spawn",
+        }[phase],
+      );
+    },
+  );
+
+  it("shares the literal verifier owner reader without selecting a governing installer mode", async () => {
+    const source = readFileSync("scripts/provider-browser-install-timeout-verifier.mjs", "utf8");
+    expect(source).toContain(
+      'resolveInstallerIdentity(env, fetch, { jobName: "Synthetic browser installer timeout" })',
+    );
+    expect(source).not.toContain("await fetch(");
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ total_count: 1, jobs: [{ ...job, name: "Synthetic browser installer timeout" }] }),
+    }));
+    expect(
+      await resolveInstallerIdentity(authority, fetchImpl, {
+        jobName: "Synthetic browser installer timeout",
+        write: () => {},
+      }),
+    ).toEqual(identity);
   });
 });

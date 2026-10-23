@@ -3,38 +3,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
-import { runInstaller, signalGroup } from "./provider-browser-install-timeout.mjs";
+import { resolveInstallerIdentity, runInstaller, signalGroup } from "./provider-browser-install-timeout.mjs";
 
 // Non-governing Linux proof only. No selector reaches the production installer.
 assert.equal(process.platform, "linux");
 const env = process.env;
-const response = await fetch(
-  `https://api.github.com/repos/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs?per_page=100`,
-  {
-    headers: { authorization: `Bearer ${env.GH_TOKEN}`, accept: "application/vnd.github+json" },
-    signal: AbortSignal.timeout(10_000),
-  },
-);
-assert.ok(response.ok);
-const payload = await response.json();
-assert.ok(payload.total_count <= 100);
-const jobs = payload.jobs.filter(
-  (job) =>
-    job.name === "Synthetic browser installer timeout" &&
-    job.runner_name === env.RUNNER_NAME &&
-    job.status === "in_progress",
-);
-assert.equal(jobs.length, 1);
-const job = jobs[0];
-assert.equal(job.run_id, Number(env.GITHUB_RUN_ID));
-assert.equal(job.run_attempt, Number(env.GITHUB_RUN_ATTEMPT));
-assert.equal(job.head_sha, env.BOUNDARY_HEAD_SHA);
-const identity = {
-  runId: env.GITHUB_RUN_ID,
-  runAttempt: job.run_attempt,
-  jobId: String(job.id),
-  headSha: job.head_sha,
-};
+const identity = await resolveInstallerIdentity(env, fetch, { jobName: "Synthetic browser installer timeout" });
 const grandchild = 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);';
 const synthetic =
   'const { spawn } = require("node:child_process"); process.on("SIGTERM", () => {}); spawn(process.execPath, ["-e", process.argv[1]], { stdio: "inherit" }); setInterval(() => {}, 1000);';

@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
 import { isValidTimingRecord, timingRecordLine } from "./provider-browser-install-timing.mjs";
@@ -25,43 +26,186 @@ export function signalGroup(pid, signal) {
   throw new Error("provider-browser-install group signalling refused");
 }
 
-export async function resolveInstallerIdentity(env, fetchImpl = fetch) {
-  if (
-    !/^\d+$/.test(env.GITHUB_RUN_ID ?? "") ||
-    !/^\d+$/.test(env.GITHUB_RUN_ATTEMPT ?? "") ||
-    !/^[\w.-]+\/[\w.-]+$/.test(env.GITHUB_REPOSITORY ?? "") ||
-    !env.GH_TOKEN ||
-    !env.RUNNER_NAME
-  ) {
-    throw new Error("provider-browser-install identity refused");
-  }
-  const response = await fetchImpl(
-    `https://api.github.com/repos/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs?per_page=100`,
-    {
-      headers: { authorization: `Bearer ${env.GH_TOKEN}`, accept: "application/vnd.github+json" },
-      signal: AbortSignal.timeout(10_000),
-    },
-  );
-  if (!response.ok) throw new Error("provider-browser-install identity unavailable");
-  const payload = await response.json();
-  const jobs = payload.jobs?.filter(
-    (job) => job.name === "Static Checks" && job.status === "in_progress" && job.runner_name === env.RUNNER_NAME,
-  );
-  if (
-    payload.total_count > 100 ||
-    jobs?.length !== 1 ||
-    jobs[0].run_id !== Number(env.GITHUB_RUN_ID) ||
-    jobs[0].run_attempt !== Number(env.GITHUB_RUN_ATTEMPT) ||
-    jobs[0].head_sha !== env.BOUNDARY_HEAD_SHA
-  ) {
-    throw new Error("provider-browser-install owning job refused");
-  }
-  return {
-    runId: env.GITHUB_RUN_ID,
-    runAttempt: Number(env.GITHUB_RUN_ATTEMPT),
-    jobId: String(jobs[0].id),
-    headSha: env.BOUNDARY_HEAD_SHA,
+export async function resolveInstallerIdentity(
+  env,
+  fetchImpl = fetch,
+  { jobName = "Static Checks", now = () => performance.now(), write = (line) => console.log(line) } = {},
+) {
+  const started = now();
+  const elapsed = () => Math.max(0, Math.floor(now() - started));
+  let observation = 0;
+  let facts = {};
+  const report = (reason) =>
+    write(
+      `provider-browser-install-authority-observation ${JSON.stringify({ reason, observation, elapsedMs: elapsed(), ...facts })}`,
+    );
+  const refuse = (reason) => {
+    report(reason);
+    return new Error(`provider-browser-install owning job refused:${reason}`);
   };
+  if (
+    !/^[1-9]\d*$/.test(env.GITHUB_RUN_ID ?? "") ||
+    !Number.isSafeInteger(Number(env.GITHUB_RUN_ID)) ||
+    !/^[1-9]\d*$/.test(env.GITHUB_RUN_ATTEMPT ?? "") ||
+    !Number.isSafeInteger(Number(env.GITHUB_RUN_ATTEMPT)) ||
+    !/^[a-f0-9]{40}$/.test(env.BOUNDARY_HEAD_SHA ?? "") ||
+    !/^[\w.-]+\/[\w.-]+$/.test(env.GITHUB_REPOSITORY ?? "") ||
+    typeof env.GH_TOKEN !== "string" ||
+    !env.GH_TOKEN ||
+    typeof env.RUNNER_NAME !== "string" ||
+    !env.RUNNER_NAME ||
+    !["Static Checks", "Synthetic browser installer timeout"].includes(jobName)
+  ) {
+    throw refuse("invalid-environment");
+  }
+  while (observation < 37 && elapsed() < 180_000) {
+    observation += 1;
+    facts = {};
+    const observedAt = now();
+    const controller = new AbortController();
+    let deadline;
+    let phase = "request";
+    let payload;
+    try {
+      payload = await Promise.race([
+        (async () => {
+          let response;
+          try {
+            response = await fetchImpl(
+              `https://api.github.com/repos/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs?per_page=100`,
+              {
+                headers: { authorization: `Bearer ${env.GH_TOKEN}`, accept: "application/vnd.github+json" },
+                signal: controller.signal,
+              },
+            );
+          } catch {
+            throw new Error("transport-failure");
+          }
+          if (!response?.ok) throw new Error("http-failure");
+          phase = "body";
+          try {
+            return await response.json();
+          } catch {
+            throw new Error("body-failure");
+          }
+        })(),
+        new Promise((_, reject) => {
+          deadline = setTimeout(
+            () => {
+              reject(new Error(elapsed() >= 180_000 ? "visibility-deadline" : `${phase}-timeout`));
+              controller.abort();
+            },
+            Math.min(10_000, 180_000 - elapsed()),
+          );
+        }),
+      ]);
+    } catch (error) {
+      const reason = [
+        "transport-failure",
+        "http-failure",
+        "body-failure",
+        "request-timeout",
+        "body-timeout",
+        "visibility-deadline",
+      ].includes(error?.message)
+        ? error.message
+        : "transport-failure";
+      throw refuse(reason);
+    } finally {
+      clearTimeout(deadline);
+    }
+    if (elapsed() >= 180_000) throw refuse("visibility-deadline");
+    if (
+      !payload ||
+      !Array.isArray(payload.jobs) ||
+      !Number.isInteger(payload.total_count) ||
+      payload.total_count < 0 ||
+      payload.total_count > 100 ||
+      payload.jobs.length !== payload.total_count ||
+      payload.jobs.some((job) => !job || typeof job !== "object" || typeof job.name !== "string")
+    )
+      throw refuse("malformed-incomplete-list");
+    const jobs = payload.jobs.filter((job) => job.name === jobName);
+    facts = { jobCount: payload.jobs.length, candidateCount: jobs.length };
+    if (jobs.length > 1) throw refuse("duplicate-owner");
+    if (jobs.length === 1) {
+      const job = jobs[0];
+      facts = {
+        ...facts,
+        status: ["queued", "in_progress", "completed", "cancelled"].includes(job.status) ? job.status : "unknown",
+        runMatch: job.run_id === Number(env.GITHUB_RUN_ID),
+        attemptMatch: job.run_attempt === Number(env.GITHUB_RUN_ATTEMPT),
+        headMatch: job.head_sha === env.BOUNDARY_HEAD_SHA,
+        runnerMatch: job.runner_name === env.RUNNER_NAME,
+        runnerPending: job.runner_name === null,
+        validJobId: Number.isSafeInteger(job.id) && job.id > 0,
+      };
+      if (
+        !facts.runMatch ||
+        !facts.attemptMatch ||
+        !facts.headMatch ||
+        !facts.validJobId ||
+        (!facts.runnerMatch && !facts.runnerPending)
+      )
+        throw refuse("mismatched-owner");
+      if (job.status === "in_progress" && facts.runnerMatch) {
+        report("authority-resolved");
+        const identity = {
+          runId: env.GITHUB_RUN_ID,
+          runAttempt: Number(env.GITHUB_RUN_ATTEMPT),
+          jobId: String(job.id),
+          headSha: env.BOUNDARY_HEAD_SHA,
+        };
+        write(
+          `provider-browser-install-authority-resolved ${JSON.stringify({ ...identity, runId: Number(identity.runId), jobId: Number(identity.jobId), elapsedMs: elapsed(), observation })}`,
+        );
+        return identity;
+      }
+      if (!["queued", "in_progress"].includes(job.status)) {
+        throw refuse(["completed", "cancelled"].includes(job.status) ? "terminal-owner" : "unknown-owner-status");
+      }
+    }
+    report("pending-visibility");
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(Math.max(0, 5_000 - (now() - observedAt)), 180_000 - elapsed())),
+    );
+  }
+  throw refuse("visibility-deadline");
+}
+
+export async function runHostedInstaller({
+  env = process.env,
+  fetchImpl = fetch,
+  now = () => performance.now(),
+  write = (line) => console.log(line),
+  loadPlaywright = () => import("@playwright/test"),
+  installerOptions = {},
+} = {}) {
+  let identity;
+  try {
+    identity = await resolveInstallerIdentity(env, fetchImpl, { now, write });
+  } catch {
+    return { status: 1 };
+  }
+  let chromium;
+  try {
+    ({ chromium } = await loadPlaywright());
+  } catch {
+    write("provider-browser-install-refused:playwright-import");
+    return { status: 1 };
+  }
+  try {
+    return await runInstaller({
+      ...installerOptions,
+      identity,
+      env,
+      write,
+      cacheHit: existsSync(chromium.executablePath()),
+    });
+  } catch {
+    write("provider-browser-install-refused:pre-spawn");
+    return { status: 1 };
+  }
 }
 
 export function runInstaller({
@@ -265,13 +409,5 @@ if (
 ) {
   superviseInstaller();
 } else if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    const identity = await resolveInstallerIdentity(process.env);
-    const { chromium } = await import("@playwright/test");
-    const result = await runInstaller({ identity, cacheHit: existsSync(chromium.executablePath()) });
-    process.exitCode = result.status;
-  } catch {
-    console.error("provider-browser-install-refused:authority");
-    process.exitCode = 1;
-  }
+  process.exitCode = (await runHostedInstaller()).status;
 }
