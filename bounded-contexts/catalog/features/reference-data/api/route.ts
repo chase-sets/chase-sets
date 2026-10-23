@@ -6,6 +6,57 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
+import type { ReferenceRecordId } from "../../../ids";
+import type { JsonObject } from "@chase-sets/primitives/json";
+
+export type ReferenceRecordCreateInput = Readonly<{
+  referenceRecordId: ReferenceRecordId;
+  typeKey: string;
+  key: string;
+  name: unknown;
+  description?: unknown;
+  attributes?: unknown;
+  relationships?: unknown;
+}>;
+
+export function parseReferenceRecordCreateInput(body: unknown): ReferenceRecordCreateInput {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("Reference Record body is required.");
+  }
+  const input = body as Record<string, unknown>;
+  return {
+    referenceRecordId: parseTypedIdBoundary(input.referenceRecordId, "ref", "referenceRecordId") as ReferenceRecordId,
+    typeKey: String(input.typeKey ?? ""),
+    key: String(input.key ?? ""),
+    name: input.name,
+    description: input.description ?? "",
+    attributes: input.attributes,
+    relationships: input.relationships,
+  };
+}
+
+export async function createReferenceRecord(
+  services: ReferenceDataServices,
+  body: unknown,
+  context: Parameters<ReferenceDataServices["referenceRecordCommandHandler"]>[0]["context"],
+) {
+  const input = parseReferenceRecordCreateInput(body);
+  const result = await services.referenceRecordCommandHandler({
+    streamId: `catalog.reference-record-${input.referenceRecordId}`,
+    command: {
+      type: "CreateReferenceRecord",
+      referenceRecordId: input.referenceRecordId,
+      typeKey: input.typeKey,
+      key: input.key,
+      name: coerceLocalizedTextMap(input.name),
+      description: coerceLocalizedTextMap(input.description ?? ""),
+      attributes: (isRecord(input.attributes) ? input.attributes : {}) as JsonObject,
+      relationships: Array.isArray(input.relationships) ? input.relationships : [],
+    },
+    context,
+  });
+  return { referenceRecordId: input.referenceRecordId, result };
+}
 
 export function referenceDataRoutes(
   services: ReferenceDataServices,
@@ -148,26 +199,8 @@ export function referenceDataRoutes(
   });
 
   app.post("/reference-records", async (c) => {
-    const body = await c.req.json();
-    const context = c.get("context");
-    const referenceRecordId = parseTypedIdBoundary(body.referenceRecordId, "ref", "referenceRecordId");
-
-    const result = await services.referenceRecordCommandHandler({
-      streamId: `catalog.reference-record-${referenceRecordId}`,
-      command: {
-        type: "CreateReferenceRecord",
-        referenceRecordId,
-        typeKey: body.typeKey,
-        key: body.key,
-        name: coerceLocalizedTextMap(body.name),
-        description: coerceLocalizedTextMap(body.description ?? ""),
-        attributes: isRecord(body.attributes) ? body.attributes : {},
-        relationships: Array.isArray(body.relationships) ? body.relationships : [],
-      },
-      context,
-    });
-
-    return c.json(commandSnapshotResponse(referenceRecordId, result), 201);
+    const created = await createReferenceRecord(services, await c.req.json(), c.get("context"));
+    return c.json(commandSnapshotResponse(created.referenceRecordId, created.result), 201);
   });
 
   app.post("/reference-records/bulk-lifecycle/preview", async (c) => {
