@@ -159,9 +159,7 @@ describe("bundle-node-service", () => {
     await put(f.root, `${f.service}/src/main.ts`, 'import value from "versioned/feature/second"; console.log(value);');
     const { externals } = await bundleNodeService({ repoRoot: f.root, deployable: f.name });
     expect(externals).toHaveLength(1);
-    expect(externals[0].resolved).toBe(
-      path.join(f.root, f.service, "node_modules/versioned/features/second.js"),
-    );
+    expect(externals[0].resolved).toBe(path.join(f.root, f.service, "node_modules/versioned/features/second.js"));
     expect(execFileSync(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8" })).toBe("wild\n");
   });
 
