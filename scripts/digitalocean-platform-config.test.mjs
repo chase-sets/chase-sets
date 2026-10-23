@@ -1365,6 +1365,31 @@ describe("DigitalOcean platform configuration", () => {
     }
   });
 
+  it("installs dependencies before every production marker invocation", () => {
+    const parsedWorkflow = parse(platformProductionWorkflow);
+    const markerJobs = Object.entries(parsedWorkflow.jobs)
+      .filter(([, job]) => (job.steps ?? []).some((step) => step.run?.includes("production-release-marker.mjs")))
+      .map(([jobName]) => jobName)
+      .sort();
+    expect(markerJobs).toEqual(["deploy-production", "reconcile-production-marker"]);
+
+    for (const jobName of markerJobs) {
+      const steps = parsedWorkflow.jobs[jobName].steps ?? [];
+      const firstMarkerIndex = steps.findIndex((step) => step.run?.includes("production-release-marker.mjs"));
+      const installsDependencies = (step) =>
+        (step.uses === "./.github/actions/setup-pnpm-workspace" &&
+          (step.with?.install === true || step.with?.install === "true")) ||
+        (typeof step.run === "string" && step.run.includes("pnpm install --frozen-lockfile"));
+
+      expect(steps.slice(0, firstMarkerIndex).some(installsDependencies)).toBe(true);
+      if (jobName === "reconcile-production-marker") {
+        expect(parsedWorkflow.jobs[jobName].env?.GITHUB_TOKEN).toBeUndefined();
+        const markerStep = steps[firstMarkerIndex];
+        expect(markerStep.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+      }
+    }
+  });
+
   it("enrolls the Catalog send-window composition controls in the required DB proof profile", () => {
     const compositionTest =
       "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts";

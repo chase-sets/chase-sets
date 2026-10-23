@@ -248,6 +248,7 @@ describe("marker-only source recovery", () => {
 
   it.each([
     ["wrong branch", { head_branch: "feature" }],
+    ["wrong event", { event: "push" }],
     ["completed run", { status: "completed" }],
     ["wrong attempt", { run_attempt: 2 }],
     ["wrong workflow", { path: ".github/workflows/other.yml" }],
@@ -281,24 +282,21 @@ describe("marker-only source recovery", () => {
     };
     const checkLock = vi.fn(async (options) => {
       expect(options.releaseCommit).toBe(sourceCommit);
+      expect(options.releaseLocked).toBe(env.PRODUCTION_RELEASE_LOCKED);
       expect(options.emergencyBypass).toBe("false");
       return { deploymentAllowed: true, errors: [] };
     });
     const run = vi.fn(async (_program, args) => {
-      expect(args).toEqual(
-        expect.arrayContaining([
-          "--base-sha",
-          sourceCommit,
-          "--candidate-sha",
-          sourceCommit,
-          "--automatic",
-          "false",
-          "--circuit-issue-number",
-          "",
-          "--circuit-reason",
-          "",
-        ]),
-      );
+      for (const [flag, value] of [
+        ["--base-sha", sourceCommit],
+        ["--candidate-sha", sourceCommit],
+        ["--automatic", "false"],
+        ["--enforcement", "false"],
+      ]) {
+        expect(args[args.indexOf(flag) + 1]).toBe(value);
+      }
+      expect(args[args.indexOf("--circuit-issue-number") + 1]).toBe("");
+      expect(args[args.indexOf("--circuit-reason") + 1]).toBe("");
       return { stdout: "", stderr: "" };
     });
     await expect(admitMarkerOnlyPolicy({ commit: sourceCommit }, env, { checkLock, run })).resolves.toMatchObject({
@@ -309,11 +307,15 @@ describe("marker-only source recovery", () => {
   });
 
   it("refuses a locked source before the circuit guard", async () => {
-    const checkLock = vi.fn(async () => ({ deploymentAllowed: false, errors: ["locked"] }));
+    const env = { PRODUCTION_RELEASE_LOCKED: "true" };
+    const checkLock = vi.fn(async (options) => {
+      expect(options.releaseLocked).toBe(env.PRODUCTION_RELEASE_LOCKED);
+      return { deploymentAllowed: false, errors: ["locked"] };
+    });
     const run = vi.fn();
-    await expect(
-      admitMarkerOnlyPolicy({ commit }, { PRODUCTION_RELEASE_LOCKED: "true" }, { checkLock, run }),
-    ).rejects.toThrow("production release lock refused source");
+    await expect(admitMarkerOnlyPolicy({ commit }, env, { checkLock, run })).rejects.toThrow(
+      "production release lock refused source",
+    );
     expect(run).not.toHaveBeenCalled();
   });
 
