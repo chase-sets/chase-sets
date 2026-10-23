@@ -549,6 +549,18 @@ describe("Git listing buffer contract", () => {
         'import { execFileSync } from "node:child_process"; function list(readGit, fallback) { const read = () => (readGit ? readGit(["ls-files", "-z", "--others"]) : fallback()); return read(); } const out = list((args) => execFileSync("git", args, { maxBuffer: 1024 }), () => "");\n',
         "row",
       ],
+      [
+        "run-conditional",
+        "scripts/arbitrary/injected-run.mjs",
+        'export function list(run, fallback) { return run ? run(["ls-files", "-z", "--others"]) : fallback(); }\n',
+        "row",
+      ],
+      [
+        "run-conditional-small-executor",
+        "scripts/arbitrary/injected-run-small.mjs",
+        'import { execFileSync } from "node:child_process"; function list(run, fallback) { const read = () => (run ? run(["ls-files", "-z", "--others"]) : fallback()); return read(); } const out = list((args) => execFileSync("git", args, { maxBuffer: 1024 }), () => "");\n',
+        "row",
+      ],
       ["test-path", "scripts/arbitrary/injected-other.test.mjs", injected("run"), "row"],
       [
         "unresolved-factory-test-path",
@@ -601,6 +613,11 @@ describe("Git listing buffer contract", () => {
       { name: "readGit-conditional", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
       {
         name: "readGit-conditional-small-executor",
+        rows: [{ kind: "wrapper", status: "noncompliant", reason: "small-capacity" }],
+      },
+      { name: "run-conditional", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
+      {
+        name: "run-conditional-small-executor",
         rows: [{ kind: "wrapper", status: "noncompliant", reason: "small-capacity" }],
       },
       { name: "test-path", rows: [{ kind: "direct", status: "ambiguous", reason: "unaccounted-token" }] },
@@ -901,9 +918,23 @@ describe("Git listing buffer contract", () => {
       ],
       [
         "call-order-shadow",
-        'import { execFileSync } from "node:child_process"; function list() { return execFileSync("git", ["ls-files"], opts); } function outer() { const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; return list(); } const opts = { cwd: "." }; outer();',
+        'import { execFileSync } from "node:child_process"; function outer() { const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; return list(); } const opts = { cwd: "." }; function list() { return execFileSync("git", ["ls-files"], opts); } export { outer, list };',
         "direct",
         "noncompliant",
+      ],
+      [
+        "nested-neutrality-read-readTree",
+        'import { execFileSync } from "node:child_process"; function neutrality(readTree) { const read = (sha) => () => readTree(["ls-tree", "-r", "-z", "--name-only", sha]); return [read("a"), read("b")]; } export const out = neutrality((args) => execFileSync("git", args, { cwd: "." }));',
+        "wrapper",
+        "noncompliant",
+        "missing-maxBuffer",
+      ],
+      [
+        "method-local-shadow",
+        'import { execFileSync } from "node:child_process"; const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; export const lister = { list(root) { const opts = { cwd: root }; return execFileSync("git", ["ls-files"], opts); } };',
+        "direct",
+        "noncompliant",
+        "missing-maxBuffer",
       ],
       [
         "parameter-initializer-shadow",
@@ -957,6 +988,161 @@ describe("Git listing buffer contract", () => {
       { file: "scripts/q7x/missing.mjs", line: 1, kind: "direct", status: "ambiguous", reason: "unreadable" },
     ]);
   });
+  it("preserves the complete expected-compliant proof-shape and lexical control matrix", () => {
+    const prefix =
+      'import { execFileSync, execFile, spawnSync, spawn } from "node:child_process"; import { GIT_LISTING_MAX_BUFFER, gitListingOptions } from "../lib/git-listing.mjs";\n';
+    const cases = [
+      [
+        "direct-constant",
+        'execFileSync("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "direct",
+        "constant",
+      ],
+      ["async-exec", 'execFile("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER });', "direct", "constant"],
+      [
+        "sync-spawn",
+        'spawnSync("git", ["ls-tree", "HEAD"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "direct",
+        "constant",
+      ],
+      [
+        "async-spawn",
+        'spawn("git", ["ls-tree", "HEAD"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "direct",
+        "constant",
+      ],
+      [
+        "numeric-capacity",
+        'execFileSync("git", ["ls-files"], { maxBuffer: 8 * 1024 * 1024 });',
+        "direct",
+        "numeric-capacity",
+      ],
+      [
+        "bound-options-array",
+        'const args = ["ls-files", "-z", "--others"]; const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; execFileSync("git", args, opts);',
+        "direct",
+        "constant",
+      ],
+      [
+        "conditional-array",
+        'const args = flag ? ["ls-files", "-z"] : ["ls-tree", "HEAD"]; execFileSync("git", args, { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "direct",
+        "constant",
+      ],
+      [
+        "helper-object-literal",
+        'execFileSync("git", ["ls-files"], gitListingOptions({ encoding: "utf8" }));',
+        "direct",
+        "gitListingOptions",
+      ],
+      [
+        "leading-parameter-spread",
+        'export function list(root, overrides) { return execFileSync("git", ["ls-files", "-z"], { cwd: root, ...overrides, maxBuffer: GIT_LISTING_MAX_BUFFER }); }',
+        "direct",
+        "constant",
+      ],
+      [
+        "leading-known-spread",
+        'const options = { encoding: "utf8" }; execFileSync("git", ["ls-files"], { ...options, maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "direct",
+        "constant",
+      ],
+      [
+        "one-hop-wrapper",
+        'function run(args, options) { return execFileSync("git", args, options); } run(["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "wrapper",
+        "constant",
+      ],
+      [
+        "wrapper-default-callback",
+        'function list(roots, opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { return roots.map((root) => execFileSync("git", ["ls-files", "-z"], { cwd: root, ...opts })); } list(["."], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "injected-default",
+        "constant",
+      ],
+      [
+        "wrapper-default-direct",
+        'function list(roots, opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }) { return roots.map((root) => execFileSync("git", ["ls-files", "-z"], opts)); } list(["."], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "injected-default",
+        "constant",
+      ],
+      [
+        "lexical-call-order",
+        'function outer() { const opts = { cwd: "." }; return list(); } const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; function list() { return execFileSync("git", ["ls-files"], opts); } export { outer, list };',
+        "direct",
+        "constant",
+      ],
+      [
+        "lexical-parameter-initializer",
+        'function list(o = opts) { const opts = { cwd: "." }; return execFileSync("git", ["ls-files"], o); } const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; list();',
+        "injected-default",
+        "constant",
+      ],
+      [
+        "nested-neutrality-executor",
+        'function neutrality(readTree) { const read = (sha) => () => readTree(["ls-tree", "-r", "-z", "--name-only", sha]); return [read("a"), read("b")]; } export const out = neutrality((args) => execFileSync("git", args, { maxBuffer: GIT_LISTING_MAX_BUFFER }));',
+        "wrapper",
+        "constant",
+      ],
+      [
+        "callback-local",
+        'const opts = { cwd: "." }; [1].forEach(() => { const opts = { maxBuffer: GIT_LISTING_MAX_BUFFER }; execFileSync("git", ["ls-files"], opts); });',
+        "direct",
+        "constant",
+      ],
+      [
+        "method-local",
+        'const opts = { cwd: "." }; export const lister = { list(root) { const opts = { cwd: root, maxBuffer: GIT_LISTING_MAX_BUFFER }; return execFileSync("git", ["ls-files"], opts); } };',
+        "direct",
+        "constant",
+      ],
+      [
+        "property-capacity",
+        'const config = { capacity: GIT_LISTING_MAX_BUFFER }; execFileSync("git", ["ls-files"], { maxBuffer: config.capacity });',
+        "direct",
+        "constant",
+      ],
+      [
+        "property-options",
+        'const presets = { listing: { maxBuffer: GIT_LISTING_MAX_BUFFER } }; execFileSync("git", ["ls-files"], presets.listing);',
+        "direct",
+        "constant",
+      ],
+      [
+        "bare-promisify",
+        'import { promisify } from "node:util"; const run = promisify(execFile); run("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "direct",
+        "constant",
+      ],
+      [
+        "util-promisify",
+        'import util from "node:util"; const run = util.promisify(execFile); run("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER });',
+        "direct",
+        "constant",
+      ],
+      [
+        "default-spawn-parameter",
+        'export function list(run = execFileSync) { return run("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER }); }',
+        "injected-default",
+        "constant",
+      ],
+      [
+        "destructured-spawn-default",
+        'export function list({ run = execFileSync } = {}) { return run("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER }); }',
+        "injected-default",
+        "constant",
+      ],
+    ];
+    for (const [name, source, kind, reason] of cases) {
+      const { root, relative } = plant(name, prefix + source, `scripts/arbitrary/${name}.mjs`);
+      try {
+        expect(listingSiteInventory({ root, sources: [relative] }), name).toEqual([
+          expect.objectContaining({ kind, status: "compliant", reason }),
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
   it("keeps conditional, multi-hop, and unresolved helper shapes fail-closed", () => {
     const cases = [
       [
@@ -1009,13 +1195,23 @@ describe("Git listing buffer contract", () => {
         "ambiguous",
       ],
       [
+        "parameter-capacity-fallback",
+        'import { execFileSync } from "node:child_process"; export function listTracked(root, capacity) { return execFileSync("git", ["ls-files", "-z"], { cwd: root, maxBuffer: capacity ?? GIT_LISTING_MAX_BUFFER }); }',
+        "ambiguous",
+      ],
+      [
+        "default-parameter-property-capacity-fallback",
+        'import { execFileSync } from "node:child_process"; export function listTracked(root, options = {}) { return execFileSync("git", ["ls-files", "-z"], { cwd: root, maxBuffer: options.maxBuffer ?? GIT_LISTING_MAX_BUFFER }); }',
+        "ambiguous",
+      ],
+      [
         "imported-spread",
         'import { execFileSync } from "node:child_process"; import { overrides } from "./elsewhere.mjs"; execFileSync("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER, ...overrides });',
         "ambiguous",
       ],
       [
         "call-spread",
-        'import { execFileSync } from "node:child_process"; const overrides = loadOptions(); execFileSync("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER, ...overrides });',
+        'import { execFileSync } from "node:child_process"; import { loadOptions } from "./elsewhere.mjs"; execFileSync("git", ["ls-files"], { maxBuffer: GIT_LISTING_MAX_BUFFER, ...loadOptions() });',
         "ambiguous",
       ],
       [
@@ -1025,7 +1221,7 @@ describe("Git listing buffer contract", () => {
       ],
       [
         "consent-trailing-spread",
-        'import { execFileSync } from "node:child_process"; function list(options) { return execFileSync("git", ["ls-files"], { cwd: ".", encoding: "utf8", maxBuffer: 1024 * 1024 * 1024, ...options }); } list({});',
+        'import { execFileSync } from "node:child_process"; function defaultExecGit(args, rootDir, options = {}) { return execFileSync("git", args, { cwd: rootDir, encoding: "buffer", maxBuffer: 1024 * 1024 * 1024, ...options }); } export function list(rootDir, options) { return defaultExecGit(["ls-files", "-z"], rootDir, options); }',
         "ambiguous",
       ],
     ];
@@ -1033,7 +1229,16 @@ describe("Git listing buffer contract", () => {
       const { root, relative } = plant(name, source);
       try {
         expect(listingSiteInventory({ root, sources: [relative] })).toEqual([
-          expect.objectContaining({ kind: "direct", status, reason: "unresolved-options" }),
+          expect.objectContaining({
+            kind:
+              name === "consent-trailing-spread"
+                ? "wrapper"
+                : name === "default-parameter-property-capacity-fallback"
+                  ? "injected-default"
+                  : "direct",
+            status,
+            reason: "unresolved-options",
+          }),
         ]);
       } finally {
         rmSync(root, { recursive: true, force: true });
