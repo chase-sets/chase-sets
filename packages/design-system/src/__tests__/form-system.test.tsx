@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, isInaccessible, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, useState, type FormEvent } from "react";
+import { createRef, Profiler, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -1442,6 +1442,35 @@ describe("form system", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Second" }).getAttribute("aria-busy")).toBe("true"));
     expect(screen.getByRole("button", { name: "First" }).getAttribute("aria-busy")).toBeNull();
     gate.resolve(null);
+  });
+
+  it("records its committed node without a mount-time state rerender", () => {
+    let buttonNode: HTMLButtonElement | null = null;
+    const renderPhases: string[] = [];
+
+    const view = (pendingSubmitter: HTMLButtonElement | null) => (
+      <FormProvider pendingSubmitter={pendingSubmitter}>
+        <Profiler id="button" onRender={(_, phase) => renderPhases.push(phase)}>
+          <Button
+            ref={(node) => {
+              buttonNode = node;
+            }}
+            type="submit"
+          >
+            Save
+          </Button>
+        </Profiler>
+      </FormProvider>
+    );
+
+    const { rerender } = render(view(null));
+
+    expect(renderPhases).toEqual(["mount"]);
+    expect(buttonNode).not.toBeNull();
+
+    rerender(view(buttonNode));
+
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBe("true");
   });
 
   it("caller-written field keeps pending and reaches the action", async () => {
