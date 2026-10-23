@@ -2,7 +2,7 @@
   "schema": "db-enrollment-workload/v1",
   "capture": {
     "fileName": "bootstrap-db-capture-39950765563.json",
-    "fixtureSha256": "231e86a34090932688f0a8eeff1f93258395318ae73fd79c8f63676cc235e518",
+    "fixtureSha256": "069b80a17b12282d4c76a8fee3b6f52b29f69d286b7a62911e2d98e370ff8687",
     "runId": "39950765563",
     "checkoutSha": "a8c2312af4c0d8844655bdf700658e67da71bf96",
     "sourceBase": "dfd8d09fb0a1bb621ed3353bf7a9c2dc610df888",
