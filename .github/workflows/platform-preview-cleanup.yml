@@ -537,11 +537,11 @@ jobs:
           failed=0
           if [ "${{ github.event_name }}" = "schedule" ]; then
             while IFS= read -r pr_number; do
-              node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns --pr-number "$pr_number" || failed=1
+              node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns --pr-number "$pr_number" || { failed=1; echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"; }
             done < "${{ steps.batch-targets.outputs.target_file }}"
           else
             node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns \
-              --pr-number "${{ matrix.pr_number }}" || failed=1
+              --pr-number "${{ matrix.pr_number }}" || { failed=1; echo "${{ matrix.pr_number }}" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"; }
           fi
           if [ "$failed" -ne 0 ]; then
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
@@ -555,6 +555,7 @@ jobs:
       # resources and reported success while the namespace, its workloads,
       # and its in-cluster Postgres persisted on the staging node forever.
       - name: Configure preview Kubernetes context
+        id: preview-context
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -611,10 +612,9 @@ jobs:
       # unconditionally deletes the namespace, which removes every workload,
       # Secret, and the in-cluster Postgres PVC regardless of Helm tracking.
       # `teardown` verifies the namespace is actually gone afterward and
-      # throws if it survives, so this step — and therefore the run — FAILS
-      # rather than reporting green when the delete silently no-ops. Do not
-      # add `|| true` or `continue-on-error` here: a leaked namespace must
-      # fail the run (see scripts/platform-preview-cleanup-namespace-guard.test.mjs).
+      # records a per-target failure if it survives. The batch continues so
+      # independent targets can still reach Terraform and state retirement;
+      # the final retirement step carries the aggregate failure.
       - name: Delete preview Kubernetes namespace
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -632,13 +632,13 @@ jobs:
               pnpm run platform:kubernetes-deployment -- teardown \
                 --namespace "chase-sets-pr-${pr_number}" \
                 --release "chase-sets-pr-${pr_number}" \
-                --timeout 5m || failed=1
+                --timeout 5m || { failed=1; echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"; }
             done < "${{ steps.batch-targets.outputs.target_file }}"
           else
             pnpm run platform:kubernetes-deployment -- teardown \
               --namespace "chase-sets-pr-${{ matrix.pr_number }}" \
               --release "chase-sets-pr-${{ matrix.pr_number }}" \
-              --timeout 5m || failed=1
+              --timeout 5m || { failed=1; echo "${{ matrix.pr_number }}" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"; }
           fi
           if [ "$failed" -ne 0 ]; then
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
@@ -658,7 +658,7 @@ jobs:
           set -uo pipefail
           failed=0
           failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
-          : > "$failed_targets"
+          test -f "$failed_targets" || : > "$failed_targets"
           while IFS= read -r pr_number; do
             terraform -chdir=infrastructure/digitalocean/platform init \
               -reconfigure \
@@ -688,10 +688,10 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
-          node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf || {
+          if ! node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf; then
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
-            exit 1
-          }
+            while IFS= read -r pr_number; do echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"; done < "${{ steps.batch-targets.outputs.target_file }}"
+          fi
 
       - name: Import live preview database cluster into cleanup state
         env:
@@ -704,7 +704,7 @@ jobs:
         if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
           set -uo pipefail
-          failed="${PREVIEW_BATCH_FAILED:-0}"
+          failed=0
           failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
           test -f "$failed_targets" || : > "$failed_targets"
           while IFS= read -r pr_number; do
@@ -730,7 +730,6 @@ jobs:
           done < "${{ steps.batch-targets.outputs.target_file }}"
           if [ "$failed" -ne 0 ]; then
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
-            exit 1
           fi
 
       - name: Terraform destroy
@@ -766,11 +765,55 @@ jobs:
               -backend-config=use_lockfile=true || { failed=1; echo "$pr_number" >> "$failed_targets"; continue; }
             TF_VAR_preview_identifier="pr-${pr_number}" \
             TF_VAR_platform_image_tag="pr-${pr_number}-${{ matrix.image_sha }}" \
-              terraform destroy -auto-approve || failed=1
+              terraform destroy -auto-approve || { failed=1; echo "$pr_number" >> "$failed_targets"; }
           done < "${{ steps.batch-targets.outputs.target_file }}"
           if [ "$failed" -ne 0 ]; then
             exit 1
           fi
+
+      - name: Retire empty preview Terraform state
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+        if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' }}
+        run: |
+          set -uo pipefail
+          failed="${PREVIEW_BATCH_FAILED:-0}"
+          context_outcome="${{ steps.preview-context.outcome }}"
+          failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
+          test -f "$failed_targets" || : > "$failed_targets"
+          retirement_dir="$RUNNER_TEMP/preview-state-retirement"
+          mkdir -p "$retirement_dir"
+          while IFS= read -r pr_number; do
+            record_path="$retirement_dir/platform-preview-state-retirement-${pr_number}.json"
+            cleanup_succeeded=true
+            if [ "$context_outcome" != "success" ] || grep -Fxq "$pr_number" "$failed_targets"; then
+              cleanup_succeeded=false
+            fi
+            if ! node scripts/digitalocean-preview-cleanup-sweep.mjs retire-state \
+              --pr-number "$pr_number" \
+              --cleanup-succeeded "$cleanup_succeeded" \
+              --out "$record_path"; then
+              failed=1
+              echo "$pr_number" >> "$failed_targets"
+            fi
+          done < "${{ steps.batch-targets.outputs.target_file }}"
+          if [ "$failed" -ne 0 ]; then
+            echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          fi
+
+      - name: Upload preview state retirement record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: platform-preview-state-retirement-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.batch_index != null && format('batch-{0}', matrix.batch_index) || format('pr-{0}', matrix.pr_number) }}
+          path: ${{ runner.temp }}/preview-state-retirement
+          if-no-files-found: warn
 
   destroy-stale-verification:
     name: Destroy Stale Verification Namespace

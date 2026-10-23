@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION,
+  DIGITALOCEAN_PREVIEW_STATE_RETIREMENT_VERSION,
   IDLE_DRAFT_MAX_SELECTIONS,
   OPEN_PULL_REQUEST_MAX_PAGES,
   PLATFORM_PREVIEW_IDLE_DRAFTS_VERSION,
@@ -29,6 +30,8 @@ import {
   previewPrNumberFromDnsRecordFqdn,
   previewPrNumberFromNamespaceName,
   previewPrNumberFromStateKey,
+  previewStateKeyForPrNumber,
+  retirePreviewTerraformState,
   previewSharedDnsRecordPlan,
   resolvePreviewDnsZone,
   selectPreviewDatabaseClusterTargets,
@@ -54,6 +57,124 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(previewPrNumberFromStateKey("platform/previews/pr-123.tfstate")).toBe(123);
     expect(previewPrNumberFromStateKey("platform/previews/pr-123.backup")).toBeNull();
     expect(previewPrNumberFromStateKey("landing/staging.tfstate")).toBeNull();
+  });
+
+  it("retires only an empty exact-key state after cleanup and live version guards", async () => {
+    const commands = [];
+    let headCount = 0;
+    const record = await retirePreviewTerraformState(
+      {
+        prNumber: 17,
+        bucket: "chase-sets-terraform-state",
+        endpointUrl: "https://nyc3.digitaloceanspaces.com",
+        terraformDirectory: "infrastructure/digitalocean/platform",
+        checkedAt: "2026-07-04T12:00:00.000Z",
+        cleanupSucceeded: true,
+      },
+      {
+        commandOutput: async (command, args) => {
+          commands.push([command, args]);
+          if (command === "terraform" && args.includes("state")) return "";
+          if (command === "terraform") return "initialized";
+          if (args.includes("get-bucket-versioning")) return JSON.stringify({ Status: "Enabled" });
+          if (args.includes("head-object")) {
+            headCount += 1;
+            return JSON.stringify({ VersionId: "version-17" });
+          }
+          return "deleted";
+        },
+      },
+    );
+
+    expect(record).toMatchObject({
+      schemaVersion: DIGITALOCEAN_PREVIEW_STATE_RETIREMENT_VERSION,
+      stateKey: "platform/previews/pr-17.tfstate",
+      outcome: "retired",
+      result: "success",
+      stateList: { status: "success", empty: true, resourceCount: 0 },
+      versioning: { status: "Enabled" },
+      headBeforeStateList: { versionId: "version-17" },
+      headBeforeDelete: { versionId: "version-17" },
+    });
+    expect(headCount).toBe(2);
+    expect(commands.at(-1)).toEqual([
+      "aws",
+      [
+        "s3api",
+        "delete-object",
+        "--bucket",
+        "chase-sets-terraform-state",
+        "--key",
+        "platform/previews/pr-17.tfstate",
+        "--endpoint-url",
+        "https://nyc3.digitaloceanspaces.com",
+      ],
+    ]);
+    expect(previewStateKeyForPrNumber(17)).toBe("platform/previews/pr-17.tfstate");
+  });
+
+  it.each([
+    ["non-empty state", "digitalocean_database_cluster.postgres\n", "enabled"],
+    ["failed state list", new Error("state list failed"), "enabled"],
+    ["suspended versioning", "", "suspended"],
+  ])("leaves the state object when the %s guard refuses", async (_label, stateList, versioningMode) => {
+    const commands = [];
+    const record = await retirePreviewTerraformState(
+      { prNumber: 18, cleanupSucceeded: true, checkedAt: "2026-07-04T12:00:00.000Z" },
+      {
+        commandOutput: async (command, args) => {
+          commands.push([command, args]);
+          if (command === "terraform" && args.includes("state")) {
+            if (stateList instanceof Error) throw stateList;
+            return stateList;
+          }
+          if (command === "terraform") return "initialized";
+          if (args.includes("get-bucket-versioning")) return JSON.stringify({ Status: versioningMode === "enabled" ? "Enabled" : "Suspended" });
+          if (args.includes("head-object")) return JSON.stringify({ VersionId: "version-18" });
+          return "deleted";
+        },
+      },
+    );
+
+    expect(record.result).toBe("failure");
+    expect(record.outcome).toBe("refused");
+    expect(commands.some(([, args]) => args.includes("delete-object"))).toBe(false);
+  });
+
+  it("records a cleanup failure without touching the state object", async () => {
+    const commands = [];
+    const record = await retirePreviewTerraformState(
+      { prNumber: 19, cleanupSucceeded: false },
+      { commandOutput: async (...args) => commands.push(args) },
+    );
+    expect(record).toMatchObject({ result: "failure", outcome: "skipped-cleanup-failure", cleanupSucceeded: false });
+    expect(commands).toEqual([]);
+  });
+
+  it.each(["changed VersionId", "failed versioning probe"])("refuses delete on %s", async (failureMode) => {
+    const commands = [];
+    let headCount = 0;
+    const record = await retirePreviewTerraformState(
+      { prNumber: 20, cleanupSucceeded: true, checkedAt: "2026-07-04T12:00:00.000Z" },
+      {
+        commandOutput: async (command, args) => {
+          commands.push([command, args]);
+          if (command === "terraform" && args.includes("state")) return "";
+          if (command === "terraform") return "initialized";
+          if (args.includes("get-bucket-versioning")) {
+            if (failureMode === "failed versioning probe") throw new Error("versioning unavailable");
+            return JSON.stringify({ Status: "Enabled" });
+          }
+          if (args.includes("head-object")) {
+            headCount += 1;
+            return JSON.stringify({ VersionId: headCount === 1 ? "version-before" : "version-after" });
+          }
+          return "deleted";
+        },
+      },
+    );
+    expect(record.result).toBe("failure");
+    expect(commands.some(([, args]) => args.includes("delete-object"))).toBe(false);
   });
 
   it("extracts preview PR numbers from current and legacy database cluster names", () => {
