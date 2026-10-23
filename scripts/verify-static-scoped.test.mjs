@@ -410,6 +410,7 @@ describe("scoped guard-test selection", () => {
         "pnpm-lock.yaml",
       ],
     ],
+    ["scripts/check-structure/tcgplayer-host-credential-guard.test.mjs", [".github/credential-inventory.json"]],
   ];
 
   function assertRepresentativeCoverage(surfaces = VERIFY_STATIC_GUARD_TEST_SURFACES) {

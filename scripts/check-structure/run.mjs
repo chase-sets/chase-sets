@@ -49,6 +49,7 @@ import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
+import { scanTcgplayerHostCredentialPolicy } from "./tcgplayer-host-credential-guard.mjs";
 
 const roots = workspaceRoots;
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -287,6 +288,8 @@ const violations = [];
 const warnings = [];
 const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
 violations.push(...lostUpdateWriteGuard.violations);
+const tcgplayerHostCredentialGuard = await scanTcgplayerHostCredentialPolicy({ repoRoot });
+violations.push(...tcgplayerHostCredentialGuard.violations);
 const providerScopePickerShapeGuard = await validateProviderScopePickerShapeGuard({ repoRoot });
 violations.push(...providerScopePickerShapeGuard.violations);
 const pricingRegistryConformance = await validatePricingRegistryConformance({ repoRoot });

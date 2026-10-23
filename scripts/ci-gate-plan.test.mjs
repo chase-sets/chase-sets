@@ -912,4 +912,13 @@ describe("shared CI gate plan", () => {
       expect(headWorkflow).toContain(`outputs.${definition.id.replaceAll("-", "_")}_required`);
     }
   });
+
+  it("runs the TCGplayer boundary guard in static checks before preview deployment", () => {
+    const staticSource = workflowJob(headWorkflow, "static-source").text;
+    const preview = workflowJob(headWorkflow, "preview-deploy-smoke").text;
+    expect(staticSource).toContain("run: pnpm run verify:static");
+    expect(staticSource).toContain("Run static checks");
+    expect(preview).toContain("needs.static.result == 'success'");
+    expect(headWorkflow.indexOf("  static-source:")).toBeLessThan(headWorkflow.indexOf("  preview-deploy-smoke:"));
+  });
 });
