@@ -275,7 +275,7 @@ export function createPostgresConfigurationEpochStore(
           key: input.key,
           epoch: guard.epoch,
           storeIncarnation: guard.storeIncarnation,
-          validUntil: input.validUntil,
+          ...(input.validUntil === undefined ? {} : { validUntil: input.validUntil }),
         };
       });
     },

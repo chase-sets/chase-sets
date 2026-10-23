@@ -86,12 +86,11 @@ export type ConfigurationEpochStore = Readonly<{
 
 export class ConfigurationEpochError extends Error implements Partial<EventStoreError> {
   readonly code = "concurrency_conflict" as const;
+  readonly details: Record<string, unknown>;
 
-  constructor(
-    message: string,
-    readonly details: Record<string, unknown> = {},
-  ) {
+  constructor(message: string, details: Record<string, unknown> = {}) {
     super(message);
+    this.details = details;
     this.name = "ConfigurationEpochError";
   }
 }
@@ -297,7 +296,7 @@ export function createInMemoryConfigurationEpochStore(): ConfigurationEpochStore
         key: input.key,
         epoch: guard.epoch,
         storeIncarnation: guard.storeIncarnation,
-        validUntil: input.validUntil,
+        ...(input.validUntil === undefined ? {} : { validUntil: input.validUntil }),
       };
     },
     validateGrantVector(grants, now = new Date().toISOString()) {
