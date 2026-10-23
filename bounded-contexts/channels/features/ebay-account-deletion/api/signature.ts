@@ -2,6 +2,9 @@ import { createPublicKey, verify, type KeyObject } from "node:crypto";
 import type { EbayApplicationKeyAuthorityConfiguration } from "../domain/configuration";
 import type { ProviderKeyAuthorityOutcome } from "@chase-sets/http/provider-errors";
 
+const EBAY_OAUTH_GRANT_TYPE = "client_credentials";
+const EBAY_OAUTH_SCOPE = "https://api.ebay.com/oauth/api_scope";
+
 export class EbayDeletionBoundaryError extends Error {
   constructor(public readonly status: 408 | 413) {
     super("ebay_account_deletion_body_invalid");
@@ -143,7 +146,10 @@ export function createEbayDeletionKeyAuthority(
                         Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
                         "Content-Type": "application/x-www-form-urlencoded",
                       },
-                      body: "grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope",
+                      body: new URLSearchParams({
+                        grant_type: EBAY_OAUTH_GRANT_TYPE,
+                        scope: EBAY_OAUTH_SCOPE,
+                      }).toString(),
                     });
                     if (
                       typeof result.access_token !== "string" ||
