@@ -54,7 +54,7 @@ describe("whole Magic mapping preview", () => {
     expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1 });
     expect(plans).toHaveLength(1);
     expect(preview.planFingerprint).toMatchInlineSnapshot(
-      `"41eac95ef7563e871b28b77c5c8d7043f67c844d1caa421261b6bf1f3d851185"`,
+      `"87dbc83a2bcd872ff3981b8aaca10eca0738c7a7e196b0cbc764140842614052"`,
     );
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
     expect(plans[0]!.participationPreview.units.every((unit) => unit.selected && unit.eligibility === "eligible")).toBe(
