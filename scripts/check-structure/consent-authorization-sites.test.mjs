@@ -313,20 +313,20 @@ const enumerationSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-
 const receiptSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-v1.schema.json`);
 const aggregateSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-aggregate-v1.schema.json`);
 const mutationEvidenceRoot = mkdtempSync(path.join(tmpdir(), "consent-mutation-evidence-"));
-afterAll(() => rmSync(mutationEvidenceRoot, { recursive: true, force: true }));
 const previousTemporaryEnvironment = new Map(["TEMP", "TMP", "TMPDIR"].map((key) => [key, process.env[key]]));
-let mutationEvidenceModule;
-let liveMutationEvidence;
-try {
-  for (const key of previousTemporaryEnvironment.keys()) process.env[key] = mutationEvidenceRoot;
-  mutationEvidenceModule = await import("./consent-authorization-mutation-evidence.mjs");
-  liveMutationEvidence = await mutationEvidenceModule.executeConsentAuthorizationMutationEvidence();
-} finally {
-  for (const [key, value] of previousTemporaryEnvironment) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+for (const key of previousTemporaryEnvironment.keys()) process.env[key] = mutationEvidenceRoot;
+afterAll(() => {
+  try {
+    rmSync(mutationEvidenceRoot, { recursive: true, force: true });
+  } finally {
+    for (const [key, value] of previousTemporaryEnvironment) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
-}
+});
+const mutationEvidenceModule = await import("./consent-authorization-mutation-evidence.mjs");
+const liveMutationEvidence = await mutationEvidenceModule.executeConsentAuthorizationMutationEvidence();
 const {
   ConsentAuthorizationEvidenceError,
   collectConsentAuthorizationEvidenceWorkUnitViolations,

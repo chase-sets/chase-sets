@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -138,11 +139,13 @@ async function startCompositionServer({ deliberatelyBroken = true } = {}) {
   return fixture;
 }
 
+const temporaryDirectories = [];
 afterEach(async () => {
   for (const fixture of servers.splice(0)) {
     for (const socket of fixture.sockets) socket.destroy();
     if (fixture.server.listening) await new Promise((resolve) => fixture.server.close(resolve));
   }
+  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
 function runPlatformSmoke(baseUrl, { env = {}, observer = "" } = {}) {
@@ -760,12 +763,21 @@ function workflowFormPnpmArgs(caller, baseUrl) {
 }
 
 function runWorkflowFormPublicRouteSmoke(args) {
+  const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "public-web-route-smoke-pnpm-"));
+  temporaryDirectories.push(temporaryDirectory);
   const onWindows = process.platform === "win32";
   const command = onWindows ? process.env.ComSpec : "pnpm";
   if (!command) throw new Error("The Windows command processor is unavailable.");
   const child = spawn(command, onWindows ? ["/d", "/s", "/c", "pnpm", ...args] : args, {
     cwd: repoRoot,
-    env: { ...process.env, NO_COLOR: "1" },
+    env: {
+      ...process.env,
+      NO_COLOR: "1",
+      TEMP: temporaryDirectory,
+      TMP: temporaryDirectory,
+      TMPDIR: temporaryDirectory,
+      NODE_COMPILE_CACHE: path.join(temporaryDirectory, "node-compile-cache"),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "";

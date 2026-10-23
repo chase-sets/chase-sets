@@ -784,6 +784,7 @@ async function retryProbe(scenario, cleanup = roots) {
   const shallowBefore = await checkoutShallowState();
   const run = await runNode([playwrightCli, "test", "--config", retryProbeConfig, "--retries=1"], {
     ...process.env,
+    PWTEST_CACHE_DIR: path.join(root, "playwright-transform-cache"),
     // Hosted producers run on Linux, where the list reporter always prints ✓ and ✘;
     // on Windows it prints them only inside Windows Terminal.
     WT_SESSION: process.env.WT_SESSION ?? "responsive-evidence-retry-probe",
