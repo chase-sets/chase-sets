@@ -368,6 +368,8 @@ export async function admitMarkerOnlyPolicy(
     releaseLocked: env.PRODUCTION_RELEASE_LOCKED ?? "false",
     lockReason: env.PRODUCTION_RELEASE_LOCK_REASON ?? "",
     lockReference: env.PRODUCTION_RELEASE_LOCK_REFERENCE ?? "",
+    lockExitRoute: env.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE ?? "",
+    lockDeadline: env.PRODUCTION_RELEASE_LOCK_DEADLINE ?? "",
     emergencyBypass: "false",
     emergencyReference: "",
     githubRepository: env.GITHUB_REPOSITORY,

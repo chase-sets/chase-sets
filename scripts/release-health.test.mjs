@@ -427,6 +427,7 @@ describe("release health summary", () => {
       emergencyReference: "FIX-FORWARD-PR-123",
     });
     expect(result.record.production.result).toBe("failure");
+    expect(result.passesReleaseHealthGate).toBe(false);
     expect(result.record.recovery).toMatchObject({
       mode: "fix-forward",
       reference: "FIX-FORWARD-PR-123",

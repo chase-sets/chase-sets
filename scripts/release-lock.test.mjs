@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import ts from "@chase-sets/typescript-compiler-api";
 import { parse } from "yaml";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { classifyReleaseHealthArtifacts } from "./release-health-report.mjs";
 import {
   evaluateReleaseLock,
@@ -18,7 +21,88 @@ const exitRoute = JSON.stringify({
 });
 const deadline = "2099-05-31T12:00:00Z";
 
+const trackedFiles = (path) =>
+  execFileSync("git", ["ls-files", "-z", "--", path], { encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER })
+    .split("\0")
+    .filter(Boolean);
+const lockFields = [
+  "PRODUCTION_RELEASE_LOCKED",
+  "PRODUCTION_RELEASE_LOCK_REASON",
+  "PRODUCTION_RELEASE_LOCK_REFERENCE",
+  "PRODUCTION_RELEASE_LOCK_EXIT_ROUTE",
+  "PRODUCTION_RELEASE_LOCK_DEADLINE",
+];
+
+function workflowLockWiringErrors(workflow) {
+  const errors = [];
+  for (const [jobName, job] of Object.entries(workflow.jobs ?? {})) {
+    for (const [index, step] of (job.steps ?? [{}]).entries()) {
+      const env = { ...workflow.env, ...job.env, ...step.env };
+      if (!("PRODUCTION_RELEASE_LOCKED" in env)) continue;
+      for (const field of lockFields) {
+        if (!String(env[field] ?? "").includes(`vars.${field}`)) errors.push(`${jobName}:${index}:${field}`);
+      }
+    }
+  }
+  return errors;
+}
+
+function scriptLockCalls(source, file) {
+  if (!/runReleaseLockCheck|evaluateReleaseLock/.test(source)) return [];
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const names = new Set(["runReleaseLockCheck", "evaluateReleaseLock"]);
+  const visit = (node, action) => {
+    action(node);
+    ts.forEachChild(node, (child) => visit(child, action));
+  };
+  visit(tree, (node) => {
+    if (ts.isImportSpecifier(node) && names.has(node.propertyName?.text ?? node.name.text)) names.add(node.name.text);
+    if (ts.isBindingElement(node) && names.has(node.initializer?.getText(tree))) names.add(node.name.getText(tree));
+  });
+  const calls = [];
+  visit(tree, (node) => {
+    if (!ts.isCallExpression(node) || !names.has(node.expression.getText(tree))) return;
+    const options = node.arguments[0];
+    const fields = ts.isObjectLiteralExpression(options) ? options.properties.map((p) => p.name?.getText(tree)) : [];
+    calls.push({ file, callee: node.expression.getText(tree), fields });
+  });
+  return calls;
+}
+
 describe("five-field lock lifecycle", () => {
+  it("threads all five vars through every effective workflow lock scope, including marker recovery", () => {
+    const files = trackedFiles(".github").filter((file) => /\.ya?ml$/.test(file));
+    for (const file of files) {
+      expect(workflowLockWiringErrors(parse(readFileSync(file, "utf8"))), file).toEqual([]);
+    }
+    const workflow = parse(readFileSync(".github/workflows/platform-production.yml", "utf8"));
+    for (const field of lockFields.slice(3)) {
+      const mutant = structuredClone(workflow);
+      delete mutant.jobs["reconcile-production-marker"].env[field];
+      expect(workflowLockWiringErrors(mutant)).toContain(`reconcile-production-marker:0:${field}`);
+    }
+  });
+
+  it("supplies route and deadline at every non-test script caller of the lock evaluator", () => {
+    const files = trackedFiles("scripts").filter(
+      (file) => /\.[cm]?[jt]s$/.test(file) && !/\.test\./.test(file) && file !== "scripts/release-lock.mjs",
+    );
+    const calls = files.flatMap((file) => scriptLockCalls(readFileSync(file, "utf8"), file));
+    expect(calls.map(({ file, callee }) => `${file}:${callee}`).sort()).toEqual([
+      "scripts/production-release-marker.mjs:checkLock",
+      "scripts/release-lock-monitor.mjs:evaluateReleaseLock",
+    ]);
+    for (const { file, fields } of calls) {
+      expect(fields, file).toEqual(expect.arrayContaining(["lockExitRoute", "lockDeadline"]));
+    }
+    const marker = readFileSync("scripts/production-release-marker.mjs", "utf8");
+    for (const field of ["lockExitRoute", "lockDeadline"]) {
+      const mutant = marker.replace(new RegExp(`^    ${field}:.*\\r?\\n`, "m"), "");
+      expect(mutant).not.toBe(marker);
+      expect(scriptLockCalls(mutant, "marker.mjs")[0].fields).not.toContain(field);
+    }
+  });
+
   it("keeps versioned historical artifacts readable without fabricating current lock authority", () => {
     const fixture = JSON.parse(readFileSync("scripts/fixtures/release-lock/historical-v1.json", "utf8"));
     expect(classifyReleaseHealthArtifacts([{ file: "old.json", record: fixture.health }]).releaseRecords).toEqual([
@@ -179,7 +263,7 @@ describe("five-field lock lifecycle", () => {
       "Terraform plan",
       "Clean up expired restore-point forks",
       "Create production database restore point",
-      "Configure production Kubernetes context",
+      "Configure production marker recovery context",
       "Install production DOKS ingress and certificate add-ons",
       "Capture production rollback target",
       "Terraform apply",
