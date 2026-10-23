@@ -40,6 +40,11 @@ export type CheckoutUcpQuote = Readonly<{
   linePrice: (listingId: string) => string | null;
 }>;
 
+export type CheckoutUcpResourcePayment = Readonly<{
+  currency_code?: string | null;
+  currencyCode?: string | null;
+}>;
+
 export type CheckoutUcpListing = Readonly<{
   listing_id: string;
   catalog_catalog_item_id: string;
@@ -382,6 +387,108 @@ export function checkoutUcpState(
     continue: true,
     messages: [message("payment_required", "requires_buyer_input")],
   };
+}
+
+/** Build the UCP 2026-08-25 Checkout resource from the already-resolved rules. */
+export function checkoutUcpResource({
+  session,
+  state,
+  quote,
+  payment,
+  request,
+  now = new Date(),
+}: Readonly<{
+  session: CheckoutSessionRow;
+  state: ReturnType<typeof checkoutUcpState>;
+  quote: CheckoutUcpQuote;
+  payment: CheckoutUcpResourcePayment | null;
+  request: Request;
+  now?: Date | (() => Date);
+}>) {
+  const currency = (payment?.currency_code ?? payment?.currencyCode)?.trim().toUpperCase() || "USD";
+  const currentTime = typeof now === "function" ? now() : now;
+  const line_items = session.lines.map((line, index) => {
+    const listingId = line.listingId ?? "";
+    const linePrice = quote.linePrice(listingId);
+    const unitPrice = minorUnits(String(linePrice ?? ""), `line ${listingId}`);
+    const lineTotal = unitPrice * line.quantity;
+    return {
+      id: line.cartLineId ?? line.listingId ?? `line_${index + 1}`,
+      item: {
+        id: listingId,
+        title: line.itemTitle ?? line.productSummary ?? line.listingId,
+        price: unitPrice,
+      },
+      quantity: line.quantity,
+      totals: [
+        { type: "subtotal", amount: lineTotal },
+        { type: "total", amount: lineTotal },
+      ],
+    };
+  });
+  const totals = [
+    { type: "subtotal", amount: minorUnits(quote.subtotal, "subtotal") },
+    { type: "fulfillment", amount: minorUnits(quote.fulfillment, "fulfillment") },
+    { type: "tax", amount: minorUnits(quote.tax, "tax") },
+    { type: "total", amount: minorUnits(quote.total, "total") },
+  ];
+  const terminal = state.status === "canceled" || state.status === "completed";
+  const resources = {
+    id: session.session_id,
+    status: state.status,
+    currency,
+    line_items,
+    totals,
+    links: [
+      { type: "terms_of_service", url: new URL("/terms", resolvePublicRequestOrigin(request)).href },
+      { type: "privacy_policy", url: new URL("/privacy", resolvePublicRequestOrigin(request)).href },
+    ],
+    ...(state.messages.length ? { messages: state.messages.map(checkoutUcpMessage) } : {}),
+    ...(state.continue ? { continue_url: checkoutContinueUrl(request, session.session_id) } : {}),
+    ...(!terminal
+      ? {
+          ...(session.order_ids.length > 0
+            ? { expires_at: new Date(currentTime.getTime() + handoffTtlMs).toISOString() }
+            : session.handoff_expires_at
+              ? { expires_at: session.handoff_expires_at }
+              : {}),
+        }
+      : {}),
+    ...(state.status === "completed" && state.order?.length
+      ? {
+          order: {
+            id: session.order_ids[0]!,
+            ...(state.order[0]?.label ? { label: state.order[0].label } : {}),
+            permalink_url: new URL(
+              session.order_ids.length > 1
+                ? "/account/purchases"
+                : (state.order[0]?.permalinkUrl ?? `/account/purchases/${encodeURIComponent(session.order_ids[0]!)}`),
+              resolvePublicRequestOrigin(request),
+            ).href,
+          },
+        }
+      : {}),
+  };
+  return resources;
+}
+
+function checkoutUcpMessage(row: ReturnType<typeof checkoutUcpState>["messages"][number]) {
+  return {
+    type: "error" as const,
+    code: row.code,
+    content: row.message,
+    severity: row.recoverability,
+    ...(row.target ? { path: row.target } : {}),
+  };
+}
+
+function minorUnits(amount: string | null, label: string) {
+  if (typeof amount !== "string" || !/^\d+(?:\.\d{1,2})?$/.test(amount.trim()))
+    throw new Error(`UCP Checkout ${label} has no exact USD amount.`);
+  const [whole, fraction = ""] = amount.trim().split(".");
+  const value = BigInt(`${whole}${fraction.padEnd(2, "0")}`);
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`UCP Checkout ${label} exceeds safe minor units.`);
+  return Number(value);
 }
 
 /**
