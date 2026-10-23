@@ -2286,7 +2286,11 @@ describe("platform Kubernetes deployment", () => {
           Object.entries(parseYaml(source).jobs)
             .filter(([, job]) => !Object.hasOwn(job, "needs"))
             .map(([id]) => id);
-        expect(withoutNeeds(deploySource)).toEqual(["decommission-live-plan", "resolve-release"]);
+        expect(withoutNeeds(deploySource)).toEqual([
+          "decommission-live-plan",
+          "resolve-release",
+          "reconcile-production-marker",
+        ]);
         expect(withoutNeeds(recoverySource)).toEqual(["refuse-unconfirmed"]);
         await expectDriftControlAdmitted();
         const result = await collect({ current: recovery, source: revise(recoveryDocument, driftRecovery) });

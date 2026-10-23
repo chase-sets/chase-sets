@@ -633,6 +633,30 @@ const qualificationCleanupDelta = [
     purpose: "digitalocean-ops",
   },
 ];
+// #10396: deploy-production's inline Kubernetes context step moved into the shared marker recovery
+// composite, and the isolated marker-only job receives only the composite and registry-identity grants.
+const productionMarkerRecoveryRetiredAnchor = "name:Configure production Kubernetes context#25";
+const productionMarkerRecoveryDelta = [
+  ...["DIGITALOCEAN_ACCESS_TOKEN", "SPACES_ACCESS_ID", "SPACES_SECRET_KEY"].flatMap((secretName) =>
+    ["deploy-production", "reconcile-production-marker"].map((jobId) => ({
+      file: ".github/workflows/platform-production.yml",
+      jobId,
+      stepAnchor: "uses:./.github/actions/production-marker-recovery-context",
+      secretName,
+      purpose: "terraform-infra",
+    })),
+  ),
+  ...[
+    "name:Derive source registry identity#6",
+    "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+  ].map((stepAnchor) => ({
+    file: ".github/workflows/platform-production.yml",
+    jobId: "reconcile-production-marker",
+    stepAnchor,
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "terraform-infra",
+  })),
+];
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -838,9 +862,19 @@ describe("managed Postgres authority source generator", () => {
         ...stagingEvidenceWindowDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
         ...qualificationCleanupDelta,
-      ].map(applyQualificationStepInsertions),
+      ]
+        .map(applyQualificationStepInsertions)
+        .filter(
+          (record) =>
+            !(
+              record.file === ".github/workflows/platform-production.yml" &&
+              record.jobId === "deploy-production" &&
+              record.stepAnchor === productionMarkerRecoveryRetiredAnchor
+            ),
+        )
+        .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1698);
+    expect(expected.grants).toHaveLength(1705);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
