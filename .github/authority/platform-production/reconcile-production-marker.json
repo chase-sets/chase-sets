@@ -1,0 +1,39 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-production-marker",
+      "stepAnchor": "name:Derive source registry identity#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-production-marker",
+      "stepAnchor": "uses:./.github/actions/production-marker-recovery-context",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-production-marker",
+      "stepAnchor": "uses:./.github/actions/production-marker-recovery-context",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-production-marker",
+      "stepAnchor": "uses:./.github/actions/production-marker-recovery-context",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-production-marker",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    }
+  ]
+}
