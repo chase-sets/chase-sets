@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import policy from "./tcgplayer-host-credential-policy.json" with { type: "json" };
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 const guardFiles = new Set([
   "scripts/check-structure/tcgplayer-host-credential-guard.mjs",
@@ -21,7 +22,12 @@ function lineNumber(text, index) {
 }
 
 function trackedFiles(repoRoot) {
-  return execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8", timeout: 10000 })
+  return execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 10000,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean);
 }
@@ -105,8 +111,17 @@ export function validateTcgplayerHostCredentialPolicy({ repoRoot, files = tracke
 }
 
 export async function scanTcgplayerHostCredentialPolicy({ repoRoot, files = trackedFiles(repoRoot) } = {}) {
-  const contents = {};
-  for (const file of files) contents[file.replaceAll("\\", "/")] = await readFile(path.join(repoRoot, file), "utf8");
+  const pairs = [];
+  for (let offset = 0; offset < files.length; offset += 64) {
+    pairs.push(
+      ...(await Promise.all(
+        files
+          .slice(offset, offset + 64)
+          .map(async (file) => [file.replaceAll("\\", "/"), await readFile(path.join(repoRoot, file), "utf8")]),
+      )),
+    );
+  }
+  const contents = Object.fromEntries(pairs);
   return validateTcgplayerHostCredentialPolicy({ repoRoot, files, contents });
 }
 
