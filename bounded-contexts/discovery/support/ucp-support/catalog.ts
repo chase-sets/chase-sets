@@ -181,6 +181,7 @@ export function catalogUcpProduct({
   inputs?: readonly CatalogUcpInput[];
 }>) {
   const productUrl = marketplaceUrl(request, `/items/${source.slug}`);
+  if (mode === "lookup" && inputs.length === 0) throw new Error("UCP lookup Product requires request inputs");
   const variants = presentment.listings.slice(0, mode === "lookup" ? 1 : undefined).map((listing) => {
     const price = toUcpMinorUnits(listing.price_amount, listing.price_currency_code);
     if (!price) throw new Error(`UCP Product listing ${listing.listing_id} has no exact presentment price.`);
@@ -201,9 +202,7 @@ export function catalogUcpProduct({
           product_id: listing.product_id,
         },
       },
-      ...(mode === "lookup"
-        ? { inputs: inputs.length > 0 ? inputs : [{ id: listing.listing_id, match: "featured" as const }] }
-        : {}),
+      ...(mode === "lookup" ? { inputs } : {}),
     };
   });
   return {

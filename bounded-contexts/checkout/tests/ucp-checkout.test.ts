@@ -673,6 +673,208 @@ describe("UCP quote source follows decision D1 cells C1-C10", () => {
   });
 });
 
+describe("UCP 2026-08-25 Checkout state resources", () => {
+  it("UCP 2026-08-25 Checkout resource validates for every state row", async () => {
+    const request = new Request("https://marketplace.example/ucp/v1/checkout-sessions");
+    const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/checkout.json");
+    const completed1 = {
+      ...purchase1,
+      label: "Purchase CS-0001",
+      permalinkUrl: "/account/purchases/confirmed-1",
+      readyForFulfillmentAt: "2026-10-16T07:00:00Z",
+    };
+    const completed2 = { ...purchase2, label: "Purchase CS-0002", readyForFulfillmentAt: "2026-10-16T07:01:00Z" };
+    const rows: readonly Readonly<{
+      name: string;
+      cell: QuoteCell;
+      time: string;
+      status: string;
+      payment?: { status: string };
+      available?: boolean;
+      expires?: string;
+      code?: "payment_required" | "payment_confirmation_required" | "item_unavailable" | "checkout_expired";
+      order?: { id: string; label: string; permalink_url: string };
+    }>[] = [
+      {
+        name: "payment orderless C1",
+        cell: quoteCells[0]![1],
+        time: "01:00",
+        status: "requires_escalation",
+        expires: "06:00",
+        code: "payment_required",
+      },
+      {
+        name: "confirmation with orders C9",
+        cell: quoteCells[9]![1],
+        time: "07:00",
+        status: "requires_escalation",
+        payment: { status: "pending-confirmation" },
+        expires: "13:00",
+        code: "payment_confirmation_required",
+      },
+      {
+        name: "incomplete C3",
+        cell: quoteCells[2]![1],
+        time: "01:00",
+        status: "incomplete",
+        available: false,
+        expires: "06:00",
+        code: "item_unavailable",
+      },
+      { name: "cancelled C4", cell: quoteCells[4]![1], time: "01:00", status: "canceled" },
+      { name: "expired C6", cell: quoteCells[6]![1], time: "06:00", status: "canceled", code: "checkout_expired" },
+      {
+        name: "capture in progress C8",
+        cell: quoteCells[8]![1],
+        time: "07:00",
+        status: "complete_in_progress",
+        payment: { status: "captured" },
+        expires: "13:00",
+      },
+      {
+        name: "completed one order C8",
+        cell: { ...quoteCells[8]![1], session: { order_ids: ["ord_1"], lines: [quoteLines[0]!] }, facts: [completed1] },
+        time: "07:00",
+        status: "completed",
+        order: {
+          id: "ord_1",
+          label: "Purchase CS-0001",
+          permalink_url: "https://marketplace.example/account/purchases/confirmed-1",
+        },
+      },
+      {
+        name: "completed two orders reversed C8",
+        cell: { ...quoteCells[8]![1], facts: [completed2, completed1] },
+        time: "07:00",
+        status: "completed",
+        order: {
+          id: "ord_1",
+          label: "Purchase CS-0001",
+          permalink_url: "https://marketplace.example/account/purchases",
+        },
+      },
+      {
+        name: "boundary +5:59 C1",
+        cell: quoteCells[0]![1],
+        time: "05:59",
+        status: "requires_escalation",
+        expires: "06:00",
+        code: "payment_required",
+      },
+      {
+        name: "boundary +6:00 C6",
+        cell: quoteCells[6]![1],
+        time: "06:00",
+        status: "canceled",
+        code: "checkout_expired",
+      },
+    ];
+    for (const row of rows) {
+      const input = quoteInput(row.cell);
+      const quote = await resolveCheckoutUcpQuote(input);
+      expect(quote, `${row.name}: D1 quote must be non-null`).not.toBeNull();
+      if (!quote) throw new Error(`Brief defect: ${row.name} has no D1 quote`);
+      const now = new Date(`2026-10-16T${row.time}:00.000Z`);
+      const state = checkoutUcpState(
+        input.session,
+        input.orderFacts,
+        row.payment ?? null,
+        preview(row.available !== false),
+        now,
+      );
+      const resource = checkoutUcpResource({ session: input.session, state, quote, payment: null, request, now });
+      expect(resource.status, row.name).toBe(row.status);
+      expect(
+        validate({ ...resource, ucp: { version: "2026-08-25", status: "success", payment_handlers: {} } }),
+        `${row.name}: ${JSON.stringify(validate.errors)}`,
+      ).toBe(true);
+      expect(resource.currency, row.name).toBe("USD");
+      if (row.status === "requires_escalation") {
+        expect(resource.continue_url, row.name).toBe(`https://marketplace.example/checkout/buy/session/${id}`);
+        expect(new URL(resource.continue_url!).origin, row.name).toBe("https://marketplace.example");
+      } else expect(resource, row.name).not.toHaveProperty("continue_url");
+      if (row.expires) expect(resource.expires_at, row.name).toBe(`2026-10-16T${row.expires}:00.000Z`);
+      else expect(resource, row.name).not.toHaveProperty("expires_at");
+      const content = {
+        payment_required: "Payment is required to continue checkout.",
+        payment_confirmation_required: "Buyer confirmation is required to continue payment.",
+        item_unavailable: "This item is no longer available.",
+        checkout_expired: "This checkout has expired. Start a new checkout.",
+      };
+      if (row.code)
+        expect(resource.messages, row.name).toEqual([
+          {
+            type: "error",
+            code: row.code,
+            content: content[row.code],
+            severity: row.status === "requires_escalation" ? "requires_buyer_input" : "unrecoverable",
+            ...(row.code === "item_unavailable" ? { path: "$.line_items[0]" } : {}),
+          },
+        ]);
+      else expect(resource, row.name).not.toHaveProperty("messages");
+      const expectedPrices = row.name.includes("completed one")
+        ? [1850]
+        : row.cell.expected!.prices.map((amount) => Number(amount!.replace(".", "")));
+      expect(
+        resource.line_items.map((item) => item.item.price),
+        row.name,
+      ).toEqual(expectedPrices);
+      for (const item of resource.line_items) {
+        expect(item.item.price, row.name).toBeGreaterThan(0);
+        expect(item.totals, row.name).toEqual([
+          { type: "subtotal", amount: item.item.price * item.quantity },
+          { type: "total", amount: item.item.price * item.quantity },
+        ]);
+      }
+      const expectedTotals = row.name.includes("completed one")
+        ? [3700, 400, 10, 4110]
+        : row.cell.expected!.totals.map((amount) => Number(amount.replace(".", "")));
+      expect(resource.totals, row.name).toEqual(
+        ["subtotal", "fulfillment", "tax", "total"].map((type, index) => ({ type, amount: expectedTotals[index] })),
+      );
+      if (row.order) expect(resource.order, row.name).toEqual(row.order);
+      else expect(resource, row.name).not.toHaveProperty("order");
+      console.info(
+        "AC1_ROW",
+        JSON.stringify({
+          row: row.name,
+          status: resource.status,
+          valid: true,
+          continue_url: resource.continue_url ?? null,
+          expires_at: resource.expires_at ?? null,
+          messages: resource.messages ?? [],
+          order: resource.order ?? null,
+        }),
+      );
+    }
+  });
+
+  it("rejects every quote amount above MONEY_AMOUNT_MAX and malformed amounts", async () => {
+    const input = quoteInput(quoteCells[0]![1]);
+    const quote = await resolveCheckoutUcpQuote(input);
+    expect(quote).not.toBeNull();
+    const build = (value: CheckoutUcpQuote) =>
+      checkoutUcpResource({
+        session: input.session,
+        state: checkoutUcpState(input.session),
+        quote: value,
+        payment: null,
+        request: new Request("https://marketplace.example/ucp"),
+        now: new Date("2026-10-16T01:00:00Z"),
+      });
+    for (const amount of ["10000000000.00", "invalid", "1.001"]) {
+      for (const field of ["subtotal", "fulfillment", "tax", "total"] as const)
+        expect(() => build({ ...quote!, [field]: amount })).toThrow(`UCP Checkout ${field} has no exact USD amount.`);
+      expect(() => build({ ...quote!, linePrice: () => amount })).toThrow(
+        "UCP Checkout line lst_1 has no exact USD amount.",
+      );
+    }
+    expect(() => build({ ...quote!, linePrice: () => null })).toThrow(
+      "UCP Checkout line lst_1 has no exact USD amount.",
+    );
+  });
+});
+
 describe("UCP quote source is stable on a day-later re-read", () => {
   // Records every wall-clock read made while `run` resolves.
   async function clockReads<T>(run: () => Promise<T>) {

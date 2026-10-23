@@ -6,7 +6,7 @@ import {
   type UcpOperationHandlerInput,
 } from "@chase-sets/platform-runtime/ucp";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
-import { sumMoneyAmounts } from "@chase-sets/primitives/money";
+import { sumMoneyAmounts, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { UcpPaymentHandlerHandoff } from "@chase-sets/payments/server";
 import {
@@ -42,7 +42,6 @@ export type CheckoutUcpQuote = Readonly<{
 
 export type CheckoutUcpResourcePayment = Readonly<{
   currency_code?: string | null;
-  currencyCode?: string | null;
 }>;
 
 export type CheckoutUcpListing = Readonly<{
@@ -403,34 +402,34 @@ export function checkoutUcpResource({
   quote: CheckoutUcpQuote;
   payment: CheckoutUcpResourcePayment | null;
   request: Request;
-  now?: Date | (() => Date);
+  now?: Date;
 }>) {
-  const currency = (payment?.currency_code ?? payment?.currencyCode)?.trim().toUpperCase() || "USD";
-  const currentTime = typeof now === "function" ? now() : now;
+  const currency = payment?.currency_code?.trim().toUpperCase() || "USD";
+  const currentTime = now;
   const line_items = session.lines.map((line, index) => {
     const listingId = line.listingId ?? "";
     const linePrice = quote.linePrice(listingId);
-    const unitPrice = minorUnits(String(linePrice ?? ""), `line ${listingId}`);
-    const lineTotal = unitPrice * line.quantity;
+    const unitPrice = exactMinorUnits(String(linePrice ?? ""), `line ${listingId}`);
+    const lineTotal = unitPrice * BigInt(line.quantity);
     return {
       id: line.cartLineId ?? line.listingId ?? `line_${index + 1}`,
       item: {
         id: listingId,
         title: line.itemTitle ?? line.productSummary ?? line.listingId,
-        price: unitPrice,
+        price: wireMinorUnits(unitPrice, `line ${listingId}`),
       },
       quantity: line.quantity,
       totals: [
-        { type: "subtotal", amount: lineTotal },
-        { type: "total", amount: lineTotal },
+        { type: "subtotal", amount: wireMinorUnits(lineTotal, `line ${listingId} total`) },
+        { type: "total", amount: wireMinorUnits(lineTotal, `line ${listingId} total`) },
       ],
     };
   });
   const totals = [
-    { type: "subtotal", amount: minorUnits(quote.subtotal, "subtotal") },
-    { type: "fulfillment", amount: minorUnits(quote.fulfillment, "fulfillment") },
-    { type: "tax", amount: minorUnits(quote.tax, "tax") },
-    { type: "total", amount: minorUnits(quote.total, "total") },
+    { type: "subtotal", amount: wireMinorUnits(exactMinorUnits(quote.subtotal, "subtotal"), "subtotal") },
+    { type: "fulfillment", amount: wireMinorUnits(exactMinorUnits(quote.fulfillment, "fulfillment"), "fulfillment") },
+    { type: "tax", amount: wireMinorUnits(exactMinorUnits(quote.tax, "tax"), "tax") },
+    { type: "total", amount: wireMinorUnits(exactMinorUnits(quote.total, "total"), "total") },
   ];
   const terminal = state.status === "canceled" || state.status === "completed";
   const resources = {
@@ -455,18 +454,21 @@ export function checkoutUcpResource({
         }
       : {}),
     ...(state.status === "completed" && state.order?.length
-      ? {
-          order: {
-            id: session.order_ids[0]!,
-            ...(state.order[0]?.label ? { label: state.order[0].label } : {}),
-            permalink_url: new URL(
-              session.order_ids.length > 1
-                ? "/account/purchases"
-                : (state.order[0]?.permalinkUrl ?? `/account/purchases/${encodeURIComponent(session.order_ids[0]!)}`),
-              resolvePublicRequestOrigin(request),
-            ).href,
-          },
-        }
+      ? (() => {
+          const confirmed = state.order.find((fact) => fact.id === session.order_ids[0]);
+          return {
+            order: {
+              id: session.order_ids[0]!,
+              ...(confirmed?.label ? { label: confirmed.label } : {}),
+              permalink_url: new URL(
+                session.order_ids.length > 1
+                  ? "/account/purchases"
+                  : (confirmed?.permalinkUrl ?? `/account/purchases/${encodeURIComponent(session.order_ids[0]!)}`),
+                resolvePublicRequestOrigin(request),
+              ).href,
+            },
+          };
+        })()
       : {}),
   };
   return resources;
@@ -482,12 +484,15 @@ function checkoutUcpMessage(row: ReturnType<typeof checkoutUcpState>["messages"]
   };
 }
 
-function minorUnits(amount: string | null, label: string) {
-  if (typeof amount !== "string" || !/^\d+(?:\.\d{1,2})?$/.test(amount.trim()))
-    throw new Error(`UCP Checkout ${label} has no exact USD amount.`);
-  const [whole, fraction = ""] = amount.trim().split(".");
-  const value = BigInt(`${whole}${fraction.padEnd(2, "0")}`);
-  if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`UCP Checkout ${label} exceeds safe minor units.`);
+function exactMinorUnits(amount: string | null, label: string) {
+  const value = typeof amount === "string" ? tryMoneyToCents(amount) : null;
+  if (value === null) throw new Error(`UCP Checkout ${label} has no exact USD amount.`);
+  return value;
+}
+
+function wireMinorUnits(value: bigint, label: string) {
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new Error(`UCP Checkout ${label} exceeds safe minor units.`);
   return Number(value);
 }
 

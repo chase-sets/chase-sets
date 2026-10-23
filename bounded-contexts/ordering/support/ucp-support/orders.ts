@@ -167,6 +167,7 @@ export function orderUcpResource(row: OrderingOrderDetailRow, perspective: "purc
     permalink_url: new URL(resource.permalink_url, resolvePublicRequestOrigin(request)).href,
     line_items: resource.line_items.map((line) => ({
       ...line,
+      ...(row.status === "cancelled" ? { quantity: { original: line.quantity.total, total: 0, fulfilled: 0 } } : {}),
       status: line.status === "cancelled" ? "removed" : line.status === "fulfilled" ? "fulfilled" : "processing",
     })),
     adjustments: resource.adjustments.map((adjustment) => ({ ...adjustment, status: "completed" as const })),

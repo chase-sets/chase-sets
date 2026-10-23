@@ -106,25 +106,45 @@ describe("UCP 2026-08-25 Order resource", () => {
   const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/order.json");
   const request = new Request("https://marketplace.example/ucp/v1/orders/ord_1");
 
-  it("validates a placed order with an absolute permalink and product-id item", () => {
-    const resource = orderUcpResource(row({ ready_for_fulfillment_at: "2026-10-16T01:00:00Z" }), "purchase", request);
-    expect(validate({ ...resource, ucp: { version: "2026-08-25", status: "success" } })).toBe(true);
-    expect(resource).toMatchObject({
-      permalink_url: "https://marketplace.example/account/purchases/ord_1",
-      line_items: [{ item: { id: "prod_1" }, status: "fulfilled" }],
-    });
-  });
-
-  it("validates a cancelled order and keeps the adjustment completed", () => {
-    const resource = orderUcpResource(
-      row({ status: "cancelled", cancelled_at: "2026-10-16T02:00:00Z", cancellation_reason: "Buyer requested" }),
-      "purchase",
-      request,
-    );
-    expect(validate({ ...resource, ucp: { version: "2026-08-25", status: "success" } })).toBe(true);
-    expect(resource).toMatchObject({
-      line_items: [{ status: "removed" }],
-      adjustments: [{ type: "cancellation", status: "completed" }],
-    });
+  it("UCP 2026-08-25 Order resource validates, including cancelled", () => {
+    for (const perspective of ["purchase", "sale"] as const) {
+      for (const cancelled of [false, true]) {
+        const resource = orderUcpResource(
+          row(
+            cancelled
+              ? { status: "cancelled", cancelled_at: "2026-10-16T02:00:00Z", cancellation_reason: "Buyer requested" }
+              : { ready_for_fulfillment_at: "2026-10-16T01:00:00Z" },
+          ),
+          perspective,
+          request,
+        );
+        expect(
+          validate({ ...resource, ucp: { version: "2026-08-25", status: "success" } }),
+          JSON.stringify(validate.errors),
+        ).toBe(true);
+        expect(resource.permalink_url).toBe(
+          `https://marketplace.example/account/${perspective === "purchase" ? "purchases" : "sales"}/ord_1`,
+        );
+        expect(new URL(resource.permalink_url).origin).toBe("https://marketplace.example");
+        expect(resource.line_items[0]!.item.id).toBe("prod_1");
+        expect(resource.line_items[0]!.status).toBe(cancelled ? "removed" : "fulfilled");
+        if (cancelled) {
+          expect(resource.line_items[0]!.quantity).toEqual({ original: 1, total: 0, fulfilled: 0 });
+          expect(resource.adjustments).toEqual([
+            {
+              id: "cancellation_ord_1",
+              type: "cancellation",
+              occurred_at: "2026-10-16T02:00:00Z",
+              status: "completed",
+              description: "Buyer requested",
+            },
+          ]);
+        }
+        console.info(
+          "AC2_ORDER",
+          JSON.stringify({ perspective, cancelled, valid: true, permalink_url: resource.permalink_url }),
+        );
+      }
+    }
   });
 });

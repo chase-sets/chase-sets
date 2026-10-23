@@ -402,7 +402,7 @@ describe("UCP lookup bounds and inputs follow the currency-delta boundary", () =
 });
 
 describe("UCP 2026-08-25 Product resource", () => {
-  it("validates search, lookup and get-product shapes using listing presentment", () => {
+  it("UCP 2026-08-25 Product resource validates on all three tools", () => {
     const source = {
       catalog_item_id: "cat_1",
       slug: "charizard-cat-1",
@@ -424,7 +424,7 @@ describe("UCP 2026-08-25 Product resource", () => {
           graded_card: null,
           storage_location_name: null,
           ship_from_code: "US-IL",
-          price_amount: "12.34",
+          price_amount: "10.00",
           price_currency_code: "USD",
           listing_stream_version: 1,
           shipping_allowance_percentage_bps: 0,
@@ -445,25 +445,75 @@ describe("UCP 2026-08-25 Product resource", () => {
         },
       ],
     } as unknown as DiscoveryItemDetailRow;
-    const presentment = selectPresentment(source.market_listings, "USD")!;
     const request = new Request("https://marketplace.example/ucp/v1/catalog");
-    const validateProduct = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/types/product.json");
-    for (const mode of ["search", "lookup", "get_product"] as const) {
-      const product = catalogUcpProduct({
-        source,
-        presentment,
-        request,
-        mode,
-        inputs: [{ id: "lst_usd", match: "featured" }],
-      });
-      expect(validateProduct(product), mode).toBe(true);
-      expect(product).toMatchObject({
-        id: "cat_1",
-        url: "https://marketplace.example/items/charizard-cat-1",
-        price_range: { min: { currency: "USD", amount: 1234 }, max: { amount: 1234 } },
-        variants: [{ id: "lst_usd", price: { currency: "USD", amount: 1234 } }],
-      });
-      if (mode === "lookup") expect(product.variants).toHaveLength(1);
+    const usd10 = source.market_listings[0]!;
+    const usd12 = { ...usd10, listing_id: "lst_usd_12", listing_slug: "charizard-usd-12", price_amount: "12.00" };
+    const eur9 = {
+      ...usd10,
+      listing_id: "lst_eur",
+      listing_slug: "charizard-eur",
+      price_amount: "9.00",
+      price_currency_code: "EUR",
+    };
+    const products = [
+      { name: "M1", source: { ...source, market_listings: [usd10, eur9] }, minors: [1000], omitted: true },
+      { name: "M2", source: { ...source, market_listings: [usd10, usd12, eur9] }, minors: [1000, 1200], omitted: true },
+      { name: "single-currency", source, minors: [1000], omitted: false },
+    ];
+    for (const row of products) {
+      const presentment = selectPresentment(row.source.market_listings, "USD");
+      expect(presentment, row.name).not.toBeNull();
+      if (!presentment) throw new Error(`Missing ${row.name} presentment`);
+      const inputs = lookupInputs([
+        { requestedId: "requested-catalog-alias", productId: source.catalog_item_id },
+        { requestedId: "requested-listing-alias", productId: source.catalog_item_id },
+        { requestedId: "requested-catalog-alias", productId: source.catalog_item_id },
+      ])[0]!.inputs;
+      for (const mode of ["search", "lookup", "get_product"] as const) {
+        const product = catalogUcpProduct({ source: row.source, presentment, request, mode, inputs });
+        const schema =
+          mode === "search"
+            ? "catalog_search.json#/$defs/search_response"
+            : `catalog_lookup.json#/$defs/${mode === "lookup" ? "lookup_response" : "get_product_response"}`;
+        const validate = ucpSchemaValidator(`https://ucp.dev/2026-08-25/schemas/shopping/${schema}`);
+        const envelope = {
+          ucp: { version: "2026-08-25", status: "success" },
+          ...(mode === "get_product" ? { product } : { products: [product] }),
+        };
+        expect(validate(envelope), `${row.name}/${mode}: ${JSON.stringify(validate.errors)}`).toBe(true);
+        expect(product.id).toBe(source.catalog_item_id);
+        expect(product.url).toBe("https://marketplace.example/items/charizard-cat-1");
+        expect(new URL(product.url).origin).toBe("https://marketplace.example");
+        expect(product.price_range).toEqual({
+          min: { currency: "USD", amount: presentment.priceRange.min },
+          max: { currency: "USD", amount: presentment.priceRange.max },
+        });
+        expect(product.extensions.chase_sets.omitted_listings).toBe(row.omitted);
+        const listings = mode === "lookup" ? presentment.listings.slice(0, 1) : presentment.listings;
+        expect(product.variants.map((variant) => variant.id)).toEqual(listings.map((listing) => listing.listing_id));
+        expect(product.variants.map((variant) => variant.price)).toEqual(
+          (mode === "lookup" ? row.minors.slice(0, 1) : row.minors).map((amount) => ({ currency: "USD", amount })),
+        );
+        for (const [index, variant] of product.variants.entries()) {
+          expect(variant.url).toBe(`https://marketplace.example/listings/${listings[index]!.listing_slug}`);
+          expect(new URL(variant.url).origin).toBe("https://marketplace.example");
+          if (mode === "lookup") expect(variant.inputs).toEqual(inputs);
+          else expect(variant).not.toHaveProperty("inputs");
+        }
+        console.info(
+          "AC3_ENVELOPE",
+          JSON.stringify({
+            product: row.name,
+            mode,
+            valid: true,
+            variant_ids: product.variants.map((variant) => variant.id),
+          }),
+        );
+      }
+      for (const inputs of [undefined, []])
+        expect(() => catalogUcpProduct({ source: row.source, presentment, request, mode: "lookup", inputs })).toThrow(
+          "UCP lookup Product requires request inputs",
+        );
     }
   });
 });
