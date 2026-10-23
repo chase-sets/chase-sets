@@ -87,6 +87,27 @@ import type { SourceObservationProviderImportRuntime } from "./source-observatio
 import type { SourceObservationPromotionReapplyRuntime } from "./source-observation-promotion-reapply-runtime";
 
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
+const RETIRED_TCGPLAYER_MESSAGE = "TCGplayer server transport is retired; use the browser handoff.";
+
+function assertProviderTransportNotRetired(providerKey: string): void {
+  if (providerKey.trim().toLowerCase() === "tcgplayer") {
+    throw new SourceObservationIntegrationJobLifecycleCommandError("unsupported_action", RETIRED_TCGPLAYER_MESSAGE);
+  }
+}
+
+function retiredProviderResult(scope: SourceObservationIntegrationJobScope): SourceObservationIntegrationJobResult {
+  return summarizeIntegrationJobOutcomes(1, [
+    {
+      providerKey: scope.provider ?? "",
+      languageCode: scope.language ?? "",
+      expansionId: null,
+      status: "failed",
+      observed: 0,
+      reapplied: 0,
+      reason: RETIRED_TCGPLAYER_MESSAGE,
+    },
+  ]);
+}
 
 export type SourceObservationIntegrationJobRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
@@ -188,6 +209,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationImportPreview> {
     const scope = normalizeIntegrationJobScope(input.scope);
+    assertProviderTransportNotRetired(scope.provider ?? "");
     rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: scope.provider });
     rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: scope.provider });
     const providerProfileVersion = await requireCatalogImportProfileVersion(
@@ -218,6 +240,9 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
+    if (input.action === "import") {
+      assertProviderTransportNotRetired(scope.provider ?? "");
+    }
     rolloutControlPolicy.assertAllowed({
       capability: input.action === "import" ? "import" : "reapply",
       providerKey: scope.provider,
@@ -307,6 +332,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    assertProviderTransportNotRetired(job.payload.scope?.provider ?? "");
     if (job.status === "running" && isDurableJobClaimExpired(job)) {
       return resumeIntegrationJob(input);
     }
@@ -361,6 +387,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    assertProviderTransportNotRetired(job.payload.scope?.provider ?? "");
     if (job.status === "queued") {
       return toSourceObservationIntegrationJob(job);
     }
@@ -505,6 +532,27 @@ export function createSourceObservationIntegrationJobRuntime({
     try {
       throwIfJobRunCancelled(input);
       const activeJob = claimed;
+      if (activeJob.action === "import" && (activeJob.scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
+        const retired = retiredProviderResult(activeJob.scope);
+        const failureMessage = RETIRED_TCGPLAYER_MESSAGE;
+        await requireSourceObservationJobClaim(
+          integrationJobStore.fail({
+            jobId: activeJob.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: bulkProgress(retired.requested, retired.requested, null, "failed", "failed"),
+            errorMessage: failureMessage,
+          }),
+        );
+        recordIntegrationJobTelemetry(deps.sourceObservationTelemetry, activeJob.action, "failed");
+        recordIntegrationJobControlPlaneTelemetry(deps.sourceObservationTelemetry, activeJob, retired, "failed");
+        await recordCatalogScopeSyncStateForChildJob({
+          job: { ...activeJob, status: "failed", result: retired, completedAt: new Date().toISOString() },
+          status: "failed",
+          errorMessage: failureMessage,
+          recordedAt: new Date().toISOString(),
+        });
+        return 1;
+      }
       const turnResult = await runProviderSendJob(deps, claimed.jobId, async () =>
         claimed.action === "import"
           ? await processIntegrationImportJobTurn({
@@ -743,6 +791,14 @@ export function createSourceObservationIntegrationJobRuntime({
   > {
     throwIfJobRunCancelled(input.context);
     const scope = normalizeIntegrationJobScope(input.job.scope);
+    if ((scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
+      const result = retiredProviderResult(scope);
+      return {
+        complete: true,
+        progress: bulkProgress(result.requested, result.requested, null, "failed", "completed"),
+        result,
+      };
+    }
     rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: scope.provider });
     rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: scope.provider });
     const providerProfileVersion = await requireCatalogImportProfileVersionForJob(

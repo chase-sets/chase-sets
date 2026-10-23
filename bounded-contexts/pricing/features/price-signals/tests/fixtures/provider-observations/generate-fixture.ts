@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { mapProviderObservationCapture } from "../../../domain/provider-observation-mapper";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../../../domain/provider-observation-policy";
-import type { TcgplayerSecondaryObservation } from "../../../integrations/tcgplayer/market-client";
+import type { TcgplayerSecondaryObservation } from "../../../domain/provider-observation-types";
 
 export function generateSyntheticProviderObservationFixture() {
   const captureStartedAt = "2026-09-01T15:00:00.000Z";

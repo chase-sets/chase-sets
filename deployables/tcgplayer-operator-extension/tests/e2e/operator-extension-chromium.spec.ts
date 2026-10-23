@@ -7,6 +7,7 @@ import { chromium, expect, test } from "@playwright/test";
 import { build } from "vite";
 import { operatorExtensionId } from "../../src/manifest-contract";
 import { syntheticTarget } from "./synthetic-cdp";
+import { operatorExtensionChromiumTestTitle } from "./operator-extension-test-titles";
 import {
   operatorEvidenceIdentity,
   operatorFileInventory,
@@ -41,7 +42,7 @@ test("operator-extension-deterministic-build @tcgplayer-operator-extension", asy
   );
 });
 
-test("operator-extension-chromium: opaque UI, exact-host cookies and retained reload @tcgplayer-operator-extension", async () => {
+test(operatorExtensionChromiumTestTitle, async () => {
   const stages: string[] = [];
   type HandoffSender = {
     case: string;
@@ -100,26 +101,9 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     // Direct loopback CDP setup is outside Playwright recording. Only synthetic values enter this profile.
     const port = readFileSync(join(profile, "DevToolsActivePort"), "utf8").split(/\r?\n/)[0];
     if (!port || !/^\d+$/.test(port)) throw new Error("Synthetic debug port missing");
-    const cookieTarget = await syntheticTarget(port, worker.url());
-    async function setup(expression: string) {
-      await cookieTarget.evaluate(expression);
-    }
-    const cookieMarker = ["SYNTHETIC", "OPERATOR", "COOKIE", "CHROMIUM"].join("_");
     stage("setup-connected");
     const grantMarker = "A".repeat(43);
     const key = "catalog.operator-session.staging";
-    for (const domain of [undefined, ".tcgplayer.com"]) {
-      for (const path of ["/", "/admin", "/inapplicable"]) {
-        await setup(`(async () => {
-          await chrome.cookies.set(${JSON.stringify({ url: "https://store.tcgplayer.com" + (path === "/" ? "/" : path + "/pricing"), name: "TCGAuthTicket_Production", value: cookieMarker, path, ...(domain ? { domain } : {}) })});
-          const cookie = await chrome.cookies.get({url:"https://store.tcgplayer.com/admin/pricing",name:"TCGAuthTicket_Production",storeId:"0"});
-          if (${path === "/inapplicable" ? "cookie !== null" : `cookie?.value !== ${JSON.stringify(cookieMarker)}`}) throw Error("applicability");
-          await chrome.cookies.remove({url:${JSON.stringify("https://store.tcgplayer.com" + (path === "/" ? "/" : path + "/pricing"))},name:"TCGAuthTicket_Production",storeId:"0"});
-        })()`);
-      }
-    }
-    cookieTarget.close();
-    stage("cookies-proved");
     async function openPopup(current: typeof worker, unknownVersion = false) {
       await current.evaluate(async () => {
         const window = (await chrome.windows.getAll({ windowTypes: ["normal"] }))[0];
@@ -177,7 +161,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
       .poll(() => popup.evaluate('document.querySelector("[role=status]")?.textContent'))
       .toContain("Paired.");
     stage("paired");
-    expect(await popup.evaluate('typeof chrome === "undefined" || (!chrome.storage && !chrome.cookies)')).toBe(true);
+    expect(await popup.evaluate('typeof chrome === "undefined" || !chrome.storage')).toBe(true);
     expect(
       await popup.evaluate("(() => { try { void parent.document; return false; } catch { return true; } })()"),
     ).toBe(true);
@@ -362,10 +346,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     const retained = readdirSync(evidence, { recursive: true, withFileTypes: true }).filter((file) => file.isFile());
     for (const file of retained) {
       const bytes = readFileSync(join(file.parentPath, file.name));
-      expect(
-        bytes.includes(Buffer.from(cookieMarker)) || bytes.includes(Buffer.from(grantMarker)),
-        "retained artifact marker scan",
-      ).toBe(false);
+      expect(bytes.includes(Buffer.from(grantMarker)), "retained artifact marker scan").toBe(false);
     }
   } finally {
     await context.close();

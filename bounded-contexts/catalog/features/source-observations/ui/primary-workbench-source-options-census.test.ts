@@ -182,7 +182,6 @@ describe("Catalog primary workbench source-option census", () => {
       { query },
       null,
       undefined,
-      undefined,
       new ProviderAdapterRegistry([adapter(adapterCache, fetch)]),
     );
 

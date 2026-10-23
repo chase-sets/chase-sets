@@ -17,25 +17,6 @@ const scenarioFiles = [
     ],
   },
   {
-    name: "Catalog automation client normalization",
-    file: "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-catalog-client.test.ts",
-    evidence: [
-      "normalizes product detail into one provider-product Source Observation",
-      "maps only SKU references whose selected options validate against the Product schema",
-      "carries sealed-product merge evidence",
-      "excludes price and listing fields from the Catalog observation hash material",
-    ],
-  },
-  {
-    name: "Catalog import",
-    file: "bounded-contexts/catalog/features/source-observations/api/runtime-provider-integration-jobs.test.ts",
-    evidence: [
-      "imports TCGplayer set scopes as provider-product source observations",
-      "imports TCGplayer Magic single-card set scopes through the selected production profile unit",
-      "imports TCGplayer Magic sealed-product set scopes through the selected production profile unit",
-    ],
-  },
-  {
     name: "Catalog TCGplayer Magic profile contract",
     file: "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-fixture-cases.ts",
     evidence: [
@@ -48,11 +29,10 @@ const scenarioFiles = [
     ],
   },
   {
-    name: "Catalog TCGplayer Magic adapter scoping",
+    name: "Retired Catalog TCGplayer adapter",
     file: "bounded-contexts/catalog/features/source-observations/api/provider-adapters/provider-adapter.test.ts",
     evidence: [
-      "serves TCGplayer Magic single-card transport through the active profile unit",
-      "serves TCGplayer Magic sealed-product transport through the active profile unit",
+      "validates TCGplayer source-observation imports through fixture-backed proof dry runs",
       "TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY",
       "TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY",
     ],

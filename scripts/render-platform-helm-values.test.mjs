@@ -266,18 +266,18 @@ describe("render platform Helm values", () => {
     }
   });
 
-  it("renders both keyrings only as shared API/worker Secret references", () => {
+  it("renders the retained channel keyring only as shared API/worker Secret references", () => {
     const base = buildPlatformHelmValues({ repoRoot });
     for (const build of [buildPlatformHelmValues, buildPlatformHelmStagingValues, buildPlatformHelmProductionValues]) {
       const values = build({ repoRoot });
       for (const host of ["platform-api", "platform-worker"]) {
         const effective = values.components[host].env ?? base.components[host].env;
-        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON"])
           expect(effective.find((entry) => entry.name === name)).toEqual({ name, secret: true, secretKey: name });
       }
       for (const [name, component] of Object.entries(values.components)) {
         if (!["platform-api", "platform-worker"].includes(name))
-          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON"])
             expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
               secretName,
             );
@@ -1199,11 +1199,18 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 135,
-      "platform-bootstrap": 63,
-      "platform-worker": 137,
+      "platform-api": 130,
+      "platform-bootstrap": 59,
+      "platform-worker": 132,
       "public-web": 13,
     });
+    const retiredNames = Object.values(values.components).flatMap((component) =>
+      component.env.filter(
+        (entry) =>
+          entry.name === "CATALOG_OPERATOR_SESSION_KEYRING_JSON" || entry.name.startsWith("TCGPLAYER_AUTOMATION_"),
+      ),
+    );
+    expect(retiredNames).toEqual([]);
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
     expect(componentEnvKeys(values.components["platform-api"])).toContain("DATABASE_URL_COMMERCIAL_TERMS");
     expect(componentEnvKeys(values.components["platform-api"])).toContain("DATABASE_URL_INVENTORY_WAITER");
