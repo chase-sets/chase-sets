@@ -110,6 +110,8 @@ consumer-local histories and the consumer database clock after locking and
 holds the locks through COMMIT. An absent history admits only the named
 creation epoch and consumer incarnation; partial histories refuse. Canonical
 journal anchors and linked records detect missing, changed and corrupt history.
+Terminal validation uses one consumer-local SQL read per key for isolation,
+lock ownership, store identity, canonical history and clock, with at most 32 keys.
 
 Registration and retirement refuse while CLOSING. Registration at a later
 epoch initializes the new consumer closed-through; retirement fences all old

@@ -91,6 +91,9 @@ const EXCLUSIVE_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended('confi
 type ConsumerRecord = Readonly<{ kind: "CLOSED_THROUGH"; guard: ConfigurationConsumerGuard }>;
 type JournalRecord = ConfigurationEpochRecord | ConsumerRecord;
 type Journal = Readonly<{ records: readonly JournalRecord[]; digest: string }>;
+type JournalHead = Readonly<{ sequence: string; digest: string }>;
+type JournalEntry = JournalHead & Readonly<{ record: JournalRecord }>;
+type StoreIdentity = Readonly<{ store_id: string; incarnation: string }>;
 type ConsumerTarget = Readonly<{ identity: ConfigurationConsumer; pool: PgTransactionalPool }>;
 
 /** SQL timeouts never settle a closure. The pending journal remains authoritative. */
@@ -109,20 +112,23 @@ async function readJournal(
   role: "source" | "consumer",
   key: string,
 ): Promise<Journal | undefined> {
-  const heads = await client.query<{ sequence: string; digest: string }>(
+  const heads = await client.query<JournalHead>(
     "SELECT sequence::text, digest FROM event_configuration_journal_heads WHERE role = $1 AND key = $2",
     [role, key],
   );
-  const rows = await client.query<{ sequence: string; record: JournalRecord; digest: string }>(
+  const rows = await client.query<JournalEntry>(
     "SELECT sequence::text, record, digest FROM event_configuration_guard_history WHERE role = $1 AND key = $2 ORDER BY sequence",
     [role, key],
   );
-  if (!heads.rows.length && !rows.rows.length) return undefined;
-  const head = heads.rows[0];
-  if (heads.rows.length !== 1 || !head || Number(head.sequence) !== rows.rows.length || !rows.rows.length)
+  return decodeJournal(heads.rows, rows.rows);
+}
+function decodeJournal(heads: readonly JournalHead[], rows: readonly JournalEntry[]): Journal | undefined {
+  if (!heads.length && !rows.length) return undefined;
+  const head = heads[0];
+  if (heads.length !== 1 || !head || Number(head.sequence) !== rows.length || !rows.length)
     throw new ConfigurationEpochError("partial journal history");
   let previous = EMPTY_DIGEST;
-  for (const [index, row] of rows.rows.entries()) {
+  for (const [index, row] of rows.entries()) {
     if (Number(row.sequence) !== index + 1 || !row.record || typeof row.record !== "object")
       throw new ConfigurationEpochError("corrupt journal sequence");
     const next = digest(previous, row.record);
@@ -130,7 +136,7 @@ async function readJournal(
     previous = next;
   }
   if (previous !== head.digest) throw new ConfigurationEpochError("corrupt journal tail");
-  return { records: rows.rows.map((r) => r.record), digest: previous };
+  return { records: rows.map((r) => r.record), digest: previous };
 }
 async function appendJournal(
   client: PgQueryable,
@@ -183,12 +189,15 @@ function consumerState(journal: Journal | undefined): ConfigurationConsumerGuard
   return previous;
 }
 async function readIdentity(client: PgQueryable, expected: ConfigurationConsumer): Promise<void> {
-  const result = await client.query<{ store_id: string; incarnation: string }>(
+  const result = await client.query<StoreIdentity>(
     "SELECT store_id, incarnation FROM event_configuration_store_identity WHERE singleton = true",
   );
-  const actual = result.rows[0];
+  assertIdentity(result.rows, expected);
+}
+function assertIdentity(rows: readonly StoreIdentity[], expected: ConfigurationConsumer): void {
+  const actual = rows[0];
   if (
-    result.rows.length !== 1 ||
+    rows.length !== 1 ||
     !actual ||
     actual.store_id !== expected.storeId ||
     actual.incarnation !== expected.incarnation
@@ -410,25 +419,38 @@ export async function validateConfigurationGrantVectorInTransaction(
   client: PgQueryable,
   grants: readonly ConfigurationEpochGrant[],
 ): Promise<void> {
-  const isolation = await client.query<{ isolation: string }>(
-    "SELECT current_setting('transaction_isolation') AS isolation",
-  );
-  if (isolation.rows[0]?.isolation !== "read committed")
-    throw new ConfigurationEpochError("READ COMMITTED is required");
   for (const grant of assertConfigurationGrantVector(grants)) {
-    const held = await client.query<{ held: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM pg_locks
+    const result = await client.query<{
+      isolation: string;
+      held: boolean;
+      identities: StoreIdentity[];
+      heads: JournalHead[];
+      records: JournalEntry[];
+      now: string;
+    }>(
+      `SELECT current_setting('transaction_isolation') AS isolation,
+        EXISTS (SELECT 1 FROM pg_locks
         WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted AND mode IN ('ShareLock', 'ExclusiveLock')
           AND classid::bigint = ((hashtextextended('configuration_epoch:' || $1::text, 0) >> 32) & 4294967295)
           AND objid::bigint = (hashtextextended('configuration_epoch:' || $1::text, 0) & 4294967295)
-          AND objsubid = 1) AS held`,
+          AND objsubid = 1) AS held,
+        COALESCE((SELECT json_agg(identity) FROM
+          (SELECT store_id, incarnation FROM event_configuration_store_identity WHERE singleton = true) identity), '[]'::json) AS identities,
+        COALESCE((SELECT json_agg(head) FROM
+          (SELECT sequence::text, digest FROM event_configuration_journal_heads WHERE role = 'consumer' AND key = $1) head), '[]'::json) AS heads,
+        COALESCE((SELECT json_agg(history) FROM
+          (SELECT sequence::text, record, digest FROM event_configuration_guard_history
+            WHERE role = 'consumer' AND key = $1 ORDER BY event_configuration_guard_history.sequence) history), '[]'::json) AS records,
+        clock_timestamp()::text AS now`,
       [grant.key],
     );
-    if (held.rows[0]?.held !== true) throw new ConfigurationEpochError("class-C key has no held guard lock");
-    await readIdentity(client, grant.consumer);
-    const guard = consumerState(await readJournal(client, "consumer", grant.key));
-    const clock = await client.query<{ now: string }>("SELECT clock_timestamp()::text AS now");
-    assertConfigurationGrantCurrent(grant, grant.consumer, guard, clock.rows[0]?.now ?? "invalid");
+    const state = result.rows[0];
+    if (result.rows.length !== 1 || !state) throw new ConfigurationEpochError("unknown consumer guard state");
+    if (state.isolation !== "read committed") throw new ConfigurationEpochError("READ COMMITTED is required");
+    if (state.held !== true) throw new ConfigurationEpochError("class-C key has no held guard lock");
+    assertIdentity(state.identities, grant.consumer);
+    const guard = consumerState(decodeJournal(state.heads, state.records));
+    assertConfigurationGrantCurrent(grant, grant.consumer, guard, state.now);
   }
 }
 export async function lockConfigurationGrantVectorInTransaction(
