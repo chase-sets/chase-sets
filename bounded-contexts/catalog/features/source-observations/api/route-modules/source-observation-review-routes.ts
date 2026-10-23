@@ -12,6 +12,24 @@ import { parsePromoteAsDraft } from "./route-helpers";
 
 export type SourceObservationReadReviewRouteServices = SourceObservationReadServices & SourceObservationReviewServices;
 
+export function sourceObservationListParamsFromRecord(record: Readonly<Record<string, unknown>>) {
+  const text = (key: string) =>
+    typeof record[key] === "string" && String(record[key]).trim() ? String(record[key]).trim() : undefined;
+  const expansionId = text("expansionId");
+  return {
+    search: text("search"),
+    status: text("status"),
+    limit: record.limit === undefined ? undefined : Number(record.limit) || undefined,
+    offset: record.offset === undefined ? undefined : Number(record.offset) || undefined,
+    provider: text("provider") ?? text("source"),
+    language: text("language"),
+    ...(text("productLineId") ? { productLineId: text("productLineId") } : {}),
+    ...(text("seriesId") ? { seriesId: text("seriesId") } : {}),
+    ...(expansionId ? { expansionId } : {}),
+    setId: expansionId ?? text("setId"),
+  };
+}
+
 export function sourceObservationReadReviewRoutes(services: SourceObservationReadReviewRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -21,20 +39,7 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
       return permissionError;
     }
 
-    const { search, status, limit, offset, provider, source, language, productLineId, seriesId, setId, expansionId } =
-      c.req.query();
-    const result = await services.listSourceObservations({
-      search,
-      status,
-      limit: Number(limit) || undefined,
-      offset: Number(offset) || undefined,
-      provider: provider ?? source,
-      language,
-      ...(productLineId ? { productLineId } : {}),
-      ...(seriesId ? { seriesId } : {}),
-      ...(expansionId ? { expansionId } : {}),
-      setId: expansionId ?? setId,
-    });
+    const result = await services.listSourceObservations(sourceObservationListParamsFromRecord(c.req.query()));
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
