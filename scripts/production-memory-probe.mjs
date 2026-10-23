@@ -8,6 +8,7 @@ export const NAMESPACE = "chase-sets-platform";
 export const COMPONENTS = ["marketplace", "public-web"];
 export const OUTPUT = "artifacts/production-memory-probe/capture.json";
 export const BOUNDS = { pods: 32, containers: 256, pages: 4, events: 512, bytes: 16 * 1024 * 1024, timeout: 15_000 };
+const NON_RUNNING_PHASES = new Set(["Pending", "Succeeded", "Failed", "Unknown"]);
 const SELECTOR =
   "app.kubernetes.io/instance=chase-sets-platform,app.kubernetes.io/component in (marketplace,public-web)";
 const POD_PATH = `/api/v1/namespaces/${NAMESPACE}/pods?limit=32&labelSelector=${encodeURIComponent(SELECTOR)}`;
@@ -360,6 +361,7 @@ function currentUsage(summary, row, at) {
 
 function historyFor(body, row, clusterId, end, imageID) {
   if (!row.imageDigest || !row.startedAt) return unknown("identity-unavailable");
+  if (typeof imageID !== "string" || !imageID) return unknown("identity-unavailable");
   if (
     body?.status !== "success" ||
     body?.data?.resultType !== "matrix" ||
@@ -431,6 +433,36 @@ function eventsFor(items, row, failure) {
   return records.length ? known(records) : unknown("no-observed-events");
 }
 
+function projectNonRunningPods(pods) {
+  const result = [];
+  const seen = new Set();
+  for (const pod of pods) {
+    const component = pod?.metadata?.labels?.["app.kubernetes.io/component"];
+    if (
+      !COMPONENTS.includes(component) ||
+      pod?.metadata?.labels?.["app.kubernetes.io/instance"] !== NAMESPACE ||
+      pod?.metadata?.namespace !== NAMESPACE ||
+      !matches(NAME, pod?.metadata?.name) ||
+      !matches(UUID, pod?.metadata?.uid)
+    ) {
+      continue;
+    }
+    const phase = pod.status?.phase;
+    if (phase === "Running") continue;
+    if (!NON_RUNNING_PHASES.has(phase)) continue;
+    if (seen.has(pod.metadata.uid)) continue;
+    seen.add(pod.metadata.uid);
+    result.push({
+      component,
+      pod: pod.metadata.name,
+      podUid: pod.metadata.uid,
+      phase,
+    });
+    if (result.length === BOUNDS.pods) break;
+  }
+  return result;
+}
+
 /** One capture preserves validated observations even when another replica/source is incomplete. */
 export async function collect({ env, read = commandReader(env), history = readHistory, now = () => new Date() }) {
   const startedAt = now().toISOString();
@@ -452,11 +484,14 @@ export async function collect({ env, read = commandReader(env), history = readHi
   if (!clusterId || !env.KUBECONFIG) errors.add("context-unavailable");
   if (!env.PROMETHEUS_QUERY_TOKEN?.trim()) errors.add("credentials-unavailable");
   let rows = [];
+  let nonRunningPods = [];
+  let riskFlags = [];
   if (!errors.size) {
     const before = await list(read, POD_PATH, BOUNDS.pods);
     if (before.reason) errors.add(before.reason);
     const imageIDs = new Map();
     rows = projectPods(before.items, errors, imageIDs);
+    const nonRunningByUid = new Map(projectNonRunningPods(before.items).map((pod) => [pod.podUid, pod]));
     const samples = new Map();
     for (const node of new Set(rows.map((r) => r.node))) {
       try {
@@ -479,6 +514,18 @@ export async function collect({ env, read = commandReader(env), history = readHi
     if (after.reason) errors.add(after.reason);
     const afterImageIDs = new Map();
     const afterRows = projectPods(after.items, errors, afterImageIDs);
+    for (const pod of projectNonRunningPods(after.items))
+      if (!nonRunningByUid.has(pod.podUid)) nonRunningByUid.set(pod.podUid, pod);
+    nonRunningPods = [...nonRunningByUid.values()].slice(0, BOUNDS.pods).map((pod) => ({
+      ...pod,
+      events: eventsFor(events.items, pod, events.reason),
+    }));
+    const observedRisks = new Set();
+    for (const pod of nonRunningPods) {
+      if (pod.events.value?.some((event) => event.reason.startsWith("OOM"))) observedRisks.add("oom-observed");
+      if (pod.events.value?.some((event) => event.reason === "Evicted")) observedRisks.add("eviction-observed");
+    }
+    riskFlags = ["oom-observed", "eviction-observed"].filter((flag) => observedRisks.has(flag));
     const key = (r) => `${r.podUid}/${r.container}`;
     if (rows.length !== afterRows.length || afterRows.some((a) => !rows.some((b) => key(a) === key(b))))
       errors.add("identity-drift");
@@ -503,7 +550,7 @@ export async function collect({ env, read = commandReader(env), history = readHi
       if (current.status === "unknown") errors.add(current.reason);
       const recentHistory = historyReason
         ? unknown(historyReason)
-        : historyFor(historical, row, clusterId, captured, imageIDs.get(key(row)));
+        : historyFor(historical, row, clusterId, captured, imageIDs.get(key(row)) ?? afterImageIDs.get(key(row)));
       const eventContext = eventsFor(events.items, row, events.reason);
       const percent =
         current.status === "available" && row.limitBytes
@@ -538,6 +585,8 @@ export async function collect({ env, read = commandReader(env), history = readHi
     endedAt: now().toISOString(),
     completeness: errors.size ? "incomplete" : "complete",
     reasons: [...errors].sort(),
+    nonRunningPods,
+    riskFlags,
     containers: rows,
   };
 }
@@ -556,7 +605,7 @@ export function validateArtifact(a) {
   if (
     !keys(
       a,
-      "schemaVersion environment namespace clusterId provenance startedAt endedAt completeness reasons containers",
+      "schemaVersion environment namespace clusterId provenance startedAt endedAt completeness reasons nonRunningPods riskFlags containers",
     ) ||
     a.schemaVersion !== "production-memory-probe/v1" ||
     a.environment !== "production" ||
@@ -581,8 +630,38 @@ export function validateArtifact(a) {
     !["complete", "incomplete"].includes(a.completeness) ||
     !Array.isArray(a.reasons) ||
     a.reasons.some((r) => !REASONS.has(r)) ||
+    !Array.isArray(a.nonRunningPods) ||
+    a.nonRunningPods.length > BOUNDS.pods ||
+    !Array.isArray(a.riskFlags) ||
+    a.riskFlags.some((f) => !["oom-observed", "eviction-observed"].includes(f)) ||
     !Array.isArray(a.containers) ||
     a.containers.length > BOUNDS.containers
+  )
+    return false;
+  if (
+    !a.nonRunningPods.every(
+      (pod) =>
+        keys(pod, "component pod podUid phase events") &&
+        COMPONENTS.includes(pod.component) &&
+        matches(NAME, pod.pod) &&
+        matches(UUID, pod.podUid) &&
+        NON_RUNNING_PHASES.has(pod.phase) &&
+        observation(
+          pod.events,
+          (events) =>
+            Array.isArray(events) &&
+            events.length > 0 &&
+            events.length <= BOUNDS.events &&
+            events.every(
+              (event) =>
+                keys(event, "reason time count") &&
+                ["OOMKilled", "OOMKilling", "Evicted"].includes(event.reason) &&
+                utc(event.time) &&
+                integer(event.count) &&
+                event.count > 0,
+            ),
+        ),
+    )
   )
     return false;
   if (

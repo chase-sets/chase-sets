@@ -381,6 +381,47 @@ describe("actual collector to retained projection", () => {
     expect((await output(f)).artifact.containers[0].history.reason).toBe("malformed");
   });
 
+  it("after-only pods require their own image identity for history", async () => {
+    const f = fixture();
+    const extra = pod("public-web", 4);
+    f.data.after = [...clone(f.data.pods), extra];
+    f.data.histories.data.result.push({
+      metric: {
+        deployment_environment: "production",
+        k8s_cluster_id: CLUSTER,
+        k8s_namespace_name: NAMESPACE,
+        k8s_pod_uid: extra.metadata.uid,
+        k8s_pod_name: extra.metadata.name,
+        k8s_container_name: "web",
+      },
+      values: [[Date.parse(TIME) / 1000, "10485760"]],
+    });
+    const { artifact } = await output(f);
+    expect(artifact.containers.find((r) => r.podUid === extra.metadata.uid).history).toEqual({
+      status: "unknown",
+      reason: "no-identity-matching-series",
+    });
+
+    const exact = fixture();
+    const exactExtra = pod("public-web", 4);
+    exact.data.after = [...clone(exact.data.pods), exactExtra];
+    exact.data.histories.data.result.push({
+      metric: {
+        deployment_environment: "production",
+        k8s_cluster_id: CLUSTER,
+        k8s_namespace_name: NAMESPACE,
+        k8s_pod_uid: exactExtra.metadata.uid,
+        k8s_pod_name: exactExtra.metadata.name,
+        k8s_container_name: "web",
+        container_image_id: exactExtra.status.containerStatuses[0].imageID,
+      },
+      values: [[Date.parse(TIME) / 1000, "10485760"]],
+    });
+    expect(
+      (await output(exact)).artifact.containers.find((r) => r.podUid === exactExtra.metadata.uid).history.status,
+    ).toBe("available");
+  });
+
   it("Kubernetes errors retain partial observations and a closed failure reason", async () => {
     for (const reason of ["unauthorized", "forbidden", "timeout", "output-limit", "malformed"]) {
       const f = fixture();
@@ -394,6 +435,80 @@ describe("actual collector to retained projection", () => {
       expect(artifact.reasons).toContain(reason);
       expect(artifact.containers[0].riskFlags).toContain("near-limit");
     }
+  });
+
+  it.each(["both", "before-only", "after-only"])(
+    "retains a failed evicted pod from %s snapshots as context",
+    async (snapshot) => {
+      const f = fixture();
+      const evicted = pod("marketplace", 4);
+      evicted.status.phase = "Failed";
+      evicted.status.reason = "Evicted";
+      f.data.after = clone(f.data.pods);
+      if (snapshot !== "after-only") f.data.pods.push(evicted);
+      if (snapshot !== "before-only") f.data.after.push(clone(evicted));
+      f.data.events = [
+        {
+          involvedObject: { kind: "Pod", name: evicted.metadata.name, namespace: NAMESPACE, uid: evicted.metadata.uid },
+          reason: "Evicted",
+          lastTimestamp: TIME,
+          count: 1,
+          message: SENTINEL,
+        },
+      ];
+      const { artifact, code, text } = await output(f);
+      expect(code).toBe(0);
+      expect(validateArtifact(artifact)).toBe(true);
+      expect(artifact.nonRunningPods).toEqual([
+        {
+          component: "marketplace",
+          pod: evicted.metadata.name,
+          podUid: evicted.metadata.uid,
+          phase: "Failed",
+          events: { status: "available", value: [{ reason: "Evicted", time: TIME, count: 1 }] },
+        },
+      ]);
+      expect(artifact.riskFlags).toEqual(["eviction-observed"]);
+      expect(text).not.toContain(SENTINEL);
+    },
+  );
+
+  it.each(["Pending", "Succeeded", "Unknown", SENTINEL, undefined])(
+    "closes non-running phase %s without changing completeness",
+    async (phase) => {
+      const f = fixture();
+      const stopped = pod("marketplace", 4);
+      stopped.status.phase = phase;
+      f.data.pods.push(stopped);
+      const { artifact, code, text } = await output(f);
+      expect(code).toBe(0);
+      if (["Pending", "Succeeded", "Unknown"].includes(phase))
+        expect(artifact.nonRunningPods[0]).toMatchObject({
+          phase,
+          events: { status: "unknown", reason: "no-observed-events" },
+        });
+      else expect(artifact.nonRunningPods).toEqual([]);
+      expect(artifact.riskFlags).toEqual([]);
+      expect(text).not.toContain(SENTINEL);
+    },
+  );
+
+  it("retains only exact-identity non-running OOM events and reports their artifact risk", async () => {
+    const f = fixture();
+    const stopped = pod("marketplace", 4);
+    stopped.status.phase = "Failed";
+    f.data.pods.push(stopped);
+    const involvedObject = { uid: stopped.metadata.uid, name: stopped.metadata.name, namespace: NAMESPACE };
+    f.data.events = [
+      { involvedObject, reason: "OOMKilling", eventTime: TIME, series: { count: 2 }, message: SENTINEL },
+      { involvedObject: { ...involvedObject, uid: uid(999) }, reason: "Evicted", lastTimestamp: TIME },
+      { involvedObject: { ...involvedObject, name: "other" }, reason: "Evicted", lastTimestamp: TIME },
+      { involvedObject: { ...involvedObject, namespace: "other" }, reason: "Evicted", lastTimestamp: TIME },
+    ];
+    const { artifact, code } = await output(f);
+    expect(code).toBe(0);
+    expect(artifact.nonRunningPods[0].events.value).toEqual([{ reason: "OOMKilling", time: TIME, count: 2 }]);
+    expect(artifact.riskFlags).toEqual(["oom-observed"]);
   });
 });
 
@@ -489,6 +604,23 @@ describe("bounds and page completeness", () => {
     expect(text).not.toContain(SENTINEL);
   });
 
+  it("bounds non-running context across both snapshots without changing completeness", async () => {
+    const f = fixture();
+    const stopped = (n) => {
+      const p = pod("marketplace", n);
+      p.status.phase = "Failed";
+      return p;
+    };
+    f.data.after = [...clone(f.data.pods), ...Array.from({ length: 29 }, (_, n) => stopped(n + 100))];
+    f.data.pods.push(...Array.from({ length: 29 }, (_, n) => stopped(n + 10)));
+    const { artifact, code } = await output(f);
+    expect(code).toBe(0);
+    expect(artifact.reasons).toEqual([]);
+    expect(artifact.nonRunningPods).toHaveLength(BOUNDS.pods);
+    expect(new Set(artifact.nonRunningPods.map((p) => p.podUid)).size).toBe(BOUNDS.pods);
+    expect(artifact.containers).toHaveLength(3);
+  });
+
   it.each([
     (a) => {
       a.containers[0].current.value.secret = SENTINEL;
@@ -522,6 +654,34 @@ describe("bounds and page completeness", () => {
     },
     (a) => {
       a.provenance.private = SENTINEL;
+    },
+    (a) => {
+      a.riskFlags.push(SENTINEL);
+    },
+    (a) => {
+      a.nonRunningPods = [
+        {
+          component: "marketplace",
+          pod: "synthetic-stopped",
+          podUid: uid(4),
+          phase: "Failed",
+          events: { status: "available", value: [{ reason: "Evicted", time: TIME, count: 1, message: SENTINEL }] },
+        },
+      ];
+    },
+    (a) => {
+      a.nonRunningPods = [
+        {
+          component: "marketplace",
+          pod: "synthetic-stopped",
+          podUid: uid(4),
+          phase: SENTINEL,
+          events: { status: "unknown", reason: "no-observed-events" },
+        },
+      ];
+    },
+    (a) => {
+      a.nonRunningPods = Array.from({ length: BOUNDS.pods + 1 }, () => ({}));
     },
   ])("rejects nested invalid retained output", async (mutate) => {
     const a = await collect(fixture());
