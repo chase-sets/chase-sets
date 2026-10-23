@@ -724,6 +724,31 @@ function checkWorkflow(w) {
 }
 
 describe("workflow production credential boundary", () => {
+  it("authority fragment binds every secret to its actual one-based workflow step", () => {
+    const { grants } = JSON.parse(
+      readFileSync(
+        new URL("../.github/authority/platform-production-memory-probe/capture.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const expected = workflow.jobs.capture.steps.flatMap((step, index) =>
+      Object.values(step.env ?? {}).flatMap((value) => {
+        const name = /^\$\{\{ secrets\.([A-Z_]+) \}\}$/.exec(value)?.[1];
+        return name
+          ? [
+              {
+                file: ".github/workflows/platform-production-memory-probe.yml",
+                jobId: "capture",
+                stepAnchor: `name:${step.name}#${index + 1}`,
+                secretName: name,
+              },
+            ]
+          : [];
+      }),
+    );
+    expect(grants.map(({ purpose: _purpose, ...grant }) => grant)).toEqual(expect.arrayContaining(expected));
+    expect(grants).toHaveLength(expected.length);
+  });
   it("has fixed main-only admission before step-local secrets, no install scripts, and always cleanup", () => {
     expect(checkWorkflow(workflow)).toBe(true);
     expect(workflow.jobs.capture.steps.some((s) => /pnpm|npm |registry login/.test(s.run ?? s.uses ?? ""))).toBe(false);

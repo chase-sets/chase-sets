@@ -3,28 +3,28 @@
     {
       "file": ".github/workflows/platform-production-memory-probe.yml",
       "jobId": "capture",
-      "stepAnchor": "name:Configure production read context#5",
+      "stepAnchor": "name:Configure production read context#6",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },
     {
       "file": ".github/workflows/platform-production-memory-probe.yml",
       "jobId": "capture",
-      "stepAnchor": "name:Configure production read context#5",
+      "stepAnchor": "name:Configure production read context#6",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-production-memory-probe.yml",
       "jobId": "capture",
-      "stepAnchor": "name:Configure production read context#5",
+      "stepAnchor": "name:Configure production read context#6",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-production-memory-probe.yml",
       "jobId": "capture",
-      "stepAnchor": "name:Capture production web memory#6",
+      "stepAnchor": "name:Capture production web memory#7",
       "secretName": "PROMETHEUS_QUERY_TOKEN",
       "purpose": "release-evidence"
     }
