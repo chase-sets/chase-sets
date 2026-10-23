@@ -1,6 +1,6 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -31,6 +31,12 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+const temporaryArtifacts = [];
+
+afterEach(() => {
+  for (const artifact of temporaryArtifacts.splice(0)) rmSync(artifact, { recursive: true, force: true });
+});
 
 const diagnosticPrefix = "CI-local command diagnostics: ";
 function diagnostics(text) {
@@ -113,6 +119,7 @@ async function runFixtureCli({ json = true, dryRun = false, fail = true, invalid
   const artifactRoot = path.join(worktree, "artifacts");
   mkdirSync(artifactRoot, { recursive: true });
   const artifact = mkdtempSync(path.join(artifactRoot, "ci-local-diagnostics-"));
+  temporaryArtifacts.push(artifact);
   const fixture = path.join(artifact, "fixture");
   mkdirSync(path.join(fixture, "scripts"), { recursive: true });
   const head = execFileSync("git", ["rev-parse", "HEAD"], {
