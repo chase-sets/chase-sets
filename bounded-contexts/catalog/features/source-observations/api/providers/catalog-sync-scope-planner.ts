@@ -88,7 +88,6 @@ export type CatalogSyncProviderParticipationBlocker = Readonly<{
   code:
     | "provider-adapter-missing"
     | "provider-adapter-diagnostics"
-    | "provider-transport-unavailable"
     | "inactive-profile-unit"
     | "scope-product-domain-mismatch"
     | "scope-product-form-mismatch"
@@ -194,8 +193,14 @@ export async function previewCatalogSyncProviderParticipation(input: {
   const excludedUnitKeys = new Set(scope.providerParticipation?.excludedUnitKeys ?? []);
   const requiredUnitKeys = new Set(scope.providerParticipation?.requiredUnitKeys ?? []);
   const restrictToExplicitParticipation = selectedUnitKeys.size > 0 || requiredUnitKeys.size > 0;
-  const activeCandidates = input.providerProfileVersions.filter((version) =>
-    version.profile.capabilities.includes("source-observation-import"),
+  // A unit whose registered adapter declares no import planning is never
+  // enrolled: it is not planned, selected or required, contributes no blocker,
+  // and its adapter is never called. An explicitly required one is refused below
+  // as missing.
+  const activeCandidates = input.providerProfileVersions.filter(
+    (version) =>
+      version.profile.capabilities.includes("source-observation-import") &&
+      !declaresNoImportPlanning(input.providerAdapterRegistry, version.providerKey),
   );
   const matchingCandidates = activeCandidates
     .map((version) => ({ version, unitKey: unitKeyForCatalogProviderProfileVersion(version) }))
@@ -398,15 +403,6 @@ async function planProviderUnit(input: {
       }),
       action: "Register and configure this provider adapter before selecting the unit.",
     });
-  } else if (!adapter.capabilities.supportsImportPlanning) {
-    blockers.push({
-      code: "provider-transport-unavailable",
-      severity: "error",
-      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.importPlanningUnavailable", {
-        providerKey: input.version.providerKey,
-      }),
-      action: "Enable import planning on the provider adapter or deselect this unit.",
-    });
   } else if (input.includeOperationalGates) {
     readinessEvidence = await appendProviderReadinessBlockers(adapter, input.unitKey, blockers);
   }
@@ -569,6 +565,13 @@ async function appendProviderReadinessBlockers(
 
 function isActiveProviderProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
   return version.active && version.lifecycle === "active" && version.profile.status === "active";
+}
+
+// The registered adapter's capability declaration is the single signal, never a
+// provider-key branch. A provider with no registered adapter does not declare
+// anything, so its units stay planned and fail closed as provider-adapter-missing.
+function declaresNoImportPlanning(registry: ProviderAdapterRegistry, providerKey: string): boolean {
+  return registry.get(providerKey)?.capabilities.supportsImportPlanning === false;
 }
 
 function eligibilityBlockers(

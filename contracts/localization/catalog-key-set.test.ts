@@ -6,7 +6,7 @@ import { catalogEnglishTranslations } from "./locales/en/catalog";
 // in the same PR whenever you intentionally add/remove/rename catalog keys.
 const englishCatalogKeySet = {
   count: 3037,
-  sha256: "b7c6bf10dfb3a34f009ea11115283af1c02602c3a02d3d3ecc07a4d23cb5b255",
+  sha256: "88646cc5cc3d7bb2791285336dc44fa9241da7a22cd0a97b4327ef991297f0e5",
 } as const;
 
 describe("catalog locale key set", () => {
