@@ -5004,7 +5004,7 @@
       "jobId": "capture",
       "stepAnchor": "name:Capture production web memory#7",
       "secretName": "PROMETHEUS_QUERY_TOKEN",
-      "purpose": "release-evidence"
+      "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-production-memory-probe.yml",

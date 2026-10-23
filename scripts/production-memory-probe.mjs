@@ -247,11 +247,11 @@ async function list(read, path, cap) {
 
 function digest(imageID) {
   if (typeof imageID !== "string") return null;
-  const value = imageID.match(/(?:^|@)(sha256:[0-9a-f]{64})$/)?.[1];
+  const value = imageID.match(/(?:^|@|:\/\/)(sha256:[0-9a-f]{64})$/)?.[1];
   return value ?? null;
 }
 
-function projectPods(pods, errors) {
+function projectPods(pods, errors, imageIDs) {
   const result = [];
   const seen = new Set();
   for (const pod of pods) {
@@ -300,6 +300,7 @@ function projectPods(pods, errors) {
       }
       names.add(spec.name);
       const imageDigest = digest(status?.imageID);
+      imageIDs.set(`${pod.metadata.uid}/${spec.name}`, status?.imageID);
       const startedAt = status?.state?.running?.startedAt;
       const restarts = status?.restartCount;
       if (
@@ -357,7 +358,8 @@ function currentUsage(summary, row, at) {
   return known({ time: memory.time, workingSetBytes: memory.workingSetBytes });
 }
 
-function historyFor(body, row, clusterId, end) {
+function historyFor(body, row, clusterId, end, imageID) {
+  if (!row.imageDigest || !row.startedAt) return unknown("identity-unavailable");
   if (
     body?.status !== "success" ||
     body?.data?.resultType !== "matrix" ||
@@ -374,7 +376,7 @@ function historyFor(body, row, clusterId, end) {
       m.k8s_pod_uid === row.podUid &&
       m.k8s_pod_name === row.pod &&
       m.k8s_container_name === row.container &&
-      digest(m.container_image_id) === row.imageDigest,
+      m.container_image_id === imageID,
   );
   if (series.length !== 1) return unknown("no-identity-matching-series");
   const values = series[0].values;
@@ -453,7 +455,8 @@ export async function collect({ env, read = commandReader(env), history = readHi
   if (!errors.size) {
     const before = await list(read, POD_PATH, BOUNDS.pods);
     if (before.reason) errors.add(before.reason);
-    rows = projectPods(before.items, errors);
+    const imageIDs = new Map();
+    rows = projectPods(before.items, errors, imageIDs);
     const samples = new Map();
     for (const node of new Set(rows.map((r) => r.node))) {
       try {
@@ -474,7 +477,8 @@ export async function collect({ env, read = commandReader(env), history = readHi
     if (events.reason) errors.add(events.reason);
     const after = await list(read, POD_PATH, BOUNDS.pods);
     if (after.reason) errors.add(after.reason);
-    const afterRows = projectPods(after.items, errors);
+    const afterImageIDs = new Map();
+    const afterRows = projectPods(after.items, errors, afterImageIDs);
     const key = (r) => `${r.podUid}/${r.container}`;
     if (rows.length !== afterRows.length || afterRows.some((a) => !rows.some((b) => key(a) === key(b))))
       errors.add("identity-drift");
@@ -488,6 +492,7 @@ export async function collect({ env, read = commandReader(env), history = readHi
       if (
         added.includes(row) ||
         !other ||
+        imageIDs.get(key(row)) !== afterImageIDs.get(key(row)) ||
         ["pod", "node", "component", "imageDigest", "startedAt"].some((field) => other[field] !== row[field]) ||
         !row.imageDigest ||
         !row.startedAt
@@ -496,7 +501,9 @@ export async function collect({ env, read = commandReader(env), history = readHi
       else if (other.limitBytes !== row.limitBytes || row.limitBytes === null) current = unknown("limit-drift");
       else if (other.restarts !== row.restarts || row.restarts === null) current = unknown("restart-drift");
       if (current.status === "unknown") errors.add(current.reason);
-      const recentHistory = historyReason ? unknown(historyReason) : historyFor(historical, row, clusterId, captured);
+      const recentHistory = historyReason
+        ? unknown(historyReason)
+        : historyFor(historical, row, clusterId, captured, imageIDs.get(key(row)));
       const eventContext = eventsFor(events.items, row, events.reason);
       const percent =
         current.status === "available" && row.limitBytes

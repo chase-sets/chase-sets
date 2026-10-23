@@ -398,6 +398,15 @@ describe("actual collector to retained projection", () => {
 });
 
 describe("bounds and page completeness", () => {
+  it("compares full imageID, not just its digest, across capture and history", async () => {
+    const drift = fixture();
+    drift.data.after = clone(drift.data.pods);
+    drift.data.after[1].status.containerStatuses[0].imageID = `synthetic/alias@${image(1)}`;
+    expect((await output(drift)).artifact.containers[1].current.reason).toBe("identity-drift");
+    const historical = fixture();
+    historical.data.histories.data.result[1].metric.container_image_id = `synthetic/alias@${image(1)}`;
+    expect((await output(historical)).artifact.containers[1].history.reason).toBe("no-identity-matching-series");
+  });
   it("malformed nested identity types produce an incomplete artifact, not an exception", async () => {
     const f = fixture();
     f.data.pods[1].metadata.name = { toString: SENTINEL };
