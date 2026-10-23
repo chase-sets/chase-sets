@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   admitPriorProductionJob,
+  admitExecutorRun,
+  admitMarkerOnlyPolicy,
   admitMarkerSourceRun,
   assertRegistryIdentity,
   publishReleaseMarker,
@@ -227,6 +229,94 @@ describe("publication interruption and unknown response", () => {
 });
 
 describe("marker-only source recovery", () => {
+  it("admits the live REST run shape without a ref field", () => {
+    expect(() =>
+      admitExecutorRun(
+        {
+          id: 900000010,
+          path: ".github/workflows/platform-production.yml",
+          event: "workflow_dispatch",
+          head_branch: "main",
+          head_sha: commit,
+          run_attempt: 1,
+          status: "in_progress",
+        },
+        { runId: 900000010, attempt: 1 },
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["wrong branch", { head_branch: "feature" }],
+    ["completed run", { status: "completed" }],
+    ["wrong attempt", { run_attempt: 2 }],
+    ["wrong workflow", { path: ".github/workflows/other.yml" }],
+  ])("refuses executor admission for %s", (_name, patch) => {
+    expect(() =>
+      admitExecutorRun(
+        {
+          id: 900000010,
+          path: ".github/workflows/platform-production.yml",
+          event: "workflow_dispatch",
+          head_branch: "main",
+          head_sha: commit,
+          run_attempt: 1,
+          status: "in_progress",
+          ...patch,
+        },
+        { runId: 900000010, attempt: 1 },
+      ),
+    ).toThrow("unverified production workflow source");
+  });
+
+  it("binds lock and circuit checks to the retained source commit", async () => {
+    const sourceCommit = "c".repeat(40);
+    const env = {
+      PRODUCTION_RELEASE_LOCKED: "false",
+      GITHUB_REPOSITORY: "synthetic/repo",
+      GITHUB_TOKEN: "synthetic-token",
+      GITHUB_STEP_SUMMARY: "",
+      CIRCUIT_ISSUE_NUMBER: "",
+      CIRCUIT_REASON: "",
+    };
+    const checkLock = vi.fn(async (options) => {
+      expect(options.releaseCommit).toBe(sourceCommit);
+      expect(options.emergencyBypass).toBe("false");
+      return { deploymentAllowed: true, errors: [] };
+    });
+    const run = vi.fn(async (_program, args) => {
+      expect(args).toEqual(
+        expect.arrayContaining([
+          "--base-sha",
+          sourceCommit,
+          "--candidate-sha",
+          sourceCommit,
+          "--automatic",
+          "false",
+          "--circuit-issue-number",
+          "",
+          "--circuit-reason",
+          "",
+        ]),
+      );
+      return { stdout: "", stderr: "" };
+    });
+    await expect(admitMarkerOnlyPolicy({ commit: sourceCommit }, env, { checkLock, run })).resolves.toMatchObject({
+      deploymentAllowed: true,
+    });
+    expect(checkLock).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a locked source before the circuit guard", async () => {
+    const checkLock = vi.fn(async () => ({ deploymentAllowed: false, errors: ["locked"] }));
+    const run = vi.fn();
+    await expect(
+      admitMarkerOnlyPolicy({ commit }, { PRODUCTION_RELEASE_LOCKED: "true" }, { checkLock, run }),
+    ).rejects.toThrow("production release lock refused source");
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("admits an earlier retained authority while requiring a completed matching latest attempt", async () => {
     const sourceRun = {
       id: run.id,

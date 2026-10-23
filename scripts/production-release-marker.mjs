@@ -344,6 +344,70 @@ export async function productionJob(api, runId, attempt) {
   return matches[0];
 }
 
+export function admitExecutorRun(run, { runId, attempt }) {
+  requireThat(
+    run.id === runId &&
+      run.path === ".github/workflows/platform-production.yml" &&
+      run.event === "workflow_dispatch" &&
+      run.head_branch === "main" &&
+      run.run_attempt === attempt &&
+      run.status === "in_progress",
+    "unverified production workflow source",
+  );
+  return run;
+}
+
+export async function admitMarkerOnlyPolicy(
+  sourceIdentity,
+  env,
+  { checkLock = runReleaseLockCheck, run = command } = {},
+) {
+  const lock = await checkLock({
+    environmentName: "production",
+    releaseCommit: sourceIdentity.commit,
+    releaseLocked: env.PRODUCTION_RELEASE_LOCKED ?? "false",
+    lockReason: env.PRODUCTION_RELEASE_LOCK_REASON ?? "",
+    lockReference: env.PRODUCTION_RELEASE_LOCK_REFERENCE ?? "",
+    emergencyBypass: "false",
+    emergencyReference: "",
+    githubRepository: env.GITHUB_REPOSITORY,
+    githubToken: env.GITHUB_TOKEN,
+  });
+  requireThat(lock.deploymentAllowed === true && !lock.errors?.length, "production release lock refused source");
+  await run(
+    process.execPath,
+    [
+      "./scripts/release-health-merge-group-failure-signatures.mjs",
+      "--command",
+      "guard",
+      "--lane",
+      "release-dispatch",
+      "--lane",
+      "staging",
+      "--lane",
+      "production",
+      "--base-sha",
+      sourceIdentity.commit,
+      "--candidate-sha",
+      sourceIdentity.commit,
+      "--actor",
+      env.GITHUB_ACTOR ?? "github-actions",
+      "--automatic",
+      "false",
+      "--circuit-issue-number",
+      env.CIRCUIT_ISSUE_NUMBER ?? "",
+      "--circuit-reason",
+      env.CIRCUIT_REASON ?? "",
+      "--enforcement",
+      env.DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT ?? "false",
+      "--github-summary",
+      env.GITHUB_STEP_SUMMARY ?? "",
+    ],
+    { env },
+  );
+  return lock;
+}
+
 export async function readPriorAuthority(api, identity) {
   for (let previous = identity.attempt - 1; previous >= 1; previous -= 1) {
     const job = await productionJob(api, identity.runId, previous);
@@ -747,20 +811,11 @@ async function main(action, env) {
       "retry attempt exceeds bounded authority window",
     );
     const run = await api(`actions/runs/${runId}`);
-    requireThat(
-      run.id === runId &&
-        run.path === ".github/workflows/platform-production.yml" &&
-        run.event === "workflow_dispatch" &&
-        run.head_branch === "main" &&
-        run.ref === "refs/heads/main" &&
-        run.run_attempt === attempt &&
-        run.status === "in_progress",
-      "unverified production workflow source",
-    );
+    admitExecutorRun(run, { runId, attempt });
     const markerOnly = action === "marker-only";
-    const initialCommit = markerOnly ? "0".repeat(40) : env.RELEASE_COMMIT;
+    const initialCommit = markerOnly ? "unknown" : env.RELEASE_COMMIT;
     const initialDigest = markerOnly ? `sha256:${"0".repeat(64)}` : env.RELEASE_IMAGE_DIGEST;
-    const initialImage = markerOnly ? env.RELEASE_IMAGE : env.RELEASE_IMAGE;
+    const initialImage = env.RELEASE_IMAGE;
     identity = {
       runId,
       attempt,
@@ -770,7 +825,7 @@ async function main(action, env) {
       image: initialImage?.replace(/:[^/:]+$/, ""),
       release: env.CHASE_SETS_HELM_RELEASE,
       namespace: env.CHASE_SETS_KUBERNETES_NAMESPACE,
-      tag: releaseMarkerIdentity(run, env.RELEASE_COMMIT),
+      tag: markerOnly ? "unknown" : releaseMarkerIdentity(run, env.RELEASE_COMMIT),
       createdAt: run.created_at,
     };
     requireThat(
@@ -843,49 +898,7 @@ async function main(action, env) {
       admitPriorProductionJob(sourceJob, sourceIdentity);
       await rejectInterveningSourceDeployment(api, sourceIdentity);
       validateTransitionAuthority(retained.transition, retained.artifact, sourceJob, sourceIdentity);
-      const lock = await runReleaseLockCheck({
-        environmentName: "production",
-        releaseCommit: sourceIdentity.commit,
-        releaseLocked: env.PRODUCTION_RELEASE_LOCKED ?? "false",
-        lockReason: env.PRODUCTION_RELEASE_LOCK_REASON ?? "",
-        lockReference: env.PRODUCTION_RELEASE_LOCK_REFERENCE ?? "",
-        emergencyBypass: "false",
-        emergencyReference: "",
-        githubRepository: env.GITHUB_REPOSITORY,
-        githubToken: env.GITHUB_TOKEN,
-      });
-      requireThat(lock.deploymentAllowed === true && !lock.errors?.length, "production release lock refused source");
-      await command(
-        process.execPath,
-        [
-          "./scripts/release-health-merge-group-failure-signatures.mjs",
-          "--command",
-          "guard",
-          "--lane",
-          "release-dispatch",
-          "--lane",
-          "staging",
-          "--lane",
-          "production",
-          "--base-sha",
-          sourceIdentity.commit,
-          "--candidate-sha",
-          sourceIdentity.commit,
-          "--actor",
-          env.GITHUB_ACTOR ?? "github-actions",
-          "--automatic",
-          "false",
-          "--circuit-issue-number",
-          env.CIRCUIT_ISSUE_NUMBER ?? "",
-          "--circuit-reason",
-          env.CIRCUIT_REASON ?? "",
-          "--enforcement",
-          env.DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT ?? "false",
-          "--github-summary",
-          env.GITHUB_STEP_SUMMARY ?? "",
-        ],
-        { env },
-      );
+      await admitMarkerOnlyPolicy(sourceIdentity, env);
       const assertFresh = () => assertWriters(env, options);
       const result = await reconcileMarkerOnly(sourceIdentity, {
         ...markerIo(sourceIdentity, env, assertFresh),
