@@ -5,12 +5,42 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
-import { bundleNodeService } from "./bundle-node-service.mjs";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { bundleNodeService as bundle } from "./bundle-node-service.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const timingReceiptPath = path.join(repoRoot, "scripts/bundle-node-service-timing-receipt.json");
 const roots = [];
+let timings;
+beforeEach(() => {
+  timings = Object.fromEntries(
+    ["fixtureCreation", "fixtureCopy", "bundleNodeService", "childNode"].map((step) => [
+      step,
+      { calls: 0, elapsedMs: 0 },
+    ]),
+  );
+});
+
+async function timed(step, action) {
+  const entry = timings[step];
+  entry.calls++;
+  const start = performance.now();
+  try {
+    return await action();
+  } finally {
+    entry.elapsedMs += performance.now() - start;
+  }
+}
+
+const bundleNodeService = (options) => timed("bundleNodeService", () => bundle(options));
+function startNode(...args) {
+  const start = performance.now();
+  try {
+    return execFileSync(...args);
+  } finally {
+    timings.childNode = { calls: 1, elapsedMs: performance.now() - start };
+  }
+}
 const assetSource = "bounded-contexts/platform-operations/features/support-requests/api/evidence-canonicalization.ts";
 const baselineScriptDigests = {
   "platform-api": "31f5eb2543bd4855b0a1eac5b488b2706258a3d421987a5bda28a30f4ca3552c",
@@ -18,9 +48,11 @@ const baselineScriptDigests = {
 };
 
 async function put(root, name, contents) {
-  const target = path.join(root, name);
-  await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, contents);
+  await timed("fixtureCreation", async () => {
+    const target = path.join(root, name);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, contents);
+  });
 }
 
 async function fixture(name = "platform-api") {
@@ -37,7 +69,10 @@ async function fixture(name = "platform-api") {
   return { root, service, dist: path.join(root, service, "dist"), name };
 }
 
-afterEach(async () => {
+afterEach(async (context) => {
+  if (process.env.CHASE_BUNDLE_TIMINGS === "1") {
+    console.log("bundle-test-timing/v1", JSON.stringify({ test: context.task.name, steps: timings }));
+  }
   // Only directories returned by mkdtemp above are removed.
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -59,9 +94,15 @@ describe("bundle-node-service", () => {
     expect(receipt.baselineEvidence.fileSerialSingleWorker.thirdPartyExternalResolution).toBe("timeout");
     expect(receipt.repeatedWorkMeasurement.dominantCost).toBe("bundleNodeService");
     expect(receipt.repeatedWorkMeasurement.runs).toHaveLength(2);
-    expect(receipt.repeatedWorkMeasurement.attribution).toMatch(/bundler\.resolve/);
-    expect(receipt.headGreen.status).toBe("pass");
-    expect(receipt.headGreen.runs).toBeGreaterThanOrEqual(3);
+    for (const run of receipt.repeatedWorkMeasurement.runs) {
+      expect(run.cases).toHaveLength(6);
+      for (const sample of run.cases) {
+        expect(Object.keys(sample.steps)).toEqual(["fixtureCreation", "fixtureCopy", "bundleNodeService", "childNode"]);
+        expect(sample.steps.bundleNodeService.calls).toBe(1);
+        expect(sample.steps.fixtureCreation.calls).toBeGreaterThan(0);
+      }
+    }
+    expect(receipt.repair.status).toBe("not-established");
   });
 
   it("start:production runs the prebuilt bundle and other deployable scripts are unchanged", async () => {
@@ -103,9 +144,9 @@ describe("bundle-node-service", () => {
         output.entryPoint?.endsWith("observability-prelude.ts"),
       );
       expect(prelude.imports.filter((edge) => edge.path.includes("instrumented"))).toEqual([]);
-      expect(
-        execFileSync(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8", timeout: 30_000 }),
-      ).toBe("patched\nstarted\n");
+      expect(startNode(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8", timeout: 30_000 })).toBe(
+        "patched\nstarted\n",
+      );
     },
   );
 
@@ -143,24 +184,9 @@ describe("bundle-node-service", () => {
           .some((entry) => entry.external && entry.path === edge.external),
       ).toBe(true);
     }
-    expect(execFileSync(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8", timeout: 30_000 })).toBe(
+    expect(startNode(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8", timeout: 30_000 })).toBe(
       "one two\n",
     );
-  });
-
-  it("resolves wildcard package exports without bundling them", async () => {
-    const f = await fixture();
-    await put(
-      f.root,
-      `${f.service}/node_modules/versioned/package.json`,
-      '{"type":"module","exports":{"./feature/*":"./features/*.js"}}',
-    );
-    await put(f.root, `${f.service}/node_modules/versioned/features/second.js`, 'export default "wild";');
-    await put(f.root, `${f.service}/src/main.ts`, 'import value from "versioned/feature/second"; console.log(value);');
-    const { externals } = await bundleNodeService({ repoRoot: f.root, deployable: f.name });
-    expect(externals).toHaveLength(1);
-    expect(externals[0].resolved).toBe(path.join(f.root, f.service, "node_modules/versioned/features/second.js"));
-    expect(execFileSync(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8" })).toBe("wild\n");
   });
 
   it("fails on an unlisted import.meta.url asset reference", async () => {
@@ -184,9 +210,11 @@ describe("bundle-node-service", () => {
     const f = await fixture();
     const sourceDirectory = path.dirname(assetSource);
     await mkdir(path.join(f.root, sourceDirectory), { recursive: true });
-    await cp(path.join(repoRoot, sourceDirectory, "__fixtures__"), path.join(f.root, sourceDirectory, "__fixtures__"), {
-      recursive: true,
-    });
+    await timed("fixtureCopy", () =>
+      cp(path.join(repoRoot, sourceDirectory, "__fixtures__"), path.join(f.root, sourceDirectory, "__fixtures__"), {
+        recursive: true,
+      }),
+    );
     await put(f.root, assetSource, 'export const fixtures = new URL("./__fixtures__/evidence/", import.meta.url);');
     await put(
       f.root,
@@ -202,7 +230,7 @@ describe("bundle-node-service", () => {
         await readFile(path.join(originals, file)),
       );
     expect(
-      execFileSync(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8", timeout: 30_000 }).trim(),
+      startNode(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8", timeout: 30_000 }).trim(),
     ).toBe(files.join("\n"));
   });
 

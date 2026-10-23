@@ -1,6 +1,5 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
-import { createRequire, isBuiltin } from "node:module";
+import { isBuiltin } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
@@ -17,66 +16,6 @@ const assetCopies = [
   },
 ];
 const portable = (value) => value.replaceAll("\\", "/");
-
-function packageNameAndSubpath(specifier) {
-  const parts = specifier.split("/");
-  const packageName = specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
-  return { packageName, subpath: parts.slice(packageName.split("/").length).join("/") };
-}
-
-function selectImportExport(value, subpath) {
-  if (typeof value === "string") return subpath ? undefined : value;
-  if (Array.isArray(value)) {
-    for (const candidate of value) {
-      const selected = selectImportExport(candidate, subpath);
-      if (selected) return selected;
-    }
-    return undefined;
-  }
-  if (!value || typeof value !== "object") return undefined;
-  const key = subpath ? `./${subpath}` : ".";
-  if (Object.hasOwn(value, key)) return selectImportExport(value[key], "");
-  if (subpath) {
-    const wildcardKey = Object.keys(value).find((candidate) => {
-      if (!candidate.includes("*")) return false;
-      const [prefix, suffix] = candidate.split("*");
-      return `./${subpath}`.startsWith(prefix) && `./${subpath}`.endsWith(suffix);
-    });
-    if (wildcardKey) {
-      const [prefix, suffix] = wildcardKey.split("*");
-      const requested = `./${subpath}`;
-      const wildcard = requested.slice(prefix.length, requested.length - suffix.length || undefined);
-      const replaceWildcard = (candidate) => {
-        if (typeof candidate === "string") return candidate.replaceAll("*", wildcard);
-        if (Array.isArray(candidate)) return candidate.map(replaceWildcard);
-        if (!candidate || typeof candidate !== "object") return candidate;
-        return Object.fromEntries(Object.entries(candidate).map(([name, nested]) => [name, replaceWildcard(nested)]));
-      };
-      return selectImportExport(replaceWildcard(value[wildcardKey]), "");
-    }
-  }
-  for (const condition of ["import", "node", "default"]) {
-    if (Object.hasOwn(value, condition)) {
-      const selected = selectImportExport(value[condition], subpath);
-      if (selected) return selected;
-    }
-  }
-  return undefined;
-}
-
-function resolvePackageImport(specifier, importer) {
-  const resolvedByRequire = createRequire(importer).resolve(specifier);
-  const { packageName, subpath } = packageNameAndSubpath(specifier);
-  const marker = `${path.sep}node_modules${path.sep}${packageName.replaceAll("/", path.sep)}`;
-  const markerIndex = resolvedByRequire.lastIndexOf(marker);
-  if (markerIndex < 0) return resolvedByRequire;
-  const packageRoot = resolvedByRequire.slice(0, markerIndex + marker.length);
-  const packageJson = JSON.parse(readFileSync(path.join(packageRoot, "package.json"), "utf8"));
-  const importTarget = selectImportExport(packageJson.exports, subpath);
-  if (importTarget) return path.resolve(packageRoot, importTarget);
-  if (!subpath && typeof packageJson.module === "string") return path.resolve(packageRoot, packageJson.module);
-  return resolvedByRequire;
-}
 
 function checkAssetReferences(contents, source, copies) {
   const file = ts.createSourceFile(source, contents, ts.ScriptTarget.Latest, true);
@@ -139,31 +78,21 @@ export async function bundleNodeService({ repoRoot = defaultRepoRoot, deployable
         name: "workspace-code-only",
         setup(bundler) {
           bundler.onResolve({ filter: /.*/ }, async (args) => {
-            // Esbuild already resolves relative and absolute source imports. Only
-            // bare package specifiers need the custom resolver because their
-            // importer-specific node_modules path determines the external URL.
-            // Avoiding redundant resolver calls keeps each fixture build bounded
-            // without changing package externalization semantics.
-            if (
-              args.pluginData?.resolved ||
-              isBuiltin(args.path) ||
-              args.path.startsWith(".") ||
-              path.isAbsolute(args.path)
-            )
-              return;
-            let resolvedPath;
-            try {
-              resolvedPath = resolvePackageImport(args.path, args.importer);
-            } catch (error) {
-              return { errors: [{ text: error instanceof Error ? error.message : String(error) }] };
-            }
-            if (!portable(resolvedPath).includes("/node_modules/")) return;
-            const external = portable(path.relative(outdir, resolvedPath));
+            if (args.pluginData?.resolved || isBuiltin(args.path)) return;
+            const resolved = await bundler.resolve(args.path, {
+              resolveDir: args.resolveDir,
+              kind: args.kind,
+              importer: args.importer,
+              pluginData: { resolved: true },
+            });
+            if (resolved.errors.length) return { errors: resolved.errors };
+            if (!portable(resolved.path).includes("/node_modules/")) return resolved;
+            const external = portable(path.relative(outdir, resolved.path));
             const specifier = external.startsWith(".") ? external : `./${external}`;
             externals.push({
               importer: args.importer,
               specifier: args.path,
-              resolved: resolvedPath,
+              resolved: resolved.path,
               external: specifier,
             });
             return { path: specifier, external: true };
