@@ -2485,9 +2485,10 @@ describe("Platform API bootstrap DB enrollment", () => {
         laneMode: null,
       },
     },
-  ];
+  ] as const;
 
-  const measuredCaptureNonBootstrapFileCounts = Object.freeze({
+  type MeasuredCaptureFileName = (typeof measuredCaptures)[number]["fileName"];
+  const measuredCaptureNonBootstrapFileCounts: Readonly<Record<MeasuredCaptureFileName, number>> = Object.freeze({
     "bootstrap-db-capture-38478206964.json": 6,
     "bootstrap-db-capture-38491485544.json": 6,
     "bootstrap-db-capture-38500650577.json": 6,
