@@ -1024,10 +1024,6 @@ const arbitraryPathResult = buildPlantedSiteEvidence(
   `${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`,
 );
 
-afterAll(() => {
-  for (const scratch of retainedScratchRepos) rmSync(scratch, { recursive: true, force: true });
-});
-
 /* -------------------------------------------------------------------------- */
 /* Scripted provenance -- the shipped ordered resolver, never a merge-base call */
 /* -------------------------------------------------------------------------- */
@@ -1422,6 +1418,10 @@ function registerAnalyzerModuleImport(kind, counter = batteryWorkUnits) {
 /* -------------------------------------------------------------------------- */
 
 describe("Consent authorization sites", () => {
+  afterAll(() => {
+    for (const scratch of retainedScratchRepos) rmSync(scratch, { recursive: true, force: true });
+  });
+
   it("compares no resolved provenance value against a committed sha literal", () => {
     const inventory = footprintFiles().flatMap((file) => collectCommitShaLiteralEqualities(file, repoFile(file)));
     process.stdout.write(`sha-literal-inventory=${JSON.stringify(inventory)}\n`);
