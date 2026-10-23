@@ -23,10 +23,14 @@ function writeFixtureRepo(files) {
   return root;
 }
 
-function fixtureRepo(siblingTypesRange) {
+function fixtureRepo(siblingTypesRange, engineRange = "24.x") {
   return writeFixtureRepo({
     "pnpm-workspace.yaml": 'packages:\n  - "apps/*"\n  - "tools/*"\n',
-    "package.json": { name: "fixture-root", engines: { node: "24.x" }, devDependencies: { "@types/node": "^24.19.1" } },
+    "package.json": {
+      name: "fixture-root",
+      engines: { node: engineRange },
+      devDependencies: { "@types/node": "^24.19.1" },
+    },
     "apps/web/package.json": { name: "@fixture/web", devDependencies: { "@types/node": "^24.19.1" } },
     "apps/no-node-types/package.json": { name: "@fixture/no-node-types", dependencies: { yaml: "^2.8.4" } },
     "tools/new-extension/package.json": {
@@ -70,6 +74,28 @@ describe("check-node-types-runtime", () => {
       ["tools/new-extension/package.json", 24],
     ]);
   });
+
+  it.each(["24.x", ">=24.16.0 <25", ">=24 <25.0", ">=24.16 <25.0.0"])(
+    "accepts a single-major engines.node range: %s",
+    (engineRange) => {
+      const result = collectNodeTypesRuntimeVerification(fixtureRepo("^24.1.0", engineRange));
+
+      expect(result.failures).toEqual([]);
+      expect(result.runtimeMajor).toBe(24);
+    },
+  );
+
+  it.each([">=24.16.0", ">=24 <26", ">=24 <25.1", ">=024 <25", ">=9007199254740992 <9007199254740993"])(
+    "fails closed on an engines.node range that does not name one major: %s",
+    (engineRange) => {
+      const result = collectNodeTypesRuntimeVerification(fixtureRepo("^24.1.0", engineRange));
+
+      expect(result.runtimeMajor).toBeNull();
+      expect(result.failures).toContain(
+        `package.json engines.node ${JSON.stringify(engineRange)} must name exactly one Node major.`,
+      );
+    },
+  );
 
   it("fails closed on ranges and workspace patterns it cannot compare", () => {
     const root = fixtureRepo(">=24");
