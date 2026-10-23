@@ -112,37 +112,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
 ): ProjectorHandlerMap {
   return defineProjectorHandlers<OrderingMarketplaceSupplyProjectionEventPayloads>({
     "marketplace.listing.created": async (event) => {
-      const data = event.data as {
-        listingId: string;
-        accountId: string;
-        inventoryItemId: string;
-        catalogItemId: string;
-        productId: string;
-        itemTitle: string | null;
-        itemSubtitle: string | null;
-        selectedOptions: unknown;
-        productSummary: string | null;
-        productMeasureSnapshot?: unknown;
-        gradedCard?: unknown;
-        storageLocationName: string | null;
-        shipFromCode: string | null;
-        shipFromAddress: unknown;
-        priceAmount: string;
-        priceCurrencyCode?: string | null;
-        marketplaceSalesFeeUnitAmount: string;
-        sellerNetUnitAmount: string;
-        shippingAllowancePercentageBps?: number;
-        termsScheduleId: string | null;
-        termsAgreementId: string | null;
-        termsResolvedAt: string | null;
-        feeLocks?: unknown;
-        quantityCap: number;
-        purchaseLimits?: {
-          maxUnitsPerOrder: number | null;
-          maxUnitsPerDay: number | null;
-          maxUnitsPerCustomerAccount: number | null;
-        };
-      };
+      const data = event.data;
 
       await db.query(
         `INSERT INTO ordering_market_listing_inputs (
