@@ -6,19 +6,7 @@ export async function seedDemandCurveParityFixture(pool: PgTransactionalPool) {
   const { capture } = generateSyntheticProviderObservationFixture();
   const catalogItemId = capture.header.catalogItemId;
   const builtAt = capture.header.captureStartedAt;
-  await commitProviderObservationCapture(
-    pool,
-    "tcgplayer",
-    {
-      productExternalKey: "product:700000001",
-      productId: 700000001,
-      catalogItemId,
-      skus: [],
-      expectedCursor: { afterExternalKey: "", generation: 0 },
-      nextCursor: { afterExternalKey: "", generation: 1 },
-    },
-    capture,
-  );
+  await commitProviderObservationCapture(pool, capture);
   const identities = ["Near Mint", "Lightly Played"].map((condition, index) => ({
     catalogItemId,
     productId: `${catalogItemId}::synthetic-freshness-${index}`,
