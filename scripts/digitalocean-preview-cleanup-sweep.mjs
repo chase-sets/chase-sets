@@ -10,6 +10,8 @@ export const DIGITALOCEAN_PREVIEW_DNS_VERSION = "digitalocean-preview-dns/v1";
 export const DEFAULT_STATE_BUCKET = "chase-sets-terraform-state";
 export const DEFAULT_SPACES_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
 export const DEFAULT_PREVIEW_STATE_PREFIX = "platform/previews/";
+export const DIGITALOCEAN_PREVIEW_STATE_RETIREMENT_VERSION = "digitalocean-preview-state-retirement/v1";
+export const PREVIEW_STATE_RETIREMENT_COMMAND_TIMEOUT_MS = 120 * 1000;
 export const PREVIEW_DATABASE_TERRAFORM_ADDRESS = "digitalocean_database_cluster.postgres";
 export const PREVIEW_DATABASE_DELETE_CONFIRMATION = "delete leaked preview database clusters";
 export const PLATFORM_PREVIEW_IDLE_DRAFTS_VERSION = "platform-preview-idle-drafts/v1";
@@ -420,12 +422,174 @@ export function cleanupMatrixForBatches(batches, options = {}) {
   };
 }
 
+export function previewStateKeyForPrNumber(prNumber, prefix = DEFAULT_PREVIEW_STATE_PREFIX) {
+  if (!Number.isSafeInteger(prNumber) || prNumber <= 0) {
+    throw new Error("Preview PR number must be a positive integer.");
+  }
+  return `${trimSlashes(prefix)}/pr-${prNumber}.tfstate`;
+}
+
+// Retire only the exact matrix-derived state key after the caller has proved
+// every cleanup operation for this PR succeeded. Terraform remains the
+// authority for emptiness; object size and state JSON are deliberately never
+// consulted. A missing, stale, unversioned, or non-empty state fails closed.
+export async function retirePreviewTerraformState(options = {}, dependencies = {}) {
+  const stateKey =
+    Number.isSafeInteger(options.prNumber) && options.prNumber > 0
+      ? previewStateKeyForPrNumber(options.prNumber, options.prefix)
+      : null;
+  const record = {
+    schemaVersion: DIGITALOCEAN_PREVIEW_STATE_RETIREMENT_VERSION,
+    checkedAt: options.checkedAt ?? new Date().toISOString(),
+    prNumber: options.prNumber ?? null,
+    bucket: options.bucket ?? DEFAULT_STATE_BUCKET,
+    endpointUrl: options.endpointUrl ?? DEFAULT_SPACES_ENDPOINT,
+    stateKey,
+    terraformDirectory: options.terraformDirectory ?? "infrastructure/digitalocean/platform",
+    cleanupSucceeded: options.cleanupSucceeded === true,
+    stateList: { status: "not-run", empty: null, resourceCount: null },
+    versioning: { status: "not-run" },
+    headBeforeStateList: { status: "not-run", versionId: null },
+    headBeforeDelete: { status: "not-run", versionId: null },
+    delete: { status: "not-run" },
+    outcome: "refused",
+    result: "failure",
+    errors: [],
+  };
+  const errors = validateRetireStateOptions(options);
+  if (errors.length > 0) {
+    record.errors.push(...errors);
+    return record;
+  }
+  if (!record.cleanupSucceeded) {
+    record.outcome = "skipped-cleanup-failure";
+    record.errors.push("Preview cleanup did not succeed for this target; state was left untouched.");
+    return record;
+  }
+
+  const timeoutMs = normalizeTimeout(dependencies.commandTimeoutMs ?? options.commandTimeoutMs) ?? PREVIEW_STATE_RETIREMENT_COMMAND_TIMEOUT_MS;
+  const output = dependencies.commandOutput ?? commandOutput;
+  const json = dependencies.commandJson ?? ((command, args) => commandJson(command, args, dependencies, { timeout: timeoutMs }));
+  const aws = (args) => output("aws", [...args, "--endpoint-url", record.endpointUrl], { timeout: timeoutMs });
+  const awsJson = (args) => json("aws", [...args, "--endpoint-url", record.endpointUrl]);
+  const terraform = (args) => output("terraform", args, { timeout: timeoutMs });
+  const backendArgs = [
+    "-chdir=" + record.terraformDirectory,
+    "init",
+    "-reconfigure",
+    `-backend-config=bucket=${record.bucket}`,
+    `-backend-config=key=${record.stateKey}`,
+    "-backend-config=region=us-east-1",
+    `-backend-config=endpoints={s3=\"${record.endpointUrl}\"}`,
+    "-backend-config=skip_credentials_validation=true",
+    "-backend-config=skip_metadata_api_check=true",
+    "-backend-config=skip_region_validation=true",
+    "-backend-config=skip_requesting_account_id=true",
+    "-backend-config=use_path_style=true",
+    "-backend-config=use_lockfile=true",
+  ];
+
+  let before;
+  try {
+    before = await awsJson(["s3api", "head-object", "--bucket", record.bucket, "--key", record.stateKey]);
+    record.headBeforeStateList = { status: "success", versionId: normalizeVersionId(before) };
+    if (!record.headBeforeStateList.versionId) {
+      throw new Error("head-object did not return a VersionId.");
+    }
+  } catch (error) {
+    record.headBeforeStateList = { status: "failed", versionId: null };
+    record.errors.push("Initial state-object head failed; state was left untouched.");
+    return record;
+  }
+
+  try {
+    await terraform(backendArgs);
+  } catch (error) {
+    record.stateList = { status: "backend-init-failed", empty: null, resourceCount: null };
+    record.errors.push("Terraform backend initialization failed; state was left untouched.");
+    return record;
+  }
+
+  try {
+    const listed = await terraform(["-chdir=" + record.terraformDirectory, "state", "list", "-no-color"]);
+    const resources = String(listed ?? "").split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+    record.stateList = { status: "success", empty: resources.length === 0, resourceCount: resources.length };
+    if (resources.length > 0) {
+      record.errors.push("Terraform state list is non-empty; state was left untouched.");
+      return record;
+    }
+  } catch (error) {
+    record.stateList = { status: "failed", empty: null, resourceCount: null };
+    record.errors.push("Terraform state list failed; state was left untouched.");
+    return record;
+  }
+
+  try {
+    const versioning = await awsJson(["s3api", "get-bucket-versioning", "--bucket", record.bucket]);
+    const status = String(versioning?.Status ?? versioning?.status ?? "");
+    record.versioning = { status: status || "absent" };
+    if (status !== "Enabled") {
+      record.errors.push("State bucket versioning was not Enabled; state was left untouched.");
+      return record;
+    }
+  } catch (error) {
+    record.versioning = { status: "failed" };
+    record.errors.push("State bucket versioning probe failed; state was left untouched.");
+    return record;
+  }
+
+  try {
+    const after = await awsJson(["s3api", "head-object", "--bucket", record.bucket, "--key", record.stateKey]);
+    record.headBeforeDelete = { status: "success", versionId: normalizeVersionId(after) };
+    if (record.headBeforeDelete.versionId !== record.headBeforeStateList.versionId) {
+      record.errors.push("State object VersionId changed during retirement; state was left untouched.");
+      return record;
+    }
+  } catch (error) {
+    record.headBeforeDelete = { status: "failed", versionId: null };
+    record.errors.push("Final state-object head failed; state was left untouched.");
+    return record;
+  }
+
+  try {
+    await aws(["s3api", "delete-object", "--bucket", record.bucket, "--key", record.stateKey]);
+    record.delete = { status: "success" };
+    record.outcome = "retired";
+    record.result = "success";
+  } catch (error) {
+    record.delete = { status: "failed" };
+    record.errors.push("State-object delete failed; state may still be present.");
+  }
+  return record;
+}
+
 function normalizeTimeout(value) {
   if (value === undefined) {
     return undefined;
   }
   const timeoutMs = Number(value);
   return Number.isFinite(timeoutMs) && timeoutMs >= 1 ? Math.floor(timeoutMs) : undefined;
+}
+
+function normalizeVersionId(value) {
+  const versionId = value?.VersionId ?? value?.versionId ?? null;
+  return typeof versionId === "string" && versionId.trim() ? versionId.trim() : null;
+}
+
+function validateRetireStateOptions(options) {
+  const errors = [];
+  if (!Number.isSafeInteger(options.prNumber) || options.prNumber <= 0) {
+    errors.push("--pr-number must be a positive integer.");
+  }
+  if (!isNonEmptyString(options.bucket ?? DEFAULT_STATE_BUCKET)) errors.push("--bucket is required.");
+  if (!isNonEmptyString(options.endpointUrl ?? DEFAULT_SPACES_ENDPOINT)) errors.push("--endpoint-url is required.");
+  if (!isNonEmptyString(options.terraformDirectory ?? "infrastructure/digitalocean/platform")) {
+    errors.push("--terraform-directory is required.");
+  }
+  if (!Number.isFinite(Date.parse(options.checkedAt ?? new Date().toISOString()))) {
+    errors.push("--checked-at must be an ISO timestamp.");
+  }
+  return errors;
 }
 
 function createClock(dependencies) {
@@ -1838,6 +2002,24 @@ function parseImportDatabaseArgs(argv, env = process.env) {
   };
 }
 
+function parseRetireStateArgs(argv, env = process.env) {
+  const rawPrNumber = readOption(argv, "--pr-number", env.PREVIEW_PR_NUMBER ?? "");
+  return {
+    prNumber: /^\d+$/.test(rawPrNumber) ? Number.parseInt(rawPrNumber, 10) : Number.NaN,
+    bucket: readOption(argv, "--bucket", env.TERRAFORM_STATE_BUCKET ?? DEFAULT_STATE_BUCKET),
+    endpointUrl: readOption(argv, "--endpoint-url", env.SPACES_ENDPOINT_URL ?? DEFAULT_SPACES_ENDPOINT),
+    prefix: readOption(argv, "--prefix", env.PREVIEW_STATE_PREFIX ?? DEFAULT_PREVIEW_STATE_PREFIX),
+    terraformDirectory: readOption(
+      argv,
+      "--terraform-directory",
+      env.PREVIEW_TERRAFORM_DIRECTORY ?? "infrastructure/digitalocean/platform",
+    ),
+    checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
+    cleanupSucceeded: readOption(argv, "--cleanup-succeeded", "false") === "true",
+    outPath: readOption(argv, "--out", env.PREVIEW_STATE_RETIREMENT_OUT),
+  };
+}
+
 function parseApplySharedDnsArgs(argv, env = process.env) {
   return {
     target: readOption(argv, "--target", env.DOKS_INGRESS_TARGET ?? ""),
@@ -2012,6 +2194,14 @@ async function main(argv = process.argv.slice(2)) {
   if (command === "import-database") {
     const options = parseImportDatabaseArgs(commandArgs);
     const record = await importPreviewDatabaseClusterIntoTerraformState(options);
+    await writeOptionalRecord(options.outPath, record);
+    console.log(JSON.stringify(record, null, 2));
+    return record.result === "failure" ? 1 : 0;
+  }
+
+  if (command === "retire-state") {
+    const options = parseRetireStateArgs(commandArgs);
+    const record = await retirePreviewTerraformState(options);
     await writeOptionalRecord(options.outPath, record);
     console.log(JSON.stringify(record, null, 2));
     return record.result === "failure" ? 1 : 0;
