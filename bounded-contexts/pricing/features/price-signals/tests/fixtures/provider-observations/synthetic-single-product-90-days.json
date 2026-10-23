@@ -25,13 +25,6 @@
       "reasonCode": null,
       "rejectedRowCount": 0,
       "requestPosture": {
-        "pageSize": 25,
-        "pageBudget": 4,
-        "limit": 100,
-        "conditions": [],
-        "languages": [],
-        "variants": [],
-        "listingType": "ListingWithoutPhotos",
         "salesOffset": 0,
         "salesLimit": 100,
         "salesPageSize": 25,

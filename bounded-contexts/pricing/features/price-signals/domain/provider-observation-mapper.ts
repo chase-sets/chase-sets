@@ -129,16 +129,15 @@ export type ProviderObservationMappingInput = Readonly<{
 export function mapProviderObservationCapture(input: ProviderObservationMappingInput): ProviderObservationCapture {
   const observation = input.observation;
   const executedPosture = input.executedPosture;
-  const adaptedInput = input;
   const captureId = providerCaptureId(
     input.providerKey,
     input.catalogItemId,
     input.productExternalKey,
     input.captureStartedAt,
   );
-  const sales = mapSales(captureId, adaptedInput);
-  const weekly = mapWeekly(captureId, adaptedInput);
-  const { snapshots, askDepth } = mapListings(captureId, adaptedInput);
+  const sales = mapSales(captureId, input);
+  const weekly = mapWeekly(captureId, input);
+  const { snapshots, askDepth } = mapListings(captureId, input);
   const rejectedRowCount =
     observation.sales.rejectedRows + observation.listings.rejectedRows + observation.history.rejectedRows;
   const statuses = [observation.sales.status, observation.listings.status, observation.history.status];

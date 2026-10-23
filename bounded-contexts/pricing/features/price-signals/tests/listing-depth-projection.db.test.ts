@@ -242,11 +242,11 @@ describeDb("listing snapshot grain, currentness, and omitted-state truth", () =>
       listing("D", "Unrecognized Provider Condition", 5),
     ]);
     const second = capture("2026-09-01T16:00:00.000Z", [
-      listing("C", "NM", 7),
-      listing("B", "NM", 6),
-      listing("A", "NM", 5),
-      listing("A", "MP", 5),
-      listing("D", "Unrecognized Provider Condition", 5),
+      { ...listing("C", "NM", 7), sellerOrdinal: 1 },
+      { ...listing("B", "NM", 6), sellerOrdinal: 2 },
+      { ...listing("A", "NM", 5), sellerOrdinal: 3 },
+      { ...listing("A", "MP", 5), sellerOrdinal: 3 },
+      { ...listing("D", "Unrecognized Provider Condition", 5), sellerOrdinal: 4 },
     ]);
     await commitProviderObservationCapture(pool, first);
     await commitProviderObservationCapture(pool, second);

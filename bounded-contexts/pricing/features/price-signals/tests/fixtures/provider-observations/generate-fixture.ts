@@ -11,7 +11,6 @@ export function generateSyntheticProviderObservationFixture() {
     language: "English",
     quantity: (index % 3) + 1,
     listingType: "ListingWithoutPhotos",
-    customListingId: `synthetic-transient-sale-${index + 1}`,
     purchasePrice: (5 + (index % 17) * 0.25).toFixed(2),
     shippingPrice: (index % 4 === 0 ? 1 : 0).toFixed(2),
     orderDate: new Date(Date.parse(captureStartedAt) - index * 24 * 60 * 60 * 1_000).toISOString(),
@@ -84,7 +83,6 @@ export function generateSyntheticProviderObservationFixture() {
     recordedSignalCount: 1,
     unresolvedSignalCount: 0,
     executedPosture: {
-      ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales,
       salesOffset: 0,
       salesLimit: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.limit,
       salesPageSize: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales.pageSize,

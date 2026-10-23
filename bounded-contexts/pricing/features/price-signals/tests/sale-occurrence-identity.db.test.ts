@@ -12,12 +12,14 @@ import { providerCaptureId, type ProviderObservationCapture } from "../domain/pr
 import { listProviderSaleEvidence } from "../read-model/provider-observation-queries";
 import { commitProviderObservationCapture } from "../read-model/provider-observation-writes";
 import { generateSyntheticProviderObservationFixture } from "./fixtures/provider-observations/generate-fixture";
+import { captureSourceMutants, expectSourceMutantRed } from "./source-mutant-test-support";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required in CI.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 
 type CommitCapture = typeof commitProviderObservationCapture;
+type WritesModule = typeof import("../read-model/provider-observation-writes");
 
 describeDb("provider sale occurrence identity and immutable replay", () => {
   let pool: PgTransactionalPool;
@@ -34,6 +36,15 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
 
   it("reuses a byte-identical same-id replay without child append or cursor access", async () => {
     await replayScenario(pool, commitProviderObservationCapture);
+  });
+
+  it("turns the same-id replay red when the replayed path appends child rows", async () => {
+    await expectSourceMutantRed<WritesModule>(
+      captureSourceMutants.appendOnReplay,
+      "read-model/provider-observation-writes.ts",
+      ["F5:reordered-replay-state", "F5:appended-replay-state"],
+      (mutant) => replayScenario(pool, mutant.commitProviderObservationCapture),
+    );
   });
 
   it("rejects conflicting immutable header content and consolidates different captures by maximum", async () => {
@@ -128,7 +139,7 @@ async function durableState(pool: PgTransactionalPool) {
     `SELECT jsonb_build_object(
        'headers', (SELECT jsonb_agg(row_to_json(c) ORDER BY c.capture_id) FROM pricing_external_market_captures c),
        'sales', (SELECT jsonb_agg(row_to_json(s) ORDER BY s.sale_fingerprint) FROM pricing_external_sale_observations s),
-       'cursor', NULL
+       'cursor', (SELECT row_to_json(k) FROM pricing_external_market_capture_cursors k WHERE provider_key = 'tcgplayer')
      ) AS state`,
   );
   return result.rows[0]?.state;
