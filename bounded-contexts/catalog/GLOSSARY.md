@@ -27,6 +27,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Held-Set Export`
 - `Production Catalog Completion Report`
 - `Provider Participation Preview`
+- `Scrydex Coordinate Preview`
 - `Product Asset Set`
 - `Reference Type`
 - `Reference Record`
@@ -63,6 +64,14 @@ A TCGplayer Operator Session is encrypted custody of Todd's operator cookie, not
 An Operator Session Push Grant is a narrow bearer credential minted directly by a recently authenticated platform administrator for Todd's operator session. Catalog stores only its hash. It permits session pushes and unpairing, not Admin access or other users' credentials. A completed push renews its 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpair revokes only the grant. Disconnect commits revocation before clearing custody and does not log out the browser or provider.
 
 ## Core Model
+
+`Scrydex Coordinate Preview` is the isolated, cache-only staging proof that one
+two-ID Scope Sync Batch preview resolves exactly five accepted Scrydex units and
+joins each unit to its mapping coordinate, profile revision, and usable option
+cache. It stops at immediate pre-confirm and cannot confirm, reserve, refresh,
+count, import, or contact TCGplayer. Its `scrydex-coordinate-preview/v1`
+receipt is diagnostic unless deployment identity, preview fingerprint, mapping,
+cache, and zero-forbidden-send invariants all validate.
 
 ### TCGplayer Operator Extension
 

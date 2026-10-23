@@ -38,6 +38,7 @@ on:
           - full-game-settle
           - scope-sync-count-lifecycle
           - scrydex-cache-capture
+          - scrydex-coordinate-preview
           - scrydex-force-refresh-bounded
       capture_dispatch_id:
         description: Count lifecycle only. Canonical host dispatch with server-bound spend and review authority.
@@ -113,7 +114,7 @@ jobs:
                 expected.toLowerCase() !== process.env.RUN_SHA) {
               core.setFailed('Confirmation and exact immutable expected_sha are required.');
             }
-            if (['full-game-start', 'full-game-settle', 'scope-sync-count-lifecycle', 'scrydex-cache-capture', 'scrydex-force-refresh-bounded'].includes(process.env.JOURNEY_SCOPE) &&
+            if (['full-game-start', 'full-game-settle', 'scope-sync-count-lifecycle', 'scrydex-cache-capture', 'scrydex-coordinate-preview', 'scrydex-force-refresh-bounded'].includes(process.env.JOURNEY_SCOPE) &&
                 process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
               core.setFailed('Whole-game and capture journeys require the exact staging origin.');
             }
@@ -132,7 +133,7 @@ jobs:
     name: Resolve Provider UAT Plan
     runs-on: ubuntu-latest
     needs: admit-reviewed-sha
-    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
+    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-coordinate-preview' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
     outputs:
       journey_matrix: ${{ steps.plan.outputs.journey_matrix }}
     steps:
@@ -354,6 +355,61 @@ jobs:
         with:
           name: catalog-scrydex-cache-capture-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/catalog-scrydex-cache-capture/capture.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # Coordinate preview: one two-ID planner preview joined to five accepted
+  # mapping/cache rows. This is deliberately isolated from the generic
+  # provider UAT matrix and never confirms, reserves, refreshes or retries.
+  scrydex-coordinate-preview:
+    name: Scrydex Coordinate Preview
+    needs: admit-reviewed-sha
+    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-coordinate-preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: scrydex-coordinate-preview
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Install isolated Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Capture Scrydex coordinate preview without confirmation
+        id: capture
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/catalog-staging-scrydex-coordinate-preview.mjs capture
+      - name: Validate exact runner receipt
+        id: receipt
+        if: ${{ always() && steps.capture.outcome != 'skipped' }}
+        run: pnpm exec tsx scripts/catalog-staging-scrydex-coordinate-preview.mjs validate
+      - name: Upload complete coordinate preview
+        if: ${{ always() && steps.capture.outcome == 'success' && steps.receipt.outcome == 'success' && steps.receipt.outputs.capture_status == 'complete' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-coordinate-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-coordinate-preview/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload governed-unknown coordinate diagnostic
+        if: ${{ always() && steps.receipt.outcome == 'success' && steps.receipt.outputs.capture_status == 'governed-unknown' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-coordinate-preview-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-coordinate-preview/receipt.json
           if-no-files-found: error
           retention-days: 30
 
