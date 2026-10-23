@@ -7,7 +7,6 @@
     "category",
     "blueprint",
     "field",
-    "operator-session",
     "component",
     "dimension",
     "display-template",
@@ -18,7 +17,8 @@
     "reference-type",
     "reference-record",
     "scope-record",
-    "scope-sync-batch"
+    "scope-sync-batch",
+    "operator-session"
   ],
   "streamPrefix": "catalog.",
   "apiBasePath": "/api/catalog",
@@ -61,19 +61,9 @@
   "seedRequirements": [],
   "hostPorts": [
     {
-      "portName": "catalogOperatorSessionConfiguration",
-      "providedBy": "platform-api",
-      "purpose": "Supplies the existing operator custody factory configuration and keyring; Catalog owns grant authority."
-    },
-    {
       "portName": "catalogAssetStorage",
       "providedBy": "platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
-    },
-    {
-      "portName": "tcgplayerAutomationCatalogClient",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Provides Catalog-owned TCGplayer provider option queries and source observation imports with the runtime automation client configured by deployable-owned credentials."
     },
     {
       "portName": "sourceObservationTelemetry",
@@ -756,7 +746,6 @@
         "dimensions",
         "display-templates",
         "fields",
-        "operator-session",
         "product-contents",
         "product-measures",
         "provider-scope-discovery",
@@ -891,19 +880,16 @@
       "surfaces": [
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /grant",
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:DELETE /",
-        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:PUT /tcgplayer",
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:DELETE /grant"
       ],
       "visibleDestination": {
-        "description": "No UI is built here. Callers receive the committed grant/expiry, custody outcome/revision or revoke outcome directly; Admin metadata reads those same authoritative rows, without a projection."
+        "description": "Callers receive the committed grant/expiry or revoke outcome directly; no TCGplayer credential or custody payload is stored."
       },
       "proof": {
-        "authoritativeResponse": "Mint and unpair respond only after grant COMMIT acknowledgement. PUT returns its existing CAS outcome/revision only after atomic custody-plus-renewal COMMIT acknowledgement. Disconnect acknowledges irrevocable revoke before fresh metadata and fenced clear, returning only after clear COMMIT acknowledgement. Indeterminate commits return 503, never a success snapshot or a no-write promise. Real-app tests pause COMMIT, inspect complete rows through an independent connection, and discriminate committed-but-ack-dropped from killed-before-commit effects.",
+        "authoritativeResponse": "Mint and unpair respond only after grant COMMIT acknowledgement. Indeterminate commits return 503, never a success snapshot or a no-write promise.",
         "tests": [
           "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts"
+          "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts"
         ]
       }
     },
@@ -1242,24 +1228,6 @@
           "bounded-contexts/catalog/support/shell-support/api/client.test.ts",
           "bounded-contexts/catalog/tests/admin-integrations-route.test.tsx",
           "bounded-contexts/catalog/tests/catalog-admin-post-write-default-safe-contract.test.ts"
-        ]
-      }
-    },
-    {
-      "id": "catalog.tcgplayer-automation-provider-post-snapshots",
-      "owner": "catalog",
-      "risk": "internal",
-      "strategy": "snapshot-return",
-      "surfaces": [
-        "api-client:bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts:POST Hf9aa1b4b1d8d#1"
-      ],
-      "visibleDestination": {
-        "description": "The TCGplayer automation runtime consumes provider POST responses synchronously inside Catalog import/review jobs and returns the parsed provider response snapshot to the source-observation workflow without a browser projection read."
-      },
-      "proof": {
-        "authoritativeResponse": "TcgplayerAutomationDomainHttpClient.post returns the parsed provider response after retry/cooldown recovery and redacts exhausted provider diagnostics before surfacing them to operators.",
-        "tests": [
-          "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.test.ts"
         ]
       }
     },

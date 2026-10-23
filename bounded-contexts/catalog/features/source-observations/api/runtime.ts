@@ -359,7 +359,6 @@ export function createSourceObservationRuntime(
     }),
     createTcgplayerProviderAdapter({
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
-      client: deps.tcgplayerAutomationCatalogClient,
     }),
     createMtgjsonProviderAdapter(),
     createLorcanajsonProviderAdapter(),
@@ -477,7 +476,6 @@ export function createSourceObservationRuntime(
           input,
           deps.db,
           rolloutControlPolicy,
-          deps.tcgplayerAutomationCatalogClient,
           profileVersions,
           providerAdapterRegistry,
           deps.sourceObservationTelemetry,
@@ -487,12 +485,7 @@ export function createSourceObservationRuntime(
           capability: "provider-option-query",
           providerKey: input.providerKey,
         });
-        return listProviderIntegrationOptions(
-          input,
-          deps.tcgplayerAutomationCatalogClient,
-          profileVersions,
-          providerAdapterRegistry,
-        );
+        return listProviderIntegrationOptions(input, profileVersions, providerAdapterRegistry);
       },
       getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
       getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),

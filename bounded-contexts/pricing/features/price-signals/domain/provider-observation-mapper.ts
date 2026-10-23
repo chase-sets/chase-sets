@@ -7,7 +7,7 @@ import type {
   ListingsObservation,
   SalesObservation,
   TcgplayerSecondaryObservation,
-} from "../integrations/tcgplayer/market-client";
+} from "./provider-observation-types";
 
 type SalesMetadata = Omit<SalesObservation, "rows">;
 type ListingsMetadata = Omit<ListingsObservation, "rows">;
