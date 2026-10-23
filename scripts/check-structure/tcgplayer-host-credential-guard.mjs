@@ -74,7 +74,7 @@ export function validateTcgplayerHostCredentialPolicy({ repoRoot, files = tracke
     for (const match of text.matchAll(credentialPattern)) {
       const token = match[0];
       if (
-        token === "chrome.cookies" &&
+        token.toLowerCase() === "chrome.cookies" &&
         !/^deployables\/(?:tcgplayer-connector-extension|tcgplayer-operator-extension)\//.test(file) &&
         !file.startsWith("bounded-contexts/channels/features/connector-client/integrations/")
       )
