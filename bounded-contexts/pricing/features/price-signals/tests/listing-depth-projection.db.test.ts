@@ -19,7 +19,7 @@ import type {
   EndpointStatus,
   ListingsCoverage,
   TcgplayerSecondaryObservation,
-} from "../integrations/tcgplayer/market-client";
+} from "../domain/provider-observation-types";
 import { latestProviderMarketCapture, listProviderListingSnapshots } from "../read-model/provider-observation-queries";
 import {
   commitProviderObservationCapture,

@@ -85,15 +85,6 @@ export function OperatorExtensionPopup({
                 ? t(`catalog.operatorExtension.${status.state}`)
                 : t("catalog.operatorExtension.loading")}
         </Text>
-        {status && (
-          <Text>
-            {t(
-              status.cookiePresent
-                ? "catalog.operatorExtension.cookiePresent"
-                : "catalog.operatorExtension.cookieAbsent",
-            )}
-          </Text>
-        )}
         <TextInput
           ref={input}
           type="password"

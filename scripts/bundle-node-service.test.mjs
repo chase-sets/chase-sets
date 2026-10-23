@@ -12,7 +12,7 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const roots = [];
 const assetSource = "bounded-contexts/platform-operations/features/support-requests/api/evidence-canonicalization.ts";
 const baselineScriptDigests = {
-  "platform-api": "60e41a80b30b6ecbca1f585a449b1bbd15a11d807f4a806b16d6e751e6d32ca9",
+  "platform-api": "31f5eb2543bd4855b0a1eac5b488b2706258a3d421987a5bda28a30f4ca3552c",
   "platform-worker": "b968c49f7ec21e7b2ddd4ee0f390f422cdbd408dc108e12bd61f8db83fcf7eac",
 };
 
