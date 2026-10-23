@@ -175,13 +175,23 @@ The host first captures all five production Environment fields and current prote
 
 The release-independent `platform-production-lock-monitor.yml` observes production every five minutes. The first executed overdue observation, or first legacy/invalid true observation, creates/reopens one identity-deduplicated **Production release lock** incident for host/orchestrator triage; no retry comments or success alerts. Scheduled runs may be delayed/dropped, so a missing receipt is unknown. The host can manually run `gh workflow run platform-production-lock-monitor.yml --ref main`; inspect its executed monitor job/step, issue URL/id/tuple identity and artifact. Delivery failures stay red, retry on the next run and never unlock. Route only operator-only actions to Todd. See [Release Locks](release-process-evolution.md#release-locks) for the staging-only alternate exit and complete contract.
 
-After host authorization, generate the five-field clear and read back all five values:
+After host authorization, generate the five-command clear and read back the Environment list:
 
 ```powershell
 pnpm run ops release-lock:commands --action unlock --environment production
 ```
 
-This sets FALSE FIRST, then clears reason, reference, exit route and deadline. False stale fields are ignored everywhere; historical artifacts remain evidence, not authority.
+The generator prints this exact order:
+
+```text
+gh variable set PRODUCTION_RELEASE_LOCKED --env "production" --body "false"
+gh variable delete PRODUCTION_RELEASE_LOCK_REASON --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_REFERENCE --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_EXIT_ROUTE --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_DEADLINE --env "production"
+```
+
+This sets `PRODUCTION_RELEASE_LOCKED=false` **first**, then prints bare `gh variable delete` commands for reason, reference, exit route and deadline in that order. Never use `gh variable set ... --body ""` or write a literal `""`. A missing delete is tolerated only when the subsequent `gh variable list --env "production"` succeeds and its readback succeeds with false plus none of the four metadata names; any list/auth/environment/parse failure, non-false lock, remaining metadata (including empty values), or extra `PRODUCTION_RELEASE_LOCK_*` name is incomplete and must be reported. False stale fields are ignored by the evaluator, monitor and health record only after that readback is complete; historical artifacts remain evidence, not authority.
 
 Configure the production cluster context in an approved operator shell. The default Terraform name is `chase-sets-production-doks`; if the live cluster has an override, use the `cluster_name` output from `doks/production.tfstate` instead.
 
