@@ -192,6 +192,56 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(commands).toEqual([]);
   });
 
+  it.each([{ bucket: "other-bucket" }, { prefix: "platform/production" }])(
+    "refuses retirement target redirection %j before running a command",
+    async (redirect) => {
+      const output = vi.fn();
+      const record = await retirePreviewTerraformState(
+        { prNumber: 22, cleanupSucceeded: true, ...redirect },
+        { commandOutput: output },
+      );
+      expect(record.result).toBe("failure");
+      expect(record.outcome).toBe("refused");
+      expect(output).not.toHaveBeenCalled();
+    },
+  );
+
+  it("pins the retirement CLI bucket and preview prefix despite redirect flags and environment", () => {
+    let record;
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          resolve("scripts/digitalocean-preview-cleanup-sweep.mjs"),
+          "retire-state",
+          "--pr-number",
+          "22",
+          "--cleanup-succeeded",
+          "false",
+          "--bucket",
+          "other-bucket",
+          "--prefix",
+          "platform/production",
+        ],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          env: { ...process.env, TERRAFORM_STATE_BUCKET: "other-bucket", PREVIEW_STATE_PREFIX: "platform/production" },
+        },
+      );
+      throw new Error("cleanup failure should exit non-zero");
+    } catch (error) {
+      expect(error.status).toBe(1);
+      record = JSON.parse(error.stdout);
+    }
+    expect(record).toMatchObject({
+      bucket: "chase-sets-terraform-state",
+      stateKey: "platform/previews/pr-22.tfstate",
+      outcome: "skipped-cleanup-failure",
+      delete: { status: "not-run" },
+    });
+  });
+
   it.each(["changed VersionId", "failed versioning probe"])("refuses delete on %s", async (failureMode) => {
     const commands = [];
     let headCount = 0;

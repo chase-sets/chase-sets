@@ -663,7 +663,7 @@ jobs:
           set -uo pipefail
           failed=0
           failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
-          test -f "$failed_targets" || : > "$failed_targets"
+          : > "$failed_targets"
           while IFS= read -r pr_number; do
             terraform -chdir=infrastructure/digitalocean/platform init \
               -reconfigure \
@@ -695,7 +695,7 @@ jobs:
         run: |
           node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf || {
             echo "PREVIEW_BATCH_FAILED=1" >> "$GITHUB_ENV"
-            while IFS= read -r pr_number; do echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"; done < "${{ steps.batch-targets.outputs.target_file }}"
+            while IFS= read -r pr_number; do echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-incomplete-targets"; done < "${{ steps.batch-targets.outputs.target_file }}"
             exit 1
           }
 
@@ -710,7 +710,7 @@ jobs:
         if: ${{ !cancelled() && steps.batch-targets.outcome == 'success' && (github.event_name == 'schedule' || success()) }}
         run: |
           set -uo pipefail
-          failed=0
+          failed="${PREVIEW_BATCH_FAILED:-0}"
           failed_targets="$RUNNER_TEMP/preview-cleanup-failed-targets"
           test -f "$failed_targets" || : > "$failed_targets"
           while IFS= read -r pr_number; do

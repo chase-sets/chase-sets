@@ -76,7 +76,161 @@ function fixtureTargets(count) {
   });
 }
 
+function executeCleanup({ eventName = "schedule", failure = "none", contextOutcome = "success" } = {}) {
+  const root = mkdtempSync(path.join(tmpdir(), "preview-cleanup-execution-"));
+  const rootPath = root.replaceAll("\\", "/");
+  const bashRoot = rootPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+  const targetFile = `${rootPath}/runner/preview-cleanup-targets`;
+  const names = [
+    "Delete preview DNS records",
+    "Delete preview Kubernetes namespace",
+    "Terraform init",
+    "Disable stateful destroy guard for approved preview cleanup",
+    "Import live preview database cluster into cleanup state",
+    "Terraform destroy",
+    "Retire empty preview Terraform state",
+  ];
+  const shell = [
+    "set -uo pipefail",
+    `export RUNNER_TEMP="${rootPath}/runner" GITHUB_ENV="${rootPath}/github-env" PATH="${bashRoot}/bin:/usr/bin:/bin:/mingw64/bin"`,
+    `export FIXTURE_FAILURE="${failure}" FIXTURE_ROOT="${rootPath}"`,
+    `mkdir -p "${rootPath}/bin" "${rootPath}/runner" "${rootPath}/artifacts/release-health"`,
+    `printf '%s' '{"targets":[{"prNumber":1},{"prNumber":2},{"prNumber":3}]}' > "${rootPath}/artifacts/release-health/platform-preview-cleanup-batch.json"`,
+    `printf '1\\n2\\n3\\n' > "${targetFile}"`,
+    "node() {",
+    'if [ "$1" = "-e" ]; then printf "1\\n2\\n3\\n"; return 0; fi',
+    'command="$2"; shift 2; pr=""; cleanup=""',
+    'while [ "$#" -gt 0 ]; do case "$1" in --pr-number) pr="$2"; shift 2;; --cleanup-succeeded) cleanup="$2"; shift 2;; *) shift;; esac; done',
+    'printf "%s|%s|%s\\n" "$command" "$pr" "$cleanup" >> "$FIXTURE_ROOT/commands.log"',
+    'if [ "$command" = "infrastructure/digitalocean/platform/main.tf" ] && [ "$FIXTURE_FAILURE" = disable ]; then return 1; fi',
+    'if [ "$pr" = 2 ]; then case "$command:$FIXTURE_FAILURE" in destroy-dns:dns|import-database:import|retire-state:retire) return 1;; esac; fi',
+    'if [ "$command" = retire-state ] && [ "$cleanup" != true ]; then return 1; fi',
+    "return 0",
+    "}",
+    "pnpm() {",
+    'if [ "$FIXTURE_FAILURE" = namespace ] && [[ "$*" = *"chase-sets-pr-2"* ]]; then return 1; fi',
+    "return 0",
+    "}",
+    "terraform() {",
+    'if [[ "$*" = *"destroy -auto-approve"* ]]; then printf "destroy|%s\\n" "$TF_VAR_preview_identifier" >> "$FIXTURE_ROOT/commands.log"; if [ "$FIXTURE_FAILURE" = destroy ] && [ "$TF_VAR_preview_identifier" = pr-2 ]; then return 1; fi; fi',
+    'if [ "$FIXTURE_FAILURE" = init ] && [[ "$*" = *"pr-2.tfstate"* ]]; then return 1; fi',
+    "return 0",
+    "}",
+    renderCleanupStep("Resolve cleanup target numbers", rootPath, targetFile, {
+      "${{ github.event_name }}": eventName,
+      "${{ matrix.pr_number }}": "2",
+    }),
+    "set +e",
+    "prior_failed=0",
+  ];
+  for (const [index, name] of names.entries()) {
+    const gate = step("destroy-preview", name).if;
+    const unconditional = gate === "always()" || !gate.includes("success()");
+    shell.push(
+      `if [ "${eventName}" = schedule ] || [ "$prior_failed" = 0 ] || [ "${unconditional}" = true ]; then`,
+      "(",
+      renderCleanupStep(name, rootPath, targetFile, {
+        "${{ github.event_name }}": eventName,
+        "${{ matrix.pr_number }}": "2",
+        "${{ steps.preview-context.outcome }}": contextOutcome,
+      }),
+      ")",
+      "status=$?",
+      `printf '${index}|%s\\n' "$status" >> "${rootPath}/statuses.log"`,
+      '[ "$status" = 0 ] || prior_failed=1',
+      "fi",
+      `if [ -f "${rootPath}/github-env" ]; then set -a; source "${rootPath}/github-env"; set +a; fi`,
+    );
+  }
+  const shellPath = `${rootPath}/workflow.sh`;
+  try {
+    writeFileSync(shellPath, shell.join("\n"));
+    const result = spawnSync(bashLauncher, [shellPath], {
+      cwd: root,
+      env: { ...process.env, GITHUB_OUTPUT: `${rootPath}/github-output` },
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    return {
+      commands: readFileSync(path.join(root, "commands.log"), "utf8").trim().split(/\r?\n/),
+      statuses: readFileSync(path.join(root, "statuses.log"), "utf8").trim().split(/\r?\n/),
+      environment: readFileSync(path.join(root, "github-env"), { encoding: "utf8", flag: "a+" }),
+    };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 describe("scheduled preview cleanup batching", () => {
+  it.each(["dns", "namespace", "init", "import", "destroy", "retire"])(
+    "executes the full scheduled cleanup sequence with a PR 2 %s failure",
+    (failure) => {
+      const result = executeCleanup({ failure });
+      expect(result.commands.filter((line) => line.startsWith("retire-state|"))).toEqual([
+        "retire-state|1|true",
+        `retire-state|2|${failure === "retire" ? "true" : "false"}`,
+        "retire-state|3|true",
+      ]);
+      expect(result.statuses).toContain("6|1");
+      expect(result.environment).toContain("PREVIEW_BATCH_FAILED=1");
+      if (["dns", "namespace", "destroy", "retire"].includes(failure)) {
+        expect(result.commands.filter((line) => line.startsWith("destroy|"))).toEqual([
+          "destroy|pr-1",
+          "destroy|pr-2",
+          "destroy|pr-3",
+        ]);
+      }
+    },
+  );
+
+  it.each(["pull_request_target", "workflow_dispatch", "idle-draft-recheck", "schedule"])(
+    "executes the %s caller target shape through the same retirement guard",
+    (caller) => {
+      // Idle-draft re-check dispatches workflow_dispatch for its selected PR.
+      const eventName = caller === "idle-draft-recheck" ? "workflow_dispatch" : caller;
+      const result = executeCleanup({ eventName });
+      expect(result.commands.filter((line) => line.startsWith("retire-state|"))).toEqual(
+        eventName === "schedule"
+          ? ["retire-state|1|true", "retire-state|2|true", "retire-state|3|true"]
+          : ["retire-state|2|true"],
+      );
+      expect(result.statuses).toContain("6|0");
+      const refused = executeCleanup({ eventName, failure: "dns" });
+      expect(refused.commands).toContain("retire-state|2|false");
+      expect(refused.statuses).toContain("6|1");
+    },
+  );
+
+  it("refuses every retirement target when Kubernetes context failed", () => {
+    const result = executeCleanup({ contextOutcome: "failure" });
+    expect(result.commands.filter((line) => line.startsWith("retire-state|"))).toEqual([
+      "retire-state|1|false",
+      "retire-state|2|false",
+      "retire-state|3|false",
+    ]);
+    expect(result.statuses).toContain("6|1");
+  });
+
+  it("preserves scheduled destroy and close-event skip semantics after disable failure", () => {
+    const scheduled = executeCleanup({ failure: "disable" });
+    expect(scheduled.commands.filter((line) => line.startsWith("destroy|"))).toEqual([
+      "destroy|pr-1",
+      "destroy|pr-2",
+      "destroy|pr-3",
+    ]);
+    expect(scheduled.commands.filter((line) => line.startsWith("retire-state|"))).toEqual([
+      "retire-state|1|false",
+      "retire-state|2|false",
+      "retire-state|3|false",
+    ]);
+    expect(scheduled.statuses).toEqual(expect.arrayContaining(["3|1", "4|1", "6|1"]));
+    const closed = executeCleanup({ eventName: "pull_request_target", failure: "disable" });
+    expect(closed.statuses).toContain("3|1");
+    expect(closed.statuses.some((line) => line.startsWith("4|") || line.startsWith("5|"))).toBe(false);
+    expect(closed.commands).toContain("retire-state|2|false");
+  });
+
   it("executes every artifact-backed batch from the 1,260-target record", () => {
     const targets = fixtureTargets(1260);
     const batches = cleanupBatchesForTargets(targets);
@@ -353,7 +507,8 @@ describe("scheduled preview cleanup batching", () => {
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain("STATUS=1");
       expect(readFileSync(path.join(root, "github-env"), "utf8")).toContain("PREVIEW_BATCH_FAILED=1");
-      expect(readFileSync(path.join(root, "runner/preview-cleanup-failed-targets"), "utf8")).toContain("2");
+      const ledger = stepName.startsWith("Disable") ? "incomplete" : "failed";
+      expect(readFileSync(path.join(root, `runner/preview-cleanup-${ledger}-targets`), "utf8")).toContain("2");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -441,7 +596,7 @@ describe("scheduled preview cleanup batching", () => {
     expect(retirement.run).toContain('grep -Fxq "$pr_number" "$incomplete_targets"');
     expect(retirement.run).toContain('--cleanup-succeeded "$cleanup_succeeded"');
     expect(retirement.run).toContain('--out "$record_path"');
-    expect(source).toContain('echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"');
+    expect(source).toContain('echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-incomplete-targets"');
     expect(step("destroy-preview", "Upload preview state retirement record").if).toBe("always()");
   });
 

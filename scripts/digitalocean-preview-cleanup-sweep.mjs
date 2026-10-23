@@ -588,6 +588,12 @@ function validateRetireStateOptions(options) {
     errors.push("--pr-number must be a positive integer.");
   }
   if (!isNonEmptyString(options.bucket ?? DEFAULT_STATE_BUCKET)) errors.push("--bucket is required.");
+  if ((options.bucket ?? DEFAULT_STATE_BUCKET) !== DEFAULT_STATE_BUCKET) {
+    errors.push("Retirement bucket must be chase-sets-terraform-state.");
+  }
+  if (trimSlashes(options.prefix ?? DEFAULT_PREVIEW_STATE_PREFIX) !== trimSlashes(DEFAULT_PREVIEW_STATE_PREFIX)) {
+    errors.push("Retirement prefix must be platform/previews.");
+  }
   if (!isNonEmptyString(options.endpointUrl ?? DEFAULT_SPACES_ENDPOINT)) errors.push("--endpoint-url is required.");
   if (!isNonEmptyString(options.terraformDirectory ?? "infrastructure/digitalocean/platform")) {
     errors.push("--terraform-directory is required.");
