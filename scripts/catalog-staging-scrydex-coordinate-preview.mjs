@@ -64,6 +64,39 @@ export function classifyScrydexCoordinatePreviewRouteRequest(request, phase = "c
   });
 }
 
+export function createCoordinatePreviewRouteHandler({ observed, refusals, getPhase }) {
+  return async (route) => {
+    const verdict = classifyScrydexCoordinatePreviewRouteRequest(route.request(), getPhase());
+    if (verdict.allowed) {
+      const key = {
+        "sign-in": "signIn",
+        "profile-read": "profileReads",
+        "scope-inventory-read": "scopeInventoryReads",
+        "coverage-read": "coverageReads",
+        "cache-option-read": "cacheOptionReads",
+        "usage-read": "usageReads",
+        preview: "previewPosts",
+      }[verdict.requestClass];
+      if (
+        (verdict.requestClass === "preview" || verdict.requestClass === "usage-read") &&
+        observed[key] >= 1
+      ) {
+        const reason = `duplicate-${verdict.requestClass}`;
+        refusals.push(reason);
+        observed.forbidden += 1;
+        return route.abort("blockedbyclient");
+      }
+      if (key) observed[key] += 1;
+    }
+    if (!verdict.allowed) {
+      refusals.push(verdict.reason);
+      observed.forbidden += 1;
+      return route.abort("blockedbyclient");
+    }
+    return route.continue();
+  };
+}
+
 export async function selectCoordinatePreviewDeployment(token, select = selectStagingDeployGeneration) {
   const result = await select({
     token,
@@ -114,23 +147,35 @@ export async function buildProducer(page, observed = {}) {
     if (!decoded.ok) throw refused(decoded.reason);
     inventories[productDomain] = decoded.scopeRecordIds;
   }
-  const selected = [
-    inventories["one-piece"]?.[0] && { scopeRecordId: inventories["one-piece"][0], productDomain: "one-piece" },
-    inventories.lorcana?.[0] && { scopeRecordId: inventories.lorcana[0], productDomain: "lorcana" },
-  ].filter(Boolean);
+  async function readCoverage(scopeRecordId, productDomain) {
+    const body = await readJson(page, scrydexCacheCaptureCoveragePath(scopeRecordId));
+    const decoded = decodeScrydexAcceptedMappings(body, { scopeRecordId, productDomain });
+    if (!decoded.ok) throw refused(decoded.reason);
+    return decoded.mappings;
+  }
+  const selected = [];
+  for (const productDomain of ["one-piece", "lorcana"]) {
+    const requiredUnits = scrydexCoordinatePreviewUnits
+      .filter((unit) => unit.productDomain === productDomain)
+      .map((unit) => unit.unitKey);
+    for (const scopeRecordId of [...(inventories[productDomain] ?? [])].sort()) {
+      const mappings = await readCoverage(scopeRecordId, productDomain);
+      if (requiredUnits.every((unitKey) => mappings.some((mapping) => mapping.unitKey === unitKey))) {
+        selected.push({ scopeRecordId, productDomain });
+        break;
+      }
+    }
+  }
   if (selected.length !== 2) throw refused("two-scopes-unavailable");
   async function readSnapshot() {
     const coverage = await Promise.all(
       selected.map(async (scope) => {
-        const body = await readJson(page, scrydexCacheCaptureCoveragePath(scope.scopeRecordId));
-        const decoded = decodeScrydexAcceptedMappings(body, {
-          scopeRecordId: scope.scopeRecordId,
-          productDomain: scope.productDomain,
-        });
-        if (!decoded.ok) throw refused(decoded.reason);
         return {
           scope,
-          mappings: decoded.mappings.map((mapping) => ({ ...mapping, scopeRecordId: scope.scopeRecordId })),
+          mappings: (await readCoverage(scope.scopeRecordId, scope.productDomain)).map((mapping) => ({
+            ...mapping,
+            scopeRecordId: scope.scopeRecordId,
+          })),
         };
       }),
     );
@@ -160,15 +205,24 @@ export async function buildProducer(page, observed = {}) {
       if (!decoded.ok) throw refused(decoded.reason);
       const first = decoded.page;
       const values = [...first.values];
-      const pages = [first];
+      let pageCount = 1;
+      const seenCursors = new Set();
       let cursor = first.nextCursor;
       while (cursor !== null) {
-        if (pages.length > 100) throw refused(`cache-continuation-cap:${unit}`);
+        if (pageCount > 100) throw refused(`cache-continuation-cap:${unit}`);
+        if (seenCursors.has(cursor)) throw refused(`cache-cursor-stalled:${unit}`);
+        seenCursors.add(cursor);
         response = await readJson(page, scrydexCacheCaptureContinuationPath(request.queryHref, cursor));
         decoded = decodeScrydexCacheCaptureOptionPage(response, { cursor });
         if (!decoded.ok) throw refused(decoded.reason);
-        if (decoded.page.cache.cacheKey !== first.cache.cacheKey) throw refused(`cache-identity-changed:${unit}`);
-        pages.push(decoded.page);
+        if (
+          decoded.page.cache.cacheKey !== first.cache.cacheKey ||
+          decoded.page.cache.fetchedAt !== first.cache.fetchedAt ||
+          decoded.page.cache.expiresAt !== first.cache.expiresAt ||
+          decoded.page.cache.staleUntil !== first.cache.staleUntil
+        )
+          throw refused(`cache-identity-changed:${unit}`);
+        pageCount += 1;
         values.push(...decoded.page.values);
         cursor = decoded.page.nextCursor;
       }
@@ -207,7 +261,6 @@ export async function buildProducer(page, observed = {}) {
     }
     return {
       rows,
-      coverage,
       cacheIdentity: rows
         .map((row) => ({
           unitKey: row.unitKey,
@@ -228,6 +281,7 @@ export async function buildProducer(page, observed = {}) {
       const response = await fetch("/api/catalog/scope-sync-batches/preview", {
         method: "POST",
         credentials: "same-origin",
+        redirect: "error",
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
           selection: { mode: "ids", scopeRecordIds },
@@ -274,35 +328,7 @@ export async function captureCoordinatePreview(env = process.env) {
     forbidden: 0,
   };
   let phase = "sign-in";
-  await page.route("**/*", async (route) => {
-    const verdict = classifyScrydexCoordinatePreviewRouteRequest(route.request(), phase);
-    if (verdict.allowed) {
-      if (
-        (verdict.requestClass === "preview" || verdict.requestClass === "usage-read") &&
-        observed[verdict.requestClass === "preview" ? "previewPosts" : "usageReads"] >= 1
-      ) {
-        const reason = `duplicate-${verdict.requestClass}`;
-        requests.push(reason);
-        observed.forbidden += 1;
-        return route.abort("blockedbyclient");
-      }
-      const key = {
-        "profile-read": "profileReads",
-        "scope-inventory-read": "scopeInventoryReads",
-        "coverage-read": "coverageReads",
-        "cache-option-read": "cacheOptionReads",
-        "usage-read": "usageReads",
-        preview: "previewPosts",
-      }[verdict.requestClass];
-      if (key) observed[key] += 1;
-    }
-    if (!verdict.allowed) {
-      requests.push(verdict.reason);
-      observed.forbidden += 1;
-      return route.abort("blockedbyclient");
-    }
-    return route.continue();
-  });
+  await page.route("**/*", createCoordinatePreviewRouteHandler({ observed, refusals: requests, getPhase: () => phase }));
   try {
     const receipt = await runScrydexCoordinatePreview({
       runner,
@@ -334,7 +360,7 @@ export async function captureCoordinatePreview(env = process.env) {
     const finalReceipt = buildScrydexCoordinatePreviewReceipt({
       ...receipt,
       requests: { ...receipt.requests, ...observed, forbidden: observed.forbidden },
-      forbiddenCalls: [...receipt.forbiddenCalls, ...requests],
+      forbiddenCalls: [...receipt.forbiddenCalls, ...requests].slice(0, 100),
       outcome: receipt.outcome,
       reasons: receipt.reasons,
     });

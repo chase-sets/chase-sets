@@ -40,13 +40,53 @@ describe("runScrydexCoordinatePreview", () => {
       credentialsPresent: true,
       selectDeployment: async () => ({ generation }),
       signIn: async () => undefined,
-      produce: async () => {
-        throw new Error("synthetic provider transport denied");
-      },
+      produce: async () => { throw new Error("synthetic provider transport denied"); },
       now: () => "2026-10-20T16:00:00Z",
     });
     expect(receipt.outcome).toBe("governed-unknown");
     expect(receipt.reasons).toEqual(expect.arrayContaining(["producer-failed", "preview-missing"]));
     expect(receipt.requests.previewPosts).toBe(0);
+  });
+
+  it("preserves a named producer refusal in a writable diagnostic receipt", async () => {
+    const receipt = await runScrydexCoordinatePreview({
+      runner,
+      credentialsPresent: true,
+      selectDeployment: async () => ({ generation }),
+      signIn: async () => undefined,
+      produce: async () => { throw new Error("scrydex-coordinate-preview-refused:bracket-changed"); },
+      now: () => "2026-10-20T16:00:00Z",
+    });
+    expect(receipt.reasons).toContain("producer-failed:bracket-changed");
+    expect(receipt.outcome).toBe("governed-unknown");
+    const { validateScrydexCoordinatePreviewReceipt } = await import("../domain/scrydex-coordinate-preview");
+    expect(validateScrydexCoordinatePreviewReceipt(receipt)).toEqual([]);
+  });
+
+  it("uses observed request tallies and bounds refusal receipts", async () => {
+    const receipt = await runScrydexCoordinatePreview({
+      runner,
+      credentialsPresent: true,
+      selectDeployment: async () => ({ generation }),
+      signIn: async () => undefined,
+      produce: async () => ({
+        preview: {
+          planFingerprint: "a".repeat(64),
+          resolvedAt: "2026-10-20T16:00:00Z",
+          status: "ready" as const,
+          confirmAllowed: true,
+          blockers: [],
+          samples: [],
+        },
+        rows: [],
+        forbiddenCalls: Array.from({ length: 101 }, (_, index) => `refusal-${index}`),
+        observedRequests: { previewPosts: 0, usageReads: 0, forbidden: 101 },
+        observedUsageRead: { count: 0, allowed: false },
+      }),
+      now: () => "2026-10-20T16:00:00Z",
+    });
+    expect(receipt.forbiddenCalls).toHaveLength(100);
+    expect(receipt.requests.forbidden).toBe(101);
+    expect(receipt.reasons).toContain("forbidden-call");
   });
 });

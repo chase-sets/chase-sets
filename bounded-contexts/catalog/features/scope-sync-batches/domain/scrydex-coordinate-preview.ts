@@ -360,7 +360,7 @@ export function deriveScrydexCoordinatePreviewReasons(receipt: ScrydexCoordinate
   if (receipt.requests.previewPosts !== 1) reasons.add("preview-post-count");
   if (receipt.requests.usageReads !== 1 || receipt.usageRead.count !== 1 || receipt.usageRead.allowed !== true)
     reasons.add("usage-read-count");
-  if (receipt.requests.forbidden !== receipt.forbiddenCalls.length || receipt.forbiddenCalls.length > 0)
+  if (receipt.forbiddenCalls.length !== Math.min(receipt.requests.forbidden, 100) || receipt.requests.forbidden > 0)
     reasons.add("forbidden-call");
   if (canonical(receipt.phases) !== canonical(requiredPhases)) reasons.add("phases-incomplete");
   if (
@@ -395,8 +395,7 @@ export function validateScrydexCoordinatePreviewReceipt(value: unknown): readonl
   if (receipt.outcome === "complete" && derived.length > 0) errors.push(...derived);
   if (receipt.outcome !== (receipt.reasons.length === 0 && derived.length === 0 ? "complete" : "governed-unknown"))
     errors.push("outcome: not derived from evidence");
-  if (derived.includes("rows-not-exactly-five")) errors.push("rows: expected exactly five");
-  if (derived.includes("rows-unit-membership")) errors.push("rows: unit membership mismatch");
-  if (receipt.requests.forbidden !== receipt.forbiddenCalls.length) errors.push("requests.forbidden: tally mismatch");
+  if (receipt.forbiddenCalls.length !== Math.min(receipt.requests.forbidden, 100))
+    errors.push("requests.forbidden: tally mismatch");
   return errors;
 }

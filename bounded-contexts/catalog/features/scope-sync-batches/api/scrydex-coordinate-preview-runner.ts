@@ -76,8 +76,10 @@ export async function runScrydexCoordinatePreview(
       producer = await (input.produce ?? (() => Promise.reject(new Error("producer-missing"))))();
       phases.push(...(producer.phases ?? ["preview", "coverage", "cache", "pre-confirm"]));
     }
-  } catch {
-    reasons.add("producer-failed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const refused = /^scrydex-coordinate-preview-refused:([A-Za-z0-9._:-]{1,200})$/.exec(message);
+    reasons.add(refused ? `producer-failed:${refused[1]}` : "producer-failed");
   }
   try {
     const selection = await input.selectDeployment();
@@ -90,9 +92,11 @@ export async function runScrydexCoordinatePreview(
     reasons.add("deployment-head-mismatch");
   if (before && after && JSON.stringify(before) !== JSON.stringify(after)) reasons.add("deployment-generation-changed");
   if (producer) {
-    for (const reason of producer.forbiddenCalls ?? []) forbiddenCalls.push(reason.slice(0, 300));
+    for (const reason of producer.forbiddenCalls ?? []) {
+      if (forbiddenCalls.length < 100) forbiddenCalls.push(reason.slice(0, 300));
+    }
     Object.assign(requests, producer.observedRequests ?? {});
-    requests.forbidden = forbiddenCalls.length;
+    requests.forbidden = Math.min(1000, Math.max(forbiddenCalls.length, requests.forbidden ?? 0));
   } else {
     reasons.add("preview-missing");
   }
