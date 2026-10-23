@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -344,8 +345,8 @@ describe("shared CI gate plan", () => {
       createHash("sha256")
         .update(`${selectionFixture.incident.join("\n")}\n`)
         .digest("hex"),
-    ).toBe("a2780d68580eee6086a5a98eb47b6ab6a8ca21c296d1f23c88ded7103b64b39f");
-    expect(selectionFixture.incident).toHaveLength(29);
+    ).toBe("2c6566fc3de548289721f453200a2e5cf04414ef1a94d9352bfe1b1dc860f3d7");
+    expect(selectionFixture.incident).toHaveLength(25);
     const scope = classifyChanges({ changedFiles: selectionFixture.incident, workspaces });
     expect(scope.integrationRiskRequired).toBe(false);
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "catalog_admin_integrations"]);
@@ -438,7 +439,9 @@ describe("shared CI gate plan", () => {
     expect(families).toEqual(
       selectionFixture.families.map(({ family, pattern, suites }) => ({ family, pattern, suites })),
     );
-    const tracked = new Set(execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0"));
+    const tracked = new Set(
+      execFileSync("git", ["ls-files", "-z"], { encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER }).split("\0"),
+    );
     for (const family of selectionFixture.families) {
       const pattern = new RegExp(family.pattern.slice(1, -1));
       expect(pattern.test(family.path), family.family).toBe(true);
@@ -548,8 +551,7 @@ describe("shared CI gate plan", () => {
       const renameCase = scopedCases.find(
         ({ changedFiles }) =>
           changedFiles.length === 2 &&
-          changedFiles[0] ===
-            "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts" &&
+          changedFiles[0] === "bounded-contexts/catalog/features/operator-session/api/route.ts" &&
           changedFiles[1] === "bounded-contexts/inventory/features/listings/ui/listing.tsx",
       );
       expect(renameCase, "Catalog-provider/Inventory-listing rename fixture must be present").toBeDefined();

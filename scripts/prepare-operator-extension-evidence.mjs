@@ -102,7 +102,6 @@ const stages = [
   "launched",
   "worker",
   "setup-connected",
-  "cookies-proved",
   "popup-open",
   "paired",
   "isolated",

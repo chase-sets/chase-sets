@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceListingDetailPage } from "./listing-detail-page";
 import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
 import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
+import { authoredTextRecoveryMessage } from "../../reviews/ui/authored-text-recovery";
 
 const listing: MarketplaceListingDetail = {
   listing_id: "lst_1",
@@ -111,6 +112,45 @@ const cardChromeExcluded = [
 ] as const;
 
 describe("MarketplaceListingDetailPage", () => {
+  it.each([
+    [null, null],
+    [null, "9.50"],
+    ["0.50", null],
+  ])("shows not-set rather than a fabricated native summary for fee %s and net %s", (fee, net) => {
+    const { container } = render(
+      <MarketplaceListingDetailPage
+        listing={{
+          ...listing,
+          price_amount: "10.01",
+          status: "draft",
+          marketplace_sales_fee_unit_amount: fee,
+          seller_net_unit_amount: net,
+          fee_quote_fingerprint: null,
+          terms_schedule_id: null,
+          terms_resolved_at: null,
+          shipping_allowance_percentage_bps: 0,
+        }}
+        feeHistory={[]}
+      />,
+    );
+    expect(screen.getAllByText("Not set").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Incomplete price")).toBeNull();
+    expect(screen.getByText("Marketplace sales fee:").nextElementSibling?.textContent).toBe(
+      fee === null ? "Not set" : "$0.50",
+    );
+    expect(screen.getByText("Seller net:").nextElementSibling?.textContent).toBe(net === null ? "Not set" : "$9.50");
+    expect(container.textContent).not.toContain("0.00");
+    expect(screen.queryByText(/Marketplace \$.*\. Net/)).toBeNull();
+    for (const input of container.querySelectorAll<HTMLInputElement>('input[name="feeQuoteFingerprint"]')) {
+      expect(input.value).toBe("");
+    }
+  });
+
+  it("preserves the native fee summary", () => {
+    render(<MarketplaceListingDetailPage listing={listing} feeHistory={[]} />);
+    expect(screen.getByText(/Marketplace \$0.00\. Net \$20.00\./)).toBeTruthy();
+  });
+
   it("pins all six listing-detail roots to their ratified chrome", () => {
     const { container } = render(
       <MarketplaceListingDetailPage
@@ -436,5 +476,69 @@ describe("MarketplaceListingDetailPage", () => {
     expect(screen.getByRole("button", { name: "Publish listing" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Complete the required evidence actions above before publishing.")).toBeTruthy();
     expect(container.querySelector('input[type="file"][capture="environment"]')).toBeTruthy();
+  });
+});
+
+describe("issue-5258-marketplace-ac4 Listing publish standards and description recovery", () => {
+  const draftWithPhoto = {
+    ...listing,
+    status: "draft",
+    product_measure_snapshot: {} as never,
+    evidence: [
+      {
+        photoId: "lpho_1",
+        originalFilename: "front.png",
+        altText: "Stored description",
+        slotId: null,
+        viewKind: null,
+        status: "active",
+        sortOrder: 0,
+      },
+    ],
+  } as unknown as MarketplaceListingDetail;
+
+  function expectStandardsLinksBefore(control: Element) {
+    const guidelines = screen.getAllByRole("link", { name: "Community guidelines" });
+    const support = screen.getAllByRole("link", { name: "Contact support" });
+    expect(new Set(guidelines.map((link) => link.getAttribute("href")))).toEqual(
+      new Set(["/help/buying/community-guidelines-and-enforcement"]),
+    );
+    expect(new Set(support.map((link) => link.getAttribute("href")))).toEqual(new Set(["/contact"]));
+    expect(guidelines[0]!.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(support[0]!.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+
+  it("links the canonical community guidelines and support before publishing and before saving a description", () => {
+    render(<MarketplaceListingDetailPage listing={draftWithPhoto} feeHistory={[]} />);
+
+    expectStandardsLinksBefore(screen.getByRole("button", { name: "Publish listing" }));
+    expectStandardsLinksBefore(screen.getByRole("button", { name: "Save view" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the rejected description and links its field from an accessible summary", () => {
+    const message = authoredTextRecoveryMessage("text_duplicate_link")!;
+    render(
+      <MarketplaceListingDetailPage
+        listing={draftWithPhoto}
+        feeHistory={[]}
+        evidenceAltTextRecovery={{
+          photoId: "lpho_1",
+          altText: "Front https://x.example https://x.example",
+          recovery: { code: "text_duplicate_link", message, fieldLevel: true },
+        }}
+      />,
+    );
+
+    const summary = screen.getByRole("alert");
+    expect(summary.textContent).toContain("Your text was not posted");
+    const fieldLink = within(summary).getByRole("link", { name: `Image description: ${message}` });
+    const description = screen.getByRole("textbox", { name: "Image description" }) as HTMLInputElement;
+    expect(fieldLink.getAttribute("href")).toBe(`#${description.id}`);
+    expect(description.value).toBe("Front https://x.example https://x.example");
+    expect(description.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.keyDown(fieldLink, { key: "Enter" });
+    expect(document.activeElement).toBe(description);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 });

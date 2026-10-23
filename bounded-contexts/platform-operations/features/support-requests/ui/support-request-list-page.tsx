@@ -4,7 +4,6 @@ import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useMemo, useState } from "react";
 import { ParticipantForm as RouterForm } from "./participant-form";
-import { useNavigation } from "react-router";
 import {
   Badge,
   Banner,
@@ -231,7 +230,6 @@ function SupportRequestOpenPanel({
   attachmentOperationId?: string;
   uploadUncertain?: boolean;
 }>) {
-  const navigation = useNavigation();
   const [newBatchId, setNewBatchId] = useState(() => createId("sao"));
   const [abandonedOperationId, setAbandonedOperationId] = useState<string | null>(null);
   const recoveredBatch = attachmentOperationId && attachmentOperationId !== abandonedOperationId;
@@ -305,7 +303,7 @@ function SupportRequestOpenPanel({
 
   return (
     <Surface elevation="tinted" data-elevation-role="furniture">
-      <RouterForm method="post" encType="multipart/form-data" spacing="md" submitting={navigation.state !== "idle"}>
+      <RouterForm method="post" encType="multipart/form-data" spacing="md">
         <HiddenInput name="attachmentOperationId" value={operationId} readOnly />
         <HiddenInput name="uploadUncertain" value={String(uncertain)} readOnly />
         <HiddenInput type="hidden" name="orderId" value={supportOrder.orderId} readOnly />

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { describe, expect, it } from "vitest";
 import {
   classifySqlExecutionSurface,
@@ -118,7 +119,7 @@ function verifyScope({ indexBytes, partition, testSources }) {
   assert.deepEqual(rawModules, expectedProductionModules, "raw route-census TypeScript set drifted");
   assert.deepEqual(filteredModules, expectedProductionModules, "canonical route-census module set drifted");
   const inventory = listNonTestTypeScriptModules(repoRoot, {
-    execGit: (args) => {
+    execGit: (_file, args) => {
       assert.deepEqual(args, ["ls-files", "-z", "--cached"]);
       return indexBytes.toString("utf8");
     },
@@ -163,7 +164,10 @@ function withTestMutation(testSources, sourceSuffix) {
 }
 
 describe("route-census tracked structural partition", () => {
-  const indexBytes = execFileSync("git", ["ls-files", "-z", "--cached"], { cwd: repoRoot });
+  const indexBytes = execFileSync("git", ["ls-files", "-z", "--cached"], {
+    cwd: repoRoot,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  });
   const partition = JSON.parse(
     readFileSync(path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"), "utf8"),
   );

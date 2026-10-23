@@ -59,7 +59,6 @@ function detail(
     adapter_version: 1,
     quantity_mode: "add",
     default_storage_location_id: null,
-    source_filename: null,
     total_count: rows.length,
     accepted_count: rows.filter((candidate) => candidate.status === "accepted").length,
     rejected_count: rows.filter((candidate) => candidate.status === "rejected").length,

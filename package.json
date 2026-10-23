@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@11.0.9",
   "engines": {
-    "node": "24.x"
+    "node": ">=24.16.0 <25"
   },
   "workspaces": [
     "bounded-contexts/*",
@@ -55,6 +55,7 @@
     "marketplace:provider-proof-status": "node ./scripts/marketplace-provider-proof-status.mjs",
     "guest-buy-now:freshness-probe": "node ./scripts/guest-buy-now-freshness-probe.mjs",
     "wake:drills": "node ./scripts/staging-wake-drills.mjs",
+    "uat:staging-evidence-authority": "node --import tsx ./scripts/staging-evidence-authority.mjs",
     "wake:mixed-version-drill": "node ./scripts/staging-mixed-version-wake-drill.mjs",
     "emergency-recovery:guide": "node ./scripts/emergency-recovery-guide.mjs",
     "rollback:readiness": "node ./scripts/rollback-readiness.mjs",
@@ -163,11 +164,12 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.5",
+    "esbuild": "0.27.7",
     "jsdom": "^29.0.2",
     "prettier": "^3.8.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.2.2",
     "tsx": "^4.21.0",
     "typescript": "^7.0.0",

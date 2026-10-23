@@ -5,7 +5,7 @@ import { createRoutesStub } from "react-router";
 import { Hono } from "hono";
 import type { PricingApiEnv } from "../../../api";
 import { createPricingHealthRoutes } from "../api/route";
-import type { PricingHealthServices } from "../api/services";
+import { PricingHealthCandidateRefusedError, type PricingHealthServices } from "../api/services";
 import contextManifest from "../../../context.json";
 import { SELLER_DESK_SURFACES } from "../../../../../contracts/seller-desk";
 import PricingHealthRoute, { action, loader } from "../../../routes/marketplace/account-desk-pricing-health";
@@ -18,6 +18,7 @@ function setup(permissions: string[] | null = ["pricing.view", "pricing.manage"]
       .fn<PricingHealthServices["getHealth"]>()
       .mockResolvedValue({ policies: [], target: null, health: null, run: null, grades: [], computing: false }),
     compute: vi.fn<PricingHealthServices["compute"]>().mockResolvedValue(null),
+    compare: vi.fn<PricingHealthServices["compare"]>().mockResolvedValue(null),
   } satisfies PricingHealthServices;
   const app = new Hono<PricingApiEnv>();
   app.use("*", async (c, next) => {
@@ -30,6 +31,26 @@ function setup(permissions: string[] | null = ["pricing.view", "pricing.manage"]
 }
 
 describe("Pricing Health route", () => {
+  it("reports candidate refusal explicitly instead of accepting an incomplete compare", async () => {
+    const { app, services } = setup();
+    services.compare.mockRejectedValue(new PricingHealthCandidateRefusedError());
+    const response = await app.request("/health/rpp_owned/compare", { method: "POST" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: { code: "candidate_enqueue_refused" } });
+  });
+  it.each([
+    ["non-empty body", JSON.stringify({})],
+    ["text body", "compare"],
+  ] as const)("rejects closed compare schema: %s", async (_, body) => {
+    const { app, services } = setup();
+    const response = await app.request("/health/rpp_owned/compare", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    expect(response.status).toBe(400);
+    expect(services.compare).not.toHaveBeenCalled();
+  });
   it("registers the canonical Seller Desk page and authorized route", () => {
     expect(
       readFileSync(new URL("../../../../../contracts/seller-desk/blueprint.md", import.meta.url), "utf8"),
@@ -114,7 +135,7 @@ describe("Mounted Pricing Health loader and action", () => {
                   { policyId: "rpp_owned", name: "Owned policy" },
                   { policyId: "rpp_second", name: "Second policy" },
                 ],
-                target: { policyId: "rpp_owned", name: "Owned policy" },
+                target: { policyId: "rpp_owned", name: "Owned policy", version: 1 },
                 health: null,
                 run: null,
                 grades: [],

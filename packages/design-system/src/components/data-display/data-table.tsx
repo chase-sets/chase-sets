@@ -157,7 +157,7 @@ export function DataTable<T>({
   }
 
   const table = (
-    <TableShell surface="inset" caption={caption}>
+    <TableShell surface="inset" caption={caption} tabIndex={mobileMode === "scroll" ? 0 : undefined}>
       <thead>
         <TableRow head surface="inset">
           {selectable ? (

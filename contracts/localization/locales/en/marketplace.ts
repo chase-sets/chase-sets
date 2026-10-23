@@ -146,6 +146,22 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.request.failed": "Request failed.",
   "marketplace.features.reports.api.reporter.required": "Start a new report session before reporting this listing.",
   "marketplace.features.reports.api.request.failed": "Report request failed.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.controlCharacter":
+    "Remove hidden control characters from your text, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.directionOverride":
+    "Remove hidden text-direction characters from your text, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.unsafeLink":
+    "Links must start with https://. Remove other kinds of links, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.duplicateLink": "Include each link only once, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.rateLimited":
+    "You have sent several of these recently. Wait a few minutes, then try again.",
+  "marketplace.features.reviews.ui.authoredTextRecovery.title": "Your text was not posted",
+  "marketplace.features.reviews.ui.authoredTextRecovery.draftKept":
+    "Your text is still here so you can edit it and try again.",
+  "marketplace.features.reviews.ui.authoredTextGuidance.description":
+    "What you post here is public and must follow the community guidelines.",
+  "marketplace.features.reviews.ui.authoredTextGuidance.communityGuidelines": "Community guidelines",
+  "marketplace.features.reviews.ui.authoredTextGuidance.contactSupport": "Contact support",
   "marketplace.features.listings.domain.domain.greater.than.zero": "greater than zero",
   "marketplace.features.listings.domain.domain.price.amount": "Price amount",
   "marketplace.features.listings.domain.domain.zero.or.greater": "zero or greater",

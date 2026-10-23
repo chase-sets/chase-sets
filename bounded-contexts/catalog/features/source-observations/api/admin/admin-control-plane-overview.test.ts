@@ -278,6 +278,9 @@ describe("Catalog provider usage budget read model", () => {
   });
 
   it("projects partial, never-observed, failed, exhausted, and unsupported usage explicitly", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(t0);
+
     const partial = scrydexUsageProvider({ body: { data: { ...syntheticUsageData, credits_remaining: undefined } } });
     expect(await scrydexBudget(partial.registry)).toMatchObject({
       freshness: "fresh",
@@ -345,6 +348,9 @@ describe("Catalog provider usage budget read model", () => {
   });
 
   it("keeps credentials, account fields, and provider URLs out of the composed read model", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(t0);
+
     const provider = scrydexUsageProvider({
       body: {
         data: { ...syntheticUsageData, account_id: "synthetic-account-8427" },

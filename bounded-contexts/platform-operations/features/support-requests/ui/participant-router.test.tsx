@@ -78,7 +78,7 @@ describe("real-router transition/accessibility/reload matrix", () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     router.dispose();
   });
-  it("actual submit disables busy, lost response announces/focuses ambiguity, check-status token drives second loader and authoritative timeline", async () => {
+  it("participant form busies only its own submission without disabling, suppresses a second submit, and recovers ambiguity", async () => {
     auth.mockResolvedValue(actor);
     let release: (() => void) | undefined;
     let check = false;
@@ -143,15 +143,15 @@ describe("real-router transition/accessibility/reload matrix", () => {
     expect(reads).toHaveLength(1);
     expect(screen.queryByText("No delivery recorded")).toBeNull();
     await user.click(submit);
-    await waitFor(() =>
-      expect(
-        screen
-          .getByRole("button", {
-            name: t("support.features.supportRequests.ui.supportRequestDetailPage.evidence.submit"),
-          })
-          .matches(":disabled"),
-      ).toBe(true),
-    );
+    const pendingSubmit = screen.getByRole("button", {
+      name: t("support.features.supportRequests.ui.supportRequestDetailPage.evidence.submit"),
+    });
+    await waitFor(() => {
+      expect(pendingSubmit.closest("form")?.getAttribute("aria-busy")).toBe("true");
+      expect(pendingSubmit.matches(":disabled")).toBe(false);
+    });
+    await user.click(pendingSubmit);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     await waitFor(() => expect(release).toBeDefined());
     release!();
     const announcement = await screen.findByRole("heading", { name: t("support.participantAttempt.checkBeforeRetry") });

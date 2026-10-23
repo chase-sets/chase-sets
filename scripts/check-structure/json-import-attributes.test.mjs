@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -5,12 +6,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   inspectJsonImportAttributes,
   manifestHostRegistrationFields,
   validateJsonImportAttributes,
 } from "./json-import-attributes.mjs";
 import { findContextRootExportViolation, isApprovedCrossContextTypeContractImport } from "./run.mjs";
+import { workspaceRoots } from "../lib/repo.mjs";
 
 function withFixture(files, callback) {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "json-import-attributes-"));
@@ -695,16 +698,198 @@ describe("manifest host-registration predicate parity", () => {
 });
 
 describe("real repository execution membership", () => {
+  it("census work stays source-bounded", async () => {
+    const { inventory } = await validateJsonImportAttributes();
+    const { work } = inventory;
+    const parseSources = new Set([
+      ...work.manifestCandidates,
+      ...work.configParses,
+      ...work.closures.flatMap(({ relevant }) => relevant),
+    ]);
+    console.info(
+      JSON.stringify({
+        censusWork: {
+          gitSubprocesses: work.gitSubprocesses,
+          wholeTreeScans: work.wholeTreeScans,
+          indexCandidates: work.indexCandidates.length,
+          discoveredWorkspaces: work.discoveredWorkspaces.length,
+          enrolledWorkspaces: work.enrolledWorkspaces.length,
+          distinctReads: new Set(work.fileReads).size,
+          repeatedReads: work.fileReads.length - new Set(work.fileReads).size,
+          fullParses: work.fullParses.length,
+          repeatedParses: work.fullParses.length - new Set(work.fullParses).size,
+          sourceDerivedParseCeiling: parseSources.size,
+          closures: work.closures.map(({ seeds, indexed, relevant, size }) => ({
+            seeds,
+            indexed,
+            relevant: relevant.length,
+            size,
+          })),
+        },
+      }),
+    );
+    expect(
+      work.fullParses.length,
+      "full parses exceed source-derived manifest ancestor/config ceiling",
+    ).toBeLessThanOrEqual(parseSources.size);
+    expect(work.fullParses.every((file) => parseSources.has(file))).toBe(true);
+    expect(work.fileReads.length).toBe(new Set(work.fileReads).size);
+    expect(work.fullParses.length).toBe(new Set(work.fullParses).size);
+    expect(work.wholeTreeScans).toBeLessThanOrEqual(1);
+    expect(work.gitSubprocesses).toBe(2);
+    const indexedSources = execFileSync("git", ["ls-files", "--", "*.ts", "*.tsx", "*.mts", "*.cts"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
+      .trim()
+      .split(/\r?\n/)
+      .sort();
+    expect(work.indexCandidates).toEqual(indexedSources);
+    const indexedSourceSet = new Set(indexedSources);
+    expect(
+      work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
+    ).toBe(true);
+    const workspacePackageJson = new RegExp(`^(?:${workspaceRoots.join("|")})/[^/]+/package\\.json$`);
+    const indexedWorkspaces = execFileSync("git", ["ls-files", "--", "*/package.json"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
+      .trim()
+      .split(/\r?\n/)
+      .filter((file) => workspacePackageJson.test(file))
+      .sort();
+    expect([...work.enrolledWorkspaces].sort()).toEqual(indexedWorkspaces);
+  });
+
+  it("retains cyclic value paths without promoting type-only edges or parsing irrelevant branches", () => {
+    withFixture(
+      contextFiles('export { default as contextManifest } from "./context.json" with { type: "json" };', {
+        "deployables/platform-api/src/generated/api-context-registry.ts":
+          'import "../../../../bounded-contexts/example/bridge"; import "../../../../bounded-contexts/example/unused";',
+        "bounded-contexts/example/bridge.ts": 'export * from "./loop"; import type { Shape } from "./types";',
+        "bounded-contexts/example/loop.ts": 'export * from "./bridge"; export * from "./index";',
+        "bounded-contexts/example/types.ts": 'import contextManifest from "./context.json"; export type Shape = {};',
+        "bounded-contexts/example/unused.ts": "export const unrelated = true;",
+      }),
+      ({ rootDir, paths }) => {
+        const result = inspectJsonImportAttributes({ rootDir, paths });
+        expect(result.declarations.map(({ relativeFile, disposition }) => [relativeFile, disposition])).toEqual([
+          ["bounded-contexts/example/index.ts", "node-enforced"],
+          ["bounded-contexts/example/types.ts", "indeterminate"],
+        ]);
+        expect(result.work.fileReads).toContain("bounded-contexts/example/unused.ts");
+        expect(result.work.fullParses).not.toContain("bounded-contexts/example/unused.ts");
+        expect(result.work.fullParses.length).toBe(new Set(result.work.fullParses).size);
+      },
+    );
+  });
+
+  it("keeps the Git-index census digest unchanged after ignored and untracked generated output", () => {
+    withFixture(
+      contextFiles('export { default as contextManifest } from "./context.json" with { type: "json" };', {
+        ".gitignore": "generated/\n",
+      }),
+      ({ rootDir }) => {
+        const git = (...args) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", timeout: 10_000 });
+        git("init", "--quiet");
+        git("add", ".");
+        const digest = () => {
+          const inventory = inspectJsonImportAttributes({ rootDir });
+          const records = inventory.declarations.map(
+            ({ relativeFile, form, specifier, attributeText, resolved, disposition }) => ({
+              relativeFile,
+              form,
+              specifier,
+              attributeText,
+              resolved,
+              disposition,
+            }),
+          );
+          return {
+            digest: createHash("sha256").update(JSON.stringify(records)).digest("hex"),
+            partition: inventory.partition,
+            candidates: inventory.work.indexCandidates,
+          };
+        };
+        const before = digest();
+        mkdirSync(path.join(rootDir, "generated"));
+        writeFileSync(
+          path.join(rootDir, "generated/ignored.ts"),
+          'import manifest from "../bounded-contexts/example/context.json";',
+        );
+        writeFileSync(
+          path.join(rootDir, "untracked.ts"),
+          'export { default } from "./bounded-contexts/example/context.json";',
+        );
+        const after = digest();
+        expect(git("status", "--porcelain", "--ignored")).toContain("!! generated/");
+        expect(git("status", "--porcelain", "--ignored")).toContain("?? untracked.ts");
+        expect(after).toEqual(before);
+        console.info(JSON.stringify({ ignoredOutputDigest: { before: before.digest, after: after.digest } }));
+      },
+    );
+  });
+
+  it.each([
+    ["an untracked manifest for a tracked workspace", "bounded-contexts/draft/context.json", { contextName: "draft" }],
+    [
+      "an untracked workspace resolving a tracked importer",
+      "bounded-contexts/rogue/package.json",
+      { name: "@chase-sets/rogue", exports: { ".": "../example/extra.ts" } },
+    ],
+  ])("keeps the Git-index partition unchanged after %s", (_case, untrackedFile, untrackedJson) => {
+    withFixture(
+      contextFiles(
+        'export { default as contextManifest } from "./context.json" with { type: "json" };\n' +
+          'import draft from "@chase-sets/draft/context" with { type: "json" };',
+        {
+          "deployables/platform-api/src/generated/api-context-registry.ts":
+            'import "@chase-sets/example";\nimport "@chase-sets/rogue";\n',
+          "bounded-contexts/example/extra.ts": 'import manifest from "./context.json" with { type: "json" };',
+          "bounded-contexts/draft/package.json": JSON.stringify({
+            name: "@chase-sets/draft",
+            exports: { "./context": "./context.json" },
+          }),
+        },
+      ),
+      ({ rootDir }) => {
+        const git = (...args) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", timeout: 10_000 });
+        git("init", "--quiet");
+        git("add", ".");
+        const inspect = () => {
+          const { declarations, partition, discoveryViolations, work } = inspectJsonImportAttributes({ rootDir });
+          const records = declarations.map(({ relativeFile, specifier, resolved, disposition }) => ({
+            relativeFile,
+            specifier,
+            resolved,
+            disposition,
+          }));
+          return { census: { records, partition, discoveryViolations }, work };
+        };
+        const before = inspect();
+        expect(before.census.partition).toMatchObject({ "node-enforced": 1, indeterminate: 1 });
+        mkdirSync(path.dirname(path.join(rootDir, untrackedFile)), { recursive: true });
+        writeFileSync(path.join(rootDir, untrackedFile), JSON.stringify(untrackedJson));
+        const after = inspect();
+        expect(git("status", "--porcelain")).toContain(`?? ${path.posix.dirname(untrackedFile)}/`);
+        expect(after.census).toEqual(before.census);
+        expect(after.work.enrolledWorkspaces).toEqual(before.work.enrolledWorkspaces);
+      },
+    );
+  });
+
   it("derives the exact real census and execution partition within the default timeout", async () => {
     const result = await validateJsonImportAttributes();
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(134);
+    expect(result.inventory.declarations).toHaveLength(135);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 57,
       "vite-excluded": 53,
-      "vitest-excluded": 24,
+      "vitest-excluded": 25,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -719,7 +904,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "272f9a49e7f6004cdf3d1143a57fd95f097184ec0205d986d0cb072e4b1df262",
+      "ffbc641c1fbbd64cc206f4520d3bb11c9b53082d772c71caa375eec32f5c3ee0",
     );
     expect(
       normalized.filter(

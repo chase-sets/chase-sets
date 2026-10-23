@@ -370,7 +370,7 @@ function requireVerifierSourceObservationMappingContract(profileVersion) {
 }
 
 function prepareVerifierSourceObservationPayload({ payload, providerProfile }) {
-  if (providerProfile.connector.kind === "tcgplayer-automation-client") {
+  if (providerProfile.providerKey === "tcgplayer") {
     throw new Error("Representative Observation Packs cannot use the TCGplayer commerce connector.");
   }
   if (

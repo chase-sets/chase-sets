@@ -195,8 +195,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 21,
-      authoritativeSites: 21,
+      discoveredCallCandidates: 18,
+      authoritativeSites: 18,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -228,7 +228,7 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
-          line: 168,
+          line: 169,
         }),
         expect.objectContaining({
           category: "member-declaration",
@@ -254,6 +254,11 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
           category: "member-declaration",
           file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
           line: 71,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
+          line: 247,
         }),
       ]),
     );

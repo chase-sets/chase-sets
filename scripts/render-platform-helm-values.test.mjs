@@ -1,14 +1,19 @@
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
 import {
   buildDoksIngressValues,
   buildPlatformHelmProductionValues,
+  buildPlatformHelmPreviewValues,
   buildPlatformHelmValues,
   buildPlatformHelmStagingValues,
   buildPreviewDoksIngressValues,
   componentUsesDatabaseSecret,
   chartValuesRelativePath,
+  chartPreviewValuesRelativePath,
+  runtimeValuesRelativePath,
   doksStagingApiOverrides,
   doksStagingWorkerAutoscaling,
   doksStagingWorkerEnvOverrides,
@@ -261,18 +266,18 @@ describe("render platform Helm values", () => {
     }
   });
 
-  it("renders both keyrings only as shared API/worker Secret references", () => {
+  it("renders the retained channel keyring only as shared API/worker Secret references", () => {
     const base = buildPlatformHelmValues({ repoRoot });
     for (const build of [buildPlatformHelmValues, buildPlatformHelmStagingValues, buildPlatformHelmProductionValues]) {
       const values = build({ repoRoot });
       for (const host of ["platform-api", "platform-worker"]) {
         const effective = values.components[host].env ?? base.components[host].env;
-        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON"])
           expect(effective.find((entry) => entry.name === name)).toEqual({ name, secret: true, secretKey: name });
       }
       for (const [name, component] of Object.entries(values.components)) {
         if (!["platform-api", "platform-worker"].includes(name))
-          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON"])
             expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
               secretName,
             );
@@ -311,6 +316,45 @@ describe("render platform Helm values", () => {
   });
   it("keeps generated values current", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
+  });
+
+  it("generates only the seven interim memory requests and required preview stack isolation", () => {
+    const expected = {
+      global: { previewStackIsolation: true },
+      components: {
+        "public-web": { resources: { requests: { memory: "1024Mi" } } },
+        marketplace: { resources: { requests: { memory: "1152Mi" } } },
+        "admin-web": { resources: { requests: { memory: "832Mi" } } },
+        "platform-api": { resources: { requests: { memory: "640Mi" } } },
+        "platform-worker": { resources: { requests: { memory: "832Mi" } } },
+        "platform-bootstrap": { resources: { requests: { memory: "1152Mi" } } },
+      },
+      previewPostgres: { resources: { requests: { memory: "448Mi" } } },
+    };
+    expect(buildPlatformHelmPreviewValues()).toEqual(expected);
+    expect(parseYaml(readFileSync(path.join(repoRoot, chartPreviewValuesRelativePath), "utf8"))).toEqual(expected);
+    const runtimeRequest = Object.entries(expected.components)
+      .filter(([name]) => name !== "platform-bootstrap")
+      .reduce((sum, [, component]) => sum + mebibytes(component.resources.requests.memory), 448);
+    expect(runtimeRequest).toBe(4928);
+    expect(448 + mebibytes(expected.components["platform-bootstrap"].resources.requests.memory)).toBe(1600);
+    expect(runtimeRequest).toBeLessThanOrEqual(6002);
+  });
+
+  it("checks both missing and stale generated preview values", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "platform-preview-values-"));
+    try {
+      mkdirSync(path.dirname(path.join(root, runtimeValuesRelativePath)), { recursive: true });
+      copyFileSync(path.join(repoRoot, runtimeValuesRelativePath), path.join(root, runtimeValuesRelativePath));
+      syncPlatformHelmValues({ repoRoot: root });
+      expect(() => syncPlatformHelmValues({ repoRoot: root, check: true })).not.toThrow();
+      writeFileSync(path.join(root, chartPreviewValuesRelativePath), "global: {}\n");
+      expect(() => syncPlatformHelmValues({ repoRoot: root, check: true })).toThrow("values.preview.yaml is stale");
+      rmSync(path.join(root, chartPreviewValuesRelativePath));
+      expect(() => syncPlatformHelmValues({ repoRoot: root, check: true })).toThrow("values.preview.yaml is missing");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("derives the production cutover posture from the authoritative Terraform parity map", async () => {
@@ -689,9 +733,8 @@ describe("render platform Helm values", () => {
 
   it("keeps preview and production tolerant liveness in the shared base chart", () => {
     // scripts/platform-kubernetes-deployment.mjs's platformValuesPathForEnvironment
-    // supplies environment overlays for staging and production, but neither
-    // overlay owns component probe behavior. Preview renders values.yaml
-    // alone. The live preview evidence for #4765 (namespace
+    // supplies environment overlays, but no overlay owns component probe
+    // behavior. The live preview evidence for #4765 (namespace
     // chase-sets-pr-4766) was hit on exactly this base-only path, which is why
     // the fix must stay in the base chart rather than an environment overlay.
     const previewAndProductionApi = buildPlatformHelmValues({ repoRoot }).components["platform-api"];
@@ -703,7 +746,7 @@ describe("render platform Helm values", () => {
       timeoutSeconds: 5,
       failureThreshold: 6,
     });
-    // Preview/production get no replica/resource override -- only staging does.
+    // The shared base itself has no replica/resource override.
     expect(previewAndProductionApi.replicas).toBe(1);
     expect(previewAndProductionApi.resources).toEqual({});
   });
@@ -1156,11 +1199,18 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 134,
-      "platform-bootstrap": 63,
-      "platform-worker": 136,
+      "platform-api": 130,
+      "platform-bootstrap": 59,
+      "platform-worker": 132,
       "public-web": 13,
     });
+    const retiredNames = Object.values(values.components).flatMap((component) =>
+      component.env.filter(
+        (entry) =>
+          entry.name === "CATALOG_OPERATOR_SESSION_KEYRING_JSON" || entry.name.startsWith("TCGPLAYER_AUTOMATION_"),
+      ),
+    );
+    expect(retiredNames).toEqual([]);
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
     expect(componentEnvKeys(values.components["platform-api"])).toContain("DATABASE_URL_COMMERCIAL_TERMS");
     expect(componentEnvKeys(values.components["platform-api"])).toContain("DATABASE_URL_INVENTORY_WAITER");

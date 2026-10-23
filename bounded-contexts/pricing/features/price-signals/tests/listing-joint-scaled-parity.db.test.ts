@@ -10,7 +10,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as pricingModule } from "../../../index";
 import { mapProviderObservationCapture } from "../domain/provider-observation-mapper";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
-import type { TcgplayerSecondaryObservation } from "../integrations/tcgplayer/market-client";
+import type { TcgplayerSecondaryObservation } from "../domain/provider-observation-types";
 import { listProviderListingAskGroups } from "../read-model/provider-observation-queries";
 import { commitProviderObservationCapture } from "../read-model/provider-observation-writes";
 
