@@ -89,7 +89,7 @@ export function buildReleaseLockCommands(input) {
 }
 
 /**
- * Evaluates the structured result of `gh variable list --env <name>` after a
+ * Evaluates the structured result of `gh variable list --env <name> --json name,value` after a
  * printed unlock command sequence. The list operation is the only completion
  * authority; individual delete results are intentionally not accepted here.
  */

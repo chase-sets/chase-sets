@@ -338,6 +338,8 @@ describe("five-field lock lifecycle", () => {
       expect(doc).toContain('gh variable delete PRODUCTION_RELEASE_LOCK_DEADLINE --env "production"');
       expect(doc).toContain('gh variable set ... --body ""');
       expect(doc).toContain("readback succeeds");
+      expect(doc).not.toMatch(/only after that readback is complete/);
+      expect(doc).toMatch(/False (stale fields are ignored everywhere|state ignores even malformed stale metadata)/);
       expect(doc).toMatch(/TRUE LAST|LOCKED=true` \*\*last\*\*/i);
       expect(doc).toMatch(/FALSE FIRST|LOCKED=false` \*\*first\*\*/i);
       expect(doc).toContain("platform-production-lock-monitor.yml --ref main");
