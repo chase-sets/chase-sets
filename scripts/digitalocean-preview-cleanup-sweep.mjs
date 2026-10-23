@@ -501,7 +501,7 @@ export async function retirePreviewTerraformState(options = {}, dependencies = {
     }
   } catch (error) {
     record.headBeforeStateList = { status: "failed", versionId: null };
-    record.errors.push("Initial state-object head failed; state was left untouched.");
+    record.errors.push(`Initial state-object head failed; state was left untouched: ${describeError(error)}`);
     return record;
   }
 
@@ -509,7 +509,7 @@ export async function retirePreviewTerraformState(options = {}, dependencies = {
     await terraform(backendArgs);
   } catch (error) {
     record.stateList = { status: "backend-init-failed", empty: null, resourceCount: null };
-    record.errors.push("Terraform backend initialization failed; state was left untouched.");
+    record.errors.push(`Terraform backend initialization failed; state was left untouched: ${describeError(error)}`);
     return record;
   }
 
@@ -526,7 +526,7 @@ export async function retirePreviewTerraformState(options = {}, dependencies = {
     }
   } catch (error) {
     record.stateList = { status: "failed", empty: null, resourceCount: null };
-    record.errors.push("Terraform state list failed; state was left untouched.");
+    record.errors.push(`Terraform state list failed; state was left untouched: ${describeError(error)}`);
     return record;
   }
 
@@ -540,7 +540,7 @@ export async function retirePreviewTerraformState(options = {}, dependencies = {
     }
   } catch (error) {
     record.versioning = { status: "failed" };
-    record.errors.push("State bucket versioning probe failed; state was left untouched.");
+    record.errors.push(`State bucket versioning probe failed; state was left untouched: ${describeError(error)}`);
     return record;
   }
 
@@ -553,7 +553,7 @@ export async function retirePreviewTerraformState(options = {}, dependencies = {
     }
   } catch (error) {
     record.headBeforeDelete = { status: "failed", versionId: null };
-    record.errors.push("Final state-object head failed; state was left untouched.");
+    record.errors.push(`Final state-object head failed; state was left untouched: ${describeError(error)}`);
     return record;
   }
 
@@ -564,7 +564,7 @@ export async function retirePreviewTerraformState(options = {}, dependencies = {
     record.result = "success";
   } catch (error) {
     record.delete = { status: "failed" };
-    record.errors.push("State-object delete failed; state may still be present.");
+    record.errors.push(`State-object delete failed; state may still be present: ${describeError(error)}`);
   }
   return record;
 }
@@ -2012,9 +2012,9 @@ function parseRetireStateArgs(argv, env = process.env) {
   const rawPrNumber = readOption(argv, "--pr-number", env.PREVIEW_PR_NUMBER ?? "");
   return {
     prNumber: /^\d+$/.test(rawPrNumber) ? Number.parseInt(rawPrNumber, 10) : Number.NaN,
-    bucket: readOption(argv, "--bucket", env.TERRAFORM_STATE_BUCKET ?? DEFAULT_STATE_BUCKET),
+    bucket: DEFAULT_STATE_BUCKET,
     endpointUrl: readOption(argv, "--endpoint-url", env.SPACES_ENDPOINT_URL ?? DEFAULT_SPACES_ENDPOINT),
-    prefix: readOption(argv, "--prefix", env.PREVIEW_STATE_PREFIX ?? DEFAULT_PREVIEW_STATE_PREFIX),
+    prefix: DEFAULT_PREVIEW_STATE_PREFIX,
     terraformDirectory: readOption(
       argv,
       "--terraform-directory",

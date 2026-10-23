@@ -97,6 +97,15 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       headBeforeDelete: { versionId: "version-17" },
     });
     expect(headCount).toBe(2);
+    expect(commands.map(([command, args]) => `${command} ${args.join(" ")}`)).toEqual([
+      expect.stringContaining("aws s3api head-object"),
+      expect.stringContaining("terraform -chdir=infrastructure/digitalocean/platform init"),
+      expect.stringContaining("terraform -chdir=infrastructure/digitalocean/platform state list"),
+      expect.stringContaining("aws s3api get-bucket-versioning"),
+      expect.stringContaining("aws s3api head-object"),
+      expect.stringContaining("aws s3api delete-object"),
+    ]);
+    expect(commands[1][1]).toContain("-backend-config=key=platform/previews/pr-17.tfstate");
     expect(commands.at(-1)).toEqual([
       "aws",
       [
@@ -117,6 +126,8 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     ["non-empty state", "digitalocean_database_cluster.postgres\n", "enabled"],
     ["failed state list", new Error("state list failed"), "enabled"],
     ["suspended versioning", "", "suspended"],
+    ["absent versioning", "", "absent"],
+    ["malformed versioning", "", "malformed"],
   ])("leaves the state object when the %s guard refuses", async (_label, stateList, versioningMode) => {
     const commands = [];
     const record = await retirePreviewTerraformState(
@@ -129,8 +140,11 @@ describe("digitalocean-preview-cleanup-sweep", () => {
             return stateList;
           }
           if (command === "terraform") return "initialized";
-          if (args.includes("get-bucket-versioning"))
+          if (args.includes("get-bucket-versioning")) {
+            if (versioningMode === "malformed") return "not-json";
+            if (versioningMode === "absent") return JSON.stringify({});
             return JSON.stringify({ Status: versioningMode === "enabled" ? "Enabled" : "Suspended" });
+          }
           if (args.includes("head-object")) return JSON.stringify({ VersionId: "version-18" });
           return "deleted";
         },
@@ -139,6 +153,32 @@ describe("digitalocean-preview-cleanup-sweep", () => {
 
     expect(record.result).toBe("failure");
     expect(record.outcome).toBe("refused");
+    expect(commands.some(([, args]) => args.includes("delete-object"))).toBe(false);
+  });
+
+  it("refuses before state list when backend initialization fails and records the backend key", async () => {
+    const commands = [];
+    const record = await retirePreviewTerraformState(
+      { prNumber: 21, cleanupSucceeded: true, checkedAt: "2026-07-04T12:00:00.000Z" },
+      {
+        commandOutput: async (command, args) => {
+          commands.push([command, args]);
+          if (command === "aws" && args.includes("head-object")) return JSON.stringify({ VersionId: "version-21" });
+          if (command === "terraform") throw new Error("backend unavailable");
+          return JSON.stringify({ Status: "Enabled" });
+        },
+      },
+    );
+
+    expect(record).toMatchObject({
+      result: "failure",
+      outcome: "refused",
+      stateList: { status: "backend-init-failed" },
+    });
+    expect(record.errors[0]).toContain("backend unavailable");
+    expect(commands).toHaveLength(2);
+    expect(commands[1][1]).toContain("-backend-config=key=platform/previews/pr-21.tfstate");
+    expect(commands.some(([, args]) => args.includes("state"))).toBe(false);
     expect(commands.some(([, args]) => args.includes("delete-object"))).toBe(false);
   });
 

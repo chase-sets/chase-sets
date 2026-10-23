@@ -90,6 +90,24 @@ describe("platform staging reset provider credential contract", () => {
       expect.stringContaining("provider-touching step 'unnamed step' invokes aws but does not declare step env"),
     ]);
   });
+
+  it("discovers aws calls through the shared command helper in an invoked script", () => {
+    const inlineWorkflow = `jobs:
+  test:
+    steps:
+      - name: Run cleanup script
+        env:
+          AWS_ACCESS_KEY_ID: test-access
+          AWS_SECRET_ACCESS_KEY: test-secret
+        run: node scripts/cleanup.mjs
+`;
+    const result = checkWorkflowProviderCredentials(inlineWorkflow, {
+      readScript: (scriptPath) => (scriptPath === "scripts/cleanup.mjs" ? 'output("aws", ["s3api", "ls"])' : null),
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.checkedSteps).toEqual([expect.objectContaining({ name: "Run cleanup script", tools: ["aws"] })]);
+  });
 });
 
 describe("preview state retirement provider credential contract", () => {

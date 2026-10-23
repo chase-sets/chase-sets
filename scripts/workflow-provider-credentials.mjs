@@ -18,6 +18,8 @@ const providerToolRequirements = [
     tool: "aws",
     pattern:
       /(?:^|[\s;&|$(])aws(?=\s|$)|node\s+scripts\/digitalocean-preview-cleanup-sweep\.mjs\s+retire-state(?:\s|$)/m,
+    scriptPattern:
+      /(?:execFile|execFileSync|spawn|spawnSync|commandOutput|commandJson|output|json)\s*\(\s*["']aws["']/m,
     requiredEnv: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
   },
   {

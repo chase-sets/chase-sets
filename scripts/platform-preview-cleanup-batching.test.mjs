@@ -42,6 +42,23 @@ function runNode(script, { cwd, env }) {
   });
 }
 
+function renderWorkflowRun(run, replacements) {
+  return Object.entries(replacements).reduce((rendered, [from, to]) => rendered.replaceAll(from, to), run);
+}
+
+function renderCleanupStep(name, rootPath, targetFile, replacements = {}) {
+  return renderWorkflowRun(step("destroy-preview", name).run, {
+    "${{ steps.batch-targets.outputs.target_file }}": targetFile,
+    "${{ steps.preview-context.outcome }}": "success",
+    "${{ github.event_name }}": "schedule",
+    "${{ matrix.pr_number }}": "1",
+    "${{ matrix.image_sha }}": "abc123",
+    $RUNNER_TEMP: `${rootPath}/runner`,
+    $GITHUB_ENV: `${rootPath}/github-env`,
+    ...replacements,
+  });
+}
+
 const bashLauncher = process.platform === "win32" ? "C:\\Program Files\\Git\\usr\\bin\\bash.exe" : "bash";
 
 function fixtureTargets(count) {
@@ -219,6 +236,164 @@ describe("scheduled preview cleanup batching", () => {
     }
   });
 
+  it.each(["Delete preview DNS records", "Delete preview Kubernetes namespace"])(
+    "records %s failures in the retirement-only ledger",
+    (stepName) => {
+      const root = mkdtempSync(path.join(tmpdir(), "preview-cleanup-ledger-"));
+      const rootPath = root.replaceAll("\\", "/");
+      const bashRoot = rootPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+      const targetFile = `${rootPath}/runner/preview-cleanup-targets`;
+      const run = renderCleanupStep(stepName, rootPath, targetFile);
+      const retire = renderCleanupStep("Retire empty preview Terraform state", rootPath, targetFile);
+      const shell = [
+        "set -uo pipefail",
+        `export RUNNER_TEMP="${rootPath}/runner" GITHUB_ENV="${rootPath}/github-env" PATH="${bashRoot}/bin:/usr/bin:/bin:/mingw64/bin"`,
+        `mkdir -p "${rootPath}/bin" "${rootPath}/runner"`,
+        `printf '1\\n2\\n3\\n' > "${targetFile}"`,
+        `cat > "${rootPath}/bin/node" <<'EOF'`,
+        "#!/usr/bin/env bash",
+        `printf '%s\\n' "$*" >> "${rootPath}/node.log"`,
+        'case "$*" in *"--pr-number 2"*) if [[ "$*" != *"retire-state"* ]]; then exit 1; fi;; esac',
+        "exit 0",
+        "EOF",
+        `chmod +x "${rootPath}/bin/node"`,
+        `cat > "${rootPath}/bin/pnpm" <<'EOF'`,
+        "#!/usr/bin/env bash",
+        'case "$*" in *"chase-sets-pr-2"*) exit 1;; esac',
+        "exit 0",
+        "EOF",
+        `chmod +x "${rootPath}/bin/pnpm"`,
+        `(${run}) || dns_status=$?`,
+        `source "${rootPath}/github-env" 2>/dev/null || true`,
+        `(${retire})`,
+      ].join("\n");
+      const shellPath = `${rootPath}/workflow.sh`;
+      try {
+        writeFileSync(shellPath, shell);
+        const result = spawnSync(bashLauncher, [shellPath], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 });
+        expect(result.status, `${result.stderr}\n${result.stdout}`).toBe(1);
+        expect(readFileSync(path.join(root, "runner/preview-cleanup-incomplete-targets"), "utf8")).toContain("2");
+        expect(readFileSync(path.join(root, "node.log"), "utf8")).toMatch(
+          /retire-state --pr-number 2 --cleanup-succeeded false/,
+        );
+        expect(readFileSync(path.join(root, "node.log"), "utf8")).toMatch(
+          /retire-state --pr-number 1 --cleanup-succeeded true/,
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("runs Terraform destroy for a DNS or namespace failure while retirement still refuses that target", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "preview-cleanup-destroy-"));
+    const rootPath = root.replaceAll("\\", "/");
+    const bashRoot = rootPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+    const targetFile = `${rootPath}/runner/preview-cleanup-targets`;
+    const destroy = renderCleanupStep("Terraform destroy", rootPath, targetFile);
+    const shell = [
+      "set -uo pipefail",
+      `export RUNNER_TEMP="${rootPath}/runner" GITHUB_ENV="${rootPath}/github-env" PATH="${bashRoot}/bin:/usr/bin:/bin:/mingw64/bin"`,
+      `mkdir -p "${rootPath}/bin" "${rootPath}/runner"`,
+      `printf '1\\n2\\n3\\n' > "${targetFile}"`,
+      `printf '2\\n' > "${rootPath}/runner/preview-cleanup-incomplete-targets"`,
+      `: > "${rootPath}/runner/preview-cleanup-failed-targets"`,
+      `cat > "${rootPath}/bin/terraform" <<'EOF'`,
+      "#!/usr/bin/env bash",
+      `printf '%s\\n' "$*" >> "${rootPath}/terraform.log"`,
+      "exit 0",
+      "EOF",
+      `chmod +x "${rootPath}/bin/terraform"`,
+      `(${destroy})`,
+    ].join("\n");
+    const shellPath = `${rootPath}/workflow.sh`;
+    try {
+      writeFileSync(shellPath, shell);
+      const result = spawnSync(bashLauncher, [shellPath], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 });
+      expect(result.status, result.stderr).toBe(0);
+      const log = readFileSync(path.join(root, "terraform.log"), "utf8");
+      expect(log.match(/destroy -auto-approve/g)).toHaveLength(3);
+      expect(log).toContain("key=platform/previews/pr-2.tfstate");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    "Disable stateful destroy guard for approved preview cleanup",
+    "Import live preview database cluster into cleanup state",
+  ])("keeps %s red when its command fails", (stepName) => {
+    const root = mkdtempSync(path.join(tmpdir(), "preview-cleanup-step-failure-"));
+    const rootPath = root.replaceAll("\\", "/");
+    const bashRoot = rootPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+    const targetFile = `${rootPath}/runner/preview-cleanup-targets`;
+    const run = renderCleanupStep(stepName, rootPath, targetFile);
+    const shell = [
+      "set -uo pipefail",
+      `export RUNNER_TEMP="${rootPath}/runner" GITHUB_ENV="${rootPath}/github-env" PATH="${bashRoot}/bin:/usr/bin:/bin:/mingw64/bin"`,
+      `mkdir -p "${rootPath}/bin" "${rootPath}/runner"`,
+      `printf '1\\n2\\n3\\n' > "${targetFile}"`,
+      `cat > "${rootPath}/bin/node" <<'EOF'`,
+      "#!/usr/bin/env bash",
+      'case "$*" in *"disable-terraform-prevent-destroy"*) exit 1;; *"import-database --pr-number 2"*) exit 1;; esac',
+      "exit 0",
+      "EOF",
+      `chmod +x "${rootPath}/bin/node"`,
+      `cat > "${rootPath}/bin/terraform" <<'EOF'`,
+      "#!/usr/bin/env bash",
+      "exit 0",
+      "EOF",
+      `chmod +x "${rootPath}/bin/terraform"`,
+      `set +e; (${run}); status=$?; set -e; printf 'STATUS=%s\\n' "$status"`,
+    ].join("\n");
+    const shellPath = `${rootPath}/workflow.sh`;
+    try {
+      writeFileSync(shellPath, shell);
+      const result = spawnSync(bashLauncher, [shellPath], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("STATUS=1");
+      expect(readFileSync(path.join(root, "github-env"), "utf8")).toContain("PREVIEW_BATCH_FAILED=1");
+      expect(readFileSync(path.join(root, "runner/preview-cleanup-failed-targets"), "utf8")).toContain("2");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("continues retirement after one target fails and preserves aggregate failure", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "preview-cleanup-retirement-"));
+    const rootPath = root.replaceAll("\\", "/");
+    const bashRoot = rootPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+    const targetFile = `${rootPath}/runner/preview-cleanup-targets`;
+    const retire = renderCleanupStep("Retire empty preview Terraform state", rootPath, targetFile);
+    const shell = [
+      "set -uo pipefail",
+      `export RUNNER_TEMP="${rootPath}/runner" GITHUB_ENV="${rootPath}/github-env" PATH="${bashRoot}/bin:/usr/bin:/bin:/mingw64/bin"`,
+      `mkdir -p "${rootPath}/bin" "${rootPath}/runner"`,
+      `printf '1\\n2\\n3\\n' > "${targetFile}"`,
+      `cat > "${rootPath}/bin/node" <<'EOF'`,
+      "#!/usr/bin/env bash",
+      `printf '%s\\n' "$*" >> "${rootPath}/node.log"`,
+      'case "$*" in *"retire-state --pr-number 2"*) exit 1;; esac',
+      "exit 0",
+      "EOF",
+      `chmod +x "${rootPath}/bin/node"`,
+      `set +e; (${retire}); status=$?; set -e; printf 'STATUS=%s\\n' "$status"`,
+    ].join("\n");
+    const shellPath = `${rootPath}/workflow.sh`;
+    try {
+      writeFileSync(shellPath, shell);
+      const result = spawnSync(bashLauncher, [shellPath], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("STATUS=1");
+      const log = readFileSync(path.join(root, "node.log"), "utf8");
+      expect(log).toMatch(/retire-state --pr-number 1/);
+      expect(log).toMatch(/retire-state --pr-number 2/);
+      expect(log).toMatch(/retire-state --pr-number 3/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps empty discovery as a successful no-op with no destroy matrix", () => {
     const parsed = workflow();
     const discover = parsed.jobs["discover-preview-cleanup"];
@@ -263,6 +438,7 @@ describe("scheduled preview cleanup batching", () => {
     const retirement = step("destroy-preview", "Retire empty preview Terraform state");
     expect(retirement.if).toBe("${{ !cancelled() && steps.batch-targets.outcome == 'success' }}");
     expect(retirement.run).toContain('grep -Fxq "$pr_number" "$failed_targets"');
+    expect(retirement.run).toContain('grep -Fxq "$pr_number" "$incomplete_targets"');
     expect(retirement.run).toContain('--cleanup-succeeded "$cleanup_succeeded"');
     expect(retirement.run).toContain('--out "$record_path"');
     expect(source).toContain('echo "$pr_number" >> "$RUNNER_TEMP/preview-cleanup-failed-targets"');
