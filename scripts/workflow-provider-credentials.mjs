@@ -202,6 +202,12 @@ export function checkWorkflowProviderCredentials(
   const checkedSteps = [];
   const violations = [];
   const indent = stepItemIndent(source);
+  const credentialFreeLockMonitor = workflowFile
+    .replaceAll("\\", "/")
+    .endsWith("/platform-production-lock-monitor.yml");
+  if (credentialFreeLockMonitor && /\bsecrets\s*(?:\.|\[)/.test(source)) {
+    violations.push(`${workflowFile}: production release lock monitor must not read provider secrets.`);
+  }
 
   for (const step of stepBlocks(source, indent)) {
     const run = stepRunBlock(step.source, indent);
@@ -216,6 +222,9 @@ export function checkWorkflowProviderCredentials(
         pattern.test(run) ||
         (scriptPattern && invokedScriptSources.some((scriptSource) => scriptPattern.test(scriptSource))),
     );
+    if (credentialFreeLockMonitor && tools.length > 0) {
+      violations.push(`${workflowFile}: production release lock monitor must not invoke provider tools.`);
+    }
     if (tools.length === 0) continue;
 
     const name = stepName(step.source, indent);

@@ -27,6 +27,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const fixturesDir = path.join(repoRoot, "scripts", "fixtures", "release-qualification-scope");
 const classifierPath = path.join(repoRoot, "scripts", "release-qualification-scope.mjs");
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+it("registers the production lock monitor as advisory, not release selection or deployment", () => {
+  expect(releaseQualificationScopeRegistry.workflows["platform-production-lock-monitor.yml"]).toBe("ci");
+});
 const emit = (label, value) => process.stdout.write(`${label} ${JSON.stringify(value)}\n`);
 const git = (args) => execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
 
