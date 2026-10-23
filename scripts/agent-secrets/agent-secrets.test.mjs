@@ -233,7 +233,11 @@ writeFileSync(
 );
 console.info(
   "[agent-secrets-init]",
-  JSON.stringify({ hookTimeoutMs: 10_000, phases: initializationPhaseTimings, evidencePath: initializationEvidencePath }),
+  JSON.stringify({
+    hookTimeoutMs: 10_000,
+    phases: initializationPhaseTimings,
+    evidencePath: initializationEvidencePath,
+  }),
 );
 
 // A `bws secret list` document whose values are the given strings.
