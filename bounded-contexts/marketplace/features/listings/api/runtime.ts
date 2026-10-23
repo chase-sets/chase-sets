@@ -269,12 +269,7 @@ export type MarketplaceListingServices = Readonly<{
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
     }>,
     context: EventStoreContext,
-  ) => Promise<{
-    listingId: ListingId;
-    version: number;
-    feeQuoteFingerprint: string | null;
-    state: MarketplaceListingState;
-  }>;
+  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
   createListingFromInventorySnapshot: (
     params: Readonly<{
       accountId: string;
