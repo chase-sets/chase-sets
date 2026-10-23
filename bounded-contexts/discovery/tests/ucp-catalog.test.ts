@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   boundPresentment,
+  catalogUcpProduct,
   createDiscoveryUcpHandlers,
   LISTINGS_OMITTED_CONTENT,
   lookupInputs,
@@ -11,6 +12,8 @@ import {
   toUcpMinorUnits,
   type UcpCatalogListing,
 } from "../support/ucp-support/catalog";
+import { ucpSchemaValidator } from "@chase-sets/platform-runtime/ucp-schema-test-support";
+import type { DiscoveryItemDetailRow } from "../features/item-detail/read-model/queries";
 import type { DiscoveryItemsServices } from "../support/item-support/runtime";
 
 function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryItemsServices {
@@ -395,5 +398,72 @@ describe("UCP lookup bounds and inputs follow the currency-delta boundary", () =
     expect(LISTINGS_OMITTED_CONTENT).toBe(
       "Some listings for this product were omitted because their price could not be presented in this product's currency.",
     );
+  });
+});
+
+describe("UCP 2026-08-25 Product resource", () => {
+  it("validates search, lookup and get-product shapes using listing presentment", () => {
+    const source = {
+      catalog_item_id: "cat_1",
+      slug: "charizard-cat-1",
+      title: "Charizard",
+      description: "A fiery card.",
+      market_listings: [
+        {
+          listing_id: "lst_usd",
+          listing_slug: "charizard-usd",
+          product_slug: "charizard-raw",
+          account_id: "acc_1",
+          inventory_item_id: "inv_1",
+          catalog_catalog_item_id: "cat_1",
+          product_id: "prod_1",
+          item_title: "Charizard Raw",
+          item_subtitle: null,
+          selected_options: [],
+          product_summary: "Raw",
+          graded_card: null,
+          storage_location_name: null,
+          ship_from_code: "US-IL",
+          price_amount: "12.34",
+          price_currency_code: "USD",
+          listing_stream_version: 1,
+          shipping_allowance_percentage_bps: 0,
+          quantity_cap: 1,
+          max_units_per_order: null,
+          max_units_per_day: null,
+          max_units_per_customer_account: null,
+          status: "active",
+          seller_slug: "seller",
+          seller_display_name: "Seller",
+          seller_average_rating: null,
+          seller_review_count: 0,
+          seller_badges: [],
+          seller_at_capacity: false,
+          visible_quantity: 1,
+          created_at: "2026-10-16T00:00:00Z",
+          updated_at: "2026-10-16T00:00:00Z",
+        },
+      ],
+    } as unknown as DiscoveryItemDetailRow;
+    const presentment = selectPresentment(source.market_listings, "USD")!;
+    const request = new Request("https://marketplace.example/ucp/v1/catalog");
+    const validateProduct = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/types/product.json");
+    for (const mode of ["search", "lookup", "get_product"] as const) {
+      const product = catalogUcpProduct({
+        source,
+        presentment,
+        request,
+        mode,
+        inputs: [{ id: "lst_usd", match: "featured" }],
+      });
+      expect(validateProduct(product), mode).toBe(true);
+      expect(product).toMatchObject({
+        id: "cat_1",
+        url: "https://marketplace.example/items/charizard-cat-1",
+        price_range: { min: { currency: "USD", amount: 1234 }, max: { amount: 1234 } },
+        variants: [{ id: "lst_usd", price: { currency: "USD", amount: 1234 } }],
+      });
+      if (mode === "lookup") expect(product.variants).toHaveLength(1);
+    }
   });
 });

@@ -6,11 +6,13 @@ import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp"
 import {
   createCheckoutUcpHandlers,
   checkoutUcpState,
+  checkoutUcpResource,
   resolveCheckoutUcpQuote,
   type CheckoutUcpListing,
   type CheckoutUcpOrderFact,
   type CheckoutUcpQuote,
 } from "../support/ucp-support/checkout";
+import { ucpSchemaValidator } from "@chase-sets/platform-runtime/ucp-schema-test-support";
 import type { CheckoutFulfillmentPreview } from "../features/sessions/domain/fulfillment-preview";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
@@ -268,6 +270,49 @@ describe("UCP buy-now readiness AC1", () => {
       expect.objectContaining({ code: "unresolved_fulfillment" }),
     ]);
     expect(f.writes.recordFulfillmentPreview).not.toHaveBeenCalled();
+  });
+});
+
+describe("UCP 2026-08-25 Checkout resource", () => {
+  it("validates the resource shape and applies expiry, links, messages and order confirmation", () => {
+    const request = new Request("https://marketplace.example/ucp/v1/checkout-sessions");
+    const resource = checkoutUcpResource({
+      session: session({ order_ids: ["ord_1", "ord_2"], handoff_expires_at: "2026-10-16T06:00:00.000Z" }),
+      state: checkoutUcpState(session({ order_ids: ["ord_1", "ord_2"] }), [
+        { id: "ord_1", readyForFulfillmentAt: "2026-10-16T07:00:00Z" },
+        { id: "ord_2", readyForFulfillmentAt: "2026-10-16T07:01:00Z" },
+      ]),
+      quote: {
+        subtotal: "20.00",
+        fulfillment: "5.00",
+        tax: "2.00",
+        total: "27.00",
+        linePrice: () => "20.00",
+      },
+      payment: { currency_code: "USD" },
+      request,
+      now: new Date("2026-10-16T07:00:00Z"),
+    });
+    const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/checkout.json");
+    expect(validate({ ...resource, ucp: { version: "2026-08-25", status: "success", payment_handlers: {} } })).toBe(
+      true,
+    );
+    expect(resource).toMatchObject({
+      status: "completed",
+      currency: "USD",
+      totals: [
+        { type: "subtotal", amount: 2000 },
+        { type: "fulfillment", amount: 500 },
+        { type: "tax", amount: 200 },
+        { type: "total", amount: 2700 },
+      ],
+      order: { id: "ord_1", permalink_url: "https://marketplace.example/account/purchases" },
+    });
+    expect(resource).not.toHaveProperty("expires_at");
+    expect(resource.links).toEqual([
+      { type: "terms_of_service", url: "https://marketplace.example/terms" },
+      { type: "privacy_policy", url: "https://marketplace.example/privacy" },
+    ]);
   });
 });
 
