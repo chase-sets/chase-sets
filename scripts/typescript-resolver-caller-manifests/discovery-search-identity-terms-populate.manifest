@@ -342,6 +342,7 @@
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/listings/read-model/projection.ts","specifier":"@chase-sets/bounded-context-runtime","resolved":"repo:/infrastructure/bounded-context-runtime/index.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/listings/read-model/projection.ts","specifier":"@chase-sets/event-core-postgres","resolved":"repo:/infrastructure/event-core-postgres/index.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/listings/read-model/projection.ts","specifier":"@chase-sets/event-core/projector","resolved":"repo:/contracts/event-core/projector.ts"}]
+["candidate","edges",{"from":"bounded-contexts/marketplace/features/listings/read-model/projection.ts","specifier":"@chase-sets/event-core/public-event-payloads","resolved":"repo:/contracts/event-core/public-event-payloads/index.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/listings/read-model/projection.ts","specifier":"@chase-sets/platform-runtime/realtime","resolved":"repo:/infrastructure/platform-runtime/realtime.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/listings/read-model/queries.ts","specifier":"../domain/domain","resolved":"repo:/bounded-contexts/marketplace/features/listings/domain/domain.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/listings/read-model/queries.ts","specifier":"../domain/evidence-gallery","resolved":"repo:/bounded-contexts/marketplace/features/listings/domain/evidence-gallery.ts"}]
