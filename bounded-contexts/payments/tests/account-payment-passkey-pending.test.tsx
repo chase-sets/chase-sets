@@ -133,7 +133,8 @@ describe.each(["normal completion", "assertion failure", "pending unmount"])(
             await act(async () => {
               release();
               await response;
-              await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+              // RTL waitFor temporarily disables the act environment.
+              await vi.waitFor(() => expect(router.state.navigation.state).toBe("idle"));
             });
           } finally {
             try {
