@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "bundle-node-service-timing/v1",
+  "baselineHead": "940e5d81644e137b5925b017c0f2aca987f981e1",
+  "vitestTimeoutMs": 5000,
+  "baselineEvidence": {
+    "parallel": {
+      "timeoutCases": 6,
+      "totalCases": 9,
+      "durationMs": 33935,
+      "source": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/9877-impl-g24-G4-main-executed.log"
+    },
+    "fileSerialSingleWorker": {
+      "thirdPartyExternalResolution": "timeout",
+      "source": "D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/logs/9877-impl-g24-G4-M-serial.log"
+    }
+  },
+  "repeatedWorkMeasurement": {
+    "runs": [
+      {
+        "case": "observability-prelude",
+        "run": 1,
+        "fixtureMs": 9,
+        "bundleNodeServiceMs": 2810,
+        "childNodeStartMs": 91
+      },
+      {
+        "case": "third-party-external-resolution",
+        "run": 1,
+        "fixtureMs": 6,
+        "bundleNodeServiceMs": 1844,
+        "childNodeStartMs": 376
+      }
+    ],
+    "dominantCost": "bundleNodeService",
+    "attribution": "The custom onResolve hook called bundler.resolve for every import. Instrumented runs measured about 1000-1160 ms for each resolver call, including relative workspace imports that cannot become externals. The repair limits custom resolution to bare package specifiers and uses the native resolver for relative imports.",
+    "afterRepairRuns": [
+      {
+        "case": "six-named-tests",
+        "run": 1,
+        "durationsMs": {
+          "observability-prelude-platform-api": 1057,
+          "observability-prelude-platform-worker": 932,
+          "third-party-external-resolution": 1010,
+          "unlisted-import-meta-url": 1024,
+          "unlisted-listed-source-asset": 900,
+          "golden-fixture-copy": 1215
+        }
+      },
+      {
+        "case": "six-named-tests",
+        "run": 2,
+        "durationsMs": {
+          "observability-prelude-platform-api": 1016,
+          "observability-prelude-platform-worker": 964,
+          "third-party-external-resolution": 1074,
+          "unlisted-import-meta-url": 961,
+          "unlisted-listed-source-asset": 930,
+          "golden-fixture-copy": 1560
+        }
+      },
+      {
+        "case": "six-named-tests",
+        "run": 3,
+        "durationsMs": {
+          "observability-prelude-platform-api": 1553,
+          "observability-prelude-platform-worker": 976,
+          "third-party-external-resolution": 976,
+          "unlisted-import-meta-url": 900,
+          "unlisted-listed-source-asset": 897,
+          "golden-fixture-copy": 1246
+        }
+      }
+    ]
+  },
+  "headGreen": {
+    "status": "pass",
+    "command": "pnpm exec vitest run --config ./vitest.scripts.config.mjs --testTimeout=5000 scripts/bundle-node-service.test.mjs",
+    "runs": 3,
+    "tests": 11
+  }
+}

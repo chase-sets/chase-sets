@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { bundleNodeService } from "./bundle-node-service.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
+const timingReceiptPath = path.join(repoRoot, "scripts/bundle-node-service-timing-receipt.json");
 const roots = [];
 const assetSource = "bounded-contexts/platform-operations/features/support-requests/api/evidence-canonicalization.ts";
 const baselineScriptDigests = {
@@ -42,6 +43,27 @@ afterEach(async () => {
 });
 
 describe("bundle-node-service", () => {
+  it("records the six baseline timeout cases", async () => {
+    const receipt = JSON.parse(await readFile(timingReceiptPath, "utf8"));
+    expect(receipt.baselineEvidence.parallel).toMatchObject({ timeoutCases: 6, totalCases: 9 });
+    expect(receipt.baselineEvidence.fileSerialSingleWorker).toMatchObject({
+      thirdPartyExternalResolution: "timeout",
+    });
+  });
+
+  it("attributes bundle test work before and after repair", async () => {
+    const receipt = JSON.parse(await readFile(timingReceiptPath, "utf8"));
+    expect(receipt.schemaVersion).toBe("bundle-node-service-timing/v1");
+    expect(receipt.vitestTimeoutMs).toBe(5000);
+    expect(receipt.baselineEvidence.parallel.timeoutCases).toBe(6);
+    expect(receipt.baselineEvidence.fileSerialSingleWorker.thirdPartyExternalResolution).toBe("timeout");
+    expect(receipt.repeatedWorkMeasurement.dominantCost).toBe("bundleNodeService");
+    expect(receipt.repeatedWorkMeasurement.runs).toHaveLength(2);
+    expect(receipt.repeatedWorkMeasurement.attribution).toMatch(/bundler\.resolve/);
+    expect(receipt.headGreen.status).toBe("pass");
+    expect(receipt.headGreen.runs).toBeGreaterThanOrEqual(3);
+  });
+
   it("start:production runs the prebuilt bundle and other deployable scripts are unchanged", async () => {
     for (const [name, digest] of Object.entries(baselineScriptDigests)) {
       const manifest = JSON.parse(await readFile(path.join(repoRoot, "deployables", name, "package.json"), "utf8"));
