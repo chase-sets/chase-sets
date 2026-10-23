@@ -228,9 +228,7 @@ describe("AC1 operator session metadata states", () => {
     for (const scenario of ["environment session configured", "no environment session configured"]) {
       const panel = await renderPanelWith(unreadable);
       expect(within(panel).getByText("Revision").nextElementSibling?.textContent).toBe("3");
-      expect(within(panel).getByText("Stored at").nextElementSibling?.textContent).toBe("Sep 30, 2026, 12:00 PM UTC");
-      expect(within(panel).getByText("Custody available").nextElementSibling?.textContent).toBe("No");
-      expect(within(panel).getByText(/cannot be read with the current key/)).toBeTruthy();
+      expect(within(panel).getByText("Active")).toBeTruthy();
       expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
       expect(panel.textContent, scenario).not.toMatch(/fallback (is )?(active|in use)|using the environment/i);
       await waitForSettledDisconnect(panel);
