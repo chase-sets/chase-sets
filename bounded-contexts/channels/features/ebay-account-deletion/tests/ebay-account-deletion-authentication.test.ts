@@ -14,16 +14,16 @@ describe("ebay-account-deletion-authentication", () => {
     });
     const { app } = signedApp({ recordReceipt });
     let acknowledged = false;
-    const response = app
-      .request(path, {
+    const response = Promise.resolve(
+      app.request(path, {
         method: "POST",
         headers: { "content-type": "application/json", "x-ebay-signature": signedHeader() },
         body: JSON.stringify(payload, null, 2),
-      })
-      .then((r) => {
-        acknowledged = true;
-        return r;
-      });
+      }),
+    ).then((r) => {
+      acknowledged = true;
+      return r;
+    });
     await vi.waitFor(() => expect(recordReceipt).toHaveBeenCalledTimes(1));
     expect(acknowledged).toBe(false);
     expect(recordReceipt.mock.calls[0]).toEqual([
