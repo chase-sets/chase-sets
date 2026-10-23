@@ -76,6 +76,6 @@
     "status": "pass",
     "command": "pnpm exec vitest run --config ./vitest.scripts.config.mjs --testTimeout=5000 scripts/bundle-node-service.test.mjs",
     "runs": 3,
-    "tests": 11
+    "tests": 12
   }
 }

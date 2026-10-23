@@ -148,6 +148,23 @@ describe("bundle-node-service", () => {
     );
   });
 
+  it("resolves wildcard package exports without bundling them", async () => {
+    const f = await fixture();
+    await put(
+      f.root,
+      `${f.service}/node_modules/versioned/package.json`,
+      '{"type":"module","exports":{"./feature/*":"./features/*.js"}}',
+    );
+    await put(f.root, `${f.service}/node_modules/versioned/features/second.js`, 'export default "wild";');
+    await put(f.root, `${f.service}/src/main.ts`, 'import value from "versioned/feature/second"; console.log(value);');
+    const { externals } = await bundleNodeService({ repoRoot: f.root, deployable: f.name });
+    expect(externals).toHaveLength(1);
+    expect(externals[0].resolved).toBe(
+      path.join(f.root, f.service, "node_modules/versioned/features/second.js"),
+    );
+    expect(execFileSync(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8" })).toBe("wild\n");
+  });
+
   it("fails on an unlisted import.meta.url asset reference", async () => {
     const f = await fixture();
     await put(f.root, `${f.service}/src/main.ts`, 'console.log(new URL("./missing.json", import.meta.url));');

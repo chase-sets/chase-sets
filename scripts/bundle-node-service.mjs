@@ -36,6 +36,25 @@ function selectImportExport(value, subpath) {
   if (!value || typeof value !== "object") return undefined;
   const key = subpath ? `./${subpath}` : ".";
   if (Object.hasOwn(value, key)) return selectImportExport(value[key], "");
+  if (subpath) {
+    const wildcardKey = Object.keys(value).find((candidate) => {
+      if (!candidate.includes("*")) return false;
+      const [prefix, suffix] = candidate.split("*");
+      return `./${subpath}`.startsWith(prefix) && `./${subpath}`.endsWith(suffix);
+    });
+    if (wildcardKey) {
+      const [prefix, suffix] = wildcardKey.split("*");
+      const requested = `./${subpath}`;
+      const wildcard = requested.slice(prefix.length, requested.length - suffix.length || undefined);
+      const replaceWildcard = (candidate) => {
+        if (typeof candidate === "string") return candidate.replaceAll("*", wildcard);
+        if (Array.isArray(candidate)) return candidate.map(replaceWildcard);
+        if (!candidate || typeof candidate !== "object") return candidate;
+        return Object.fromEntries(Object.entries(candidate).map(([name, nested]) => [name, replaceWildcard(nested)]));
+      };
+      return selectImportExport(replaceWildcard(value[wildcardKey]), "");
+    }
+  }
   for (const condition of ["import", "node", "default"]) {
     if (Object.hasOwn(value, condition)) {
       const selected = selectImportExport(value[condition], subpath);
