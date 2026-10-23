@@ -62,7 +62,12 @@ describe("ebay-account-deletion-composition", () => {
     expect(record).toHaveBeenCalledTimes(8);
     expect(query).not.toHaveBeenCalled();
     await app.request("/health");
-    expect(fetcher.mock.calls.filter(([url]) => String(url).includes("ebay.com"))).toEqual([]);
+    expect(
+      fetcher.mock.calls.filter(([url]) => {
+        const hostname = new URL(String(url)).hostname;
+        return hostname === "ebay.com" || hostname.endsWith(".ebay.com");
+      }),
+    ).toEqual([]);
     fetcher.mockRestore();
   });
 });
