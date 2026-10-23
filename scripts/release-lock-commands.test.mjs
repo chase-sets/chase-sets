@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
   RELEASE_LOCK_COMMANDS_VERSION,
   buildReleaseLockCommands,
+  evaluateReleaseLockClearReadback,
   parseReleaseLockCommandsArgs,
 } from "./release-lock-commands.mjs";
 
@@ -88,7 +89,7 @@ describe("release lock GitHub Environment commands", () => {
     expect(result.commands.at(-1)).toBe('gh variable set PRODUCTION_RELEASE_LOCKED --env "production" --body "true"');
   });
 
-  it("builds unlock commands that clear lock metadata", () => {
+  it("builds unlock commands that delete metadata after setting false", () => {
     const result = buildReleaseLockCommands({
       action: "unlock",
       environmentName: "production",
@@ -99,11 +100,51 @@ describe("release lock GitHub Environment commands", () => {
     expect(result.passesReleaseLockCommandsGate).toBe(true);
     expect(result.commands).toEqual([
       'gh variable set PRODUCTION_RELEASE_LOCKED --env "production" --body "false"',
-      'gh variable set PRODUCTION_RELEASE_LOCK_REASON --env "production" --body ""',
-      'gh variable set PRODUCTION_RELEASE_LOCK_REFERENCE --env "production" --body ""',
-      'gh variable set PRODUCTION_RELEASE_LOCK_EXIT_ROUTE --env "production" --body ""',
-      'gh variable set PRODUCTION_RELEASE_LOCK_DEADLINE --env "production" --body ""',
+      'gh variable delete PRODUCTION_RELEASE_LOCK_REASON --env "production"',
+      'gh variable delete PRODUCTION_RELEASE_LOCK_REFERENCE --env "production"',
+      'gh variable delete PRODUCTION_RELEASE_LOCK_EXIT_ROUTE --env "production"',
+      'gh variable delete PRODUCTION_RELEASE_LOCK_DEADLINE --env "production"',
     ]);
+    expect(result.commands.join("\n")).not.toMatch(/--body (?:""|`"`")/);
+  });
+
+  it.each([
+    {
+      name: "false with all four metadata names absent",
+      readback: { ok: true, variables: [{ name: "PRODUCTION_RELEASE_LOCKED", value: "false" }] },
+      complete: true,
+    },
+    {
+      name: "false with an empty metadata value still present",
+      readback: {
+        ok: true,
+        variables: [
+          { name: "PRODUCTION_RELEASE_LOCKED", value: "false" },
+          { name: "PRODUCTION_RELEASE_LOCK_REASON", value: "" },
+        ],
+      },
+      complete: false,
+    },
+    {
+      name: "locked true",
+      readback: { ok: true, variables: [{ name: "PRODUCTION_RELEASE_LOCKED", value: "true" }] },
+      complete: false,
+    },
+    { name: "list failure", readback: { ok: false, error: "permission denied" }, complete: false },
+    { name: "unparseable list output", readback: { ok: true, output: "not-json" }, complete: false },
+    {
+      name: "unknown release lock metadata",
+      readback: {
+        ok: true,
+        variables: [
+          { name: "PRODUCTION_RELEASE_LOCKED", value: "false" },
+          { name: "PRODUCTION_RELEASE_LOCK_STALE", value: "x" },
+        ],
+      },
+      complete: false,
+    },
+  ])("evaluates clear readback: $name", ({ readback, complete }) => {
+    expect(evaluateReleaseLockClearReadback(readback).complete).toBe(complete);
   });
 
   it("requires a reason when locking releases", () => {
