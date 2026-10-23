@@ -138,6 +138,34 @@ describe("preview state retirement provider credential contract", () => {
   );
 });
 
+describe("preview state retirement provider credential contract", () => {
+  it("requires both Spaces credentials and the DigitalOcean token on the retirement step", () => {
+    const result = checkWorkflowProviderCredentials(previewCleanupWorkflow, {
+      workflowFile: previewCleanupWorkflowFile,
+    });
+    expect(result.violations.filter((violation) => violation.includes("Retire empty preview Terraform state"))).toEqual(
+      [],
+    );
+    expect(result.checkedSteps).toContainEqual(
+      expect.objectContaining({
+        name: "Retire empty preview Terraform state",
+        requiredEnv: ["DIGITALOCEAN_ACCESS_TOKEN", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+      }),
+    );
+  });
+
+  it.each(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "DIGITALOCEAN_ACCESS_TOKEN"])(
+    "withheld %s fails closed on the retirement step",
+    (credential) => {
+      const stripped = stripStepEnvKey(previewCleanupWorkflow, "Retire empty preview Terraform state", credential);
+      const result = checkWorkflowProviderCredentials(stripped, { workflowFile: previewCleanupWorkflowFile });
+      expect(
+        result.violations.filter((violation) => violation.includes("Retire empty preview Terraform state")),
+      ).toEqual([expect.stringContaining(`provider-touching step 'Retire empty preview Terraform state' invokes`)]);
+    },
+  );
+});
+
 describe("registry cleanup provider credential contract (#5952)", () => {
   it("discovers the provider call through the invoked script and narrows the credential to that step", () => {
     const result = checkWorkflowProviderCredentials(registryCleanupWorkflow, {
