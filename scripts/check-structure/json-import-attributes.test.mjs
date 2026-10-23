@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   inspectJsonImportAttributes,
   manifestHostRegistrationFields,
@@ -739,6 +740,7 @@ describe("real repository execution membership", () => {
     const indexedSources = execFileSync("git", ["ls-files", "--", "*.ts", "*.tsx", "*.mts", "*.cts"], {
       encoding: "utf8",
       timeout: 10_000,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)
@@ -752,6 +754,7 @@ describe("real repository execution membership", () => {
     const indexedWorkspaces = execFileSync("git", ["ls-files", "--", "*/package.json"], {
       encoding: "utf8",
       timeout: 10_000,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .trim()
       .split(/\r?\n/)
@@ -882,11 +885,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(134);
+    expect(result.inventory.declarations).toHaveLength(135);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 57,
       "vite-excluded": 53,
-      "vitest-excluded": 24,
+      "vitest-excluded": 25,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -901,7 +904,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "272f9a49e7f6004cdf3d1143a57fd95f097184ec0205d986d0cb072e4b1df262",
+      "ffbc641c1fbbd64cc206f4520d3bb11c9b53082d772c71caa375eec32f5c3ee0",
     );
     expect(
       normalized.filter(

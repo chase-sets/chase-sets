@@ -179,7 +179,6 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
             accountId,
             authenticationMethod: "passkey",
             context: getBootstrapContext(c),
-            publishAuthenticationOutcome: true,
             membershipsOverride: membershipId
               ? [
                   {
@@ -248,7 +247,6 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
       accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "passkey",
       context: getBootstrapContext(c),
-      publishAuthenticationOutcome: true,
     });
 
     return c.json(authResult);

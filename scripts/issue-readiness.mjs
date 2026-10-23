@@ -524,7 +524,7 @@ export async function collectIssueAuthority({ repository, number, token, client 
     coverage.issue.initialRead = true;
     graph = await readGraphAuthority({ repository, number, token, client });
     assertInitialIdentity(issue, graph);
-    if (issue.commentsTotal !== graph.commentsTotal || issue.dependenciesTotal !== graph.dependenciesTotal) {
+    if (issue.dependenciesTotal !== graph.dependenciesTotal) {
       fail("INDEPENDENT_TOTAL_MISMATCH");
     }
   } catch (error) {
@@ -591,6 +591,7 @@ export async function collectIssueAuthority({ repository, number, token, client 
   try {
     const finalIssue = await readIssue({ repository, number, token, client });
     coverage.issue.finalRead = true;
+    const finalGraph = await readGraphAuthority({ repository, number, token, client });
     coverage.issue.revisionStable =
       finalIssue.nodeId === issue.nodeId &&
       finalIssue.updatedAt === issue.updatedAt &&
@@ -604,9 +605,18 @@ export async function collectIssueAuthority({ repository, number, token, client 
       finalIssue.milestone?.title === issue.milestone?.title &&
       finalIssue.milestone?.description === issue.milestone?.description &&
       finalIssue.milestone?.state === issue.milestone?.state &&
-      finalIssue.commentsTotal === issue.commentsTotal &&
       finalIssue.dependenciesTotal === issue.dependenciesTotal &&
-      finalIssue.openDependenciesTotal === issue.openDependenciesTotal;
+      finalIssue.openDependenciesTotal === issue.openDependenciesTotal &&
+      finalGraph.nodeId === graph.nodeId &&
+      finalGraph.number === graph.number &&
+      finalGraph.state === graph.state &&
+      finalGraph.updatedAt === graph.updatedAt &&
+      finalGraph.issueType?.nodeId === graph.issueType?.nodeId &&
+      finalGraph.issueType?.name === graph.issueType?.name &&
+      finalGraph.issueType?.isEnabled === graph.issueType?.isEnabled &&
+      finalGraph.labelsTotal === graph.labelsTotal &&
+      finalGraph.dependenciesTotal === graph.dependenciesTotal &&
+      finalGraph.commentsTotal === graph.commentsTotal;
     if (!coverage.issue.revisionStable) reasonCodes.push("ISSUE_REVISION_MOVED");
   } catch (error) {
     reasonCodes.push(error instanceof IssueReadinessBoundaryError ? error.code : "INTERNAL_FAILURE");

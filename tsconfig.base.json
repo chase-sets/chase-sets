@@ -864,11 +864,20 @@
       "@chase-sets/platform-runtime/ucp": [
         "./infrastructure/platform-runtime/ucp.ts"
       ],
+      "@chase-sets/platform-runtime/ucp-schema-test-support": [
+        "./infrastructure/platform-runtime/ucp-schema-test-support.ts"
+      ],
+      "@chase-sets/platform-runtime/ucp-tool-schemas": [
+        "./infrastructure/platform-runtime/ucp-tool-schemas.ts"
+      ],
       "@chase-sets/platform-runtime/web": [
         "./infrastructure/platform-runtime/web.ts"
       ],
       "@chase-sets/platform-runtime/web-assets": [
         "./infrastructure/platform-runtime/web-assets.ts"
+      ],
+      "@chase-sets/platform-runtime/web-entry-server": [
+        "./infrastructure/platform-runtime/web-entry-server.ts"
       ],
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"

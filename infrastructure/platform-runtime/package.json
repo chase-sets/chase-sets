@@ -49,6 +49,8 @@
     "./retention-sweep": "./retention-sweep.ts",
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
     "./ucp": "./ucp.ts",
+    "./ucp-schema-test-support": "./ucp-schema-test-support.ts",
+    "./ucp-tool-schemas": "./ucp-tool-schemas.ts",
     "./seo": "./seo.ts",
     "./meta": "./meta.ts",
     "./realtime": "./realtime.ts",
@@ -56,6 +58,7 @@
     "./realtime-web": "./realtime-web.ts",
     "./web": "./web.ts",
     "./web-assets": "./web-assets.ts",
+    "./web-entry-server": "./web-entry-server.ts",
     "./web-route-config": "./web-route-config.ts",
     "./web-server": "./web-server.ts",
     "./work-signal-store": "./work-signal-store.ts",
@@ -89,8 +92,10 @@
     "compression": "^1.8.2",
     "express": "^4.22.3",
     "hono": "^4.13.13",
+    "isbot": "^5",
     "morgan": "^1.12.1",
     "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "react-router": "^7.18.4"
   },
   "devDependencies": {
@@ -101,6 +106,7 @@
     "@types/compression": "^1.8.1",
     "@types/express": "^4.17.25",
     "@types/morgan": "^1.9.10",
+    "ajv": "8.20.0",
     "typescript": "^7.0.0",
     "vitest": "^4.1.4"
   },

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const guardFile = "scripts/lib/heavy-slot.mjs";
@@ -65,6 +66,7 @@ const reviewedCheapNodeEntrypoints = new Set([
   "scripts/run-catalog-observation-pack-capture.mjs",
   "scripts/run-catalog-real-provider-proof.mjs",
   "scripts/sandbox.mjs",
+  "scripts/staging-evidence-authority.mjs",
   "scripts/staging-mixed-version-wake-drill.mjs",
   "scripts/staging-wake-drills.mjs",
   "scripts/stripe-cli.mjs",
@@ -124,7 +126,10 @@ function normalize(relativePath) {
 }
 
 function trackedFiles(root) {
-  return execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" })
+  return execFileSync("git", ["-C", root, "ls-files", "-z"], {
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean)
     .map(normalize);
@@ -189,6 +194,9 @@ function deriveFromScript(root, scriptName, command, packageDirectory, tracked, 
       const script = nodeScriptFrom(tokens, nodeIndex);
       const resolved = script ? resolveTrackedModule(root, packageDirectory, script, tracked) : null;
       if (!resolved) {
+        // Production service launchers execute the generated runtime bundle;
+        // the build script, not the generated dist file, owns heavy admission.
+        if (scriptName === "start:production" && /^(?:\.\/)?dist\/main\.js$/.test(script ?? "")) continue;
         unresolved.add(`${packageDirectory || "."}: ${segment.trim()}`);
       } else if (!reviewedCheapNodeEntrypoints.has(resolved)) entrypoints.add(resolved);
     }

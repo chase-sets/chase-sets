@@ -1,7 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
   HiddenInput,
-  Form,
   Banner,
   Badge,
   Button,
@@ -20,7 +19,8 @@ import {
   type FormProps,
   type IconName,
 } from "@chase-sets/design-system";
-import type { FormEvent, ReactNode, Ref } from "react";
+import { RouterForm } from "@chase-sets/design-system/react-router";
+import { type FormEvent, type ReactNode, type Ref } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
@@ -145,9 +145,18 @@ function RegistrationFormCard({
   onSubmit,
   errorAnnouncement,
 }: RegistrationFormCardProps) {
+  const fields = (
+    <Stack gap={3}>
+      <HiddenFields fields={hiddenFields} />
+      <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
+      <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
+      <HiddenInput type="hidden" name="intent" value={intent} readOnly />
+      {children}
+    </Stack>
+  );
   return (
     <Card elevation="elevated" glow={glow}>
-      <Form
+      <RouterForm
         spacing="none"
         ref={formRef}
         action={action}
@@ -155,14 +164,8 @@ function RegistrationFormCard({
         onSubmit={onSubmit}
         errorAnnouncement={errorAnnouncement}
       >
-        <Stack gap={3}>
-          <HiddenFields fields={hiddenFields} />
-          <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
-          <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
-          <HiddenInput type="hidden" name="intent" value={intent} readOnly />
-          {children}
-        </Stack>
-      </Form>
+        {fields}
+      </RouterForm>
     </Card>
   );
 }

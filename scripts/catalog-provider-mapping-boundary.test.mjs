@@ -2,11 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const runtimePath = "bounded-contexts/catalog/features/source-observations/api/runtime.ts";
-const transportClientPaths = [
-  "bounded-contexts/catalog/features/source-observations/api/providers/tcgdex-client.ts",
-  "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-catalog-client.ts",
-  "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
-];
+const transportClientPaths = ["bounded-contexts/catalog/features/source-observations/api/providers/tcgdex-client.ts"];
 const executableMappingImportPattern = new RegExp(
   String.raw`from ["']\.\/(tcgdex|tcgplayer|scrydex)-executable-mapping-contract["']`,
 );

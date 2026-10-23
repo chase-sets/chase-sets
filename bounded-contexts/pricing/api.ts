@@ -19,7 +19,15 @@ export type PricingApiEnv = AuthenticatedApiEnv;
 
 export function buildPricingApi(services: PricingServices) {
   const app = new Hono<PricingApiEnv>();
-  app.route("/account/pricing-health", createPricingHealthRoutes(createPricingHealthServices(services)));
+  app.route(
+    "/account/pricing-health",
+    createPricingHealthRoutes(
+      createPricingHealthServices({
+        ...services,
+        forecastLedger: services.forecastLedger,
+      }),
+    ),
+  );
   app.route("/account/repricing-policies/dry-runs", createRepricingDryRunRoutes(services.repricingEngine));
   app.route("/account/repricing-policies", createRepricingActivityRoutes(createRepricingActivityServices(services)));
   app.route("/account/repricing-policies", createRepricingPolicyRoutes(services.repricingPolicies));
