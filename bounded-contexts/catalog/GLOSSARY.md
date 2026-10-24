@@ -60,7 +60,7 @@ A TCGplayer Operator Session is encrypted custody of Todd's operator cookie, not
 
 ### Operator Session Push Grant
 
-An Operator Session Push Grant is a narrow bearer credential minted directly by a recently authenticated platform administrator for Todd's operator session. Catalog stores only its hash. It permits session pushes and unpairing, not Admin access or other users' credentials. A completed push renews its 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpair revokes only the grant. Disconnect commits revocation before clearing custody and does not log out the browser or provider.
+An Operator Session Push Grant is a narrow bearer credential minted directly by a recently authenticated platform administrator for Todd's operator session. Catalog stores only its hash. It permits session pushes and unpairing, not Admin access or other users' credentials. Mint requires the live Identity Membership aggregate, not the projected actor role. Every observation post rechecks that same aggregate for the grant creator before reading the observation body; a missing, demoted, inactive, or unavailable authority commits `authority-lost` revocation and fails closed. A completed push renews its 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpair revokes only the grant. Disconnect commits revocation before clearing custody and does not log out the browser or provider.
 
 ## Core Model
 
