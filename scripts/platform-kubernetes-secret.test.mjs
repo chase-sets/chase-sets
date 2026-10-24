@@ -37,6 +37,23 @@ const sampleValues = {
   },
 };
 
+const previewProviderSecretNames = [
+  "SCRYDEX_API_KEY",
+  "SCRYDEX_TEAM_ID",
+  "SES_AWS_ACCESS_KEY_ID",
+  "SES_AWS_SECRET_ACCESS_KEY",
+  "SES_SOURCE_ARN",
+];
+
+const previewProviderValues = {
+  global: { existingSecretName: "chase-sets-platform-runtime" },
+  components: {
+    api: {
+      env: previewProviderSecretNames.map((name) => ({ name, secret: true, secretKey: name })),
+    },
+  },
+};
+
 describe("platform Kubernetes secret", () => {
   it("threads only the Secret-apply steps; chart identity does not gate keyring reconciliation", () => {
     let sinks = 0;
@@ -248,6 +265,15 @@ describe("platform Kubernetes secret", () => {
         },
       }),
     ).toThrow("STRIPE_SECRET_KEY");
+  });
+
+  it.each(previewProviderSecretNames)("fails closed when %s is omitted", (missingName) => {
+    const env = Object.fromEntries(previewProviderSecretNames.map((name) => [name, `synthetic-${name}`]));
+    delete env[missingName];
+
+    expect(() => buildPlatformSecretManifest({ values: previewProviderValues, env })).toThrow(
+      `Missing Kubernetes secret environment value(s): ${missingName}.`,
+    );
   });
 
   it("synthesizes disposable preview Postgres secrets and database URLs", () => {

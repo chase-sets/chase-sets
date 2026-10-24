@@ -88,6 +88,41 @@
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SCRYDEX_API_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SCRYDEX_TEAM_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SES_AWS_ACCESS_KEY_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SES_AWS_SECRET_ACCESS_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "SES_SOURCE_ARN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
