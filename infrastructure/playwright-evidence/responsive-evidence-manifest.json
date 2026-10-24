@@ -163,6 +163,96 @@
     },
     {
       "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-360",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal apply confirmation", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-apply-real-worker" },
+      "viewport": { "width": 360, "height": 800 },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='dialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 360 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-360"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-390",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal apply confirmation", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-apply-real-worker" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='dialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-390"
+    },
+    {
+      "kind": "claim",
+      "id": "pricing-goal-apply-confirmation-tablet",
+      "file": "deployables/marketplace/e2e/pricing-health-apply-goal.spec.ts",
+      "testTitle": "applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Pricing Goal apply confirmation", "path": "/account/desk/pricing-health" },
+      "fixture": { "identity": "synthetic-pricing-goal-apply-real-worker" },
+      "viewport": { "width": 820, "height": 1180 },
+      "target": {
+        "identity": "apply-goal-confirmation",
+        "selector": "[role='dialog']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "dialog-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 820 }
+        },
+        {
+          "identity": "no-document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "pricing-goal-apply-confirmation-tablet"
+    },
+    {
+      "kind": "claim",
       "id": "pricing-health-populated-1",
       "file": "deployables/marketplace/e2e/pricing-health-verdict.spec.ts",
       "testTitle": "mounted Pricing Health reads a nonempty stored verdict and disclosed cohort at mobile and tablet sizes @marketplace-seller @browser-e2e-seed",

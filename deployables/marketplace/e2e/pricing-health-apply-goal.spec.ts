@@ -155,6 +155,10 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
     }
     await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-apply-confirmation-360" });
     await page.setViewportSize({ width: 390, height: 844 });
+    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-apply-confirmation-390" });
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-apply-confirmation-tablet" });
+    await page.setViewportSize({ width: 390, height: 844 });
     await dialog.getByRole("button", { name: "Apply this goal", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Pricing goal applied");
 
