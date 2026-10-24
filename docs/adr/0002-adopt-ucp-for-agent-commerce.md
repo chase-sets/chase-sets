@@ -4,7 +4,7 @@
 
 Accepted.
 
-The AP2 mandate scaffold this ADR describes is superseded: the UCP `2026-08-25` AP2 mandate verification, checkout merchant authorization signing, the `ap2` agent grant rail and their configuration were removed without replacement ([#9721](https://github.com/chase-sets/chase-sets/issues/9721)). Headless checkout completion uses only a saved checkout instrument under the agent grant spending mandate; business signing keys are still published in `/.well-known/ucp`. The rest of this ADR remains accepted.
+The AP2 mandate scaffold this ADR describes is superseded: the UCP `2026-04-08` AP2 mandate verification, checkout merchant authorization signing, the `ap2` agent grant rail and their configuration were removed without replacement ([#9721](https://github.com/chase-sets/chase-sets/issues/9721)). The serving cutover now uses UCP `2026-08-25` without that scaffold. Headless checkout completion uses only a saved checkout instrument under the agent grant spending mandate; business signing keys are still published in `/.well-known/ucp`. The rest of this ADR remains accepted.
 
 ## Context
 

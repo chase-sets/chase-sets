@@ -69,4 +69,8 @@ describe("UCP platform smoke negotiation", () => {
     const { probe, origin } = fixture(400, "error");
     await expect(probe(origin)).rejects.toThrow("catalog");
   });
+  it("rejects a legacy ok catalog response", async () => {
+    const { probe, origin } = fixture(400, "ok");
+    await expect(probe(origin)).rejects.toThrow("catalog");
+  });
 });

@@ -89,7 +89,7 @@ const supplyPreview: orderingServer.CheckoutFulfillmentPreview = {
   optimizationGoal: "lowest-total",
   readyLineKeys: ["lst_synthetic"],
   unavailableLineKeys: [],
-  sellerGroups: [],
+  sellerGroups: [{ lines: [{ listingId: "lst_synthetic", estimatedUnitPriceAmount: "20.00" }] }],
   totals: {
     itemSubtotalAmount: "20.00",
     shippingAmount: "0.00",
@@ -131,6 +131,10 @@ function fixture(checkoutServices?: ReturnType<typeof checkoutModule.createServi
   const checkout =
     checkoutServices ??
     checkoutModule.createServices(pool, { checkoutObservabilityTelemetry: { recordCheckoutEvent } });
+  vi.spyOn(checkout.sessions, "getLastRecordedQuote").mockResolvedValue({
+    ...supplyPreview,
+    sellerGroups: [{ lines: [{ listingId: "lst_synthetic", estimatedUnitPriceAmount: "20.00" }] }],
+  } as never);
   const ordering = orderingModule.createServices(pool, { inventoryCleanupAuthority: { kind: "not-mounted" } });
   const createAccountPayment = vi.spyOn(payments.payments, "createAccountPayment");
   const recoverCheckoutPayment = vi.spyOn(payments.payments, "recoverCheckoutPayment");
@@ -570,7 +574,7 @@ describe("checkout-closed-agent-rails", () => {
     expect(rest.status).toBe(200);
     expect(await rest.json()).toMatchObject({
       ucp: { status: "error" },
-      messages: [{ severity: "error", code: "checkout_closed" }],
+      messages: [{ severity: "unrecoverable", code: "checkout_closed" }],
     });
     const mcpBody = JSON.stringify({
       jsonrpc: "2.0",
@@ -586,7 +590,7 @@ describe("checkout-closed-agent-rails", () => {
     expect(mcp.status).toBe(200);
     expect(await mcp.json()).toMatchObject({
       result: {
-        structuredContent: { ucp: { status: "error" }, messages: [{ severity: "error", code: "checkout_closed" }] },
+        structuredContent: { ucp: { status: "error" }, messages: [{ severity: "unrecoverable", code: "checkout_closed" }] },
       },
     });
     expect(create).not.toHaveBeenCalled();
@@ -1138,7 +1142,8 @@ describe("checkout-closed-session-lifecycle", () => {
     expect((await sessions.getSession(b, "acc_synthetic"))?.cancelled_at).toBeTruthy();
     expect((await sessions.getSession(a, "acc_synthetic"))?.cancelled_at).toBeNull();
     for (const transport of ["rest", "mcp"] as const) {
-      expect(await ucpReadOrCancel(f.closed, "cancel_checkout", b, transport)).toMatchObject({
+      const cancelledRead = await ucpReadOrCancel(f.closed, "cancel_checkout", b, transport);
+      expect(cancelledRead).toMatchObject({
         ucp: { status: "success" },
       });
     }

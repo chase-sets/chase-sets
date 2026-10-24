@@ -43,7 +43,7 @@ const buyer: ResolvedActor = {
 afterEach(() => vi.useRealTimers());
 
 function fixture(response: () => Response | Promise<Response> = () => Response.json(profile)) {
-  const handler = vi.fn((_input: unknown) => createUcpEnvelope("ok", { checkout: { id: "checkout_1" }, products: [] }));
+  const handler = vi.fn((_input: unknown) => createUcpEnvelope("success", { checkout: { id: "checkout_1" }, products: [] }));
   const reserve = vi.fn<UcpIdempotencyStore["reserve"]>((input) => ({
     outcome: "reserved",
     record: { ...input, status: "pending", response: null },
@@ -360,7 +360,7 @@ describe("platform API UCP profile negotiation", () => {
         }),
       });
       const result = (await response.json()).result;
-      expect(result.structuredContent.ucp.status).toBe(token ? "ok" : "error");
+      expect(result.structuredContent.ucp.status).toBe(token ? "success" : "error");
       if (!token) expect(result._meta["mcp/www_authenticate"]).toBeDefined();
     }
     expect(fetch).not.toHaveBeenCalled();

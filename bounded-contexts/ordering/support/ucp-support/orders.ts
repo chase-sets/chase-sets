@@ -25,8 +25,8 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
           {
             severity: "error",
             code: "validation_failed",
-            message: "Order id is required.",
-            target: "id",
+            content: "Order id is required.",
+            path: "id",
           },
         ]);
       }
@@ -45,8 +45,8 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
         {
           severity: "error",
           code: "not_found",
-          message: "Order not found for the linked marketplace account.",
-          target: "id",
+          content: "Order not found for the linked marketplace account.",
+          path: "id",
         },
       ]);
     },
@@ -65,7 +65,7 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
         {
           severity: "error",
           code: "authentication_required",
-          message: "UCP order reads require a linked marketplace account.",
+          content: "UCP order reads require a linked marketplace account.",
         },
       ]),
     };
@@ -77,7 +77,7 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
         {
           severity: "error",
           code: "authorization_forbidden",
-          message: "The linked marketplace account cannot view orders.",
+          content: "The linked marketplace account cannot view orders.",
         },
       ]),
     };

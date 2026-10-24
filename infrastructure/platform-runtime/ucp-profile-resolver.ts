@@ -185,7 +185,6 @@ function registry(value: unknown, kind: "service" | "capability" | "payment") {
 function validProfile(value: unknown): value is UcpPlatformProfile {
   if (!object(value) || !object(value.ucp)) return false;
   const ucp = value.ucp;
-  const legacyKeyField = ["signing", "keys"].join("_");
   return (
     typeof ucp.version === "string" &&
     /^\d{4}-\d{2}-\d{2}$/.test(ucp.version) &&
@@ -199,9 +198,7 @@ function validProfile(value: unknown): value is UcpPlatformProfile {
           (order) => Array.isArray(order) && order.every((key) => typeof key === "string"),
         ))) &&
     (ucp.capabilities === undefined || registry(ucp.capabilities, "capability")) &&
-    (value.keys === undefined || (Array.isArray(value.keys) && value.keys.every(publicKey))) &&
-    value[legacyKeyField] === undefined &&
-    ucp[legacyKeyField] === undefined
+    (value.keys === undefined || (Array.isArray(value.keys) && value.keys.every(publicKey)))
   );
 }
 function publicAddress(address: string) {

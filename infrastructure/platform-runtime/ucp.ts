@@ -860,7 +860,7 @@ async function negotiateUcpRequest(
   const failure = (code: string, status: UcpNegotiationFailure["status"]): UcpNegotiationFailure => ({
     code,
     status,
-    envelope: createUcpEnvelope("error", {}, [{ severity: "error", code, message: code }]),
+    envelope: createUcpEnvelope("error", {}, [{ severity: "error", code, content: code }]),
   });
   if (meta.profile.kind === "malformed") return failure("invalid_profile_url", 400);
   if (meta.profile.kind === "supplied") {
@@ -1093,7 +1093,7 @@ async function signedWriteOrJsonError(request: Request) {
         {
           severity: "error",
           code: "signed_request_required",
-          message: reason,
+          content: reason,
         },
       ])
     : null;
@@ -1104,7 +1104,7 @@ function idempotencyRequiredEnvelope(operation: string) {
     {
       severity: "error",
       code: "idempotency_key_required",
-      message: `Idempotency-Key is required for ${operation}.`,
+      content: `Idempotency-Key is required for ${operation}.`,
     },
   ]);
 }
@@ -1114,7 +1114,7 @@ function idempotencyConflictEnvelope() {
     {
       severity: "error",
       code: "idempotency_key_conflict",
-      message: "Idempotency-Key was already used with different request parameters.",
+      content: "Idempotency-Key was already used with different request parameters.",
     },
   ]);
 }
@@ -1124,7 +1124,7 @@ function idempotencyInProgressEnvelope() {
     {
       severity: "warning",
       code: "idempotency_key_in_progress",
-      message: "A matching request is already in progress. Retry later.",
+      content: "A matching request is already in progress. Retry later.",
     },
   ]);
 }
@@ -1425,7 +1425,7 @@ async function invokeRestWrite(
         {
           severity: "error",
           code: "signed_request_required",
-          message: signatureFailure,
+          content: signatureFailure,
         },
       ]),
       400,
@@ -1705,7 +1705,7 @@ function enforceAgentGrantRateLimit(
     {
       severity: "error",
       code: "agent_grant_rate_limited",
-      message: decision.reason,
+      content: decision.reason,
     },
   ]);
 }
@@ -1715,7 +1715,7 @@ function ucpMcpToolLimitEnvelope(reason: string) {
     {
       severity: "error",
       code: "tool_call_limited",
-      message: reason,
+      content: reason,
     },
   ]);
 }
@@ -2017,5 +2017,5 @@ function hasSignedWriteHeaders(request: Request) {
 function unsignedCheckoutAccessFailure(actor: ResolvedActor | null) {
   if (actor?.agentGrant?.scopes.includes("dev.ucp.shopping.checkout:manage")) return null;
   const code = actor ? "authorization_forbidden" : "authentication_required";
-  return createUcpEnvelope("error", {}, [{ severity: "error", code, message: code }]);
+  return createUcpEnvelope("error", {}, [{ severity: "error", code, content: code }]);
 }

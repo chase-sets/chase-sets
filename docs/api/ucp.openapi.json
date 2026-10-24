@@ -167,7 +167,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["type", "severity", "code", "content"],
+              "required": ["type", "code", "content"],
               "properties": {
                 "type": { "type": "string", "enum": ["error", "warning", "info"] },
                 "severity": { "type": "string", "enum": ["recoverable", "requires_buyer_input", "requires_buyer_review", "unrecoverable"] },

@@ -14,8 +14,19 @@ import {
   UCP_VERSION,
   ucpErrorSeverity,
 } from "./ucp";
+import { ucpSchemaValidator } from "./ucp-schema-test-support";
+import { ucpToolInputSchema, ucpToolOutputSchema } from "./ucp-tool-schemas";
 
 describe("UCP contract profile", () => {
+  it("UCP 2026-08-25 profile validates", () => {
+    const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/profile.json#/$defs/business_schema");
+    const profile = buildUcpBusinessProfile("https://marketplace.example", {
+      signingKeys: [{ kty: "EC", crv: "P-256", x: "x", y: "y", kid: "current" }],
+    });
+    expect(validate(profile), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...profile, ucp: { ...profile.ucp, payment_handlers: undefined } })).toBe(false);
+  });
+
   it("advertises REST and MCP shopping services from the same origin", () => {
     const profile = buildUcpBusinessProfile("https://marketplace.example/");
 
@@ -63,6 +74,15 @@ describe("UCP contract profile", () => {
 });
 
 describe("UCP MCP tools", () => {
+  it("UCP 2026-08-25 descriptors validate", () => {
+    for (const tool of UCP_MCP_TOOLS) {
+      expect(ucpToolInputSchema(tool.name)).toEqual(ucpToolInputSchema(tool.name));
+      expect(ucpToolOutputSchema(tool.name)).toEqual(ucpToolOutputSchema(tool.name));
+      expect(tool).not.toHaveProperty("inputSchema");
+      expect(tool).not.toHaveProperty("outputSchema");
+    }
+  });
+
   it("keeps risky checkout completion and cancellation idempotency-keyed", () => {
     expect(UCP_MCP_TOOLS.filter((tool) => tool.idempotencyKeyRequired).map((tool) => tool.name)).toEqual([
       "complete_checkout",
@@ -76,8 +96,6 @@ describe("UCP MCP tools", () => {
     const completeCheckout = UCP_MCP_TOOLS.find((tool) => tool.name === "complete_checkout");
 
     expect(search).toMatchObject({
-      inputSchema: { type: "object" },
-      outputSchema: { type: "object" },
       securitySchemes: [{ type: "noauth" }],
       annotations: { readOnlyHint: true },
     });
@@ -137,7 +155,7 @@ describe("UCP MCP tools", () => {
 
 describe("UCP envelopes", () => {
   it("adds protocol metadata without changing payload fields", () => {
-    expect(createUcpEnvelope("ok", { products: [] })).toEqual({
+    expect(createUcpEnvelope("success", { products: [] })).toEqual({
       ucp: { version: UCP_VERSION, status: "success" },
       products: [],
     });

@@ -90,6 +90,16 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
   };
 }
 
+function detailFor(id: string, listings = [{ listing_id: `${id}_listing`, listing_slug: `${id}-listing`, price_amount: "10.00", price_currency_code: "USD" }]) {
+  return {
+    catalog_item_id: id,
+    slug: `${id}-slug`,
+    title: `Product ${id}`,
+    description: `Description ${id}`,
+    market_listings: listings,
+  } as unknown as DiscoveryItemDetailRow;
+}
+
 describe("Discovery UCP catalog handlers", () => {
   it("keeps corrected rows mode-free in REST and MCP search_catalog", async () => {
     const items = buildItems();
@@ -108,7 +118,7 @@ describe("Discovery UCP catalog handlers", () => {
       }),
       params: {},
     } as never);
-    expect(result).toMatchObject({ products: [{ id: "cat_1" }], pagination: { has_next_page: false } });
+    expect(result).toMatchObject({ products: [], pagination: { has_next_page: false } });
     expect(JSON.stringify(result)).not.toMatch(/retrievalMode|lexicalCount|corrected/);
     const mcp = await handlers.mcpToolHandlers.search_catalog({
       request: new Request("https://marketplace.example/mcp", {
@@ -137,18 +147,18 @@ describe("Discovery UCP catalog handlers", () => {
         params: {},
       }) as never;
     const rest = await handlers.restHandlers.search_catalog(input("https://marketplace.example/ucp/v1/catalog/search"));
-    expect(rest).toMatchObject({ products: [{ id: "cat_1" }], pagination: { has_next_page: false } });
+    expect(rest).toMatchObject({ products: [], pagination: { has_next_page: false } });
     expect(JSON.stringify(rest)).not.toMatch(/interpretation|remainingQuery|Gem Mint|retrievalMode/);
     expect(await handlers.mcpToolHandlers.search_catalog(input("https://marketplace.example/mcp"))).toEqual(rest);
   });
-  it("maps discovery search rows to UCP product envelopes", async () => {
+  it("drops search rows whose detail cannot be hydrated", async () => {
     const items = buildItems();
     const handlers = createDiscoveryUcpHandlers(items);
 
     const result = await handlers.restHandlers.search_catalog({
       request: new Request("https://marketplace.example/ucp/v1/catalog/search", {
         method: "POST",
-        body: JSON.stringify({ query: "charizard", filters: { category: "Pokemon" } }),
+        body: JSON.stringify({ query: "charizard", filters: { categories: ["Pokemon"] } }),
       }),
       params: {},
     } as never);
@@ -156,47 +166,135 @@ describe("Discovery UCP catalog handlers", () => {
     expect(items.search.searchItems).toHaveBeenCalledWith(
       expect.objectContaining({
         search: "charizard",
-        category: "Pokemon",
+        categories: ["Pokemon"],
+        limit: 20,
         includeTotal: true,
       }),
     );
     expect(result).toMatchObject({
       ucp: { status: "success" },
-      products: [
-        {
-          id: "cat_1",
-          title: "Charizard",
-          url: "https://marketplace.example/items/charizard-cat_1",
-          image_urls: ["https://images.example/charizard.jpg"],
-          price: { currency: "EUR", amount: 1234 },
-          availability: {
-            status: "available",
-            quantity: 3,
-          },
-          extensions: {
-            chase_sets: {
-              catalog_item_id: "cat_1",
-              blueprint_id: "blueprint_card",
-              primary_image_url: "https://images.example/charizard.jpg",
-              price_display: "€12.34",
-              availability_display: "3 available",
-              marketplace: {
-                active_listing_count: 2,
-                total_visible_quantity: 3,
-              },
-              actions: {
-                view_product: {
-                  url: "https://marketplace.example/items/charizard-cat_1",
-                },
-                create_checkout: {
-                  tool: "create_checkout",
-                },
-              },
-            },
-          },
-        },
-      ],
+      products: [],
     });
+  });
+
+  it("applies the twenty-row default and cursor before hydration", async () => {
+    const rows = Array.from({ length: 20 }, (_, index) => ({
+      catalog_item_id: `cat_${index}`,
+      slug: `slug_${index}`,
+      title: `Product ${index}`,
+    })) as never[];
+    const items = buildItems({
+      search: {
+        ...buildItems().search,
+        searchItems: vi
+          .fn()
+          .mockResolvedValueOnce({ items: rows, total: 50, nextCursor: "cursor_page_2" })
+          .mockResolvedValueOnce({ items: rows.slice(0, 1), total: 21, nextCursor: null }),
+      },
+      detail: {
+        ...buildItems().detail,
+        getItemDetail: vi.fn(async (id: string) => detailFor(id)),
+      },
+    });
+    const handlers = createDiscoveryUcpHandlers(items);
+    const call = (body: Record<string, unknown>) =>
+      handlers.restHandlers.search_catalog({
+        request: new Request("https://marketplace.example/ucp/v1/catalog/search", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+        params: {},
+      } as never);
+    const first = await call({ query: "cards", pagination: { limit: 25 } });
+    expect(items.search.searchItems).toHaveBeenNthCalledWith(1, expect.objectContaining({ limit: 20 }));
+    expect(first.products).toHaveLength(20);
+    expect(first.pagination).toMatchObject({ has_next_page: true, cursor: "cursor_page_2", total_count: 50 });
+    const second = await call({ query: "cards", pagination: { cursor: "cursor_page_2" } });
+    expect(items.search.searchItems).toHaveBeenNthCalledWith(2, expect.objectContaining({ limit: 20, cursor: "cursor_page_2" }));
+    expect(second.products).toHaveLength(1);
+  });
+
+  it("indexes warnings against emitted products after dropped rows", async () => {
+    const items = buildItems({
+      search: {
+        ...buildItems().search,
+        searchItems: vi.fn(async () => ({
+          items: [
+            { catalog_item_id: "drop", slug: "drop", title: "Drop" },
+            { catalog_item_id: "keep", slug: "keep", title: "Keep" },
+          ],
+          total: 2,
+          nextCursor: null,
+        })) as never,
+      },
+      detail: {
+        ...buildItems().detail,
+        getItemDetail: vi.fn(async (id: string) =>
+          id === "drop"
+            ? null
+            : detailFor(id, [
+                { listing_id: "usd", listing_slug: "usd", price_amount: "10.00", price_currency_code: "USD" },
+                { listing_id: "eur", listing_slug: "eur", price_amount: "9.00", price_currency_code: "EUR" },
+              ]),
+        ),
+      },
+    });
+    const result = await createDiscoveryUcpHandlers(items).restHandlers.search_catalog({
+      request: new Request("https://marketplace.example/ucp/v1/catalog/search", {
+        method: "POST",
+        body: JSON.stringify({ query: "cards", context: { currency: "USD" } }),
+      }),
+      params: {},
+    } as never);
+    expect(result.products).toHaveLength(1);
+    expect(result.messages).toEqual([
+      expect.objectContaining({ code: "listings_omitted_currency", path: "$.products[0]" }),
+    ]);
+    const lookup = await createDiscoveryUcpHandlers(items).restHandlers.lookup_catalog({
+      request: new Request("https://marketplace.example/ucp/v1/catalog/lookup", {
+        method: "POST",
+        body: JSON.stringify({ ids: ["drop", "keep"], context: { currency: "USD" } }),
+      }),
+      params: {},
+    } as never);
+    expect(lookup.messages).toEqual([
+      expect.objectContaining({ code: "listings_omitted_currency", path: "$.products[0]" }),
+    ]);
+  });
+
+  it("unwraps catalog arguments for MCP search, lookup, and get_product", async () => {
+    const items = buildItems({
+      detail: {
+        ...buildItems().detail,
+        getItemDetail: vi.fn(async (id: string) => detailFor(id)),
+      },
+    });
+    const handlers = createDiscoveryUcpHandlers(items);
+    const input = (argumentsValue: Record<string, unknown>) =>
+      ({
+        request: new Request("https://marketplace.example/ucp/mcp", { method: "POST", body: "{}" }),
+        arguments: argumentsValue,
+        params: {},
+      }) as never;
+    const restRequest = (body: Record<string, unknown>) =>
+      ({
+        request: new Request("https://marketplace.example/ucp/v1/catalog", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+        arguments: {},
+        params: {},
+      }) as never;
+    const searchMcp = await handlers.mcpToolHandlers.search_catalog(input({ catalog: { query: "cards" } }));
+    const searchRest = await handlers.restHandlers.search_catalog(restRequest({ query: "cards" }));
+    expect(searchMcp).toEqual(searchRest);
+    const lookupMcp = await handlers.mcpToolHandlers.lookup_catalog(input({ catalog: { ids: ["cat_1"] } }));
+    const lookupRest = await handlers.restHandlers.lookup_catalog(restRequest({ ids: ["cat_1"] }));
+    expect(lookupMcp).toEqual(lookupRest);
+    const productMcp = await handlers.mcpToolHandlers.get_product(input({ catalog: { id: "cat_1" } }));
+    const productRest = await handlers.restHandlers.get_product(restRequest({ id: "cat_1" }));
+    expect(productMcp).toEqual(productRest);
+    expect(items.detail.getItemDetail).toHaveBeenCalledWith("cat_1");
   });
 
   it("forwards opaque cursors and keeps the search envelope unchanged when a cursor restarts", async () => {

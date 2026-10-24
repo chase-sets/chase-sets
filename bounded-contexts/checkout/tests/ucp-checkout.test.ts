@@ -204,6 +204,15 @@ beforeEach(() => {
 });
 
 describe("UCP buy-now readiness AC1", () => {
+  it("uses canonical error severity for missing and malformed checkout sessions", async () => {
+    const f = fixture();
+    f.sessions.getSession.mockResolvedValue(null);
+    const missing = await f.restHandlers.get_checkout(input({ id }, false, false));
+    expect(missing).toMatchObject({ ucp: { status: "error" }, messages: [{ code: "not_found", severity: "unrecoverable" }] });
+    const malformed = await f.restHandlers.get_checkout(input({ id: "bad" }, false, false));
+    expect(malformed).toMatchObject({ ucp: { status: "error" }, messages: [{ code: "not_found", severity: "unrecoverable" }] });
+  });
+
   // Brief create DTO replaces the retired source buy-now input; line id is not the listing id.
   it.each([false, true])("creates from item.id with the server revision on MCP=%s", async (mcp) => {
     const f = fixture();

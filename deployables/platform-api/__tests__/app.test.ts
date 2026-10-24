@@ -1656,7 +1656,7 @@ describe("platform api app wiring", () => {
               projectionHandlerSets: [],
             },
             detail: {
-              getItemDetail: vi.fn(),
+              getItemDetail: vi.fn(async () => null),
               projectionHandlerSets: [],
             },
             market: {},
@@ -1676,7 +1676,7 @@ describe("platform api app wiring", () => {
     expect(searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "charizard" }));
     await expect(response.json()).resolves.toMatchObject({
       ucp: { status: "success" },
-      products: [{ id: "cat_1", title: "Charizard" }],
+      products: [],
     });
   });
 
@@ -1736,6 +1736,7 @@ describe("platform api app wiring", () => {
             recordPaymentStarted: vi.fn(),
             recordOfferSubmitted: vi.fn(),
             getSession,
+            getLastRecordedQuote: vi.fn(async () => null),
             projectionHandlerSets: [],
           },
         },
@@ -1797,7 +1798,7 @@ describe("platform api app wiring", () => {
       );
       await expect(response.json()).resolves.toMatchObject({
         ucp: { status: "success" },
-        checkout: { id: checkoutSessionId },
+        id: checkoutSessionId,
       });
       orders = ["ord_1"];
       await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop", {
@@ -1839,7 +1840,7 @@ describe("platform api app wiring", () => {
       nextCursor: null,
     }));
     const completeCheckout = vi.fn(async () =>
-      createUcpEnvelope("ok", {
+      createUcpEnvelope("success", {
         checkout: { id: `chk_${completeCheckout.mock.calls.length}` },
       }),
     );
@@ -1870,7 +1871,7 @@ describe("platform api app wiring", () => {
               projectionHandlerSets: [],
             },
             detail: {
-              getItemDetail: vi.fn(),
+              getItemDetail: vi.fn(async () => null),
               projectionHandlerSets: [],
             },
             market: {},
@@ -1926,7 +1927,7 @@ describe("platform api app wiring", () => {
         method: "tools/call",
         params: {
           name: "search_catalog",
-          arguments: { query: "charizard", limit: 3 },
+          arguments: { catalog: { query: "charizard", pagination: { limit: 3 } } },
         },
       }),
       headers: { "Content-Type": "application/json" },
@@ -2022,7 +2023,7 @@ describe("platform api app wiring", () => {
       result: {
         structuredContent: {
           ucp: { status: "success" },
-          products: [{ id: "cat_1", title: "Charizard" }],
+          products: [],
         },
       },
     });

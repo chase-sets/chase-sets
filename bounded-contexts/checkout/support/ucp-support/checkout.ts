@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   createUcpEnvelope,
   readUcpRequestMeta,
+  ucpErrorSeverity,
   type UcpEnvelope,
   type UcpMessageInput,
   type UcpOperationHandlerInput,
@@ -126,9 +127,7 @@ export function createCheckoutUcpHandlers(
       orderFacts: facts,
       preview,
       loadRetainedQuote: () =>
-        typeof checkout.sessions.getLastRecordedQuote === "function"
-          ? checkout.sessions.getLastRecordedQuote(session.session_id, session.buyer_account_id)
-          : Promise.resolve(null),
+        checkout.sessions.getLastRecordedQuote(session.session_id, session.buyer_account_id),
     });
     if (!quote) return null;
     return checkoutUcpResource({ session, state, quote, payment, request: input.request, now: currentTime });
@@ -156,7 +155,7 @@ export function createCheckoutUcpHandlers(
     };
   const closed = () =>
     createUcpEnvelope("error", {}, [
-      { severity: "error", code: "checkout_closed", message: "Checkout is closed until public launch." },
+      { severity: "error", code: "checkout_closed", content: "Checkout is closed until public launch." },
     ]);
   const handlers = {
     create_checkout: handler("orders.manage", async (input) => {
@@ -222,6 +221,7 @@ export function createCheckoutUcpHandlers(
     }),
     cancel_checkout: handler("orders.manage", async (input) => {
       const session = await loadSession(input);
+      if (session.cancelled_at) return resourceEnvelope(await payload(input, session));
       if (!["Signature-Input", "Signature", "Content-Digest"].some((name) => input.request.headers.has(name)))
         return resourceEnvelope(await payload(input, session));
       await releaseCheckoutInventoryReservations(input.request, session);
@@ -540,19 +540,19 @@ function previewLinePrice(preview: CheckoutFulfillmentPreview | null, listingId:
 function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {
   if (!input.actor)
     return createUcpEnvelope("error", {}, [
-      { severity: "error", code: "authentication_required", message: "UCP checkout requires a linked buyer account." },
+      { severity: "error", code: "authentication_required", content: "UCP checkout requires a linked buyer account." },
     ]);
   if (!input.actor.permissions.includes(permission) && !input.actor.permissions.includes("guest-checkout.manage"))
     return createUcpEnvelope("error", {}, [
       {
         severity: "error",
         code: "authorization_forbidden",
-        message: "The linked buyer account cannot manage this checkout session.",
+        content: "The linked buyer account cannot manage this checkout session.",
       },
     ]);
   if (!input.context)
     return createUcpEnvelope("error", {}, [
-      { severity: "error", code: "context_required", message: "UCP checkout requires an event-store context." },
+      { severity: "error", code: "context_required", content: "UCP checkout requires an event-store context." },
     ]);
   return null;
 }
@@ -580,7 +580,7 @@ function validationError(error: unknown) {
   const code = error instanceof CheckoutDomainError ? error.code : "validation_failed";
   return createUcpEnvelope("error", {}, [
     {
-      severity: code === "checkout_expired" ? "unrecoverable" : "recoverable",
+      severity: ucpErrorSeverity(code),
       code,
       content: "The checkout request could not be completed.",
     },

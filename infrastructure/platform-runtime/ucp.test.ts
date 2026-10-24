@@ -16,6 +16,8 @@ import {
   UCP_MCP_TOOLS,
   UCP_VERSION,
 } from "./ucp";
+import { ucpSchemaValidator } from "./ucp-schema-test-support";
+import { ucpToolInputSchema, ucpToolOutputSchema } from "./ucp-tool-schemas";
 import {
   MCP_LEGACY_PROTOCOL_VERSIONS,
   MCP_META_PROTOCOL_VERSION_KEY,
@@ -238,6 +240,22 @@ function outcomeOf<T>(action: () => T): { accepted: T } | { rejected: unknown } 
 }
 
 describe("UCP profile routes", () => {
+  it("UCP 2026-08-25 profile validates on both GET routes", async () => {
+    const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/profile.json#/$defs/business_schema");
+    const app = new Hono()
+      .route("/.well-known", createUcpProfileRoutes())
+      .route("/ucp/v1", createUcpRestRoutes());
+    for (const path of ["/.well-known/ucp", "/ucp/v1"]) {
+      const response = await app.request(`https://marketplace.example${path}`);
+      const profile = await response.json();
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("cache-control"), path).toBe("public, max-age=300");
+      expect(response.headers.has("location"), path).toBe(false);
+      expect(validate(profile), `${path}: ${JSON.stringify(validate.errors)}`).toBe(true);
+      expect(validate({ ...profile, ucp: { ...profile.ucp, payment_handlers: undefined } })).toBe(false);
+    }
+  });
+
   it("buyer scopes use UCP capability tokens", () => {
     for (const tool of UCP_MCP_TOOLS.filter((tool) => tool.capability === "dev.ucp.shopping.checkout")) {
       expect(tool.securitySchemes, tool.name).toEqual([
@@ -473,6 +491,73 @@ describe("UCP profile routes", () => {
       );
     },
   );
+});
+
+describe("UCP 2026-08-25 descriptor captures", () => {
+  it("UCP 2026-08-25 descriptors validate", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+    const response = await app.request("https://marketplace.example/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    for (const tool of body.result.tools as Array<{ name: string; inputSchema: unknown; outputSchema: unknown }>) {
+      expect(tool.inputSchema).toEqual(ucpToolInputSchema(tool.name as never));
+      expect(tool.outputSchema).toEqual(ucpToolOutputSchema(tool.name as never));
+    }
+  });
+
+  it("UCP 2026-08-25 transport bytes validate and REST equals MCP structuredContent", async () => {
+    const success = createUcpEnvelope("success", { products: [], pagination: { has_next_page: false } });
+    const failure = createUcpEnvelope("error", {}, [
+      { type: "error", code: "invalid_request", severity: "recoverable", content: "The UCP request is invalid." },
+    ]);
+    const handlers = {
+      search_catalog: vi.fn(async (input: { request: Request }) =>
+        (await input.request.clone().json()).forceError ? failure : success,
+      ),
+    };
+    const app = new Hono().route(
+      "/ucp/v1",
+      buildUcpRestRoutes({ restHandlers: handlers, profileResolver: resolveTestProfile }),
+    ).route(
+      "/ucp/mcp",
+      buildUcpMcpRoutes({ mcpToolHandlers: handlers, profileResolver: resolveTestProfile }),
+    );
+    const restBody = JSON.stringify({ query: "cards" });
+    const rest = await app.request("https://marketplace.example/ucp/v1/catalog/search", {
+      method: "POST",
+      body: restBody,
+      headers: { "Content-Type": "application/json" },
+    });
+    const mcpBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "search",
+      method: "tools/call",
+      params: { name: "search_catalog", arguments: { catalog: { query: "cards" } } },
+    });
+    const mcp = await app.request("https://marketplace.example/ucp/mcp", {
+      method: "POST",
+      body: mcpBody,
+      headers: { "Content-Type": "application/json" },
+    });
+    const restCapture = await rest.json();
+    const mcpCapture = await mcp.json();
+    const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/catalog_search.json#/$defs/search_response");
+    expect(validate(restCapture), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(mcpCapture.result.structuredContent), JSON.stringify(validate.errors)).toBe(true);
+    expect(mcpCapture.result.structuredContent).toEqual(restCapture);
+
+    const error = await app.request("https://marketplace.example/ucp/v1/catalog/search", {
+      method: "POST",
+      body: JSON.stringify({ forceError: true }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const errorCapture = await error.json();
+    const validateError = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/common/types/error_response.json");
+    expect(validateError(errorCapture), JSON.stringify(validateError.errors)).toBe(true);
+  });
 });
 
 describe("UCP REST routes", () => {
@@ -1155,9 +1240,24 @@ describe("UCP REST routes", () => {
 });
 
 describe("UCP profile key cache", () => {
+  it("legacy-only signing key aliases cannot authorize a signed request", async () => {
+    const db = createFakeProfileDb();
+    const resolver = createUcpProfileResolver({
+      db,
+      fetch: async () =>
+        Response.json({
+          ...testPlatformProfile,
+          signing_keys: [{ kid: "legacy", kty: "RSA", n: "abc", e: "AQAB" }],
+        }),
+      lookup: async () => [{ address: "8.8.8.8", family: 4 }],
+    });
+    const keyResolver = createUcpProfileKeyResolver(resolver);
+    await expect(keyResolver("https://agent.example/.well-known/ucp", "legacy")).resolves.toBeNull();
+  });
+
   it("uses argument retry keys for signed MCP writes and replays the equivalent header retry", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    const handler = vi.fn(() => createUcpEnvelope("ok", { checkout: { id: "checkout_1" } }));
+    const handler = vi.fn(() => createUcpEnvelope("success", { checkout: { id: "checkout_1" } }));
     const app = new Hono().route(
       "/ucp/mcp",
       createUcpMcpRoutes({
@@ -1210,7 +1310,7 @@ describe("UCP profile key cache", () => {
       fetch,
       lookup: async () => [{ address: "8.8.8.8", family: 4 }],
     });
-    const handler = vi.fn(() => createUcpEnvelope("ok", {}));
+      const handler = vi.fn(() => createUcpEnvelope("success", {}));
     const app = new Hono().route(
       "/ucp/v1",
       buildUcpRestRoutes({
@@ -1268,7 +1368,7 @@ describe("ucp negotiates platform profiles before effects", () => {
       for (const ownProfile of [true, false]) {
         for (const location of ["header", "argument"] as const) {
           if (transport === "rest" && location === "argument") continue;
-          const handler = vi.fn(() => createUcpEnvelope("ok", {}));
+          const handler = vi.fn(() => createUcpEnvelope("success", {}));
           const reserve = vi.fn();
           const negotiationRejected = vi.fn();
           const app = new Hono<{ Variables: { actor: ResolvedActor | null } }>();
@@ -1353,7 +1453,7 @@ describe("ucp negotiates platform profiles before effects", () => {
   );
 
   it.each(["rest", "mcp"] as const)("rejects an incompatible capability with no effect on %s", async (transport) => {
-    const handler = vi.fn(() => createUcpEnvelope("ok", {}));
+      const handler = vi.fn(() => createUcpEnvelope("success", {}));
     const negotiationRejected = vi.fn();
     const options: CreateUcpRoutesOptions = {
       observer: { negotiationRejected },
@@ -2192,7 +2292,8 @@ describe("UCP MCP routes", () => {
       },
     });
     expect(handoffReadResponse.status).toBe(200);
-    await expect(handoffReadResponse.json()).resolves.toMatchObject({
+    const handoffBody = await handoffReadResponse.json();
+    expect(handoffBody).toMatchObject({
       result: {
         contents: [
           {
@@ -2202,6 +2303,8 @@ describe("UCP MCP routes", () => {
         ],
       },
     });
+    expect(handoffBody.result.contents[0].text).toContain("payload.continue_url");
+    expect(handoffBody.result.contents[0].text).not.toContain("action.url");
   });
 
   it("rejects UCP MCP JSON-RPC batches as transport-level invalid requests", async () => {

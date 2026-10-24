@@ -133,6 +133,21 @@ function fixture() {
           recordFulfillmentPreview,
           recordOrdersCreated,
           recordPaymentStarted,
+          getLastRecordedQuote: vi.fn(async () => ({
+            revision: "retained",
+            readyLineKeys: ["lst_1"],
+            unavailableLineKeys: [],
+            unavailableLines: [],
+            materialChangeReasons: [],
+            sellerGroups: [{ lines: [{ listingId: "lst_1", estimatedUnitPriceAmount: "20.00" }] }],
+            totals: {
+              itemSubtotalAmount: "20.00",
+              shippingAmount: "0.00",
+              salesTaxAmount: "0.00",
+              totalAmount: "20.00",
+              packageCount: 1,
+            },
+          })),
         },
       },
       discovery: {
@@ -292,12 +307,12 @@ describe.each<Transport>(["rest", "legacy", "modern"])("composed checkout dispat
   it("unsigned scoped grant derives complete and cancel without reservation or writes", async () => {
     const f = fixture();
     const result = await f.call(transport, "complete_checkout");
-    expect(result.checkout).toMatchObject({
+    expect(result).toMatchObject({
       status: "requires_escalation",
       continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-      messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+      messages: [{ code: "payment_required", severity: "requires_buyer_input" }],
     });
-    expect((await f.call(transport, "cancel_checkout")).checkout.status).toBe("requires_escalation");
+    expect((await f.call(transport, "cancel_checkout")).status).toBe("requires_escalation");
     expect(f.reserve).not.toHaveBeenCalled();
     expect(f.cancelSession).not.toHaveBeenCalled();
     expect(f.recordOrdersCreated).not.toHaveBeenCalled();
@@ -327,7 +342,6 @@ describe.each<Transport>(["rest", "legacy", "modern"])("composed checkout dispat
       const f = fixture();
       for (const operation of ["complete_checkout", "cancel_checkout"]) {
         const result = await f.call(transport, operation, { signature });
-        expect(result.checkout).toBeUndefined();
         expect(JSON.stringify(result)).not.toContain("continue_url");
       }
       expect(f.reserve).not.toHaveBeenCalled();
@@ -338,11 +352,11 @@ describe.each<Transport>(["rest", "legacy", "modern"])("composed checkout dispat
   it("verified cancel writes once per retry key and complete is still read-only", async () => {
     const f = fixture();
     for (let attempt = 0; attempt < 2; attempt++)
-      expect((await f.call(transport, "cancel_checkout", { signature: "valid" })).checkout.status).toBe("canceled");
+      expect((await f.call(transport, "cancel_checkout", { signature: "valid" })).status).toBe("canceled");
     expect(f.cancelSession).toHaveBeenCalledTimes(1);
     const complete = await f.call(transport, "complete_checkout", { signature: "valid", key: "complete-key" });
-    expect(complete.checkout.status).toBe("canceled");
-    expect(complete.checkout).not.toHaveProperty("continue_url");
+    expect(complete.status).toBe("canceled");
+    expect(complete).not.toHaveProperty("continue_url");
     expect(complete.messages).toBeUndefined();
     expect(f.recordOrdersCreated).not.toHaveBeenCalled();
     expect(f.recordPaymentStarted).not.toHaveBeenCalled();
@@ -402,8 +416,8 @@ it.each(["legacy", "modern"] as const)(
     const first = await f.call(transport, "create_checkout", { arguments: argumentsWithMeta });
     const second = await f.call(transport, "create_checkout", { arguments: argumentsWithMeta });
 
-    expect(first.checkout).toBeDefined();
-    expect(second.checkout).toBeDefined();
+    expect(first.id).toBeDefined();
+    expect(second.id).toBeDefined();
     expect(f.createBuyNow).toHaveBeenCalledTimes(2);
     const expectedSessionId = `chk_${createHash("sha256")
       .update(JSON.stringify([buyer.accountId, key, "lst_1"]))
