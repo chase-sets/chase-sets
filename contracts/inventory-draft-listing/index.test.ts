@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalDraftValue,
   inventoryDraftListingErrorCodes,
+  inventoryDraftListingUnavailableDiagnostics,
   inventoryDraftListingMessageSchema,
   inventoryDraftListingReceiptSchema,
   listingIdForInventoryDraftRow,
@@ -27,6 +28,12 @@ const receipt = {
 describe("Inventory draft receipt v1", () => {
   it("keeps the producer error vocabulary closed", () => {
     expect(inventoryDraftListingErrorCodes).toEqual(["inventory-draft-conflict", "inventory-draft-unavailable"]);
+    expect(inventoryDraftListingUnavailableDiagnostics).toEqual([
+      "listing-rejected",
+      "unexpected-failure",
+      "receipt-ledger-not-ready",
+      "consumer-unbound",
+    ]);
   });
 
   it.each(["purchaseLimits", "gradedCard", "availableQuantity"])("rejects removed snapshot key %s", (key) => {

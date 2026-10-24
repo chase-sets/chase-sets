@@ -296,7 +296,10 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     async (at) => {
       const h = harness();
       h.kill(at);
-      await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toThrow();
+      await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+        code: "inventory-draft-unavailable",
+        diagnostic: "unexpected-failure",
+      });
       expect(h.events()).toHaveLength(0);
       expect(h.receipts()).toHaveLength(0);
       h.kill(null);
@@ -309,7 +312,10 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
   it("reconciles an accepted-but-lost reply by exact receipt lookup, without another creation", async () => {
     const h = harness();
     h.kill("reply");
-    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toThrow();
+    await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "unexpected-failure",
+    });
     const stored = await h.consumer.readReceipt("imr_c4_1", draftContext);
     expect(stored).not.toBeNull();
     h.kill(null);
@@ -367,7 +373,7 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     expect(h.pool.connect).not.toHaveBeenCalled();
   });
 
-  it("classifies a deterministic listing-domain rejection as unavailable without a receipt", async () => {
+  it("classifies a deterministic listing-domain rejection as unavailable with a bounded diagnostic", async () => {
     const h = harness();
     const rejectDraft = () => h.seedLegacy(draftMessage(), { quantityCap: 0 });
     expect(rejectDraft).toThrow(MarketplaceListingDomainError);
@@ -379,12 +385,27 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     for (let delivery = 0; delivery < 2; delivery += 1) {
       await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
         code: "inventory-draft-unavailable",
+        diagnostic: "listing-rejected",
       });
     }
     expect(h.createDraft).toHaveBeenCalledTimes(2);
     expect(h.queries.filter((sql) => sql === "ROLLBACK")).toHaveLength(2);
     expect(h.events()).toHaveLength(0);
     expect(h.receipts()).toHaveLength(0);
+  });
+
+  it("preserves unavailable diagnostics and never retains provider error details", async () => {
+    const h = harness();
+    h.kill("draft");
+    const secret = "bearer-secret-marker";
+    h.createDraft.mockImplementation(async () => {
+      throw new MarketplaceListingDomainError("command-rejected", secret);
+    });
+    const error = await h.consumer.accept(draftMessage(), draftContext).catch((value) => value);
+    expect(error).toMatchObject({ code: "inventory-draft-unavailable", diagnostic: "listing-rejected" });
+    expect(error.message).not.toContain(secret);
+    expect(JSON.stringify(error)).not.toContain(secret);
+    expect(Object.keys(error)).toEqual(["code", "diagnostic", "name"]);
   });
 });
 
@@ -425,6 +446,7 @@ describe("issue-7169-c4-consumer-rollout", () => {
     );
     await expect(h.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
       code: "inventory-draft-unavailable",
+      diagnostic: "receipt-ledger-not-ready",
     });
     expect(h.createDraft).not.toHaveBeenCalled();
     expect(h.events()).toHaveLength(0);
