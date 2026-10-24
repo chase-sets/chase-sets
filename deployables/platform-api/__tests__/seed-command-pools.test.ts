@@ -102,9 +102,9 @@ describe("in-pod seed command database selection", () => {
         (total, pool) => total + (pool as unknown as { options: { max: number } }).options.max,
         0,
       );
-      expect(contexts).toHaveLength(20);
-      expect(uniquePools.size).toBe(26); // 20 context URLs, control, four distinct waiter URLs, lock holder.
-      expect(maxConnections).toBe(26);
+      expect(contexts).toHaveLength(21);
+      expect(uniquePools.size).toBe(27); // 21 context URLs, control, four distinct waiter URLs, lock holder.
+      expect(maxConnections).toBe(27);
       expect(pools.schemaBootstrapLockPool).not.toBe(pools.auth);
       expect(
         (pools.schemaBootstrapLockPool as unknown as { options: { connectionString: string } }).options
