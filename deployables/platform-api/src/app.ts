@@ -38,6 +38,7 @@ import {
   catalogRealtimeManifest,
   createCatalogProviderConnectionsReadSource,
   type CatalogServices,
+  type CatalogOperatorAuthority,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
@@ -410,6 +411,10 @@ export function createPlatformApiHost(
       return identity.memberships.getMembershipState(membershipId);
     },
   });
+  const catalogOperatorAuthority: CatalogOperatorAuthority = {
+    forActor: operatorAuthority,
+    forGrantCreator: operatorAuthority.forGrantCreator,
+  };
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
   const walletFundingEligibilityResolver: WalletFundingEligibilityResolver | undefined = identityPool
     ? createIdentityWalletFundingEligibilityResolver(identityPool)
@@ -703,6 +708,7 @@ export function createPlatformApiHost(
       savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
       operatorAuthority,
+      catalogOperatorAuthority,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
