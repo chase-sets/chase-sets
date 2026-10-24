@@ -112,13 +112,15 @@ function refuseRoute(tally, request, reason) {
   tally.requests.forbidden += 1;
   if (tally.forbiddenCalls.length < 100) {
     const method = typeof request.method === "function" ? request.method() : request.method;
-    const reasonHead = String(reason)
-      .replace(/[^a-z0-9:-]/gi, "-")
-      .slice(0, 64);
-    const requestTail = requestPath(request)
-      .replace(/[^a-z0-9._:-]/gi, "-")
+    const head =
+      String(reason)
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .slice(0, 64) || "refused";
+    const tail = `${String(method).toUpperCase()}:${requestPath(request)}`
+      .replace(/[^A-Za-z0-9._:-]/g, "-")
       .slice(0, 200);
-    tally.forbiddenCalls.push(`${reasonHead}:${String(method).toUpperCase()}:${requestTail}`);
+    tally.forbiddenCalls.push(`${head}:${tail}`);
   }
 }
 
@@ -509,7 +511,6 @@ export function buildProducer({ page, tally = null, readDeadlineMs = coordinateP
         usageRead: {
           count: tally.requests.usageReads,
           allowed:
-            usageBody?.allowed === true ||
             usageBody?.providerReadiness?.providers?.some(
               (provider) => provider.providerKey === "scrydex" && provider.usageBudget?.readiness === "ready",
             ) === true,
@@ -531,6 +532,27 @@ export function buildProducer({ page, tally = null, readDeadlineMs = coordinateP
     }
   };
   return produce;
+}
+
+export function finalCoordinatePreviewReceipt(receipt, observed, tally) {
+  return mergeObservedCoordinatePreviewReceipt(
+    {
+      runner: receipt.runner,
+      deployment: receipt.deployment,
+      startedAt: receipt.startedAt,
+      finishedAt: receipt.finishedAt,
+      runnerReasons: receipt.reasons.filter((reason) =>
+        /^(?:credentials-missing|producer-failed(?::[a-z0-9-]{1,64})?|deployment-(?:before|after):[a-z0-9-]{1,64})$/.test(
+          reason,
+        ),
+      ),
+    },
+    {
+      ...observed,
+      requests: { ...tally.requests },
+      forbiddenCalls: [...tally.forbiddenCalls],
+    },
+  );
 }
 
 function paths(env, workspace) {
@@ -641,24 +663,7 @@ export async function capture(env = process.env, workspace = process.cwd()) {
     await Promise.allSettled([...(harvest?.cookieReads ?? [])]);
     if (harvest?.hasFailure()) throw refused("cookie-marker");
     if (context) addCookieMarkers(forbidden, await context.cookies());
-    const finalReceipt = mergeObservedCoordinatePreviewReceipt(
-      {
-        runner: receipt.runner,
-        deployment: receipt.deployment,
-        startedAt: receipt.startedAt,
-        finishedAt: receipt.finishedAt,
-        runnerReasons: receipt.reasons.filter((reason) =>
-          /^(?:credentials-missing|producer-failed(?::[a-z0-9-]{1,64})?|deployment-(?:before|after):[a-z0-9-]{1,64})$/.test(
-            reason,
-          ),
-        ),
-      },
-      {
-        ...observed,
-        requests: { ...tally.requests },
-        forbiddenCalls: [...tally.forbiddenCalls],
-      },
-    );
+    const finalReceipt = finalCoordinatePreviewReceipt(receipt, observed, tally);
     const final = await writeCoordinatePreviewArtifact(finalReceipt, [...forbidden], env, workspace, identity);
     return { ...final, outcome: finalReceipt.outcome, reasons: finalReceipt.reasons };
   } finally {

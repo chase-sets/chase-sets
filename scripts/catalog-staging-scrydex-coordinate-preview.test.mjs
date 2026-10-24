@@ -8,6 +8,7 @@ import {
   coordinatePreviewRunnerIdentity,
   createCoordinatePreviewRouteHandler,
   emptyCoordinatePreviewTally,
+  finalCoordinatePreviewReceipt,
   readCoordinatePreviewResponseInPage,
   selectCoordinatePreviewDeployment,
   validateCoordinatePreviewUpload,
@@ -76,6 +77,14 @@ const generation = {
   jobCompletedAt: "2026-10-20T15:00:00.000Z",
   deployedHead: "a".repeat(40),
   imageDigest: `sha256:${"b".repeat(64)}`,
+};
+
+const testRunner = {
+  sha: "a".repeat(40),
+  runId: "123456",
+  runAttempt: "1",
+  journeyScope: "scrydex-coordinate-preview",
+  origin: "admin.staging.chasesets.com",
 };
 
 function optionBody(unitKey, value) {
@@ -178,7 +187,14 @@ function fakeProducerPage({ mutateBody = false } = {}) {
       if (path.includes("provider-profiles"))
         return { status: 200, text: JSON.stringify({ items: profileItems, total: 5, count: 5 }) };
       if (path.includes("integration-control-plane/overview"))
-        return { status: 200, text: JSON.stringify({ status: "ready" }) };
+        return {
+          status: 200,
+          text: JSON.stringify({
+            providerReadiness: {
+              providers: [{ providerKey: "scrydex", usageBudget: { readiness: "ready" } }],
+            },
+          }),
+        };
       if (path.includes("scope-records")) {
         const productDomain = new URL(`https://example.invalid${path}`).searchParams.get("productDomain");
         const scopeRecordId = productDomain === "one-piece" ? "scope-one-piece" : "scope-lorcana";
@@ -371,7 +387,19 @@ describe("producer *", () => {
       }
       return result;
     };
-    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow("bracket-changed");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(/^bracket-changed$/);
+    await expect(
+      runScrydexCoordinatePreview({
+        runner: testRunner,
+        credentialsPresent: true,
+        selectDeployment: async () => ({ generation, stop: null }),
+        signIn: async () => undefined,
+        produce: async () => {
+          throw new Error("bracket-changed");
+        },
+        now: () => "2026-10-24T08:00:00.000Z",
+      }),
+    ).resolves.toMatchObject({ reasons: expect.arrayContaining(["producer-failed:bracket-changed"]) });
   });
 
   it("setName-coordinate: uses the planner's setName fallback when setId is null", () => {
@@ -412,7 +440,7 @@ describe("producer *", () => {
       }
       return result;
     };
-    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow("bracket-changed");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(/^bracket-changed$/);
   });
 
   it("cache-cursor-stalled:unit: refuses a repeated continuation cursor", async () => {
@@ -539,6 +567,61 @@ describe("producer *", () => {
     });
   });
 
+  it("cache-identity-changed:unit: refuses a continuation page whose cache identity differs", async () => {
+    const page = fakeProducerPage();
+    const evaluate = page.evaluate;
+    let first = true;
+    page.evaluate = async (fn, input) => {
+      const result = await evaluate(fn, input);
+      if (input.path.includes("integration-options") && first) {
+        first = false;
+        const body = JSON.parse(result.text);
+        body.total = 2;
+        body.page.nextCursor = "offset:1";
+        body.page.hasMore = true;
+        result.text = JSON.stringify(body);
+      } else if (input.path.includes("integration-options") && input.path.includes("cursor=offset%3A1")) {
+        const body = JSON.parse(result.text);
+        body.total = 2;
+        body.page = { cursor: "offset:1", nextCursor: null, limit: 25, hasMore: false };
+        body.items = [{ providerKey: "scrydex", queryKind: "sets", value: "Other Set" }];
+        body.cache.cacheKey = `sha256:${"e".repeat(64)}`;
+        result.text = JSON.stringify(body);
+      }
+      return result;
+    };
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(
+      /^cache-identity-changed-scrydex-/,
+    );
+  });
+
+  it("cache-identity-changed:unit: refuses a continuation page whose total differs", async () => {
+    const page = fakeProducerPage();
+    const evaluate = page.evaluate;
+    let first = true;
+    page.evaluate = async (fn, input) => {
+      const result = await evaluate(fn, input);
+      if (input.path.includes("integration-options") && first) {
+        first = false;
+        const body = JSON.parse(result.text);
+        body.total = 2;
+        body.page.nextCursor = "offset:1";
+        body.page.hasMore = true;
+        result.text = JSON.stringify(body);
+      } else if (input.path.includes("integration-options") && input.path.includes("cursor=offset%3A1")) {
+        const body = JSON.parse(result.text);
+        body.total = 3;
+        body.page = { cursor: "offset:1", nextCursor: null, limit: 25, hasMore: false };
+        body.items = [{ providerKey: "scrydex", queryKind: "sets", value: "Other Set" }];
+        result.text = JSON.stringify(body);
+      }
+      return result;
+    };
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(
+      /^cache-identity-changed-/,
+    );
+  });
+
   it("second-scope: skips an incomplete first candidate before selecting the second", async () => {
     const page = fakeProducerPage();
     const evaluate = page.evaluate;
@@ -597,6 +680,48 @@ describe("producer *", () => {
           new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(new Error("aborted")))),
       }),
     ).rejects.toThrow();
+  });
+
+  it("read-timeout: normalizes a never-settling body in the producer", async () => {
+    const page = {
+      async evaluate(fn, input) {
+        return fn({
+          ...input,
+          fetchImpl: async () => new Response(new ReadableStream({ start() {} }), { status: 200 }),
+        });
+      },
+    };
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally(), readDeadlineMs: 50 })()).rejects.toThrow(
+      /^read-timeout$/,
+    );
+  });
+
+  it("deadline-threaded: forwards the deadline to every producer read", async () => {
+    const page = fakeProducerPage();
+    await buildProducer({ page, tally: emptyCoordinatePreviewTally(), readDeadlineMs: 50 })();
+    expect(page.calls.length).toBeGreaterThan(0);
+    expect(page.calls.every((input) => input.deadlineMs === 50)).toBe(true);
+  });
+
+  it("usage-readiness: accepts only the overview provider readiness shape", async () => {
+    const readyPage = fakeProducerPage();
+    const ready = await buildProducer({ page: readyPage, tally: emptyCoordinatePreviewTally() })();
+    expect(ready.usageRead.allowed).toBe(true);
+
+    for (const usageBody of [
+      { allowed: true },
+      { providerReadiness: { providers: [{ providerKey: "scrydex", usageBudget: { readiness: "unknown" } }] } },
+    ]) {
+      const page = fakeProducerPage();
+      const evaluate = page.evaluate;
+      page.evaluate = async (fn, input) => {
+        const result = await evaluate(fn, input);
+        if (input.path.includes("integration-control-plane/overview")) result.text = JSON.stringify(usageBody);
+        return result;
+      };
+      const observed = await buildProducer({ page, tally: emptyCoordinatePreviewTally() })();
+      expect(observed.usageRead.allowed).toBe(false);
+    }
   });
 
   it("phases: keeps readiness, preview, and immediate pre-confirm reads ordered", async () => {
@@ -888,25 +1013,66 @@ describe("artifact *", () => {
     await expect(validateCoordinatePreviewUpload(env, workspace)).resolves.toMatchObject({ captureStatus: "complete" });
   });
 
-  it("forbidden-call: merges and validates a fenced refusal receipt", async () => {
+  it("forbidden-call: handler-driven long-path refusal writes and validates", async () => {
+    const tally = emptyCoordinatePreviewTally();
+    tally.requests.signIn = 1;
+    const route = {
+      request: () => ({
+        method: () => "GET",
+        url: () => `${scrydexCacheCaptureOrigin}/api/${"x".repeat(230)}`,
+        isNavigationRequest: () => false,
+      }),
+      fetch: vi.fn(async () => ({ headers: () => ({}) })),
+      fulfill: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+    await createCoordinatePreviewRouteHandler({ phase: "capture", tally })(route);
+    expect(tally.requests.forbidden).toBe(1);
+    expect(tally.forbiddenCalls[0].length).toBeLessThanOrEqual(64 + 1 + 200);
+    const base = await runScrydexCoordinatePreview({
+      runner,
+      credentialsPresent: true,
+      selectDeployment: async () => ({ generation, stop: null }),
+      signIn: async () => undefined,
+      produce: async () => ({}),
+      now: (() => {
+        const values = ["2026-10-24T08:00:00.000Z", "2026-10-24T08:30:00.000Z"];
+        return () => values.shift();
+      })(),
+    });
+    const candidate = finalCoordinatePreviewReceipt(base, {}, tally);
+    expect(candidate.reasons).toContain("forbidden-call");
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeCoordinatePreviewArtifact(candidate, [], env, workspace, runner);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).resolves.toMatchObject({
+      captureStatus: "governed-unknown",
+    });
+  });
+
+  it("forbidden-call: final merge preserves producer failure and sign-in refusal evidence", async () => {
     const tally = emptyCoordinatePreviewTally();
     tally.requests.signIn = 1;
     tally.requests.forbidden = 1;
-    tally.forbiddenCalls.push("ambient-read:GET:-assets-app.js");
-    const candidate = mergeObservedCoordinatePreviewReceipt(
-      {
-        runner,
-        deployment: { before: generation, after: generation },
-        startedAt: "2026-10-24T08:00:00.000Z",
-        finishedAt: "2026-10-24T08:30:00.000Z",
+    tally.forbiddenCalls.push("ambient-api:GET:-api-sign-in");
+    const base = await runScrydexCoordinatePreview({
+      runner,
+      credentialsPresent: true,
+      selectDeployment: async () => ({ generation, stop: null }),
+      signIn: async () => undefined,
+      produce: async () => {
+        throw new Error("bracket-changed");
       },
-      {
-        requests: tally.requests,
-        forbiddenCalls: tally.forbiddenCalls,
-        usageRead: { count: 0, allowed: false },
-      },
-    );
-    expect(candidate.reasons).toContain("forbidden-call");
+      now: (() => {
+        const values = ["2026-10-24T08:00:00.000Z", "2026-10-24T08:30:00.000Z"];
+        return () => values.shift();
+      })(),
+    });
+    const candidate = finalCoordinatePreviewReceipt(base, {}, tally);
+    expect(candidate.requests.forbidden).toBe(1);
+    expect(candidate.reasons).toEqual(expect.arrayContaining(["forbidden-call", "producer-failed:bracket-changed"]));
     const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
     directories.push(workspace);
     const env = runnerEnv();
@@ -931,6 +1097,51 @@ describe("artifact *", () => {
     candidate.requests.forbidden = 1;
     candidate.forbiddenCalls = ["ambient-read:GET:-assets-app.js"];
     expect(validateScrydexCoordinatePreviewReceipt(candidate)).toEqual([]);
+  });
+
+  it("governed-unknown: writes a deployment selection failure receipt", async () => {
+    const candidate = await runScrydexCoordinatePreview({
+      runner,
+      credentialsPresent: true,
+      selectDeployment: async () => ({ generation: null, stop: "selection-failed" }),
+      signIn: vi.fn(async () => undefined),
+      produce: vi.fn(async () => ({})),
+      now: (() => {
+        const values = ["2026-10-24T08:00:00.000Z", "2026-10-24T08:30:00.000Z"];
+        return () => values.shift();
+      })(),
+    });
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeCoordinatePreviewArtifact(candidate, [], env, workspace, runner);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).resolves.toMatchObject({
+      captureStatus: "governed-unknown",
+    });
+  });
+
+  it("governed-unknown: writes and validates a 1001-refusal tally", async () => {
+    const tally = emptyCoordinatePreviewTally();
+    tally.requests.forbidden = 1001;
+    tally.forbiddenCalls = Array.from({ length: 100 }, (_, index) => `ambient-api:GET:-api-${index}`);
+    const base = receipt();
+    const candidate = mergeObservedCoordinatePreviewReceipt(base, {
+      ...base,
+      requests: tally.requests,
+      forbiddenCalls: tally.forbiddenCalls,
+    });
+    expect(tally.requests.forbidden).toBe(1001);
+    expect(candidate.requests.forbidden).toBe(1000);
+    expect(candidate.forbiddenCalls).toHaveLength(100);
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeCoordinatePreviewArtifact(candidate, [], env, workspace, runner);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).resolves.toMatchObject({
+      captureStatus: "governed-unknown",
+    });
   });
 
   it("create-once: refuses a second artifact write", async () => {
