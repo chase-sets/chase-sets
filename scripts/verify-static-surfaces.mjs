@@ -167,6 +167,11 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
       ...exact("bounded-contexts/channels/features/credentials/api/runtime.ts"),
     ],
   },
+  "scripts/check-structure/tcgplayer-host-credential-guard.test.mjs": {
+    rule: "tracked platform source inventory for TCGplayer hosts and custody tokens",
+    evidence: ["scripts/check-structure/tcgplayer-host-credential-guard.mjs:1-114"],
+    include: [{ kind: "any" }],
+  },
   "scripts/check-structure/sql-execution-surface.test.mjs": {
     rule: "repository-wide tracked TypeScript inventory and module-resolution file inventory",
     evidence: [

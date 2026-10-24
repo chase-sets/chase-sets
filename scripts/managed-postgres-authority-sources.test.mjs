@@ -58,6 +58,20 @@ const reviewedCatalogDelta = [
     purpose: "managed-postgres-boundary",
   },
 ];
+// #10356 threads the preview runtime provider secrets into the ephemeral verification apply step.
+const previewRuntimeSecretsDelta = [
+  "SCRYDEX_API_KEY",
+  "SCRYDEX_TEAM_ID",
+  "SES_AWS_ACCESS_KEY_ID",
+  "SES_AWS_SECRET_ACCESS_KEY",
+  "SES_SOURCE_ARN",
+].map((secretName) => ({
+  file: ".github/workflows/platform-ephemeral-verification.yml",
+  jobId: "verify-release",
+  stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
+  secretName,
+  purpose: "terraform-infra",
+}));
 // #9268 delta: the staging preview DNS-01 token converge step in deploy-staging and the on-demand restore workflow.
 const previewWildcardWorkflow = ".github/workflows/platform-preview-wildcard-tls.yml";
 const previewWildcardJob = "restore-preview-wildcard-tls";
@@ -875,8 +889,16 @@ describe("managed Postgres authority source generator", () => {
       ...original,
       grants: [
         ...[...retainedOriginalGrants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
+        ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
+        ...ebayAccountDeletionDelta.map((entry) => ({
+          ...entry,
+          secretName:
+            entry.secretName === "EBAY_ACCOUNT_DELETION_ENDPOINT"
+              ? "EBAY_APPLICATION_CLIENT_ID"
+              : "EBAY_APPLICATION_CLIENT_SECRET",
+        })),
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
@@ -903,7 +925,7 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1710);
+    expect(expected.grants).toHaveLength(1725);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);

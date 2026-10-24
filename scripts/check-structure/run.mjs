@@ -49,6 +49,7 @@ import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
+import { scanTcgplayerHostCredentialPolicy } from "./tcgplayer-host-credential-guard.mjs";
 
 const roots = workspaceRoots;
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -2044,6 +2045,8 @@ export async function runStructureCheck(options = {}) {
   violations.push(...sqlExecutionSurface.violations);
   const realClockElapsedBounds = await validateRealClockElapsedBounds({ repoRoot });
   violations.push(...realClockElapsedBounds.violations);
+  const tcgplayerHostCredentialGuard = await scanTcgplayerHostCredentialPolicy({ repoRoot });
+  violations.push(...tcgplayerHostCredentialGuard.violations);
 
   for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
     addPathViolation(violation.testPath, violation.message);

@@ -969,6 +969,16 @@
           "name": "VOYAGE_API_KEY",
           "secret": true,
           "secretKey": "VOYAGE_API_KEY"
+        },
+        {
+          "name": "EBAY_APPLICATION_CLIENT_ID",
+          "secret": true,
+          "secretKey": "EBAY_APPLICATION_CLIENT_ID"
+        },
+        {
+          "name": "EBAY_APPLICATION_CLIENT_SECRET",
+          "secret": true,
+          "secretKey": "EBAY_APPLICATION_CLIENT_SECRET"
         }
       ],
       "resources": {},
@@ -1608,6 +1618,16 @@
         {
           "name": "WORKER_WAKE_STATEMENT_TIMEOUT_MS",
           "value": "30000"
+        },
+        {
+          "name": "EBAY_APPLICATION_CLIENT_ID",
+          "secret": true,
+          "secretKey": "EBAY_APPLICATION_CLIENT_ID"
+        },
+        {
+          "name": "EBAY_APPLICATION_CLIENT_SECRET",
+          "secret": true,
+          "secretKey": "EBAY_APPLICATION_CLIENT_SECRET"
         }
       ],
       "resources": {},

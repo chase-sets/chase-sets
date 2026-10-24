@@ -335,6 +335,8 @@ jobs:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
+          EBAY_APPLICATION_CLIENT_ID: ${{ secrets.EBAY_APPLICATION_CLIENT_ID || '' }}
+          EBAY_APPLICATION_CLIENT_SECRET: ${{ secrets.EBAY_APPLICATION_CLIENT_SECRET || '' }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
@@ -353,11 +355,21 @@ jobs:
           GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
           FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY || '' }}
+          SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
+          SES_AWS_ACCESS_KEY_ID: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
+          SES_AWS_SECRET_ACCESS_KEY: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
+          SES_SOURCE_ARN: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: |
           set -euo pipefail
           export CATALOG_ASSET_S3_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
           export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
           export OTEL_EXPORTER_OTLP_HEADERS=""
+          export SCRYDEX_API_KEY="${SCRYDEX_API_KEY:-}"
+          export SCRYDEX_TEAM_ID="${SCRYDEX_TEAM_ID:-}"
+          export SES_AWS_ACCESS_KEY_ID="${SES_AWS_ACCESS_KEY_ID:-}"
+          export SES_AWS_SECRET_ACCESS_KEY="${SES_AWS_SECRET_ACCESS_KEY:-}"
+          export SES_SOURCE_ARN="${SES_SOURCE_ARN:-}"
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
       - name: Deploy verification Kubernetes release

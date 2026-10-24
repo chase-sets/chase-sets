@@ -21,6 +21,7 @@ import {
 import { batchBrowserE2eSuiteIds, batchE2eSuiteIds, e2eSuites } from "./e2e-suites.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { listWorkspacePackages } from "./lib/repo.mjs";
+import { ALWAYS_RUN, VERIFY_STATIC_SURFACES } from "./verify-static-surfaces.mjs";
 
 const selectionFixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
 const E2E_SELECTION_BASE_SHA = "6dd05a038a8863a1b28a96d68ccdb7906a16bed4";
@@ -911,5 +912,30 @@ describe("shared CI gate plan", () => {
     for (const definition of CI_GATE_DEFINITIONS.filter(({ id }) => id !== "pr-required")) {
       expect(headWorkflow).toContain(`outputs.${definition.id.replaceAll("-", "_")}_required`);
     }
+  });
+
+  it("runs the TCGplayer boundary guard in static checks before preview deployment", () => {
+    const staticSource = workflowJob(headWorkflow, "static-source").text;
+    const preview = workflowJob(headWorkflow, "preview-deploy-smoke").text;
+    const rootPackage = JSON.parse(readFileSync("package.json", "utf8"));
+    const structureEntrypoint = readFileSync("scripts/check-structure.mjs", "utf8");
+    const structureRun = readFileSync("scripts/check-structure/run.mjs", "utf8");
+    expect(staticSource).toContain("run: pnpm run verify:static");
+    expect(staticSource).toContain("Run static checks");
+    expect(preview).toContain("needs.static.result == 'success'");
+    expect(headWorkflow.indexOf("  static-source:")).toBeLessThan(headWorkflow.indexOf("  preview-deploy-smoke:"));
+    expect(rootPackage.scripts["verify:static"]).toContain("pnpm run check:structure");
+    expect(rootPackage.scripts["check:structure"]).toMatch(/^node \.\/scripts\/check-structure\.mjs/);
+    expect(structureEntrypoint).toContain("runStructureCheck");
+    expect(structureRun).toContain("await scanTcgplayerHostCredentialPolicy({ repoRoot })");
+    expect(structureRun).toContain("violations.push(...tcgplayerHostCredentialGuard.violations)");
+    const runStart = structureRun.indexOf("export async function runStructureCheck(");
+    const reset = structureRun.indexOf("violations.length = 0;", runStart);
+    expect(runStart).toBeGreaterThan(-1);
+    expect(reset).toBeGreaterThan(runStart);
+    expect(structureRun.indexOf("await scanTcgplayerHostCredentialPolicy({ repoRoot })")).toBeGreaterThan(reset);
+    expect(VERIFY_STATIC_SURFACES["check:structure"].scopedSteps).toContainEqual(
+      expect.objectContaining({ name: "aggregate", classification: ALWAYS_RUN }),
+    );
   });
 });
