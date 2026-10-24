@@ -151,7 +151,19 @@ pnpm run ops release-lock:commands --action unlock --environment production
 
 The generator only prints commands; it never executes them. Lock writes reason, reference, exit route and deadline before setting `PRODUCTION_RELEASE_LOCKED=true` **last**. Unlock writes `PRODUCTION_RELEASE_LOCKED=false` **first**, then clears the other four fields. False state ignores even malformed stale metadata in the gate, monitor and health record. Preserve historical artifacts, not stale Environment authority. New gate records are `release-lock-check/v2`; the additive `releaseLock.schemaVersion` is `production-release-lock/v2` inside the unchanged `release-health/v1` envelope, so historical v1 health remains readable without inferred exit authority.
 
-Before a future lock, the host reads all five production Environment values and current protection/branch policy, confirms no active/queued production writer, and checks the exit issue's existence and ownership. The generator and gate validate the issue URL offline only: `https://github.com/chase-sets/chase-sets/issues/<positive integer>`; other repositories, pull requests, suffixes and non-numeric references are refused. No lane may mutate live Environment state. The host verifies five-field readback after creation and after clearing. Do not restore an old true tuple: a new valid lock requires a new deadline.
+For unlock, the printed sequence is exactly `PRODUCTION_RELEASE_LOCKED=false` followed by these bare commands, all against the unchanged environment:
+
+```text
+gh variable set PRODUCTION_RELEASE_LOCKED --env "production" --body "false"
+gh variable delete PRODUCTION_RELEASE_LOCK_REASON --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_REFERENCE --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_EXIT_ROUTE --env "production"
+gh variable delete PRODUCTION_RELEASE_LOCK_DEADLINE --env "production"
+```
+
+Stop if the false write fails. Never use `gh variable set ... --body ""` or a literal `""` value. A missing individual delete is idempotent only when the subsequent `gh variable list --env "production"` succeeds and its readback succeeds with `PRODUCTION_RELEASE_LOCKED=false` and none of those four names. List/auth/environment/parse failures, `PRODUCTION_RELEASE_LOCKED` not exactly false, any remaining metadata (including an empty value), or any extra `PRODUCTION_RELEASE_LOCK_*` name are incomplete and must be surfaced.
+
+Before a future lock, the host reads all five production Environment values and current protection/branch policy, confirms no active/queued production writer, and checks the exit issue's existence and ownership. The generator and gate validate the issue URL offline only: `https://github.com/chase-sets/chase-sets/issues/<positive integer>`; other repositories, pull requests, suffixes and non-numeric references are refused. No lane may mutate live Environment state. The host verifies five-field readback after creation and the list readback above after clearing. Do not restore an old true tuple: a new valid lock requires a new deadline.
 
 `platform-production-lock-monitor.yml` runs on main, scheduled every five minutes (`*/5 * * * *`) or manually dispatched, without any release dependency or provider credential. The first **executed** observation at/after the deadline escalates; legacy/invalid true state escalates on its first observation and never permits a normal release. GitHub may delay or drop scheduled runs: there is no wall-clock guarantee, and a missing observation is unknown, not healthy. The host may dispatch `gh workflow run platform-production-lock-monitor.yml --ref main` and inspect the executed `Monitor Production Release Lock` job, notification step and `production-release-lock-monitor` receipt, not just the parent run conclusion.
 
