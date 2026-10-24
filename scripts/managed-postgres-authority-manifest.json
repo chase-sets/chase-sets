@@ -5021,6 +5021,34 @@
       "purpose": "digitalocean-ops"
     },
     {
+      "file": ".github/workflows/platform-production-memory-probe.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Capture production web memory#7",
+      "secretName": "PROMETHEUS_QUERY_TOKEN",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-production-memory-probe.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure production read context#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-production-memory-probe.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure production read context#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-production-memory-probe.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure production read context#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
       "file": ".github/workflows/platform-production-restore-point-cleanup.yml",
       "jobId": "cleanup",
       "stepAnchor": "name:Cleanup restore-point forks#4",
