@@ -5,6 +5,7 @@ import {
   compareInventoryDraftSelectedOptions,
   inventoryDraftListingMessageSchema,
   inventoryDraftListingReceiptSchema,
+  type InventoryDraftListingUnavailableDiagnostic,
   listingIdForInventoryDraftRow,
   type InventoryDraftListingErrorCode,
   type InventoryDraftListingMessage,
@@ -28,6 +29,7 @@ import type { ListingId } from "@chase-sets/primitives/typed-ids";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { MarketplaceListingServices } from "./runtime";
 import { normalizePurchaseLimits } from "../domain/domain";
+import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { inventoryListingCapacityStreamId } from "../domain/inventory-listing-capacity";
 import { INVENTORY_DRAFT_RECEIPT_MIGRATION_ID } from "../read-model/inventory-draft-receipt-schema";
 import {
@@ -43,11 +45,13 @@ export class InventoryDraftListingConflict extends Error {
   }
 }
 
-class InventoryDraftListingUnavailable extends Error {
+export class InventoryDraftListingUnavailable extends Error {
   readonly code: InventoryDraftListingErrorCode = "inventory-draft-unavailable";
-  constructor() {
+  readonly diagnostic: InventoryDraftListingUnavailableDiagnostic;
+  constructor(diagnostic: InventoryDraftListingUnavailableDiagnostic = "unexpected-failure") {
     super("Inventory draft acceptance is unavailable. Read the same message receipt before retrying.");
     this.name = "InventoryDraftListingUnavailable";
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -72,7 +76,8 @@ async function assertReceiptSchemaReady(db: PgQueryable): Promise<void> {
            AND receipt_trigger.tgenabled = 'O' AND NOT receipt_trigger.tgisinternal AND receipt.relpersistence = 'p') AS ready`,
     [INVENTORY_DRAFT_RECEIPT_MIGRATION_ID],
   );
-  if (result.rows.length !== 1 || !result.rows[0]?.ready) throw new InventoryDraftListingUnavailable();
+  if (result.rows.length !== 1 || !result.rows[0]?.ready)
+    throw new InventoryDraftListingUnavailable("receipt-ledger-not-ready");
 }
 
 async function loadReceipt(db: PgQueryable, messageId: string): Promise<ReceiptRow | undefined> {
@@ -209,6 +214,7 @@ export function createInventoryDraftListingConsumer(
         return row && ownsReceipt(row, context) ? readStoredReceipt(row) : null;
       } catch (error) {
         if (error instanceof InventoryDraftListingConflict) throw error;
+        if (error instanceof InventoryDraftListingUnavailable) throw error;
         throw new InventoryDraftListingUnavailable();
       }
     },
@@ -333,7 +339,10 @@ export function createInventoryDraftListingConsumer(
         return accepted.receipt;
       } catch (error) {
         if (error instanceof InventoryDraftListingConflict) throw error;
-        throw new InventoryDraftListingUnavailable();
+        if (error instanceof InventoryDraftListingUnavailable) throw error;
+        if (error instanceof MarketplaceListingDomainError && error.code === "command-rejected")
+          throw new InventoryDraftListingUnavailable("listing-rejected");
+        throw new InventoryDraftListingUnavailable("unexpected-failure");
       }
     },
   };
@@ -350,11 +359,15 @@ export function bindInventoryDraftListingConsumer(
   return {
     accept: (input, context) => {
       const value = consumer();
-      return value ? value.accept(input, context) : Promise.reject(new InventoryDraftListingUnavailable());
+      return value
+        ? value.accept(input, context)
+        : Promise.reject(new InventoryDraftListingUnavailable("consumer-unbound"));
     },
     readReceipt: (messageId, context) => {
       const value = consumer();
-      return value ? value.readReceipt(messageId, context) : Promise.reject(new InventoryDraftListingUnavailable());
+      return value
+        ? value.readReceipt(messageId, context)
+        : Promise.reject(new InventoryDraftListingUnavailable("consumer-unbound"));
     },
   };
 }
