@@ -72,6 +72,8 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
   const pool = createPgPool(pricingUrl.toString(), { max: 1 });
   let created: { policyId: string; accountId: string } | undefined;
   let fixture: Awaited<ReturnType<typeof seedSyntheticPricingHealthInputs>> | undefined;
+  let haltEngaged = false;
+  let applied = false;
   try {
     await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk%2Frepricing");
     await signInThroughMarketplaceForm(page, marketplaceBrowserE2eSellerCredentials());
@@ -148,19 +150,64 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
     expect(candidate.currencyCode).toBe("USD");
     expect(candidate.floor).toEqual({ mode: "absolute", amount: "1.00" });
     expect(candidate.guardrails).toEqual([{ kind: "market-evidence-floor", percentOfEstimate: 90 }]);
-    expect(health.comparison.some((row) => row.held === row.listingCount)).toBe(true);
+    // F8 control: the applied candidate must not hold every listing.
+    expect(candidate.held).not.toBe(candidate.listingCount);
 
     await page.goto(`/account/desk/pricing-health?policyId=${created.policyId}`);
     const apply = page.getByRole("button", { name: "Apply goal", exact: true }).first();
     await expect(apply).toBeVisible();
+
+    const haltResponse = await page.request.post(`${policiesApi}/halt`, { data: { engaged: true } });
+    expect(haltResponse.status()).toBe(200);
+    expect(((await haltResponse.json()) as { engaged: boolean }).engaged).toBe(true);
+    haltEngaged = true;
+
     await apply.focus();
     await page.keyboard.press("Enter");
-    const dialog = page.getByRole("dialog");
+    const errorDialog = page.getByRole("alertdialog");
+    await expect(errorDialog).toBeVisible();
+    await errorDialog.getByRole("button", { name: "Apply this goal", exact: true }).click();
+    const applyError = page.getByRole("alert").filter({ hasText: "This goal could not be applied" });
+    await expect(applyError).toBeVisible();
+    const refusedHealth = await readJson<HealthResponse>(
+      page.request.get(`${healthApi}?policyId=${created.policyId}`),
+      200,
+    );
+    expect(refusedHealth.target?.version).toBe(beforeHealth.target!.version);
+    for (const viewport of [
+      { width: 360, height: 800 },
+      { width: 390, height: 844 },
+      { width: 820, height: 1180 },
+    ]) {
+      await page.setViewportSize(viewport);
+      const retryLink = applyError.getByRole("link", { name: "Retry", exact: true });
+      await retryLink.focus();
+      await expect(retryLink).toBeFocused();
+      await captureAccessibilityEvidence({
+        page,
+        testInfo,
+        surface: `Pricing Goal apply error ${viewport.width}`,
+      });
+    }
+    const releaseHaltResponse = await page.request.post(`${policiesApi}/halt`, { data: { engaged: false } });
+    expect(releaseHaltResponse.status()).toBe(200);
+    expect(((await releaseHaltResponse.json()) as { engaged: boolean }).engaged).toBe(false);
+    haltEngaged = false;
+    await page.reload();
+
+    const confirmedApply = page.getByRole("button", { name: "Apply goal", exact: true }).first();
+    await expect(confirmedApply).toBeVisible();
+    await confirmedApply.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("alertdialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText(created.policyId);
     await expect(dialog).toContainText(candidate.goalId);
     await expect(dialog).toContainText(candidate.bodyHash);
     await expect(dialog).toContainText("Unchanged guardrails");
+    await expect(dialog).toContainText(
+      `Preview movement: raised ${candidate.raised ?? 0}, lowered ${candidate.lowered ?? 0}, held ${candidate.held ?? 0}.`,
+    );
     for (const viewport of [
       { width: 360, height: 800 },
       { width: 390, height: 844 },
@@ -185,7 +232,8 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
     await captureResponsiveEvidence({ page, testInfo, claimId: "pricing-goal-apply-confirmation-tablet" });
     await page.setViewportSize({ width: 390, height: 844 });
     await dialog.getByRole("button", { name: "Apply this goal", exact: true }).click();
-    await expect(page.getByRole("status")).toContainText("Pricing goal applied");
+    await expect(page.getByRole("status").filter({ hasText: "Pricing goal applied" })).toBeVisible();
+    applied = true;
 
     const after = await readJson<PolicyState>(page.request.get(`${policiesApi}/${created.policyId}`), 200);
     const afterHealth = await readJson<HealthResponse>(
@@ -210,9 +258,27 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
     ]);
   } finally {
     try {
+      if (haltEngaged) {
+        const releaseHaltResponse = await page.request.post(`${policiesApi}/halt`, { data: { engaged: false } });
+        expect(releaseHaltResponse.status()).toBe(200);
+        expect(((await releaseHaltResponse.json()) as { engaged: boolean }).engaged).toBe(false);
+        haltEngaged = false;
+      }
       if (created) {
         expect((await page.request.post(`${policiesApi}/${created.policyId}/delete`)).status()).toBe(200);
-        await projectSyntheticPricingHealthPolicy(pool, created);
+        if (applied) {
+          await expect
+            .poll(
+              async () => {
+                const policies = await readJson<Array<{ policyId: string }>>(page.request.get(policiesApi), 200);
+                return policies.some((policy) => policy.policyId === created!.policyId);
+              },
+              { timeout: 30_000 },
+            )
+            .toBe(false);
+        } else {
+          await projectSyntheticPricingHealthPolicy(pool, created);
+        }
       }
     } finally {
       try {
