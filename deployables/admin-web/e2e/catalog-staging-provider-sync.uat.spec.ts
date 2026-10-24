@@ -4176,18 +4176,41 @@ const workflowStageNames: Record<WorkflowStageKey, RegExp> = {
   "create-items": /^Create \/ update items\b/i,
 };
 
-async function expandWorkflowStage(page: Page, stage: WorkflowStageKey): Promise<void> {
+async function expandWorkflowStage(page: Page, stage: WorkflowStageKey, timeoutMs?: number): Promise<void> {
   const trigger = page
     .locator(`[data-catalog-import-workflow-stage="${stage}"]`)
     .or(page.getByRole("heading", { name: workflowStageNames[stage] }).getByRole("button"))
     .first();
-  await expect(trigger).toBeVisible({ timeout: pageReadyTimeoutMs });
-  const deadline = Date.now() + pageReadyTimeoutMs;
-  while ((await trigger.getAttribute("aria-expanded").catch(() => null)) !== "true" && Date.now() < deadline) {
-    await trigger.click();
-    await page.waitForTimeout(250);
+  if (timeoutMs === undefined) {
+    await expect(trigger).toBeVisible({ timeout: pageReadyTimeoutMs });
+    const deadline = Date.now() + pageReadyTimeoutMs;
+    while ((await trigger.getAttribute("aria-expanded").catch(() => null)) !== "true" && Date.now() < deadline) {
+      await trigger.click();
+      await page.waitForTimeout(250);
+    }
+    await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: pageReadyTimeoutMs });
+    return;
   }
-  await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: pageReadyTimeoutMs });
+  const deadline = Date.now() + timeoutMs;
+  const remaining = (): number => {
+    const value = deadline - Date.now();
+    if (value <= 0) throw new WholeGameDeadlineReached();
+    return value;
+  };
+  await expect(trigger).toBeVisible({ timeout: remaining() });
+  while (true) {
+    let expanded: string | null = null;
+    try {
+      expanded = await trigger.getAttribute("aria-expanded", { timeout: remaining() });
+    } catch (error) {
+      if (Date.now() >= deadline) throw new WholeGameDeadlineReached();
+      throw error;
+    }
+    if (expanded === "true") break;
+    await trigger.click({ timeout: remaining() });
+    await page.waitForTimeout(Math.min(250, remaining()));
+  }
+  await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: remaining() });
 }
 
 async function expectImportJobSettledForSelectedUnit(
@@ -7278,6 +7301,7 @@ async function submitPromoteAllReady(
   await expect(form).toHaveCount(1, { timeout: pageReadyTimeoutMs });
   wholeGameRemainingMs(runtime);
   assertWholeGameOrigin(page.url());
+  await expandWorkflowStage(page, "review-changes", wholeGameRemainingMs(runtime, pageReadyTimeoutMs));
   await clickWholeGameControl(page, form.getByRole("button", { name: "Promote all ready", exact: true }), runtime);
 
   const deadline = Math.min(runtime.deadlineAt, Date.now() + syncTimeoutMs);

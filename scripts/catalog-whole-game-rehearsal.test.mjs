@@ -122,6 +122,7 @@ describe("whole-game repair regressions", () => {
     const trigger = {
       or: () => trigger,
       first: () => trigger,
+      getByRole: () => trigger,
       getAttribute: async (name) => (name === "aria-expanded" && expanded ? "true" : "false"),
       click: async () => {},
     };
@@ -142,6 +143,8 @@ describe("whole-game repair regressions", () => {
       Date,
       Set,
       URLSearchParams,
+      cssString: JSON.stringify,
+      workflowStageNames: { "review-changes": /^Review changes\\b/i },
       pageReadyTimeoutMs: 1_000,
       syncTimeoutMs: 1_000,
       page,
@@ -169,6 +172,18 @@ describe("whole-game repair regressions", () => {
     ).rejects.toBeInstanceOf(rehearsal.WholeGameDeadlineReached);
     expect(Date.now() - startedAt).toBeLessThan(10_000);
     expect(posted).toBe(false);
+  });
+
+  it("AC1 orders the origin assertion, review expansion, and promotion click", () => {
+    const source = journeyFunction("submitPromoteAllReady").getText(journeySource);
+    const count = source.indexOf("await expect(form).toHaveCount(1");
+    const origin = source.indexOf("assertWholeGameOrigin(page.url())", count);
+    const expansion = source.indexOf('expandWorkflowStage(page, "review-changes"', origin);
+    const click = source.indexOf('clickWholeGameControl(page, form.getByRole("button", { name: "Promote all ready"', expansion);
+    expect(count).toBeGreaterThanOrEqual(0);
+    expect(origin).toBeGreaterThan(count);
+    expect(expansion).toBeGreaterThan(origin);
+    expect(click).toBeGreaterThan(expansion);
   });
 
   it.each(["full-game-start", "full-game-settle"])(
