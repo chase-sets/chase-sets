@@ -525,16 +525,17 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       createOfferIntent: vi.fn(),
       createBuyNowSession: vi.fn(),
       getSession: vi.fn(),
-      getLastRecordedQuote: vi.fn(async () =>
-        ({
-          totals: {
-            itemSubtotalAmount: "20.00",
-            shippingAmount: "0.00",
-            salesTaxAmount: "0.00",
-            totalAmount: "20.00",
-          },
-          sellerGroups: [{ lines: [{ listingId: "listing_1", estimatedUnitPriceAmount: "20.00" }] }],
-        }) as never,
+      getLastRecordedQuote: vi.fn(
+        async () =>
+          ({
+            totals: {
+              itemSubtotalAmount: "20.00",
+              shippingAmount: "0.00",
+              salesTaxAmount: "0.00",
+              totalAmount: "20.00",
+            },
+            sellerGroups: [{ lines: [{ listingId: "listing_1", estimatedUnitPriceAmount: "20.00" }] }],
+          }) as never,
       ),
       resumeOrderCartCleanup: vi.fn<
         Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]

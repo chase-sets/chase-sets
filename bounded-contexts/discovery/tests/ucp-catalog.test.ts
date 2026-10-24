@@ -90,7 +90,12 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
   };
 }
 
-function detailFor(id: string, listings = [{ listing_id: `${id}_listing`, listing_slug: `${id}-listing`, price_amount: "10.00", price_currency_code: "USD" }]) {
+function detailFor(
+  id: string,
+  listings = [
+    { listing_id: `${id}_listing`, listing_slug: `${id}-listing`, price_amount: "10.00", price_currency_code: "USD" },
+  ],
+) {
   return {
     catalog_item_id: id,
     slug: `${id}-slug`,
@@ -210,7 +215,10 @@ describe("Discovery UCP catalog handlers", () => {
     expect(first.products).toHaveLength(20);
     expect(first.pagination).toMatchObject({ has_next_page: true, cursor: "cursor_page_2", total_count: 50 });
     const second = await call({ query: "cards", pagination: { cursor: "cursor_page_2" } });
-    expect(items.search.searchItems).toHaveBeenNthCalledWith(2, expect.objectContaining({ limit: 20, cursor: "cursor_page_2" }));
+    expect(items.search.searchItems).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ limit: 20, cursor: "cursor_page_2" }),
+    );
     expect(second.products).toHaveLength(1);
   });
 

@@ -126,8 +126,7 @@ export function createCheckoutUcpHandlers(
       session,
       orderFacts: facts,
       preview,
-      loadRetainedQuote: () =>
-        checkout.sessions.getLastRecordedQuote(session.session_id, session.buyer_account_id),
+      loadRetainedQuote: () => checkout.sessions.getLastRecordedQuote(session.session_id, session.buyer_account_id),
     });
     if (!quote) return null;
     return checkoutUcpResource({ session, state, quote, payment, request: input.request, now: currentTime });

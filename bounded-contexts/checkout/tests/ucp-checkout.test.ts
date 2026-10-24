@@ -208,9 +208,15 @@ describe("UCP buy-now readiness AC1", () => {
     const f = fixture();
     f.sessions.getSession.mockResolvedValue(null);
     const missing = await f.restHandlers.get_checkout(input({ id }, false, false));
-    expect(missing).toMatchObject({ ucp: { status: "error" }, messages: [{ code: "not_found", severity: "unrecoverable" }] });
+    expect(missing).toMatchObject({
+      ucp: { status: "error" },
+      messages: [{ code: "not_found", severity: "unrecoverable" }],
+    });
     const malformed = await f.restHandlers.get_checkout(input({ id: "bad" }, false, false));
-    expect(malformed).toMatchObject({ ucp: { status: "error" }, messages: [{ code: "not_found", severity: "unrecoverable" }] });
+    expect(malformed).toMatchObject({
+      ucp: { status: "error" },
+      messages: [{ code: "not_found", severity: "unrecoverable" }],
+    });
   });
 
   // Brief create DTO replaces the retired source buy-now input; line id is not the listing id.

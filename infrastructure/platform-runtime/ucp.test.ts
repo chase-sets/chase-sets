@@ -242,9 +242,7 @@ function outcomeOf<T>(action: () => T): { accepted: T } | { rejected: unknown } 
 describe("UCP profile routes", () => {
   it("UCP 2026-08-25 profile validates on both GET routes", async () => {
     const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/profile.json#/$defs/business_schema");
-    const app = new Hono()
-      .route("/.well-known", createUcpProfileRoutes())
-      .route("/ucp/v1", createUcpRestRoutes());
+    const app = new Hono().route("/.well-known", createUcpProfileRoutes()).route("/ucp/v1", createUcpRestRoutes());
     for (const path of ["/.well-known/ucp", "/ucp/v1"]) {
       const response = await app.request(`https://marketplace.example${path}`);
       const profile = await response.json();
@@ -518,13 +516,9 @@ describe("UCP 2026-08-25 descriptor captures", () => {
         (await input.request.clone().json()).forceError ? failure : success,
       ),
     };
-    const app = new Hono().route(
-      "/ucp/v1",
-      buildUcpRestRoutes({ restHandlers: handlers, profileResolver: resolveTestProfile }),
-    ).route(
-      "/ucp/mcp",
-      buildUcpMcpRoutes({ mcpToolHandlers: handlers, profileResolver: resolveTestProfile }),
-    );
+    const app = new Hono()
+      .route("/ucp/v1", buildUcpRestRoutes({ restHandlers: handlers, profileResolver: resolveTestProfile }))
+      .route("/ucp/mcp", buildUcpMcpRoutes({ mcpToolHandlers: handlers, profileResolver: resolveTestProfile }));
     const restBody = JSON.stringify({ query: "cards" });
     const rest = await app.request("https://marketplace.example/ucp/v1/catalog/search", {
       method: "POST",
@@ -544,7 +538,9 @@ describe("UCP 2026-08-25 descriptor captures", () => {
     });
     const restCapture = await rest.json();
     const mcpCapture = await mcp.json();
-    const validate = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/shopping/catalog_search.json#/$defs/search_response");
+    const validate = ucpSchemaValidator(
+      "https://ucp.dev/2026-08-25/schemas/shopping/catalog_search.json#/$defs/search_response",
+    );
     expect(validate(restCapture), JSON.stringify(validate.errors)).toBe(true);
     expect(validate(mcpCapture.result.structuredContent), JSON.stringify(validate.errors)).toBe(true);
     expect(mcpCapture.result.structuredContent).toEqual(restCapture);
@@ -1310,7 +1306,7 @@ describe("UCP profile key cache", () => {
       fetch,
       lookup: async () => [{ address: "8.8.8.8", family: 4 }],
     });
-      const handler = vi.fn(() => createUcpEnvelope("success", {}));
+    const handler = vi.fn(() => createUcpEnvelope("success", {}));
     const app = new Hono().route(
       "/ucp/v1",
       buildUcpRestRoutes({
@@ -1453,7 +1449,7 @@ describe("ucp negotiates platform profiles before effects", () => {
   );
 
   it.each(["rest", "mcp"] as const)("rejects an incompatible capability with no effect on %s", async (transport) => {
-      const handler = vi.fn(() => createUcpEnvelope("success", {}));
+    const handler = vi.fn(() => createUcpEnvelope("success", {}));
     const negotiationRejected = vi.fn();
     const options: CreateUcpRoutesOptions = {
       observer: { negotiationRejected },

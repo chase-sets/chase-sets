@@ -281,7 +281,9 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
         includeTotal: true,
       });
       const hydrated = await hydrateSearchRows(items, result.items.slice(0, 20), input.request, requestCurrency?.code);
-      const emitted = hydrated.filter((entry): entry is typeof entry & { product: NonNullable<typeof entry.product> } => entry.product !== null);
+      const emitted = hydrated.filter(
+        (entry): entry is typeof entry & { product: NonNullable<typeof entry.product> } => entry.product !== null,
+      );
       const products = emitted.map((entry) => entry.product);
       const dropped = hydrated.some((entry) => entry.product === null);
       for (const [index, entry] of emitted.entries()) {
@@ -346,11 +348,7 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
           });
         return messages;
       });
-      return createUcpEnvelope(
-        "success",
-        { products: emitted },
-        warnings,
-      );
+      return createUcpEnvelope("success", { products: emitted }, warnings);
     },
     get_product: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogLookupBody>(input);

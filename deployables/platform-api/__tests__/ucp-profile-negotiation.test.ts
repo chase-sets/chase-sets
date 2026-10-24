@@ -43,7 +43,9 @@ const buyer: ResolvedActor = {
 afterEach(() => vi.useRealTimers());
 
 function fixture(response: () => Response | Promise<Response> = () => Response.json(profile)) {
-  const handler = vi.fn((_input: unknown) => createUcpEnvelope("success", { checkout: { id: "checkout_1" }, products: [] }));
+  const handler = vi.fn((_input: unknown) =>
+    createUcpEnvelope("success", { checkout: { id: "checkout_1" }, products: [] }),
+  );
   const reserve = vi.fn<UcpIdempotencyStore["reserve"]>((input) => ({
     outcome: "reserved",
     record: { ...input, status: "pending", response: null },

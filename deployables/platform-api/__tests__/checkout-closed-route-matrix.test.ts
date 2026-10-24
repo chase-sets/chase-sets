@@ -590,7 +590,10 @@ describe("checkout-closed-agent-rails", () => {
     expect(mcp.status).toBe(200);
     expect(await mcp.json()).toMatchObject({
       result: {
-        structuredContent: { ucp: { status: "error" }, messages: [{ severity: "unrecoverable", code: "checkout_closed" }] },
+        structuredContent: {
+          ucp: { status: "error" },
+          messages: [{ severity: "unrecoverable", code: "checkout_closed" }],
+        },
       },
     });
     expect(create).not.toHaveBeenCalled();
