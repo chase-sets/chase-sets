@@ -167,7 +167,8 @@ impl Denied {
     }
 }
 
-/// The viewer when they may see the screen.
+/// The viewer when they may see the screen. Every handler calls it first until Corten can guard a
+/// set of routes: <https://github.com/todd-skelton/corten/issues/2>
 fn staff(req: &Req) -> std::result::Result<&Viewer, Denied> {
     match req.context::<Session>() {
         Some(Session::Staff(viewer)) if viewer.can(VIEW) => Ok(viewer),

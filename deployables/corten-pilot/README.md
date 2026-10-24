@@ -77,3 +77,17 @@ git's `url.<local checkout>.insteadOf=https://github.com/todd-skelton/corten` an
 5. **The sheet is a `<dialog open>`** that works without JavaScript; its script reopens it as a
    modal and lets Escape follow the close link. Confirmations use `command="show-modal"`.
 6. **Sign-in returns to admin-web's copy of the screen**: admin-web only returns to its own paths.
+
+## Corten gaps
+
+Filed in Corten, one gap each. Remove the workaround when the fix lands and the pin moves past it.
+
+1. [todd-skelton/corten#2 A set of routes cannot require a context (sign-in, a permission)](https://github.com/todd-skelton/corten/issues/2)
+   (correctness): `staff()` at the top of every handler in [`app.rs`](src/app.rs), and the
+   test `every_route_checks_access_before_it_calls_the_api` in [`tests.rs`](src/tests.rs).
+2. [todd-skelton/corten#3 FieldName is not in the prelude](https://github.com/todd-skelton/corten/issues/3)
+   (convenience): `use corten::{FieldName, prelude::*}` in [`form.rs`](src/form.rs) and
+   [`policy_fields.rs`](src/views/policy_fields.rs).
+3. [todd-skelton/corten#4 The prelude's Result hides std::result::Result](https://github.com/todd-skelton/corten/issues/4)
+   (one way to do things): `std::result::Result` in [`app.rs`](src/app.rs) and
+   [`form.rs`](src/form.rs).

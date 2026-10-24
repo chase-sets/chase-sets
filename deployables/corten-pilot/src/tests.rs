@@ -190,6 +190,7 @@ async fn a_signed_out_visitor_signs_in_through_admin_web() {
 
 /// Access is checked in each handler (Corten has no guard for a set of routes), so every route
 /// is tried: none reads or writes for a visitor who is not signed in or may not see the screen.
+/// <https://github.com/todd-skelton/corten/issues/2>
 #[tokio::test]
 async fn every_route_checks_access_before_it_calls_the_api() {
     let pilot = Pilot::new().await;
