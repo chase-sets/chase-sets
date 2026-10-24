@@ -97,7 +97,7 @@ function preview(ready = true) {
     unavailableLineKeys: [],
     unavailableLines: [],
     materialChangeReasons: [],
-    sellerGroups: [],
+    sellerGroups: [{ lines: [{ listingId: "lst_1", estimatedUnitPriceAmount: "20.00" }] }],
     totals: {
       itemSubtotalAmount: "20.00",
       shippingAmount: "0.00",
@@ -139,6 +139,21 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
   };
   const sessions = {
     ...writes,
+    getLastRecordedQuote: vi.fn(async () => ({
+      revision: "retained_quote_revision",
+      readyLineKeys: ["lst_1:0"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [{ lines: [{ listingId: "lst_1", estimatedUnitPriceAmount: "20.00" }] }],
+      totals: {
+        itemSubtotalAmount: "20.00",
+        shippingAmount: "0.00",
+        salesTaxAmount: "0.00",
+        totalAmount: "20.00",
+        packageCount: 1,
+      },
+    })),
     getSession: vi.fn(async (_id: string, account: string) => (account === current.buyer_account_id ? current : null)),
     getPaymentSummary: vi.fn(async () => null),
   } as unknown as CheckoutSessionServices;
@@ -195,7 +210,7 @@ describe("UCP buy-now readiness AC1", () => {
     const request = input(mcp ? { checkout: dto() } : dto(), mcp);
     request.request.headers.set("Idempotency-Key", "retry_synthetic");
     const result = await f.restHandlers.create_checkout(request);
-    expect(result.ucp.status).toBe("ok");
+    expect(result.ucp.status).toBe("success");
     expect(f.getPublicListingById).toHaveBeenCalledExactlyOnceWith("lst_1");
     expect(f.writes.createBuyNow).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
@@ -236,7 +251,7 @@ describe("UCP buy-now readiness AC1", () => {
   it("accepts C62 but refuses a top-level MCP resource", async () => {
     const f = fixture();
     const body = { line_items: [{ item: { id: "lst_1" }, quantity: 1, quantity_unit: { unit: "C62", scale: 0 } }] };
-    expect((await f.mcpToolHandlers.create_checkout(input({ checkout: body }, true))).ucp.status).toBe("ok");
+    expect((await f.mcpToolHandlers.create_checkout(input({ checkout: body }, true))).ucp.status).toBe("success");
     f.writes.createBuyNow.mockClear();
     expect((await f.mcpToolHandlers.create_checkout(input(body, true))).messages).toEqual([
       expect.objectContaining({ code: "invalid_request" }),
@@ -247,7 +262,7 @@ describe("UCP buy-now readiness AC1", () => {
   it.each([false, true])("identical update is a no-op, changed quantity is unsupported MCP=%s", async (mcp) => {
     const f = fixture();
     const args = (quantity: number) => (mcp ? { id, checkout: dto(quantity) } : dto(quantity));
-    expect((await f.restHandlers.update_checkout(input(args(1), mcp))).ucp.status).toBe("ok");
+    expect((await f.restHandlers.update_checkout(input(args(1), mcp))).ucp.status).toBe("success");
     expect((await f.restHandlers.update_checkout(input(args(2), mcp))).messages).toEqual([
       expect.objectContaining({ code: "line_items_update_unsupported" }),
     ]);
@@ -322,11 +337,11 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     await f.restHandlers.create_checkout(input(dto()));
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValueOnce(preview(false));
     const result = await f.restHandlers.get_checkout(input());
-    expect(result.checkout).toMatchObject({
+    expect(result).toMatchObject({
       status: "incomplete",
-      messages: [{ code: "item_unavailable", recoverability: "unrecoverable", target: "$.line_items[0]" }],
+      messages: [{ code: "item_unavailable", severity: "unrecoverable", path: "$.line_items[0]" }],
     });
-    expect(result.checkout).not.toHaveProperty("continue_url");
+    expect(result).not.toHaveProperty("continue_url");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
     f.setSession(session({ order_ids: ["ord_1"], payment_id: "pay_1" }));
     await f.restHandlers.get_checkout(input());
@@ -339,28 +354,28 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     for (const date of ["2026-10-16T00:01:00Z", "2026-10-17T00:01:00Z"]) {
       f.setTime(date);
       const result = await f.restHandlers.get_checkout(input());
-      expect(result.checkout).toMatchObject({
+      expect(result).toMatchObject({
         status: "requires_escalation",
         continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-        messages: [{ code: "payment_confirmation_required", recoverability: "requires_buyer_input" }],
+        messages: [{ code: "payment_confirmation_required", severity: "requires_buyer_input" }],
       });
     }
     vi.mocked(f.sessions.getPaymentSummary).mockResolvedValue({ status: "captured" } as never);
     const captured = await f.restHandlers.get_checkout(input());
-    expect(captured.checkout).toMatchObject({ status: "complete_in_progress" });
-    expect(captured.checkout).not.toHaveProperty("messages");
-    expect(captured.checkout).not.toHaveProperty("continue_url");
+    expect(captured).toMatchObject({ status: "complete_in_progress" });
+    expect(captured).not.toHaveProperty("messages");
+    expect(captured).not.toHaveProperty("continue_url");
     f.getOrderFacts.mockResolvedValue([{ id: "ord_1", readyForFulfillmentAt: "2026-10-16T00:02:00Z" }]);
     f.setTime("2026-10-19T00:00:00Z");
     const completed = await f.restHandlers.complete_checkout(input());
-    expect(completed.checkout).toMatchObject({ status: "completed", order: [{ id: "ord_1" }] });
+    expect(completed).toMatchObject({ status: "completed", order: { id: "ord_1" } });
     expect(completed.messages).toBeUndefined();
-    expect(completed.checkout).not.toHaveProperty("continue_url");
+    expect(completed).not.toHaveProperty("continue_url");
     f.setSession(session({ cancelled_at: "2026-10-16T01:00:00Z" }));
     const canceled = await f.restHandlers.complete_checkout(input());
-    expect(canceled.checkout).toMatchObject({ status: "canceled" });
+    expect(canceled).toMatchObject({ status: "canceled" });
     expect(canceled.messages).toBeUndefined();
-    expect(canceled.checkout).not.toHaveProperty("continue_url");
+    expect(canceled).not.toHaveProperty("continue_url");
     noWrites(f);
   });
   it.each(["failed", "cancelled", null])(
@@ -370,7 +385,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
       expect(result).toMatchObject({
         status: "requires_escalation",
         continue: true,
-        messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+        messages: [{ code: "payment_required", severity: "warning" }],
       });
     },
   );
@@ -384,19 +399,19 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
   it("expires at +6h before effects, with orders and web sessions ignoring the timer", async () => {
     const f = fixture();
     f.setTime("2026-10-16T05:59:00Z");
-    expect((await f.restHandlers.get_checkout(input())).checkout).toMatchObject({
+    expect(await f.restHandlers.get_checkout(input())).toMatchObject({
       status: "requires_escalation",
       expires_at: "2026-10-16T06:00:00.000Z",
-      messages: [{ recoverability: "requires_buyer_input" }],
+      messages: [{ severity: "requires_buyer_input" }],
     });
     f.setTime("2026-10-16T06:00:00Z");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
     const expired = await f.restHandlers.get_checkout(input());
-    expect(expired.checkout).toMatchObject({
+    expect(expired).toMatchObject({
       status: "canceled",
-      messages: [{ code: "checkout_expired", recoverability: "unrecoverable" }],
+      messages: [{ code: "checkout_expired", severity: "unrecoverable" }],
     });
-    expect(expired.checkout).not.toHaveProperty("continue_url");
+    expect(expired).not.toHaveProperty("continue_url");
     for (const op of ["update_checkout", "complete_checkout"])
       for (const signed of [false, true]) {
         expect((await f.restHandlers[op](input(dto(), false, signed))).messages).toEqual([
@@ -410,9 +425,9 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     noWrites(f);
     f.setTime("2026-10-16T07:00:00Z");
     f.setSession(session({ order_ids: ["ord_1"] }));
-    expect((await f.restHandlers.complete_checkout(input())).checkout).toMatchObject({ status: "requires_escalation" });
+    expect(await f.restHandlers.complete_checkout(input())).toMatchObject({ status: "requires_escalation" });
     f.setSession(session({ handoff_expires_at: null }));
-    expect((await f.restHandlers.complete_checkout(input())).checkout).toMatchObject({ status: "requires_escalation" });
+    expect(await f.restHandlers.complete_checkout(input())).toMatchObject({ status: "requires_escalation" });
   });
   // Brief complete row replaces stored-PM/3DS/spend/cleanup behavior: complete is always read-only.
   it.each<[string, Record<string, unknown>, Partial<CheckoutSessionRow>]>([
@@ -436,10 +451,10 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     const result = await f.restHandlers.complete_checkout(
       input({ ...body, presented_anonymous_cart_id: "anon_raw_marker" }),
     );
-    expect(result.checkout).toMatchObject({
+    expect(result).toMatchObject({
       status: "requires_escalation",
       continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-      messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+      messages: [{ code: "payment_required", severity: "requires_buyer_input" }],
     });
     expect(JSON.stringify(result)).not.toContain("anon_raw_marker");
     noWrites(f);
@@ -450,7 +465,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     await f.restHandlers.cancel_checkout(input());
     noWrites(f);
     const result = await f.restHandlers.cancel_checkout(input({}, false, true));
-    expect(result.checkout).toMatchObject({ status: "canceled" });
+    expect(result).toMatchObject({ status: "canceled" });
     expect(f.writes.cancelSession).toHaveBeenCalledTimes(1);
   });
   it("preserves authentication, authorization and closed-rail refusals", async () => {
@@ -804,7 +819,7 @@ describe("UCP 2026-08-25 Checkout state resources", () => {
       if (row.code)
         expect(resource.messages, row.name).toEqual([
           {
-            type: "error",
+            type: "warning",
             code: row.code,
             content: content[row.code],
             severity: row.status === "requires_escalation" ? "requires_buyer_input" : "unrecoverable",

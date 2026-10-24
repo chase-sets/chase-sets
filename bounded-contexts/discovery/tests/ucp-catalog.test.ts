@@ -108,7 +108,7 @@ describe("Discovery UCP catalog handlers", () => {
       }),
       params: {},
     } as never);
-    expect(result).toMatchObject({ products: [{ id: "cat_1" }], count: 1, total: 1, next_cursor: null });
+    expect(result).toMatchObject({ products: [{ id: "cat_1" }], pagination: { has_next_page: false } });
     expect(JSON.stringify(result)).not.toMatch(/retrievalMode|lexicalCount|corrected/);
     const mcp = await handlers.mcpToolHandlers.search_catalog({
       request: new Request("https://marketplace.example/mcp", {
@@ -137,7 +137,7 @@ describe("Discovery UCP catalog handlers", () => {
         params: {},
       }) as never;
     const rest = await handlers.restHandlers.search_catalog(input("https://marketplace.example/ucp/v1/catalog/search"));
-    expect(rest).toMatchObject({ products: [{ id: "cat_1" }], count: 1, next_cursor: null });
+    expect(rest).toMatchObject({ products: [{ id: "cat_1" }], pagination: { has_next_page: false } });
     expect(JSON.stringify(rest)).not.toMatch(/interpretation|remainingQuery|Gem Mint|retrievalMode/);
     expect(await handlers.mcpToolHandlers.search_catalog(input("https://marketplace.example/mcp"))).toEqual(rest);
   });
@@ -161,14 +161,14 @@ describe("Discovery UCP catalog handlers", () => {
       }),
     );
     expect(result).toMatchObject({
-      ucp: { status: "ok" },
+      ucp: { status: "success" },
       products: [
         {
           id: "cat_1",
           title: "Charizard",
           url: "https://marketplace.example/items/charizard-cat_1",
           image_urls: ["https://images.example/charizard.jpg"],
-          price: { currency: "EUR", amount: "1234" },
+          price: { currency: "EUR", amount: 1234 },
           availability: {
             status: "available",
             quantity: 3,
@@ -196,9 +196,6 @@ describe("Discovery UCP catalog handlers", () => {
           },
         },
       ],
-      result_presentation: {
-        component: "marketplace-results",
-      },
     });
   });
 
@@ -222,13 +219,16 @@ describe("Discovery UCP catalog handlers", () => {
       cursorState: "restarted",
     });
 
-    const restarted = await search({ query: "charizard", cursor: "legacy-cursor" });
+    const restarted = await search({ query: "charizard", pagination: { cursor: "legacy-cursor" } });
 
     expect(items.search.searchItems).toHaveBeenLastCalledWith(
       expect.objectContaining({ search: "charizard", cursor: "legacy-cursor", includeTotal: true }),
     );
     expect(Object.keys(restarted).sort()).toEqual(Object.keys(fresh).sort());
-    expect(restarted).toMatchObject({ ucp: { status: "ok" }, count: 1, total: 1, next_cursor: "cursor_v2" });
+    expect(restarted).toMatchObject({
+      ucp: { status: "success" },
+      pagination: { cursor: "cursor_v2", has_next_page: true },
+    });
     expect(JSON.stringify(restarted)).not.toContain("restart");
   });
 
