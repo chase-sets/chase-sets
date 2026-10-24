@@ -40,9 +40,13 @@ type ObservationRecordEventType =
   | "catalog.source-observation.changed"
   | "catalog.source-observation.refreshed";
 
-type ChunkedObservationProjectionData = Omit<ObservationProjectionData, "sourcePayload"> & {
-  sourcePayloadEncoding: typeof SOURCE_OBSERVATION_PAYLOAD_ENCODING;
-  sourcePayloadChunkCount: number;
+type ChunkedObservationProjectionData = Omit<ObservationProjectionData, "normalized" | "sourcePayload"> & {
+  sourcePayload?: JsonValue;
+  sourcePayloadEncoding?: typeof SOURCE_OBSERVATION_PAYLOAD_ENCODING;
+  sourcePayloadChunkCount?: number;
+  normalized?: SourceObservationNormalized;
+  normalizedEvidenceEncoding?: typeof SOURCE_OBSERVATION_PAYLOAD_ENCODING;
+  normalizedEvidenceChunkCount?: number;
 };
 
 type SourcePayloadChunkProjectionData = {
@@ -51,6 +55,14 @@ type SourcePayloadChunkProjectionData = {
   chunkIndex: number;
   chunkCount: number;
   encodedPayload: string;
+};
+
+type NormalizedEvidenceChunkProjectionData = {
+  observationId: string;
+  sourceRecordHash: string;
+  chunkIndex: number;
+  chunkCount: number;
+  encodedNormalizedEvidence: string;
 };
 
 export function buildSourceObservationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -82,6 +94,13 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
     },
     "catalog.source-observation.source-payload-chunk-recorded": async (event) => {
       await projectSourcePayloadChunk(db, event.data as SourcePayloadChunkProjectionData, event.timing.recordedAt);
+    },
+    "catalog.source-observation.normalized-evidence-chunk-recorded": async (event) => {
+      await projectNormalizedEvidenceChunk(
+        db,
+        event.data as NormalizedEvidenceChunkProjectionData,
+        event.timing.recordedAt,
+      );
     },
     "catalog.source-observation.promoted": async (event) => {
       const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
@@ -262,21 +281,59 @@ async function projectObservationRecordEvent(
   data: ObservationProjectionData | ChunkedObservationProjectionData,
   recordedAt: string,
 ): Promise<void> {
-  if ("sourcePayload" in data) {
-    await projectMaterializedObservation(db, eventType, data, recordedAt);
+  const chunkedData = data as ChunkedObservationProjectionData;
+  const hasSourcePayload = "sourcePayload" in data;
+  const hasSourcePayloadChunks = chunkedData.sourcePayloadEncoding === SOURCE_OBSERVATION_PAYLOAD_ENCODING;
+  const hasNormalizedEvidence = "normalized" in data;
+  const hasNormalizedEvidenceChunks = chunkedData.normalizedEvidenceEncoding === SOURCE_OBSERVATION_PAYLOAD_ENCODING;
+
+  if (hasSourcePayload && hasNormalizedEvidence) {
+    await projectMaterializedObservation(db, eventType, data as ObservationProjectionData, recordedAt);
     return;
   }
 
-  if (
-    data.sourcePayloadEncoding !== SOURCE_OBSERVATION_PAYLOAD_ENCODING ||
-    !Number.isInteger(data.sourcePayloadChunkCount) ||
-    data.sourcePayloadChunkCount < 1
-  ) {
+  if (!hasSourcePayloadChunks && !hasNormalizedEvidenceChunks) {
     throw new Error("Source Observation payload header has an unsupported encoding or chunk count.");
   }
 
-  await db.query(
-    `INSERT INTO catalog_source_observation_payload_assemblies (
+  if (hasSourcePayloadChunks) {
+    if (!Number.isInteger(chunkedData.sourcePayloadChunkCount) || chunkedData.sourcePayloadChunkCount! < 1) {
+      throw new Error("Source Observation payload header has an unsupported encoding or chunk count.");
+    }
+    await db.query(
+      `INSERT INTO catalog_source_observation_payload_assemblies (
+       observation_id,
+       source_record_hash,
+       record_event_type,
+       record_data,
+       expected_chunk_count,
+       encoded_chunks,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6)
+       ON CONFLICT (observation_id) DO UPDATE SET
+       source_record_hash = EXCLUDED.source_record_hash,
+       record_event_type = EXCLUDED.record_event_type,
+       record_data = EXCLUDED.record_data,
+       expected_chunk_count = EXCLUDED.expected_chunk_count,
+       encoded_chunks = '[]'::jsonb,
+       updated_at = EXCLUDED.updated_at`,
+      [
+        data.observationId,
+        data.sourceRecordHash,
+        eventType,
+        JSON.stringify(data),
+        chunkedData.sourcePayloadChunkCount,
+        recordedAt,
+      ],
+    );
+  }
+
+  if (hasNormalizedEvidenceChunks) {
+    if (!Number.isInteger(chunkedData.normalizedEvidenceChunkCount) || chunkedData.normalizedEvidenceChunkCount! < 1) {
+      throw new Error("Source Observation normalized evidence header has an unsupported encoding or chunk count.");
+    }
+    await db.query(
+      `INSERT INTO catalog_source_observation_normalized_evidence_assemblies (
        observation_id,
        source_record_hash,
        record_event_type,
@@ -292,15 +349,16 @@ async function projectObservationRecordEvent(
        expected_chunk_count = EXCLUDED.expected_chunk_count,
        encoded_chunks = '[]'::jsonb,
        updated_at = EXCLUDED.updated_at`,
-    [
-      data.observationId,
-      data.sourceRecordHash,
-      eventType,
-      JSON.stringify(data),
-      data.sourcePayloadChunkCount,
-      recordedAt,
-    ],
-  );
+      [
+        data.observationId,
+        data.sourceRecordHash,
+        eventType,
+        JSON.stringify(data),
+        chunkedData.normalizedEvidenceChunkCount,
+        recordedAt,
+      ],
+    );
+  }
 }
 
 async function projectSourcePayloadChunk(
@@ -331,19 +389,131 @@ async function projectSourcePayloadChunk(
     return;
   }
 
-  const eventType = requireObservationRecordEventType(assembly.record_event_type);
-  const recordData = requireChunkedObservationProjectionData(assembly.record_data);
   const encodedChunks = requireEncodedChunks(assembly.encoded_chunks, data.chunkCount);
-  const { sourcePayloadEncoding: _encoding, sourcePayloadChunkCount: _count, ...header } = recordData;
-  const materialized = {
-    ...header,
-    sourcePayload: decodeSourceObservationPayloadChunks(encodedChunks),
-  } as ObservationProjectionData;
+  await maybeMaterializeObservation(db, data.observationId, "source", assembly, encodedChunks, recordedAt);
+}
 
-  await projectMaterializedObservation(db, eventType, materialized, recordedAt);
-  await db.query("DELETE FROM catalog_source_observation_payload_assemblies WHERE observation_id = $1", [
-    data.observationId,
-  ]);
+async function projectNormalizedEvidenceChunk(
+  db: PgQueryable,
+  data: NormalizedEvidenceChunkProjectionData,
+  recordedAt: string,
+): Promise<void> {
+  if (!Number.isInteger(data.chunkIndex) || data.chunkIndex < 0 || !Number.isInteger(data.chunkCount)) {
+    throw new Error("Source Observation normalized evidence chunk has an invalid position.");
+  }
+
+  const result = await db.query<PayloadAssemblyRow>(
+    `UPDATE catalog_source_observation_normalized_evidence_assemblies
+       SET encoded_chunks = encoded_chunks || jsonb_build_array($5::text),
+           updated_at = $6
+     WHERE observation_id = $1
+       AND source_record_hash = $2
+       AND jsonb_array_length(encoded_chunks) = $3
+       AND expected_chunk_count = $4
+     RETURNING record_event_type, record_data, encoded_chunks`,
+    [
+      data.observationId,
+      data.sourceRecordHash,
+      data.chunkIndex,
+      data.chunkCount,
+      data.encodedNormalizedEvidence,
+      recordedAt,
+    ],
+  );
+  const assembly = result.rows[0];
+  if (!assembly) {
+    throw new Error("Source Observation normalized evidence chunk is missing its header or is out of order.");
+  }
+  if (data.chunkIndex + 1 < data.chunkCount) {
+    return;
+  }
+
+  const encodedChunks = requireEncodedChunks(assembly.encoded_chunks, data.chunkCount);
+  await maybeMaterializeObservation(db, data.observationId, "normalized", assembly, encodedChunks, recordedAt);
+}
+
+async function maybeMaterializeObservation(
+  db: PgQueryable,
+  observationId: string,
+  completedKind: "source" | "normalized",
+  assembly: PayloadAssemblyRow,
+  completedChunks: readonly string[],
+  recordedAt: string,
+): Promise<void> {
+  const recordData = requireChunkedObservationProjectionData(assembly.record_data);
+  const sourcePayload =
+    completedKind === "source"
+      ? decodeSourceObservationPayloadChunks(completedChunks)
+      : "sourcePayload" in recordData
+        ? recordData.sourcePayload
+        : await readCompletedAssemblyPayload(db, "source", observationId, recordData.sourcePayloadChunkCount);
+  const normalized =
+    completedKind === "normalized"
+      ? (decodeSourceObservationPayloadChunks(completedChunks) as SourceObservationNormalized)
+      : "normalized" in recordData
+        ? recordData.normalized
+        : await readCompletedAssemblyPayload(db, "normalized", observationId, recordData.normalizedEvidenceChunkCount);
+
+  if (sourcePayload === null || sourcePayload === undefined || normalized === null || normalized === undefined) {
+    return;
+  }
+
+  const eventType = requireObservationRecordEventType(assembly.record_event_type);
+  const {
+    sourcePayloadEncoding: _sourceEncoding,
+    sourcePayloadChunkCount: _sourceCount,
+    normalizedEvidenceEncoding: _normalizedEncoding,
+    normalizedEvidenceChunkCount: _normalizedCount,
+    ...header
+  } = recordData;
+  await projectMaterializedObservation(
+    db,
+    eventType,
+    {
+      ...header,
+      normalized,
+      sourcePayload,
+    } as ObservationProjectionData,
+    recordedAt,
+  );
+
+  if (recordData.sourcePayloadEncoding === SOURCE_OBSERVATION_PAYLOAD_ENCODING) {
+    await db.query("DELETE FROM catalog_source_observation_payload_assemblies WHERE observation_id = $1", [
+      observationId,
+    ]);
+  }
+  if (recordData.normalizedEvidenceEncoding === SOURCE_OBSERVATION_PAYLOAD_ENCODING) {
+    await db.query("DELETE FROM catalog_source_observation_normalized_evidence_assemblies WHERE observation_id = $1", [
+      observationId,
+    ]);
+  }
+}
+
+async function readCompletedAssemblyPayload(
+  db: PgQueryable,
+  kind: "source" | "normalized",
+  observationId: string,
+  expectedChunkCount: number | undefined,
+): Promise<JsonValue | null> {
+  const table =
+    kind === "source"
+      ? "catalog_source_observation_payload_assemblies"
+      : "catalog_source_observation_normalized_evidence_assemblies";
+  const result = await db.query<PayloadAssemblyRow>(
+    `SELECT record_event_type, record_data, expected_chunk_count, encoded_chunks
+       FROM ${table}
+      WHERE observation_id = $1`,
+    [observationId],
+  );
+  const row = result.rows[0];
+  if (!row || expectedChunkCount === undefined || !Number.isInteger(expectedChunkCount)) {
+    return null;
+  }
+  if (!Array.isArray(row.encoded_chunks) || row.encoded_chunks.length !== expectedChunkCount) {
+    return null;
+  }
+  const encodedChunks = requireEncodedChunks(row.encoded_chunks, expectedChunkCount);
+  return decodeSourceObservationPayloadChunks(encodedChunks);
 }
 
 async function projectMaterializedObservation(

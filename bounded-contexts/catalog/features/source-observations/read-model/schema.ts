@@ -229,6 +229,16 @@ CREATE UNLOGGED TABLE IF NOT EXISTS catalog_source_observation_payload_assemblie
   updated_at timestamptz NOT NULL
 );
 
+CREATE UNLOGGED TABLE IF NOT EXISTS catalog_source_observation_normalized_evidence_assemblies (
+  observation_id text PRIMARY KEY,
+  source_record_hash text NOT NULL,
+  record_event_type text NOT NULL,
+  record_data jsonb NOT NULL,
+  expected_chunk_count integer NOT NULL CHECK (expected_chunk_count > 0),
+  encoded_chunks jsonb NOT NULL DEFAULT '[]'::jsonb,
+  updated_at timestamptz NOT NULL
+);
+
 ALTER TABLE catalog_source_observations
   ADD COLUMN IF NOT EXISTS sync_run_id text NULL,
   ADD COLUMN IF NOT EXISTS source_profile_key text,
