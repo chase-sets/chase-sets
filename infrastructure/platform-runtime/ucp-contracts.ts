@@ -19,11 +19,7 @@ export const UCP_MCP_ENDPOINT_PATH = "/ucp/mcp";
 
 export type UcpTransport = "rest" | "mcp";
 export type UcpResponseStatus = "success" | "error";
-export type UcpMessageSeverity =
-  | "recoverable"
-  | "requires_buyer_input"
-  | "requires_buyer_review"
-  | "unrecoverable";
+export type UcpMessageSeverity = "recoverable" | "requires_buyer_input" | "requires_buyer_review" | "unrecoverable";
 
 export type UcpErrorSeverity = UcpMessageSeverity;
 
@@ -102,7 +98,7 @@ export type UcpEnvelope<TPayload extends Readonly<Record<string, unknown>> = Rea
       ucp: Readonly<{
         version: string;
         status: UcpResponseStatus;
-      payment_handlers?: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>>;
+        payment_handlers?: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>>;
       }>;
       messages?: readonly UcpMessage[];
     } & TPayload
@@ -532,10 +528,7 @@ export function createUcpEnvelope<TPayload extends Readonly<Record<string, unkno
   };
 }
 
-function normalizeMessageSeverity(
-  severity: UcpMessageInput["severity"],
-  code: string,
-): UcpMessageSeverity | undefined {
+function normalizeMessageSeverity(severity: UcpMessageInput["severity"], code: string): UcpMessageSeverity | undefined {
   if (severity === "info" || severity === "warning") return undefined;
   if (severity === "error" || severity === undefined) return ucpErrorSeverity(code);
   return severity;

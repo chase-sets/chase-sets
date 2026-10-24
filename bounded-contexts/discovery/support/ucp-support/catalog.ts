@@ -334,12 +334,26 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
       const warnings = products.flatMap((entry, index) => {
         const messages: UcpMessageInput[] = [];
         if (entry.presentment?.omittedListings)
-          messages.push({ type: "warning", code: "listings_omitted_currency", content: LISTINGS_OMITTED_CONTENT, path: `$.products[${index}]` });
+          messages.push({
+            type: "warning",
+            code: "listings_omitted_currency",
+            content: LISTINGS_OMITTED_CONTENT,
+            path: `$.products[${index}]`,
+          });
         if (entry.boundIgnored)
-          messages.push({ type: "warning", code: "price_filter_ignored", content: PRICE_FILTER_IGNORED_CONTENT, path: `$.products[${index}]` });
+          messages.push({
+            type: "warning",
+            code: "price_filter_ignored",
+            content: PRICE_FILTER_IGNORED_CONTENT,
+            path: `$.products[${index}]`,
+          });
         return messages;
       });
-      return createUcpEnvelope("success", { products: products.flatMap((entry) => (entry.product ? [entry.product] : [])) }, warnings);
+      return createUcpEnvelope(
+        "success",
+        { products: products.flatMap((entry) => (entry.product ? [entry.product] : [])) },
+        warnings,
+      );
     },
     get_product: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogLookupBody>(input);
@@ -348,13 +362,13 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
       const item = id ? await items.detail.getItemDetail(id) : null;
       if (!item) {
         return createUcpEnvelope("error", {}, [
-            {
-              severity: "unrecoverable",
-              code: "product_not_found",
-              content: "The requested product was not found.",
-              path: "$.product",
-            },
-          ]);
+          {
+            severity: "unrecoverable",
+            code: "product_not_found",
+            content: "The requested product was not found.",
+            path: "$.product",
+          },
+        ]);
       }
       const context = readObject(body.context);
       const filters = readObject(body.filters);
@@ -363,17 +377,40 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
       const bounded = presentment && boundPresentment(presentment, bound);
       if (!bounded)
         return createUcpEnvelope("error", {}, [
-          { severity: "unrecoverable", code: "product_not_found", content: "The requested product was not found.", path: "$.product" },
+          {
+            severity: "unrecoverable",
+            code: "product_not_found",
+            content: "The requested product was not found.",
+            path: "$.product",
+          },
         ]);
       const warnings: UcpMessageInput[] = [
         ...(presentment && bounded.ignored
           ? [{ type: "warning" as const, code: "price_filter_ignored", content: PRICE_FILTER_IGNORED_CONTENT }]
           : []),
         ...(bounded.omittedListings
-          ? [{ type: "warning" as const, code: "listings_omitted_currency", content: LISTINGS_OMITTED_CONTENT, path: "$.product" }]
+          ? [
+              {
+                type: "warning" as const,
+                code: "listings_omitted_currency",
+                content: LISTINGS_OMITTED_CONTENT,
+                path: "$.product",
+              },
+            ]
           : []),
       ];
-      return createUcpEnvelope("success", { product: catalogUcpProduct({ source: item, presentment: bounded, request: input.request, mode: "get_product" }) }, warnings);
+      return createUcpEnvelope(
+        "success",
+        {
+          product: catalogUcpProduct({
+            source: item,
+            presentment: bounded,
+            request: input.request,
+            mode: "get_product",
+          }),
+        },
+        warnings,
+      );
     },
   } satisfies Readonly<Record<string, UcpHandler>>;
 
@@ -473,7 +510,9 @@ async function resolveProductIds(
   currency: string | undefined,
   bound: UcpPresentmentBound,
 ) {
-  const pairs = await Promise.all(ids.slice(0, 20).map(async (requestedId) => ({ requestedId, row: await items.detail.getItemDetail(requestedId) })));
+  const pairs = await Promise.all(
+    ids.slice(0, 20).map(async (requestedId) => ({ requestedId, row: await items.detail.getItemDetail(requestedId) })),
+  );
   const grouped = lookupInputs(
     pairs.map(({ requestedId, row }) => ({ requestedId, productId: row?.catalog_item_id ?? null })),
   );
@@ -512,7 +551,8 @@ async function hydrateSearchRows(
       const detail = await items.detail.getItemDetail(row.catalog_item_id);
       const presentment = detail ? selectPresentment(detail.market_listings, currency) : null;
       return {
-        product: detail && presentment ? catalogUcpProduct({ source: detail, presentment, request, mode: "search" }) : null,
+        product:
+          detail && presentment ? catalogUcpProduct({ source: detail, presentment, request, mode: "search" }) : null,
         presentment,
       };
     }),

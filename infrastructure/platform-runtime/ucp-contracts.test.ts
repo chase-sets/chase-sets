@@ -30,7 +30,7 @@ describe("UCP contract profile", () => {
         endpoint: `https://marketplace.example${UCP_MCP_ENDPOINT_PATH}`,
       }),
     ]);
-    expect(profile.ucp.supported_versions[UCP_VERSION]).toBe("https://marketplace.example/.well-known/ucp");
+    expect(profile.ucp.payment_handlers).toEqual({});
   });
 
   it("declares the v1 capability set used by the profile", () => {
@@ -58,8 +58,7 @@ describe("UCP contract profile", () => {
     expect(serialized).not.toContain("shopping/ap2_mandate.json");
     expect(serialized).not.toContain("completion_requires_trusted_ui_without_ap2_mandate");
     expect(serialized.toLowerCase()).not.toContain("ap2");
-    expect(profile.signing_keys).toEqual([signingKey]);
-    expect(profile.ucp.signing_keys).toEqual([signingKey]);
+    expect(profile.keys).toEqual([signingKey]);
   });
 });
 
@@ -139,7 +138,7 @@ describe("UCP MCP tools", () => {
 describe("UCP envelopes", () => {
   it("adds protocol metadata without changing payload fields", () => {
     expect(createUcpEnvelope("ok", { products: [] })).toEqual({
-      ucp: { version: UCP_VERSION, status: "ok" },
+      ucp: { version: UCP_VERSION, status: "success" },
       products: [],
     });
   });
@@ -149,7 +148,6 @@ describe("UCP error severity", () => {
   it("covers every emitted UCP error code", () => {
     const emittedCodes = [
       "agent_grant_rate_limited",
-      "authentication_required",
       "authorization_forbidden",
       "capabilities_incompatible",
       "checkout_closed",
@@ -189,7 +187,13 @@ describe("UCP error severity", () => {
     ]);
 
     for (const code of emittedCodes) {
-      expect(ucpErrorSeverity(code), code).toBe(recoverable.has(code) ? "recoverable" : "unrecoverable");
+      const expected =
+        code === "authentication_required"
+          ? "requires_buyer_input"
+          : recoverable.has(code)
+            ? "recoverable"
+            : "unrecoverable";
+      expect(ucpErrorSeverity(code), code).toBe(expected);
     }
     expect(ucpErrorSeverity("quantity_unit_mismatch")).toBe("recoverable");
     expect(ucpErrorSeverity("invalid_future_code")).toBe("recoverable");

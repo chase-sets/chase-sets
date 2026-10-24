@@ -1675,7 +1675,7 @@ describe("platform api app wiring", () => {
     expect(response.status).toBe(200);
     expect(searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "charizard" }));
     await expect(response.json()).resolves.toMatchObject({
-      ucp: { status: "ok" },
+      ucp: { status: "success" },
       products: [{ id: "cat_1", title: "Charizard" }],
     });
   });
@@ -1796,7 +1796,7 @@ describe("platform api app wiring", () => {
         }),
       );
       await expect(response.json()).resolves.toMatchObject({
-        ucp: { status: "ok" },
+        ucp: { status: "success" },
         checkout: { id: checkoutSessionId },
       });
       orders = ["ord_1"];
@@ -2021,7 +2021,7 @@ describe("platform api app wiring", () => {
     await expect(searchResponse.json()).resolves.toMatchObject({
       result: {
         structuredContent: {
-          ucp: { status: "ok" },
+          ucp: { status: "success" },
           products: [{ id: "cat_1", title: "Charizard" }],
         },
       },
