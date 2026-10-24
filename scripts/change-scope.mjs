@@ -536,8 +536,8 @@ export function listChangedFiles(base, head, options = {}) {
   } catch {
     throw new ScopeDerivationError("diff-failed");
   }
-  if (typeof output !== "string" || !output.trim()) {
-    throw new ScopeDerivationError("diff-empty");
+  if (typeof output !== "string") {
+    throw new ScopeDerivationError("diff-invalid");
   }
   return output
     .split(/\r?\n/)
@@ -589,6 +589,9 @@ export function resolveChangeScope(base, head, options = {}) {
   let changedFiles;
   try {
     changedFiles = listChangedFiles(base, head, options);
+    if (changedFiles.length === 0) {
+      throw new ScopeDerivationError("diff-empty");
+    }
   } catch (error) {
     const reason = error instanceof ScopeDerivationError ? error.reason : "scope-derivation-failed";
     return {
@@ -680,7 +683,7 @@ function main() {
     baseDir: repoRoot,
   });
   if (fallbackReason) {
-    console.log(`Change-scope derivation fallback: ${fallbackReason}; widened to full scope.`);
+    console.error(`Change-scope derivation fallback: ${fallbackReason}; widened to full scope.`);
   }
 
   if (command === "json") {

@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -169,6 +169,49 @@ it("kills a source mutant that removes unavailable-scope widening", async () => 
       baseDir: process.cwd(),
     }).scope.unitTestsRequired,
   ).toBe(true);
+});
+
+it("kills a source mutant that lets an empty diff narrow the PR scope", async () => {
+  const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
+  const mutation = "if (changedFiles.length === 0)";
+  const mutatedSource = source.replace(mutation, "if (changedFiles.length < 0)");
+  expect(mutatedSource).not.toBe(source);
+  const mutant = await importChangeScopeVariant(mutatedSource);
+  const emptyDiff = {
+    execFileSync: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : ""),
+    workspaces: [],
+    baseDir: process.cwd(),
+  };
+
+  expect(mutant.resolveChangeScope("base", "head", emptyDiff).fallbackReason).toBe(null);
+  expect(resolveChangeScope("base", "head", emptyDiff).fallbackReason).toBe("diff-empty");
+});
+
+it("keeps fallback notices off json stdout", () => {
+  const args = ["scripts/change-scope.mjs", "json", "--base=HEAD", "--head=HEAD"];
+  const result = spawnSync(process.execPath, args, { cwd: repoRoot, encoding: "utf8" });
+
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout).integrationRiskReason).toContain("diff-empty");
+  expect(result.stderr).toContain("Change-scope derivation fallback: diff-empty");
+});
+
+it("kills a source mutant that sends the fallback notice to json stdout", () => {
+  const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
+  const mutatedSource = source.replace("console.error(`Change-scope derivation fallback:", "console.log(`Change-scope derivation fallback:");
+  expect(mutatedSource).not.toBe(source);
+  const mutantPath = path.join(repoRoot, "scripts", `.change-scope-mutant-${process.pid}-${Date.now()}.mjs`);
+  writeFileSync(mutantPath, mutatedSource, "utf8");
+  try {
+    const result = spawnSync(process.execPath, [mutantPath, "json", "--base=HEAD", "--head=HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    expect(() => JSON.parse(result.stdout)).toThrow();
+  } finally {
+    rmSync(mutantPath, { force: true });
+  }
 });
 
 describe("rendered-copy real-provider selection corpus", () => {
