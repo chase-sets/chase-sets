@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -478,6 +479,33 @@ const start = (name: string, expected: string, overrides: Spec = {}): Case => ({
   expect: expected,
 });
 
+const transportCase: Case = {
+  name: "selector-run-profile-census-transport",
+  kind: "transport",
+  native: native({
+    start: { ...START },
+    transport: { protocol: '{"event":"protocol"}', stderr: "STDERR_SENTINEL" },
+  }),
+};
+
+const stderrOwnershipCase = (): Case => ({
+  name: "selector-run-profile-census-stderr-ownership",
+  kind: "witness",
+  root: ROOT,
+  native: native({
+    start: { ...START },
+    witness: { exists: [false, false], line: null, admitted: { pid: 710, created: 71 }, empties: false },
+    phases: PHASES,
+  }),
+  expect: "PENDING",
+});
+
+const admissionCustodyCase: Case = {
+  name: "selector-run-profile-census-admission-custody",
+  kind: "admission-custody",
+  native: native(),
+};
+
 const SELECTOR_GRANT_TIMEOUT_MS = 30000;
 const WRITES: Array<[string, Spec]> = [
   ["withheld grant", { inJob: false }],
@@ -777,7 +805,7 @@ function New-SyntheticNative($Spec) {
       param($Job, $Driver)
       $script:calls.Add('StartDriver')
       if ($script:current.start.createError) { return @{ Error = [int]$script:current.start.createError } }
-      @{ Error = 0; Pid = 700; Process = 'P'; Stdin = 'I'; Stdout = 'O' }
+      @{ Error = 0; Pid = 700; Process = 'P'; Stdin = 'I'; Stdout = 'O'; Stderr = 'E' }
     }
     InJob = { param($Process, $Job) $script:calls.Add('InJob'); if ("$($script:current.start.inJob)" -ceq 'throw') { throw 'synthetic' }; [bool]$script:current.start.inJob }
     Created = { param($Process) $script:calls.Add('Created'); if ($null -eq $script:current.start.created) { throw 'synthetic' }; [long]$script:current.start.created }
@@ -797,6 +825,7 @@ function New-SyntheticNative($Spec) {
       $exits
     }
     Sleep = { param($Ms) $script:calls.Add("Sleep:$Ms"); $script:clock = $script:clock.AddMilliseconds([double]$Ms) }
+    ExitCode = { param($Process) 42 }
     JobActive = {
       param($Job)
       $script:calls.Add('JobActive')
@@ -816,7 +845,12 @@ function New-SyntheticNative($Spec) {
     Exists = { param($Path) $script:calls.Add('Exists'); if ($script:exists.Count) { $script:exists.Dequeue() } else { $false } }
     CreateRoot = { param($Path) $script:calls.Add('CreateRoot') }
     RemoveScratch = { param($Path) $script:calls.Add('RemoveScratch') }
-    ReadLine = { param($Run, $Ms) $script:calls.Add('ReadLine'); $script:spec.witness.line }
+    ReadLine = {
+      param($Run, $Ms)
+      $script:calls.Add('ReadLine')
+      if ($script:spec.transport) { return $script:spec.transport.protocol }
+      $script:spec.witness.line
+    }
     AdmitBrowser = { param($Run, $Id) $script:calls.Add('AdmitBrowser'); @{ pid = [long]$script:spec.witness.admitted.pid; created = [long]$script:spec.witness.admitted.created } }
     ReleaseRun = { param($Run) $script:calls.Add('ReleaseRun') }
     WaitEmpty = { param($Run, $Ms) $script:calls.Add('WaitEmpty'); [bool]$script:spec.witness.empties }
@@ -837,6 +871,42 @@ foreach ($case in $cases) {
         $startCalls = $script:calls.ToArray()
         $after = Get-SelectorRunProfileCensus -Root 'C:\Users\synthetic\scratch\selector-witness-synthetic' -Run $run -Native $native
         [ordered]@{ state = $run.state; code = $run.code; censusAfter = $after.code }
+      }
+      'transport' {
+        $run = Start-SelectorRunOwned -Driver 'C:\seat\selector-run-profile-census-witness.mjs' -Payload @{ profile = 'C:\seat\run\profile' } -Native $native
+        $protocol = & $native.ReadLine $run 1
+        [ordered]@{
+          stdout = $run.stdout
+          stderr = $run.stderr
+          handlesDistinct = $run.stdout -ne $run.stderr
+          stderrReader = $run.stderrReader
+          stderrPending = $run.stderrPending
+          protocol = $protocol
+          exitCode = & $native.ExitCode $run.process
+        }
+      }
+      'admission-custody' {
+        function Initialize-SelectorRunProfileNative {}
+        Add-Type @'
+public sealed class SelectorRunMember : System.IDisposable {
+  public long Pid; public long Created; public bool InJob; public bool Alive; public bool Disposed;
+  public void Dispose() { Disposed = true; SelectorRunProfileNative.Disposals++; }
+}
+public static class SelectorRunProfileNative {
+  public static int Disposals;
+  public static SelectorRunMember Member(long pid, System.IntPtr job) {
+    if (pid == 100) return null;
+    return new SelectorRunMember { Pid = pid, Created = pid, InJob = pid == 103, Alive = pid != 102 };
+  }
+}
+'@
+        $managed = New-SelectorRunProfileNative
+        $run = @{ job = [IntPtr]::Zero; held = [Collections.Generic.List[object]]::new() }
+        $observations = foreach ($id in @(100, 101, 102, 103)) {
+          $result = & $managed.AdmitBrowser $run $id
+          [ordered]@{ id = $id; result = $result; held = $run.held.Count; disposals = [SelectorRunProfileNative]::Disposals }
+        }
+        [ordered]@{ observations = @($observations) }
       }
       'witness' { Invoke-SelectorRunProfileWitness -Root $case.root -Native $native }
       'admission' { try { Read-SelectorWitnessAdmission $case.text } catch { 'REFUSED' } }
@@ -1078,6 +1148,72 @@ describe("selector-run-profile-census-law", () => {
 
 const PARENT_SNAPSHOT = String.raw`$members = @(& { $rows = @(& $Native.Processes); $tree = @{ [long]$Run.driver.pid = $true }; do { $grew = $false; foreach ($row in $rows) { if ($tree[[long]$row.parentPid] -and -not $tree[[long]$row.pid]) { $tree[[long]$row.pid] = $true; $grew = $true } } } while ($grew); foreach ($row in $rows) { if ($tree[[long]$row.pid]) { @{ pid = [long]$row.pid; created = [long]$row.created } } } })`;
 const NAME_EXCLUSION = String.raw`$selfName = @($processes | Where-Object { $_.pid -eq $self.pid })[0].name; $foreign = @($entries.pids | Where-Object { $holder = $_; $row = @($processes | Where-Object { $_.pid -eq $holder })[0]; -not ($row -and $row.name -eq $selfName) -and -not $memberPids.Contains([long]$holder) })`;
+
+describe("selector-run-profile-census-transport-contract", () => {
+  it("selector-run-profile-census-transport", () => {
+    const value = run([transportCase])[transportCase.name].value as {
+      stdout: string;
+      stderr: string;
+      handlesDistinct: boolean;
+      stderrReader: unknown;
+      stderrPending: unknown;
+      protocol: string;
+      exitCode: number;
+    };
+    expect(value).toMatchObject({
+      stdout: "O",
+      stderr: "E",
+      handlesDistinct: true,
+      stderrReader: null,
+      stderrPending: null,
+      protocol: '{"event":"protocol"}',
+      exitCode: 42,
+    });
+    const source = readFileSync(script, "utf8");
+    expect(source).toMatch(/ExitCode\s*=\s*\{\s*param\(\$Process\)/);
+    expect(source).toMatch(/\$run\.stderr\s*=\s*\$start\.Stderr/);
+  });
+
+  it("selector-run-profile-census-stderr-ownership", () => {
+    const caseSpec = stderrOwnershipCase();
+    const value = run([caseSpec])[caseSpec.name].value as Witness;
+    expect(value).toMatchObject({ verdict: "PENDING", code: "RUN_TRACKING_INCOMPLETE" });
+    const source = readFileSync(script, "utf8");
+    const functionBodies = [...source.matchAll(/\nfunction ([A-Za-z0-9-]+) \{([\s\S]*?)(?=\nfunction |\n# ---|$)/g)];
+    for (const [, name, body] of functionBodies) {
+      if (name !== "Start-SelectorRunOwned") expect(body).not.toMatch(/\$run\.(stderr|stderrReader|stderrPending)/);
+    }
+    expect(JSON.stringify(value)).not.toContain("STDERR_SENTINEL");
+  });
+
+  it("selector-run-profile-census-admission-custody", () => {
+    const value = run([admissionCustodyCase])[admissionCustodyCase.name].value as {
+      observations: Array<{ id: number; result: { pid: number; created: number }; held: number; disposals: number }>;
+    };
+    expect(value.observations).toEqual([
+      { id: 100, result: { pid: 100, created: -1 }, held: 0, disposals: 0 },
+      { id: 101, result: { pid: 101, created: -1 }, held: 0, disposals: 1 },
+      { id: 102, result: { pid: 102, created: -1 }, held: 0, disposals: 2 },
+      { id: 103, result: { pid: 103, created: 103 }, held: 1, disposals: 2 },
+    ]);
+    const source = readFileSync(script, "utf8");
+    expect(source).toMatch(/AdmitBrowser = \{[\s\S]*?Member\([\s\S]*?InJob -and \$member\.Alive[\s\S]*?Dispose\(\)[\s\S]*?created = -1/);
+  });
+
+  it("selector-run-profile-census-byte-identity", () => {
+    const bytes = readFileSync(script);
+    const sha256 = createHash("sha256").update(bytes).digest("hex").toUpperCase();
+    const blobHeader = Buffer.from(`blob ${bytes.length}\0`, "utf8");
+    const gitBlob = createHash("sha1").update(Buffer.concat([blobHeader, bytes])).digest("hex");
+    expect(sha256).toBe("4B99F11BE7576C0469E769314C20629B457800A8BE09C2731FA27F7B0B1E812B");
+    expect(gitBlob).toBe("4716df010310c49d51ab27bdf3812cd4364ceb1b");
+    expect(bytes.length).toBe(53364);
+    const sourceText = bytes.toString("utf8");
+    expect(sourceText.split("\n").length - (sourceText.endsWith("\n") ? 1 : 0)).toBe(912);
+    expect(bytes.subarray(0, 3)).not.toEqual(Buffer.from([0xef, 0xbb, 0xbf]));
+    expect(bytes.includes(0x0d)).toBe(false);
+  });
+});
 
 type Mutant = { name: string; from: string; to: string; killedBy: string[]; wrong: string };
 
