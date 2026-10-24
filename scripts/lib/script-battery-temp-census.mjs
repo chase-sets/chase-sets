@@ -6,13 +6,17 @@ import { fileURLToPath } from "node:url";
 const censusModulePath = fileURLToPath(import.meta.url);
 
 function temporaryEnvironmentKeys() {
-  return ["TEMP", "TMP", "TMPDIR"];
+  return ["TEMP", "TMP", "TMPDIR", "NODE_COMPILE_CACHE"];
 }
 
 export async function setupScriptBatteryTempCensus() {
+  const originalTmpdir = os.tmpdir();
   const previous = new Map(temporaryEnvironmentKeys().map((key) => [key, process.env[key]]));
-  const privateDirectory = await mkdtemp(path.join(os.tmpdir(), "chase-sets-script-battery-"));
-  for (const key of temporaryEnvironmentKeys()) process.env[key] = privateDirectory;
+  const privateDirectory = await mkdtemp(path.join(originalTmpdir, "chase-sets-script-battery-"));
+  if (process.env.NODE_COMPILE_CACHE === undefined) {
+    process.env.NODE_COMPILE_CACHE = path.join(originalTmpdir, "node-compile-cache");
+  }
+  for (const key of ["TEMP", "TMP", "TMPDIR"]) process.env[key] = privateDirectory;
 
   return async function teardownScriptBatteryTempCensus() {
     let survivors = [];

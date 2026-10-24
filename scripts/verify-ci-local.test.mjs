@@ -1,16 +1,6 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -40,11 +30,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...original, spawnSync: vi.fn(original.spawnSync) };
 });
 
-const temporaryDirectories = [];
-afterEach(() => {
-  vi.restoreAllMocks();
-  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
-});
+afterEach(() => vi.restoreAllMocks());
 
 const diagnosticPrefix = "CI-local command diagnostics: ";
 function diagnostics(text) {
@@ -833,19 +819,7 @@ describe("verify-ci-local", () => {
     const plan = createCiGatePlan({ mode: "merge-group", scope });
     const matrix = createLocalCommandPlan({ plan, baseSha, headSha, scope });
     const resolvedPnpm = matrix.get("typecheck")[0].command;
-    const directory = mkdtempSync(path.join(tmpdir(), "ci-local-pnpm-"));
-    temporaryDirectories.push(directory);
-    const result = defaultCommandExecutor({
-      command: resolvedPnpm,
-      args: ["--version"],
-      env: {
-        TEMP: directory,
-        TMP: directory,
-        TMPDIR: directory,
-        NODE_COMPILE_CACHE: path.join(directory, "node-compile-cache"),
-      },
-      clearEnv: [],
-    });
+    const result = defaultCommandExecutor({ command: resolvedPnpm, args: ["--version"], env: {}, clearEnv: [] });
     expect(result).toMatchObject({ outcome: "passed", exitCode: 0, signal: null });
     expect(result.stdout.trim()).not.toBe("");
   });
