@@ -63,29 +63,21 @@ export function classifyScrydexCoordinatePreviewRequest(
   ) {
     return { requestClass: "isolation-document", allowed: true, reason: "isolation-document" };
   }
-  if (request.phase === "capture" && !request.navigation) {
-    try {
-      const url = new URL(request.url);
-      const method = request.method.toUpperCase();
-      if (
-        url.origin === scrydexCacheCaptureOrigin &&
-        method === "POST" &&
-        url.pathname === scrydexCoordinatePreviewPath &&
-        url.search === ""
-      ) {
-        return { requestClass: "preview-post", allowed: true, reason: "preview-post" };
-      }
-      if (
-        url.origin === scrydexCacheCaptureOrigin &&
-        method === "GET" &&
-        url.pathname === scrydexCoordinatePreviewUsagePath &&
-        url.search === "?audience=daily"
-      ) {
-        return { requestClass: "usage-read", allowed: true, reason: "usage-read" };
-      }
-    } catch {
-      // Delegate malformed URLs to the cache-capture fence for its refusal.
-    }
+  if (
+    request.phase === "capture" &&
+    !request.navigation &&
+    request.method === "POST" &&
+    request.url === `${scrydexCacheCaptureOrigin}${scrydexCoordinatePreviewPath}`
+  ) {
+    return { requestClass: "preview-post", allowed: true, reason: "preview-post" };
+  }
+  if (
+    request.phase === "capture" &&
+    !request.navigation &&
+    request.method === "GET" &&
+    request.url === `${scrydexCacheCaptureOrigin}${scrydexCoordinatePreviewUsagePath}?audience=daily`
+  ) {
+    return { requestClass: "usage-read", allowed: true, reason: "usage-read" };
   }
   return classifyScrydexCacheCaptureRequest(request);
 }

@@ -531,6 +531,17 @@ describe("classifier", () => {
     expect(
       classify("POST", "https://api.scrydex.com/api/catalog/scope-sync-batches/preview", "capture", false),
     ).toEqual(refused("cross-origin"));
+    expect(
+      classify(
+        "POST",
+        "https://tcgplayer@admin.staging.chasesets.com/api/catalog/scope-sync-batches/preview",
+        "capture",
+        false,
+      ),
+    ).toEqual(refused("tcgplayer"));
+    expect(classify("POST", `${preview}#tcgplayer`, "capture", false)).toEqual(refused("tcgplayer"));
+    expect(classify("POST", `${preview}#x`, "capture", false)).toEqual(refused("mutation:POST"));
+    expect(classify("POST", `${preview}/x`, "capture", false)).toEqual(refused("mutation:POST"));
   });
 
   it("classifier usage-read", () => {
@@ -575,6 +586,17 @@ describe("classifier", () => {
         false,
       ),
     ).toEqual(refused("cross-origin"));
+    expect(
+      classify(
+        "GET",
+        "https://tcgplayer@admin.staging.chasesets.com/api/catalog/source-observations/integration-control-plane/overview?audience=daily",
+        "capture",
+        false,
+      ),
+    ).toEqual(refused("tcgplayer"));
+    expect(classify("GET", `${usage}#tcgplayer`, "capture", false)).toEqual(refused("tcgplayer"));
+    expect(classify("GET", `${usage}#x`, "capture", false)).toEqual(refused("api-read-outside-capture"));
+    expect(classify("GET", `${usage}/x`, "capture", false)).toEqual(refused("api-read-outside-capture"));
   });
 
   it("tcgplayer", () => {
