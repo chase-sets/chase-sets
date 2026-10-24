@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
   cleanupBatchesForTargets,
@@ -16,6 +16,11 @@ const workflowPath = path.join(repoRoot, ".github/workflows/platform-preview-cle
 const authorityPath = path.join(repoRoot, ".github/authority/platform-preview-cleanup/destroy-preview.json");
 // 62 s worst close-event target (run 39475717987) plus two terraform init -reconfigure steps.
 const measuredWorstCloseEventSeconds = 66;
+
+const roots = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 function workflow() {
   return parse(readFileSync(workflowPath, "utf8"));
@@ -235,6 +240,7 @@ describe("scheduled preview cleanup batching", () => {
     const targets = fixtureTargets(1260);
     const batches = cleanupBatchesForTargets(targets);
     const recordDir = mkdtempSync(path.join(tmpdir(), "preview-cleanup-batches-"));
+    roots.push(recordDir);
     const artifactDir = path.join(recordDir, "artifacts/release-health");
     mkdirSync(artifactDir, { recursive: true });
     writeFileSync(path.join(artifactDir, "platform-preview-cleanup-sweep.json"), JSON.stringify({ targets, batches }));
