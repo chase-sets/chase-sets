@@ -1,20 +1,31 @@
 // Measures a ported screen in the React app and in the pilot the same way, signed in as the same
-// user: admin's postage policies (the list and a policy's sheet) or marketplace's storage
-// locations (`screen=marketplace`), cold-cache loads on desktop and on a
+// user: admin's postage policies (the list and a policy's sheet), admin's catalog dimensions (the
+// list and a dimension, `screen=catalog`) or marketplace's storage locations
+// (`screen=marketplace`), cold-cache loads on desktop and on a
 // Lighthouse-style mobile profile (4x CPU, 150 ms RTT, 1.6 Mbps down), the bytes each load
 // transfers by kind, and the server's time for the document. Modeled on Corten's
 // bench/fullstack/browser.mjs. Interactive means the page's scripts ran: admin-web's
 // `data-admin-web-hydrated`, the first element marketplace's React hydrated (its own e2e tests'
 // check, polled every 10 ms), and the pilot's `__hydratedAt` (static/app.js).
-// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|marketplace] [runs=7] [state=..] [policy=id] [out=file]
+// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|marketplace] [runs=7] [state=..] [policy=id]
+//        [dimension=id] [out=file]
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 const named = Object.fromEntries(process.argv.slice(2).map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
-const { screen = "admin", runs: runsText = "7", state = `../../artifacts/corten-pilot/${screen}-state.json`, policy = "opp_seed_default", out, ...apps } =
-  named;
+const screen = named.screen ?? "admin";
+const login = screen === "marketplace" ? "marketplace" : "admin";
+const {
+  screen: _screen,
+  runs: runsText = "7",
+  state = `../../artifacts/corten-pilot/${login}-state.json`,
+  policy = "opp_seed_default",
+  dimension = "",
+  out,
+  ...apps
+} = named;
 const runs = Number(runsText);
 const profiles = {
   desktop: { cpu: 1, network: null },
@@ -22,10 +33,11 @@ const profiles = {
 };
 const screens = {
   admin: { list: "/commerce/postage-policies", sheet: `/commerce/postage-policies?policy=${policy}` },
+  catalog: { list: "/catalog/dimensions", ...(dimension ? { detail: `/catalog/dimensions/${dimension}` } : {}) },
   marketplace: { list: "/account/inventory/locations" },
 };
 const pages = screens[screen];
-if (!pages) throw new Error(`unknown screen ${screen}: admin or marketplace`);
+if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog or marketplace`);
 
 // Each load starts on a page from another site, as in Corten's benchmark.
 const startPage = createServer((_, res) => res.end("<!DOCTYPE html><title>start</title><p>start</p>"));
@@ -75,12 +87,18 @@ async function load(browser, profile, url) {
       const fcp = performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? null;
       const bytes = { html: nav.transferSize, js: 0, css: 0, font: 0, data: 0 };
       const decoded = { html: nav.decodedBodySize, js: 0, css: 0 };
+      // Each stylesheet by its name past the asset version (`components.css`, `sections/catalog.css`).
+      const stylesheets = {};
       let requests = 1;
       for (const r of /** @type {PerformanceResourceTiming[]} */ (performance.getEntriesByType("resource"))) {
         requests += 1;
         const kind = /\.m?js(\?|$)/.test(r.name) ? "js" : /\.css(\?|$)/.test(r.name) ? "css" : /\.woff2?(\?|$)/.test(r.name) ? "font" : "data";
         bytes[kind] += r.transferSize;
         if (kind in decoded) decoded[kind] += r.decodedBodySize;
+        if (kind === "css") {
+          const name = new URL(r.name).pathname.replace(/^\/assets\/[0-9a-f]+\//, "");
+          stylesheets[name] = { transfer: r.transferSize, decoded: r.decodedBodySize };
+        }
       }
       const hydratedAt = window.__hydratedAt;
       const tbt = window.__longTasks.filter(([s]) => s < hydratedAt).reduce((sum, [, d]) => sum + Math.max(0, d - 50), 0);
@@ -93,6 +111,7 @@ async function load(browser, profile, url) {
         tbt,
         bytes,
         decoded,
+        stylesheets,
         requests,
       };
     });
@@ -119,11 +138,17 @@ function summarize(samples) {
     transferBytes: Object.fromEntries(Object.keys(samples[0].bytes).map((k) => [k, pick((s) => s.bytes[k])])),
     decodedBytes: Object.fromEntries(Object.keys(samples[0].decoded).map((k) => [k, pick((s) => s.decoded[k])])),
     requests: pick((s) => s.requests),
+    stylesheets: Object.fromEntries(
+      Object.keys(samples[0].stylesheets).map((k) => [
+        k,
+        { transfer: pick((s) => s.stylesheets[k]?.transfer ?? null), decoded: pick((s) => s.stylesheets[k]?.decoded ?? null) },
+      ]),
+    ),
   };
 }
 
 const browser = await chromium.launch({ headless: true });
-const results = { measuredAt: new Date().toISOString(), screen, runs, policy, apps: {} };
+const results = { measuredAt: new Date().toISOString(), screen, runs, policy, dimension, apps: {} };
 for (const [name, base] of Object.entries(apps)) {
   results.apps[name] = { base };
   for (const [pageName, path] of Object.entries(pages)) {
