@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
@@ -18,6 +19,7 @@ import {
   type ReferenceRecordEvent,
   type ReferenceRecordState,
 } from "../domain/domain";
+import type { ReferenceRecordId } from "../../../ids";
 import { seedReferenceData } from "./seed";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -150,9 +152,9 @@ describeDb("Reference Data seed reconciliation of missing seed attributes (#1005
     await runSeed();
     const parentReferenceId = catalogSeedIds.referenceRecords.series.scarletViolet;
     const records = [
-      { id: "ref_test_scope_draft", expected: "draft" as const },
-      { id: "ref_test_scope_active", expected: "active" as const },
-      { id: "ref_test_scope_deprecated", expected: "deprecated" as const },
+      { id: "ref_test_scope_draft" as ReferenceRecordId, expected: "draft" as const },
+      { id: "ref_test_scope_active" as ReferenceRecordId, expected: "active" as const },
+      { id: "ref_test_scope_deprecated" as ReferenceRecordId, expected: "deprecated" as const },
     ];
 
     for (const { id } of records) {
@@ -163,7 +165,7 @@ describeDb("Reference Data seed reconciliation of missing seed attributes (#1005
           referenceRecordId: id,
           typeKey: "expansion",
           key: id,
-          name: { en: id },
+          name: localizedTextMapFromEnglish(id),
           attributes: { "language-editions": ["en"] },
           relationships: [{ relationshipType: "part-of", referenceId: parentReferenceId }],
         },
