@@ -6,6 +6,7 @@ import {
   evolveAccountAppeal,
   initialAccountAppealState,
   type AccountAppealCommand,
+  type AccountAppealEvent,
   type AccountAppealState,
 } from "./domain";
 
@@ -27,6 +28,13 @@ const file: AccountAppealCommand = {
   filedByUserId: filer,
   tenantId: createId("tnt"),
 };
+
+type TransitionMatrixRow = [
+  label: string,
+  state: AccountAppealState,
+  commandType: AccountAppealCommand["type"],
+  expected: "event" | "error" | "noop",
+];
 
 function run(...commands: AccountAppealCommand[]): AccountAppealState {
   return commands.reduce((state, command) => {
@@ -109,7 +117,7 @@ describe("account appeal aggregate", () => {
     expect(() => decideAccountAppeal(initialAccountAppealState, { ...file, accountId: createId("acc") })).toThrow();
   });
 
-  it.each([
+  const transitionMatrix: TransitionMatrixRow[] = [
     ["empty", initialAccountAppealState, "FileAccountAppeal", "event"],
     ["empty", initialAccountAppealState, "StartAccountAppealReview", "error"],
     ["empty", initialAccountAppealState, "RecordAccountAppealOutcome", "error"],
@@ -122,7 +130,7 @@ describe("account appeal aggregate", () => {
     ["in-review", run(file, { type: "StartAccountAppealReview" }), "StartAccountAppealReview", "noop"],
     ["in-review", run(file, { type: "StartAccountAppealReview" }), "RecordAccountAppealOutcome", "event"],
     ["in-review", run(file, { type: "StartAccountAppealReview" }), "WithdrawAccountAppeal", "event"],
-    ...(["upheld", "reversed", "modified"] as const).flatMap((status) => {
+    ...(["upheld", "reversed", "modified"] as const).flatMap((status): TransitionMatrixRow[] => {
       const state = run(
         file,
         { type: "StartAccountAppealReview" },
@@ -145,7 +153,9 @@ describe("account appeal aggregate", () => {
     ["withdrawn", run(file, { type: "WithdrawAccountAppeal" }), "StartAccountAppealReview", "error"],
     ["withdrawn", run(file, { type: "WithdrawAccountAppeal" }), "RecordAccountAppealOutcome", "error"],
     ["withdrawn", run(file, { type: "WithdrawAccountAppeal" }), "WithdrawAccountAppeal", "error"],
-  ] as const)("seven-state transition matrix: %s + %s => %s", (_status, state, type, expected) => {
+  ];
+
+  it.each(transitionMatrix)("seven-state transition matrix: %s + %s => %s", (_status, state, type, expected) => {
     const terminalOutcome =
       state.status === "upheld" || state.status === "reversed" || state.status === "modified"
         ? state.status
@@ -173,14 +183,16 @@ describe("account appeal aggregate", () => {
     }
   });
 
-  it.each([
+  const poisonedEvents: AccountAppealEvent[] = [
     { type: "platform-operations.account-appeal.review-started", data: {} },
     {
       type: "platform-operations.account-appeal.outcome-recorded",
       data: { outcome: "reversed", rationale: "Rationale", note: "Note", operatorUserId: operator },
     },
     { type: "platform-operations.account-appeal.withdrawn", data: {} },
-  ] as const)("rejects poisoned history event %j", (event) => {
+  ];
+
+  it.each(poisonedEvents)("rejects poisoned history event %j", (event) => {
     expect(() => evolveAccountAppeal(initialAccountAppealState, event)).toThrow();
   });
 

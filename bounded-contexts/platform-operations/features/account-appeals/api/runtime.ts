@@ -95,7 +95,7 @@ export function createAccountAppealRuntime(db: PgQueryable, eventStore: EventSto
   };
   return {
     resolve,
-    file: (capability, action, input, context) => {
+    file: async (capability, action, input, context) => {
       assertAccountAppealFileCapability(capability);
       assertSellerContext(capability, context);
       return handler.commandHandler({
@@ -125,7 +125,7 @@ export function createAccountAppealRuntime(db: PgQueryable, eventStore: EventSto
         context,
       });
     },
-    withdraw: (capability, action, context) => {
+    withdraw: async (capability, action, context) => {
       assertAccountAppealFileCapability(capability);
       assertAppealableEnforcementActionCapability(action);
       assertSellerContext(capability, context);
