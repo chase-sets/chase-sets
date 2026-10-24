@@ -329,14 +329,19 @@ export async function getDiscoveryItemDetail(
        page.image_fallback,
        page.product_schema,
        page.updated_at::text AS updated_at
-     FROM discovery_item_detail_pages AS page
-     LEFT JOIN discovery_slug_redirects AS redirect
-       ON redirect.entity_kind = 'item'
-      AND redirect.slug = $1
-     WHERE page.catalog_item_id = $1
-        OR page.slug = $1
-        OR page.catalog_item_id = redirect.entity_id
-        OR page.slug = redirect.target_slug
+     FROM (
+       SELECT * FROM discovery_item_detail_pages WHERE catalog_item_id = $1
+       UNION ALL
+       SELECT * FROM discovery_item_detail_pages WHERE slug = $1 AND slug <> ''
+       UNION ALL
+       SELECT target.* FROM discovery_slug_redirects AS redirect
+       JOIN discovery_item_detail_pages AS target ON target.catalog_item_id = redirect.entity_id
+       WHERE redirect.entity_kind = 'item' AND redirect.slug = $1
+       UNION ALL
+       SELECT target.* FROM discovery_slug_redirects AS redirect
+       JOIN discovery_item_detail_pages AS target ON target.slug = redirect.target_slug AND target.slug <> ''
+       WHERE redirect.entity_kind = 'item' AND redirect.slug = $1
+     ) AS page
      ORDER BY
        (page.slug = $1) DESC,
        (page.catalog_item_id = $1) DESC
