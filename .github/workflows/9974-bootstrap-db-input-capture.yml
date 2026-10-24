@@ -2,7 +2,7 @@ name: 9974 Bootstrap DB Input Capture Only
 
 on:
   push:
-    branches: [codex/9974-capture-r3]
+    branches: [codex/9974-capture-r2]
     paths: [.github/workflows/9974-bootstrap-db-input-capture.yml]
 
 permissions:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   measurement:
     name: Diagnostic API Bootstrap Measurement Only
-    if: github.event_name == 'push' && github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/9974-capture-r3' && github.run_attempt == 1
+    if: github.event_name == 'push' && github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/9974-capture-r2' && github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -227,7 +227,7 @@ jobs:
           // Evidence-only binding for the one #9974 capture of frozen S. Every unit, file,
           // case and command below is S's own, derived from S by the canonical producers
           // before publication; nothing is carried over from an earlier capture's groups.
-          export const frozenS = '4d1058995faa8e572f977e341a9d32f4b48c2013';
+          export const frozenS = '347cf5342284585ef5b30d0a5124bbc6c6684f0b';
           export const frozenGroups = Object.freeze({
             "test:db:1": [
               "bootstrap-production-reconciliation.db.test.ts",
@@ -371,8 +371,8 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: eventPayload.after,
-            captureParent: '75cbdf65969bbec4db9fa09efb5fa87f5a850e30',
-            sourceBase: '75cbdf65969bbec4db9fa09efb5fa87f5a850e30',
+            captureParent: '347cf5342284585ef5b30d0a5124bbc6c6684f0b',
+            sourceBase: '347cf5342284585ef5b30d0a5124bbc6c6684f0b',
             jobName: 'Diagnostic API Bootstrap Measurement Only',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
               .split('\n').filter(line => line.startsWith('parent ')).map(line => line.slice(7)),
@@ -392,7 +392,7 @@ jobs:
           if (identity.checkoutSha !== identity.githubSha || identity.pushAfter !== identity.githubSha
             || identity.runAttempt !== '1' || identity.event !== 'push'
             || identity.repository !== 'chase-sets/chase-sets'
-            || identity.ref !== 'refs/heads/codex/9974-capture-r3'
+            || identity.ref !== 'refs/heads/codex/9974-capture-r2'
             || JSON.stringify(identity.parents) !== JSON.stringify([identity.captureParent])
             || identity.laneMode !== null || !identity.node.startsWith('v24.') || identity.pnpm !== '11.0.9'
             || !identity.imageOS || !identity.imageVersion || identity.postgresImageDigests.length === 0) {
