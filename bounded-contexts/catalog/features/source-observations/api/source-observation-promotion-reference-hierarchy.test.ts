@@ -8,11 +8,13 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import { createReferenceDataRuntime, type ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
+import type { SourceObservationPokemonCardNormalized } from "../domain/domain";
 import {
   lorcanajsonLorcanaCardReferenceProviderProfile,
+  tcgdexPokemonTcgProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
-import { context, lorcanaCardPrintObservation } from "./seeding/runtime-test-harness";
+import { context, lorcanaCardPrintObservation, pokemonObservation } from "./seeding/runtime-test-harness";
 import {
   resolvePromotionReferenceHierarchy,
   resolvePromotionReferenceHierarchyReadOnly,
@@ -112,7 +114,10 @@ function harness(projected: readonly ProjectedReferenceRecord[] = []) {
             : [];
         return {
           rowCount: rows.length,
-          rows: rows.map((row) => ({ reference_record_id: row.reference_record_id })) as T[],
+          rows: rows.map((row) => ({
+            reference_record_id: row.reference_record_id,
+            attributes: row.attributes,
+          })) as T[],
         };
       },
     },
@@ -659,5 +664,210 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
       ).rejects.toThrow(/inclusive read expected 1/);
       expect(await h.types(recordStream)).toEqual(activeRecordHistory);
     });
+  });
+});
+
+/**
+ * The real TCGdex profile over normalized Pokemon card payloads. Record ids,
+ * keys and attributes are the staging Reference Records read at
+ * 2026-10-18T18:58:27.675Z; expansion ids and names are the TCGdex
+ * `/v2/{en,ja,zh-tw}` captures of 2026-10-18 (#10038).
+ */
+describe("TCGdex expansion reuse holds the payload language edition (#10059)", () => {
+  type ExistingExpansion = Readonly<{ id: string; key: string; attributes: Readonly<Record<string, JsonValue>> }>;
+
+  const seededBaseSet: ExistingExpansion = {
+    id: "ref_seed_expansion_base_set",
+    key: "base-set",
+    attributes: {
+      abbreviation: "BS",
+      "card-count": 102,
+      "release-date": "1999-01-09",
+      "tcgdex-set-id": "base1",
+      "language-editions": ["en"],
+    },
+  };
+  const seededNeoGenesis: ExistingExpansion = {
+    id: "ref_seed_expansion_neo_genesis",
+    key: "neo-genesis",
+    attributes: {
+      abbreviation: "N1",
+      "card-count": 111,
+      "release-date": "2000-12-16",
+      "tcgdex-set-id": "neo1",
+      "language-editions": ["en"],
+    },
+  };
+  // Provisioned before language editions were recorded, so it records none.
+  const provisionedSurgingSparks: ExistingExpansion = {
+    id: "ref_tcgdex_expansion_sv08",
+    key: "sv08",
+    attributes: {
+      abbreviation: "SSP",
+      "card-count": 191,
+      "parallel-set-card-count": 165,
+      "release-date": "2024-11-08",
+      "tcgdex-set-id": "sv08",
+    },
+  };
+  const englishFlashfire: ExistingExpansion = {
+    id: "ref_tcgdex_expansion_xy2",
+    key: "xy2",
+    attributes: { "tcgdex-set-id": "xy2", "language-editions": ["en"] },
+  };
+  const japaneseSv8: ExistingExpansion = {
+    id: "ref_tcgdex_expansion_sv8",
+    key: "sv8",
+    attributes: {
+      "card-count": 106,
+      "release-date": "2024-10-18",
+      "tcgdex-set-id": "SV8",
+      "language-editions": ["ja"],
+    },
+  };
+  const traditionalChineseSv8: ExistingExpansion = {
+    id: "ref_tcgdex_expansion_zh_tw_sv8",
+    key: "zh-tw-sv8",
+    attributes: {
+      "card-count": 106,
+      "release-date": "2024-10-25",
+      "tcgdex-set-id": "SV8",
+      "language-editions": ["zh-tw"],
+    },
+  };
+
+  function tcgdexCard(
+    languageCode: string,
+    expansionId: string,
+    expansionName: string,
+    seriesId: string,
+  ): SourceObservationPokemonCardNormalized {
+    return {
+      ...pokemonObservation({ expansionName, seriesName: seriesId.toUpperCase() }),
+      languageCode,
+      setId: expansionId,
+      expansionId,
+      seriesId,
+    };
+  }
+
+  /** Active expansions in the authoritative store, offered by the projection in `projectedOrder`. */
+  async function withExpansions(expansions: readonly ExistingExpansion[], projectedOrder = expansions) {
+    const h = harness(
+      projectedOrder.map(({ id, key, attributes }) => ({
+        reference_record_id: id,
+        type_key: "expansion",
+        key,
+        attributes,
+      })),
+    );
+    for (const { id, key, attributes } of expansions) {
+      const streamId = `catalog.reference-record-${id}`;
+      await h.recordCommand(
+        {
+          type: "CreateReferenceRecord",
+          referenceRecordId: id as ReferenceRecordId,
+          typeKey: "expansion",
+          key,
+          name: h.text(key),
+          attributes,
+        },
+        streamId,
+      );
+      await h.recordCommand({ type: "PublishReferenceRecord" }, streamId);
+    }
+    const preview = (normalized: SourceObservationPokemonCardNormalized) =>
+      resolvePromotionReferenceHierarchyReadOnly({
+        deps: h.deps,
+        profile: tcgdexPokemonTcgProviderProfile,
+        normalized,
+      });
+    const provision = (normalized: SourceObservationPokemonCardNormalized) =>
+      resolvePromotionReferenceHierarchy({
+        deps: h.deps,
+        referenceData: h.referenceData,
+        profile: tcgdexPokemonTcgProviderProfile,
+        normalized,
+        context,
+      });
+    return {
+      preview,
+      provision,
+      /** Executing promotion and its read-only preview must name the same expansion. */
+      resolve: async (normalized: SourceObservationPokemonCardNormalized) => {
+        const previewed = (await preview(normalized)).targetReferenceRecordId;
+        const provisioned = (await provision(normalized)).targetReferenceRecordId;
+        expect(provisioned).toBe(previewed);
+        return provisioned;
+      },
+      histories: async () => Promise.all(expansions.map(({ id }) => h.types(`catalog.reference-record-${id}`))),
+      createdAttributes: async (id: string) =>
+        (await h.eventStore.readStream({ streamId: `catalog.reference-record-${id}` }))[0]?.payload.attributes,
+    };
+  }
+
+  it("refuses the English xy2 record by key for a Japanese XY2 and still reuses it for English xy2", async () => {
+    const existing = await withExpansions([englishFlashfire]);
+    const before = await existing.histories();
+
+    expect(await existing.resolve(tcgdexCard("ja", "XY2", "ワイルドブレイズ", "XY"))).toBe(
+      "ref_tcgdex_expansion_ja_xy2",
+    );
+    expect(await existing.resolve(tcgdexCard("en", "xy2", "Flashfire", "xy"))).toBe("ref_tcgdex_expansion_xy2");
+
+    expect(await existing.createdAttributes("ref_tcgdex_expansion_ja_xy2")).toMatchObject({
+      "tcgdex-set-id": "XY2",
+      "language-editions": ["ja"],
+    });
+    expect(await existing.histories()).toEqual(before);
+  });
+
+  it("reuses only its own language's record when Japanese and Traditional Chinese SV8 share the TCGdex id", async () => {
+    // The projection offers the other language's record first for Japanese.
+    const existing = await withExpansions([japaneseSv8, traditionalChineseSv8], [traditionalChineseSv8, japaneseSv8]);
+    const before = await existing.histories();
+
+    expect(await existing.resolve(tcgdexCard("ja", "SV8", "超電ブレイカー", "SV"))).toBe("ref_tcgdex_expansion_sv8");
+    // BCP 47 tags compare case-insensitively: the record holds `zh-tw`, the payload `zh-TW`.
+    expect(await existing.resolve(tcgdexCard("zh-TW", "SV8", "超電突圍", "SV"))).toBe("ref_tcgdex_expansion_zh_tw_sv8");
+
+    expect(await existing.histories()).toEqual(before);
+  });
+
+  it("refuses the seeded English Neo Genesis for the Japanese neo1 that shares its exact TCGdex id", async () => {
+    const existing = await withExpansions([seededNeoGenesis]);
+    const before = await existing.histories();
+
+    expect(await existing.resolve(tcgdexCard("ja", "neo1", "金、銀、新世界へ...", "neo"))).toBe(
+      "ref_tcgdex_expansion_ja_neo1",
+    );
+    expect(await existing.resolve(tcgdexCard("en", "neo1", "Neo Genesis", "neo"))).toBe(
+      "ref_seed_expansion_neo_genesis",
+    );
+
+    expect(await existing.histories()).toEqual(before);
+  });
+
+  it("refuses a record of another language that holds the requested key instead of duplicating the key", async () => {
+    // Key `sv8` belongs to Japanese 超電ブレイカー; the seed once named English Surging Sparks `sv8`.
+    const existing = await withExpansions([japaneseSv8]);
+    const before = await existing.histories();
+    const englishSv8 = tcgdexCard("en", "sv8", "Surging Sparks", "sv");
+    const conflict = "promotion-reference-language-edition-conflict:catalog.reference-record-ref_tcgdex_expansion_sv8";
+
+    await expect(existing.preview(englishSv8)).rejects.toThrow(conflict);
+    await expect(existing.provision(englishSv8)).rejects.toThrow(conflict);
+
+    expect(await existing.histories()).toEqual(before);
+  });
+
+  it("reuses the seeded base1 and the provisioned sv08 records for English promotions", async () => {
+    const existing = await withExpansions([seededBaseSet, provisionedSurgingSparks]);
+    const before = await existing.histories();
+
+    expect(await existing.resolve(tcgdexCard("en", "base1", "Base Set", "base"))).toBe("ref_seed_expansion_base_set");
+    expect(await existing.resolve(tcgdexCard("en", "sv08", "Surging Sparks", "sv"))).toBe("ref_tcgdex_expansion_sv08");
+
+    expect(await existing.histories()).toEqual(before);
   });
 });
