@@ -17,7 +17,7 @@
     "requiredDuringBootstrap": false,
     "resetStrategy": "truncate-owned-tables"
   }],
-  "apiMounts": [{ "mountPath": "/api/scanning", "kind": "primary", "requiresAuth": true }],
+  "apiMounts": [],
   "apiDeployables": ["platform-api"],
   "runtimeDeployables": ["platform-worker"],
   "apiRuntimeProfiles": ["proof", "public"],
