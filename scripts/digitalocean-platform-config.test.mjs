@@ -2676,7 +2676,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(dbProfileJob).toContain("path: deployables/platform-api/artifacts/bootstrap-db-evidence");
     expect(dbProfileJob).toContain("if-no-files-found: error");
     expect(dbProfileJob).toContain(
-      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
+      "DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+    );
+    expect(dbProfileJob).toContain(
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
     );
     expect(readFileSync(resolve("package.json"), "utf8")).toContain(
       '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
