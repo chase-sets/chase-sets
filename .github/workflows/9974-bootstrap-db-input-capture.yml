@@ -386,6 +386,7 @@ jobs:
             unitDeadlineMs: 600000, aggregateDeadlineMs: 1800000, modeledUnitCeilingMs: 420000, modeledAggregateCeilingMs: 1080000,
           };
           writeFileSync(resolve(output, 'identity.json'), JSON.stringify(identity, null, 2));
+          console.log('capture identity', JSON.stringify(identity));
           const units = [];
           const saveUnits = () => writeFileSync(resolve(output, 'units.json'), JSON.stringify(units, null, 2));
           saveUnits();
