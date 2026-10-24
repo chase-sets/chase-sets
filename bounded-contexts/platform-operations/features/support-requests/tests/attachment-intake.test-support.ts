@@ -1,5 +1,3 @@
-import { File as NodeFile } from "node:buffer";
-
 export async function nativeFormData() {
   // jsdom's FormData is not an Undici BodyInit. Use the same native encoder as HTTP ingress.
   return new Request("http://localhost", {
@@ -31,7 +29,7 @@ export async function openingPhotoForm(count = 5) {
   }))
     form.append(key, value);
   for (let index = 0; index < count; index++)
-    form.append("attachments", new NodeFile(["photo"], `${index}.jpg`, { type: "image/jpeg" }) as File);
+    form.append("attachments", new File(["photo"], `${index}.jpg`, { type: "image/jpeg" }));
   return form;
 }
 

@@ -110,7 +110,11 @@ const exposurePosturePatterns = {
     /^docs\/runbooks\/email-operations\.md$/,
   ],
   "ucp-signed-write": [/ucp/i, /^docs\/adr\/0002-adopt-ucp-for-agent-commerce\.md$/],
-  "rollout-policy": [/^scripts\/release-lock/, /^docs\/runbooks\/release-process-evolution\.md$/],
+  "rollout-policy": [
+    /^scripts\/release-lock/,
+    /^\.github\/workflows\/platform-production-lock-monitor\.yml$/,
+    /^docs\/runbooks\/(?:release-process-evolution|doks-platform-operations)\.md$/,
+  ],
 };
 
 function normalizeFilePath(filePath) {

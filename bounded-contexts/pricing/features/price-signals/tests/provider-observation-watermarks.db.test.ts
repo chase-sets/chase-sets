@@ -10,10 +10,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as pricingModule } from "../../../index";
 import type { ProviderObservationCapture } from "../domain/provider-observation-mapper";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
-import {
-  commitProviderObservationCapture,
-  type MarketCaptureWorkItem,
-} from "../read-model/provider-observation-writes";
+import { commitProviderObservationCapture } from "../read-model/provider-observation-writes";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -34,24 +31,9 @@ describeDb("provider observation source-watermark interleaving", () => {
   afterAll(async () => closeMultiContextTestPools({ pricing: pool }));
 
   it("ends t1/A -> t3/A -> t2/B at t3/A and advances equal-value metadata", async () => {
-    await commitProviderObservationCapture(
-      pool,
-      "tcgplayer",
-      work("", 0, "product:7001", 1),
-      capture("c1", "2026-09-01T00:00:00.000Z", "A", "5.00"),
-    );
-    await commitProviderObservationCapture(
-      pool,
-      "tcgplayer",
-      work("product:7001", 1, "product:7001", 2),
-      capture("c3", "2026-09-03T00:00:00.000Z", "A", "5.00"),
-    );
-    await commitProviderObservationCapture(
-      pool,
-      "tcgplayer",
-      work("product:7001", 2, "", 3),
-      capture("c2", "2026-09-02T00:00:00.000Z", "B", "9.00"),
-    );
+    await commitProviderObservationCapture(pool, capture("c1", "2026-09-01T00:00:00.000Z", "A", "5.00"));
+    await commitProviderObservationCapture(pool, capture("c3", "2026-09-03T00:00:00.000Z", "A", "5.00"));
+    await commitProviderObservationCapture(pool, capture("c2", "2026-09-02T00:00:00.000Z", "B", "9.00"));
     const weekly = await pool.query<{ provider_condition: string; low_sale_amount: string; last_capture_id: string }>(
       `SELECT provider_condition, low_sale_amount::text, last_capture_id FROM pricing_external_weekly_sale_buckets`,
     );
@@ -64,7 +46,7 @@ describeDb("provider observation source-watermark interleaving", () => {
 
   it("backfills a previously unmapped weekly SKU on the next capture after its link", async () => {
     const unmapped = capture("unmapped", "2026-09-01T00:00:00.000Z", "A", "5.00");
-    await commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:7001", 1), {
+    await commitProviderObservationCapture(pool, {
       ...unmapped,
       weekly: unmapped.weekly.map((row) => ({ ...row, catalogProductKey: null })),
     });
@@ -81,29 +63,13 @@ describeDb("provider observation source-watermark interleaving", () => {
     );
     expect((await weekly()).rows).toEqual([{ catalog_product_key: null, last_capture_id: "unmapped" }]);
     const recaptured = capture("recaptured", "2026-09-02T00:00:00.000Z", "A", "5.00");
-    await commitProviderObservationCapture(pool, "tcgplayer", work("product:7001", 1, "", 2), {
+    await commitProviderObservationCapture(pool, {
       ...recaptured,
       weekly: recaptured.weekly.map((row) => ({ ...row, catalogProductKey: linked.rows[0]!.catalog_product_key })),
     });
     expect((await weekly()).rows).toEqual([{ catalog_product_key: "cat_synthetic::", last_capture_id: "recaptured" }]);
   });
 });
-
-function work(
-  afterExternalKey: string,
-  generation: number,
-  nextAfter: string,
-  nextGeneration: number,
-): MarketCaptureWorkItem {
-  return {
-    productExternalKey: "product:7001",
-    productId: 7001,
-    catalogItemId: "cat_synthetic",
-    skus: [],
-    expectedCursor: { afterExternalKey, generation },
-    nextCursor: { afterExternalKey: nextAfter, generation: nextGeneration },
-  };
-}
 
 function capture(captureId: string, observedAt: string, condition: string, amount: string): ProviderObservationCapture {
   return {

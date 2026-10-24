@@ -67,6 +67,16 @@ function fixture(options = {}) {
 afterEach(() => vi.useRealTimers());
 
 describe("Static Checks provider installer", () => {
+  it("Static Checks setup omits optional browser dependencies before the explicit native block", () => {
+    const setup = readFileSync("scripts/provider-object-disposition/browser-boundary/ci-setup.sh", "utf8");
+    expect(setup).toContain("pnpm exec playwright install chromium");
+    expect(setup).not.toContain("pnpm exec playwright install --with-deps chromium");
+    expect(setup.indexOf("pnpm exec playwright install chromium")).toBeLessThan(setup.indexOf("sudo apt-get update"));
+    expect(setup.slice(setup.indexOf("sudo apt-get update"), setup.indexOf("else"))).toBe(
+      "sudo apt-get update\n  sudo apt-get install --yes gcc libc6-dev libssl-dev pax-utils apparmor\n",
+    );
+  });
+
   it("caller fence preserves manual diagnostics and the 120-second reinstall", () => {
     for (const [path, digest] of [
       [

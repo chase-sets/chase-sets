@@ -259,6 +259,19 @@ const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].f
   })),
 );
 // #9962 adds the read-only preview-pool census workflow's provider authority grants.
+const productionMemoryProbeDelta = [
+  ["name:Configure production read context#6", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+  ["name:Configure production read context#6", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Configure production read context#6", "SPACES_SECRET_KEY", "spaces-evidence"],
+  ["name:Capture production web memory#7", "PROMETHEUS_QUERY_TOKEN", "spaces-evidence"],
+].map(([stepAnchor, secretName, purpose]) => ({
+  file: ".github/workflows/platform-production-memory-probe.yml",
+  jobId: "capture",
+  stepAnchor,
+  secretName,
+  purpose,
+}));
+
 const previewPoolCensusDelta = [
   ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
   ["name:Configure staging Kubernetes context (read-only)#5", "SPACES_ACCESS_ID", "spaces-evidence"],
@@ -533,6 +546,20 @@ const reviewedStepInsertions = [
     occurrence: 6,
   },
 ];
+const previewStateRetirementDelta = [
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
+].map(([secretName, purpose]) => ({
+  file: ".github/workflows/platform-preview-cleanup.yml",
+  jobId: "destroy-preview",
+  stepAnchor: "name:Retire empty preview Terraform state#17",
+  secretName,
+  purpose,
+}));
 
 function applyReviewedStepInsertions(record) {
   return reviewedStepInsertions.reduce((current, insertion) => {
@@ -871,12 +898,14 @@ describe("managed Postgres authority source generator", () => {
         ...scrydexCacheCaptureDelta,
         ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
+        ...productionMemoryProbeDelta,
         ...credentialHealthDelta,
         ...stagingClusterAddonsDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
         ...stagingEvidenceWindowDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
         ...qualificationCleanupDelta,
+        ...previewStateRetirementDelta,
       ]
         .map(applyQualificationStepInsertions)
         .filter(
@@ -889,7 +918,7 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1705);
+    expect(expected.grants).toHaveLength(1715);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
@@ -902,6 +931,7 @@ describe("managed Postgres authority source generator", () => {
       const owner = `${AUTHORITY_ROOT}/${basename(record.file).replace(/\.ya?ml$/, "")}/${record.jobId}.json`;
       expectedOwners.set(owner, [...(expectedOwners.get(owner) ?? []), record]);
     }
+    expectedOwners.set(`${AUTHORITY_ROOT}/platform-production-lock-monitor/monitor-production-release-lock.json`, []);
     const sources = await snapshot(repositoryRoot, AUTHORITY_ROOT);
     expect(Object.keys(sources).sort()).toEqual([...expectedOwners.keys()].sort());
     for (const [owner, records] of expectedOwners) {

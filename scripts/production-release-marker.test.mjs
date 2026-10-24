@@ -22,6 +22,7 @@ import {
   markerIo,
 } from "./production-release-marker.mjs";
 import { verifyKubernetesDeploymentTransition } from "./platform-kubernetes-deployment.mjs";
+import { releaseLockRefusal, runReleaseLockCheck } from "./release-lock.mjs";
 
 // Every mutable control below has unmistakably synthetic identities, never a real hosted job identity.
 const commit = "a".repeat(40);
@@ -274,6 +275,8 @@ describe("marker-only source recovery", () => {
     const sourceCommit = "c".repeat(40);
     const env = {
       PRODUCTION_RELEASE_LOCKED: "false",
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: "synthetic-route",
+      PRODUCTION_RELEASE_LOCK_DEADLINE: "2099-05-31T12:00:00Z",
       GITHUB_REPOSITORY: "synthetic/repo",
       GITHUB_TOKEN: "synthetic-token",
       GITHUB_STEP_SUMMARY: "",
@@ -283,6 +286,8 @@ describe("marker-only source recovery", () => {
     const checkLock = vi.fn(async (options) => {
       expect(options.releaseCommit).toBe(sourceCommit);
       expect(options.releaseLocked).toBe(env.PRODUCTION_RELEASE_LOCKED);
+      expect(options.lockExitRoute).toBe(env.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE);
+      expect(options.lockDeadline).toBe(env.PRODUCTION_RELEASE_LOCK_DEADLINE);
       expect(options.emergencyBypass).toBe("false");
       return { deploymentAllowed: true, errors: [] };
     });
@@ -317,6 +322,49 @@ describe("marker-only source recovery", () => {
       "production release lock refused source",
     );
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["pending", "2099-05-31T12:00:00Z"],
+    ["overdue", "2000-05-31T12:00:00Z"],
+    ["invalid", "2099-05-31T12:00:00Z", ""],
+    ["unlocked", "malformed", "malformed"],
+  ])("uses the real lock check for %s marker recovery", async (state, deadline, route) => {
+    const exitRoute = JSON.stringify({
+      kind: "host-revert",
+      reference: "https://github.com/chase-sets/chase-sets/issues/10391",
+    });
+    const env = {
+      PRODUCTION_RELEASE_LOCKED: state === "unlocked" ? "false" : "true",
+      PRODUCTION_RELEASE_LOCK_REASON: "synthetic marker hold",
+      PRODUCTION_RELEASE_LOCK_REFERENCE: "synthetic incident",
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: route ?? exitRoute,
+      PRODUCTION_RELEASE_LOCK_DEADLINE: deadline,
+      GITHUB_REPOSITORY: "synthetic/repo",
+    };
+    let lock;
+    const checkLock = async (options) => (lock = await runReleaseLockCheck(options));
+    const run = vi.fn(async () => ({ stdout: "", stderr: "" }));
+    const admission = admitMarkerOnlyPolicy({ commit }, env, { checkLock, run });
+    if (state === "unlocked") {
+      await expect(admission).resolves.toMatchObject({ deploymentAllowed: true });
+      expect(run).toHaveBeenCalledOnce();
+    } else {
+      await expect(admission).rejects.toThrow("production release lock refused source");
+      expect(run).not.toHaveBeenCalled();
+    }
+    expect(lock.lockState).toBe(state);
+    if (state === "pending" || state === "overdue") {
+      if (state === "pending") expect(lock.errors ?? []).toEqual([]);
+      else expect(lock.errors).toEqual([expect.stringContaining("has passed; host escalation")]);
+      expect(releaseLockRefusal(lock)).toContain(`Exit route: ${exitRoute}`);
+      expect(releaseLockRefusal(lock)).toContain(`Deadline: ${deadline}`);
+      expect(releaseLockRefusal(lock)).not.toMatch(/PRODUCTION_RELEASE_LOCK_(EXIT_ROUTE|DEADLINE) is required/);
+    } else if (state === "invalid") {
+      expect(lock.errors).toContain(
+        "PRODUCTION_RELEASE_LOCK_EXIT_ROUTE is required when PRODUCTION_RELEASE_LOCKED=true.",
+      );
+    }
   });
 
   it("admits an earlier retained authority while requiring a completed matching latest attempt", async () => {

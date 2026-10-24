@@ -49,8 +49,6 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "{unitKey} was required for this Catalog scope but no provider profile unit is available.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.providerAdapterMissing":
     "No provider adapter is registered for {providerKey}.",
-  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.importPlanningUnavailable":
-    "{providerKey} does not expose import planning for this unit.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.credentialReadinessUnavailable":
     "Provider credential readiness could not be verified.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.transportDiagnosticsUnavailable":
