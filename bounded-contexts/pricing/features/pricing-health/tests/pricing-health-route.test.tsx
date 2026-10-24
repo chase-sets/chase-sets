@@ -5,7 +5,11 @@ import { createRoutesStub } from "react-router";
 import { Hono } from "hono";
 import type { PricingApiEnv } from "../../../api";
 import { createPricingHealthRoutes } from "../api/route";
-import { PricingHealthCandidateRefusedError, type PricingHealthServices } from "../api/services";
+import {
+  PricingHealthApplyRefusedError,
+  PricingHealthCandidateRefusedError,
+  type PricingHealthServices,
+} from "../api/services";
 import contextManifest from "../../../context.json";
 import { SELLER_DESK_SURFACES } from "../../../../../contracts/seller-desk";
 import PricingHealthRoute, { action, loader } from "../../../routes/marketplace/account-desk-pricing-health";
@@ -19,6 +23,7 @@ function setup(permissions: string[] | null = ["pricing.view", "pricing.manage"]
       .mockResolvedValue({ policies: [], target: null, health: null, run: null, grades: [], computing: false }),
     compute: vi.fn<PricingHealthServices["compute"]>().mockResolvedValue(null),
     compare: vi.fn<PricingHealthServices["compare"]>().mockResolvedValue(null),
+    applyGoal: vi.fn<PricingHealthServices["applyGoal"]>().mockResolvedValue(null),
   } satisfies PricingHealthServices;
   const app = new Hono<PricingApiEnv>();
   app.use("*", async (c, next) => {
@@ -37,6 +42,26 @@ describe("Pricing Health route", () => {
     const response = await app.request("/health/rpp_owned/compare", { method: "POST" });
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: { code: "candidate_enqueue_refused" } });
+  });
+  it("keeps apply refusal non-mutating and names the blocking reason", async () => {
+    const { app, services } = setup();
+    services.applyGoal.mockRejectedValue(new PricingHealthApplyRefusedError("candidate_stale"));
+    const response = await app.request("/health/rpp_owned/apply-goal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        dryRunId: "run",
+        targetRevision: 1,
+        targetBodyHash: "target",
+        candidateBodyHash: "candidate",
+        goalId: "fixed-percentile",
+        goalVersion: 1,
+        parameters: { percentile: 65 },
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: { code: "goal_apply_refused", reason: "candidate_stale" } });
+    expect(services.applyGoal).toHaveBeenCalledOnce();
   });
   it.each([
     ["non-empty body", JSON.stringify({})],
