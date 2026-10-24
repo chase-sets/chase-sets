@@ -75,13 +75,17 @@ const workflowLintScriptPatterns = [
 // must not widen just because the cluster-preview surface widens.
 const clusterPreviewScriptPatterns = [
   /^scripts\/doks-/,
+  /^scripts\/digitalocean-(?!.*\.(?:test|spec)\.[^/]+$)/,
   /^scripts\/platform-kubernetes-deployment\.mjs$/,
   /^scripts\/platform-kubernetes-secret\.mjs$/,
   /^scripts\/platform-ingress-wait\.mjs$/,
+  /^scripts\/platform-smoke(?!.*\.(?:test|spec)\.[^/]+$)/,
   /^scripts\/public-web-route-smoke(?:\.test)?\.mjs$/,
   /^scripts\/render-platform-helm-values\.mjs$/,
+  /^scripts\/stripe-money-smoke-test/,
+  /^scripts\/apply-digitalocean-database-grant\.mjs$/,
 ];
-const clusterPreviewWorkflowPatterns = [/^\.github\/workflows\/platform-.*\.yml$/];
+const clusterPreviewWorkflowPatterns = [/^\.github\/workflows\/platform-pr\.yml$/];
 const exposurePosturePatterns = {
   "public-marketplace-launch": [
     /^scripts\/marketplace-(?:launch|production|promotion|public-presence)/,
@@ -381,7 +385,7 @@ export function classifyChanges({
   const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged || helmChanged;
   // Cluster-preview scoping: narrower than `deployRequired` above.
   // Deploy surfaces (Helm, preview-relevant Terraform, the Dockerfile,
-  // deployment/DOKS/ingress/secret scripts, and platform-*.yml workflows)
+  // deployment/DOKS/ingress/secret scripts, and the PR preview workflows)
   // still get the real cluster preview; every other runtime-affecting
   // change (dockerImageRequired alone) falls through to the cheaper CI
   // compose boot+smoke job instead of a chase-sets-pr-<n> namespace.
@@ -389,7 +393,6 @@ export function classifyChanges({
     helmChanged ||
     previewDeployTerraformChanged ||
     dockerChanged ||
-    deploymentScriptChanged ||
     clusterPreviewScriptChanged ||
     clusterPreviewWorkflowChanged;
   const composeSmokeRequired = dockerImageRequired && !clusterPreviewRequired;
@@ -489,12 +492,17 @@ export function classifyChanges({
 export function listChangedFiles(base, head, options = {}) {
   const exec = options.execFileSync ?? execFileSync;
   const cwd = options.cwd ?? repoRoot;
-  const mergeBase =
-    options.mergeBase ??
-    exec("git", ["merge-base", base, head], {
-      cwd,
-      encoding: "utf8",
-    }).trim();
+  let mergeBase = options.mergeBase;
+  // PR and merge-group workflows check out a synthetic merge commit. Its
+  // first parent is the current base tip, so diffing that parent keeps main's
+  // intervening commits out of the PR-owned changed set.
+  if (!mergeBase && options.firstParent) {
+    const parents = exec("git", ["rev-list", "--parents", "-n", "1", head], { cwd, encoding: "utf8" })
+      .trim()
+      .split(/\s+/);
+    mergeBase = parents.length > 2 ? parents[1] : undefined;
+  }
+  mergeBase ??= exec("git", ["merge-base", base, head], { cwd, encoding: "utf8" }).trim();
   // `--name-only` on its own collapses a detected rename to its destination
   // path only, which drops the source from the changed-file set and silently
   // unselects every gate keyed on that exact path — renaming a scheduler-owned
@@ -520,6 +528,8 @@ function parseArgs(argv) {
       options.base = arg.slice("--base=".length);
     } else if (arg.startsWith("--head=")) {
       options.head = arg.slice("--head=".length);
+    } else if (arg === "--first-parent") {
+      options.firstParent = true;
     } else if (arg.startsWith("--output=")) {
       options.output = arg.slice("--output=".length);
     } else {
@@ -529,7 +539,7 @@ function parseArgs(argv) {
 
   if (!options.base || !options.head) {
     throw new Error(
-      "Usage: node ./scripts/change-scope.mjs <json|github-output> --base=<commit> --head=<commit> [--output=<path>]",
+      "Usage: node ./scripts/change-scope.mjs <json|github-output> --base=<commit> --head=<commit> [--first-parent] [--output=<path>]",
     );
   }
 
@@ -582,7 +592,7 @@ function writeGithubOutputs(outputPath, scope) {
 function main() {
   const { command, options } = parseArgs(process.argv.slice(2));
   const scope = classifyChanges({
-    changedFiles: listChangedFiles(options.base, options.head),
+    changedFiles: listChangedFiles(options.base, options.head, { firstParent: options.firstParent }),
     workspaces: listWorkspacePackages({ repoRoot }),
     baseDir: repoRoot,
   });
@@ -603,7 +613,7 @@ function main() {
   }
 
   throw new Error(
-    "Usage: node ./scripts/change-scope.mjs <json|github-output> --base=<commit> --head=<commit> [--output=<path>]",
+    "Usage: node ./scripts/change-scope.mjs <json|github-output> --base=<commit> --head=<commit> [--first-parent] [--output=<path>]",
   );
 }
 

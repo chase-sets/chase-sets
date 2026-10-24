@@ -11,6 +11,57 @@ import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs"
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { selectVerifyStaticGuardTests } from "./verify-static-scoped.mjs";
 
+it("uses the synthetic merge commit first parent for a PR's own changed files", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "change-scope-pr-merge-"));
+  const git = (...args) =>
+    execFileSync(
+      "git",
+      ["-c", "core.autocrlf=false", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args],
+      { cwd: directory, encoding: "utf8", windowsHide: true },
+    ).trim();
+  const write = (filename, content) => writeFileSync(path.join(directory, filename), `${content}\n`, "utf8");
+
+  try {
+    git("init", "--quiet", "--initial-branch=main");
+    write("base.txt", "base");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "base");
+    const eventBase = git("rev-parse", "HEAD");
+
+    write("main-advance-one.txt", "main one");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "main advances one");
+    write("main-advance-two.txt", "main two");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "main advances two");
+
+    git("switch", "--create", "pr");
+    write("pr-change-one.txt", "PR one");
+    write("pr-change-two.txt", "PR two");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "PR changes");
+    git("switch", "main");
+    git("merge", "--no-ff", "--quiet", "--no-edit", "pr");
+    const syntheticMergeHead = git("rev-parse", "HEAD");
+
+    expect(listChangedFiles(eventBase, syntheticMergeHead, { cwd: directory, firstParent: true })).toEqual([
+      "pr-change-one.txt",
+      "pr-change-two.txt",
+    ]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it("enables first-parent scope for both hosted PR merge events", () => {
+  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8");
+  expect(workflow).toContain(
+    'if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then',
+  );
+  expect(workflow).toContain('first_parent="--first-parent"');
+  expect(workflow).toContain('github-output --base="${base}" --head="${head}" $first_parent');
+});
+
 describe("rendered-copy real-provider selection corpus", () => {
   it("preserves current-main owning selection for modified, added, deleted and --no-renames paths", async () => {
     const fixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8")).renderedCopy;
@@ -2484,14 +2535,14 @@ describe("change-scope", () => {
     });
   });
 
-  it("requires deployment for the exact production stale Helm recovery workflow", () => {
+  it("keeps the exact production stale Helm recovery workflow out of cluster preview", () => {
     const scope = classifyChanges({
       changedFiles: [".github/workflows/platform-production-stale-helm-recovery.yml"],
     });
 
     expect(scope).toMatchObject({
       deployRequired: true,
-      clusterPreviewRequired: true,
+      clusterPreviewRequired: false,
       dockerImageRequired: false,
       buildRequired: false,
     });
@@ -2810,6 +2861,77 @@ describe("change-scope", () => {
     expect(scope.deployRequired).toBe(false);
     expect(scope.clusterPreviewRequired).toBe(false);
     expect(scope.composeSmokeRequired).toBe(false);
+  });
+
+  it.each([
+    [".github/workflows/platform-pr.yml", true],
+    [".github/workflows/platform-ephemeral-verification.yml", false],
+    [".github/workflows/platform-production.yml", false],
+    [".github/workflows/platform-production-memory-probe.yml", false],
+    [".github/workflows/platform-production-stale-helm-recovery.yml", false],
+    [".github/workflows/platform-compose-boot-smoke.yml", false],
+    [".github/workflows/platform-pr-scope.yml", false],
+  ])("limits platform workflow cluster-preview admission to preview caller %s", (file, expected) => {
+    expect(classifyChanges({ changedFiles: [file] }).clusterPreviewRequired, file).toBe(expected);
+  });
+
+  it.each([
+    ["scripts/digitalocean-platform-config.mjs", true],
+    ["scripts/digitalocean-platform-config.test.mjs", false],
+    ["scripts/platform-smoke.mjs", true],
+    ["scripts/platform-smoke.test.mjs", false],
+    ["scripts/platform-smoke.spec.mjs", false],
+  ])("keeps test-only DigitalOcean and platform-smoke paths off cluster preview: %s", (file, expected) => {
+    expect(classifyChanges({ changedFiles: [file] }).clusterPreviewRequired, file).toBe(expected);
+  });
+
+  const clusterPreviewSafetyFixtures = [
+    ["Helm", "infrastructure/helm/platform/values.yaml"],
+    ["preview Terraform", "infrastructure/digitalocean/platform/main.tf"],
+    ["Dockerfile", "Dockerfile"],
+    ["deploy script", "scripts/platform-kubernetes-deployment.mjs"],
+    ["secret script", "scripts/platform-kubernetes-secret.mjs"],
+    ["ingress script", "scripts/platform-ingress-wait.mjs"],
+    ["platform PR preview workflow", ".github/workflows/platform-pr.yml"],
+  ];
+
+  it("kills one recorded cluster-preview safety mutant per deploy guard", () => {
+    const mutantTable = clusterPreviewSafetyFixtures.map(([guard, file]) => {
+      const scope = classifyChanges({ changedFiles: [file] });
+      const mutant = { ...scope, clusterPreviewRequired: false, composeSmokeRequired: false };
+      return {
+        guard,
+        file,
+        baseline: scope.clusterPreviewRequired,
+        mutant: mutant.clusterPreviewRequired,
+        killed: scope.clusterPreviewRequired && !mutant.clusterPreviewRequired,
+      };
+    });
+
+    expect(mutantTable.every(({ killed }) => killed)).toBe(true);
+    console.info("cluster-preview safety mutant table", mutantTable);
+  });
+
+  it("preserves a compose-or-cluster gate for every runtime fixture", () => {
+    const runtimeFixtures = [
+      "deployables/platform-api/src/main.ts",
+      "infrastructure/helm/platform/values.yaml",
+      "infrastructure/digitalocean/platform/main.tf",
+      "Dockerfile",
+      "scripts/platform-kubernetes-deployment.mjs",
+    ];
+    const results = runtimeFixtures.map((file) => {
+      const scope = classifyChanges({ changedFiles: [file] });
+      return {
+        file,
+        composeSmoke: scope.composeSmokeRequired,
+        clusterPreview: scope.clusterPreviewRequired,
+        covered: scope.composeSmokeRequired || scope.clusterPreviewRequired,
+      };
+    });
+
+    expect(results.every(({ covered }) => covered)).toBe(true);
+    console.info("runtime gate coverage table", results);
   });
 
   it("treats Terraform and deployment helper changes as deployable infrastructure needing a cluster preview", () => {
