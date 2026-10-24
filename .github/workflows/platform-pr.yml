@@ -128,7 +128,12 @@ jobs:
             base="$(git rev-list --max-parents=0 "$head")"
           fi
 
-          node ./scripts/change-scope.mjs github-output --base="${base}" --head="${head}"
+          first_parent=""
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then
+            first_parent="--first-parent"
+          fi
+
+          node ./scripts/change-scope.mjs github-output --base="${base}" --head="${head}" $first_parent
 
       - name: Resolve shared gate plan
         id: gate-plan
