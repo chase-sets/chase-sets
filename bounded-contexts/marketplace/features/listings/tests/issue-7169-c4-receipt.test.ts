@@ -484,6 +484,8 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
       code: "inventory-draft-unavailable",
       diagnostic: "receipt-ledger-not-ready",
     });
+    expect(readiness.events()).toHaveLength(0);
+    expect(readiness.receipts()).toHaveLength(0);
 
     const rewrapped = harness();
     rewrapped.createDraft.mockRejectedValue(new InventoryDraftListingUnavailable("listing-rejected"));
