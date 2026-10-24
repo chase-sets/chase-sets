@@ -5,6 +5,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { parse } from "yaml";
 import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { classifyReleaseHealthArtifacts } from "./release-health-report.mjs";
+import { evaluateReleaseLockClearReadback } from "./release-lock-commands.mjs";
 import {
   evaluateReleaseLock,
   evaluateReleaseLockWithResolution,
@@ -331,6 +332,14 @@ describe("five-field lock lifecycle", () => {
     for (const doc of [primary, operations]) {
       expect(doc).toMatch(/release-lock:commands --action lock[^\r\n]+--exit-route \$exitRoute --deadline \$deadline/);
       expect(doc).toContain("release-lock:commands --action unlock");
+      expect(doc).toContain('gh variable delete PRODUCTION_RELEASE_LOCK_REASON --env "production"');
+      expect(doc).toContain('gh variable delete PRODUCTION_RELEASE_LOCK_REFERENCE --env "production"');
+      expect(doc).toContain('gh variable delete PRODUCTION_RELEASE_LOCK_EXIT_ROUTE --env "production"');
+      expect(doc).toContain('gh variable delete PRODUCTION_RELEASE_LOCK_DEADLINE --env "production"');
+      expect(doc).toContain('gh variable set ... --body ""');
+      expect(doc).toContain("readback succeeds");
+      expect(doc).not.toMatch(/only after that readback is complete/);
+      expect(doc).toMatch(/False (stale fields are ignored everywhere|state ignores even malformed stale metadata)/);
       expect(doc).toMatch(/TRUE LAST|LOCKED=true` \*\*last\*\*/i);
       expect(doc).toMatch(/FALSE FIRST|LOCKED=false` \*\*first\*\*/i);
       expect(doc).toContain("platform-production-lock-monitor.yml --ref main");
@@ -338,6 +347,24 @@ describe("five-field lock lifecycle", () => {
       expect(doc).toMatch(/legacy\/invalid/);
       expect(doc).toContain("unknown");
     }
+  });
+
+  it("treats only false plus absent metadata as a complete clear readback", () => {
+    expect(
+      evaluateReleaseLockClearReadback({
+        ok: true,
+        variables: [{ name: "PRODUCTION_RELEASE_LOCKED", value: "false" }],
+      }),
+    ).toMatchObject({ complete: true, presentMetadata: [], unknownMetadata: [] });
+    expect(
+      evaluateReleaseLockClearReadback({
+        ok: true,
+        variables: [
+          { name: "PRODUCTION_RELEASE_LOCKED", value: "false" },
+          { name: "PRODUCTION_RELEASE_LOCK_REASON", value: "" },
+        ],
+      }),
+    ).toMatchObject({ complete: false });
   });
 });
 
