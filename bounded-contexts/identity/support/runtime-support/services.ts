@@ -23,6 +23,7 @@ import {
 import { createInvitationRuntime } from "../../features/invitations/api/runtime";
 import { createFoundersCohortRuntime } from "../../features/founders-cohort/api/runtime";
 import { createMembershipRuntime } from "../../features/memberships/api/runtime";
+import { createMembershipSetRuntime } from "../../features/memberships/api/membership-set-cutover";
 import { createUserPreferencesRuntime } from "../../features/preferences/api/runtime";
 import { createShippingAddressRuntime } from "../../features/shipping-addresses/api/runtime";
 import { createUserRuntime } from "../../features/users/api/runtime";
@@ -42,6 +43,7 @@ export type IdentityServices = Readonly<{
   accountCapabilities: ReturnType<typeof createAccountCapabilityRuntime>;
   users: ReturnType<typeof createUserRuntime>;
   memberships: ReturnType<typeof createMembershipRuntime>;
+  membershipSets: ReturnType<typeof createMembershipSetRuntime>;
   invitations: ReturnType<typeof createInvitationRuntime>;
   foundersCohort: ReturnType<typeof createFoundersCohortRuntime>;
   apiKeys: ReturnType<typeof createApiKeyRuntime>;
@@ -146,6 +148,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     accountCapabilities,
     users,
     memberships,
+    membershipSets: createMembershipSetRuntime(pool, postgresEventStore),
     invitations,
     foundersCohort,
     apiKeys,

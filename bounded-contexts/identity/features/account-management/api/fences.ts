@@ -12,6 +12,8 @@ import {
 } from "@chase-sets/event-core-postgres";
 import manifest from "../../../context.json" with { type: "json" };
 import { validateOwnerHistory } from "./owners";
+import { assertMembershipSetFactOwnership, planMembershipSetAppends } from "../../memberships/api/membership-set";
+import { membershipHistoryReader } from "../../memberships/api/membership-set-cutover";
 
 type ScopeEvent = Readonly<{ eventType: string; payload: Readonly<Record<string, unknown>> }>;
 export type IdentityMutationTransaction = Readonly<{
@@ -114,7 +116,13 @@ export function createIdentityMutationPersistence(
           if (Number(head.rows[0]?.current_version ?? 0) !== history.length) throw new Error("INDETERMINATE");
           return history;
         },
-        append: (inputs) => store.appendToStreamsInTransaction(client, inputs),
+        append: async (inputs) => {
+          const reader = membershipHistoryReader(client, {
+            readStream: (input) => store.readStreamInTransaction(client, input),
+          });
+          const expanded = await planMembershipSetAppends(reader, inputs);
+          return store.appendToStreamsInTransaction(client, expanded);
+        },
         projectionPredicate: async (projectionName, parameters) => {
           // Autocommit horizon observation, never the command transaction's global lock.
           const horizonClient = await connectBounded(pool);
@@ -198,6 +206,7 @@ export function createIdentityMutationPersistence(
   }
 
   async function append(inputs: readonly AppendToStreamInput[]) {
+    assertMembershipSetFactOwnership(inputs);
     const contributors = await Promise.all(
       inputs
         .filter((input) => isFencedStream(input.streamId))
