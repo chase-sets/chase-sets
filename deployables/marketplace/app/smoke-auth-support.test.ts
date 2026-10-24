@@ -712,6 +712,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "repricing-policies.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "pricing-health-verdict.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "pricing-health-compare-goals.spec.ts": [0, 0, 1, 0, "seeded-form"],
+  "pricing-health-apply-goal.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "seller-time-away-capacity.spec.ts": [0, 0, 1, 0, "seeded-form"],
 };
 const trackedMarketplaceSources = execFileSync("git", ["ls-files", "-z", "--", ...censusRoots], {
@@ -923,7 +924,7 @@ describe("auth-caller-census", () => {
       synthetic: 6,
       direct: 10,
       receiptedSessionReads: 1,
-      form: 9,
+      form: 10,
       helper: 1,
       unit: 1,
       launcher: 1,
@@ -931,7 +932,7 @@ describe("auth-caller-census", () => {
     expect(census.scanned).toBe(trackedMarketplaceSources.length);
     expect(readFileSync(`${root}/${launcher}`, "utf8")).toContain("AUTH_TRACE_ARTIFACT_PROBE");
     console.log(
-      `auth caller census scanned=${census.scanned} runtime=29 synthetic=6 direct=10 receipted-session=1 seeded-form=9 helper=1 unit=1 launcher=1`,
+      `auth caller census scanned=${census.scanned} runtime=29 synthetic=6 direct=10 receipted-session=1 seeded-form=10 helper=1 unit=1 launcher=1`,
     );
   });
   it("resolves named aliases, namespace imports, local aliases and re-exports without filename assumptions", () => {
