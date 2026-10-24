@@ -1,5 +1,5 @@
-// Universal Commerce Protocol (UCP) shopping profile for the 2026-04-08 spec.
-export const UCP_VERSION = "2026-04-08";
+// Universal Commerce Protocol (UCP) shopping profile for the 2026-08-25 spec.
+export const UCP_VERSION = "2026-08-25";
 export const UCP_SPEC_BASE_URL = `https://ucp.dev/${UCP_VERSION}`;
 export const UCP_LATEST_SPEC_BASE_URL = "https://ucp.dev/latest";
 
@@ -18,10 +18,14 @@ export const UCP_REST_ENDPOINT_PATH = "/ucp/v1";
 export const UCP_MCP_ENDPOINT_PATH = "/ucp/mcp";
 
 export type UcpTransport = "rest" | "mcp";
-export type UcpResponseStatus = "ok" | "error" | "requires_action";
-export type UcpMessageSeverity = "info" | "warning" | "error";
+export type UcpResponseStatus = "success" | "error";
+export type UcpMessageSeverity =
+  | "recoverable"
+  | "requires_buyer_input"
+  | "requires_buyer_review"
+  | "unrecoverable";
 
-export type UcpErrorSeverity = "recoverable" | "unrecoverable";
+export type UcpErrorSeverity = UcpMessageSeverity;
 
 export function ucpErrorSeverity(code: string): UcpErrorSeverity {
   if (
@@ -34,7 +38,7 @@ export function ucpErrorSeverity(code: string): UcpErrorSeverity {
     code.endsWith("_limited") ||
     code === "profile_unreachable"
   ) {
-    return "recoverable";
+    return code === "authentication_required" ? "requires_buyer_input" : "recoverable";
   }
   return "unrecoverable";
 }
@@ -62,20 +66,33 @@ export type UcpSigningJsonWebKey = Readonly<
 >;
 
 export type UcpBusinessProfile = Readonly<{
-  signing_keys?: readonly UcpSigningJsonWebKey[];
+  keys?: readonly UcpSigningJsonWebKey[];
   ucp: Readonly<{
     version: string;
     services: Readonly<Record<string, readonly UcpServiceDeclaration[]>>;
     capabilities: Readonly<Record<string, readonly UcpCapabilityDeclaration[]>>;
-    supported_versions: Readonly<Record<string, string>>;
-    signing_keys?: readonly UcpSigningJsonWebKey[];
+    payment_handlers: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>>;
   }>;
 }>;
 
 export type UcpMessage = Readonly<{
+  type: "error" | "warning" | "info";
   severity: UcpMessageSeverity;
   code: string;
-  message: string;
+  content: string;
+  /** @deprecated UCP 2026-08-25 uses content; retained for source compatibility only. */
+  message?: string;
+  path?: string;
+}>;
+
+export type UcpMessageInput = Readonly<{
+  type?: "error" | "warning" | "info";
+  severity?: UcpMessageSeverity | "info" | "warning" | "error";
+  recoverability?: UcpMessageSeverity;
+  code: string;
+  content?: string;
+  message?: string;
+  path?: string;
   target?: string;
 }>;
 
@@ -85,6 +102,7 @@ export type UcpEnvelope<TPayload extends Readonly<Record<string, unknown>> = Rea
       ucp: Readonly<{
         version: string;
         status: UcpResponseStatus;
+      payment_handlers?: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>>;
       }>;
       messages?: readonly UcpMessage[];
     } & TPayload
@@ -122,22 +140,16 @@ export type UcpMcpSecurityScheme =
   | Readonly<{ type: "noauth" }>
   | Readonly<{ type: "oauth2"; scopes: readonly string[] }>;
 
-const UCP_ENVELOPE_OUTPUT_SCHEMA = {
+const UCP_TOOL_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: true,
   properties: {
     ucp: {
       type: "object",
-      properties: {
-        version: { type: "string" },
-        status: { type: "string" },
-      },
+      properties: { version: { const: UCP_VERSION }, status: { enum: ["success", "error"] } },
       required: ["version", "status"],
     },
-    messages: {
-      type: "array",
-      items: { type: "object", additionalProperties: true },
-    },
+    messages: { type: "array", items: { type: "object", additionalProperties: true } },
   },
   required: ["ucp"],
 } as const;
@@ -253,7 +265,7 @@ export const UCP_MCP_TOOLS = [
         },
       },
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Searching marketplace products",
@@ -280,7 +292,7 @@ export const UCP_MCP_TOOLS = [
         },
       },
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Looking up marketplace products",
@@ -302,7 +314,7 @@ export const UCP_MCP_TOOLS = [
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Loading product detail",
@@ -322,7 +334,7 @@ export const UCP_MCP_TOOLS = [
       properties: { checkout: checkoutResourceSchema },
       required: ["checkout"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Creating checkout session",
@@ -344,7 +356,7 @@ export const UCP_MCP_TOOLS = [
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: readAnnotations(),
     invoking: "Reading checkout session",
@@ -367,7 +379,7 @@ export const UCP_MCP_TOOLS = [
       },
       required: ["id", "checkout"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Updating checkout session",
@@ -378,7 +390,7 @@ export const UCP_MCP_TOOLS = [
     title: "Complete Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this after the user asks to place the order to read checkout state and its trusted buyer continuation URL. This never creates orders or moves money.",
+      "Use this after the user asks to place the order to prepare a trusted buyer handoff. The returned continue_url opens Chase Sets checkout; this never creates orders or moves money.",
     idempotencyKeyRequired: true,
     resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
     inputSchema: {
@@ -392,7 +404,7 @@ export const UCP_MCP_TOOLS = [
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, openWorld: true }),
     invoking: "Preparing trusted checkout handoff",
@@ -403,7 +415,7 @@ export const UCP_MCP_TOOLS = [
     title: "Cancel Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this only when the user asks to cancel or abandon checkout. Cancelling releases active checkout reservations before order or payment commitment.",
+      "Use this only when the user asks to cancel or abandon checkout. An unsigned OAuth call is read-only; a signed buyer call cancels the session and releases active checkout reservations.",
     idempotencyKeyRequired: true,
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
@@ -414,7 +426,7 @@ export const UCP_MCP_TOOLS = [
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, idempotent: true }),
     invoking: "Cancelling checkout session",
@@ -434,7 +446,7 @@ export const UCP_MCP_TOOLS = [
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: UCP_TOOL_OUTPUT_SCHEMA,
     securitySchemes: ORDER_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Reading marketplace order",
@@ -455,10 +467,9 @@ export function buildUcpBusinessProfile(
   const baseUrl = normalizeUcpOrigin(origin);
   const signingKeys = options.signingKeys?.length ? options.signingKeys : undefined;
   return {
-    ...(signingKeys ? { signing_keys: signingKeys } : {}),
+    ...(signingKeys ? { keys: signingKeys } : {}),
     ucp: {
       version: UCP_VERSION,
-      ...(signingKeys ? { signing_keys: signingKeys } : {}),
       services: {
         [UCP_SHOPPING_SERVICE]: [
           {
@@ -488,26 +499,60 @@ export function buildUcpBusinessProfile(
           }),
         ],
       },
-      supported_versions: {
-        [UCP_VERSION]: `${baseUrl}/.well-known/ucp`,
-      },
+      payment_handlers: {},
     },
   };
 }
 
 export function createUcpEnvelope<TPayload extends Readonly<Record<string, unknown>>>(
-  status: UcpResponseStatus,
+  status: UcpResponseStatus | "ok" | "requires_action",
   payload: TPayload,
-  messages: readonly UcpMessage[] = [],
+  messages: readonly UcpMessageInput[] = [],
+  options: Readonly<{ paymentHandlers?: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>> }> = {},
 ): UcpEnvelope<TPayload> {
+  const normalizedStatus: UcpResponseStatus = status === "ok" || status === "requires_action" ? "success" : status;
+  const normalizedMessages = messages.map((message) => {
+    const severity = message.recoverability ?? normalizeMessageSeverity(message.severity, message.code);
+    return {
+      type: message.type ?? "error",
+      code: message.code,
+      content: message.content ?? message.message ?? fixedMessageContent(message.code),
+      ...(message.path || message.target ? { path: message.path ?? message.target } : {}),
+      ...(severity ? { severity } : {}),
+    } as UcpMessage;
+  });
   return {
     ucp: {
       version: UCP_VERSION,
-      status,
+      status: normalizedStatus,
+      ...(options.paymentHandlers ? { payment_handlers: options.paymentHandlers } : {}),
     },
-    ...(messages.length > 0 ? { messages } : {}),
+    ...(normalizedMessages.length > 0 ? { messages: normalizedMessages } : {}),
     ...payload,
   };
+}
+
+function normalizeMessageSeverity(
+  severity: UcpMessageInput["severity"],
+  code: string,
+): UcpMessageSeverity | undefined {
+  if (severity === "info" || severity === "warning") return undefined;
+  if (severity === "error" || severity === undefined) return ucpErrorSeverity(code);
+  return severity;
+}
+
+function fixedMessageContent(code: string) {
+  const content: Readonly<Record<string, string>> = {
+    authentication_required: "Authentication is required for this UCP operation.",
+    authorization_forbidden: "The linked account is not authorized for this UCP operation.",
+    checkout_closed: "Checkout is currently unavailable.",
+    invalid_request: "The UCP request is invalid.",
+    not_found: "The requested UCP resource was not found.",
+    product_not_found: "The requested product was not found.",
+    signed_request_required: "A valid signed UCP request is required.",
+    unsupportedUcpOperation: "The requested UCP operation is not supported.",
+  };
+  return content[code] ?? "The UCP operation could not be completed.";
 }
 
 export function unsupportedUcpOperation(operation: string): UcpEnvelope {

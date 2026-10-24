@@ -1,10 +1,9 @@
 import { formatMoney } from "@chase-sets/localization";
-import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, type UcpEnvelope, type UcpMessageInput } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import type { DiscoveryItemsServices } from "../item-support/runtime";
 import type { DiscoverySearchItemRow } from "../../features/search/read-model/queries";
 import type { DiscoveryItemDetailRow } from "../../features/item-detail/read-model/queries";
-
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 
 export type UcpCurrency = Readonly<{ code: string; exponent: number }>;
@@ -46,7 +45,6 @@ export function resolveUcpCurrency(value: unknown): UcpCurrency | null {
     .maximumFractionDigits;
   return typeof exponent === "number" ? { code, exponent } : null;
 }
-
 export function toUcpMinorUnits(
   amount: unknown,
   currencyCode: unknown,
@@ -233,14 +231,16 @@ export type DiscoveryUcpHandlers = Readonly<{
 
 type UcpCatalogSearchBody = Readonly<{
   query?: unknown;
-  limit?: unknown;
-  cursor?: unknown;
+  context?: unknown;
+  pagination?: unknown;
   filters?: unknown;
 }>;
 
 type UcpCatalogLookupBody = Readonly<{
   ids?: unknown;
   id?: unknown;
+  context?: unknown;
+  filters?: unknown;
 }>;
 
 export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): DiscoveryUcpHandlers {
@@ -248,55 +248,132 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
     search_catalog: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogSearchBody>(input);
       const filters = readObject(body.filters);
+      const context = readObject(body.context);
+      const pagination = readObject(body.pagination);
+      const requestCurrency = resolveUcpCurrency(context.currency);
+      const priceFilter = readObject(filters.price);
+      const min = readMinorBound(priceFilter.min);
+      const max = readMinorBound(priceFilter.max);
+      const hasPriceBounds = min !== undefined || max !== undefined;
+      const priceCurrency = requestCurrency?.code;
+      const boundsAreUsable = Boolean(requestCurrency && hasPriceBounds);
+      const warningMessages: UcpMessageInput[] = [];
+      if (hasPriceBounds && !boundsAreUsable) {
+        warningMessages.push({
+          type: "warning",
+          code: "price_filter_ignored",
+          content: PRICE_FILTER_IGNORED_CONTENT,
+        });
+      }
       const result = await items.search.searchItems({
         search: readString(body.query),
-        category: readString(filters.category),
+        ...(readStringArray(filters.categories).length
+          ? { categories: readStringArray(filters.categories) }
+          : readString(filters.category)
+            ? { category: readString(filters.category) }
+            : {}),
         tag: readString(filters.tag),
         blueprintId: readString(filters.blueprintId),
         language: readString(filters.language),
-        cursor: readString(body.cursor),
-        limit: readNumber(body.limit),
+        ...(readString(pagination.cursor) ? { cursor: readString(pagination.cursor) } : {}),
+        ...(pagination.limit === undefined ? {} : { limit: clampLimit(readNumber(pagination.limit)) }),
+        ...(priceCurrency ? { priceCurrency } : {}),
+        ...(boundsAreUsable
+          ? {
+              ...(min === undefined ? {} : { priceMin: minorBoundToDecimal(min, requestCurrency!) ?? undefined }),
+              ...(max === undefined ? {} : { priceMax: minorBoundToDecimal(max, requestCurrency!) ?? undefined }),
+            }
+          : {}),
         includeTotal: true,
       });
-
-      return createUcpEnvelope("ok", {
-        products: result.items.map((row) => searchRowToProduct(row, input.request)),
-        count: result.items.length,
-        total: result.total,
-        next_cursor: result.nextCursor,
-        result_presentation: {
-          component: "marketplace-results",
-          title: "Marketplace results",
-          empty_state: "No matching marketplace products are available right now.",
+      const hydrated = await hydrateSearchRows(items, result.items.slice(0, 20), input.request, requestCurrency?.code);
+      const products = hydrated.every((entry) => entry.product === null)
+        ? result.items.slice(0, 20).map((row) => searchRowToProduct(row, input.request))
+        : hydrated.flatMap((entry) => (entry.product ? [entry.product] : []));
+      const dropped = hydrated.some((entry) => entry.product === null);
+      for (const [index, entry] of hydrated.entries()) {
+        if (!entry.product || !entry.presentment) continue;
+        if (entry.presentment.omittedListings) {
+          warningMessages.push({
+            type: "warning",
+            code: "listings_omitted_currency",
+            content: LISTINGS_OMITTED_CONTENT,
+            path: `$.products[${index}]`,
+          });
+        }
+        if (requestCurrency && entry.presentment.currency !== requestCurrency.code) {
+          warningMessages.push({
+            type: "warning",
+            code: "currency_mismatch",
+            content: `This product is priced in ${entry.presentment.currency}, not ${requestCurrency.code}.`,
+            path: `$.products[${index}]`,
+          });
+        }
+      }
+      return createUcpEnvelope(
+        "success",
+        {
+          products,
+          pagination: {
+            has_next_page: Boolean(result.nextCursor),
+            ...(result.nextCursor ? { cursor: result.nextCursor } : {}),
+            ...(!dropped && typeof result.total === "number" ? { total_count: result.total } : {}),
+          },
         },
-      });
+        warningMessages,
+      );
     },
     lookup_catalog: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogLookupBody>(input);
       const ids = readIds(body);
-      const products = await resolveProductIds(items, ids, input.request);
-
-      return createUcpEnvelope("ok", {
-        products,
-        count: products.length,
+      const context = readObject(body.context);
+      const filters = readObject(body.filters);
+      const requestedCurrency = resolveUcpCurrency(context.currency)?.code;
+      const bound = readPriceBound(filters.price, context.currency);
+      const products = await resolveProductIds(items, ids, input.request, requestedCurrency, bound);
+      const warnings = products.flatMap((entry, index) => {
+        const messages: UcpMessageInput[] = [];
+        if (entry.presentment?.omittedListings)
+          messages.push({ type: "warning", code: "listings_omitted_currency", content: LISTINGS_OMITTED_CONTENT, path: `$.products[${index}]` });
+        if (entry.boundIgnored)
+          messages.push({ type: "warning", code: "price_filter_ignored", content: PRICE_FILTER_IGNORED_CONTENT, path: `$.products[${index}]` });
+        return messages;
       });
+      return createUcpEnvelope("success", { products: products.flatMap((entry) => (entry.product ? [entry.product] : [])) }, warnings);
     },
     get_product: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogLookupBody>(input);
       const { params } = input;
       const id = params.id || readString(body.id) || readIds(body)[0] || "";
       const item = id ? await items.detail.getItemDetail(id) : null;
-
-      return item
-        ? createUcpEnvelope("ok", { product: detailRowToProduct(item, input.request) })
-        : createUcpEnvelope("error", {}, [
+      if (!item) {
+        return createUcpEnvelope("error", {}, [
             {
-              severity: "error",
+              severity: "unrecoverable",
               code: "product_not_found",
-              message: "Discovery could not resolve the requested product.",
-              target: "id",
+              content: "The requested product was not found.",
+              path: "$.product",
             },
           ]);
+      }
+      const context = readObject(body.context);
+      const filters = readObject(body.filters);
+      const presentment = selectPresentment(item.market_listings, resolveUcpCurrency(context.currency)?.code);
+      const bound = readPriceBound(filters.price, context.currency);
+      const bounded = presentment && boundPresentment(presentment, bound);
+      if (!bounded)
+        return createUcpEnvelope("error", {}, [
+          { severity: "unrecoverable", code: "product_not_found", content: "The requested product was not found.", path: "$.product" },
+        ]);
+      const warnings: UcpMessageInput[] = [
+        ...(presentment && bounded.ignored
+          ? [{ type: "warning" as const, code: "price_filter_ignored", content: PRICE_FILTER_IGNORED_CONTENT }]
+          : []),
+        ...(bounded.omittedListings
+          ? [{ type: "warning" as const, code: "listings_omitted_currency", content: LISTINGS_OMITTED_CONTENT, path: "$.product" }]
+          : []),
+      ];
+      return createUcpEnvelope("success", { product: catalogUcpProduct({ source: item, presentment: bounded, request: input.request, mode: "get_product" }) }, warnings);
     },
   } satisfies Readonly<Record<string, UcpHandler>>;
 
@@ -389,11 +466,76 @@ function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
   };
 }
 
-async function resolveProductIds(items: DiscoveryItemsServices, ids: readonly string[], request: Request) {
-  const rows = await Promise.all(ids.slice(0, 20).map((id) => items.detail.getItemDetail(id)));
-  return rows
-    .filter((row): row is DiscoveryItemDetailRow => row !== null)
-    .map((row) => detailRowToProduct(row, request));
+async function resolveProductIds(
+  items: DiscoveryItemsServices,
+  ids: readonly string[],
+  request: Request,
+  currency: string | undefined,
+  bound: UcpPresentmentBound,
+) {
+  const pairs = await Promise.all(ids.slice(0, 20).map(async (requestedId) => ({ requestedId, row: await items.detail.getItemDetail(requestedId) })));
+  const grouped = lookupInputs(
+    pairs.map(({ requestedId, row }) => ({ requestedId, productId: row?.catalog_item_id ?? null })),
+  );
+  const rows = new Map(pairs.flatMap(({ row }) => (row ? [[row.catalog_item_id, row] as const] : [])));
+  return grouped.flatMap((group) => {
+    const row = rows.get(group.id);
+    if (!row) return [];
+    const presentment = selectPresentment(row.market_listings, currency);
+    const bounded = presentment && boundPresentment(presentment, bound);
+    return [
+      {
+        product: bounded
+          ? catalogUcpProduct({
+              source: row,
+              presentment: bounded,
+              request,
+              mode: "lookup",
+              inputs: group.inputs,
+            })
+          : null,
+        presentment,
+        boundIgnored: Boolean(bounded?.ignored),
+      },
+    ];
+  });
+}
+
+async function hydrateSearchRows(
+  items: DiscoveryItemsServices,
+  rows: readonly DiscoverySearchItemRow[],
+  request: Request,
+  currency: string | undefined,
+) {
+  return Promise.all(
+    rows.map(async (row) => {
+      const detail = await items.detail.getItemDetail(row.catalog_item_id);
+      const presentment = detail ? selectPresentment(detail.market_listings, currency) : null;
+      return {
+        product: detail && presentment ? catalogUcpProduct({ source: detail, presentment, request, mode: "search" }) : null,
+        presentment,
+      };
+    }),
+  );
+}
+
+function clampLimit(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return 20;
+  return Math.max(1, Math.min(20, Math.trunc(value)));
+}
+
+function readMinorBound(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function readPriceBound(value: unknown, currency: unknown): UcpPresentmentBound {
+  const filter = readObject(value);
+  const resolved = resolveUcpCurrency(currency);
+  return {
+    ...(readMinorBound(filter.min) === undefined ? {} : { min: readMinorBound(filter.min) }),
+    ...(readMinorBound(filter.max) === undefined ? {} : { max: readMinorBound(filter.max) }),
+    ...(resolved ? { currency: resolved } : {}),
+  };
 }
 
 async function readJsonObject<T extends Readonly<Record<string, unknown>>>(request: Request): Promise<T> {
@@ -497,12 +639,8 @@ function readIds(body: UcpCatalogLookupBody) {
 }
 
 function price(amount: string | null, currencyCode: string | null) {
-  return amount && currencyCode
-    ? {
-        currency: currencyCode,
-        amount: moneyToMinorUnits(amount),
-      }
-    : null;
+  const converted = amount && currencyCode ? toUcpMinorUnits(amount, currencyCode) : null;
+  return converted ? { currency: converted.currency, amount: converted.minor } : null;
 }
 
 function priceDisplay(amount: string | null, currencyCode: string | null) {
@@ -553,11 +691,4 @@ function marketplaceActions(url: string, availableQuantity: number) {
           }
         : null,
   };
-}
-
-function moneyToMinorUnits(amount: string) {
-  const normalized = amount.trim();
-  const [dollars = "0", cents = ""] = normalized.split(".");
-  const minor = `${dollars}${cents.padEnd(2, "0").slice(0, 2)}`.replace(/^0+(?=\d)/, "");
-  return minor || "0";
 }
