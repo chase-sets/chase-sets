@@ -923,9 +923,9 @@ describeDb("tcgplayer-run-order-and-lease", () => {
       {
         runId: "run-application",
         connectionId: "connection-production",
-        claimant: { claimantKind: "connector", claimantId: "connector-application" },
+        claimant: { claimantKind: "manual", claimantId: "manual-application" },
         leaseMs: 60_000,
-        manualClaimLeasePolicySnapshot: null,
+        manualClaimLeasePolicySnapshot: manualLeaseSnapshot(60_000),
         resolvedPolicy: { maxRowsPerBatch: 2 },
         composedAt: "2026-09-09T01:01:00Z",
       },
@@ -1041,6 +1041,7 @@ describeDb("tcgplayer-run-order-and-lease", () => {
         runSettlement: {
           runId: applied.runId,
           expectedRunRevision: awaiting.revision,
+          stagedReadback: null,
           fromState: "awaiting-verification",
           toState: "applied",
           verificationSnapshotId: "snapshot-application-proof",
@@ -1061,6 +1062,7 @@ describeDb("tcgplayer-run-order-and-lease", () => {
         runSettlement: {
           runId: applied.runId,
           expectedRunRevision: awaiting.revision,
+          stagedReadback: null,
           fromState: "awaiting-verification",
           toState: "applied",
           verificationSnapshotId: "snapshot-application-proof",
@@ -1238,7 +1240,7 @@ describeDb("tcgplayer-run-order-and-lease", () => {
       expectedRevision: Number(blockedLaneRevision),
     });
     const neverVerified = await createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
-      composeInput("run-basis-never-verified", "connector", "connector-basis"),
+      composeInput("run-basis-never-verified", "manual", "manual-basis"),
       testContext,
     );
     expect(neverVerified?.run.basisSnapshotGeneration).toBe(1);
@@ -1485,7 +1487,12 @@ describeDb("tcgplayer-run-order-and-lease", () => {
 
   it("settles every member durably when an awaiting run reports a second upload attempt", async () => {
     const services = createOwnedRuntime("2026-09-09T08:00:00Z");
-    const composed = await composeMixedMemberRun(services, "run-mixed-duplicate-upload", "connector-mixed-duplicate");
+    const composed = await composeMixedMemberRun(
+      services,
+      "run-mixed-duplicate-upload",
+      "manual-mixed-duplicate",
+      "manual",
+    );
     const claimed = await services.tcgplayerCsv.claimRun(
       { runId: composed.run.runId, expectedRevision: composed.run.revision },
       testContext,
@@ -1562,7 +1569,7 @@ describeDb("tcgplayer-run-order-and-lease", () => {
 
   it("settles a genuine composed, refused, and already-satisfied member partition by member proof", async () => {
     const services = createOwnedRuntime();
-    const composed = await composeMixedMemberRun(services, "run-mixed-members", "connector-mixed");
+    const composed = await composeMixedMemberRun(services, "run-mixed-members", "manual-mixed", "manual");
     const claimed = await services.tcgplayerCsv.claimRun(
       { runId: composed.run.runId, expectedRevision: composed.run.revision },
       testContext,
@@ -1694,9 +1701,9 @@ describeDb("tcgplayer-run-order-and-lease", () => {
       {
         runId: "run-revert-canary",
         connectionId: "connection-production",
-        claimant: { claimantKind: "connector", claimantId: "connector-revert" },
+        claimant: { claimantKind: "manual", claimantId: "manual-revert" },
         leaseMs: 60_000,
-        manualClaimLeasePolicySnapshot: null,
+        manualClaimLeasePolicySnapshot: manualLeaseSnapshot(60_000),
         resolvedPolicy: { maxRowsPerBatch: 500 },
         composedAt: "2026-09-09T01:01:00Z",
       },
@@ -2208,6 +2215,7 @@ async function composeMixedMemberRun(
   services: ReturnType<typeof createOwnedRuntime>,
   runId: string,
   claimantId: string,
+  claimantKind: "connector" | "manual" = "connector",
 ) {
   await seedProductionCompositionFacts([
     {
@@ -2252,7 +2260,7 @@ async function composeMixedMemberRun(
     desiredState("listing-mixed-noop", "channel-listing-mixed-noop", 1, 3, 30, 3),
   );
   const composed = await services.tcgplayerCsv.composeTcgplayerSyncRun(
-    composeInput(runId, "connector", claimantId),
+    composeInput(runId, claimantKind, claimantId),
     testContext,
   );
   if (!composed) throw new Error("The mixed member run was not composed.");
