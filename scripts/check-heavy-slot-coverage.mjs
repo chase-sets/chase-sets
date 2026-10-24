@@ -26,6 +26,7 @@ const reviewedCheapNodeEntrypoints = new Set([
   "scripts/check-localization.mjs",
   "scripts/check-no-any.mjs",
   "scripts/check-no-legacy-forms.mjs",
+  "scripts/check-node-types-runtime.mjs",
   "scripts/check-operator-surface-pm-content.mjs",
   "scripts/check-package-export-targets.mjs",
   "scripts/check-postage-adapter-boundaries.mjs",

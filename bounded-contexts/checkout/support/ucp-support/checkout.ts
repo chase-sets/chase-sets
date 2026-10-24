@@ -6,7 +6,7 @@ import {
   type UcpOperationHandlerInput,
 } from "@chase-sets/platform-runtime/ucp";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
-import { sumMoneyAmounts } from "@chase-sets/primitives/money";
+import { sumMoneyAmounts, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { UcpPaymentHandlerHandoff } from "@chase-sets/payments/server";
 import {
@@ -38,6 +38,10 @@ export type CheckoutUcpQuote = Readonly<{
   tax: string;
   total: string;
   linePrice: (listingId: string) => string | null;
+}>;
+
+export type CheckoutUcpResourcePayment = Readonly<{
+  currency_code?: string | null;
 }>;
 
 export type CheckoutUcpListing = Readonly<{
@@ -382,6 +386,114 @@ export function checkoutUcpState(
     continue: true,
     messages: [message("payment_required", "requires_buyer_input")],
   };
+}
+
+/** Build the UCP 2026-08-25 Checkout resource from the already-resolved rules. */
+export function checkoutUcpResource({
+  session,
+  state,
+  quote,
+  payment,
+  request,
+  now = new Date(),
+}: Readonly<{
+  session: CheckoutSessionRow;
+  state: ReturnType<typeof checkoutUcpState>;
+  quote: CheckoutUcpQuote;
+  payment: CheckoutUcpResourcePayment | null;
+  request: Request;
+  now?: Date;
+}>) {
+  const currency = payment?.currency_code?.trim().toUpperCase() || "USD";
+  const currentTime = now;
+  const line_items = session.lines.map((line, index) => {
+    const listingId = line.listingId ?? "";
+    const linePrice = quote.linePrice(listingId);
+    const unitPrice = exactMinorUnits(String(linePrice ?? ""), `line ${listingId}`);
+    const lineTotal = unitPrice * BigInt(line.quantity);
+    return {
+      id: line.cartLineId ?? line.listingId ?? `line_${index + 1}`,
+      item: {
+        id: listingId,
+        title: line.itemTitle ?? line.productSummary ?? line.listingId,
+        price: wireMinorUnits(unitPrice, `line ${listingId}`),
+      },
+      quantity: line.quantity,
+      totals: [
+        { type: "subtotal", amount: wireMinorUnits(lineTotal, `line ${listingId} total`) },
+        { type: "total", amount: wireMinorUnits(lineTotal, `line ${listingId} total`) },
+      ],
+    };
+  });
+  const totals = [
+    { type: "subtotal", amount: wireMinorUnits(exactMinorUnits(quote.subtotal, "subtotal"), "subtotal") },
+    { type: "fulfillment", amount: wireMinorUnits(exactMinorUnits(quote.fulfillment, "fulfillment"), "fulfillment") },
+    { type: "tax", amount: wireMinorUnits(exactMinorUnits(quote.tax, "tax"), "tax") },
+    { type: "total", amount: wireMinorUnits(exactMinorUnits(quote.total, "total"), "total") },
+  ];
+  const terminal = state.status === "canceled" || state.status === "completed";
+  const resources = {
+    id: session.session_id,
+    status: state.status,
+    currency,
+    line_items,
+    totals,
+    links: [
+      { type: "terms_of_service", url: new URL("/terms", resolvePublicRequestOrigin(request)).href },
+      { type: "privacy_policy", url: new URL("/privacy", resolvePublicRequestOrigin(request)).href },
+    ],
+    ...(state.messages.length ? { messages: state.messages.map(checkoutUcpMessage) } : {}),
+    ...(state.continue ? { continue_url: checkoutContinueUrl(request, session.session_id) } : {}),
+    ...(!terminal
+      ? {
+          ...(session.order_ids.length > 0
+            ? { expires_at: new Date(currentTime.getTime() + handoffTtlMs).toISOString() }
+            : session.handoff_expires_at
+              ? { expires_at: session.handoff_expires_at }
+              : {}),
+        }
+      : {}),
+    ...(state.status === "completed" && state.order?.length
+      ? (() => {
+          const confirmed = state.order.find((fact) => fact.id === session.order_ids[0]);
+          return {
+            order: {
+              id: session.order_ids[0]!,
+              ...(confirmed?.label ? { label: confirmed.label } : {}),
+              permalink_url: new URL(
+                session.order_ids.length > 1
+                  ? "/account/purchases"
+                  : (confirmed?.permalinkUrl ?? `/account/purchases/${encodeURIComponent(session.order_ids[0]!)}`),
+                resolvePublicRequestOrigin(request),
+              ).href,
+            },
+          };
+        })()
+      : {}),
+  };
+  return resources;
+}
+
+function checkoutUcpMessage(row: ReturnType<typeof checkoutUcpState>["messages"][number]) {
+  return {
+    type: "error" as const,
+    code: row.code,
+    content: row.message,
+    severity: row.recoverability,
+    ...(row.target ? { path: row.target } : {}),
+  };
+}
+
+function exactMinorUnits(amount: string | null, label: string) {
+  const value = typeof amount === "string" ? tryMoneyToCents(amount) : null;
+  if (value === null) throw new Error(`UCP Checkout ${label} has no exact USD amount.`);
+  return value;
+}
+
+function wireMinorUnits(value: bigint, label: string) {
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new Error(`UCP Checkout ${label} exceeds safe minor units.`);
+  return Number(value);
 }
 
 /**

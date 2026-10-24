@@ -835,8 +835,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
   [citationFencePaths.privacyPolicy]: "591d12627c7c74e539d502b8fc36d79bd276c8adf90ea690645e583c2538d27a",
   [citationFencePaths.authenticityTest]: "373914b5510020641186b833c170ccd3e9ed072d541573ade9306e1216124873",
-  // #10176 repin after the JSON import census evidence-citation update.
-  [citationFencePaths.staticSurfaces]: "6b11b68f806dc051eb651f6f7a6a17d67ad450f8568b0af311af9c3766f6faa5",
+  // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
+  // evidence-citation update and #9878 TCGplayer guard surface.
+  [citationFencePaths.staticSurfaces]: "1f9f136b4c8dc0ee9903e8883b983b67d52f891a268addebf4c5ff55d217af61",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

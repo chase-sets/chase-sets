@@ -426,6 +426,12 @@ export const VERIFY_STATIC_SURFACES = {
       "deployables/platform-worker/.env.example",
     ),
   },
+  "check:node-types-runtime": {
+    classification: MAY_NARROW,
+    rule: "any package.json the workspace definition can discover, or the guard itself; root workspace files fan out",
+    evidence: ["scripts/check-node-types-runtime.mjs:24-102"],
+    include: [...exact("scripts/check-node-types-runtime.mjs"), ...regex("(?:^|/)package\\.json$")],
+  },
   "check:structure": {
     classification: ALWAYS_RUN,
     rule: "repo-wide structure scan plus diff-consuming SQL and boot-schema guards",

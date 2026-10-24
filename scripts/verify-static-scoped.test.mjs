@@ -220,11 +220,11 @@ describe("verify:static surface-map derivation", () => {
     const chain = currentChain();
     const completeness = verifyStaticSurfaceMapCompleteness(chain);
 
-    expect(chain).toHaveLength(29);
+    expect(chain).toHaveLength(30);
     expect(completeness).toEqual({ missing: [], extra: [], invalidMayNarrow: [] });
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === MAY_NARROW),
-    ).toHaveLength(17);
+    ).toHaveLength(18);
     expect(
       Object.values(VERIFY_STATIC_SURFACES).filter(({ classification }) => classification === ALWAYS_RUN),
     ).toHaveLength(12);
@@ -323,7 +323,7 @@ describe("verify:static surface-map derivation", () => {
   it("keeps exactly the complete scripts battery outside the focused local contract", () => {
     const chain = currentChain();
 
-    expect(chain).toHaveLength(29);
+    expect(chain).toHaveLength(30);
     expect(chain.at(-1)?.name).toBe("test:scripts");
     expect(Object.keys(VERIFY_STATIC_SCOPED_EXCLUSIONS)).toEqual(["test:scripts"]);
     expect(packageJson().scripts["verify:static"]).toContain("pnpm run test:scripts");
