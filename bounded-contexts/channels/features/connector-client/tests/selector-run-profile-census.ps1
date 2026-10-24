@@ -860,6 +860,8 @@ function New-SelectorRunProfileNative {
       param($Run, $Id)
       $member = [SelectorRunProfileNative]::Member($Id, $Run.job)
       if ($null -eq $member) { return @{ pid = [long]$Id; created = -1 } }
+      # Only a live process whose opened handle is in the run job is admitted; any other is refused unheld.
+      if (-not ($member.InJob -and $member.Alive)) { $member.Dispose(); return @{ pid = [long]$Id; created = -1 } }
       $Run.held.Add($member)
       return @{ pid = [long]$Id; created = $member.Created }
     }
