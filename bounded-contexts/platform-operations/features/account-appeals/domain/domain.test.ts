@@ -108,4 +108,88 @@ describe("account appeal aggregate", () => {
     expect(() => decideAccountAppeal(initialAccountAppealState, { type: "StartAccountAppealReview" })).toThrow();
     expect(() => decideAccountAppeal(initialAccountAppealState, { ...file, accountId: createId("acc") })).toThrow();
   });
+
+  it.each([
+    ["empty", initialAccountAppealState, "FileAccountAppeal", "event"],
+    ["empty", initialAccountAppealState, "StartAccountAppealReview", "error"],
+    ["empty", initialAccountAppealState, "RecordAccountAppealOutcome", "error"],
+    ["empty", initialAccountAppealState, "WithdrawAccountAppeal", "error"],
+    ["filed", run(file), "FileAccountAppeal", "noop"],
+    ["filed", run(file), "StartAccountAppealReview", "event"],
+    ["filed", run(file), "RecordAccountAppealOutcome", "error"],
+    ["filed", run(file), "WithdrawAccountAppeal", "event"],
+    ["in-review", run(file, { type: "StartAccountAppealReview" }), "FileAccountAppeal", "noop"],
+    ["in-review", run(file, { type: "StartAccountAppealReview" }), "StartAccountAppealReview", "noop"],
+    ["in-review", run(file, { type: "StartAccountAppealReview" }), "RecordAccountAppealOutcome", "event"],
+    ["in-review", run(file, { type: "StartAccountAppealReview" }), "WithdrawAccountAppeal", "event"],
+    ...(["upheld", "reversed", "modified"] as const).flatMap((status) => {
+      const state = run(
+        file,
+        { type: "StartAccountAppealReview" },
+        {
+          type: "RecordAccountAppealOutcome",
+          outcome: status,
+          rationale: "Rationale",
+          note: "Note",
+          operatorUserId: operator,
+        },
+      );
+      return [
+        [status, state, "FileAccountAppeal", "error"],
+        [status, state, "StartAccountAppealReview", "error"],
+        [status, state, "RecordAccountAppealOutcome", "noop"],
+        [status, state, "WithdrawAccountAppeal", "error"],
+      ];
+    }),
+    ["withdrawn", run(file, { type: "WithdrawAccountAppeal" }), "FileAccountAppeal", "error"],
+    ["withdrawn", run(file, { type: "WithdrawAccountAppeal" }), "StartAccountAppealReview", "error"],
+    ["withdrawn", run(file, { type: "WithdrawAccountAppeal" }), "RecordAccountAppealOutcome", "error"],
+    ["withdrawn", run(file, { type: "WithdrawAccountAppeal" }), "WithdrawAccountAppeal", "error"],
+  ] as const)("seven-state transition matrix: %s + %s => %s", (_status, state, type, expected) => {
+    const terminalOutcome =
+      state.status === "upheld" || state.status === "reversed" || state.status === "modified"
+        ? state.status
+        : "reversed";
+    const command =
+      type === "FileAccountAppeal"
+        ? file
+        : type === "StartAccountAppealReview"
+          ? ({ type } as const)
+          : type === "WithdrawAccountAppeal"
+            ? ({ type } as const)
+            : {
+                type: "RecordAccountAppealOutcome" as const,
+                outcome: terminalOutcome,
+                rationale: "Rationale",
+                note: "Note",
+                operatorUserId: operator,
+              };
+    if (expected === "error") {
+      expect(() => decideAccountAppeal(state, command)).toThrow();
+    } else if (expected === "noop") {
+      expect(decideAccountAppeal(state, command)).toEqual([]);
+    } else {
+      expect(decideAccountAppeal(state, command)).toHaveLength(1);
+    }
+  });
+
+  it.each([
+    { type: "platform-operations.account-appeal.review-started", data: {} },
+    {
+      type: "platform-operations.account-appeal.outcome-recorded",
+      data: { outcome: "reversed", rationale: "Rationale", note: "Note", operatorUserId: operator },
+    },
+    { type: "platform-operations.account-appeal.withdrawn", data: {} },
+  ] as const)("rejects poisoned history event %j", (event) => {
+    expect(() => evolveAccountAppeal(initialAccountAppealState, event)).toThrow();
+  });
+
+  it("rejects unknown event types deterministically", () => {
+    expect(() =>
+      evolveAccountAppeal(initialAccountAppealState, {
+        type: "platform-operations.account-appeal.unknown",
+        data: {},
+      } as never),
+    ).toThrow("Unknown account appeal event");
+  });
 });

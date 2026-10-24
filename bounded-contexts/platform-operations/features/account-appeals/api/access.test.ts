@@ -4,6 +4,9 @@ import {
   ACCOUNT_APPEAL_FORBIDDEN,
   ACCOUNT_APPEAL_UNAUTHENTICATED,
   APPEALABLE_ACTION_INDETERMINATE,
+  assertAccountAppealFileCapability,
+  assertAccountAppealOperatorCapability,
+  assertAppealableEnforcementActionCapability,
   createAppealableEnforcementActionResolver,
   fileAccountAppeal,
   withAccountAppealOperatorAccess,
@@ -95,6 +98,40 @@ describe("account appeal access", () => {
       const resolved = await resolve(capability, action.appealableActionId);
       expect(resolved.status).toBe("resolved");
       if (resolved.status === "resolved") expect(Object.isFrozen(resolved.action)).toBe(true);
+    });
+  });
+
+  it("rejects forged seller, operator, and action objects at every access boundary", async () => {
+    const forgedSeller = {
+      tenantId: actor.tenantId,
+      accountId: actor.accountId,
+      userId: actor.userId,
+      permission: "account-appeals.file",
+    } as never;
+    const forgedOperator = {
+      tenantId: actor.tenantId,
+      userId: actor.userId,
+      roleKey: "trust-operator",
+      permission: "account-appeals.review",
+    } as never;
+    const forgedAction = { ...action } as never;
+
+    expect(() => assertAccountAppealFileCapability(forgedSeller)).toThrow("seller capability is invalid");
+    expect(() => assertAccountAppealOperatorCapability(forgedOperator)).toThrow("operator capability is invalid");
+    expect(() => assertAppealableEnforcementActionCapability(forgedAction)).toThrow(
+      "enforcement action capability is invalid",
+    );
+    await expect(
+      createAppealableEnforcementActionResolver({ resolve: async () => action })(
+        forgedSeller,
+        action.appealableActionId,
+      ),
+    ).rejects.toThrow("seller capability is invalid");
+
+    await withAccountAppealSellerAccess(actor, "account-appeals.file", async (capability) => {
+      expect(() => fileAccountAppeal(capability, forgedAction, { statement: "forged action" })).toThrow(
+        "enforcement action capability is invalid",
+      );
     });
   });
 });

@@ -11,6 +11,7 @@ import {
   createAppealableEnforcementActionResolver,
   assertAccountAppealFileCapability,
   assertAccountAppealOperatorCapability,
+  assertAppealableEnforcementActionCapability,
   fileAccountAppeal,
   type AccountAppealFileCapability,
   type AccountAppealOperatorCapability,
@@ -72,25 +73,52 @@ export function createAccountAppealRuntime(db: PgQueryable, eventStore: EventSto
     decide: decideAccountAppeal,
     commitSourceContextName: "platform-operations",
   });
+  const assertSellerContext = (capability: AccountAppealFileCapability, context: EventStoreContext): void => {
+    if (
+      context.tenantId !== capability.tenantId ||
+      context.audit.performedByUserId !== capability.userId ||
+      context.audit.forAccountId !== capability.accountId
+    )
+      throw new Error("Event-store context does not match the seller capability.");
+  };
+  const assertOperatorContext = (
+    capability: AccountAppealOperatorCapability,
+    context: EventStoreContext,
+    accountId: AccountAppealState["accountId"],
+  ): void => {
+    if (
+      context.tenantId !== capability.tenantId ||
+      context.audit.performedByUserId !== capability.userId ||
+      (accountId !== null && context.audit.forAccountId !== accountId)
+    )
+      throw new Error("Event-store context does not match the operator capability or appeal account.");
+  };
   return {
     resolve,
-    file: (capability, action, input, context) =>
-      handler.commandHandler({
+    file: (capability, action, input, context) => {
+      assertAccountAppealFileCapability(capability);
+      assertSellerContext(capability, context);
+      return handler.commandHandler({
         streamId: appealStreamId(action.appealableActionId),
         expectedVersion: "no_stream",
         command: fileAccountAppeal(capability, action, input),
         context,
-      }),
-    startReview: (capability, actionId, context) => {
+      });
+    },
+    startReview: async (capability, actionId, context) => {
       assertAccountAppealOperatorCapability(capability);
+      const aggregate = await handler.repository.load(appealStreamId(actionId));
+      assertOperatorContext(capability, context, aggregate.state.accountId);
       return handler.commandHandler({
         streamId: appealStreamId(actionId),
         command: { type: "StartAccountAppealReview" },
         context,
       });
     },
-    recordOutcome: (capability, actionId, input, context) => {
+    recordOutcome: async (capability, actionId, input, context) => {
       assertAccountAppealOperatorCapability(capability);
+      const aggregate = await handler.repository.load(appealStreamId(actionId));
+      assertOperatorContext(capability, context, aggregate.state.accountId);
       return handler.commandHandler({
         streamId: appealStreamId(actionId),
         command: { type: "RecordAccountAppealOutcome", ...input, operatorUserId: capability.userId },
@@ -99,6 +127,8 @@ export function createAccountAppealRuntime(db: PgQueryable, eventStore: EventSto
     },
     withdraw: (capability, action, context) => {
       assertAccountAppealFileCapability(capability);
+      assertAppealableEnforcementActionCapability(action);
+      assertSellerContext(capability, context);
       return handler.commandHandler({
         streamId: appealStreamId(action.appealableActionId),
         command: { type: "WithdrawAccountAppeal" },
