@@ -87,6 +87,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in.")
         };
     }
+    if uri.path() == "/api/realtime/public/events" {
+        return realtime(cookie);
+    }
     if let Some(rest) = uri.path().strip_prefix(CATALOG) {
         return catalog_api(method, rest, &body);
     }
@@ -383,7 +386,49 @@ fn catalog_api(method: Method, rest: &str, body: &str) -> Response {
     }
 }
 
+/// The platform's realtime stream: a heartbeat and one change, then the stream ends (the client
+/// connects again). It refuses `catalog-reader`, standing in for a session the API will not stream.
+fn realtime(cookie: &str) -> Response {
+    if cookie.contains("chase_sets_session=catalog-reader") {
+        return refusal(StatusCode::FORBIDDEN, "authorization_forbidden", "Forbidden.");
+    }
+    let patch = r#"{"kind":"projection.patch","context":"catalog","projection":"catalog-dimensions","topics":["catalog:admin:dimensions"],"changes":[{"op":"summary","entity":"catalog.adminProjection","id":"dimensions:x","value":{}}]}"#;
+    let body = format!("id: c1\nevent: heartbeat\ndata: {{}}\nretry: 1000\n\nid: c2\nevent: projection.patch\ndata: {patch}\n\n");
+    ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
+}
+
 impl Pilot {
+    /// The first `count` server-sent events of a stream at `uri` (their `event:` and `data:`), or
+    /// what came before it ended.
+    async fn events(&self, uri: &str, session: &str, count: usize) -> Vec<(String, String)> {
+        let res = self.router.clone().oneshot(get(uri, Some(session))).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{uri}");
+        assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/event-stream"));
+        let mut body = res.into_body();
+        let (mut text, mut events) = (String::new(), Vec::new());
+        while events.len() < count {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame()).await.expect("an event in time");
+            let Some(frame) = frame else { break };
+            let Ok(data) = frame.unwrap().into_data() else { continue };
+            text.push_str(std::str::from_utf8(&data).unwrap());
+            while let Some(end) = text.find("\n\n") {
+                let block: String = text.drain(..end + 2).collect();
+                let field = |name: &str| {
+                    block.lines().filter_map(|l| l.strip_prefix(name)).map(str::to_owned).collect::<Vec<_>>().join("\n")
+                };
+                let event = field("event: ");
+                if !event.is_empty() {
+                    events.push((event, field("data: ")));
+                }
+            }
+        }
+        events
+    }
+
+    fn calls_to(&self, prefix: &str) -> Vec<Call> {
+        self.calls.lock().unwrap().iter().filter(|c| c.path.starts_with(prefix)).cloned().collect()
+    }
+
     /// The calls to the Catalog API.
     fn catalog_calls(&self) -> Vec<Call> {
         self.calls.lock().unwrap().iter().filter(|c| c.path.starts_with(CATALOG)).cloned().collect()
@@ -630,4 +675,40 @@ async fn fields_are_created_configured_and_activated() {
     assert!(html.contains("<dt>Filterable</dt>") && html.contains("<dd>Yes</dd>") && html.contains("<dd>No</dd>"), "{html}");
     assert!(html.contains(r#"name="step" value="activate">Activate</button>"#), "a draft is activated: {html}");
     assert!(html.contains(r#"name="filterable" checked"#), "the configure form starts from the field: {html}");
+}
+
+#[tokio::test]
+async fn a_list_draws_its_rows_on_open_and_again_on_each_change_resuming_after_a_drop() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/catalog/dimensions?status=active&page=2", Some("staff"))).await;
+    assert!(
+        html.contains(r#"<corten-live src="/catalog/dimensions/live?status=active&amp;page=2"><div id="catalog-rows">"#),
+        "the rows are live, with the list's filters and page: {html}"
+    );
+    let before = pilot.catalog_calls().len();
+
+    // On open, on the change, and on the change the stream sends again after it reconnects.
+    let events = pilot.events("/catalog/dimensions/live?status=active&page=2", "staff", 3).await;
+    assert_eq!(events.len(), 3, "{events:?}");
+    for (event, data) in &events {
+        assert_eq!(event, "patch");
+        assert!(data.starts_with(r#"<div id="catalog-rows">"#) && data.contains("/catalog/dimensions/dim_seed"), "{data}");
+        assert!(data.contains("Page 2 of 3") && !data.contains("<form"), "only the rows and pager, not the filters: {data}");
+    }
+    let reads: Vec<_> = pilot.catalog_calls()[before..].iter().map(|c| c.path.clone()).collect();
+    assert_eq!(reads, vec!["/api/catalog/dimensions?status=active&limit=50&offset=50"; 3], "the same list each time");
+
+    let streams = pilot.calls_to("/api/realtime/");
+    assert_eq!(streams[0].path, "/api/realtime/public/events?topic=catalog%3Aadmin%3Adimensions");
+    assert_eq!(streams[0].headers[header::COOKIE], "chase_sets_session=staff", "as the signed-in user");
+    assert_eq!(streams[1].path, "/api/realtime/public/events?topic=catalog%3Aadmin%3Adimensions&cursor=c2", "it resumes");
+}
+
+#[tokio::test]
+async fn a_live_list_ends_when_the_api_refuses_its_stream() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events("/catalog/fields/live", "catalog-reader", 3).await;
+    let kinds: Vec<_> = events.iter().map(|(event, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "end"], "the rows once, then the element stops: {events:?}");
+    assert!(events[0].1.contains("/catalog/fields/fld_seed"), "{events:?}");
 }

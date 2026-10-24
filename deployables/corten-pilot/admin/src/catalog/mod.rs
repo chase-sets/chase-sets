@@ -10,19 +10,28 @@
 //! |---|---|
 //! | `GET /catalog` | a redirect to the dimensions |
 //! | `GET /catalog/dimensions?search&status&value_kind&page` | the list; `POST` creates |
+//! | `GET /catalog/dimensions/live?search&status&value_kind&page` | the list's rows, again on each change (`<corten-live>`) |
 //! | `GET /catalog/dimensions/{id}` | the dimension and its options |
 //! | `POST /catalog/dimensions/{id}/edit`, `/lifecycle` | revise; activate, deprecate, archive |
 //! | `POST /catalog/dimensions/{id}/options`, `/options/order` | add an option; reorder them |
 //! | `POST /catalog/dimensions/{id}/options/{option_id}`, `.../lifecycle` | revise; deprecate, reactivate |
 //! | `GET /catalog/fields?search&status&value_type&filterable&searchable&sortable&page` | the list; `POST` creates |
+//! | `GET /catalog/fields/live?...` | the list's rows, again on each change |
 //! | `GET /catalog/fields/{id}`, `POST .../edit`, `.../lifecycle` | the field; configure; its status |
 //!
-//! Not ported: bulk lifecycle changes with job progress, and the realtime revalidation over
-//! server-sent events (see README.md).
+//! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
+//! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
+//! server sends the rows it draws. The detail pages are not live in admin-web either.
+//!
+//! Not ported: bulk lifecycle changes with job progress (see README.md).
 use std::fmt;
 
-use corten::{axum::http::HeaderMap, prelude::*};
-use platform::receipt::Receipt;
+use corten::{
+    axum::{http::HeaderMap, response::IntoResponse},
+    prelude::*,
+};
+use futures_util::StreamExt;
+use platform::{realtime::Tick, receipt::Receipt};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -68,6 +77,28 @@ pub mod url {
         pub page: Option<u32>,
         pub after_write: Option<String>,
         pub done: Option<Done>,
+    }
+
+    /// The dimensions list's rows, streamed again on each change: the list's filters and page.
+    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[route("/catalog/dimensions/live")]
+    pub struct DimensionsLive {
+        pub search: Option<String>,
+        pub status: Option<String>,
+        pub value_kind: Option<String>,
+        pub page: Option<u32>,
+    }
+
+    impl DimensionsLive {
+        pub fn of(list: &Dimensions) -> Self {
+            let Dimensions { search, status, value_kind, page, .. } = list.clone();
+            DimensionsLive { search, status, value_kind, page }
+        }
+
+        pub fn list(self) -> Dimensions {
+            let DimensionsLive { search, status, value_kind, page } = self;
+            Dimensions { search, status, value_kind, page, ..Dimensions::default() }
+        }
     }
 
     #[derive(Route)]
@@ -129,6 +160,31 @@ pub mod url {
         pub page: Option<u32>,
         pub after_write: Option<String>,
         pub done: Option<Done>,
+    }
+
+    /// The fields list's rows, streamed again on each change.
+    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[route("/catalog/fields/live")]
+    pub struct FieldsLive {
+        pub search: Option<String>,
+        pub status: Option<String>,
+        pub value_type: Option<String>,
+        pub filterable: Option<String>,
+        pub searchable: Option<String>,
+        pub sortable: Option<String>,
+        pub page: Option<u32>,
+    }
+
+    impl FieldsLive {
+        pub fn of(list: &Fields) -> Self {
+            let Fields { search, status, value_type, filterable, searchable, sortable, page, .. } = list.clone();
+            FieldsLive { search, status, value_type, filterable, searchable, sortable, page }
+        }
+
+        pub fn list(self) -> Fields {
+            let FieldsLive { search, status, value_type, filterable, searchable, sortable, page } = self;
+            Fields { search, status, value_type, filterable, searchable, sortable, page, ..Fields::default() }
+        }
     }
 
     #[derive(Route)]
@@ -236,6 +292,7 @@ impl Done {
 pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session, url::Catalog> {
     area.route::<url::Catalog>(get(home))
         .route::<url::Dimensions>(get(dimensions).post(create_dimension).with_state(shared.clone()))
+        .route::<url::DimensionsLive>(get(dimensions_live).with_state(shared.clone()))
         .route::<url::Dimension>(get(dimension).with_state(shared.clone()))
         .route::<url::DimensionEdit>(post(edit_dimension).with_state(shared.clone()))
         .route::<url::DimensionLifecycle>(post(dimension_lifecycle).with_state(shared.clone()))
@@ -244,6 +301,7 @@ pub fn routes(area: Area<Session, url::Catalog>, shared: Shared) -> Area<Session
         .route::<url::OptionEdit>(post(revise_option).with_state(shared.clone()))
         .route::<url::OptionLifecycle>(post(option_lifecycle).with_state(shared.clone()))
         .route::<url::Fields>(get(fields).post(create_field).with_state(shared.clone()))
+        .route::<url::FieldsLive>(get(fields_live).with_state(shared.clone()))
         .route::<url::Field>(get(field).with_state(shared.clone()))
         .route::<url::FieldEdit>(post(configure_field).with_state(shared.clone()))
         .route::<url::FieldLifecycle>(post(field_lifecycle).with_state(shared))
@@ -303,6 +361,28 @@ fn not_offered(p: Pilot) -> Errors {
     errors
 }
 
+/// The Catalog's realtime topic for a list (`catalogRealtimeTopics.adminSurface`).
+const DIMENSIONS_TOPIC: &str = "catalog:admin:dimensions";
+const FIELDS_TOPIC: &str = "catalog:admin:fields";
+
+/// A list's rows for `<corten-live>`: drawn on every connection (a reconnect cannot tell the route
+/// what it missed: todd-skelton/corten#15, README.md "Corten gaps"; remove the first draw once it
+/// lands) and again on each change to `topic`, until the API
+/// refuses the stream. A read that fails sends nothing, and the rows stay as they were.
+fn live_rows<F, Fut>(config: Shared, headers: HeaderMap, topic: &'static str, rows: F) -> impl IntoResponse
+where
+    F: Fn(Shared, HeaderMap) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Option<String>> + Send + 'static,
+{
+    let changes = config.platform.caller(&headers, config.proto, None).changes(&[topic]);
+    let ticks = futures_util::stream::once(async { Tick::Changed }).chain(changes);
+    let fragments = ticks
+        .take_while(|tick| std::future::ready(*tick == Tick::Changed))
+        .then(move |_| rows(config.clone(), headers.clone()))
+        .filter_map(std::future::ready);
+    corten::live(fragments)
+}
+
 // Dimensions.
 
 async fn dimensions(
@@ -337,6 +417,31 @@ async fn dimension_list(
     let notice = query.done.map(|done| done.dimension(t));
     let view = views::dimension_list(t, req.t(), query, &screen, create, open, notice);
     req.screen(Meta::new(t.route_dimensions()), &screen, view)
+}
+
+async fn dimensions_live(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<url::DimensionsLive>,
+) -> impl IntoResponse {
+    let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    let query = query.list();
+    live_rows(config, headers, DIMENSIONS_TOPIC, move |config, headers| {
+        let query = query.clone();
+        async move {
+            let caller = config.platform.caller(&headers, config.proto, None);
+            let page = query.page.unwrap_or(1).max(1);
+            let api = list_query(&[("search", &query.search), ("status", &query.status), ("valueKind", &query.value_kind)], page);
+            match caller.list::<Dimension>(Kind::Dimensions, &api).await {
+                Ok(list) => Some(views::dimension_rows(t, p, &query, &screen(list, page)).to_html()),
+                Err(error) => {
+                    tracing::warn!("dimensions list read for a change failed: {error}");
+                    None
+                }
+            }
+        }
+    })
 }
 
 async fn create_dimension(
@@ -608,15 +713,7 @@ async fn field_list(
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
-    let filters = [
-        ("search", &query.search),
-        ("status", &query.status),
-        ("valueType", &query.value_type),
-        ("filterable", &query.filterable),
-        ("searchable", &query.searchable),
-        ("sortable", &query.sortable),
-    ];
-    let list = match caller.list::<Field>(Kind::Fields, &list_query(&filters, page)).await {
+    let list = match caller.list::<Field>(Kind::Fields, &field_query(query, page)).await {
         Ok(list) => list,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
@@ -627,6 +724,43 @@ async fn field_list(
     let notice = query.done.map(|done| done.field(t));
     let view = views::field_list(t, req.t(), query, &screen, create, open, notice);
     req.screen(Meta::new(t.route_fields()), &screen, view)
+}
+
+/// The fields list's API query.
+fn field_query(query: &url::Fields, page: u32) -> String {
+    let filters = [
+        ("search", &query.search),
+        ("status", &query.status),
+        ("valueType", &query.value_type),
+        ("filterable", &query.filterable),
+        ("searchable", &query.searchable),
+        ("sortable", &query.sortable),
+    ];
+    list_query(&filters, page)
+}
+
+async fn fields_live(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<url::FieldsLive>,
+) -> impl IntoResponse {
+    let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    let query = query.list();
+    live_rows(config, headers, FIELDS_TOPIC, move |config, headers| {
+        let query = query.clone();
+        async move {
+            let caller = config.platform.caller(&headers, config.proto, None);
+            let page = query.page.unwrap_or(1).max(1);
+            match caller.list::<Field>(Kind::Fields, &field_query(&query, page)).await {
+                Ok(list) => Some(views::field_rows(t, p, &query, &screen(list, page)).to_html()),
+                Err(error) => {
+                    tracing::warn!("fields list read for a change failed: {error}");
+                    None
+                }
+            }
+        }
+    })
 }
 
 async fn create_field(

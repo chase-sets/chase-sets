@@ -1,7 +1,8 @@
 //! The catalog area's views. Their stylesheets are the area's own file, `sections/catalog.css`,
 //! linked only from pages under `/catalog`; the frame (`AdminNav`, the tokens) is the app's.
 //! Every dialog is a `<dialog>` its button opens with `command="show-modal"` and every write a
-//! form, so the pages work without JavaScript; with it, a refused form is patched in place.
+//! form, so the pages work without JavaScript; with it, a refused form is patched in place, and a
+//! list's rows are drawn again when the Catalog API says the list changed (`<corten-live>`).
 use corten::{Component, prelude::*};
 
 use super::{
@@ -36,6 +37,8 @@ pub mod ids {
     pub const ADD_OPTION_DIALOG: &str = "catalog-add-option-dialog";
     pub const REORDER: &str = "catalog-reorder";
     pub const REORDER_DIALOG: &str = "catalog-reorder-dialog";
+    /// A list's rows (or its empty state) and pager: what a change to the list re-renders.
+    pub const ROWS: &str = "catalog-rows";
 
     pub fn option_form(option_id: &str) -> String {
         format!("option-{option_id}")
@@ -120,18 +123,9 @@ pub fn dimension_list<'a>(
     notice: Option<String>,
 ) -> impl Render + 'a {
     let title = t.dimension_list_dimensions();
-    let filtered = query.search.is_some() || query.status.is_some() || query.value_kind.is_some();
-    let empty_title = t.list_none_found(title.to_lowercase()).to_string();
-    let empty_description = if filtered {
-        t.list_try_adjusting_your_filters().to_owned()
-    } else {
-        t.list_create_first(t.dimension_dimension().to_lowercase()).to_string()
-    };
-    let head = [t.dimension_list_key(), t.dimension_list_name(), t.dimension_list_value_kind(), t.dimension_list_status(), ""];
     let list = url::Dimensions { after_write: None, done: None, ..query.clone() };
-    let (previous, next) =
-        pages_around(screen, |page| url::Dimensions { page: (page > 1).then_some(page), ..list.clone() }.href());
     let create_action = list.href();
+    let live = url::DimensionsLive::of(query).href();
     let filters = url::Dimensions::default().href();
     let (states, kinds) = (statuses(t), value_kinds(t));
     let f = url::Dimensions::FIELDS;
@@ -156,16 +150,7 @@ pub fn dimension_list<'a>(
                 value={value(&query.value_kind)}
             />
         </Filters>
-        if screen.items.is_empty() {
-            <Empty title={&empty_title} description={&empty_description} />
-        } else {
-            <Table label={title} head={&head}>
-                for row in &screen.items {
-                    <DimensionRow t={t} row={row} />
-                }
-            </Table>
-            <Pager t={t} p={p} page={screen.page} pages={screen.pages} previous={previous.as_deref()} next={next.as_deref()} />
-        }
+        <corten-live src={&live}>{dimension_rows(t, p, query, screen)}</corten-live>
         <Dialog
             id={ids::CREATE_DIALOG}
             title={t.dimension_list_create_dimension()}
@@ -190,22 +175,9 @@ pub fn field_list<'a>(
     notice: Option<String>,
 ) -> impl Render + 'a {
     let title = t.field_list_fields();
-    let filtered = query.search.is_some()
-        || query.status.is_some()
-        || query.value_type.is_some()
-        || query.filterable.is_some()
-        || query.searchable.is_some()
-        || query.sortable.is_some();
-    let empty_title = t.list_none_found(title.to_lowercase()).to_string();
-    let empty_description = if filtered {
-        t.list_try_adjusting_your_filters().to_owned()
-    } else {
-        t.list_create_first(t.field_field().to_lowercase()).to_string()
-    };
-    let head = [t.field_list_key(), t.field_list_name(), t.field_list_type(), t.field_list_status(), ""];
     let list = url::Fields { after_write: None, done: None, ..query.clone() };
-    let (previous, next) = pages_around(screen, |page| url::Fields { page: (page > 1).then_some(page), ..list.clone() }.href());
     let create_action = list.href();
+    let live = url::FieldsLive::of(query).href();
     let filters = url::Fields::default().href();
     let (states, types) = (statuses(t), value_types(t));
     let flags = [("true", t.list_yes()), ("false", t.list_no())];
@@ -252,16 +224,7 @@ pub fn field_list<'a>(
                 value={value(&query.sortable)}
             />
         </Filters>
-        if screen.items.is_empty() {
-            <Empty title={&empty_title} description={&empty_description} />
-        } else {
-            <Table label={title} head={&head}>
-                for row in &screen.items {
-                    <FieldRow t={t} row={row} />
-                }
-            </Table>
-            <Pager t={t} p={p} page={screen.page} pages={screen.pages} previous={previous.as_deref()} next={next.as_deref()} />
-        }
+        <corten-live src={&live}>{field_rows(t, p, query, screen)}</corten-live>
         <Dialog
             id={ids::CREATE_DIALOG}
             title={t.field_list_create_field()}
@@ -272,6 +235,85 @@ pub fn field_list<'a>(
             <FieldForm t={t} id={ids::CREATE} action={&create_action} create form={&create} />
         </Dialog>
         <Toasts p={p} notice={notice.as_ref()} />
+    }
+}
+
+/// The dimensions list's rows (or its empty state) and pager, by `ids::ROWS`: drawn in the page,
+/// and again on each change to the list (`dimensions_live`).
+pub fn dimension_rows<'a>(t: Cat, p: Pilot, query: &'a url::Dimensions, screen: &'a ListScreen<Dimension>) -> impl Render + 'a {
+    let title = t.dimension_list_dimensions();
+    let filtered = query.search.is_some() || query.status.is_some() || query.value_kind.is_some();
+    let empty_title = t.list_none_found(title.to_lowercase()).to_string();
+    let empty_description = if filtered {
+        t.list_try_adjusting_your_filters().to_owned()
+    } else {
+        t.list_create_first(t.dimension_dimension().to_lowercase()).to_string()
+    };
+    let head = [t.dimension_list_key(), t.dimension_list_name(), t.dimension_list_value_kind(), t.dimension_list_status(), ""];
+    let list = url::Dimensions { after_write: None, done: None, ..query.clone() };
+    let (previous, next) =
+        pages_around(screen, |page| url::Dimensions { page: (page > 1).then_some(page), ..list.clone() }.href());
+    html! {
+        <div id={ids::ROWS}>
+            if screen.items.is_empty() {
+                <Empty title={&empty_title} description={&empty_description} />
+            } else {
+                <Table label={title} head={&head}>
+                    for row in &screen.items {
+                        <DimensionRow t={t} row={row} />
+                    }
+                </Table>
+                <Pager
+                    t={t}
+                    p={p}
+                    page={screen.page}
+                    pages={screen.pages}
+                    previous={previous.as_deref()}
+                    next={next.as_deref()}
+                />
+            }
+        </div>
+    }
+}
+
+/// The fields list's rows and pager, by `ids::ROWS` (see `dimension_rows`).
+pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a ListScreen<Field>) -> impl Render + 'a {
+    let title = t.field_list_fields();
+    let filtered = query.search.is_some()
+        || query.status.is_some()
+        || query.value_type.is_some()
+        || query.filterable.is_some()
+        || query.searchable.is_some()
+        || query.sortable.is_some();
+    let empty_title = t.list_none_found(title.to_lowercase()).to_string();
+    let empty_description = if filtered {
+        t.list_try_adjusting_your_filters().to_owned()
+    } else {
+        t.list_create_first(t.field_field().to_lowercase()).to_string()
+    };
+    let head = [t.field_list_key(), t.field_list_name(), t.field_list_type(), t.field_list_status(), ""];
+    let list = url::Fields { after_write: None, done: None, ..query.clone() };
+    let (previous, next) = pages_around(screen, |page| url::Fields { page: (page > 1).then_some(page), ..list.clone() }.href());
+    html! {
+        <div id={ids::ROWS}>
+            if screen.items.is_empty() {
+                <Empty title={&empty_title} description={&empty_description} />
+            } else {
+                <Table label={title} head={&head}>
+                    for row in &screen.items {
+                        <FieldRow t={t} row={row} />
+                    }
+                </Table>
+                <Pager
+                    t={t}
+                    p={p}
+                    page={screen.page}
+                    pages={screen.pages}
+                    previous={previous.as_deref()}
+                    next={next.as_deref()}
+                />
+            }
+        </div>
     }
 }
 

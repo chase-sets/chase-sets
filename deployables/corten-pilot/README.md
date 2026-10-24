@@ -57,6 +57,23 @@ postage's sheet, which runs its own script, is later still (1,556 ms). Not profi
 blocking time is only counted up to interactive, so it grows with it and does not say which task
 is slow.
 
+**A change to a catalog list**, measured with one tab watching the dimensions list and another
+creating a dimension through the pilot, 5 changes each (median; `scripts/measure-live.mjs`). Both
+follow the same realtime topic. admin-web here is its dev server (`react-router dev`), not a
+production build, so its script time is high by an unknown amount; the bytes are not affected.
+
+| One change, in the watching tab | admin-web (dev) | pilot (`corten dev`) |
+|---|---|---|
+| Fetches it makes | 2 | 0 |
+| Bytes received for the change | 416 B event + 5,861 B fetched | 1,074 B (the rows, as HTML) |
+| Script time / task time | 373 / 504 ms | 0 / 63 ms (under 1 ms of script) |
+| New row on screen, after the create was sent | 9.1 s | 8.6 s |
+
+The time to the screen is the platform's: the Catalog projection and the realtime outbox, the
+same for both (2 to 15 s per sample). The pilot reads the list again on the server and sends the
+rows it draws, so the tab receives the rows and nothing else. The pilot's event grows by about 250 B per
+dimension the filter matches, because it sends every row on the page, not the changed one.
+
 ## Running it
 
 From the worktree root, with the dev system running (`node scripts/dev-system.mjs dev admin-web`
@@ -70,14 +87,15 @@ cd ..
 node scripts/smoke-admin.mjs           # every action in a browser, with and without JavaScript (writes sandbox data)
 node scripts/smoke-marketplace.mjs     # the same for storage locations, with a lost answer and an uncertain write
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
+node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
+node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
 node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
 corten check                           # at the workspace root: cargo fmt, corten fmt, clippy -D warnings, cargo test
 ```
 
-Run `corten dev` inside the app's directory. It watches only that directory, so an edit in
-`platform/` needs a save in the app (or a restart) to rebuild; see Corten gaps.
+Run `corten dev` inside the app's directory; it also rebuilds on an edit in `platform/`.
 
 | Variable | Default | |
 |---|---|---|
@@ -106,6 +124,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `028655d` | a stylesheet class may be named like its component (the pilot's renames are undone) |
 | `ad8d3af` | the four commits above rebased onto Corten `main` at `340c133`, which closed the pilot's gaps: `App::guard`, `FieldName` in the prelude, `Result<T, E>` (see Corten gaps) |
 | `04989b5` | Corten `main` with the pilot's commits merged ([todd-skelton/corten#7 Pilot fixes, and areas and APIs checked at compile time](https://github.com/todd-skelton/corten/pull/7)), and its breaking changes: `App<C>` (`.context` before `.shell` and `.guard`), `App::guard` without a prefix for the whole app, `corten::serve(app)` |
+| `860d985` | [todd-skelton/corten#12 corten dev watches local packages; a navigation before load is a full load](https://github.com/todd-skelton/corten/pull/12) closed two of the pilot's gaps (the workaround in `recovery.js` is gone), and [todd-skelton/corten#8 Less work per page: escape, route parameters and module tags](https://github.com/todd-skelton/corten/pull/8); no breaking change for the pilot |
 
 ## What lives where
 
@@ -113,6 +132,7 @@ forward only on purpose, when a fix the pilot needs lands.
 |---|---|
 | `platform/src/api.rs` | the platform API as the signed-in user (`Caller`): reads, writes with their receipt, who is asking (`identify`) |
 | `platform/src/receipt.rs` | read after write: the write's receipt rides the redirect and the next read waits for it |
+| `platform/src/realtime.rs` | the platform's realtime stream as the signed-in user: a tick per change to a topic, resuming from the last cursor |
 | `platform/src/session.rs`, `nav.rs` | the session cookie, the color mode, and the React apps' nav rules |
 | `platform/src/theme.rs`, `section.rs` | the design system's tokens, and the page header, sections and banner both screens use |
 | `*/src/app.rs` | routes, access (sign-in at the React app, 403, 502), and the handlers |
@@ -175,29 +195,30 @@ forward only on purpose, when a fix the pilot needs lands.
 13. **New records keep the id they were drawn with.** The create forms carry a `dim_`, `fld_` or
     `chc_` ULID made when the form is drawn (`createId`), so the same form posted twice names the
     same record and the Catalog API refuses the second.
-14. **Not ported**: bulk lifecycle changes (the selection, preview, confirm and job progress) and
-    the realtime revalidation over server-sent events (`useCatalogRealtimeRevalidation`). The
-    pages show what the API said when they loaded. Both are larger slices of their own.
+14. **Not ported**: bulk lifecycle changes (the selection, preview, confirm and job progress), a
+    larger slice of its own.
 15. **The lifecycle forms' button is named `step`, not `action`**: see Corten gaps.
+16. **The lists are live**, as admin-web's are (`useCatalogRealtimeRevalidation` on the
+    dimensions and fields lists; their detail pages are not live in admin-web either). The rows
+    and pager are a `<corten-live>` whose route (`/catalog/dimensions/live`, with the list's
+    filters and page) follows the Catalog topic `catalog:admin:dimensions` on the platform's
+    realtime stream, as the signed-in user, and on each change reads the list again and sends the
+    rows it draws ([`live_rows`](admin/src/catalog/mod.rs)). Changes within 150 ms are one read,
+    as admin-web debounces. The browser runs no script of the pilot's for it; what was typed in the
+    filters stays. The platform's stream protocol is Chase Sets', so its client is the pilot's
+    ([`realtime`](platform/src/realtime.rs)). `scripts/smoke-live.mjs` checks it in a browser.
 
 ## Corten gaps
 
-Open, sent to the Corten thread to fix in the framework (one gap each):
+Open, filed in Corten (one gap each):
 
-1. **Forms have no per-submission idempotency key** (correctness). Corten's rule 3 asks actions to
+1. [todd-skelton/corten#9 Forms have no per-submission idempotency key](https://github.com/todd-skelton/corten/issues/9)
+   (correctness). Corten's rule 3 asks actions to
    carry one, but a `data-patch` form cannot get one from Corten, and the runtime aborts a pending
    submit when a newer one differs, which does not stop the first write on the server. The
    pilot's workaround is item 7 above.
-2. **`corten dev` does not rebuild for a path dependency** (developer loop). It watches the
-   current directory only, so in a workspace an edit in `platform/` does not rebuild the app.
-   Workaround: save a file in the app, or restart `corten dev`.
-3. **A navigation the runtime takes over before the page has loaded stops the page loading**
-   (correctness). The recovery script submits the hidden check form (a GET form) from
-   `on:connect`, which runs before `load`; the runtime intercepts that navigation, and in
-   Chromium the first document's `load` never fires (`loadEventEnd` 0). Workaround: the script
-   waits for `load` before it submits ([`restore`](marketplace/src/views/recovery.js)).
-
-4. **A control named `action` breaks a `data-patch` form** (correctness). The catalog's
+2. [todd-skelton/corten#13 A control named action or method breaks a data-patch form](https://github.com/todd-skelton/corten/issues/13)
+   (correctness). The catalog's
    lifecycle buttons were `<button name="action" value="activate">`, as admin-web's handler
    names its argument. In a form, `form.action` is then the named control (a DOM rule from
    before HTML5), so the runtime's `new URL(submitter?.getAttribute("formaction") || form.action)`
@@ -208,6 +229,12 @@ Open, sent to the Corten thread to fix in the framework (one gap each):
    (from the attribute, against the page's URL), or `corten dev` flags the name. Workaround: the
    field is `step` ([`ActionInput`](admin/src/catalog/form.rs)), and a router test asserts no
    catalog page has a control named `action`.
+3. [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15)
+   (correctness, then performance). `corten::live` events carry no `id`, so a reconnect sends no
+   `Last-Event-ID` and the route cannot tell it from a first connection. Workaround: the live
+   lists draw their rows on every connection, so each page view and reconnect costs one more
+   Catalog list read and render (`live_rows`); a dropped connection is then never left showing
+   rows that changed meanwhile.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -219,6 +246,13 @@ Filed as [#10520 Let the Catalog API reorder a dimension's options instead of re
 once it lands, the smoke test's reorder step should pass instead of being reported blocked.
 
 Closed:
+
+Fixed in [todd-skelton/corten#12 corten dev watches local packages; a navigation before load is a full load](https://github.com/todd-skelton/corten/pull/12), at the pin, workarounds removed:
+
+1. [todd-skelton/corten#10 corten dev does not rebuild when a path dependency changes](https://github.com/todd-skelton/corten/issues/10)
+   (developer loop): was a save in the app after an edit in `platform/`.
+2. [todd-skelton/corten#11 A navigation taken over before the first page loads stops it loading](https://github.com/todd-skelton/corten/issues/11)
+   (correctness): the recovery script waited for `load` before submitting its check form.
 
 Filed in Corten, one gap each, all fixed in
 [todd-skelton/corten#5 App::guard, a defaulted Result error type and FieldName in the prelude](https://github.com/todd-skelton/corten/pull/5);

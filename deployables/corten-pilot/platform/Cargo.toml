@@ -9,9 +9,12 @@ publish.workspace = true
 name = "platform"
 
 [dependencies]
+bytes.workspace = true
 corten.workspace = true
+futures-util.workspace = true
 percent-encoding.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 tracing.workspace = true
