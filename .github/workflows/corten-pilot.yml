@@ -1,7 +1,7 @@
 name: Corten Pilot
 
-# The Corten pilot (deployables/corten-pilot) is a standalone Rust app that is not deployed and is
-# not part of the platform gates. This job checks it on its own, only when it changes.
+# The Corten pilot (deployables/corten-pilot) is a Cargo workspace of standalone Rust apps that are
+# not deployed and are not part of the platform gates. This job checks it on its own, only when it changes.
 on:
   pull_request:
     paths:
@@ -35,10 +35,10 @@ jobs:
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
-          # scripts/export.mjs imports admin-web's TypeScript sources through tsx.
+          # scripts/export.mjs imports admin-web's and marketplace's TypeScript sources through tsx.
           install: "true"
 
-      - name: The exported text, tokens, nav and defaults match admin-web's sources
+      - name: The exported text, tokens, nav and defaults match the React apps' sources
         run: node --import tsx scripts/export.mjs --check
 
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

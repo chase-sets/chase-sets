@@ -5,9 +5,7 @@ mod api;
 mod app;
 mod auth;
 mod form;
-mod receipt;
 mod text;
-mod theme;
 mod views;
 
 #[cfg(test)]
@@ -15,5 +13,5 @@ mod tests;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    app::app(app::Config::from_env()).serve().await
+    corten::serve(app::app(app::Config::from_env())).await
 }

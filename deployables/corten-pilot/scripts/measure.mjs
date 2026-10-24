@@ -1,23 +1,31 @@
-// Measures the postage-policies screen in admin-web and in the pilot the same way, signed in as
-// the same staff member: cold-cache loads of the list and of a policy's sheet on desktop and on a
+// Measures a ported screen in the React app and in the pilot the same way, signed in as the same
+// user: admin's postage policies (the list and a policy's sheet) or marketplace's storage
+// locations (`screen=marketplace`), cold-cache loads on desktop and on a
 // Lighthouse-style mobile profile (4x CPU, 150 ms RTT, 1.6 Mbps down), the bytes each load
 // transfers by kind, and the server's time for the document. Modeled on Corten's
 // bench/fullstack/browser.mjs. Interactive means the page's scripts ran: admin-web's
-// `data-admin-web-hydrated` and the pilot's `__hydratedAt` (static/app.js).
-// Usage: node scripts/measure.mjs name=url [name=url ...] [runs=7] [state=..] [policy=id] [out=file]
+// `data-admin-web-hydrated`, the first element marketplace's React hydrated (its own e2e tests'
+// check, polled every 10 ms), and the pilot's `__hydratedAt` (static/app.js).
+// Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|marketplace] [runs=7] [state=..] [policy=id] [out=file]
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 const named = Object.fromEntries(process.argv.slice(2).map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]));
-const { runs: runsText = "7", state = "../../artifacts/corten-pilot/admin-state.json", policy = "opp_seed_default", out, ...apps } = named;
+const { screen = "admin", runs: runsText = "7", state = `../../artifacts/corten-pilot/${screen}-state.json`, policy = "opp_seed_default", out, ...apps } =
+  named;
 const runs = Number(runsText);
 const profiles = {
   desktop: { cpu: 1, network: null },
   mobile: { cpu: 4, network: { offline: false, latency: 150, downloadThroughput: (1.6 * 1024 * 1024) / 8, uploadThroughput: (750 * 1024) / 8 } },
 };
-const pages = { list: "/commerce/postage-policies", sheet: `/commerce/postage-policies?policy=${policy}` };
+const screens = {
+  admin: { list: "/commerce/postage-policies", sheet: `/commerce/postage-policies?policy=${policy}` },
+  marketplace: { list: "/account/inventory/locations" },
+};
+const pages = screens[screen];
+if (!pages) throw new Error(`unknown screen ${screen}: admin or marketplace`);
 
 // Each load starts on a page from another site, as in Corten's benchmark.
 const startPage = createServer((_, res) => res.end("<!DOCTYPE html><title>start</title><p>start</p>"));
@@ -36,6 +44,15 @@ const observe = () => {
       o.disconnect();
     }
   }).observe(document, { attributes: true, subtree: true, attributeFilter: ["data-admin-web-hydrated"] });
+  // marketplace marks nothing; React has hydrated once an element carries its props.
+  const poll = setInterval(() => {
+    if (window.__hydratedAt !== undefined) return clearInterval(poll);
+    const link = document.querySelector("main a, header a");
+    if (link && Object.keys(link).some((k) => k.startsWith("__reactProps$"))) {
+      window.__hydratedAt = performance.now();
+      clearInterval(poll);
+    }
+  }, 10);
 };
 
 async function load(browser, profile, url) {
@@ -106,7 +123,7 @@ function summarize(samples) {
 }
 
 const browser = await chromium.launch({ headless: true });
-const results = { measuredAt: new Date().toISOString(), runs, policy, apps: {} };
+const results = { measuredAt: new Date().toISOString(), screen, runs, policy, apps: {} };
 for (const [name, base] of Object.entries(apps)) {
   results.apps[name] = { base };
   for (const [pageName, path] of Object.entries(pages)) {

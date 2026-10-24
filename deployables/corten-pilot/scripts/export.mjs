@@ -1,16 +1,20 @@
-// Exports what the pilot reads from Chase Sets' own sources, so its copy, navigation and look
-// cannot drift from admin-web's. Every output is committed; CI runs this with --check.
+// Exports what the pilot's apps read from Chase Sets' own sources, so their copy, navigation and
+// look cannot drift from the web hosts'. Every output is committed; CI runs this with --check.
 //
-// - locales/en.json: the postage-policy screen's English catalog (ordering.features.postagePolicies.ui.*
+// - admin/locales/en.json: the postage-policy screen's English catalog (ordering.features.postagePolicies.ui.*
 //   and the route title), keys and arguments in the snake case `messages!` takes.
-// - nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
-// - tokens.json: the design system's light and dark values (packages/design-system styles.css)
-//   for the tokens the pilot uses, in the format of Corten's `tokens!`.
-// - defaults.json: the default postage policy (contracts/product-measures), which a new draft
+// - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
+// - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
-// - static/fonts/: the three @fontsource files the screen uses.
+// - marketplace/locales/en.json: the storage-locations screen's English catalog
+//   (inventory.features.storageLocations.ui.storageLocationPage.*, inventory.recovery.*, the route's
+//   title and description).
+// - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
+// - platform/tokens.json: the design system's light and dark values (packages/design-system styles.css)
+//   for the tokens the pilot uses, in the format of Corten's `tokens!`.
+// - <app>/static/fonts/: the three @fontsource files the screens use, in each app's static folder.
 //
-// locales/pilot.en.json is the pilot's own text (its shell and input checks) and is not exported.
+// <app>/locales/pilot.en.json is each app's own text (its shell and input checks) and is not exported.
 //
 // Usage: node --import tsx deployables/corten-pilot/scripts/export.mjs [--check]
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -22,49 +26,82 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const pilot = path.resolve(here, "..");
 const repo = path.resolve(pilot, "../..");
 const check = process.argv.includes("--check");
+const apps = ["admin", "marketplace"];
 
 const snake = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
-async function catalog() {
-  const file = path.join(repo, "contracts/localization/locales/en/ordering.ts");
-  const { orderingEnglishTranslations: all } = await import(pathToFileURL(file).href);
-  const prefix = "ordering.features.postagePolicies.ui.";
+/**
+ * The entries of a localization catalog the rules pick, renamed: a rule is [prefix, name] for
+ * every key under `prefix` (named `name.<rest>`, or `<rest>` for an empty name) or [key, name]
+ * for one key.
+ */
+async function catalog(file, exportName, rules) {
+  const all = (await import(pathToFileURL(path.join(repo, "contracts/localization/locales/en", file)).href))[exportName];
   const out = {};
   for (const [key, text] of Object.entries(all)) {
     let name;
-    if (key.startsWith(prefix)) name = key.slice(prefix.length);
-    else if (key === "ordering.routes.admin.postagePolicies.title") name = "route.title";
-    else continue;
+    for (const [match, rename] of rules) {
+      if (match.endsWith(".") && key.startsWith(match)) {
+        const rest = key.slice(match.length);
+        name = rename ? `${rename}.${rest}` : rest;
+      } else if (key === match) name = rename;
+      if (name) break;
+    }
+    if (!name) continue;
     out[name.split(".").map(snake).join(".")] = text.replace(/\{([A-Za-z0-9_]+)\}/g, (_, arg) => `{${snake(arg)}}`);
   }
   return out;
 }
 
-function nav() {
+/** Every bounded context's shell contributions to `deployable`'s `slot`. */
+function contributions(deployable, slot) {
   const contexts = path.join(repo, "bounded-contexts");
-  const keep = (item) => ({
-    key: item.key,
-    label: item.label,
-    ...(item.href ? { href: item.href } : {}),
-    order: item.order,
-    visibility: item.visibility ?? "signed-in",
-    requiredPermissions: item.requiredPermissions ?? [],
-    requiredPermissionsMatch: item.requiredPermissionsMatch ?? "all",
-    excludedRoleKeys: item.excludedRoleKeys ?? [],
-    ...(item.children ? { children: item.children.map(keep) } : {}),
-  });
   const items = [];
   for (const name of readdirSync(contexts).sort()) {
     const file = path.join(contexts, name, "context.json");
     if (!existsSync(file)) continue;
     const manifest = JSON.parse(readFileSync(file, "utf8"));
     for (const item of manifest.shellContributions ?? []) {
-      if (item.deployable !== "admin-web" || item.slot !== "primary-nav" || !item.section) continue;
-      if (item.parentKey) throw new Error(`${name}: ${item.key} has a parentKey, which the pilot's nav does not compose`);
-      items.push({ section: item.section, ...keep(item) });
+      if (item.deployable === deployable && item.slot === slot) items.push({ context: name, item });
     }
   }
   return items;
+}
+
+const keep = (item) => ({
+  key: item.key,
+  label: item.label,
+  ...(item.href ? { href: item.href } : {}),
+  order: item.order,
+  visibility: item.visibility ?? "signed-in",
+  requiredPermissions: item.requiredPermissions ?? [],
+  requiredPermissionsMatch: item.requiredPermissionsMatch ?? "all",
+  excludedRoleKeys: item.excludedRoleKeys ?? [],
+  ...(item.children ? { children: item.children.map(keep) } : {}),
+});
+
+function adminNav() {
+  return contributions("admin-web", "primary-nav")
+    .filter(({ item }) => item.section)
+    .map(({ context, item }) => {
+      if (item.parentKey) throw new Error(`${context}: ${item.key} has a parentKey, which the pilot's nav does not compose`);
+      return { section: item.section, ...keep(item) };
+    });
+}
+
+/** marketplace-web's top nav: the entries without a parent, each with the entries that name it. */
+function marketplaceNav() {
+  const all = contributions("marketplace-web", "top-nav").map(({ item }) => item);
+  const keys = new Set(all.map((item) => item.key));
+  for (const item of all) {
+    if (item.parentKey && !keys.has(item.parentKey)) throw new Error(`${item.key}: no top-nav entry ${item.parentKey}`);
+  }
+  return all
+    .filter((item) => !item.parentKey)
+    .map((item) => {
+      const children = [...(item.children ?? []), ...all.filter((child) => child.parentKey === item.key)];
+      return keep({ ...item, ...(children.length ? { children } : {}) });
+    });
 }
 
 // Token name in the pilot -> custom property in the design system. Dark values are the same
@@ -146,10 +183,30 @@ const fonts = [
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const { defaultPostagePolicy } = await import(pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href);
 const outputs = [
-  ["locales/en.json", json(await catalog())],
-  ["nav.json", json(nav())],
-  ["tokens.json", json(tokens())],
-  ["defaults.json", json(defaultPostagePolicy)],
+  [
+    "admin/locales/en.json",
+    json(
+      await catalog("ordering.ts", "orderingEnglishTranslations", [
+        ["ordering.features.postagePolicies.ui.", ""],
+        ["ordering.routes.admin.postagePolicies.title", "route.title"],
+      ]),
+    ),
+  ],
+  ["admin/nav.json", json(adminNav())],
+  ["admin/defaults.json", json(defaultPostagePolicy)],
+  [
+    "marketplace/locales/en.json",
+    json(
+      await catalog("inventory.ts", "inventoryEnglishTranslations", [
+        ["inventory.features.storageLocations.ui.storageLocationPage.", "page"],
+        ["inventory.recovery.", "recovery"],
+        ["inventory.routes.marketplace.accountInventoryLocations.inventory.locations.marketplace", "route.title"],
+        ["inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship", "route.description"],
+      ]),
+    ),
+  ],
+  ["marketplace/nav.json", json(marketplaceNav())],
+  ["platform/tokens.json", json(tokens())],
 ];
 const require = createRequire(path.join(repo, "packages/design-system/package.json"));
 let stale = 0;
@@ -157,24 +214,27 @@ for (const [file, text] of outputs) {
   const target = path.join(pilot, file);
   if (existsSync(target) && readFileSync(target, "utf8") === text) continue;
   if (check) {
-    console.error(`${file} is out of date: run node deployables/corten-pilot/scripts/export.mjs`);
+    console.error(`${file} is out of date: run node --import tsx deployables/corten-pilot/scripts/export.mjs`);
     stale += 1;
   } else {
+    mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, text);
     console.log(`wrote ${file}`);
   }
 }
-mkdirSync(path.join(pilot, "static/fonts"), { recursive: true });
-for (const [pkg, name] of fonts) {
-  const source = path.join(path.dirname(require.resolve(`${pkg}/package.json`)), "files", name);
-  const target = path.join(pilot, "static/fonts", name);
-  if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
-  if (check) {
-    console.error(`static/fonts/${name} is out of date`);
-    stale += 1;
-  } else {
-    copyFileSync(source, target);
-    console.log(`wrote static/fonts/${name}`);
+for (const app of apps) {
+  mkdirSync(path.join(pilot, app, "static/fonts"), { recursive: true });
+  for (const [pkg, name] of fonts) {
+    const source = path.join(path.dirname(require.resolve(`${pkg}/package.json`)), "files", name);
+    const target = path.join(pilot, app, "static/fonts", name);
+    if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
+    if (check) {
+      console.error(`${app}/static/fonts/${name} is out of date`);
+      stale += 1;
+    } else {
+      copyFileSync(source, target);
+      console.log(`wrote ${app}/static/fonts/${name}`);
+    }
   }
 }
 process.exit(stale ? 1 : 0);

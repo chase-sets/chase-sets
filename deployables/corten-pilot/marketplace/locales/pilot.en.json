@@ -1,0 +1,23 @@
+{
+  "shell": {
+    "marketplace": "Chase Sets Marketplace",
+    "navigation": "Marketplace",
+    "pilot": "Corten pilot"
+  },
+  "check": {
+    "required": "Enter a value.",
+    "attempt": "This form is out of date. Reload the page and try again."
+  },
+  "load": {
+    "pending": "Storage locations are still updating. Reload this page in a moment.",
+    "unverified": "Storage location update could not be verified. Reload this page and try again."
+  },
+  "error": {
+    "forbidden_title": "Not allowed",
+    "forbidden": "Your role cannot open storage locations.",
+    "not_found_title": "Not found",
+    "not_found": "There is nothing at this address.",
+    "failed_title": "Something went wrong",
+    "failed": "The platform API did not answer. Try again in a moment."
+  }
+}

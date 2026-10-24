@@ -1,22 +1,23 @@
-[package]
-name = "corten-pilot"
+[workspace]
+resolver = "3"
+members = ["admin", "marketplace", "platform"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Pilot: the admin Commerce > Postage policies screen on Corten, against the platform API."
 
-[dependencies]
+[workspace.dependencies]
 # Pinned to a Corten revision on purpose (no release is tagged). Move the pin forward when a fix
 # the pilot needs lands; see README.md, "Corten pin".
-corten = { git = "https://github.com/todd-skelton/corten", rev = "ad8d3affb83b492a94c2bbf4af990b9d261111a0", features = ["compress", "json"] }
+corten = { git = "https://github.com/todd-skelton/corten", rev = "04989b5069bbb70432fb801afe9ad8d935c4c946", features = ["compress", "json"] }
+platform = { package = "corten-pilot-platform", path = "platform" }
 percent-encoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 tracing = "0.1"
-
-[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
-tokio = { version = "1", features = ["net"] }
 tower = { version = "0.5", features = ["util"] }

@@ -12,17 +12,16 @@
 use std::sync::Arc;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, header},
+    axum::http::{HeaderMap, StatusCode},
     prelude::*,
-    security::cookie,
 };
+use platform::{receipt::Receipt, session};
 use serde::Serialize;
 
 use crate::{
-    api::{ApiError, PackagePlan, Platform, Policy, PolicyList, Written},
-    auth::{self, ColorMode, SESSION_COOKIE, Session},
+    api::{ApiError, PackagePlan, Platform, Policies as _, Policy, PolicyList, Written},
+    auth::{self, ColorMode, Session},
     form::{ActivateInput, CloneInput, PolicyInput, RetireInput, reason},
-    receipt::Receipt,
     text::{Msg, Pilot},
     views::{self, Draft, Forms},
 };
@@ -112,23 +111,13 @@ pub mod url {
     }
 }
 
-pub fn app(config: Config) -> App {
+pub fn app(config: Config) -> App<Session> {
     let shared: Shared = Arc::new(config);
     let context = shared.clone();
     let sign_in_at = views::admin_web(SIGN_IN);
     App::new(routes(shared))
-        .shell(views::shell)
         .context(move |headers: &HeaderMap| {
-            // Only what the session lookup forwards, owned by the future.
-            let forward = cookie::get(headers, SESSION_COOKIE).is_some().then(|| {
-                let mut forward = HeaderMap::new();
-                for name in [header::COOKIE, header::HOST] {
-                    if let Some(value) = headers.get(&name) {
-                        forward.insert(name, value.clone());
-                    }
-                }
-                forward
-            });
+            let forward = session::forwarded(headers);
             let color_mode = ColorMode::from_headers(headers);
             let config = context.clone();
             async move {
@@ -137,7 +126,7 @@ pub fn app(config: Config) -> App {
             }
         })
         // Every route the pilot serves, and any added later, is for staff who may see the screen.
-        .guard("/", move |session: Option<&Session>, _| match session {
+        .guard(move |session, _| match session {
             Some(Session::Staff(viewer)) if viewer.can(VIEW) => Access::ALLOW,
             Some(Session::Staff(_)) => Access::refuse(corten::Error::status(StatusCode::FORBIDDEN)),
             // The API could not say whose the cookie is: signing in again would loop while it is down.
@@ -147,6 +136,7 @@ pub fn app(config: Config) -> App {
                 None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             },
         })
+        .shell(views::shell)
         .messages::<Msg>()
         .components(views::COMPONENTS)
         .error_page(views::error_page)

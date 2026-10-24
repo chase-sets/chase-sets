@@ -72,7 +72,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
     if uri.path() == "/api/auth/session" {
         let actor = |permissions: &[&str]| {
-            Json(json!({ "actor": { "userId": "usr_1", "roleKey": "platform_admin", "permissions": permissions } }))
+            Json(json!({ "actor": { "userId": "usr_1", "accountId": "acc_platform", "roleKey": "platform_admin", "permissions": permissions } }))
                 .into_response()
         };
         return if cookie.contains("chase_sets_session=staff") {

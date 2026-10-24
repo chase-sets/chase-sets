@@ -14,8 +14,8 @@ use crate::{
     auth::Session,
     form::{ActivateInput, CloneInput, PolicyInput, RetireInput, default_payload},
     text::{Msg, Pilot},
-    theme,
 };
+use platform::theme;
 
 mod admin_nav;
 mod badge;
@@ -23,15 +23,14 @@ mod lifecycle;
 mod policy_fields;
 mod policy_sheet;
 mod policy_table;
-mod section;
 
 pub use admin_nav::AdminNav;
 pub use badge::Badge;
 pub use lifecycle::{ActivateForm, CloneForm, Lifecycle, RetireForm};
+pub use platform::section::{Banner, PageHeader, Section};
 pub use policy_fields::{CreateForm, PolicyFields, ReviseForm};
 pub use policy_sheet::{PolicySheet, PreviewResult};
 pub use policy_table::{Pagination, PolicyTable};
-pub use section::{Banner, PageHeader, Section};
 
 /// Every component with a stylesheet or a script, tokens first.
 pub const COMPONENTS: &[Component] =
