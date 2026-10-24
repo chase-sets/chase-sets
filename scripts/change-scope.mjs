@@ -586,15 +586,9 @@ function fullScopeForUnavailableChangeSet(workspaces, reason) {
 export function resolveChangeScope(base, head, options = {}) {
   const workspaces = options.workspaces ?? listWorkspacePackages({ repoRoot: rootDir });
   const baseDir = options.baseDir ?? rootDir;
+  let changedFiles;
   try {
-    return {
-      scope: classifyChanges({
-        changedFiles: listChangedFiles(base, head, options),
-        workspaces,
-        baseDir,
-      }),
-      fallbackReason: null,
-    };
+    changedFiles = listChangedFiles(base, head, options);
   } catch (error) {
     const reason = error instanceof ScopeDerivationError ? error.reason : "scope-derivation-failed";
     return {
@@ -602,6 +596,10 @@ export function resolveChangeScope(base, head, options = {}) {
       fallbackReason: reason,
     };
   }
+  return {
+    scope: classifyChanges({ changedFiles, workspaces, baseDir }),
+    fallbackReason: null,
+  };
 }
 
 function parseArgs(argv) {
