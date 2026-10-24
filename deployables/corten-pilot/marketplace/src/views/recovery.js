@@ -57,11 +57,8 @@ export function restore(check, account, settled, unsettled) {
     check.family.value = family;
     check.target.value = text(record?.targetId);
     check.user.value = text(record?.actorUserId);
-    // A navigation the runtime takes over before the page has loaded stops the page loading: the
-    // load event never fires and what is still loading is cancelled. Wait for it (Corten gap,
-    // README "Corten gaps").
-    if (document.readyState === "complete") check.form.requestSubmit();
-    else window.addEventListener("load", () => check.form.requestSubmit(), { once: true });
+    // Before the page's load event this is a full page load, not a swap (Corten's on:connect).
+    check.form.requestSubmit();
     return;
   }
 }
