@@ -26,11 +26,18 @@
   },
   "error": {
     "forbidden_title": "Not allowed",
-    "forbidden": "Your role cannot open postage policies.",
+    "forbidden": "Your role cannot open this page.",
     "not_found_title": "Not found",
     "not_found": "There is nothing at this address.",
     "failed_title": "Something went wrong",
     "failed": "The platform API did not answer. Try again in a moment.",
-    "pending": "We are preparing postage policies. Refresh in a moment and the draft should appear."
+    "pending": "We are preparing your change. Refresh in a moment and it should appear."
+  },
+  "catalog": {
+    "close": "Close",
+    "breadcrumbs": "Breadcrumbs",
+    "action": "This action is not available here.",
+    "edit_option": "Edit {code}",
+    "options_label": "Options of {name}"
   }
 }

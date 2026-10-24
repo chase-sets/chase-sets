@@ -11,6 +11,7 @@ publish = false
 # Pinned to a Corten revision on purpose (no release is tagged). Move the pin forward when a fix
 # the pilot needs lands; see README.md, "Corten pin".
 corten = { git = "https://github.com/todd-skelton/corten", rev = "04989b5069bbb70432fb801afe9ad8d935c4c946", features = ["compress", "json"] }
+corten-ui = { git = "https://github.com/todd-skelton/corten", rev = "04989b5069bbb70432fb801afe9ad8d935c4c946" }
 platform = { package = "corten-pilot-platform", path = "platform" }
 percent-encoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
@@ -18,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 tracing = "0.1"
+ulid = "1"
 uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }

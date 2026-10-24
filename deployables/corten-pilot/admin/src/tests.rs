@@ -76,7 +76,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
                 .into_response()
         };
         return if cookie.contains("chase_sets_session=staff") {
-            actor(&["postage-policies.view"])
+            actor(&["postage-policies.view", "catalog.view", "catalog.manage"])
+        } else if cookie.contains("chase_sets_session=catalog-reader") {
+            actor(&["catalog.view"])
         } else if cookie.contains("chase_sets_session=reader") {
             actor(&[])
         } else if cookie.contains("chase_sets_session=down") {
@@ -84,6 +86,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         } else {
             refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in.")
         };
+    }
+    if let Some(rest) = uri.path().strip_prefix(CATALOG) {
+        return catalog_api(method, rest, &body);
     }
     let Some(rest) = uri.path().strip_prefix(POLICIES) else {
         return StatusCode::NOT_FOUND.into_response();
@@ -147,9 +152,13 @@ fn get(uri: &str, session: Option<&str>) -> Request<Body> {
 
 /// A form post as the runtime sends it (`corten: action`), or as a browser without JavaScript.
 fn post(uri: &str, body: &str, script: bool) -> Request<Body> {
+    post_as("staff", uri, body, script)
+}
+
+fn post_as(session: &str, uri: &str, body: &str, script: bool) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7790")
-        .header(header::COOKIE, "chase_sets_session=staff")
+        .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if script {
         req = req.header("corten", "action");
@@ -317,4 +326,307 @@ async fn activation_sends_the_reason_or_asks_for_one() {
     assert!(html.starts_with(r#"<form class="lifecycle__card" id="activate-form""#), "{html}");
     assert!(html.contains(r#"id="activation_reason-error""#), "{html}");
     assert!(!pilot.policy_calls().iter().any(|c| c.method == Method::POST));
+}
+
+// The catalog area.
+
+const CATALOG: &str = "/api/catalog";
+
+fn dimension(id: &str, status: &str) -> Value {
+    json!({
+        "dimension_id": id, "key": "condition", "name": "Condition", "description": null,
+        "value_kind": "ordered", "status": status, "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
+
+fn option(id: &str, code: &str, status: &str, order: i64) -> Value {
+    json!({
+        "option_id": id, "code": code, "label": code.to_uppercase(),
+        "label_i18n": { "defaultLocale": "en", "values": { "en": code.to_uppercase(), "fr": "fr" } },
+        "display_order": order, "numeric_value": if order == 1 { json!(2.5) } else { Value::Null }, "status": status,
+    })
+}
+
+fn catalog_field(id: &str) -> Value {
+    json!({
+        "field_id": id, "key": "language", "name": "Language", "description": "Printed language", "status": "draft",
+        "value_type": "string", "filterable": true, "searchable": false, "sortable": true,
+        "updated_at": "2026-01-01T00:00:00.000Z",
+    })
+}
+
+/// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages).
+fn catalog_api(method: Method, rest: &str, body: &str) -> Response {
+    match (method, rest) {
+        (Method::GET, "/dimensions") => Json(json!({ "items": [dimension("dim_seed", "active")], "total": 120 })).into_response(),
+        (Method::GET, "/dimensions/dim_pending") => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
+        (Method::GET, "/dimensions/dim_seed") => {
+            let mut detail = dimension("dim_seed", "active");
+            detail["options"] = json!([option("chc_a", "nm", "active", 1), option("chc_b", "lp", "deprecated", 2)]);
+            Json(detail).into_response()
+        }
+        (Method::GET, "/dimensions/dim_missing") => refusal(StatusCode::NOT_FOUND, "not_found", "Dimension not found."),
+        (Method::POST, "/dimensions") if body.contains(r#""key":"taken""#) => {
+            refusal(StatusCode::CONFLICT, "conflict", "A dimension with this key already exists.")
+        }
+        (Method::POST, "/dimensions/dim_seed/archive") => {
+            refusal(StatusCode::CONFLICT, "invalid_transition", "Only a deprecated dimension can be archived.")
+        }
+        (Method::GET, "/fields") => Json(json!({ "items": [catalog_field("fld_seed")], "total": 1 })).into_response(),
+        (Method::GET, "/fields/fld_seed") => Json(catalog_field("fld_seed")).into_response(),
+        (Method::POST | Method::PUT, _) => written(StatusCode::OK, "cmd"),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+impl Pilot {
+    /// The calls to the Catalog API.
+    fn catalog_calls(&self) -> Vec<Call> {
+        self.calls.lock().unwrap().iter().filter(|c| c.path.starts_with(CATALOG)).cloned().collect()
+    }
+
+    fn catalog_writes(&self) -> Vec<Call> {
+        self.catalog_calls().into_iter().filter(|c| c.method != Method::GET).collect()
+    }
+
+    /// The stylesheet a page links whose URL contains `part`, and its text.
+    async fn stylesheet(&self, html: &str, part: &str) -> Option<String> {
+        let start = html.find(part)?;
+        let href_start = html[..start].rfind("href=\"")? + 6;
+        let href_end = href_start + html[href_start..].find('"')?;
+        let (status, _, css) = self.send(get(&html[href_start..href_end], None)).await;
+        assert_eq!(status, StatusCode::OK, "{}", &html[href_start..href_end]);
+        Some(css)
+    }
+}
+
+#[tokio::test]
+async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(get("/catalog/dimensions/dim_seed", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "http://localhost:7752/access/sign-in?returnTo=%2Fcatalog%2Fdimensions");
+    let (status, _, _) = pilot.send(get("/catalog/dimensions", Some("reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view is needed to read");
+    let (status, _, _) = pilot.send(get("/catalog/dimensions", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(post_as("catalog-reader", "/catalog/dimensions", "key=size", true)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed to write");
+    let (status, _, _) = pilot.send(get("/commerce/postage-policies", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the postage area keeps its own permission");
+    assert!(pilot.catalog_writes().is_empty(), "a refused write reaches no handler");
+    let (status, headers, _) = pilot.send(get("/catalog", Some("staff"))).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &"/catalog/dimensions".parse::<header::HeaderValue>().unwrap())
+    );
+
+    // Each area's pages link its stylesheet, and only theirs; the shared one has neither's rules.
+    let (_, _, catalog) = pilot.send(get("/catalog/dimensions", Some("staff"))).await;
+    let (_, _, postage) = pilot.send(get("/commerce/postage-policies", Some("staff"))).await;
+    assert!(catalog.contains("sections/catalog") && !catalog.contains("sections/commerce"), "{catalog}");
+    assert!(postage.contains("sections/commerce/postage-policies") && !postage.contains("sections/catalog"), "{postage}");
+    let section = pilot.stylesheet(&catalog, "sections/catalog").await.unwrap();
+    let shared = pilot.stylesheet(&catalog, "components").await.unwrap();
+    assert!(section.contains(".list-page__table") && section.contains(".dialog__form"), "{section}");
+    assert!(!section.contains(".policy-table__"), "{section}");
+    assert!(!shared.contains(".list-page__") && !shared.contains(".policy-table__"), "{shared}");
+    assert!(shared.contains(".admin-nav__bar"), "{shared}");
+}
+
+#[tokio::test]
+async fn the_list_asks_the_api_as_admin_web_does_and_pages() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) =
+        pilot.send(get("/catalog/dimensions?search=cond&status=active&value_kind=&page=2", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let calls = pilot.catalog_calls();
+    assert_eq!(calls[0].path, "/api/catalog/dimensions?search=cond&status=active&limit=50&offset=50", "{calls:?}");
+    assert_eq!(calls[0].headers["chase-sets-read-target-context"], "catalog");
+    assert!(html.contains(r#"<a class="list-page__view" href="/catalog/dimensions/dim_seed">View</a>"#), "{html}");
+    assert!(html.contains(r#"href="/catalog/dimensions?search=cond&amp;status=active" rel="prev""#), "{html}");
+    assert!(html.contains(r#"href="/catalog/dimensions?search=cond&amp;status=active&amp;page=3" rel="next""#), "{html}");
+    assert!(html.contains("Page 2 of 3"), "{html}");
+    assert!(html.contains(r#"<option value="active" selected>Active</option>"#), "the filter shows its value: {html}");
+    assert!(html.contains(r#"href="/catalog/dimensions" aria-current="page""#), "the catalog's own nav: {html}");
+    assert!(html.contains(r#"href="/catalog/fields""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_create_sends_its_drawn_id_and_comes_back_with_the_receipt_and_the_toast() {
+    let pilot = Pilot::new().await;
+    let body = "dimension_id=dim_01JZ&key=size&name=+Size+&description=&value_kind=ordered";
+    let (status, headers, _) = pilot.send(post("/catalog/dimensions?status=active", body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/dimensions?status=active&after_write=") && to.ends_with("&done=created"), "{to}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!((sent.method, sent.path.as_str()), (Method::POST, "/api/catalog/dimensions"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent.body).unwrap(),
+        json!({ "dimensionId": "dim_01JZ", "key": "size", "valueKind": "ordered",
+                "name": { "defaultLocale": "en", "values": { "en": "Size" } },
+                "description": { "defaultLocale": "en", "values": {} } })
+    );
+    let (status, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"<div id="ui-toast">Dimension created</div>"#), "{html}");
+    assert!(pilot.catalog_calls().last().unwrap().headers.contains_key("chase-sets-read-after-write"));
+}
+
+#[tokio::test]
+async fn a_refused_create_comes_back_in_its_dialog() {
+    let pilot = Pilot::new().await;
+    let body = "dimension_id=dim_01JZ&key=taken&name=Size&description=&value_kind=ordered";
+    let (status, headers, html) = pilot.send(post("/catalog/dimensions", body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(headers.contains_key("corten-patch"));
+    assert!(html.starts_with(r#"<form class="dialog__form" id="catalog-create""#), "{html}");
+    assert!(html.contains("A dimension with this key already exists.") && html.contains(r#"value="dim_01JZ""#), "{html}");
+    // Without JavaScript: the page, with the dialog open on the same form.
+    let (status, _, html) = pilot.send(post("/catalog/dimensions", body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"id="catalog-create-dialog" aria-labelledby="catalog-create-dialog-title" open"#), "{html}");
+    assert!(html.contains("A dimension with this key already exists."), "{html}");
+}
+
+#[tokio::test]
+async fn a_dimension_shows_its_options_and_the_changes_its_status_allows() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/dimensions/dim_seed", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"<h1 class="detail-page__title">Condition</h1>"#), "{html}");
+    assert!(html.contains(r#"command="show-modal" commandfor="catalog-lifecycle-deprecate">Deprecate</button>"#), "{html}");
+    assert!(!html.contains(r#"value="activate""#), "an active dimension is not activated: {html}");
+    assert!(html.contains("2 option(s)") && html.contains(">NM<") && html.contains(">2.5<"), "{html}");
+    assert!(html.contains(r#"name="action" value="deprecate">Deprecate</button>"#), "the active option: {html}");
+    assert!(html.contains(r#"name="action" value="reactivate">Reactivate</button>"#), "the deprecated one: {html}");
+    assert!(html.contains(r#"value="chc_a, chc_b""#), "the reorder form starts from the order: {html}");
+    assert!(html.contains(r#"name="label_locale" value="fr""#), "an option's edit form has its labels: {html}");
+
+    let (status, _, _) = pilot.send(get("/catalog/dimensions/dim_missing", Some("staff"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) =
+        pilot.send(get(&format!("/catalog/dimensions/dim_pending?after_write={}", fresh_receipt()), Some("staff"))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "the write is not readable yet");
+}
+
+#[tokio::test]
+async fn lifecycle_changes_go_to_their_api_routes_and_a_refusal_is_the_forms_message() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "action=deprecate&status=active", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let to = headers["corten-location"].to_str().unwrap();
+    assert!(to.starts_with("/catalog/dimensions/dim_seed?after_write=") && to.ends_with("&done=deprecated"), "{to}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!((sent.path.as_str(), sent.body.as_str()), ("/api/catalog/dimensions/dim_seed/deprecate", ""));
+    let (_, _, html) = pilot.send(get(to, Some("staff"))).await;
+    assert!(html.contains(r#"<div id="ui-toast">Dimension deprecated.</div>"#), "{html}");
+
+    let (status, _, html) =
+        pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "action=archive&status=deprecated", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.starts_with(r#"<form class="detail-page__lifecycle" id="catalog-lifecycle""#), "{html}");
+    assert!(html.contains("Only a deprecated dimension can be archived."), "{html}");
+
+    let writes = pilot.catalog_writes().len();
+    let (status, _, html) = pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "action=delete&status=active", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This action is not available here."), "{html}");
+    assert_eq!(pilot.catalog_writes().len(), writes, "an action the form does not offer is not sent");
+}
+
+#[tokio::test]
+async fn options_are_added_revised_retired_and_reordered() {
+    let pilot = Pilot::new().await;
+    // Add Label draws the form again with a row more, and writes nothing.
+    let rows = "code=nm&numeric_value=&label_locale=en&label_value=Near+mint";
+    let (status, headers, html) =
+        pilot.send(post("/catalog/dimensions/dim_seed/options", &format!("option_id=chc_x&{rows}&relabel=add"), true)).await;
+    assert_eq!((status, headers.contains_key("corten-patch")), (StatusCode::OK, true));
+    assert_eq!(html.matches(r#"name="label_locale""#).count(), 2, "{html}");
+    assert!(html.contains(r#"value="Near mint""#), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+    let (status, _, html) =
+        pilot.send(post("/catalog/dimensions/dim_seed/options", &format!("option_id=chc_x&{rows}&relabel=add"), false)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"id="catalog-add-option-dialog" aria-labelledby="catalog-add-option-dialog-title" open"#), "{html}");
+
+    // A number that does not parse is the pilot's own check.
+    let (status, _, html) =
+        pilot.send(post("/catalog/dimensions/dim_seed/options", "option_id=chc_x&code=nm&numeric_value=two", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"id="numeric_value-error""#), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
+
+    let posts = [
+        (
+            "/catalog/dimensions/dim_seed/options",
+            format!("option_id=chc_x&{}", rows.replace("numeric_value=", "numeric_value=3")),
+            "option_added",
+        ),
+        ("/catalog/dimensions/dim_seed/options/chc_a", rows.to_owned(), "option_revised"),
+        ("/catalog/dimensions/dim_seed/options/chc_a/lifecycle", "action=deprecate&status=active".into(), "option_deprecated"),
+        (
+            "/catalog/dimensions/dim_seed/options/chc_b/lifecycle",
+            "action=reactivate&status=deprecated".into(),
+            "option_reactivated",
+        ),
+        ("/catalog/dimensions/dim_seed/options/order", "option_ids=chc_b%2C+chc_a%2C".into(), "reordered"),
+    ];
+    for (uri, body, done) in &posts {
+        let (status, headers, _) = pilot.send(post(uri, body, true)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{uri}");
+        assert!(headers["corten-location"].to_str().unwrap().ends_with(&format!("&done={done}")), "{uri}: {headers:?}");
+    }
+    let sent: Vec<(Method, String, String)> = pilot.catalog_writes().into_iter().map(|c| (c.method, c.path, c.body)).collect();
+    let label = json!({ "defaultLocale": "en", "values": { "en": "Near mint" } });
+    assert_eq!((&sent[0].0, sent[0].1.as_str()), (&Method::POST, "/api/catalog/dimensions/dim_seed/options"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].2).unwrap(),
+        json!({ "optionId": "chc_x", "code": "nm", "label": label, "numericValue": 3.0 })
+    );
+    assert_eq!((&sent[1].0, sent[1].1.as_str()), (&Method::PUT, "/api/catalog/dimensions/dim_seed/options/chc_a"));
+    assert_eq!(serde_json::from_str::<Value>(&sent[1].2).unwrap(), json!({ "code": "nm", "label": label }));
+    assert_eq!(sent[2].1, "/api/catalog/dimensions/dim_seed/options/chc_a/deprecate");
+    assert_eq!(sent[3].1, "/api/catalog/dimensions/dim_seed/options/chc_b/reactivate");
+    assert_eq!((&sent[4].0, sent[4].1.as_str()), (&Method::PUT, "/api/catalog/dimensions/dim_seed/options/order"));
+    assert_eq!(serde_json::from_str::<Value>(&sent[4].2).unwrap(), json!({ "optionIds": ["chc_b", "chc_a"] }));
+}
+
+#[tokio::test]
+async fn fields_are_created_configured_and_activated() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/fields?filterable=true", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/fields?filterable=true&limit=50&offset=0");
+    assert!(html.contains(r#"href="/catalog/fields/fld_seed">View</a>"#), "{html}");
+
+    let body = "field_id=fld_01JZ&key=language&name=Language&description=&value_type=string&filterable=on&sortable=on";
+    let (status, headers, _) = pilot.send(post("/catalog/fields", body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().ends_with("&done=created"));
+    let (status, _, _) =
+        pilot.send(post("/catalog/fields/fld_seed/edit", "key=language&name=Language&value_type=number", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "without JavaScript a write is a redirect");
+    let (status, _, _) = pilot.send(post("/catalog/fields/fld_seed/lifecycle", "action=activate&status=draft", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let sent = pilot.catalog_writes();
+    let behavior = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap()["behavior"].clone();
+    assert_eq!(behavior(0), json!({ "filterable": true, "searchable": false, "sortable": true }));
+    assert_eq!(serde_json::from_str::<Value>(&sent[0].body).unwrap()["fieldId"], "fld_01JZ");
+    assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/fields/fld_seed"));
+    assert_eq!(behavior(1), json!({ "filterable": false, "searchable": false, "sortable": false }));
+    assert_eq!(sent[2].path, "/api/catalog/fields/fld_seed/activate");
+
+    let (_, _, html) = pilot.send(get("/catalog/fields/fld_seed", Some("staff"))).await;
+    assert!(html.contains("<dt>Filterable</dt>") && html.contains("<dd>Yes</dd>") && html.contains("<dd>No</dd>"), "{html}");
+    assert!(html.contains(r#"name="action" value="activate">Activate</button>"#), "a draft is activated: {html}");
+    assert!(html.contains(r#"name="filterable" checked"#), "the configure form starts from the field: {html}");
 }

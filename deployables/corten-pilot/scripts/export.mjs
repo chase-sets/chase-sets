@@ -3,6 +3,8 @@
 //
 // - admin/locales/en.json: the postage-policy screen's English catalog (ordering.features.postagePolicies.ui.*
 //   and the route title), keys and arguments in the snake case `messages!` takes.
+// - admin/locales/catalog.en.json: the catalog area's English catalog (the dimension and field pages,
+//   the shared list, detail and lifecycle controls, and the routes' titles).
 // - admin/nav.json: admin-web's primary-nav contributions from every bounded context's context.json.
 // - admin/defaults.json: the default postage policy (contracts/product-measures), which a new draft
 //   starts from.
@@ -189,6 +191,24 @@ const outputs = [
       await catalog("ordering.ts", "orderingEnglishTranslations", [
         ["ordering.features.postagePolicies.ui.", ""],
         ["ordering.routes.admin.postagePolicies.title", "route.title"],
+      ]),
+    ),
+  ],
+  [
+    "admin/locales/catalog.en.json",
+    json(
+      await catalog("catalog.ts", "catalogEnglishTranslations", [
+        ["catalog.features.dimensions.ui.dimensionListPage.", "dimension_list"],
+        ["catalog.features.dimensions.ui.dimensionDetailPage.", "dimension"],
+        ["catalog.features.fields.ui.fieldListPage.", "field_list"],
+        ["catalog.features.fields.ui.fieldDetailPage.", "field"],
+        ["catalog.support.shellSupport.ui.entityListPage.", "list"],
+        ["catalog.support.shellSupport.ui.entityDetailPage.", "detail"],
+        ["catalog.support.shellSupport.ui.lifecycleControls.", "lifecycle"],
+        ["catalog.routes.admin.dimensions.dimensions.catalog.admin", "route.dimensions"],
+        ["catalog.routes.admin.dimensionsDetail.dimension.catalog.admin", "route.dimension"],
+        ["catalog.routes.admin.fields.fields.catalog.admin", "route.fields"],
+        ["catalog.routes.admin.fieldsDetail.field.catalog.admin", "route.field"],
       ]),
     ),
   ],

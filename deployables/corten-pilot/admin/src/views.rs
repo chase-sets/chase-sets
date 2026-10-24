@@ -32,9 +32,12 @@ pub use policy_fields::{CreateForm, PolicyFields, ReviseForm};
 pub use policy_sheet::{PolicySheet, PreviewResult};
 pub use policy_table::{Pagination, PolicyTable};
 
-/// Every component with a stylesheet or a script, tokens first.
-pub const COMPONENTS: &[Component] =
-    &[theme::TOKENS, AdminNav, Section, Badge, PolicyTable, PolicyFields, PolicySheet, Lifecycle];
+/// The components every page renders (the frame and the shared parts), tokens first: their
+/// stylesheets are `components.css`.
+pub const COMPONENTS: &[Component] = &[theme::TOKENS, AdminNav, Section];
+
+/// The postage screen's components: its area's stylesheet.
+pub const POSTAGE: &[Component] = &[Badge, PolicyTable, PolicyFields, PolicySheet, Lifecycle];
 
 /// A form's typed values and what is wrong with them.
 #[derive(Clone, Debug)]

@@ -21,14 +21,13 @@ use serde::Serialize;
 use crate::{
     api::{ApiError, PackagePlan, Platform, Policies as _, Policy, PolicyList, Written},
     auth::{self, ColorMode, Session},
+    catalog,
     form::{ActivateInput, CloneInput, PolicyInput, RetireInput, reason},
     text::{Msg, Pilot},
     views::{self, Draft, Forms},
 };
 
 const VIEW: &str = "postage-policies.view";
-/// admin-web's sign-in, coming back to the screen there (admin-web only returns to its own paths).
-const SIGN_IN: &str = "/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies";
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 500;
 
@@ -49,6 +48,15 @@ impl Config {
     }
 }
 
+/// admin-web's sign-in, coming back to the page the request was for there: admin-web only
+/// returns to its own paths, and the pilot's are admin-web's, so the page is the path's section
+/// and screen (`/catalog/dimensions` for `/catalog/dimensions/dim_1/edit`).
+pub(crate) fn sign_in_at(path: &str) -> Option<corten::axum::http::Uri> {
+    let page: String = path.split('/').filter(|s| !s.is_empty()).take(2).map(|s| format!("/{s}")).collect();
+    let page = if page.is_empty() { "/".to_owned() } else { page };
+    views::admin_web(&format!("/access/sign-in?returnTo={}", crate::api::segment(&page)))
+}
+
 /// admin-web's origin (`ADMIN_WEB_ORIGIN`), for sign-in and the admin pages the pilot links to.
 pub fn admin_web_origin() -> &'static str {
     static ORIGIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -57,12 +65,17 @@ pub fn admin_web_origin() -> &'static str {
     &ORIGIN
 }
 
-type Shared = Arc<Config>;
+pub(crate) type Shared = Arc<Config>;
 
 /// Every URL the pilot serves.
 pub mod url {
     use corten::Route;
     use serde::Deserialize;
+
+    /// The postage-policy screen's area: its routes, stylesheet and guard.
+    #[derive(Route)]
+    #[route("/commerce/postage-policies")]
+    pub struct PostageArea;
 
     /// The list; `policy` opens its sheet, `after_write` is the receipt of the write before.
     #[derive(Clone, Debug, Default, Deserialize, Route)]
@@ -114,8 +127,7 @@ pub mod url {
 pub fn app(config: Config) -> App<Session> {
     let shared: Shared = Arc::new(config);
     let context = shared.clone();
-    let sign_in_at = views::admin_web(SIGN_IN);
-    App::new(routes(shared))
+    App::new(Router::new())
         .context(move |headers: &HeaderMap| {
             let forward = session::forwarded(headers);
             let color_mode = ColorMode::from_headers(headers);
@@ -125,38 +137,53 @@ pub fn app(config: Config) -> App<Session> {
                 auth::session(config.platform.caller(&forward, config.proto, None), color_mode).await
             }
         })
-        // Every route the pilot serves, and any added later, is for staff who may see the screen.
-        .guard(move |session, _| match session {
-            Some(Session::Staff(viewer)) if viewer.can(VIEW) => Access::ALLOW,
-            Some(Session::Staff(_)) => Access::refuse(corten::Error::status(StatusCode::FORBIDDEN)),
+        // Every route the pilot serves, and any added later, is for signed-in staff; each area
+        // then asks for its own permission.
+        .guard(move |session, req| match session {
+            Some(Session::Staff(_)) => Access::ALLOW,
             // The API could not say whose the cookie is: signing in again would loop while it is down.
             Some(Session::Unavailable) => Access::refuse(corten::Error::status(StatusCode::BAD_GATEWAY)),
-            None => match &sign_in_at {
-                Some(to) => Access::sign_in(to),
+            None => match sign_in_at(req.uri().path()) {
+                Some(to) => Access::sign_in(&to),
                 None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             },
         })
         .shell(views::shell)
         .messages::<Msg>()
         .components(views::COMPONENTS)
+        .area::<url::PostageArea>(|area| {
+            routes(area, shared.clone()).components(views::POSTAGE).guard(|session, _| allow(session, VIEW))
+        })
+        .area::<catalog::url::Catalog>(|area| {
+            catalog::routes(area, shared)
+                .components(catalog::views::COMPONENTS)
+                .guard(|session, req| allow(session, if req.writes() { catalog::MANAGE } else { catalog::VIEW }))
+        })
         .error_page(views::error_page)
 }
 
-fn routes(shared: Shared) -> Router {
-    Router::new()
-        .route(url::Policies::PATH, get(list).post(create))
-        .route(url::Policy::PATH, get(open))
-        .route(url::Revise::PATH, post(revise))
-        .route(url::Activate::PATH, post(activate))
-        .route(url::Retire::PATH, post(retire))
-        .route(url::Clone::PATH, post(clone))
-        .route(url::Preview::PATH, post(preview))
-        .with_state(shared)
+/// An area's answer: staff with `permission` pass, anyone else is refused (the app's guard has
+/// already sent everyone without a session to sign in).
+pub(crate) fn allow(session: Option<&Session>, permission: &str) -> Access {
+    match session {
+        Some(Session::Staff(viewer)) if viewer.can(permission) => Access::ALLOW,
+        _ => Access::refuse(corten::Error::status(StatusCode::FORBIDDEN)),
+    }
+}
+
+fn routes(area: Area<Session, url::PostageArea>, shared: Shared) -> Area<Session, url::PostageArea> {
+    area.route::<url::Policies>(get(list).post(create).with_state(shared.clone()))
+        .route::<url::Policy>(get(open).with_state(shared.clone()))
+        .route::<url::Revise>(post(revise).with_state(shared.clone()))
+        .route::<url::Activate>(post(activate).with_state(shared.clone()))
+        .route::<url::Retire>(post(retire).with_state(shared.clone()))
+        .route::<url::Clone>(post(clone).with_state(shared.clone()))
+        .route::<url::Preview>(post(preview).with_state(shared))
 }
 
 /// Why a write's API call ends in something other than the form: the guard let the request in,
 /// but the API says the session ended meanwhile, or failed.
-enum Denied {
+pub(crate) enum Denied {
     /// Not signed in (or no longer): sign in at admin-web.
     SignIn,
     /// An error page: 403, the API failing, ...
@@ -164,7 +191,7 @@ enum Denied {
 }
 
 impl Denied {
-    fn answer(self, req: &Req) -> corten::Result {
+    pub(crate) fn answer(self, req: &Req) -> corten::Result {
         match self {
             Denied::SignIn => sign_in(req),
             Denied::Error(error) => Err(error),
@@ -173,15 +200,15 @@ impl Denied {
 }
 
 /// admin-web's sign-in, for a session the API says has ended (the guard sends the rest there).
-fn sign_in(req: &Req) -> corten::Result {
-    match views::admin_web(SIGN_IN) {
+pub(crate) fn sign_in(req: &Req) -> corten::Result {
+    match sign_in_at(req.path()) {
         Some(to) => req.redirect(&to),
         None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
     }
 }
 
 /// A read that failed, as the page's answer.
-fn read_failed(req: &Req, error: ApiError, after_write: bool) -> corten::Result {
+pub(crate) fn read_failed(req: &Req, error: ApiError, after_write: bool) -> corten::Result {
     // The write's projection is not readable yet: admin-web's "pending" answer, which asks the
     // user to refresh (the receipt stays in the address for 30 seconds).
     if after_write && error.catching_up() {
@@ -248,7 +275,7 @@ fn written(req: &Req, written: Written) -> corten::Result {
 }
 
 /// A write the API refused with a message for the user, or the answer for any other failure.
-fn refused(error: ApiError) -> Result<Errors, Denied> {
+pub(crate) fn refused(error: ApiError) -> Result<Errors, Denied> {
     match error.refusal() {
         Some(message) => {
             let mut errors = Errors::new();
