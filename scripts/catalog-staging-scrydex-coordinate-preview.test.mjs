@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildProducer,
@@ -12,7 +13,10 @@ import {
   validateCoordinatePreviewUpload,
   writeCoordinatePreviewArtifact,
 } from "./catalog-staging-scrydex-coordinate-preview.mjs";
-import { mergeObservedCoordinatePreviewReceipt } from "../bounded-contexts/catalog/features/scope-sync-batches/api/scrydex-coordinate-preview-runner.ts";
+import {
+  mergeObservedCoordinatePreviewReceipt,
+  runScrydexCoordinatePreview,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/api/scrydex-coordinate-preview-runner.ts";
 import {
   scrydexCoordinatePreviewPhases,
   validateScrydexCoordinatePreviewReceipt,
@@ -241,6 +245,19 @@ function fakeProducerPage({ mutateBody = false } = {}) {
 }
 
 describe("deployment *", () => {
+  it("identity: binds the reviewed head and required runner fields", () => {
+    expect(coordinatePreviewRunnerIdentity(runnerEnv())).toEqual({
+      sha: "a".repeat(40),
+      runId: "123456",
+      runAttempt: "1",
+      journeyScope: "scrydex-coordinate-preview",
+      origin: "admin.staging.chasesets.com",
+    });
+    expect(() => coordinatePreviewRunnerIdentity(runnerEnv({ EXPECTED_SHA: "b".repeat(40) }))).toThrow(
+      "runner-identity",
+    );
+  });
+
   it("stop: passes a value-free deployment stop through", async () => {
     await expect(
       selectCoordinatePreviewDeployment(
@@ -263,6 +280,15 @@ describe("deployment *", () => {
     ).resolves.toEqual({ generation, stop: null });
   });
 
+  it("deployment-missing: refuses a generation without its deployment image", async () => {
+    await expect(
+      selectCoordinatePreviewDeployment(
+        "synthetic-token",
+        vi.fn(async () => ({ stop: null, deployGeneration: generation, deployment: null })),
+      ),
+    ).resolves.toEqual({ generation: null, stop: "selection-failed" });
+  });
+
   it("selection-failed: normalizes an invalid selection to a value-free stop", async () => {
     await expect(
       selectCoordinatePreviewDeployment(
@@ -274,6 +300,10 @@ describe("deployment *", () => {
 });
 
 describe("producer *", () => {
+  it("tally-required: refuses a producer without the live fence tally", () => {
+    expect(() => buildProducer({ page: fakeProducerPage() })).toThrow("coordinate-preview-tally-required");
+  });
+
   it("five-rows: reads executable options and posts the exact two-ID selection", async () => {
     const page = fakeProducerPage();
     const tally = emptyCoordinatePreviewTally();
@@ -291,7 +321,7 @@ describe("producer *", () => {
       input.path.includes("provider-profiles")
         ? { status: 200, text: JSON.stringify({ items: [], total: 1, count: 1 }) }
         : { status: 500, text: "" };
-    await expect(buildProducer({ page })()).rejects.toThrow("scrydex-coordinate-preview-refused");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow("profiles-malformed");
   });
 
   it("option-live-read: refuses a live cache source", async () => {
@@ -306,7 +336,7 @@ describe("producer *", () => {
       }
       return result;
     };
-    await expect(buildProducer({ page })()).rejects.toThrow("option-live-read");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow("option-live-read");
   });
 
   it("cache-stale:unit: retains a stale cache row only while its stale-until bound is open", async () => {
@@ -321,7 +351,7 @@ describe("producer *", () => {
       }
       return result;
     };
-    const observed = await buildProducer({ page })();
+    const observed = await buildProducer({ page, tally: emptyCoordinatePreviewTally() })();
     expect(observed.rows.every((row) => row.cache.status === "stale")).toBe(true);
   });
 
@@ -341,7 +371,7 @@ describe("producer *", () => {
       }
       return result;
     };
-    await expect(buildProducer({ page })()).rejects.toThrow("mapping-changed");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow("bracket-changed");
   });
 
   it("setName-coordinate: uses the planner's setName fallback when setId is null", () => {
@@ -360,7 +390,13 @@ describe("producer *", () => {
     ).toBe("Synthetic Set");
   });
 
-  it("cache-identity-changed:unit: refuses a changed cache snapshot", async () => {
+  it("setName-coordinate: producer rows use the planner's setName fallback", async () => {
+    const page = fakeProducerPage();
+    const observed = await buildProducer({ page, tally: emptyCoordinatePreviewTally() })();
+    expect(observed.rows.find((row) => row.mapping.setId === null)?.coordinate).toBe("One Piece Set");
+  });
+
+  it("bracket-changed:unit: refuses a changed second-pass cache snapshot", async () => {
     const page = fakeProducerPage();
     const evaluate = page.evaluate;
     let optionReads = 0;
@@ -376,7 +412,7 @@ describe("producer *", () => {
       }
       return result;
     };
-    await expect(buildProducer({ page })()).rejects.toThrow("cache-identity-changed");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow("bracket-changed");
   });
 
   it("cache-cursor-stalled:unit: refuses a repeated continuation cursor", async () => {
@@ -393,7 +429,9 @@ describe("producer *", () => {
       }
       return result;
     };
-    await expect(buildProducer({ page })()).rejects.toThrow("cache-cursor-stalled");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(
+      "cache-cursor-stalled",
+    );
   });
 
   it("cache-incomplete:unit: refuses a truncated inventory tail", async () => {
@@ -412,7 +450,66 @@ describe("producer *", () => {
       }
       return result;
     };
-    await expect(buildProducer({ page })()).rejects.toThrow("scope-inventory-truncated");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(
+      "scope-inventory-truncated",
+    );
+  });
+
+  it("cache-incomplete:unit: refuses an option continuation with a truncated total", async () => {
+    const page = fakeProducerPage();
+    const evaluate = page.evaluate;
+    page.evaluate = async (fn, input) => {
+      const result = await evaluate(fn, input);
+      if (input.path.includes("integration-options")) {
+        const body = JSON.parse(result.text);
+        body.total = 7;
+        result.text = JSON.stringify(body);
+      }
+      return result;
+    };
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow("cache-incomplete");
+  });
+
+  it("cache-continuation-cap: refuses more than the bounded option pages", async () => {
+    const page = fakeProducerPage();
+    const evaluate = page.evaluate;
+    page.evaluate = async (fn, input) => {
+      const result = await evaluate(fn, input);
+      if (input.path.includes("integration-options")) {
+        const match = input.path.match(/cursor=offset%3A(\d+)/);
+        const index = match ? Number(match[1]) : 0;
+        const body = JSON.parse(result.text);
+        body.total = 101;
+        body.page = {
+          cursor: index === 0 ? null : `offset:${index}`,
+          nextCursor: index >= 100 ? null : `offset:${index + 1}`,
+          limit: 25,
+          hasMore: index < 100,
+        };
+        result.text = JSON.stringify(body);
+      }
+      return result;
+    };
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(
+      "option-continuation-cap",
+    );
+  });
+
+  it("scope-inventory-changed: refuses a total that changes across pages", async () => {
+    const page = fakeProducerPage();
+    const evaluate = page.evaluate;
+    page.evaluate = async (fn, input) => {
+      const result = await evaluate(fn, input);
+      if (input.path.includes("scope-records") && input.path.includes("one-piece")) {
+        const body = JSON.parse(result.text);
+        body.total = input.path.includes("offset=1") ? 3 : 2;
+        result.text = JSON.stringify(body);
+      }
+      return result;
+    };
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(
+      "scope-inventory-changed",
+    );
   });
 
   it("continuation: reads the same cache identity across a bounded second page", async () => {
@@ -424,13 +521,52 @@ describe("producer *", () => {
       if (input.path.includes("integration-options") && first) {
         first = false;
         const body = JSON.parse(result.text);
+        body.total = 2;
         body.page.nextCursor = "offset:1";
         body.page.hasMore = true;
+        result.text = JSON.stringify(body);
+      } else if (input.path.includes("integration-options") && input.path.includes("cursor=offset%3A1")) {
+        const body = JSON.parse(result.text);
+        body.total = 2;
+        body.page = { cursor: "offset:1", nextCursor: null, limit: 25, hasMore: false };
+        body.items = [{ providerKey: "scrydex", queryKind: "sets", value: "Other Set" }];
         result.text = JSON.stringify(body);
       }
       return result;
     };
-    await expect(buildProducer({ page })()).rejects.toThrow("option-page-malformed");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).resolves.toMatchObject({
+      rows: expect.any(Array),
+    });
+  });
+
+  it("second-scope: skips an incomplete first candidate before selecting the second", async () => {
+    const page = fakeProducerPage();
+    const evaluate = page.evaluate;
+    page.evaluate = async (fn, input) => {
+      if (input.path.endsWith("scope-lorcana-a")) {
+        return {
+          status: 200,
+          text: JSON.stringify({
+            schemaVersion: "catalog-scope-coverage-v1",
+            scopeRecordId: "scope-lorcana-a",
+            productDomain: "lorcana",
+            providers: [{ providerKey: "scrydex", acceptedMappings: [] }],
+          }),
+        };
+      }
+      const result = await evaluate(fn, input);
+      if (input.path.includes("scope-records") && input.path.includes("lorcana")) {
+        const body = JSON.parse(result.text);
+        body.items = [{ ...body.items[0], scopeRecordId: "scope-lorcana-a" }, body.items[0]];
+        body.total = 2;
+        body.count = 2;
+        result.text = JSON.stringify(body);
+      }
+      return result;
+    };
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).resolves.toMatchObject({
+      rows: expect.any(Array),
+    });
   });
 
   it("second-scope: refuses when one product domain has no fully mapped scope", async () => {
@@ -447,7 +583,9 @@ describe("producer *", () => {
       }
       return result;
     };
-    await expect(buildProducer({ page })()).rejects.toThrow("two-scopes-unavailable");
+    await expect(buildProducer({ page, tally: emptyCoordinatePreviewTally() })()).rejects.toThrow(
+      "two-scopes-unavailable",
+    );
   });
 
   it("read-timeout: bounds a never-settling body", async () => {
@@ -462,7 +600,7 @@ describe("producer *", () => {
   });
 
   it("phases: keeps readiness, preview, and immediate pre-confirm reads ordered", async () => {
-    const observed = await buildProducer({ page: fakeProducerPage() })();
+    const observed = await buildProducer({ page: fakeProducerPage(), tally: emptyCoordinatePreviewTally() })();
     expect(observed.phases).toEqual([...scrydexCoordinatePreviewPhases]);
   });
 });
@@ -570,6 +708,34 @@ describe("fence *", () => {
       expect(tally.requests.forbidden).toBe(1);
     }
   });
+
+  it("cross-origin-redirect: refuses a redirect before it leaves the fence", async () => {
+    const tally = emptyCoordinatePreviewTally();
+    const route = routeFor({
+      method: "GET",
+      url: `${scrydexCacheCaptureOrigin}/api/catalog/source-observations/provider-profiles`,
+    });
+    route.fetch = vi.fn(async () => ({ headers: () => ({ location: "https://example.invalid/redirect" }) }));
+    await createCoordinatePreviewRouteHandler({ phase: "capture", tally })(route);
+    expect(route.abort).toHaveBeenCalledWith("blockedbyclient");
+    expect(tally.forbiddenCalls[0]).toContain(
+      "cross-origin-redirect:GET:-api-catalog-source-observations-provider-profiles",
+    );
+  });
+
+  it("request-failed: records a failed allowed fetch as a refusal", async () => {
+    const tally = emptyCoordinatePreviewTally();
+    const route = routeFor({
+      method: "GET",
+      url: `${scrydexCacheCaptureOrigin}/api/catalog/source-observations/provider-profiles`,
+    });
+    route.fetch = vi.fn(async () => {
+      throw new Error("synthetic transport failure");
+    });
+    await createCoordinatePreviewRouteHandler({ phase: "capture", tally })(route);
+    expect(route.abort).toHaveBeenCalledWith("failed");
+    expect(tally.requests.forbidden).toBe(1);
+  });
 });
 
 describe("artifact *", () => {
@@ -670,6 +836,19 @@ describe("artifact *", () => {
     );
   };
 
+  const rawArtifact = async (candidate, env, workspace, suffix = "") => {
+    const directory = join(workspace, "artifacts", "catalog-scrydex-coordinate-preview");
+    await mkdir(directory, { recursive: true });
+    await mkdir(env.RUNNER_TEMP, { recursive: true });
+    const serialized = `${JSON.stringify(candidate)}${suffix}`;
+    const bytes = Buffer.from(serialized);
+    await writeFile(join(directory, "capture.json"), bytes);
+    await writeFile(
+      join(env.RUNNER_TEMP, "catalog-scrydex-coordinate-preview-seal.json"),
+      JSON.stringify({ identity: runner, sha256: createHash("sha256").update(bytes).digest("hex") }),
+    );
+  };
+
   it("complete: writes and validates one sealed artifact", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
     directories.push(workspace);
@@ -683,10 +862,74 @@ describe("artifact *", () => {
     await expect(validateCoordinatePreviewUpload(env, workspace)).resolves.toMatchObject({ captureStatus: "complete" });
   });
 
+  it("producer-artifact-complete: projects the live preview before writing", async () => {
+    const tally = emptyCoordinatePreviewTally();
+    tally.requests.signIn = 2;
+    tally.requests.previewPosts = 1;
+    tally.requests.usageReads = 1;
+    const observed = await buildProducer({ page: fakeProducerPage(), tally })();
+    const candidate = await runScrydexCoordinatePreview({
+      runner,
+      credentialsPresent: true,
+      selectDeployment: async () => ({ generation, stop: null }),
+      signIn: async () => undefined,
+      produce: async () => observed,
+      now: (() => {
+        const values = ["2026-10-24T08:00:00.000Z", "2026-10-24T08:30:00.000Z"];
+        return () => values.shift();
+      })(),
+    });
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    expect(validateScrydexCoordinatePreviewReceipt(candidate)).toEqual([]);
+    await writeCoordinatePreviewArtifact(candidate, [], env, workspace, runner);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).resolves.toMatchObject({ captureStatus: "complete" });
+  });
+
+  it("forbidden-call: merges and validates a fenced refusal receipt", async () => {
+    const tally = emptyCoordinatePreviewTally();
+    tally.requests.signIn = 1;
+    tally.requests.forbidden = 1;
+    tally.forbiddenCalls.push("ambient-read:GET:-assets-app.js");
+    const candidate = mergeObservedCoordinatePreviewReceipt(
+      {
+        runner,
+        deployment: { before: generation, after: generation },
+        startedAt: "2026-10-24T08:00:00.000Z",
+        finishedAt: "2026-10-24T08:30:00.000Z",
+      },
+      {
+        requests: tally.requests,
+        forbiddenCalls: tally.forbiddenCalls,
+        usageRead: { count: 0, allowed: false },
+      },
+    );
+    expect(candidate.reasons).toContain("forbidden-call");
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeCoordinatePreviewArtifact(candidate, [], env, workspace, runner);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).resolves.toMatchObject({
+      captureStatus: "governed-unknown",
+    });
+  });
+
   it("governed-unknown: keeps a missing credential as a diagnostic and never promotes it", () => {
     const candidate = receipt();
     candidate.outcome = "governed-unknown";
     candidate.reasons = ["credentials-missing"];
+    expect(validateScrydexCoordinatePreviewReceipt(candidate)).toEqual([]);
+  });
+
+  it("governed-unknown: preserves producer and refusal diagnostics", () => {
+    const candidate = receipt();
+    candidate.outcome = "governed-unknown";
+    candidate.reasons = ["deployment-before:selection-failed", "producer-failed:bracket-changed", "forbidden-call"];
+    candidate.requests.forbidden = 1;
+    candidate.forbiddenCalls = ["ambient-read:GET:-assets-app.js"];
     expect(validateScrydexCoordinatePreviewReceipt(candidate)).toEqual([]);
   });
 
@@ -703,13 +946,103 @@ describe("artifact *", () => {
 
   it("artifact-too-large: rejects a receipt that exceeds the one megabyte cap", async () => {
     const candidate = receipt();
-    candidate.reasons = ["producer-failed:bracket-changed", "scrydex-scope-planning-blocked"];
-    candidate.outcome = "governed-unknown";
+    candidate.padding = "x".repeat(1_000_001);
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await expect(writeCoordinatePreviewArtifact(candidate, [], env, workspace, runner)).rejects.toThrow(
+      "artifact-size",
+    );
+    await rawArtifact(receipt(), env, workspace, " ".repeat(1_000_001));
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-size");
+  });
+
+  it("writer-leak: refuses a credential marker before writing", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    const candidate = receipt();
     candidate.preview.blockers = [
-      { code: "scope-planning-blocked", scopeRecordId: null, providerKey: "scrydex", message: "x".repeat(500) },
+      { code: "scope-planning-blocked", scopeRecordId: null, providerKey: "scrydex", message: env.GH_TOKEN },
     ];
-    expect(validateScrydexCoordinatePreviewReceipt(candidate)).toEqual([]);
-    expect(Buffer.byteLength(JSON.stringify(candidate))).toBeLessThan(1_000_000);
+    candidate.reasons = ["scrydex-scope-planning-blocked"];
+    candidate.outcome = "governed-unknown";
+    await expect(writeCoordinatePreviewArtifact(candidate, [env.GH_TOKEN], env, workspace, runner)).rejects.toThrow(
+      "artifact-invalid",
+    );
+  });
+
+  it("validator-credential: refuses a credential marker already on disk", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    const candidate = receipt();
+    candidate.preview.blockers = [
+      { code: "scope-planning-blocked", scopeRecordId: null, providerKey: "scrydex", message: env.GH_TOKEN },
+    ];
+    candidate.reasons = ["scrydex-scope-planning-blocked"];
+    candidate.outcome = "governed-unknown";
+    await rawArtifact(candidate, env, workspace);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("credential-marker");
+  });
+
+  it("validator-receipt: refuses an invalid receipt", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    const candidate = receipt();
+    candidate.outcome = "governed-unknown";
+    await rawArtifact(candidate, env, workspace);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-invalid");
+  });
+
+  it("validator-seal: refuses a seal for another digest", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeCoordinatePreviewArtifact(receipt(), [], env, workspace, runner);
+    await writeFile(
+      join(env.RUNNER_TEMP, "catalog-scrydex-coordinate-preview-seal.json"),
+      JSON.stringify({ identity: runner, sha256: "0".repeat(64) }),
+    );
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("seal-mismatch");
+  });
+
+  it("validator-runner: refuses a receipt bound to another run", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    const candidate = receipt();
+    candidate.runner = { ...runner, runId: "999999" };
+    await rawArtifact(candidate, env, workspace);
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("runner-mismatch");
+  });
+
+  it("validator-directory-shape: refuses extra artifact entries", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeCoordinatePreviewArtifact(receipt(), [], env, workspace, runner);
+    await writeFile(join(workspace, "artifacts", "catalog-scrydex-coordinate-preview", "extra.json"), "x");
+    await expect(validateCoordinatePreviewUpload(env, workspace)).rejects.toThrow("artifact-shape");
+  });
+
+  it("artifact-directory: refuses a symlinked or non-directory path segment", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "scrydex-coordinate-preview-"));
+    directories.push(workspace);
+    const env = runnerEnv();
+    directories.push(env.RUNNER_TEMP);
+    await writeFile(join(workspace, "artifacts"), "not-a-directory");
+    await expect(writeCoordinatePreviewArtifact(receipt(), [], env, workspace, runner)).rejects.toThrow(
+      "artifact-directory",
+    );
   });
 });
 
@@ -723,5 +1056,16 @@ describe("bounded read", () => {
       "/api/x",
       expect.objectContaining({ credentials: "same-origin", redirect: "error", cache: "no-store" }),
     );
+  });
+
+  it("refuses an oversized body by the in-page byte cap", async () => {
+    await expect(
+      readCoordinatePreviewResponseInPage({
+        path: "/api/x",
+        deadlineMs: 1000,
+        byteCap: 2,
+        fetchImpl: vi.fn(async () => new Response("too-large", { status: 200 })),
+      }),
+    ).rejects.toThrow("read-cap");
   });
 });

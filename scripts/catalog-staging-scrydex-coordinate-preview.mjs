@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runScrydexCoordinatePreview } from "../bounded-contexts/catalog/features/scope-sync-batches/api/scrydex-coordinate-preview-runner.ts";
+import {
+  mergeObservedCoordinatePreviewReceipt,
+  runScrydexCoordinatePreview,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/api/scrydex-coordinate-preview-runner.ts";
 import {
   classifyScrydexCoordinatePreviewRequest,
   scrydexCoordinatePreviewIsolationPath,
@@ -22,6 +25,7 @@ import {
   scrydexCacheCaptureProductDomains,
   scrydexCacheCaptureQueryHrefUnit,
   scrydexCacheCaptureScopePagePath,
+  scrydexCacheCaptureScopePageLimit,
   scrydexCacheCaptureUnits,
   scrydexCacheCaptureCoordinate,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-cache-capture.ts";
@@ -42,9 +46,6 @@ export const coordinatePreviewReadDeadlineMs = 30_000;
 export const coordinatePreviewReadByteCaps = Object.freeze({ profiles: 4_000_000, page: 1_000_000 });
 export const coordinatePreviewDeployWindowSeconds = 86_400;
 export const coordinatePreviewIsolationDocument = '<!doctype html><meta charset="utf-8">';
-export const captureReadDeadlineMs = coordinatePreviewReadDeadlineMs;
-export const captureReadByteCaps = coordinatePreviewReadByteCaps;
-export const captureDeployWindowSeconds = coordinatePreviewDeployWindowSeconds;
 
 export function coordinatePreviewRunnerIdentity(env) {
   if (
@@ -67,10 +68,6 @@ export function coordinatePreviewRunnerIdentity(env) {
   };
 }
 
-// Compatibility name used by the sibling cache wrapper and by the focused
-// matrix. The returned identity is the coordinate-preview runner identity.
-export const captureRunnerIdentity = coordinatePreviewRunnerIdentity;
-
 export async function selectCoordinatePreviewDeployment(token, select = selectStagingDeployGeneration) {
   const result = await select({
     token,
@@ -86,8 +83,6 @@ export async function selectCoordinatePreviewDeployment(token, select = selectSt
   };
 }
 
-export const selectCaptureDeployment = selectCoordinatePreviewDeployment;
-
 export function emptyCoordinatePreviewTally() {
   return {
     requests: {
@@ -101,7 +96,6 @@ export function emptyCoordinatePreviewTally() {
       forbidden: 0,
     },
     forbiddenCalls: [],
-    phases: ["sign-in"],
   };
 }
 
@@ -118,13 +112,13 @@ function refuseRoute(tally, request, reason) {
   tally.requests.forbidden += 1;
   if (tally.forbiddenCalls.length < 100) {
     const method = typeof request.method === "function" ? request.method() : request.method;
-    tally.forbiddenCalls.push(
-      `${String(reason)
-        .replace(/[^a-z0-9:-]/gi, "-")
-        .slice(0, 64)}:${String(method).toUpperCase()}:${requestPath(request)
-        .replace(/[^a-z0-9/_:.?-]/gi, "")
-        .slice(0, 200)}`,
-    );
+    const reasonHead = String(reason)
+      .replace(/[^a-z0-9:-]/gi, "-")
+      .slice(0, 64);
+    const requestTail = requestPath(request)
+      .replace(/[^a-z0-9._:-]/gi, "-")
+      .slice(0, 200);
+    tally.forbiddenCalls.push(`${reasonHead}:${String(method).toUpperCase()}:${requestTail}`);
   }
 }
 
@@ -188,9 +182,6 @@ export function createCoordinatePreviewRouteHandler({ phase = () => "sign-in", t
   };
 }
 
-export const createRouteHandler = createCoordinatePreviewRouteHandler;
-export const fenceCoordinatePreviewRoute = createCoordinatePreviewRouteHandler;
-
 export async function readCoordinatePreviewResponseInPage({
   path,
   method = "GET",
@@ -199,29 +190,46 @@ export async function readCoordinatePreviewResponseInPage({
   byteCap = coordinatePreviewReadByteCaps.page,
   fetchImpl = fetch,
 }) {
+  const refusal = (reason) => new Error(`scrydex-coordinate-preview-refused:${reason}`);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deadlineMs);
   try {
-    const response = await fetchImpl(path, {
-      method,
-      credentials: "same-origin",
-      redirect: "error",
-      cache: "no-store",
-      headers: { accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!response.body) throw refused("read-body");
+    let response;
+    try {
+      response = await fetchImpl(path, {
+        method,
+        credentials: "same-origin",
+        redirect: "error",
+        cache: "no-store",
+        headers: { accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) throw refusal("read-timeout");
+      throw error;
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return { status: response.status, text: "" };
+    }
+    if (!response.body) throw refusal("read-body");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let bytes = 0;
     let text = "";
     try {
       while (true) {
-        const chunk = await reader.read();
+        let chunk;
+        try {
+          chunk = await reader.read();
+        } catch (error) {
+          if (controller.signal.aborted) throw refusal("read-timeout");
+          throw error;
+        }
         if (chunk.done) break;
         bytes += chunk.value.byteLength;
-        if (bytes > byteCap) throw refused("read-cap");
+        if (bytes > byteCap) throw refusal("read-cap");
         text += decoder.decode(chunk.value, { stream: true });
       }
       return { status: response.status, text: text + decoder.decode() };
@@ -235,13 +243,25 @@ export async function readCoordinatePreviewResponseInPage({
 }
 
 async function readJson(page, path, options = {}) {
-  const result = await page.evaluate(readCoordinatePreviewResponseInPage, {
-    path,
-    method: options.method,
-    body: options.body,
-    deadlineMs: options.deadlineMs ?? coordinatePreviewReadDeadlineMs,
-    byteCap: options.byteCap ?? coordinatePreviewReadByteCaps.page,
-  });
+  const deadlineMs = options.deadlineMs ?? coordinatePreviewReadDeadlineMs;
+  let timer;
+  let result;
+  try {
+    result = await Promise.race([
+      page.evaluate(readCoordinatePreviewResponseInPage, {
+        path,
+        method: options.method,
+        body: options.body,
+        deadlineMs,
+        byteCap: options.byteCap ?? coordinatePreviewReadByteCaps.page,
+      }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(refused("read-timeout")), deadlineMs + 5_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
   if (!result || result.status !== 200) throw refused(options.failure ?? "read-failed");
   try {
     return JSON.parse(result.text);
@@ -249,8 +269,6 @@ async function readJson(page, path, options = {}) {
     throw refused(options.failure ?? "read-malformed");
   }
 }
-
-export const readCatalogJsonInPage = readCoordinatePreviewResponseInPage;
 
 function optionRequests(profiles, unitKey) {
   return buildCatalogPrimaryWorkbenchSourceOptionRequests({
@@ -267,7 +285,7 @@ function optionRequests(profiles, unitKey) {
   );
 }
 
-async function readOptionUnit(page, unit, profiles) {
+async function readOptionUnit(page, unit, profiles, readDeadlineMs) {
   const request = optionRequests(profiles, unit.unitKey).find(
     (candidate) => candidate.ingestionUnitKey === unit.unitKey,
   );
@@ -277,6 +295,7 @@ async function readOptionUnit(page, unit, profiles) {
   const values = [];
   let cursor = null;
   let cache = null;
+  let total = null;
   const seen = new Set();
   for (;;) {
     if (pages.length >= scrydexCacheCaptureMaxContinuationPages)
@@ -286,6 +305,7 @@ async function readOptionUnit(page, unit, profiles) {
         ? new URL(request.queryHref, origin).pathname + new URL(request.queryHref, origin).search
         : scrydexCacheCaptureContinuationPath(request.queryHref, cursor);
     const body = await readJson(page, path, {
+      deadlineMs: readDeadlineMs,
       byteCap: coordinatePreviewReadByteCaps.page,
       failure: `option-read-failed:${unit.unitKey}`,
     });
@@ -293,7 +313,9 @@ async function readOptionUnit(page, unit, profiles) {
     if (!decoded.ok) throw refused(`${decoded.reason}:${unit.unitKey}`);
     if (cache && JSON.stringify(cache) !== JSON.stringify(decoded.page.cache))
       throw refused(`cache-identity-changed:${unit.unitKey}`);
+    if (total !== null && total !== decoded.page.total) throw refused(`cache-identity-changed:${unit.unitKey}`);
     cache ??= decoded.page.cache;
+    total ??= decoded.page.total;
     pages.push(decoded.page);
     values.push(...decoded.page.values);
     if (decoded.page.nextCursor === null) break;
@@ -301,14 +323,16 @@ async function readOptionUnit(page, unit, profiles) {
     seen.add(decoded.page.nextCursor);
     cursor = decoded.page.nextCursor;
   }
+  if (values.length !== total) throw refused(`cache-incomplete:${unit.unitKey}`);
   return { unit, profileKey: request.profileKey, queryHref: request.queryHref, cache, pages, values };
 }
 
-async function readInventory(page, productDomain) {
+async function readInventory(page, productDomain, readDeadlineMs) {
   const ids = [];
   let total = null;
-  for (let offset = 0; offset < 50; ) {
+  for (let offset = 0; offset < scrydexCacheCaptureScopePageLimit; ) {
     const body = await readJson(page, scrydexCacheCaptureScopePagePath(productDomain, offset), {
+      deadlineMs: readDeadlineMs,
       byteCap: coordinatePreviewReadByteCaps.page,
       failure: `scope-inventory-unreadable:${productDomain}`,
     });
@@ -324,8 +348,9 @@ async function readInventory(page, productDomain) {
   throw refused(`scope-inventory-cap:${productDomain}`);
 }
 
-async function readCoverage(page, scopeRecordId, productDomain) {
+async function readCoverage(page, scopeRecordId, productDomain, readDeadlineMs) {
   const body = await readJson(page, scrydexCacheCaptureCoveragePath(scopeRecordId), {
+    deadlineMs: readDeadlineMs,
     byteCap: coordinatePreviewReadByteCaps.page,
     failure: `coverage-read-failed:${scopeRecordId}`,
   });
@@ -337,24 +362,61 @@ async function readCoverage(page, scopeRecordId, productDomain) {
 function projectionFromPreview(preview) {
   if (!preview || typeof preview !== "object" || !preview.selection || !Array.isArray(preview.samples))
     throw refused("preview-malformed");
-  return preview;
+  const required = (value, key) => {
+    if (!value || typeof value !== "object") throw refused("preview-malformed");
+    if (!Object.prototype.hasOwnProperty.call(value, key)) throw refused("preview-malformed");
+    return value[key];
+  };
+  const selection = required(preview, "selection");
+  if (!selection || typeof selection !== "object" || required(selection, "mode") !== "ids")
+    throw refused("preview-malformed");
+  const scopeRecordIds = required(selection, "scopeRecordIds");
+  if (!Array.isArray(scopeRecordIds)) throw refused("preview-malformed");
+  const samples = preview.samples.map((sample) => {
+    if (!sample || typeof sample !== "object") throw refused("preview-malformed");
+    const mappingVersions = required(sample, "mappingVersions");
+    const profileVersions = required(sample, "profileVersions");
+    if (!Array.isArray(mappingVersions) || !Array.isArray(profileVersions)) throw refused("preview-malformed");
+    return {
+      scopeRecordId: required(sample, "scopeRecordId"),
+      mappingVersions: mappingVersions.map((mapping) => ({
+        mappingId: required(mapping, "mappingId"),
+        version: required(mapping, "version"),
+        reviewStatus: required(mapping, "reviewStatus"),
+      })),
+      profileVersions: profileVersions.map((profile) => ({
+        providerKey: required(profile, "providerKey"),
+        unitKey: required(profile, "unitKey"),
+        profileKey: required(profile, "profileKey"),
+        profileVersion: required(profile, "profileVersion"),
+      })),
+    };
+  });
+  const blockers = required(preview, "blockers");
+  if (!Array.isArray(blockers)) throw refused("preview-malformed");
+  return {
+    planFingerprint: required(preview, "planFingerprint"),
+    status: required(preview, "status"),
+    confirmAllowed: required(preview, "confirmAllowed"),
+    resolvedAt: required(preview, "resolvedAt"),
+    selection: { mode: "ids", scopeRecordIds },
+    samples,
+    blockers: blockers.map((blocker) => ({
+      code: required(blocker, "code"),
+      scopeRecordId: required(blocker, "scopeRecordId"),
+      providerKey: required(blocker, "providerKey"),
+      message: required(blocker, "message"),
+    })),
+  };
 }
 
 function rowsFromSources(preview, options, mappingsByScope) {
   const samples = new Map(preview.samples.map((sample) => [sample.scopeRecordId, sample]));
   return scrydexCacheCaptureUnits.map((unit) => {
-    const scopeRecordId =
-      unit.productDomain === "one-piece"
-        ? preview.selection.scopeRecordIds.find(
-            (id) =>
-              mappingsByScope.has(id) &&
-              (mappingsByScope.get(id) ?? []).some((mapping) => mapping.unitKey === unit.unitKey),
-          )
-        : preview.selection.scopeRecordIds.find(
-            (id) =>
-              mappingsByScope.has(id) &&
-              (mappingsByScope.get(id) ?? []).some((mapping) => mapping.unitKey === unit.unitKey),
-          );
+    const scopeRecordId = preview.selection.scopeRecordIds.find(
+      (id) =>
+        mappingsByScope.has(id) && (mappingsByScope.get(id) ?? []).some((mapping) => mapping.unitKey === unit.unitKey),
+    );
     const mapping = (mappingsByScope.get(scopeRecordId) ?? []).find((candidate) => candidate.unitKey === unit.unitKey);
     const option = options.get(unit.unitKey);
     const sample = samples.get(scopeRecordId);
@@ -383,86 +445,93 @@ function rowsFromSources(preview, options, mappingsByScope) {
 
 export function buildProducer({ page, tally = null, readDeadlineMs = coordinatePreviewReadDeadlineMs } = {}) {
   if (!page) throw new TypeError("coordinate-preview-page-required");
-  return async function produce() {
-    const phases = ["sign-in"];
-    const profileBody = await readJson(page, scrydexCacheCaptureProfilesPath, {
-      deadlineMs: readDeadlineMs,
-      byteCap: coordinatePreviewReadByteCaps.profiles,
-      failure: "profiles-unreadable",
-    });
-    const profiles = decodeScrydexCacheCaptureProfiles(profileBody);
-    if (!profiles.ok) throw refused(profiles.reason);
-    const usageBody = await readJson(page, usagePath, { deadlineMs: readDeadlineMs, failure: "usage-read-failed" });
-    if (!usageBody || typeof usageBody !== "object") throw refused("usage-read-failed");
+  if (!tally) throw new TypeError("coordinate-preview-tally-required");
+  const produce = async function produce() {
+    try {
+      const phases = ["sign-in"];
+      const profileBody = await readJson(page, scrydexCacheCaptureProfilesPath, {
+        deadlineMs: readDeadlineMs,
+        byteCap: coordinatePreviewReadByteCaps.profiles,
+        failure: "profiles-unreadable",
+      });
+      const profiles = decodeScrydexCacheCaptureProfiles(profileBody);
+      if (!profiles.ok) throw refused(profiles.reason);
+      const usageBody = await readJson(page, usagePath, { deadlineMs: readDeadlineMs, failure: "usage-read-failed" });
+      if (!usageBody || typeof usageBody !== "object") throw refused("usage-read-failed");
 
-    phases.push("readiness");
-    const options = new Map();
-    for (const unit of scrydexCacheCaptureUnits)
-      options.set(unit.unitKey, await readOptionUnit(page, unit, profiles.profiles));
-    const mappingsByScope = new Map();
-    const selectedIds = [];
-    for (const productDomain of scrydexCacheCaptureProductDomains) {
-      const inventory = await readInventory(page, productDomain);
-      for (const scopeRecordId of inventory) {
-        const mappings = await readCoverage(page, scopeRecordId, productDomain);
-        mappingsByScope.set(scopeRecordId, mappings);
-        const required = scrydexCacheCaptureUnits
-          .filter((unit) => unit.productDomain === productDomain)
-          .map((unit) => unit.unitKey);
-        if (required.every((unitKey) => mappings.some((mapping) => mapping.unitKey === unitKey))) {
-          selectedIds.push(scopeRecordId);
-          break;
+      phases.push("readiness");
+      const options = new Map();
+      for (const unit of scrydexCacheCaptureUnits)
+        options.set(unit.unitKey, await readOptionUnit(page, unit, profiles.profiles, readDeadlineMs));
+      const mappingsByScope = new Map();
+      const selectedScopes = [];
+      for (const productDomain of scrydexCacheCaptureProductDomains) {
+        const inventory = await readInventory(page, productDomain, readDeadlineMs);
+        for (const scopeRecordId of inventory) {
+          const mappings = await readCoverage(page, scopeRecordId, productDomain, readDeadlineMs);
+          mappingsByScope.set(scopeRecordId, mappings);
+          const required = scrydexCacheCaptureUnits
+            .filter((unit) => unit.productDomain === productDomain)
+            .map((unit) => unit.unitKey);
+          if (required.every((unitKey) => mappings.some((mapping) => mapping.unitKey === unitKey))) {
+            selectedScopes.push({ scopeRecordId, productDomain });
+            break;
+          }
         }
       }
+      if (selectedScopes.length !== 2) throw refused("two-scopes-unavailable");
+      const selectedIds = selectedScopes.map(({ scopeRecordId }) => scopeRecordId);
+      const preview = projectionFromPreview(
+        await readJson(page, previewPath, {
+          method: "POST",
+          body: { selection: { mode: "ids", scopeRecordIds: selectedIds } },
+          deadlineMs: readDeadlineMs,
+          failure: "preview-post-failed",
+        }),
+      );
+      phases.push("preview");
+      const secondOptions = new Map();
+      for (const unit of scrydexCacheCaptureUnits) {
+        const next = await readOptionUnit(page, unit, profiles.profiles, readDeadlineMs);
+        const first = options.get(unit.unitKey);
+        if (JSON.stringify(first?.cache) !== JSON.stringify(next.cache)) throw refused("bracket-changed");
+        secondOptions.set(unit.unitKey, next);
+      }
+      for (const { scopeRecordId, productDomain } of selectedScopes) {
+        const next = await readCoverage(page, scopeRecordId, productDomain, readDeadlineMs);
+        if (JSON.stringify(next) !== JSON.stringify(mappingsByScope.get(scopeRecordId)))
+          throw refused("bracket-changed");
+      }
+      phases.push("pre-confirm");
+      return {
+        phases,
+        requests: { ...tally.requests },
+        usageRead: {
+          count: tally.requests.usageReads,
+          allowed:
+            usageBody?.allowed === true ||
+            usageBody?.providerReadiness?.providers?.some(
+              (provider) => provider.providerKey === "scrydex" && provider.usageBudget?.readiness === "ready",
+            ) === true,
+        },
+        forbiddenCalls: [...tally.forbiddenCalls],
+        preview,
+        rows: rowsFromSources(preview, secondOptions, mappingsByScope),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.startsWith("scrydex-coordinate-preview-refused:")) {
+        const code = message
+          .slice("scrydex-coordinate-preview-refused:".length)
+          .replace(/[^a-z0-9-]/gi, "-")
+          .slice(0, 64);
+        throw new Error(code || "producer-failed");
+      }
+      throw error;
     }
-    if (selectedIds.length !== 2) throw refused("two-scopes-unavailable");
-    const preview = projectionFromPreview(
-      await readJson(page, previewPath, {
-        method: "POST",
-        body: { selection: { mode: "ids", scopeRecordIds: selectedIds } },
-        deadlineMs: readDeadlineMs,
-        failure: "preview-post-failed",
-      }),
-    );
-    phases.push("preview");
-    const secondOptions = new Map();
-    for (const unit of scrydexCacheCaptureUnits) {
-      const next = await readOptionUnit(page, unit, profiles.profiles);
-      const first = options.get(unit.unitKey);
-      if (JSON.stringify(first?.cache) !== JSON.stringify(next.cache))
-        throw refused(`cache-identity-changed:${unit.unitKey}`);
-      secondOptions.set(unit.unitKey, next);
-    }
-    for (const scopeRecordId of selectedIds) {
-      const productDomain = scopeRecordId === selectedIds[0] ? "one-piece" : "lorcana";
-      const next = await readCoverage(page, scopeRecordId, productDomain);
-      if (JSON.stringify(next) !== JSON.stringify(mappingsByScope.get(scopeRecordId)))
-        throw refused(`mapping-changed:${scopeRecordId}`);
-    }
-    phases.push("pre-confirm");
-    return {
-      phases,
-      requests: tally?.requests
-        ? { ...tally.requests }
-        : {
-            signIn: 0,
-            profileReads: 0,
-            scopeInventoryReads: 0,
-            coverageReads: 0,
-            cacheOptionReads: 0,
-            previewPosts: 1,
-            usageReads: 1,
-            forbidden: 0,
-          },
-      usageRead: { count: 1, allowed: true },
-      forbiddenCalls: tally?.forbiddenCalls ? [...tally.forbiddenCalls] : [],
-      preview,
-      rows: rowsFromSources(preview, secondOptions, mappingsByScope),
-    };
   };
+  return produce;
 }
-
-export const createProducer = buildProducer;
 
 function paths(env, workspace) {
   if (!env.RUNNER_TEMP) throw refused("runner-temp");
@@ -472,30 +541,40 @@ function paths(env, workspace) {
   };
 }
 
+async function artifactDirectory(workspace, create) {
+  let directory = resolve(workspace);
+  for (const part of ["artifacts", "catalog-scrydex-coordinate-preview"]) {
+    directory = join(directory, part);
+    if (create) {
+      await mkdir(directory, { mode: 0o700 }).catch((error) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+    }
+    const info = await lstat(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw refused("artifact-directory");
+  }
+  return directory;
+}
+
 export async function writeCoordinatePreviewArtifact(receipt, forbiddenValues, env, workspace, identity) {
   const serialized = JSON.stringify(receipt);
-  if (
-    validateScrydexCoordinatePreviewReceipt(JSON.parse(serialized)).length ||
-    Buffer.byteLength(serialized) > 1_000_000 ||
-    forbiddenValues.some((value) => value && serialized.includes(value))
-  )
-    throw refused("artifact-invalid");
+  if (Buffer.byteLength(serialized) > 1_000_000) throw refused("artifact-size");
+  if (validateScrydexCoordinatePreviewReceipt(JSON.parse(serialized)).length) throw refused("artifact-invalid");
+  if (forbiddenValues.some((value) => value && serialized.includes(value))) throw refused("artifact-invalid");
   const files = paths(env, workspace);
-  await mkdir(dirname(files.artifact), { recursive: true, mode: 0o700 });
+  const directory = await artifactDirectory(workspace, true);
   await mkdir(dirname(files.seal), { recursive: true, mode: 0o700 });
-  if ((await readdir(dirname(files.artifact))).length !== 0) throw refused("artifact-directory-not-empty");
+  if ((await readdir(directory)).length !== 0) throw refused("artifact-directory-not-empty");
   await writeFile(files.artifact, serialized, { flag: "wx", mode: 0o600 });
   await writeFile(files.seal, JSON.stringify({ identity, sha256: digest(serialized) }), { flag: "wx", mode: 0o600 });
   return { path: files.artifact, sha256: digest(serialized) };
 }
 
-export const writePreviewArtifact = writeCoordinatePreviewArtifact;
-export const writeCaptureArtifact = writeCoordinatePreviewArtifact;
-
 export async function validateCoordinatePreviewUpload(env = process.env, workspace = process.cwd()) {
   const identity = coordinatePreviewRunnerIdentity(env);
   const files = paths(env, workspace);
-  const entries = await readdir(dirname(files.artifact), { withFileTypes: true });
+  const directory = await artifactDirectory(workspace, false);
+  const entries = await readdir(directory, { withFileTypes: true });
   if (entries.length !== 1 || entries[0].name !== artifactName || !entries[0].isFile()) throw refused("artifact-shape");
   const info = await lstat(files.artifact);
   if (!info.isFile() || info.isSymbolicLink() || info.size > 1_000_000) throw refused("artifact-size");
@@ -505,15 +584,13 @@ export async function validateCoordinatePreviewUpload(env = process.env, workspa
   const receipt = JSON.parse(serialized);
   const errors = validateScrydexCoordinatePreviewReceipt(receipt);
   if (errors.length) throw refused("artifact-invalid");
+  if (JSON.stringify(receipt.runner) !== JSON.stringify(identity)) throw refused("runner-mismatch");
   const sealInfo = await lstat(files.seal);
   if (!sealInfo.isFile() || sealInfo.isSymbolicLink() || sealInfo.size > 4096) throw refused("seal-shape");
   const seal = await readFile(files.seal, "utf8");
   if (seal !== JSON.stringify({ identity, sha256: digest(bytes) })) throw refused("seal-mismatch");
   return { captureStatus: receipt.outcome, reasons: receipt.reasons.length, sha256: digest(bytes) };
 }
-
-export const validatePreviewUpload = validateCoordinatePreviewUpload;
-export const validateCaptureUpload = validateCoordinatePreviewUpload;
 
 export async function capture(env = process.env, workspace = process.cwd()) {
   const identity = coordinatePreviewRunnerIdentity(env);
@@ -524,6 +601,7 @@ export async function capture(env = process.env, workspace = process.cwd()) {
   let page;
   let phase = "sign-in";
   let harvest;
+  let observed = {};
   try {
     const receipt = await runScrydexCoordinatePreview({
       runner: identity,
@@ -554,14 +632,35 @@ export async function capture(env = process.env, workspace = process.cwd()) {
         await page.goto(`${origin}${scrydexCoordinatePreviewIsolationPath}`, { waitUntil: "domcontentloaded" });
         phase = "capture";
       },
-      produce: async () => buildProducer({ page, tally, readDeadlineMs: coordinatePreviewReadDeadlineMs })(),
+      produce: async () => {
+        observed = await buildProducer({ page, tally, readDeadlineMs: coordinatePreviewReadDeadlineMs })();
+        return observed;
+      },
       now: () => new Date().toISOString(),
     });
     await Promise.allSettled([...(harvest?.cookieReads ?? [])]);
     if (harvest?.hasFailure()) throw refused("cookie-marker");
     if (context) addCookieMarkers(forbidden, await context.cookies());
-    const final = await writeCoordinatePreviewArtifact(receipt, [...forbidden], env, workspace, identity);
-    return { ...final, outcome: receipt.outcome, reasons: receipt.reasons };
+    const finalReceipt = mergeObservedCoordinatePreviewReceipt(
+      {
+        runner: receipt.runner,
+        deployment: receipt.deployment,
+        startedAt: receipt.startedAt,
+        finishedAt: receipt.finishedAt,
+        runnerReasons: receipt.reasons.filter((reason) =>
+          /^(?:credentials-missing|producer-failed(?::[a-z0-9-]{1,64})?|deployment-(?:before|after):[a-z0-9-]{1,64})$/.test(
+            reason,
+          ),
+        ),
+      },
+      {
+        ...observed,
+        requests: { ...tally.requests },
+        forbiddenCalls: [...tally.forbiddenCalls],
+      },
+    );
+    const final = await writeCoordinatePreviewArtifact(finalReceipt, [...forbidden], env, workspace, identity);
+    return { ...final, outcome: finalReceipt.outcome, reasons: finalReceipt.reasons };
   } finally {
     await Promise.allSettled([...(harvest?.cookieReads ?? [])]);
     await context?.close().catch(() => undefined);
@@ -573,8 +672,6 @@ export async function capture(env = process.env, workspace = process.cwd()) {
 export function coordinatePreviewExitCode(receipt) {
   return receipt?.outcome === "complete" ? 0 : 1;
 }
-
-export const captureExitCode = coordinatePreviewExitCode;
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
