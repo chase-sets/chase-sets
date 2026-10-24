@@ -151,7 +151,11 @@ describe("whole-game repair regressions", () => {
       expect: () => ({
         toBeVisible: async () => {},
         toHaveAttribute: async () => {
-          if (!expanded) throw new rehearsal.WholeGameDeadlineReached();
+          if (!expanded) {
+            const error = new Error("review-changes stage did not expand before its deadline");
+            error.name = "TimeoutError";
+            throw error;
+          }
         },
         toHaveCount: async () => {},
       }),
@@ -166,9 +170,9 @@ describe("whole-game repair regressions", () => {
       readActivePromoteJobs: async () => [],
     });
     vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
-    await expect(context.submitPromoteAllReady(page, "scope-1", [], runtime)).rejects.toBeInstanceOf(
-      rehearsal.WholeGameDeadlineReached,
-    );
+    await expect(context.submitPromoteAllReady(page, "scope-1", [], runtime)).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
     expect(posted).toBe(false);
   });
 

@@ -4194,25 +4194,18 @@ async function expandWorkflowStage(page: Page, stage: WorkflowStageKey, timeoutM
   const deadline = Date.now() + timeoutMs;
   const remaining = (): number => {
     const value = deadline - Date.now();
-    if (value <= 0) throw new WholeGameDeadlineReached();
+    if (value <= 0) {
+      const error = new Error(`${stage} stage did not expand before its deadline`);
+      error.name = "TimeoutError";
+      throw error;
+    }
     return value;
   };
   await expect(trigger).toBeVisible({ timeout: remaining() });
   while (true) {
-    let expanded: string | null = null;
-    try {
-      expanded = await trigger.getAttribute("aria-expanded", { timeout: remaining() });
-    } catch (error) {
-      if (Date.now() >= deadline) throw new WholeGameDeadlineReached();
-      throw error;
-    }
+    const expanded = await trigger.getAttribute("aria-expanded", { timeout: remaining() });
     if (expanded === "true") break;
-    try {
-      await trigger.click({ timeout: remaining() });
-    } catch (error) {
-      if (Date.now() >= deadline) throw new WholeGameDeadlineReached();
-      throw error;
-    }
+    await trigger.click({ timeout: remaining() });
     await page.waitForTimeout(Math.min(250, remaining()));
   }
   await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: remaining() });
@@ -8060,6 +8053,23 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       expect(calls.filter((call) => call.startsWith("POST "))).toEqual([]);
     });
   }
+  test("AC2 collapsed review-stage expansion rejects before promotion", async ({ page }) => {
+    test.setTimeout(10_000);
+    const calls = await serveWholeGameFixture(page, (request) => {
+      if (request.path === "/api/catalog/source-observations/bulk-jobs/active") return { json: { items: [] } };
+      if (request.path === "/catalog/scopes/scope-1") {
+        return {
+          html: `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form></div>`,
+        };
+      }
+      return undefined;
+    });
+    const runtime: WholeGameRuntime = { deadlineAt: Date.now() + 1_000, pollMs: 10 };
+    await expect(submitPromoteAllReady(page, "scope-1", [], runtime)).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+    expect(calls.filter((call) => call.startsWith("POST /catalog/scopes/scope-1"))).toEqual([]);
+  });
   for (const [status, circuitOpen, retryFailed, resumeCancelled, expectedState, expectedIntent] of [
     ["queued", false, false, false, "running", null],
     ["running", false, false, false, "running", null],
