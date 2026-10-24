@@ -244,6 +244,20 @@
       "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
+      "purpose": "application-runtime"
     }
   ]
 }
