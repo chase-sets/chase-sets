@@ -171,7 +171,7 @@
       "viewport": { "width": 360, "height": 800 },
       "target": {
         "identity": "apply-goal-confirmation",
-        "selector": "[role='dialog']",
+        "selector": "[role='alertdialog']",
         "populatedSelector": "button"
       },
       "measurements": [
@@ -201,7 +201,7 @@
       "viewport": { "width": 390, "height": 844 },
       "target": {
         "identity": "apply-goal-confirmation",
-        "selector": "[role='dialog']",
+        "selector": "[role='alertdialog']",
         "populatedSelector": "button"
       },
       "measurements": [
@@ -231,7 +231,7 @@
       "viewport": { "width": 820, "height": 1180 },
       "target": {
         "identity": "apply-goal-confirmation",
-        "selector": "[role='dialog']",
+        "selector": "[role='alertdialog']",
         "populatedSelector": "button"
       },
       "measurements": [

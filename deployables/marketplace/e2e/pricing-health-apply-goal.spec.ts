@@ -153,7 +153,9 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
     // F8 control: the applied candidate must not hold every listing.
     expect(candidate.held).not.toBe(candidate.listingCount);
 
-    await page.goto(`/account/desk/pricing-health?policyId=${created.policyId}`);
+    const implicitHealth = await readJson<HealthResponse>(page.request.get(healthApi), 200);
+    expect(implicitHealth.target?.policyId, "The implicit target is not the created policy.").toBe(created.policyId);
+    await page.goto("/account/desk/pricing-health");
     const apply = page.getByRole("button", { name: "Apply goal", exact: true }).first();
     await expect(apply).toBeVisible();
 
