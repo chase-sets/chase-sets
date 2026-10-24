@@ -23,7 +23,8 @@ const { path: signInPath, email, password } = users[app];
 const browser = await chromium.launch();
 const context = await browser.newContext();
 const page = await context.newPage();
-page.setDefaultTimeout(5_000);
+// A dev server compiles each page on its first request, which can take most of a minute.
+page.setDefaultTimeout(60_000);
 await page.goto(`${base}${signInPath}`, { waitUntil: "domcontentloaded", timeout: 240_000 });
 const deadline = Date.now() + 240_000;
 let signedIn = false;

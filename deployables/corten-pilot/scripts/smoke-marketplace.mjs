@@ -138,12 +138,13 @@ async function context(javaScriptEnabled) {
   await page.waitForURL(/attempt=/);
   await settled(page);
   check((await status(page)) === text.uncertain, "an unknown attempt is uncertain");
-  check(await page.locator("#create-form fieldset").isDisabled(), "writes are off while it is uncertain");
+  const createButton = page.locator("#create-form").getByRole("button", { name: "Create location" });
+  check(await createButton.isDisabled(), "writes are off while it is uncertain");
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Discard recovery metadata" }).click();
   await page.waitForURL((u) => !u.searchParams.has("attempt"));
   await settled(page);
-  check((await status(page)) === text.ready && !(await page.locator("#create-form fieldset").isDisabled()), "discarding the record turns writes back on");
+  check((await status(page)) === text.ready && (await createButton.isEnabled()), "discarding the record turns writes back on");
 
   await card(page, `Smoke ${stamp} saved`).getByRole("button", { name: "Archive location" }).click();
   await page.waitForURL(/family=location-archive/);
