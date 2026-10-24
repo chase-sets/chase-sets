@@ -32,8 +32,7 @@ export type ScrydexCoordinatePreviewRunnerInput = Readonly<{
   credentialsPresent: boolean;
   selectDeployment: () => Promise<ScrydexCoordinatePreviewDeploymentSelection>;
   signIn: () => Promise<void>;
-  produce?: () => Promise<ScrydexCoordinatePreviewObserved>;
-  producer?: () => Promise<ScrydexCoordinatePreviewObserved>;
+  produce: () => Promise<ScrydexCoordinatePreviewObserved>;
   now: () => string;
 }>;
 
@@ -50,7 +49,8 @@ export function mergeObservedCoordinatePreviewReceipt(
   }>,
   observed: ScrydexCoordinatePreviewObserved,
 ): ScrydexCoordinatePreviewReceipt {
-  const requests = clampRequests(observed.requests);
+  const forbiddenCalls = [...(observed.forbiddenCalls ?? [])].slice(0, scrydexCoordinatePreviewMaxForbiddenCalls);
+  const requests = clampRequests(observed.requests, forbiddenCalls.length);
   const usageRead: ObservedUsageRead = {
     count: clampTally(observed.usageRead?.count),
     allowed: observed.usageRead?.allowed === true,
@@ -63,7 +63,7 @@ export function mergeObservedCoordinatePreviewReceipt(
     phases: normalizePhases(observed.phases),
     requests,
     usageRead,
-    forbiddenCalls: [...(observed.forbiddenCalls ?? [])].slice(0, scrydexCoordinatePreviewMaxForbiddenCalls),
+    forbiddenCalls,
     preview: observed.preview ?? null,
     rows: [...(observed.rows ?? [])],
   };
@@ -102,15 +102,10 @@ export async function runScrydexCoordinatePreview(
         runnerReasons.add("producer-failed:sign-in");
       }
       if (signedIn) {
-        const produce = input.produce ?? input.producer;
-        if (!produce) {
-          runnerReasons.add("producer-failed");
-        } else {
-          try {
-            observed = (await produce()) ?? {};
-          } catch (error) {
-            runnerReasons.add(producerFailureReason(error));
-          }
+        try {
+          observed = (await input.produce()) ?? {};
+        } catch (error) {
+          runnerReasons.add(producerFailureReason(error));
         }
       }
       after = await selectDeployment(input.selectDeployment);
@@ -152,7 +147,7 @@ function producerFailureReason(error: unknown): string {
   return /^[a-z0-9-]{1,64}$/.test(message) ? `producer-failed:${message}` : "producer-failed";
 }
 
-function clampRequests(input: Partial<ObservedRequests> | undefined): ObservedRequests {
+function clampRequests(input: Partial<ObservedRequests> | undefined, forbiddenCallsLength: number): ObservedRequests {
   return {
     signIn: clampTally(input?.signIn),
     profileReads: clampTally(input?.profileReads),
@@ -161,7 +156,7 @@ function clampRequests(input: Partial<ObservedRequests> | undefined): ObservedRe
     cacheOptionReads: clampTally(input?.cacheOptionReads),
     previewPosts: clampTally(input?.previewPosts),
     usageReads: clampTally(input?.usageReads),
-    forbidden: clampTally(input?.forbidden),
+    forbidden: Math.max(clampTally(input?.forbidden), clampTally(forbiddenCallsLength)),
   };
 }
 
@@ -171,7 +166,7 @@ function clampTally(value: number | undefined): number {
 }
 
 function normalizePhases(phases: readonly string[] | undefined): ScrydexCoordinatePreviewEvidence["phases"] {
-  return (phases ?? []).filter((phase): phase is ScrydexCoordinatePreviewEvidence["phases"][number] =>
-    ["sign-in", "readiness", "preview", "pre-confirm"].includes(phase),
-  );
+  const known = new Set(["sign-in", "readiness", "preview", "pre-confirm"]);
+  if (!phases || phases.some((phase) => !known.has(phase))) return [];
+  return [...phases] as ScrydexCoordinatePreviewEvidence["phases"];
 }

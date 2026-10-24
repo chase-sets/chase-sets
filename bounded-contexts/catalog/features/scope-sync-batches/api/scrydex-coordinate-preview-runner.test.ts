@@ -219,24 +219,26 @@ describe("chain", () => {
         "synthetic-scope-one-piece",
       ),
     ).toBeNull();
+    expect(
+      scrydexCacheCaptureCoordinate(
+        {
+          mappingId: "synthetic-coordinate-refused-missing",
+          unitKey: "scrydex:one-piece:set:reference-data",
+          reviewStatus: "accepted",
+          version: startedAt,
+          setId: null,
+          setName: null,
+        },
+        "synthetic-scope-one-piece",
+      ),
+    ).toBeNull();
   });
 
-  it("red control: non-usage send", () => {
-    const receipt = run({
-      requests: { ...observed().requests, forbidden: 1 },
-      forbiddenCalls: ["provider:POST"],
-    });
-    expect(receipt.outcome).toBe("governed-unknown");
-    expect(receipt.reasons).toContain("forbidden-call");
-  });
-
-  it("complete", async () => {
+  async function executeChain(nonUsageSend = false) {
     const calls: string[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       calls.push(String(input));
-      if (String(input) !== "https://api.scrydex.com/account/v1/usage") {
-        throw new Error("non-usage provider send");
-      }
+      if (String(input) !== "https://api.scrydex.com/account/v1/usage") return Response.json({}, { status: 403 });
       return Response.json({
         data: {
           credits_remaining: 30,
@@ -283,8 +285,10 @@ describe("chain", () => {
         updated_at: startedAt,
       }),
     );
+    const dbStatements: string[] = [];
     const db: PgQueryable = {
       async query<Row>(sql: string) {
+        dbStatements.push(sql);
         return { rows: (sql.includes("FROM catalog_scope_records") ? records : mappings) as Row[] };
       },
     };
@@ -303,7 +307,10 @@ describe("chain", () => {
           providerAdapterRegistry: new ProviderAdapterRegistry([adapter, tcgplayer]),
         }),
     });
+    const zeroEffectCount = () => dbStatements.filter((sql) => !/^\s*SELECT\b/i.test(sql)).length;
+    const baselineZeroEffectCount = zeroEffectCount();
     const produce = async (): Promise<ScrydexCoordinatePreviewObserved> => {
+      if (nonUsageSend) await fetch("https://api.scrydex.com/onepiece/v1/expansions");
       const planned = await planner.resolve({
         selection: { mode: "ids", scopeRecordIds: records.map((record) => record.scope_record_id) },
         context,
@@ -374,8 +381,12 @@ describe("chain", () => {
             };
           }),
       );
+      const forbiddenCalls = calls
+        .filter((url) => url !== "https://api.scrydex.com/account/v1/usage")
+        .map(() => "provider:GET");
       return {
         phases: [...scrydexCoordinatePreviewPhases],
+        // Synthetic browser fence tallies are separate from provider transport calls.
         requests: {
           signIn: 1,
           profileReads: 0,
@@ -384,10 +395,10 @@ describe("chain", () => {
           cacheOptionReads: 0,
           previewPosts: 1,
           usageReads: 1,
-          forbidden: 0,
+          forbidden: forbiddenCalls.length,
         },
         usageRead: { count: 1, allowed: true },
-        forbiddenCalls: [],
+        forbiddenCalls,
         preview: previewProjection,
         rows: previewRows,
       };
@@ -400,11 +411,28 @@ describe("chain", () => {
       produce,
       now: vi.fn<() => string>().mockReturnValueOnce(startedAt).mockReturnValueOnce(finishedAt),
     });
+    return { receipt, calls, dbStatements, baselineZeroEffectCount, finalZeroEffectCount: zeroEffectCount() };
+  }
+
+  it("red control: non-usage send", async () => {
+    const { receipt } = await executeChain(true);
+    expect(receipt.outcome).toBe("governed-unknown");
+    expect(receipt.reasons).toContain("forbidden-call");
+    expect(receipt.requests.forbidden).toBe(1);
+    expect(receipt.forbiddenCalls).toEqual(["provider:GET"]);
+    expect(receipt.outcome === "complete").toBe(false);
+    expect(validateScrydexCoordinatePreviewReceipt(receipt)).toEqual([]);
+  });
+
+  it("complete", async () => {
+    const { receipt, calls, dbStatements, baselineZeroEffectCount, finalZeroEffectCount } = await executeChain();
     expect(receipt.outcome).toBe("complete");
     expect(receipt.requests.previewPosts).toBe(1);
     expect(receipt.requests.forbidden).toBe(0);
     expect(calls.length).toBeGreaterThan(0);
     expect(calls.every((url) => url === "https://api.scrydex.com/account/v1/usage")).toBe(true);
+    expect(dbStatements.every((sql) => /^\s*SELECT\b/i.test(sql))).toBe(true);
+    expect(finalZeroEffectCount).toBe(baselineZeroEffectCount);
     expect(receipt.rows).toHaveLength(5);
     expect(validateScrydexCoordinatePreviewReceipt(receipt)).toEqual([]);
   });
@@ -472,11 +500,32 @@ describe("runner", () => {
   });
 
   it("complete-with-blockers", async () => {
+    const blocked = structuredClone(preview);
+    blocked.blockers = [
+      {
+        code: "credited-provider-estimate-unavailable",
+        scopeRecordId: null,
+        providerKey: "scrydex",
+        message: "scrydex request or credit evidence is unavailable; confirmation is closed.",
+      },
+      {
+        code: "credited-provider-budget-exceeded",
+        scopeRecordId: null,
+        providerKey: "scrydex",
+        message: "scrydex credited provider budget is exceeded; confirmation is closed.",
+      },
+    ];
     const receipt = await runScrydexCoordinatePreview({
       ...base(),
-      produce: vi.fn(async () => observed()),
+      produce: vi.fn(async () => observed({ preview: blocked })),
     });
     expect(receipt.reasons).toEqual([]);
+    expect(receipt.outcome).toBe("complete");
+    expect(receipt.preview?.blockers.map((blocker) => blocker.code)).toEqual([
+      "credited-provider-estimate-unavailable",
+      "credited-provider-budget-exceeded",
+    ]);
+    expect(validateScrydexCoordinatePreviewReceipt(receipt)).toEqual([]);
   });
 
   it("scrydex-scope-planning-blocked", async () => {
@@ -546,9 +595,27 @@ describe("runner", () => {
   it("phases-incomplete", async () => {
     const receipt = await runScrydexCoordinatePreview({
       ...base(),
-      produce: vi.fn(async () => observed({ phases: [] })),
+      produce: vi.fn(async () => observed({ phases: undefined })),
     });
     expect(receipt.reasons).toContain("phases-incomplete");
+  });
+
+  it("unknown phase is incomplete", async () => {
+    const receipt = await runScrydexCoordinatePreview({
+      ...base(),
+      produce: vi.fn(async () => observed({ phases: ["sign-in", "unexpected"] })),
+    });
+    expect(receipt.reasons).toContain("phases-incomplete");
+  });
+
+  it("producer-failed:sign-in", async () => {
+    const receipt = await runScrydexCoordinatePreview({
+      ...base(),
+      signIn: vi.fn(async () => {
+        throw new Error("sign-in failed");
+      }),
+    });
+    expect(receipt.reasons).toContain("producer-failed:sign-in");
   });
 
   it("clamped", async () => {
