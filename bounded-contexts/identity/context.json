@@ -356,6 +356,42 @@
       {
         "name": "identity.verify-user-contact-method",
         "ownerSlice": "users"
+      },
+      {
+        "name": "identity.get-account-access-hub",
+        "ownerSlice": "access-hub"
+      },
+      {
+        "name": "identity.create-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.cancel-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.decline-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.resend-invitation",
+        "ownerSlice": "invitations"
+      },
+      {
+        "name": "identity.change-membership-role",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.revoke-membership",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.reinstate-membership",
+        "ownerSlice": "memberships"
+      },
+      {
+        "name": "identity.revoke-api-key",
+        "ownerSlice": "api-keys"
       }
     ],
     "resources": [

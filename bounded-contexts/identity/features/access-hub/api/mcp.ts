@@ -14,7 +14,22 @@ function requireOperator(actor: ResolvedActor | null): ResolvedActor {
   return actor;
 }
 
+function requireAccountAccess(actor: ResolvedActor, accountId: string) {
+  if (actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY && actor.accountId !== accountId) {
+    throw new Error("The authenticated actor cannot manage this account.");
+  }
+}
+
 export function createAccessHubMcpHandlers(services: AccessHubServices): AccessHubMcpHandlers {
+  const getAccountAccessHub: McpToolHandler = async ({ actor, arguments: args }) => {
+    const scopedActor = requireOperator(actor);
+    const accountId = readMcpTypedIdArgument(args, "accountId", "acc");
+    requireAccountAccess(scopedActor, accountId);
+    const hub = await services.getAccount(accountId);
+    if (!hub) throw new Error("Account not found.");
+    return hub;
+  };
+
   const getUserAccountLink: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = requireOperator(actor);
     const userId = readMcpTypedIdArgument(args, "userId", "usr");
@@ -25,7 +40,10 @@ export function createAccessHubMcpHandlers(services: AccessHubServices): AccessH
   };
 
   return {
-    toolHandlers: { "identity.get-user-account-link": getUserAccountLink },
+    toolHandlers: {
+      "identity.get-account-access-hub": getAccountAccessHub,
+      "identity.get-user-account-link": getUserAccountLink,
+    },
     resourceHandlers: {},
   };
 }
