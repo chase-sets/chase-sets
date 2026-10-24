@@ -39,6 +39,7 @@ export const marketplaceWakeRegistryEntry = registryEntry({
     "ordering:ordering-marketplace-offer-acceptance",
     "ordering:ordering-marketplace-supply-input-projection",
     "ordering:ordering-order-review-opportunity-projection",
+    "platform-operations:account-appeal-interest-projection",
     "platform-operations:reported-content-queue-projection",
     "platform-operations:risk-alert-queue-projection",
     "pricing:pricing-market-input-projection",

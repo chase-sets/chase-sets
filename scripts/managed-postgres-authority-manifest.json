@@ -1734,6 +1734,20 @@
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
@@ -2092,6 +2106,20 @@
       "jobId": "verify",
       "stepAnchor": "name:Apply gate Kubernetes runtime secrets#15",
       "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#15",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#15",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
       "purpose": "application-runtime"
     },
     {
@@ -3051,6 +3079,20 @@
       "jobId": "preview-deploy-smoke",
       "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
       "purpose": "application-runtime"
     },
     {
@@ -5021,6 +5063,34 @@
       "purpose": "digitalocean-ops"
     },
     {
+      "file": ".github/workflows/platform-production-memory-probe.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Capture production web memory#7",
+      "secretName": "PROMETHEUS_QUERY_TOKEN",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-production-memory-probe.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure production read context#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-production-memory-probe.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure production read context#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-production-memory-probe.yml",
+      "jobId": "capture",
+      "stepAnchor": "name:Configure production read context#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
       "file": ".github/workflows/platform-production-restore-point-cleanup.yml",
       "jobId": "cleanup",
       "stepAnchor": "name:Cleanup restore-point forks#4",
@@ -5591,6 +5661,20 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
@@ -7300,6 +7384,20 @@
       "jobId": "deploy-staging",
       "stepAnchor": "name:Apply staging Kubernetes runtime secrets#33",
       "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#33",
+      "secretName": "EBAY_APPLICATION_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#33",
+      "secretName": "EBAY_APPLICATION_CLIENT_SECRET",
       "purpose": "application-runtime"
     },
     {
