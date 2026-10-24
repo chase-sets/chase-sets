@@ -245,6 +245,19 @@ const scrydexOptionRefreshDelta = ["name:Run bounded Scrydex force refresh#4"].f
   })),
 );
 // #9962 adds the read-only preview-pool census workflow's provider authority grants.
+const productionMemoryProbeDelta = [
+  ["name:Configure production read context#6", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+  ["name:Configure production read context#6", "SPACES_ACCESS_ID", "spaces-evidence"],
+  ["name:Configure production read context#6", "SPACES_SECRET_KEY", "spaces-evidence"],
+  ["name:Capture production web memory#7", "PROMETHEUS_QUERY_TOKEN", "spaces-evidence"],
+].map(([stepAnchor, secretName, purpose]) => ({
+  file: ".github/workflows/platform-production-memory-probe.yml",
+  jobId: "capture",
+  stepAnchor,
+  secretName,
+  purpose,
+}));
+
 const previewPoolCensusDelta = [
   ["name:Configure staging Kubernetes context (read-only)#5", "DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
   ["name:Configure staging Kubernetes context (read-only)#5", "SPACES_ACCESS_ID", "spaces-evidence"],
@@ -870,6 +883,7 @@ describe("managed Postgres authority source generator", () => {
         ...scrydexCacheCaptureDelta,
         ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
+        ...productionMemoryProbeDelta,
         ...credentialHealthDelta,
         ...stagingClusterAddonsDelta,
         ...collectionsAnonymousOwnerRedactionDelta,
@@ -889,7 +903,7 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1706);
+    expect(expected.grants).toHaveLength(1710);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);

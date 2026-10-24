@@ -310,6 +310,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-preview-cleanup-observer.yml": "ci",
     "platform-preview-pool-census.yml": "ci",
     "platform-preview-wildcard-tls.yml": "release",
+    "platform-production-memory-probe.yml": "ci",
     "platform-production-restore-point-cleanup.yml": "release",
     "platform-production-lock-monitor.yml": "ci",
     "platform-production-stale-helm-recovery.yml": "release",
