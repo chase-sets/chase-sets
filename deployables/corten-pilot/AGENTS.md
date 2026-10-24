@@ -1,15 +1,18 @@
 # Working on corten-pilot
 
-This is the Corten pilot (README.md): one admin-web screen ported to Corten, in front of the
-platform API. Keep it isolated: it is not deployed and is not part of the platform gates. Business
+This is the Corten pilot (README.md): a Cargo workspace of Chase Sets screens ported to Corten,
+in front of the platform API: `admin/` (admin-web's postage policies), `marketplace/`
+(marketplace's storage locations) and `platform/`, the library both share. Keep it isolated: it is not deployed and is not part of the platform gates. Business
 rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
 apps); a workaround here links to it. Move the Corten pin in `Cargo.toml` only on purpose, and
 add the reason to the README's pin table. Run `node --import tsx scripts/export.mjs --check`
-after changing admin-web text, nav or tokens the pilot exports.
+after changing text, nav or tokens the pilot exports.
 
 A Corten app: Rust renders every page with `html!`; the browser gets HTML, a small runtime and
-the handler scripts next to components. Run `corten dev` while working and `corten check` before you finish.
+the handler scripts next to components. Run `corten dev` inside the app's directory while
+working (it does not rebuild for an edit in `platform/`; save a file in the app) and
+`corten check` at the workspace root before you finish.
 
 For recipes (pages, forms with validation, handlers, live data, styles, tests), use the Corten
 skill: https://github.com/todd-skelton/corten/tree/main/skills/corten. Install it with your
