@@ -27,7 +27,10 @@ import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import { seedProductContentConfiguration, seedProductContentScenario } from "../../features/product-contents/api/seed";
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
-import { seedPromotedSourceObservationScenario } from "../../features/source-observations/api/seed";
+import {
+  seedChangedSourceObservationScenario,
+  seedPromotedSourceObservationScenario,
+} from "../../features/source-observations/api/seed";
 import {
   buildRepresentativeCatalogReplayReceipt,
   replayRepresentativeCatalogPacks,
@@ -385,6 +388,7 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
   await recoverScenarioCatalogItemProjections(pool, services);
   await seedProductContentScenario(services);
   await seedPromotedSourceObservationScenario(services);
+  await seedChangedSourceObservationScenario(services);
 }
 
 const scenarioCatalogItemIds = Object.values(catalogSeedIds.items) as readonly CatalogItemId[];
