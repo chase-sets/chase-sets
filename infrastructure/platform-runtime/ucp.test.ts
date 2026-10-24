@@ -2438,8 +2438,14 @@ describe("UCP MCP routes", () => {
       }),
     });
     const html = (await response.json()).result.contents[0].text as string;
-    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
-    expect(script).toBeTruthy();
+    const scriptOpen = "<script>";
+    const scriptStart = html.indexOf(scriptOpen);
+    const scriptEnd = html.indexOf("</script>", scriptStart);
+    expect(scriptStart).toBeGreaterThanOrEqual(0);
+    expect(scriptEnd).toBeGreaterThan(scriptStart);
+    expect(html.indexOf("<script", scriptStart + scriptOpen.length)).toBe(-1);
+    const script = html.slice(scriptStart + scriptOpen.length, scriptEnd);
+    expect(script).toContain('window.addEventListener("message"');
     let listener: ((event: { data: unknown }) => void) | undefined;
     const root = { innerHTML: "" };
     new Function("document", "window", script!)(
@@ -2450,7 +2456,9 @@ describe("UCP MCP routes", () => {
         },
       },
     );
-    listener?.({
+    expect(listener).toBeTypeOf("function");
+    root.innerHTML = "";
+    listener!({
       data: {
         method: "ui/notifications/tool-result",
         params: { result: { structuredContent: { action: { url: "https://x" } } } },
