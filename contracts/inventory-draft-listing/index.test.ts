@@ -7,6 +7,7 @@ import {
   inventoryDraftListingReceiptSchema,
   listingIdForInventoryDraftRow,
 } from "./index";
+import type { InventoryDraftListingUnavailableDiagnostic } from "./index";
 
 const receipt = {
   schemaVersion: "inventory-draft-listing-receipt/v1",
@@ -34,6 +35,12 @@ describe("Inventory draft receipt v1", () => {
       "receipt-ledger-not-ready",
       "consumer-unbound",
     ]);
+  });
+
+  it("rejects non-member unavailable diagnostics at the contract type boundary", () => {
+    // @ts-expect-error diagnostics are intentionally a closed vocabulary.
+    const invalid: InventoryDraftListingUnavailableDiagnostic = "provider-secret";
+    expect(inventoryDraftListingUnavailableDiagnostics).not.toContain(invalid as never);
   });
 
   it.each(["purchaseLimits", "gradedCard", "availableQuantity"])("rejects removed snapshot key %s", (key) => {
