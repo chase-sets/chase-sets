@@ -34,6 +34,29 @@ ran. Raw results are in `artifacts/corten-pilot/` (not committed).
 | HTML / CSS transferred | 16,275 / 19,970 B | 4,163 / 3,164 B | 16,275 / 19,970 B | 4,165 / 3,164 B |
 | Requests | 93 | 9 | 92 | 9 |
 
+Catalog area (`/catalog`), the pilot only: this worktree has no admin-web production build, so
+there is no React baseline for these pages yet (measured the same way, release build).
+
+| Catalog dimensions | list desktop | list mobile | a dimension desktop | a dimension mobile |
+|---|---|---|---|---|
+| Interactive | 213 ms | 1,211 ms | 213 ms | 1,203 ms |
+| Largest contentful paint | 244 ms | 1,012 ms | 256 ms | 1,000 ms |
+| Server time (document) | 41 ms | 43 ms | 43 ms | 42 ms |
+| JavaScript transferred | 7,702 B | 7,702 B | 7,702 B | 7,702 B |
+| HTML / CSS transferred | 2,399 / 4,305 B | 2,399 / 4,305 B | 3,629 / 4,305 B | 3,629 / 4,305 B |
+| Requests | 10 | 10 | 10 | 10 |
+
+The area stylesheets, measured on the same loads (transferred brotli / decoded): every admin page
+gets `style.css` (1,079 / 2,693 B) and `components.css`, the frame (1,687 / 7,224 B); catalog
+pages add `sections/catalog.css` (1,539 / 7,426 B) and postage pages
+`sections/commerce/postage-policies.css` (1,405 / 6,331 B). Neither area downloads the other's
+1.4 to 1.5 kB. On mobile the catalog pages are interactive later than the postage list (1,211 against
+507 ms; first paint is the same, about 1,000 ms). Interactive waits for every component script the
+page uses, and the catalog pages use one, corten-ui's toaster, which the postage list does not;
+postage's sheet, which runs its own script, is later still (1,556 ms). Not profiled further: the
+blocking time is only counted up to interactive, so it grows with it and does not say which task
+is slow.
+
 ## Running it
 
 From the worktree root, with the dev system running (`node scripts/dev-system.mjs dev admin-web`
@@ -46,8 +69,10 @@ cd deployables/corten-pilot/admin; corten dev --port 7790          # or marketpl
 cd ..
 node scripts/smoke-admin.mjs           # every action in a browser, with and without JavaScript (writes sandbox data)
 node scripts/smoke-marketplace.mjs     # the same for storage locations, with a lost answer and an uncertain write
+node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
 node scripts/measure.mjs screen=marketplace marketplace=http://localhost:7753 pilot=http://localhost:7793
+node scripts/measure.mjs screen=catalog dimension=dim_seed_condition admin-web=http://localhost:7756 pilot=http://localhost:7791
 corten check                           # at the workspace root: cargo fmt, corten fmt, clippy -D warnings, cargo test
 ```
 
@@ -95,6 +120,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `*/src/form.rs` | what the forms post; the pilot checks only shape (text present, numbers parse), the API checks the rules |
 | `marketplace/src/recovery.rs` | the write's attempt id, and confirming a write the browser did not hear back about |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
+| `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
 ## Workarounds and decisions in the pilot
@@ -107,18 +133,21 @@ forward only on purpose, when a fix the pilot needs lands.
    ([`render`](marketplace/src/app.rs)). This is Chase Sets' consistency protocol, not Corten's.
 2. **Business rules stay in the API.** A refusal with a message becomes the form's message
    (`Errors::add_form`), so the pilot never restates a rule.
-3. **One guard covers each app** (`App::guard` in each `app.rs`): admin lets staff with
-   `postage-policies.view` in; marketplace lets sellers with `inventory.view` read and those with
-   `inventory.manage` write (`req.writes()`). Anyone else with a session gets a 403, a session the
-   API could not look up gets a 502 (signing in again would loop while it is down), and no session
-   signs in at the React app. A write whose API call says the session ended meanwhile still signs
-   in from the handler.
+3. **Guards.** marketplace has one guard (`App::guard`): sellers with `inventory.view` read and
+   those with `inventory.manage` write (`req.writes()`). admin's app guard lets any signed-in staff
+   member in, and each area asks for its own permission (`Area::guard`): postage
+   `postage-policies.view`, the catalog `catalog.view` to read and `catalog.manage` to write, as
+   the platform API asks for them. Anyone else with a session gets a 403, a session the API could
+   not look up gets a 502 (signing in again would loop while it is down), and no session signs in
+   at the React app. A write whose API call says the session ended meanwhile still signs in from
+   the handler.
 4. **Every write is its own route** (`/revise`, `/archive`, ...) where the React apps post one
    form with an `intent`; admin's preview button posts the revise form to `/preview` with
    `formaction`.
 5. **admin's sheet is a `<dialog open>`** that works without JavaScript; its script reopens it as
    a modal and lets Escape follow the close link. Confirmations use `command="show-modal"`.
 6. **Sign-in returns to the React app's copy of the screen**: both only return to their own paths.
+   admin returns to the page's section and screen (`/catalog/dimensions` for any page under it).
 7. **A write's attempt id is the pilot's own** ([`recovery`](marketplace/src/recovery.rs)). The
    Inventory API applies an `Inventory-Mutation-Attempt` once and keeps its result. Each write
    form carries an attempt the pilot drew it with; its script remembers it in sessionStorage
@@ -132,6 +161,24 @@ forward only on purpose, when a fix the pilot needs lands.
    Corten documents this; not a gap.
 9. **marketplace's top bar only**: the nav groups and the active entry are ported; the bottom bar,
    account menu and cart count are not.
+10. **admin's two screens are areas** (`App::area`), each with its own stylesheet and guard; the
+    frame (`AdminNav`, the tokens, `Section`) stays in `components.css`. `AdminNav` shows the
+    side nav of the section the page is in, and links the pages the pilot serves to itself.
+11. **Catalog dialogs work without JavaScript.** Each is a `<dialog>` its button opens with
+    `command="show-modal"`; a form that comes back (refused without JavaScript, or a label row
+    added or removed) is drawn `open`. Add Label and Remove are submit buttons that post the form
+    back to be drawn with a row more or less, and nothing is written
+    ([`OptionInput::relabeled`](admin/src/catalog/form.rs)); a hidden first submit button keeps
+    Enter from removing the first row.
+12. **Success toasts are the redirect's `done`** (`?done=option_added`): the page the write sends
+    the browser to puts admin-web's message in corten-ui's `Toaster`, with and without JavaScript.
+13. **New records keep the id they were drawn with.** The create forms carry a `dim_`, `fld_` or
+    `chc_` ULID made when the form is drawn (`createId`), so the same form posted twice names the
+    same record and the Catalog API refuses the second.
+14. **Not ported**: bulk lifecycle changes (the selection, preview, confirm and job progress) and
+    the realtime revalidation over server-sent events (`useCatalogRealtimeRevalidation`). The
+    pages show what the API said when they loaded. Both are larger slices of their own.
+15. **The lifecycle forms' button is named `step`, not `action`**: see Corten gaps.
 
 ## Corten gaps
 
@@ -149,6 +196,25 @@ Open, sent to the Corten thread to fix in the framework (one gap each):
    `on:connect`, which runs before `load`; the runtime intercepts that navigation, and in
    Chromium the first document's `load` never fires (`loadEventEnd` 0). Workaround: the script
    waits for `load` before it submits ([`restore`](marketplace/src/views/recovery.js)).
+
+4. **A control named `action` breaks a `data-patch` form** (correctness). The catalog's
+   lifecycle buttons were `<button name="action" value="activate">`, as admin-web's handler
+   names its argument. In a form, `form.action` is then the named control (a DOM rule from
+   before HTML5), so the runtime's `new URL(submitter?.getAttribute("formaction") || form.action)`
+   posts to `/catalog/dimensions/[object HTMLButtonElement]`: a 405, the error page, and no
+   write. Without JavaScript the browser posts to the right URL, so only the JavaScript path
+   breaks. Checked in Chromium: `form.action` is the button and `form.method` the input when
+   controls carry those names. Expected: the runtime resolves the form's own action and method
+   (from the attribute, against the page's URL), or `corten dev` flags the name. Workaround: the
+   field is `step` ([`ActionInput`](admin/src/catalog/form.rs)), and a router test asserts no
+   catalog page has a control named `action`.
+
+Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
+`PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
+(`bounded-contexts/catalog/features/dimensions/api/route.ts`), so `order` is read as an option id:
+400 "optionId must start with chc_.". admin-web's own Reorder gets the same 400 (checked in a
+browser against the dev sandbox). The pilot shows the refusal in the dialog;
+`scripts/smoke-catalog.mjs` reports the step as blocked by the API, not as passed.
 
 Closed:
 

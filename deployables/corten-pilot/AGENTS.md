@@ -1,7 +1,8 @@
 # Working on corten-pilot
 
 This is the Corten pilot (README.md): a Cargo workspace of Chase Sets screens ported to Corten,
-in front of the platform API: `admin/` (admin-web's postage policies), `marketplace/`
+in front of the platform API: `admin/` (admin-web's postage policies and catalog dimensions and
+fields, each an `App::area` with its own stylesheet and guard), `marketplace/`
 (marketplace's storage locations) and `platform/`, the library both share. Keep it isolated: it is not deployed and is not part of the platform gates. Business
 rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
@@ -34,5 +35,6 @@ agent's skill installer, or read it there.
    build HTML, and user-facing text stays in the Rust views.
 5. A component's styles are `snake_name.css` next to it, with `#[component(css)]`: every rule starts at one of the file's classes, and the markup names them
    as constants, `class={Title}`, never as strings. `static/style.css` is only element defaults
-   and the shell. List every component with a script or stylesheet once in `App::components`.
+   and the shell. List every component with a script or stylesheet once: in `App::components` when
+   pages outside one area render it (the frame, the tokens), else in its area's `.components`.
 6. Everything works without JavaScript: links are links and forms post.
