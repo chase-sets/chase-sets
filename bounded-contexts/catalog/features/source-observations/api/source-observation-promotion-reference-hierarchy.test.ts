@@ -823,9 +823,9 @@ describe("TCGdex English and Japanese set ids against the seeded Pokemon expansi
       ),
     );
     expect(japaneseTargets).toEqual({
-      SV8: "ref_tcgdex_expansion_sv8",
-      SV9: "ref_tcgdex_expansion_sv9",
-      SV1a: "ref_tcgdex_expansion_sv1a",
+      SV8: "ref_tcgdex_expansion_ja_sv8",
+      SV9: "ref_tcgdex_expansion_ja_sv9",
+      SV1a: "ref_tcgdex_expansion_ja_sv1a",
     });
     expect(await h.seededHistories()).toEqual(seededHistories);
     expect(fetchSpy).not.toHaveBeenCalled();
