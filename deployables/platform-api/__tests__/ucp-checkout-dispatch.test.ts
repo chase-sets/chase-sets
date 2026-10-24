@@ -85,7 +85,7 @@ function fixture(
   }> = {},
 ) {
   let actor: ResolvedActor | null = options.actor === undefined ? buyer : options.actor;
-  let current = row({ ...options.session });
+  let current = { ...row(), ...options.session };
   const createdSessionIds = new Set<string>();
   const getSession = vi.fn(async (sessionId: string, accountId: string) =>
     (sessionId === id || createdSessionIds.has(sessionId)) && accountId === current.buyer_account_id ? current : null,
@@ -240,6 +240,7 @@ function fixture(
       signature?: "valid" | "partial" | "bad" | "bad-digest" | "no-key";
       key?: string;
       arguments?: Record<string, unknown>;
+      body?: Record<string, unknown>;
     } = {},
   ) => {
     const checkoutId = options.id ?? id;

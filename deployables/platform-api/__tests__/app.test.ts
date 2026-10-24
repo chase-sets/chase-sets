@@ -2074,8 +2074,18 @@ describe("platform api app wiring", () => {
     });
     expect(conflictCompleteResponse.status).toBe(200);
     await expect(conflictCompleteResponse.json()).resolves.toMatchObject({
-      error: {
-        message: "Idempotency-Key was already used with different request parameters.",
+      result: {
+        structuredContent: {
+          ucp: { version: UCP_VERSION, status: "error" },
+          messages: [
+            {
+              type: "error",
+              code: "idempotency_key_conflict",
+              content: "Idempotency-Key was already used with different request parameters.",
+              severity: "recoverable",
+            },
+          ],
+        },
       },
     });
   });

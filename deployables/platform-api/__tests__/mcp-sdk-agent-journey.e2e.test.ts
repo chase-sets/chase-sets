@@ -741,7 +741,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         messages: [
           {
             code: "payment_required",
-            severity: "requires_buyer_input",
           },
         ],
       });

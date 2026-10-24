@@ -92,7 +92,6 @@ function fixture(response: () => Response | Promise<Response> = () => Response.j
             ? handler(input)
             : createUcpEnvelope("error", {}, [
                 {
-                  severity: "error",
                   code: "authentication_required",
                   content: "Authenticate first.",
                 },

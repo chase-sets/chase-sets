@@ -90,9 +90,16 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
   };
 }
 
+type DetailListing = Readonly<{
+  listing_id: string;
+  listing_slug: string;
+  price_amount: string;
+  price_currency_code: string;
+}>;
+
 function detailFor(
   id: string,
-  listings = [
+  listings: readonly DetailListing[] = [
     { listing_id: `${id}_listing`, listing_slug: `${id}-listing`, price_amount: "10.00", price_currency_code: "USD" },
   ],
 ) {
@@ -250,8 +257,19 @@ describe("Discovery UCP catalog handlers", () => {
     } as const;
     const ids = cell.productSet === "ineligible-only" ? ["ineligible"] : [cell.productSet];
     const details = new Map(ids.map((id) => [id, detailFor(id, definitions[cell.productSet])]));
-    const rows = ids.map((id) => ({ catalog_item_id: id, slug: `${id}-slug`, title: `Product ${id}` }));
-    const searchItems = vi.fn(async () => ({ items: rows, total: rows.length, nextCursor: null }));
+    const searchTemplate = (await buildItems().search.searchItems()).items[0];
+    const rows = ids.map((id) => ({
+      ...searchTemplate,
+      catalog_item_id: id,
+      slug: `${id}-slug`,
+      title: `Product ${id}`,
+    }));
+    const searchItems = vi.fn(async () => ({
+      ...(await buildItems().search.searchItems()),
+      items: rows,
+      total: rows.length,
+      nextCursor: null,
+    }));
     const items = buildItems({
       search: { ...buildItems().search, searchItems },
       detail: { ...buildItems().detail, getItemDetail: vi.fn(async (id: string) => details.get(id) ?? null) },
