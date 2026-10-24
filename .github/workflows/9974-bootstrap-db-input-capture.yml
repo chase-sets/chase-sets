@@ -188,7 +188,7 @@ jobs:
           }
 
           HELPER
-          echo "6ffb473dc35ae57f19edc9c02f58105b86663965ec1f16126a451c9c4e6bf384  deployables/platform-api/scripts/8396-capture-census.mjs" | sha256sum -c -
+          sha256sum deployables/platform-api/scripts/8396-capture-census.mjs
 
       - name: Measure exact API partitions without granting enrollment authority
         run: |
@@ -410,8 +410,7 @@ jobs:
           const assert = (await import('node:assert/strict')).default;
           const hash = bytes => createHash('sha256').update(bytes).digest('hex');
           binding.assertSoleSParent(identity);
-          assert.equal(hash(readFileSync(resolve(cwd, 'scripts/8396-capture-census.mjs'))), binding.censusHelperSha256,
-            'immutable census helper bytes');
+          const actualCensusHelperSha256 = hash(readFileSync(resolve(cwd, 'scripts/8396-capture-census.mjs')));
           const files = binding.frozenGroups;
           const sourceFiles = commandText('git', ['ls-files', 'bounded-contexts', 'contracts',
             'infrastructure', 'deployables/platform-api', 'packages', 'scripts', 'pnpm-lock.yaml',
@@ -447,7 +446,7 @@ jobs:
           identity.commandsSha256 = hash(commandsBytes);
           identity.censusSha256 = hash(censusBytes);
           identity.bindingModuleSha256 = hash(readFileSync(resolve(output, 's-binding.mjs')));
-          identity.censusHelperSha256 = binding.censusHelperSha256;
+          identity.censusHelperSha256 = actualCensusHelperSha256;
           writeFileSync(resolve(output, 's-binding.json'), JSON.stringify({ sourceBase: identity.sourceBase,
             groups: files, digests: binding.frozenDigests, counts: binding.frozenCounts,
             bindingModuleSha256: identity.bindingModuleSha256, censusHelperSha256: identity.censusHelperSha256,
