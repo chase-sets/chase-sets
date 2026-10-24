@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { classifyChanges, listChangedFiles, resolveChangeScope, toGithubOutputMap, toOutputMap } from "./change-scope.mjs";
+import {
+  classifyChanges,
+  listChangedFiles,
+  resolveChangeScope,
+  toGithubOutputMap,
+  toOutputMap,
+} from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
@@ -54,19 +60,26 @@ it("uses the synthetic merge commit first parent for a PR's own changed files", 
 });
 
 it.each([
-  ["synthetic-parent-lookup-failed", { firstParent: true, exec: () => { throw new Error("rev-list unavailable"); } }],
   [
-    "synthetic-parent-lookup-empty",
-    { firstParent: true, exec: () => "" },
+    "synthetic-parent-lookup-failed",
+    {
+      firstParent: true,
+      exec: () => {
+        throw new Error("rev-list unavailable");
+      },
+    },
   ],
+  ["synthetic-parent-lookup-empty", { firstParent: true, exec: () => "" }],
   [
     "merge-base-failed",
-    { exec: (_command, args) => { if (args[0] === "merge-base") throw new Error("merge-base unavailable"); return ""; } },
+    {
+      exec: (_command, args) => {
+        if (args[0] === "merge-base") throw new Error("merge-base unavailable");
+        return "";
+      },
+    },
   ],
-  [
-    "merge-base-empty",
-    { exec: (_command, args) => (args[0] === "merge-base" ? "" : "") },
-  ],
+  ["merge-base-empty", { exec: (_command, args) => (args[0] === "merge-base" ? "" : "") }],
   [
     "diff-failed",
     {
@@ -76,10 +89,7 @@ it.each([
       },
     },
   ],
-  [
-    "diff-empty",
-    { exec: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : "") },
-  ],
+  ["diff-empty", { exec: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : "") }],
 ])("widens to full scope when %s prevents PR-owned change derivation", (reason, fixture) => {
   const result = resolveChangeScope("base", "head", {
     ...fixture,
@@ -2984,13 +2994,17 @@ describe("change-scope", () => {
       const mutatedSource = `${source.slice(0, clusterBlockStart)}${mutatedBlock}${source.slice(clusterBlockEnd)}`;
       expect(mutatedSource, guard).not.toBe(source);
       const mutantClassifier = await importChangeScopeVariant(mutatedSource);
-      const file = clusterPreviewSafetyFixtures.find(([fixtureGuard]) => fixtureGuard === {
-        helmChanged: "Helm",
-        previewDeployTerraformChanged: "preview Terraform",
-        dockerChanged: "Dockerfile",
-        clusterPreviewScriptChanged: "deploy script",
-        clusterPreviewWorkflowChanged: "platform PR preview workflow",
-      }[guard])?.[1];
+      const file = clusterPreviewSafetyFixtures.find(
+        ([fixtureGuard]) =>
+          fixtureGuard ===
+          {
+            helmChanged: "Helm",
+            previewDeployTerraformChanged: "preview Terraform",
+            dockerChanged: "Dockerfile",
+            clusterPreviewScriptChanged: "deploy script",
+            clusterPreviewWorkflowChanged: "platform PR preview workflow",
+          }[guard],
+      )?.[1];
       const baseline = classifyChanges({ changedFiles: [file] }).clusterPreviewRequired;
       const mutant = mutantClassifier.classifyChanges({ changedFiles: [file] }).clusterPreviewRequired;
       mutantTable.push({ guard, file, baseline, mutant, killed: baseline && !mutant });
