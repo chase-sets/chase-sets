@@ -1,10 +1,10 @@
 import { expect, it } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { module as catalogModule } from "../../../index";
-import { database, describeDb } from "./db-fixture";
+import { describeDb, useOperatorSessionDatabase } from "./db-fixture";
 
 describeDb("operator session revoke reasons", () => {
-  const db = database("operator_grant_revoke_reason");
+  const db = useOperatorSessionDatabase("operator_grant_revoke_reason");
 
   it("accepts authority-lost on fresh bootstrap and remains inert on rerun", async () => {
     const pool = db();
