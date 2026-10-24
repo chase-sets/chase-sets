@@ -725,6 +725,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const productionMarkerRecoveryAction = readFileSync(
+  resolve(".github/actions/production-marker-recovery-context/action.yml"),
+  "utf8",
+);
 const platformProductionStaleHelmRecoveryWorkflow = readFileSync(
   resolve(".github/workflows/platform-production-stale-helm-recovery.yml"),
   "utf8",
@@ -1325,6 +1329,67 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("keeps marker recovery admitted only on immutable main and shares initialized DOKS context", () => {
+    const recoveryJob = workflowJob(platformProductionWorkflow, "reconcile-production-marker");
+    const admission = workflowStep(recoveryJob, "Validate marker-only admission");
+    expect(admission).toContain('[ "$GITHUB_REF" = refs/heads/main ]');
+    expect(admission).toContain("marker-only recovery rejects circuit inputs");
+    expect(recoveryJob).toContain("ref: ${{ github.sha }}");
+    expect(recoveryJob).not.toContain("ref: main");
+    expect(recoveryJob).not.toContain("Initialize read-only production Kubernetes state");
+    expect(productionMarkerRecoveryAction).toContain("key=doks/production.tfstate");
+    expect(productionMarkerRecoveryAction.indexOf("terraform-init-with-retry.sh")).toBeLessThan(
+      productionMarkerRecoveryAction.indexOf("terraform output -raw kubeconfig"),
+    );
+    expect(workflowJob(platformProductionWorkflow, "deploy-production")).toContain(
+      "uses: ./.github/actions/production-marker-recovery-context",
+    );
+    expect(recoveryJob).toContain("uses: ./.github/actions/production-marker-recovery-context");
+  });
+
+  it("rejects every ordinary input in marker-only admission without weakening the recovery mode", () => {
+    const admission = workflowStep(
+      workflowJob(platformProductionWorkflow, "reconcile-production-marker"),
+      "Validate marker-only admission",
+    );
+    for (const fragment of [
+      'DISPATCH_SOURCE" = recovery',
+      'RELEASE_REF" = main',
+      'DISPATCH_RUN_ID" ] && [ -z "$DISPATCH_ATTEMPT"',
+      'FORCE_DEPLOY" = false',
+      'FORCE_RESTORE_POINT" = false',
+      'CIRCUIT_ISSUE_NUMBER" ] && [ -z "$CIRCUIT_REASON"',
+      '-n "$MARKER_RECOVERY_REASON"',
+    ]) {
+      expect(admission).toContain(fragment);
+    }
+  });
+
+  it("installs dependencies before every production marker invocation", () => {
+    const parsedWorkflow = parse(platformProductionWorkflow);
+    const markerJobs = Object.entries(parsedWorkflow.jobs)
+      .filter(([, job]) => (job.steps ?? []).some((step) => step.run?.includes("production-release-marker.mjs")))
+      .map(([jobName]) => jobName)
+      .sort();
+    expect(markerJobs).toEqual(["deploy-production", "reconcile-production-marker"]);
+
+    for (const jobName of markerJobs) {
+      const steps = parsedWorkflow.jobs[jobName].steps ?? [];
+      const firstMarkerIndex = steps.findIndex((step) => step.run?.includes("production-release-marker.mjs"));
+      const installsDependencies = (step) =>
+        (step.uses === "./.github/actions/setup-pnpm-workspace" &&
+          (step.with?.install === true || step.with?.install === "true")) ||
+        (typeof step.run === "string" && step.run.includes("pnpm install --frozen-lockfile"));
+
+      expect(steps.slice(0, firstMarkerIndex).some(installsDependencies)).toBe(true);
+      if (jobName === "reconcile-production-marker") {
+        expect(parsedWorkflow.jobs[jobName].env?.GITHUB_TOKEN).toBeUndefined();
+        const markerStep = steps[firstMarkerIndex];
+        expect(markerStep.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+      }
+    }
+  });
+
   it("enrolls the Catalog send-window composition controls in the required DB proof profile", () => {
     const compositionTest =
       "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts";
@@ -3415,14 +3480,20 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPreviewCleanupWorkflow).toContain(
       "matrix: ${{ fromJSON(needs.discover-preview-cleanup.outputs.matrix) }}",
     );
-    expect(platformPreviewCleanupWorkflow).toContain("group: platform-preview-pr-${{ matrix.pr_number }}");
-    expect(platformPreviewCleanupWorkflow).toContain("TF_VAR_preview_identifier: pr-${{ matrix.pr_number }}");
-    expect(platformPreviewCleanupWorkflow).toContain(
-      "TF_VAR_platform_image_tag: pr-${{ matrix.pr_number }}-${{ matrix.image_sha }}",
+    const previewCleanup = parse(platformPreviewCleanupWorkflow);
+    const destroyPreview = previewCleanup.jobs["destroy-preview"];
+    expect(destroyPreview.concurrency.group).toContain("platform-preview-pr-");
+    expect(destroyPreview.steps.find((step) => step.name === "Terraform destroy").run).toContain(
+      'TF_VAR_preview_identifier="pr-${pr_number}"',
     );
-    expect(platformPreviewCleanupWorkflow).toContain("ref: ${{ matrix.checkout_ref }}");
-    expect(platformPreviewCleanupWorkflow).toContain(
-      "-backend-config=key=platform/previews/pr-${{ matrix.pr_number }}.tfstate",
+    expect(destroyPreview.steps.find((step) => step.name === "Terraform destroy").run).toContain(
+      'TF_VAR_platform_image_tag="pr-${pr_number}-${{ matrix.image_sha }}"',
+    );
+    expect(destroyPreview.steps.find((step) => step.uses?.startsWith("actions/checkout@")).with.ref).toBe(
+      "${{ matrix.checkout_ref }}",
+    );
+    expect(destroyPreview.steps.find((step) => step.name === "Terraform init").run).toContain(
+      '"-backend-config=key=platform/previews/pr-${pr_number}.tfstate"',
     );
     expect(platformPreviewCleanupWorkflow).not.toContain("Wait for active App Platform deployment");
     expect(platformPreviewCleanupWorkflow).not.toContain("digitalocean-app-deployment.mjs");

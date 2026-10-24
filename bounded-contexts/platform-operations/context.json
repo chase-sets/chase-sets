@@ -105,6 +105,15 @@
       "projectionHandlerSetNames": ["public-doc-review-queue-projection"]
     },
     {
+      "sourceContextName": "identity",
+      "projectionName": "reported-content-queue-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.reported-content-queue-projection",
+      "eventTypes": ["identity.account-profile.report-submitted"],
+      "order": 59,
+      "projectionHandlerSetNames": ["reported-content-queue-projection"]
+    },
+    {
       "sourceContextName": "marketplace",
       "projectionName": "reported-content-queue-projection",
       "subscriptionVersion": 1,
@@ -316,7 +325,7 @@
     },
     {
       "projectionName": "reported-content-queue-projection",
-      "sourceContextNames": ["marketplace", "platform-operations"],
+      "sourceContextNames": ["identity", "marketplace", "platform-operations"],
       "optionalSourceContextNames": ["marketplace"],
       "ownedTables": ["platform_operations_reported_content_queue_pages"],
       "requiredDuringBootstrap": true,

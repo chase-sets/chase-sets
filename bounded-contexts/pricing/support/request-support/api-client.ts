@@ -122,7 +122,9 @@ export function createPricingApiClient({
     async getPricingHealth(policyId?: string): Promise<PricingHealthData & { canCompute: boolean }> {
       return parseJsonResponse(
         await client.account["pricing-health"].$get({
-          query: policyId === undefined ? {} : { policyId },
+          query: {
+            ...(policyId === undefined ? {} : { policyId }),
+          },
           header: headers,
         }),
       );
@@ -130,6 +132,16 @@ export function createPricingApiClient({
     async computePricingHealth(policyId: string): Promise<{ dryRunId: string }> {
       return parseJsonResponse(
         await client.account["pricing-health"][":policyId"].compute.$post({
+          param: { policyId },
+          header: headers,
+        }),
+      );
+    },
+    async comparePricingHealth(
+      policyId: string,
+    ): Promise<{ runs: readonly { goalId: string; goalVersion: number; dryRunId: string }[] }> {
+      return parseJsonResponse(
+        await client.account["pricing-health"][":policyId"].compare.$post({
           param: { policyId },
           header: headers,
         }),

@@ -24,7 +24,6 @@ on:
         options:
           - one-piece-launch
           - lorcana-launch
-          - tcgplayer-pokemon-targeted
           - all-provider-regression
           - staging-representative-catalog
           - pokemon-matrix
@@ -39,6 +38,7 @@ on:
           - full-game-settle
           - scope-sync-count-lifecycle
           - scrydex-cache-capture
+          - scrydex-force-refresh-bounded
       capture_dispatch_id:
         description: Count lifecycle only. Canonical host dispatch with server-bound spend and review authority.
         required: false
@@ -113,7 +113,7 @@ jobs:
                 expected.toLowerCase() !== process.env.RUN_SHA) {
               core.setFailed('Confirmation and exact immutable expected_sha are required.');
             }
-            if (['full-game-start', 'full-game-settle', 'scope-sync-count-lifecycle', 'scrydex-cache-capture'].includes(process.env.JOURNEY_SCOPE) &&
+            if (['full-game-start', 'full-game-settle', 'scope-sync-count-lifecycle', 'scrydex-cache-capture', 'scrydex-force-refresh-bounded'].includes(process.env.JOURNEY_SCOPE) &&
                 process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
               core.setFailed('Whole-game and capture journeys require the exact staging origin.');
             }
@@ -132,7 +132,7 @@ jobs:
     name: Resolve Provider UAT Plan
     runs-on: ubuntu-latest
     needs: admit-reviewed-sha
-    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture'
+    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
     outputs:
       journey_matrix: ${{ steps.plan.outputs.journey_matrix }}
     steps:
@@ -147,7 +147,7 @@ jobs:
             full-matrix-uat)
               journey_matrix='{"include":[{"journey_scope":"pokemon-matrix"},{"journey_scope":"mtg-matrix"},{"journey_scope":"yugioh-matrix"},{"journey_scope":"one-piece-matrix"},{"journey_scope":"lorcana-matrix"}]}'
               ;;
-            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe)
+            one-piece-launch|lorcana-launch|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)
@@ -163,7 +163,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
-    if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture'
+    if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle' && inputs.journey_scope != 'scrydex-cache-capture' && inputs.journey_scope != 'scrydex-force-refresh-bounded'
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -303,8 +303,8 @@ jobs:
   # published under a separate diagnostic name.
   scrydex-cache-capture:
     name: Scrydex Cache Capture
-    needs: admit-reviewed-sha
-    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-cache-capture'
+    needs: [admit-reviewed-sha, scrydex-force-refresh-bounded]
+    if: ${{ !cancelled() && needs.admit-reviewed-sha.result == 'success' && (inputs.journey_scope == 'scrydex-cache-capture' || (inputs.journey_scope == 'scrydex-force-refresh-bounded' && needs.scrydex-force-refresh-bounded.result == 'success' && needs.scrydex-force-refresh-bounded.outputs.refresh_outcome == 'complete')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
@@ -354,5 +354,60 @@ jobs:
         with:
           name: catalog-scrydex-cache-capture-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/catalog-scrydex-cache-capture/capture.json
+          if-no-files-found: error
+          retention-days: 30
+
+  scrydex-force-refresh-bounded:
+    name: Scrydex Force Refresh (bounded)
+    needs: admit-reviewed-sha
+    if: needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-force-refresh-bounded'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      refresh_outcome: ${{ steps.refresh-receipt.outputs.refresh_outcome }}
+    env:
+      ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: scrydex-force-refresh-bounded
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Install isolated Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run bounded Scrydex force refresh
+        id: refresh
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/catalog-staging-scrydex-option-refresh.mjs
+      - name: Validate bounded refresh receipt
+        id: refresh-receipt
+        if: ${{ always() && steps.refresh.outcome != 'skipped' }}
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; import { validateScrydexOptionRefreshReceipt } from './bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-option-refresh.ts'; const p = fs.existsSync('artifacts/catalog-scrydex-option-refresh/receipt.json') ? 'artifacts/catalog-scrydex-option-refresh/receipt.json' : 'artifacts/catalog-scrydex-option-refresh-diagnostic/receipt.json'; const r = JSON.parse(fs.readFileSync(p)); const e = validateScrydexOptionRefreshReceipt(r); if (e.length) throw new Error(e.join(';')); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'refresh_outcome=' + r.outcome + '\\n');"
+      - name: Upload complete bounded refresh receipt
+        if: ${{ always() && steps.refresh-receipt.outcome == 'success' && steps.refresh-receipt.outputs.refresh_outcome == 'complete' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-option-refresh-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-option-refresh/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload diagnostic bounded refresh receipt
+        if: ${{ always() && steps.refresh-receipt.outcome == 'success' && steps.refresh-receipt.outputs.refresh_outcome != 'complete' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scrydex-option-refresh-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scrydex-option-refresh-diagnostic/receipt.json
           if-no-files-found: error
           retention-days: 30

@@ -1,4 +1,12 @@
-import { createHash, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+  type JsonWebKey as NodeJsonWebKey,
+  type KeyObject,
+} from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import {
@@ -29,6 +37,7 @@ import {
   createUcpRestRoutes as buildUcpRestRoutes,
   createUcpProfileResolver,
   createUcpEnvelope,
+  publicUcpBusinessSigningKeys,
   type CreateUcpRoutesOptions,
   type UcpProfileResolver,
 } from "./ucp";
@@ -108,7 +117,8 @@ function signedHeadersWithKey(
     }),
     `"@signature-params": ${signatureParams}`,
   ].join("\n");
-  const signature = createSign("sha256").update(signatureBase).end().sign(privateKey).toString("base64");
+  const algorithm = privateKey.asymmetricKeyType === "ed25519" ? null : "sha256";
+  const signature = sign(algorithm, Buffer.from(signatureBase), privateKey).toString("base64");
 
   return {
     "Content-Type": "application/json",
@@ -128,6 +138,103 @@ function createDeferred<T = void>() {
     reject = innerReject;
   });
   return { promise, resolve, reject };
+}
+
+const JWK_REPRESENTATIONS = ["own", "inherited", "non-enumerable"] as const;
+type JwkRepresentation = (typeof JWK_REPRESENTATIONS)[number];
+
+// Node reads JWK members with ordinary property access, so inherited and non-enumerable
+// members are valid key material that an own-enumerable copy would silently drop.
+function representJwk(jwk: JsonWebKey, representation: JwkRepresentation): JsonWebKey {
+  if (representation === "own") {
+    return Object.freeze({ ...jwk });
+  }
+  if (representation === "inherited") {
+    return Object.freeze(Object.create(Object.freeze({ ...jwk })));
+  }
+  const hidden = {};
+  for (const [member, value] of Object.entries(jwk)) {
+    Object.defineProperty(hidden, member, { value, enumerable: false });
+  }
+  return Object.freeze(hidden);
+}
+
+function jwkShape(jwk: object) {
+  return [Object.getOwnPropertyDescriptors(jwk), Object.getOwnPropertyDescriptors(Object.getPrototypeOf(jwk))];
+}
+
+function thrownBy(action: () => unknown): Error {
+  try {
+    action();
+  } catch (error) {
+    if (error instanceof Error) {
+      return error;
+    }
+    throw error;
+  }
+  throw new Error("Expected the action to throw.");
+}
+
+function errorFacts(error: Error) {
+  return { name: error.name, message: error.message, code: Reflect.get(error, "code") };
+}
+
+const ACCESSOR_PLACEMENTS = ["own enumerable", "inherited", "non-enumerable"] as const;
+type AccessorPlacement = (typeof ACCESSOR_PLACEMENTS)[number];
+
+// Synthetic key material whose `member` is an accessor that throws `error` on every read, so a test
+// observes whether anything reads that member and whether the accessor's own error escapes.
+function jwkWithThrowingAccessor(
+  jwk: NodeJsonWebKey,
+  member: keyof JsonWebKey,
+  placement: AccessorPlacement,
+  error: Error,
+): NodeJsonWebKey {
+  const rest: NodeJsonWebKey = { ...jwk };
+  delete rest[member];
+  const accessor = {
+    get: () => {
+      throw error;
+    },
+    enumerable: placement !== "non-enumerable",
+  };
+  if (placement === "inherited") {
+    return Object.create(Object.defineProperty({}, member, accessor), Object.getOwnPropertyDescriptors(rest));
+  }
+  return Object.defineProperty(rest, member, accessor);
+}
+
+// Records every operation performed on the key, in order, so an adapter can be compared against
+// the operations node:crypto performs on the original object.
+function recordedJwk(jwk: NodeJsonWebKey) {
+  const operations: string[] = [];
+  const recorded = new Proxy(jwk, {
+    get: (target, member, receiver) => {
+      operations.push(`get ${String(member)}`);
+      return Reflect.get(target, member, receiver);
+    },
+    has: (target, member) => {
+      operations.push(`has ${String(member)}`);
+      return Reflect.has(target, member);
+    },
+    ownKeys: (target) => {
+      operations.push("ownKeys");
+      return Reflect.ownKeys(target);
+    },
+    getOwnPropertyDescriptor: (target, member) => {
+      operations.push(`getOwnPropertyDescriptor ${String(member)}`);
+      return Reflect.getOwnPropertyDescriptor(target, member);
+    },
+  });
+  return { recorded, operations };
+}
+
+function outcomeOf<T>(action: () => T): { accepted: T } | { rejected: unknown } {
+  try {
+    return { accepted: action() };
+  } catch (error) {
+    return { rejected: error instanceof Error ? errorFacts(error) : error };
+  }
 }
 
 describe("UCP profile routes", () => {
@@ -245,6 +352,131 @@ describe("UCP profile routes", () => {
     expect(profile.signing_keys[0]).not.toHaveProperty("d");
     expect(profile.ucp.signing_keys[0]).not.toHaveProperty("d");
   });
+
+  const businessSigningCurves = [
+    { alg: "ES256", namedCurve: "P-256" },
+    { alg: "ES384", namedCurve: "P-384" },
+    { alg: "ES512", namedCurve: "P-521" },
+  ] as const;
+
+  it.each(
+    businessSigningCurves.flatMap((curve) =>
+      JWK_REPRESENTATIONS.map((representation) => ({ ...curve, representation })),
+    ),
+  )(
+    "publishes the $alg business key from $representation private JWK members",
+    async ({ alg, namedCurve, representation }) => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve });
+      const privateJwk = representJwk(privateKey.export({ format: "jwk" }), representation);
+      const shapeBefore = jwkShape(privateJwk);
+      const app = new Hono().route(
+        "/.well-known",
+        createUcpProfileRoutes({ businessSigningKeys: { current: { kid: "merchant-2026", alg, privateJwk } } }),
+      );
+
+      const response = await app.request("https://marketplace.example/.well-known/ucp");
+
+      expect(response.status).toBe(200);
+      const profile = await response.json();
+      const publishedKey = {
+        ...createPublicKey(privateKey).export({ format: "jwk" }),
+        kid: "merchant-2026",
+        alg,
+        use: "sig",
+      };
+      expect(profile.signing_keys).toEqual([publishedKey]);
+      expect(profile.ucp.signing_keys).toEqual([publishedKey]);
+      expect(jwkShape(privateJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  it.each(JWK_REPRESENTATIONS)(
+    "rejects a public-only business key from %s JWK members with the Node key error",
+    (representation) => {
+      const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const publicJwk = publicKey.export({ format: "jwk" });
+      const expected = thrownBy(() => createPrivateKey({ key: publicJwk, format: "jwk" }));
+      const privateJwk = representJwk(publicJwk, representation);
+      const shapeBefore = jwkShape(privateJwk);
+
+      const actual = thrownBy(() =>
+        publicUcpBusinessSigningKeys({ current: { kid: "merchant-2026", alg: "ES256", privateJwk } }),
+      );
+
+      expect(errorFacts(actual)).toEqual(errorFacts(expected));
+      expect(jwkShape(privateJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  it.each(ACCESSOR_PLACEMENTS)(
+    "publishes an EC business key whose unread RSA member is a throwing %s accessor (synthetic)",
+    async (placement) => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const privateJwk = jwkWithThrowingAccessor(
+        privateKey.export({ format: "jwk" }),
+        "n",
+        placement,
+        new Error("synthetic unread RSA member"),
+      );
+      const native = createPublicKey(createPrivateKey({ key: privateJwk, format: "jwk" })).export({ format: "jwk" });
+      const app = new Hono().route(
+        "/.well-known",
+        createUcpProfileRoutes({
+          businessSigningKeys: { current: { kid: "merchant-2026", alg: "ES256", privateJwk } },
+        }),
+      );
+
+      const response = await app.request("https://marketplace.example/.well-known/ucp");
+
+      expect(response.status).toBe(200);
+      const publishedKey = { ...native, kid: "merchant-2026", alg: "ES256", use: "sig" };
+      await expect(response.json()).resolves.toMatchObject({
+        signing_keys: [publishedKey],
+        ucp: { signing_keys: [publishedKey] },
+      });
+    },
+  );
+
+  it.each(ACCESSOR_PLACEMENTS)(
+    "rethrows the accessor error Node raises while reading the business key's %s member (synthetic)",
+    (placement) => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const accessorError = new Error("synthetic private member read");
+      const privateJwk = jwkWithThrowingAccessor(privateKey.export({ format: "jwk" }), "d", placement, accessorError);
+
+      expect(thrownBy(() => createPrivateKey({ key: privateJwk, format: "jwk" }))).toBe(accessorError);
+      expect(
+        thrownBy(() => publicUcpBusinessSigningKeys({ current: { kid: "merchant-2026", alg: "ES256", privateJwk } })),
+      ).toBe(accessorError);
+    },
+  );
+
+  it.each(["private", "public-only"] as const)(
+    "reads a %s business JWK with exactly the operations node:crypto performs on it",
+    (material) => {
+      const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const jwk = (material === "private" ? privateKey : publicKey).export({ format: "jwk" });
+      const native = recordedJwk(jwk);
+      const candidate = recordedJwk(jwk);
+
+      const nativeOutcome = outcomeOf(() =>
+        createPublicKey(createPrivateKey({ key: native.recorded, format: "jwk" })).export({ format: "jwk" }),
+      );
+      const candidateOutcome = outcomeOf(() =>
+        publicUcpBusinessSigningKeys({
+          current: { kid: "merchant-2026", alg: "ES256", privateJwk: candidate.recorded },
+        }),
+      );
+
+      expect(native.operations.length).toBeGreaterThan(0);
+      expect(candidate.operations).toEqual(native.operations);
+      expect(candidateOutcome).toEqual(
+        "accepted" in nativeOutcome
+          ? { accepted: [{ ...nativeOutcome.accepted, kid: "merchant-2026", alg: "ES256", use: "sig" }] }
+          : nativeOutcome,
+      );
+    },
+  );
 });
 
 describe("UCP REST routes", () => {
@@ -539,6 +771,207 @@ describe("UCP REST routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       checkout: { id: "chk_signed" },
     });
+  });
+
+  const signatureKeyFamilies = [
+    { family: "RSA", generate: () => generateKeyPairSync("rsa", { modulusLength: 2048 }) },
+    { family: "EC P-256", generate: () => generateKeyPairSync("ec", { namedCurve: "P-256" }) },
+    { family: "Ed25519", generate: () => generateKeyPairSync("ed25519") },
+  ] as const;
+  const signatureKeyCases = signatureKeyFamilies.flatMap((keyFamily) =>
+    JWK_REPRESENTATIONS.map((representation) => ({ ...keyFamily, representation })),
+  );
+
+  async function signedWriteWithResolvedKey(signingKey: KeyObject, resolvedJwk: JsonWebKey) {
+    const handler = vi.fn(async () => ({
+      ucp: { version: UCP_VERSION, status: "ok" as const },
+      checkout: { id: "chk_signed" },
+    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: { create_checkout: handler },
+        signatureVerification: { keyResolver: async () => resolvedJwk },
+      }),
+    );
+    const body = JSON.stringify({ source: { type: "cart" } });
+    const response = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers: signedHeadersWithKey("POST", "/ucp/v1/checkout-sessions", body, signingKey, {
+        "Idempotency-Key": "idem_signed",
+      }),
+    });
+    return { response, handler };
+  }
+
+  it.each(signatureKeyCases)(
+    "verifies $family signatures against $representation resolver JWK members",
+    async ({ generate, representation }) => {
+      const { privateKey, publicKey } = generate();
+      const resolvedJwk = representJwk(publicKey.export({ format: "jwk" }), representation);
+      const shapeBefore = jwkShape(resolvedJwk);
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(200);
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(jwkShape(resolvedJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  it.each(signatureKeyCases)(
+    "rejects $family signatures from another key against $representation resolver JWK members",
+    async ({ generate, representation }) => {
+      const { privateKey } = generate();
+      const resolvedJwk = representJwk(generate().publicKey.export({ format: "jwk" }), representation);
+      const shapeBefore = jwkShape(resolvedJwk);
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(400);
+      expect(handler).not.toHaveBeenCalled();
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ message: "HTTP Message Signature verification failed." }],
+      });
+      expect(jwkShape(resolvedJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  const unusableResolverJwks: readonly JsonWebKey[] = [
+    { kty: "oct", k: "AAAA" },
+    { kty: "EC", crv: "P-256", x: "AAAA" },
+  ];
+
+  it.each(
+    unusableResolverJwks.flatMap((jwk) => JWK_REPRESENTATIONS.map((representation) => ({ jwk, representation }))),
+  )(
+    "returns fixed signature failure content for unusable $jwk.kty resolver JWK members held as $representation",
+    async ({ jwk, representation }) => {
+      const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const resolvedJwk = representJwk(jwk, representation);
+      const shapeBefore = jwkShape(resolvedJwk);
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(400);
+      expect(handler).not.toHaveBeenCalled();
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ message: "HTTP Message Signature verification failed." }],
+      });
+      expect(jwkShape(resolvedJwk)).toEqual(shapeBefore);
+    },
+  );
+
+  // Node reads only the members of a key's own family, so a public-only import never reads these;
+  // Node 24.21 reads `d` even for a public import, so a private member would not stay unread.
+  const foreignFamilyMember = { RSA: "x", "EC P-256": "n", Ed25519: "n" } as const satisfies Record<
+    (typeof signatureKeyFamilies)[number]["family"],
+    keyof JsonWebKey
+  >;
+
+  it.each(
+    signatureKeyFamilies.flatMap((keyFamily) => ACCESSOR_PLACEMENTS.map((placement) => ({ ...keyFamily, placement }))),
+  )(
+    "verifies $family signatures when the resolver JWK's member of another key family is a throwing $placement accessor (synthetic)",
+    async ({ family, generate, placement }) => {
+      const { privateKey, publicKey } = generate();
+      const resolvedJwk = jwkWithThrowingAccessor(
+        publicKey.export({ format: "jwk" }),
+        foreignFamilyMember[family],
+        placement,
+        new Error("synthetic member of another key family"),
+      );
+      expect(() => createPublicKey({ key: resolvedJwk, format: "jwk" })).not.toThrow();
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(200);
+      expect(handler).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(ACCESSOR_PLACEMENTS)(
+    "returns fixed signature failure content when reading the resolver JWK's %s member fails (synthetic)",
+    async (placement) => {
+      const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const accessorError = new Error("synthetic public member read");
+      const resolvedJwk = jwkWithThrowingAccessor(publicKey.export({ format: "jwk" }), "x", placement, accessorError);
+      expect(thrownBy(() => createPublicKey({ key: resolvedJwk, format: "jwk" }))).toBe(accessorError);
+
+      const { response, handler } = await signedWriteWithResolvedKey(privateKey, resolvedJwk);
+
+      expect(response.status).toBe(400);
+      expect(handler).not.toHaveBeenCalled();
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ message: "HTTP Message Signature verification failed." }],
+      });
+    },
+  );
+  it("returns fixed signature content on REST and MCP when a signing key is malformed", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const malformedJwk = {
+      kty: "EC",
+      crv: "P-256",
+      kid: "platform-2026",
+      x: "not-a-canonical-coordinate",
+      y: "not-a-canonical-coordinate",
+    } as unknown as JsonWebKey;
+    const signatureVerificationFailed = vi.fn();
+    const signatureVerification = {
+      keyResolver: vi.fn(async () => malformedJwk),
+    };
+    const restApp = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: { create_checkout: vi.fn() },
+        observer: { signatureVerificationFailed },
+        signatureVerification,
+      }),
+    );
+    const restBody = JSON.stringify({ source: { type: "cart" } });
+    const restResponse = await restApp.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body: restBody,
+      headers: signedHeadersWithKey("POST", "/ucp/v1/checkout-sessions", restBody, privateKey, {
+        "Idempotency-Key": "idem_malformed_rest",
+      }),
+    });
+
+    const mcpApp = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({ observer: { signatureVerificationFailed }, signatureVerification }),
+    );
+    const mcpBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "malformed-signature",
+      method: "tools/call",
+      params: {
+        name: "complete_checkout",
+        arguments: {
+          id: "chk_malformed",
+          meta: {
+            "ucp-agent": { profile: "https://agent.example/.well-known/ucp" },
+            "idempotency-key": "idem_malformed_mcp",
+          },
+        },
+      },
+    });
+    const mcpResponse = await mcpApp.request("/ucp/mcp", {
+      method: "POST",
+      body: mcpBody,
+      headers: signedHeadersWithKey("POST", "/ucp/mcp", mcpBody, privateKey, {
+        "Idempotency-Key": "idem_malformed_mcp",
+      }),
+    });
+
+    const fixedMessage = "HTTP Message Signature verification failed.";
+    expect(restResponse.status).toBe(400);
+    await expect(restResponse.json()).resolves.toMatchObject({ messages: [{ message: fixedMessage }] });
+    expect(mcpResponse.status).toBe(200);
+    await expect(mcpResponse.json()).resolves.toMatchObject({ error: { message: fixedMessage } });
+    expect(signatureVerificationFailed).toHaveBeenCalledTimes(2);
+    expect(signatureVerificationFailed.mock.calls.map(([event]) => event.reason)).toEqual([fixedMessage, fixedMessage]);
   });
 
   it("rejects signed writes when created is stale", async () => {

@@ -32,6 +32,14 @@ Notes:
 - Listings reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - Listings reference inventory availability but do not own stock truth.
 
+## Publication Scope
+
+**Publication Scope** is the immutable choice made when creating a Listing: `native` (the default) or `channel-only`.
+
+## Channel-Only Listing
+
+A **Channel-Only Listing** is created as a draft with native visibility disabled and native fee state not enrolled. Its complete normalized amount and ISO-4217 currency pair is a hidden reference price, not native publication or channel activation authority. Creation resolves no native Terms or fee quote and enrolls no fee lock. Native publication, Resume, price, purchase-limit and capacity commands refuse it; withdrawal remains available and terminal. Channel target acceptance and activation are separate capabilities.
+
 ## Listing Price
 
 A **Listing Price** is the seller-authored pair of a normalized decimal amount and an uppercase three-letter ISO-4217 currency code. Marketplace records both members together at one Listing stream version. A historical amount without currency is an incomplete Listing Price and is never assigned a default or inferred denomination.

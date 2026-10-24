@@ -181,30 +181,6 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
     releaseExpectation: "Provider option query cache rows are zero after pre-launch reset.",
   },
   {
-    key: "learned-provider-option-rate-limits",
-    kind: "data-surface",
-    action: "reset-to-floor",
-    owner: "catalog-source-observations",
-    implementationReference:
-      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
-    resetSurfaceKey: "provider-option-rate-limit",
-    reason: "Learned throttling state is operational cache and is reset to configured floors before launch.",
-    releaseExpectation:
-      "Provider option rate-limit rows remain seeded and every effective/learned delay is at its configured floor with zero shared success streak after pre-launch reset.",
-  },
-  {
-    key: "active-provider-option-rate-limit-leases",
-    kind: "data-surface",
-    action: "retain-with-explicit-exception",
-    owner: "catalog-source-observations",
-    implementationReference:
-      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
-    resetSurfaceKey: "provider-option-rate-limit-lease",
-    reason:
-      "Live admission leases are coordination state; reset must preserve them and let admission reclaim only expired rows.",
-    releaseExpectation: "Live provider option rate-limit leases are never deleted by pre-launch reset.",
-  },
-  {
     key: "fixture-contract-metadata-and-payloads",
     kind: "data-surface",
     action: "retain-with-explicit-exception",

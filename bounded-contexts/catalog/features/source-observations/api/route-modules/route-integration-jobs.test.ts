@@ -44,9 +44,13 @@ describe("source observation routes: integration and bulk review jobs", () => {
     });
   });
 
-  it("enqueues TCGplayer integration jobs with provider-product scope aliases", async () => {
-    const job = integrationJob({ status: "queued" });
-    const enqueueIntegrationJob = vi.fn(async () => job);
+  it("refuses retired TCGplayer integration jobs before enqueue", async () => {
+    const enqueueIntegrationJob = vi.fn(async () => {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_action",
+        "TCGplayer server transport is retired; use the browser handoff.",
+      );
+    });
     const services = {
       enqueueIntegrationJob,
     } as unknown as SourceObservationRouteServices;
@@ -67,19 +71,9 @@ describe("source observation routes: integration and bulk review jobs", () => {
       headers: { "content-type": "application/json" },
     });
 
-    expect(response.status).toBe(202);
-    await expect(response.json()).resolves.toMatchObject({ jobId: "job_integration", action: "import" });
-    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
-      action: "import",
-      scope: {
-        provider: "tcgplayer",
-        language: "en",
-        productLineId: "3",
-        setName: "Base Set",
-        productId: "12345",
-      },
-      context,
-    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "unsupported_action" } });
+    expect(enqueueIntegrationJob).toHaveBeenCalledTimes(1);
   });
 
   it("preserves generic provider set-name scopes from shared importer aliases", async () => {

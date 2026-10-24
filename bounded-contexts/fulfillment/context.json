@@ -176,7 +176,13 @@
       { "name": "fulfillment.advance-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.dispatch-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.raise-shipment-exception", "ownerSlice": "shipments" },
-      { "name": "fulfillment.void-label", "ownerSlice": "shipments" }
+      { "name": "fulfillment.void-label", "ownerSlice": "shipments" },
+      { "name": "fulfillment.complete-return-intake", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.correct-return-intake", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.get-return-intake-queue", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.reconcile-unidentified-return-package", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.record-unidentified-return-package", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.resolve-return-intake", "ownerSlice": "return-shipments" }
     ],
     "resources": [
       {
@@ -504,7 +510,16 @@
     }
   ],
   "agentCoverage": {
-    "return-intake": { "pending": "#9238" }
+    "return-intake": {
+      "tools": [
+        "fulfillment.complete-return-intake",
+        "fulfillment.correct-return-intake",
+        "fulfillment.get-return-intake-queue",
+        "fulfillment.reconcile-unidentified-return-package",
+        "fulfillment.record-unidentified-return-package",
+        "fulfillment.resolve-return-intake"
+      ]
+    }
   },
   "deployableContributions": [
     {

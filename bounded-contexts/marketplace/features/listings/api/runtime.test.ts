@@ -1595,6 +1595,66 @@ describe("marketplace listing runtime", () => {
       };
     }
 
+    it("creates channel-only without Terms and refuses native publication, Resume, prices, purchase limits and capacity with zero events", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const terms = bulkTermsResolver();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: terms as never,
+      });
+      const params = {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "20",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        publicationScope: "channel-only" as const,
+        listingIdOverride: "lst_channel" as never,
+      };
+      const result = await services.createListing(params, context);
+      expect(result.state).toEqual(await services.loadListingState("lst_channel"));
+      expect(result.state).toMatchObject({
+        status: "draft",
+        publicationScope: "channel-only",
+        nativeVisibility: "disabled",
+        nativeFeeState: "not-enrolled",
+        priceAmount: "20.00",
+        priceCurrencyCode: "USD",
+        feeLocks: [],
+      });
+      const owned = { accountId: "acc_seller", listingId: "lst_channel" };
+      for (const command of [
+        () => services.publishListing(owned, context),
+        () => services.updateListingPrice({ ...owned, priceAmount: "25.00", priceCurrencyCode: "USD" }, context),
+        () => services.updateListingQuantityCap({ ...owned, quantityCap: 2 }, context),
+        () => services.updateListingPurchaseLimits({ ...owned, purchaseLimits: { maxUnitsPerOrder: 1 } }, context),
+      ])
+        await expect(command()).rejects.toThrow("channel-only");
+      expect(
+        await services.applyBulkListingPriceUpdates(
+          {
+            accountId: "acc_seller",
+            updates: [{ listingId: "lst_channel", priceAmount: "25.00", priceCurrencyCode: "USD" }],
+          },
+          context,
+        ),
+      ).toMatchObject([{ outcome: "error", message: expect.stringContaining("channel-only") }]);
+      expect(terms.resolveListingTerms).not.toHaveBeenCalled();
+      expect(terms.openListingTermsSession).not.toHaveBeenCalled();
+      expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_channel" })).toHaveLength(1);
+      expect(await services.createListing(params, context)).toEqual(result);
+      await expect(services.createListing({ ...params, publicationScope: "native" }, context)).rejects.toThrow(
+        "scope cannot change",
+      );
+      await services.withdrawListing(owned, context);
+      expect(await services.loadListingState("lst_channel")).toMatchObject({
+        status: "withdrawn",
+        publicationScope: "channel-only",
+      });
+    });
+
     it("preserves a synthetic 0% founder tranche's seven stored terms while changing its price fingerprint", async () => {
       const { eventStore } = createInMemoryEventStore();
       const termsResolver = mutableBulkTermsResolver(syntheticFounderTerms);

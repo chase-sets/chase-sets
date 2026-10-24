@@ -203,6 +203,27 @@
       "subscriptionName": "platform-operations.reported-content-queue-projection",
       "handlerKind": "projection",
       "projectionName": "reported-content-queue-projection",
+      "sourceContextName": "identity",
+      "targetContextName": "platform-operations",
+      "subscriptionVersion": 1,
+      "checkpointKey": "reported-content-queue-projection:identity:v1",
+      "handlers": {
+        "identity.account-profile.report-submitted": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["identity.account-profile.report-submitted"],
+      "streamPrefixes": "<undefined>",
+      "order": 59
+    },
+    {
+      "subscriptionName": "platform-operations.reported-content-queue-projection",
+      "handlerKind": "projection",
+      "projectionName": "reported-content-queue-projection",
       "sourceContextName": "marketplace",
       "targetContextName": "platform-operations",
       "subscriptionVersion": 1,
@@ -790,6 +811,26 @@
       "projectionTransactionBudgetEscalationMs": "<undefined>",
       "projectionCascadeChunkSize": "<undefined>",
       "order": 57
+    },
+    {
+      "subscriptionName": "platform-operations.reported-content-queue-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "identity",
+      "projectionName": "reported-content-queue-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account-profile.report-submitted": "<function>"
+      },
+      "eventTypes": ["identity.account-profile.report-submitted"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 59
     },
     {
       "subscriptionName": "platform-operations.reported-content-queue-projection",

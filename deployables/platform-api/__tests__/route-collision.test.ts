@@ -172,7 +172,6 @@ describe("platform API route collision assembly", () => {
           expect.objectContaining({ method: "GET", path: "/api/catalog/operator-session" }),
           expect.objectContaining({ method: "POST", path: "/api/catalog/operator-session/grant" }),
           expect.objectContaining({ method: "DELETE", path: "/api/catalog/operator-session" }),
-          expect.objectContaining({ method: "PUT", path: "/api/public/catalog/operator-session/tcgplayer" }),
           expect.objectContaining({ method: "DELETE", path: "/api/public/catalog/operator-session/grant" }),
           expect.objectContaining({ method: "GET", path: "/api/marketplace/account/offer-policies" }),
           expect.objectContaining({ method: "GET", path: "/api/marketplace/account/offer-policies/:id" }),

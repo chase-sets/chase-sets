@@ -16,13 +16,6 @@ describe("catalog host ports", () => {
     ) as CatalogContextManifest;
     const hostPorts = new Set((context.hostPorts ?? []).map((entry) => entry.portName));
 
-    expect(hostPorts).toEqual(
-      new Set([
-        "catalogAssetStorage",
-        "sourceObservationTelemetry",
-        "tcgplayerAutomationCatalogClient",
-        "catalogOperatorSessionConfiguration",
-      ]),
-    );
+    expect(hostPorts).toEqual(new Set(["catalogAssetStorage", "sourceObservationTelemetry"]));
   });
 });

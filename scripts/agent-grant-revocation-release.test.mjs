@@ -897,6 +897,23 @@ const gitBash =
     ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
     : "bash";
 
+const nonConsumingJqStub = `jq() { printf 'synthetic\\n'; }`;
+const drainingJqStub = `
+    jq() {
+      if [[ ! -t 0 ]]; then cat >/dev/null; fi
+      [[ -z "\${JQ_FAIL:-}" ]] || return 1
+      printf 'synthetic\\n'
+    }
+  `;
+const pipeSafetyProducer = "terraform() { dd if=/dev/zero bs=65536 count=64 2>/dev/null; }";
+const pipeSafetyPipeline = "terraform output -json marketplace_domains | jq -r '.'";
+
+function runPipeSafetyControl(jqStub) {
+  return spawnSync(gitBash, ["-c", `set -o pipefail\n${pipeSafetyProducer}\n${jqStub}\n${pipeSafetyPipeline}`], {
+    encoding: "utf8",
+  });
+}
+
 /** Executes one step's shell with intercepted commands; nothing reaches a cluster or provider. */
 function executeStep(step, env = {}) {
   const directory = mkdtempSync(join(tmpdir(), "synthetic-revocation-step-"));
@@ -906,7 +923,7 @@ function executeStep(step, env = {}) {
     pnpm() { trace pnpm "$@"; }
     git() { trace git "$@"; [[ "$1" != rev-parse ]] || printf '%s\\n' "$LATEST_MAIN"; }
     terraform() { printf 'synthetic\\n'; }
-    jq() { [[ -z "\${JQ_FAIL:-}" ]] || return 1; printf 'synthetic\\n'; }
+    ${drainingJqStub}
   `;
   try {
     const run = step.run.replace(/\$\{\{[^}]*\}\}/g, "synthetic");
@@ -974,6 +991,11 @@ function eligibilityViolations(document) {
 }
 
 describe("revocation-caller-partition workflow caller", () => {
+  it("proves the jq seam drains piped Terraform output under pipefail", () => {
+    expect(runPipeSafetyControl(nonConsumingJqStub).status).toBe(141);
+    expect(runPipeSafetyControl(drainingJqStub).status).toBe(0);
+  });
+
   it("inventories every prepare, activate, check-rollback, abort, rollback and atomic caller, and the zero sets", () => {
     const files = Object.fromEntries(
       readdirSync(resolve(root, ".github/workflows"))
