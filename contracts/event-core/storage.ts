@@ -105,6 +105,8 @@ export type AppendToStreamInput = Readonly<{
   expectedVersion: ExpectedStreamVersion;
   events: readonly EventRecordToStore[];
   context: EventStoreContext;
+  /** Optional class-C configuration grant vector. Omitted for legacy callers. */
+  configurationGrants?: readonly import("./configuration-epoch").ConfigurationEpochGrant[];
 }>;
 
 /**
