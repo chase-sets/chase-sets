@@ -1,4 +1,6 @@
-import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
+import type { PricingApiEnv } from "../../../api";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -10,9 +12,11 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { module as pricingModule } from "../../../index";
 import { buildCandidateBody } from "../api/goal-comparison";
+import { createPricingHealthRoutes } from "../api/route";
 import { PricingHealthApplyRefusedError } from "../api/services";
 import {
   comparisonAccountId,
+  comparisonAdvancedTargets,
   comparisonPolicyId,
   comparisonTestServices,
   createComparisonPolicy,
@@ -159,5 +163,159 @@ describeDb("Pricing Health apply compared goal", () => {
     expect((await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId))!.version).toBe(
       before!.version,
     );
+  });
+
+  it("rejects an incomplete receipt before any revision (mutant: omit completed/summary fence)", async () => {
+    const { services, dryRunId, body, choice } = await fixture();
+    const before = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
+    await pools.pricing.query("UPDATE pricing_repricing_dry_runs SET completed_at=NULL WHERE dry_run_id=$1", [
+      dryRunId,
+    ]);
+    await expect(
+      services.health.applyGoal(
+        comparisonAccountId,
+        comparisonPolicyId,
+        {
+          dryRunId,
+          targetRevision: before!.version,
+          targetBodyHash: hashRepricingDryRunBody(dryRunBody),
+          candidateBodyHash: hashRepricingDryRunBody(body),
+          ...choice,
+        },
+        dryRunContext,
+      ),
+    ).rejects.toMatchObject({ code: "candidate_incomplete" });
+    expect((await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId))!.version).toBe(
+      before!.version,
+    );
+  });
+
+  it("rejects a body-fence mismatch without a revision (mutant: remove target hash fence)", async () => {
+    const { services, dryRunId, body, choice } = await fixture();
+    const before = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
+    await expect(
+      services.health.applyGoal(
+        comparisonAccountId,
+        comparisonPolicyId,
+        {
+          dryRunId,
+          targetRevision: before!.version,
+          targetBodyHash: "0".repeat(64),
+          candidateBodyHash: hashRepricingDryRunBody(body),
+          ...choice,
+        },
+        dryRunContext,
+      ),
+    ).rejects.toMatchObject({ code: "policy_changed" });
+    expect((await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId))!.version).toBe(
+      before!.version,
+    );
+  });
+
+  it("rejects a race after the target read without a second revision (mutant: ignore expectedVersion)", async () => {
+    const { services, dryRunId, body, choice } = await fixture();
+    const before = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
+    const original = services.policies.executeOwnedRepricingPolicy;
+    vi.spyOn(services.policies, "executeOwnedRepricingPolicy").mockImplementation(async (input) => {
+      await original({
+        ...input,
+        command: {
+          ...dryRunBody,
+          type: "ReviseRepricingPolicy",
+          name: "Racing revision",
+          revisedAt: now,
+        },
+      });
+      throw new Error("synthetic optimistic concurrency race");
+    });
+    await expect(
+      services.health.applyGoal(
+        comparisonAccountId,
+        comparisonPolicyId,
+        {
+          dryRunId,
+          targetRevision: before!.version,
+          targetBodyHash: hashRepricingDryRunBody(dryRunBody),
+          candidateBodyHash: hashRepricingDryRunBody(body),
+          ...choice,
+        },
+        dryRunContext,
+      ),
+    ).rejects.toMatchObject({ code: "policy_changed" });
+    expect((await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId))!.version).toBe(
+      before!.version + 1,
+    );
+  });
+
+  it("refuses apply when the manage permission is lost without mutating the DB (mutant: remove route permission guard)", async () => {
+    const { services } = await fixture();
+    const before = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
+    const app = new Hono<PricingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", { accountId: comparisonAccountId, permissions: ["pricing.view"] } as never);
+      c.set("context", dryRunContext as never);
+      return next();
+    });
+    app.route("/health", createPricingHealthRoutes(services.health));
+    const response = await app.request(`/health/${comparisonPolicyId}/apply-goal`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        dryRunId: "run",
+        targetRevision: before!.version,
+        targetBodyHash: "0".repeat(64),
+        candidateBodyHash: "0".repeat(64),
+        goalId: "fixed-percentile",
+        goalVersion: 1,
+        parameters: { percentile: 65 },
+      }),
+    });
+    expect(response.status).toBe(403);
+    expect((await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId))!.version).toBe(
+      before!.version,
+    );
+  });
+
+  it("refuses an Adoption Gate selection without a revision (mutant: trust request goal identity)", async () => {
+    const { services, dryRunId, body } = await fixture();
+    const before = await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId);
+    await expect(
+      services.health.applyGoal(
+        comparisonAccountId,
+        comparisonPolicyId,
+        {
+          dryRunId,
+          targetRevision: before!.version,
+          targetBodyHash: hashRepricingDryRunBody(dryRunBody),
+          candidateBodyHash: hashRepricingDryRunBody(body),
+          goalId: "fixed-percentile",
+          goalVersion: 2,
+          parameters: { percentile: 65 },
+        },
+        dryRunContext,
+      ),
+    ).rejects.toMatchObject({ code: "adoption_gate_refused" });
+    expect((await services.policies.loadOwnedRepricingPolicy(comparisonPolicyId, comparisonAccountId))!.version).toBe(
+      before!.version,
+    );
+  });
+
+  it.each(comparisonAdvancedTargets)("proves the DB advanced-editor branch for %s targets", async (_, rules) => {
+    const services = comparisonTestServices(pools.pricing);
+    await createComparisonPolicy(pools.pricing, services, rules);
+    await expect(services.health.getHealth(comparisonAccountId, comparisonPolicyId, now)).resolves.toMatchObject({
+      branch: "advanced-editor",
+      comparison: [],
+      goals: [],
+    });
+  });
+
+  it("proves the DB zero-policy create-editor branch", async () => {
+    const services = comparisonTestServices(pools.pricing);
+    await expect(services.health.getHealth(comparisonAccountId, undefined, now)).resolves.toMatchObject({
+      branch: "create-editor",
+      comparison: [],
+      goals: [],
+    });
   });
 });

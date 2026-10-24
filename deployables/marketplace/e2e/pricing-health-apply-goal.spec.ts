@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIResponse } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool } from "@chase-sets/event-core-postgres";
@@ -30,9 +30,22 @@ type Candidate = {
   guardrails: unknown[];
 };
 type HealthResponse = {
-  target: { policyId: string; version: number; bodyHash: string } | null;
+  target: { policyId: string; name: string; version: number; bodyHash: string } | null;
   comparison: Candidate[];
 };
+
+type PolicyState = {
+  scope: unknown;
+  excludedListingIds: unknown;
+  maxChangesPerDay: number | null;
+  rules: Array<{ directive: { currencyCode: string; floor: unknown; guardrails: unknown[]; anchorChain: unknown[] } }>;
+};
+
+async function readJson<T>(response: Promise<APIResponse>, status: number): Promise<T> {
+  const resolved = await response;
+  expect(resolved.status()).toBe(status);
+  return (await resolved.json()) as T;
+}
 
 test("applies one compared Pricing Goal with fenced confirmation @marketplace-seller @browser-e2e-seed", async ({
   page,
@@ -102,7 +115,13 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
     created = { policyId: policy.policyId, accountId: policy.accountId };
     await projectSyntheticPricingHealthPolicy(pool, created);
     fixture = await seedSyntheticPricingHealthInputs(pool, { accountId: created.accountId, listingId });
-    const before = await (await page.request.get(`${policiesApi}/${created.policyId}`)).json();
+    const before = await readJson<PolicyState>(page.request.get(`${policiesApi}/${created.policyId}`), 200);
+    const beforeHealth = await readJson<HealthResponse>(
+      page.request.get(`${healthApi}?policyId=${created.policyId}`),
+      200,
+    );
+    expect(beforeHealth.target?.policyId).toBe(created.policyId);
+    expect(beforeHealth.target?.version).toEqual(expect.any(Number));
     expect(await (await page.request.post(`${healthApi}/${created.policyId}/compare`)).status()).toBe(202);
 
     let health: HealthResponse = { target: null, comparison: [] };
@@ -121,7 +140,7 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
       .toBe(true);
     const candidate = health.comparison[0]!;
     expect(candidate.targetPolicyId).toBe(created.policyId);
-    expect(candidate.targetRevision).toBe(before.version);
+    expect(candidate.targetRevision).toBe(beforeHealth.target!.version);
     expect(candidate.bodyHash).toMatch(/^[a-f0-9]{64}$/);
     expect((candidate.raised ?? 0) + (candidate.lowered ?? 0)).toBeGreaterThan(0);
     expect(candidate.listingCount).toBe(1);
@@ -148,6 +167,11 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
       { width: 820, height: 1180 },
     ]) {
       await page.setViewportSize(viewport);
+      const dialogButtons = dialog.getByRole("button");
+      await dialogButtons.first().focus();
+      await expect(dialogButtons.first()).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(dialogButtons.nth(1)).toBeFocused();
       await captureAccessibilityEvidence({
         page,
         testInfo,
@@ -163,8 +187,13 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
     await dialog.getByRole("button", { name: "Apply this goal", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Pricing goal applied");
 
-    const after = await (await page.request.get(`${policiesApi}/${created.policyId}`)).json();
-    expect(after.version).toBe(before.version + 1);
+    const after = await readJson<PolicyState>(page.request.get(`${policiesApi}/${created.policyId}`), 200);
+    const afterHealth = await readJson<HealthResponse>(
+      page.request.get(`${healthApi}?policyId=${created.policyId}`),
+      200,
+    );
+    expect(afterHealth.target?.policyId).toBe(created.policyId);
+    expect(afterHealth.target?.version).toBe(beforeHealth.target!.version + 1);
     expect(after.scope).toEqual(before.scope);
     expect(after.excludedListingIds).toEqual(before.excludedListingIds);
     expect(after.maxChangesPerDay).toBe(before.maxChangesPerDay);
