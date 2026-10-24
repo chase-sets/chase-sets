@@ -95,7 +95,7 @@ describe("agent-grant-revocation-real-route", () => {
     expect(mandateForm.getAttribute("aria-busy")).toBe("true");
     const webhookForm = screen.getByRole("button", { name: "Save webhook endpoint" }).closest("form")!;
     expect(webhookForm.getAttribute("aria-busy")).toBeNull();
-    await act(async () => mandate.resolve(null));
+    await act(async () => mandate.resolve());
     await waitFor(() => expect(mandateForm.getAttribute("aria-busy")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Save webhook endpoint" }));
     await waitFor(() => expect(api.updateAgentGrantWebhook).toHaveBeenCalledOnce());
