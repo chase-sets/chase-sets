@@ -130,6 +130,7 @@ let dimensionUrl = "";
   // (bounded-contexts/catalog/features/dimensions/api/route.ts), so it reads "order" as an option
   // id and refuses every reorder ("optionId must start with chc_."), for admin-web too. The pilot
   // shows the refusal in the dialog; the reorder itself is reported blocked, not passed.
+  // Tracked by chase-sets/chase-sets#10520.
   await page.getByRole("button", { name: "Reorder" }).click();
   const reorder = page.locator("#catalog-reorder-dialog");
   const ids = (await reorder.getByLabel("Option IDs").inputValue()).split(", ");

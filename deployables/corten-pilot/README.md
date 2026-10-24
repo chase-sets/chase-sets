@@ -215,6 +215,8 @@ Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dime
 400 "optionId must start with chc_.". admin-web's own Reorder gets the same 400 (checked in a
 browser against the dev sandbox). The pilot shows the refusal in the dialog;
 `scripts/smoke-catalog.mjs` reports the step as blocked by the API, not as passed.
+Filed as [#10520 Let the Catalog API reorder a dimension's options instead of refusing every reorder](https://github.com/chase-sets/chase-sets/issues/10520);
+once it lands, the smoke test's reorder step should pass instead of being reported blocked.
 
 Closed:
 
