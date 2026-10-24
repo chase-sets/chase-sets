@@ -2485,9 +2485,10 @@ describe("UCP MCP routes", () => {
               ucp: { version: UCP_VERSION, status: "error" as const },
               messages: [
                 {
+                  type: "error" as const,
                   severity: "error" as const,
                   code: "authentication_required",
-                  message: "UCP checkout requires a linked buyer account.",
+                  content: "UCP checkout requires a linked buyer account.",
                 },
               ],
             }),
