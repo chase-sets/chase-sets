@@ -841,5 +841,8 @@
       "order": 16
     }
   ],
-  "subscriptions": []
+  "subscriptions": [],
+  "projectionRevisions": {
+    "catalog-scope-registry-projection": 2
+  }
 }
