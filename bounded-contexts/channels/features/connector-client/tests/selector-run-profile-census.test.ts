@@ -1197,14 +1197,18 @@ describe("selector-run-profile-census-transport-contract", () => {
       { id: 103, result: { pid: 103, created: 103 }, held: 1, disposals: 2 },
     ]);
     const source = readFileSync(script, "utf8");
-    expect(source).toMatch(/AdmitBrowser = \{[\s\S]*?Member\([\s\S]*?InJob -and \$member\.Alive[\s\S]*?Dispose\(\)[\s\S]*?created = -1/);
+    expect(source).toMatch(
+      /AdmitBrowser = \{[\s\S]*?Member\([\s\S]*?InJob -and \$member\.Alive[\s\S]*?Dispose\(\)[\s\S]*?created = -1/,
+    );
   });
 
   it("selector-run-profile-census-byte-identity", () => {
     const bytes = readFileSync(script);
     const sha256 = createHash("sha256").update(bytes).digest("hex").toUpperCase();
     const blobHeader = Buffer.from(`blob ${bytes.length}\0`, "utf8");
-    const gitBlob = createHash("sha1").update(Buffer.concat([blobHeader, bytes])).digest("hex");
+    const gitBlob = createHash("sha1")
+      .update(Buffer.concat([blobHeader, bytes]))
+      .digest("hex");
     expect(sha256).toBe("4B99F11BE7576C0469E769314C20629B457800A8BE09C2731FA27F7B0B1E812B");
     expect(gitBlob).toBe("4716df010310c49d51ab27bdf3812cd4364ceb1b");
     expect(bytes.length).toBe(53364);
