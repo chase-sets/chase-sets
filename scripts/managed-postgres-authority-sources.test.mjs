@@ -532,6 +532,20 @@ const reviewedStepInsertions = [
     occurrence: 6,
   },
 ];
+const previewStateRetirementDelta = [
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
+].map(([secretName, purpose]) => ({
+  file: ".github/workflows/platform-preview-cleanup.yml",
+  jobId: "destroy-preview",
+  stepAnchor: "name:Retire empty preview Terraform state#17",
+  secretName,
+  purpose,
+}));
 
 function applyReviewedStepInsertions(record) {
   return reviewedStepInsertions.reduce((current, insertion) => {
@@ -876,6 +890,7 @@ describe("managed Postgres authority source generator", () => {
         ...stagingEvidenceWindowDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
         ...qualificationCleanupDelta,
+        ...previewStateRetirementDelta,
       ]
         .map(applyQualificationStepInsertions)
         .filter(
@@ -888,7 +903,7 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1704);
+    expect(expected.grants).toHaveLength(1710);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
