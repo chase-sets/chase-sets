@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import {
   createUcpEnvelope,
   readUcpRequestMeta,
-  ucpErrorSeverity,
   type UcpEnvelope,
   type UcpMessageInput,
   type UcpOperationHandlerInput,
@@ -137,9 +136,7 @@ export function createCheckoutUcpHandlers(
   ) =>
     resource
       ? createUcpEnvelope("success", resource, messages, { paymentHandlers: {} })
-      : createUcpEnvelope("error", {}, [
-          { severity: "unrecoverable", code: "not_found", content: "The requested checkout was not found." },
-        ]);
+      : createUcpEnvelope("error", {}, [{ code: "not_found", content: "The requested checkout was not found." }]);
 
   const handler =
     (permission: "orders.view" | "orders.manage", run: UcpHandler): UcpHandler =>
@@ -153,9 +150,7 @@ export function createCheckoutUcpHandlers(
       }
     };
   const closed = () =>
-    createUcpEnvelope("error", {}, [
-      { severity: "error", code: "checkout_closed", content: "Checkout is closed until public launch." },
-    ]);
+    createUcpEnvelope("error", {}, [{ code: "checkout_closed", content: "Checkout is closed until public launch." }]);
   const handlers = {
     create_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
@@ -446,7 +441,6 @@ function checkoutUcpMessage(row: ReturnType<typeof checkoutUcpState>["messages"]
     type: row.severity === "warning" ? ("warning" as const) : ("error" as const),
     code: row.code,
     content: row.message,
-    severity: row.recoverability,
     ...(row.target ? { path: row.target } : {}),
   };
 }
@@ -539,19 +533,18 @@ function previewLinePrice(preview: CheckoutFulfillmentPreview | null, listingId:
 function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {
   if (!input.actor)
     return createUcpEnvelope("error", {}, [
-      { severity: "error", code: "authentication_required", content: "UCP checkout requires a linked buyer account." },
+      { code: "authentication_required", content: "UCP checkout requires a linked buyer account." },
     ]);
   if (!input.actor.permissions.includes(permission) && !input.actor.permissions.includes("guest-checkout.manage"))
     return createUcpEnvelope("error", {}, [
       {
-        severity: "error",
         code: "authorization_forbidden",
         content: "The linked buyer account cannot manage this checkout session.",
       },
     ]);
   if (!input.context)
     return createUcpEnvelope("error", {}, [
-      { severity: "error", code: "context_required", content: "UCP checkout requires an event-store context." },
+      { code: "context_required", content: "UCP checkout requires an event-store context." },
     ]);
   return null;
 }
@@ -579,7 +572,6 @@ function validationError(error: unknown) {
   const code = error instanceof CheckoutDomainError ? error.code : "validation_failed";
   return createUcpEnvelope("error", {}, [
     {
-      severity: ucpErrorSeverity(code),
       code,
       content: "The checkout request could not be completed.",
     },

@@ -860,7 +860,7 @@ async function negotiateUcpRequest(
   const failure = (code: string, status: UcpNegotiationFailure["status"]): UcpNegotiationFailure => ({
     code,
     status,
-    envelope: createUcpEnvelope("error", {}, [{ severity: "error", code, content: code }]),
+    envelope: createUcpEnvelope("error", {}, [{ code, content: code }]),
   });
   if (meta.profile.kind === "malformed") return failure("invalid_profile_url", 400);
   if (meta.profile.kind === "supplied") {
@@ -1091,7 +1091,6 @@ async function signedWriteOrJsonError(request: Request) {
   return reason
     ? createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "signed_request_required",
           content: reason,
         },
@@ -1102,7 +1101,6 @@ async function signedWriteOrJsonError(request: Request) {
 function idempotencyRequiredEnvelope(operation: string) {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "idempotency_key_required",
       content: `Idempotency-Key is required for ${operation}.`,
     },
@@ -1112,7 +1110,6 @@ function idempotencyRequiredEnvelope(operation: string) {
 function idempotencyConflictEnvelope() {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "idempotency_key_conflict",
       content: "Idempotency-Key was already used with different request parameters.",
     },
@@ -1122,7 +1119,6 @@ function idempotencyConflictEnvelope() {
 function idempotencyInProgressEnvelope() {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "warning",
       code: "idempotency_key_in_progress",
       content: "A matching request is already in progress. Retry later.",
     },
@@ -1423,7 +1419,6 @@ async function invokeRestWrite(
     return c.json(
       createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "signed_request_required",
           content: signatureFailure,
         },
@@ -1703,7 +1698,6 @@ function enforceAgentGrantRateLimit(
   emitObserver(options.observer?.agentGuardrailTriggered, violation);
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "agent_grant_rate_limited",
       content: decision.reason,
     },
@@ -1713,7 +1707,6 @@ function enforceAgentGrantRateLimit(
 function ucpMcpToolLimitEnvelope(reason: string) {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "tool_call_limited",
       content: reason,
     },
@@ -1940,15 +1933,13 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         tool.idempotencyKeyRequired &&
         result.messages?.some((message) => message.code === "idempotency_key_conflict")
       ) {
-        return c.json(
-          jsonRpcError(request.id, -32000, "Idempotency-Key was already used with different request parameters."),
-        );
+        return respondResult(toolResult(tool, result));
       }
       if (
         tool.idempotencyKeyRequired &&
         result.messages?.some((message) => message.code === "idempotency_key_in_progress")
       ) {
-        return c.json(jsonRpcError(request.id, -32029, "A matching request is already in progress. Retry later."));
+        return respondResult(toolResult(tool, result));
       }
 
       return respondResult(toolResult(tool, result));
@@ -2017,5 +2008,5 @@ function hasSignedWriteHeaders(request: Request) {
 function unsignedCheckoutAccessFailure(actor: ResolvedActor | null) {
   if (actor?.agentGrant?.scopes.includes("dev.ucp.shopping.checkout:manage")) return null;
   const code = actor ? "authorization_forbidden" : "authentication_required";
-  return createUcpEnvelope("error", {}, [{ severity: "error", code, content: code }]);
+  return createUcpEnvelope("error", {}, [{ code, content: code }]);
 }

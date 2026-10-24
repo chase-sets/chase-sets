@@ -1656,7 +1656,20 @@ describe("platform api app wiring", () => {
               projectionHandlerSets: [],
             },
             detail: {
-              getItemDetail: vi.fn(async () => null),
+              getItemDetail: vi.fn(async () => ({
+                catalog_item_id: "cat_1",
+                slug: "charizard-cat-1",
+                title: "Charizard",
+                description: "A card.",
+                market_listings: [
+                  {
+                    listing_id: "lst_1",
+                    listing_slug: "charizard-lst-1",
+                    price_amount: "20.00",
+                    price_currency_code: "USD",
+                  },
+                ],
+              })) as never,
               projectionHandlerSets: [],
             },
             market: {},
@@ -1676,7 +1689,7 @@ describe("platform api app wiring", () => {
     expect(searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "charizard" }));
     await expect(response.json()).resolves.toMatchObject({
       ucp: { status: "success" },
-      products: [],
+      products: [expect.objectContaining({ id: "cat_1" })],
     });
   });
 
@@ -1871,7 +1884,20 @@ describe("platform api app wiring", () => {
               projectionHandlerSets: [],
             },
             detail: {
-              getItemDetail: vi.fn(async () => null),
+              getItemDetail: vi.fn(async () => ({
+                catalog_item_id: "cat_1",
+                slug: "charizard-cat-1",
+                title: "Charizard",
+                description: "A card.",
+                market_listings: [
+                  {
+                    listing_id: "lst_1",
+                    listing_slug: "charizard-lst-1",
+                    price_amount: "20.00",
+                    price_currency_code: "USD",
+                  },
+                ],
+              })) as never,
               projectionHandlerSets: [],
             },
             market: {},
@@ -2023,7 +2049,7 @@ describe("platform api app wiring", () => {
       result: {
         structuredContent: {
           ucp: { status: "success" },
-          products: [],
+          products: [expect.objectContaining({ id: "cat_1" })],
         },
       },
     });

@@ -245,6 +245,7 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
   const handlers = {
     search_catalog: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogSearchBody>(input);
+      if (!body) return invalidCatalogRequest();
       const filters = readObject(body.filters);
       const context = readObject(body.context);
       const pagination = readObject(body.pagination);
@@ -320,6 +321,7 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
     },
     lookup_catalog: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogLookupBody>(input);
+      if (!body) return invalidCatalogRequest();
       const ids = readIds(body);
       const context = readObject(body.context);
       const filters = readObject(body.filters);
@@ -352,13 +354,13 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
     },
     get_product: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogLookupBody>(input);
+      if (!body) return invalidCatalogRequest();
       const { params } = input;
       const id = params.id || readString(body.id) || readIds(body)[0] || "";
       const item = id ? await items.detail.getItemDetail(id) : null;
       if (!item) {
         return createUcpEnvelope("error", {}, [
           {
-            severity: "unrecoverable",
             code: "product_not_found",
             content: "The requested product was not found.",
             path: "$.product",
@@ -373,7 +375,6 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
       if (!bounded)
         return createUcpEnvelope("error", {}, [
           {
-            severity: "unrecoverable",
             code: "product_not_found",
             content: "The requested product was not found.",
             path: "$.product",
@@ -500,11 +501,21 @@ async function readJsonObject<T extends Readonly<Record<string, unknown>>>(reque
 
 async function readInputObject<T extends Readonly<Record<string, unknown>>>(
   input: UcpOperationHandlerInput,
-): Promise<T> {
+): Promise<T | null> {
   const args = input.arguments ?? {};
+  if (input.request.url.includes("/ucp/mcp")) {
+    const catalog = args.catalog;
+    return Object.keys(args).length === 1 && typeof catalog === "object" && catalog !== null && !Array.isArray(catalog)
+      ? (catalog as T)
+      : null;
+  }
   if (Object.keys(args).length === 0) return readJsonObject<T>(input.request);
   const catalog = readObject(args.catalog);
   return (catalog ? catalog : args) as T;
+}
+
+function invalidCatalogRequest() {
+  return createUcpEnvelope("error", {}, [{ code: "invalid_request", content: "The UCP request is invalid." }]);
 }
 
 function readObject(value: unknown): Readonly<Record<string, unknown>> {

@@ -12,7 +12,7 @@ import {
   type CheckoutUcpOrderFact,
   type CheckoutUcpQuote,
 } from "../support/ucp-support/checkout";
-import { ucpSchemaValidator } from "@chase-sets/platform-runtime/ucp-schema-test-support";
+import { expectUcpCapture, ucpSchemaValidator } from "@chase-sets/platform-runtime/ucp-schema-test-support";
 import type { CheckoutFulfillmentPreview } from "../features/sessions/domain/fulfillment-preview";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
@@ -212,10 +212,11 @@ describe("UCP buy-now readiness AC1", () => {
       ucp: { status: "error" },
       messages: [{ code: "not_found", severity: "unrecoverable" }],
     });
-    const malformed = await f.restHandlers.get_checkout(input({ id: "bad" }, false, false));
+    const malformed = await f.restHandlers.get_checkout(input({}, false, false, "bad"));
+    expectUcpCapture(malformed, { operation: "get_checkout", kind: "error" });
     expect(malformed).toMatchObject({
       ucp: { status: "error" },
-      messages: [{ code: "not_found", severity: "unrecoverable" }],
+      messages: [{ code: "invalid_request", severity: "recoverable" }],
     });
   });
 
@@ -354,7 +355,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     const result = await f.restHandlers.get_checkout(input());
     expect(result).toMatchObject({
       status: "incomplete",
-      messages: [{ code: "item_unavailable", severity: "unrecoverable", path: "$.line_items[0]" }],
+      messages: [{ code: "item_unavailable", path: "$.line_items[0]" }],
     });
     expect(result).not.toHaveProperty("continue_url");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
@@ -372,7 +373,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
       expect(result).toMatchObject({
         status: "requires_escalation",
         continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-        messages: [{ code: "payment_confirmation_required", severity: "requires_buyer_input" }],
+        messages: [{ code: "payment_confirmation_required" }],
       });
     }
     vi.mocked(f.sessions.getPaymentSummary).mockResolvedValue({ status: "captured" } as never);
@@ -417,14 +418,14 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     expect(await f.restHandlers.get_checkout(input())).toMatchObject({
       status: "requires_escalation",
       expires_at: "2026-10-16T06:00:00.000Z",
-      messages: [{ severity: "requires_buyer_input" }],
+      messages: [{}],
     });
     f.setTime("2026-10-16T06:00:00Z");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
     const expired = await f.restHandlers.get_checkout(input());
     expect(expired).toMatchObject({
       status: "canceled",
-      messages: [{ code: "checkout_expired", severity: "unrecoverable" }],
+      messages: [{ code: "checkout_expired" }],
     });
     expect(expired).not.toHaveProperty("continue_url");
     for (const op of ["update_checkout", "complete_checkout"])
@@ -469,7 +470,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     expect(result).toMatchObject({
       status: "requires_escalation",
       continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-      messages: [{ code: "payment_required", severity: "requires_buyer_input" }],
+      messages: [{ code: "payment_required" }],
     });
     expect(JSON.stringify(result)).not.toContain("anon_raw_marker");
     noWrites(f);
@@ -482,6 +483,14 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     const result = await f.restHandlers.cancel_checkout(input({}, false, true));
     expect(result).toMatchObject({ status: "canceled" });
     expect(f.writes.cancelSession).toHaveBeenCalledTimes(1);
+  });
+  it("cancel of a cancelled checkout is idempotent and does not release or write again", async () => {
+    const f = fixture({ cancelled_at: "2026-10-16T01:00:00.000Z" });
+    const result = await f.restHandlers.cancel_checkout(input({}, false, true));
+    expect(result).toMatchObject({ status: "canceled" });
+    noWrites(f);
+    expect(f.writes.cancelSession).not.toHaveBeenCalled();
+    expect(ports.releaseCheckoutInventoryReservations).not.toHaveBeenCalled();
   });
   it("preserves authentication, authorization and closed-rail refusals", async () => {
     const f = fixture();
@@ -837,7 +846,6 @@ describe("UCP 2026-08-25 Checkout state resources", () => {
             type: "warning",
             code: row.code,
             content: content[row.code],
-            severity: row.status === "requires_escalation" ? "requires_buyer_input" : "unrecoverable",
             ...(row.code === "item_unavailable" ? { path: "$.line_items[0]" } : {}),
           },
         ]);

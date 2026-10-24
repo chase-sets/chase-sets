@@ -23,10 +23,9 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
       if (!orderId) {
         return createUcpEnvelope("error", {}, [
           {
-            severity: "error",
             code: "validation_failed",
             content: "Order id is required.",
-            path: "id",
+            path: "$.id",
           },
         ]);
       }
@@ -43,10 +42,9 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
 
       return createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "not_found",
           content: "Order not found for the linked marketplace account.",
-          path: "id",
+          path: "$.id",
         },
       ]);
     },
@@ -63,7 +61,6 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
     return {
       error: createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "authentication_required",
           content: "UCP order reads require a linked marketplace account.",
         },
@@ -75,7 +72,6 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
     return {
       error: createUcpEnvelope("error", {}, [
         {
-          severity: "error",
           code: "authorization_forbidden",
           content: "The linked marketplace account cannot view orders.",
         },

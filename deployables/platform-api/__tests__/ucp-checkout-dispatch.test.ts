@@ -5,6 +5,7 @@ import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { buildAccountCapabilityRegistry } from "@chase-sets/platform-runtime/api";
 import {
   UCP_VERSION,
+  UCP_MCP_TOOLS,
   type UcpEnvelope,
   type UcpIdempotencyStore,
   type PlatformIdempotencyRecord,
@@ -16,6 +17,7 @@ import {
   MCP_METHOD_HEADER,
   MCP_NAME_HEADER,
 } from "@chase-sets/platform-runtime/mcp-protocol";
+import { expectUcpCapture } from "@chase-sets/platform-runtime/ucp-schema-test-support";
 import { buildPlatformApiApp } from "../src/app";
 
 const id = "chk_0123456789abcdefghijklmnop";
@@ -71,9 +73,19 @@ const row = (): Row => ({
 });
 type Transport = "rest" | "legacy" | "modern";
 
-function fixture() {
-  let actor: ResolvedActor | null = buyer;
-  let current = row();
+function fixture(
+  options: Readonly<{
+    actor?: ResolvedActor | null;
+    session?: Partial<Row>;
+    checkoutClosed?: boolean;
+    body?: Record<string, unknown>;
+    searchItems?: (...args: never[]) => unknown;
+    getItemDetail?: (...args: never[]) => unknown;
+    getPurchase?: (...args: never[]) => unknown;
+  }> = {},
+) {
+  let actor: ResolvedActor | null = options.actor === undefined ? buyer : options.actor;
+  let current = row({ ...options.session });
   const createdSessionIds = new Set<string>();
   const getSession = vi.fn(async (sessionId: string, accountId: string) =>
     (sessionId === id || createdSessionIds.has(sessionId)) && accountId === current.buyer_account_id ? current : null,
@@ -165,11 +177,42 @@ function fixture() {
               visible_quantity: 1,
             }),
           },
+          search: {
+            searchItems: options.searchItems ?? vi.fn(async () => ({ items: [], total: 0, nextCursor: null })),
+            suggestItems: vi.fn(async () => []),
+            previewBulkAdd: vi.fn(async () => ({
+              totalMatches: 0,
+              eligibleCount: 0,
+              skippedCount: 0,
+              overLimit: false,
+              limit: 20,
+              lines: [],
+              skippedItems: [],
+            })),
+            rebuildSearchIndex: vi.fn(),
+            projectors: [],
+          },
+          detail: {
+            getItemDetail: options.getItemDetail ?? vi.fn(async () => null),
+            getSellerOverlay: vi.fn(async () => ({
+              accountOfferMatches: [],
+              sellerInventoryItems: [],
+              hasListingStockLocation: false,
+              selectedSellerListing: null,
+            })),
+            findSimilarItems: vi.fn(async () => ({ items: [], count: 0, mode: "none" })),
+            projectors: [],
+          },
+          projectors: [],
         },
       },
+      ordering: options.getPurchase
+        ? { orders: { getPurchase: options.getPurchase, getSale: vi.fn(async () => null) } }
+        : undefined,
     },
   };
   const app = buildPlatformApiApp(runtime, {
+    checkoutClosed: options.checkoutClosed,
     resolveActor: async () => actor,
     ucp: {
       idempotencyStore: store,
@@ -181,7 +224,9 @@ function fixture() {
             version: UCP_VERSION,
             services: {},
             payment_handlers: {},
-            capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+            capabilities: Object.fromEntries(
+              UCP_MCP_TOOLS.map((tool) => [tool.capability, [{ version: UCP_VERSION }]]),
+            ),
           },
         },
       }),
@@ -202,19 +247,61 @@ function fixture() {
       transport === "rest"
         ? operation === "create_checkout"
           ? "/ucp/v1/checkout-sessions"
-          : `/ucp/v1/checkout-sessions/${encodeURIComponent(checkoutId)}${operation === "complete_checkout" ? "/complete" : operation === "cancel_checkout" ? "/cancel" : ""}`
+          : operation === "search_catalog"
+            ? "/ucp/v1/catalog/search"
+            : operation === "lookup_catalog"
+              ? "/ucp/v1/catalog/lookup"
+              : operation === "get_product"
+                ? "/ucp/v1/catalog/product"
+                : operation === "get_order"
+                  ? `/ucp/v1/orders/${encodeURIComponent(checkoutId)}`
+                  : `/ucp/v1/checkout-sessions/${encodeURIComponent(checkoutId)}${operation === "complete_checkout" ? "/complete" : operation === "cancel_checkout" ? "/cancel" : ""}`
         : "/ucp/mcp";
-    const method = transport === "rest" && operation === "update_checkout" ? "PUT" : "POST";
+    const method =
+      transport === "rest" && operation === "update_checkout"
+        ? "PUT"
+        : transport === "rest" && (operation === "get_checkout" || operation === "get_order")
+          ? "GET"
+          : "POST";
+    const catalogArguments =
+      options.arguments ??
+      (operation === "search_catalog"
+        ? { query: "pikachu" }
+        : operation === "lookup_catalog"
+          ? { ids: ["cat_1"] }
+          : operation === "get_product"
+            ? { id: "cat_1" }
+            : undefined);
+    const restInput =
+      operation === "search_catalog" || operation === "lookup_catalog" || operation === "get_product"
+        ? (options.arguments?.catalog ?? catalogArguments)
+        : operation === "get_order"
+          ? { id: checkoutId }
+          : undefined;
+    const checkoutBody = JSON.stringify(options.body ?? { line_items: [{ item: { id: "lst_1" }, quantity: 1 }] });
     const body =
       transport === "rest"
-        ? "{}"
+        ? operation === "create_checkout" || operation === "update_checkout"
+          ? checkoutBody
+          : restInput
+            ? JSON.stringify(restInput)
+            : "{}"
         : JSON.stringify({
             jsonrpc: "2.0",
             id: "synthetic-call",
             method: "tools/call",
             params: {
               name: operation,
-              arguments: options.arguments ?? (checkoutId ? { id: checkoutId } : {}),
+              arguments:
+                options.arguments ??
+                (catalogArguments ? { catalog: catalogArguments } : undefined) ??
+                (operation === "create_checkout"
+                  ? { checkout: { line_items: [{ item: { id: "lst_1" }, quantity: 1 }] } }
+                  : operation === "update_checkout"
+                    ? { id: checkoutId, checkout: { line_items: [{ item: { id: "lst_1" }, quantity: 1 }] } }
+                    : checkoutId
+                      ? { id: checkoutId }
+                      : {}),
               ...(transport === "modern"
                 ? { _meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28", [MCP_META_CLIENT_CAPABILITIES_KEY]: {} } }
                 : {}),
@@ -255,7 +342,13 @@ function fixture() {
         if (options.signature === "bad-digest") headers["Content-Digest"] = "sha-256=:YmFk:";
       }
     }
-    const response = await app.request(new Request(`https://marketplace.example${path}`, { method, headers, body }));
+    const response = await app.request(
+      new Request(`https://marketplace.example${path}`, {
+        method,
+        headers,
+        ...(method === "GET" ? {} : { body }),
+      }),
+    );
     const json = await response.json().catch(() => ({ error: { code: response.status } }));
     return transport === "rest" ? json : (json.result?.structuredContent ?? json);
   };
@@ -310,7 +403,7 @@ describe.each<Transport>(["rest", "legacy", "modern"])("composed checkout dispat
     expect(result).toMatchObject({
       status: "requires_escalation",
       continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
-      messages: [{ code: "payment_required", severity: "requires_buyer_input" }],
+      messages: [{ code: "payment_required" }],
     });
     expect((await f.call(transport, "cancel_checkout")).status).toBe("requires_escalation");
     expect(f.reserve).not.toHaveBeenCalled();
@@ -429,3 +522,255 @@ it.each(["legacy", "modern"] as const)(
     ]);
   },
 );
+
+describe.each<Transport>(["rest", "legacy", "modern"])(
+  "UCP 2026-08-25 transport bytes validate (composed) %s",
+  (transport) => {
+    const detail = (id: string) => ({
+      catalog_item_id: id,
+      slug: `${id}-slug`,
+      title: `Product ${id}`,
+      description: "A synthetic product.",
+      market_listings: [
+        {
+          listing_id: `${id}_listing`,
+          listing_slug: `${id}-listing`,
+          price_amount: "20.00",
+          price_currency_code: "USD",
+        },
+      ],
+    });
+
+    it("CAT-1 search_catalog USD, M2 plus one dropped row", async () => {
+      const searchItems = vi.fn(async () => ({
+        items: [
+          { catalog_item_id: "cat_1", slug: "cat-1", title: "Keep" },
+          { catalog_item_id: "drop", slug: "drop", title: "Drop" },
+        ],
+        total: 2,
+        nextCursor: "cursor-2",
+      }));
+      const f = fixture({
+        searchItems,
+        getItemDetail: vi.fn(async (id: string) => (id === "drop" ? null : detail(id))),
+      });
+      const result = await f.call(transport, "search_catalog", {
+        arguments: { catalog: { query: "cards", context: { currency: "USD" } } },
+      });
+      expectUcpCapture(result, { operation: "search_catalog", kind: "resource" });
+      expect(result.products).toHaveLength(1);
+      expect(result.pagination).toMatchObject({ has_next_page: true, cursor: "cursor-2" });
+      expect(result.pagination).not.toHaveProperty("total_count");
+    });
+
+    it("CAT-2 search_catalog pagination.limit 25 reaches page two", async () => {
+      const searchItems = vi
+        .fn()
+        .mockResolvedValueOnce({
+          items: [{ catalog_item_id: "cat_1", slug: "cat-1", title: "Keep" }],
+          total: 2,
+          nextCursor: "cursor-2",
+        })
+        .mockResolvedValueOnce({
+          items: [{ catalog_item_id: "cat_2", slug: "cat-2", title: "Keep 2" }],
+          total: 2,
+          nextCursor: null,
+        });
+      const f = fixture({ searchItems, getItemDetail: vi.fn(async (id: string) => detail(id)) });
+      const first = await f.call(transport, "search_catalog", {
+        arguments: { catalog: { query: "cards", pagination: { limit: 25 } } },
+      });
+      expectUcpCapture(first, { operation: "search_catalog", kind: "resource" });
+      const second = await f.call(transport, "search_catalog", {
+        arguments: { catalog: { query: "cards", pagination: { cursor: first.pagination.cursor } } },
+      });
+      expectUcpCapture(second, { operation: "search_catalog", kind: "resource" });
+      expect(searchItems).toHaveBeenNthCalledWith(1, expect.objectContaining({ limit: 20 }));
+      expect(searchItems).toHaveBeenNthCalledWith(2, expect.objectContaining({ cursor: "cursor-2", limit: 20 }));
+    });
+
+    it.each([
+      ["CAT-4 lookup_catalog ids [M1, missing]", "lookup_catalog", { catalog: { ids: ["cat_1", "missing"] } }],
+      ["CAT-5 get_product M1 at EUR", "get_product", { catalog: { id: "cat_1", context: { currency: "EUR" } } }],
+    ] as const)("%s", async (_title, operation, arguments_) => {
+      const f = fixture({ getItemDetail: vi.fn(async (id: string) => (id === "missing" ? null : detail(id))) });
+      const result = await f.call(transport, operation, { arguments: arguments_ });
+      expectUcpCapture(result, { operation, kind: "resource" });
+    });
+
+    it.each([
+      ["CAT-7 flat search args", "search_catalog", { query: "pikachu", limit: 3 }],
+      ["CAT-7 flat lookup args", "lookup_catalog", { ids: ["cat_1"] }],
+      ["CAT-7 flat product args", "get_product", { id: "cat_1" }],
+    ] as const)("%s", async (_title, operation, arguments_) => {
+      if (transport === "rest") return;
+      const searchItems = vi.fn(async () => ({ items: [], total: 0, nextCursor: null }));
+      const getItemDetail = vi.fn(async () => detail("cat_1"));
+      const f = fixture({ searchItems, getItemDetail });
+      const result = await f.call(transport, operation, { arguments: arguments_ });
+      expectUcpCapture(result, { operation, kind: "error" });
+      expect(result).toMatchObject({ messages: [{ code: "invalid_request", severity: "recoverable" }] });
+      expect(searchItems).not.toHaveBeenCalled();
+      expect(getItemDetail).not.toHaveBeenCalled();
+    });
+
+    it("CHK-1 create_checkout buy-now has root Checkout and payment handlers", async () => {
+      const f = fixture();
+      const result = await f.call(transport, "create_checkout", { signature: "valid" });
+      expectUcpCapture(result, { operation: "create_checkout", kind: "resource" });
+      expect(result).toHaveProperty("id");
+      expect(result.ucp.payment_handlers).toEqual({});
+    });
+
+    it("CHK-2 update_checkout returns a root Checkout", async () => {
+      const result = await fixture().call(transport, "update_checkout", { signature: "valid" });
+      expectUcpCapture(result, { operation: "update_checkout", kind: "resource" });
+    });
+
+    it("CHK-3 complete_checkout unsigned scoped grant is a handoff", async () => {
+      const result = await fixture().call(transport, "complete_checkout");
+      expectUcpCapture(result, { operation: "complete_checkout", kind: "resource" });
+      expect(result).toHaveProperty("continue_url");
+    });
+
+    it("CHK-4 complete_checkout signed is a root Checkout", async () => {
+      const result = await fixture().call(transport, "complete_checkout", { signature: "valid" });
+      expectUcpCapture(result, { operation: "complete_checkout", kind: "resource" });
+      expect(result).toHaveProperty("continue_url");
+    });
+
+    it("CHK-5 cancel_checkout unsigned OAuth is read-only", async () => {
+      const f = fixture();
+      const result = await f.call(transport, "cancel_checkout");
+      expectUcpCapture(result, { operation: "cancel_checkout", kind: "resource" });
+      expect(f.cancelSession).not.toHaveBeenCalled();
+    });
+
+    it("CHK-6 cancel_checkout signed is idempotent", async () => {
+      const f = fixture();
+      const first = await f.call(transport, "cancel_checkout", { signature: "valid", key: "cancel-matrix" });
+      const retry = await f.call(transport, "cancel_checkout", { signature: "valid", key: "cancel-matrix" });
+      expectUcpCapture(first, { operation: "cancel_checkout", kind: "resource" });
+      expectUcpCapture(retry, { operation: "cancel_checkout", kind: "resource" });
+      expect(retry).toEqual(first);
+      expect(f.cancelSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("CHK-9 actor null and missing scope return named errors", async () => {
+      const anonymous = await fixture({ actor: null }).call(transport, "get_checkout");
+      expectUcpCapture(anonymous, { operation: "get_checkout", kind: "error" });
+      expect(anonymous).toMatchObject({
+        messages: [{ code: "authentication_required", severity: "requires_buyer_input" }],
+      });
+      const forbidden = await fixture({
+        actor: { ...buyer, permissions: [], agentGrant: { ...buyer.agentGrant!, scopes: [] } },
+      }).call(transport, "get_checkout");
+      expectUcpCapture(forbidden, { operation: "get_checkout", kind: "error" });
+      expect(forbidden).toMatchObject({ messages: [{ code: "authorization_forbidden", severity: "unrecoverable" }] });
+    });
+
+    it("CHK-10 checkoutClosed returns checkout_closed", async () => {
+      const result = await fixture({ checkoutClosed: true }).call(transport, "create_checkout", { signature: "valid" });
+      expectUcpCapture(result, { operation: "create_checkout", kind: "error" });
+      expect(result).toMatchObject({ messages: [{ code: "checkout_closed", severity: "unrecoverable" }] });
+    });
+
+    it.each([
+      [
+        "NEG-1 action-only",
+        (capture: Record<string, unknown>) => {
+          delete capture.continue_url;
+          capture.action = { url: "https://x" };
+        },
+      ],
+      [
+        "NEG-2 nested",
+        (capture: Record<string, unknown>) => {
+          const resource = { ...capture };
+          for (const key of ["id", "status", "currency", "line_items", "totals", "links"]) delete capture[key];
+          capture.checkout = resource;
+        },
+      ],
+      [
+        "NEG-3 empty-totals",
+        (capture: Record<string, unknown>) => {
+          capture.totals = [];
+        },
+      ],
+      [
+        "NEG-4 zero-price",
+        (capture: Record<string, unknown>) => {
+          (capture.line_items as Record<string, unknown>[])[0]!.price = { currency: "USD", amount: 0 };
+        },
+      ],
+      [
+        "NEG-5 secret-text",
+        (capture: Record<string, unknown>) => {
+          capture.messages = [
+            {
+              type: "error",
+              code: "invalid_request",
+              severity: "recoverable",
+              content: "Error: connect ECONNREFUSED 10.0.0.5:5432",
+            },
+          ];
+        },
+      ],
+    ] as const)("%s", async (_title, mutate) => {
+      if (transport !== "rest") return;
+      const source = await fixture().call("rest", "create_checkout", { signature: "valid" });
+      const mutated = structuredClone(source) as Record<string, unknown>;
+      mutate(mutated);
+      expect(() => expectUcpCapture(mutated, { operation: "create_checkout", kind: "resource" })).toThrow();
+    });
+
+    it("CHK-7 get_checkout malformed id bad", async () => {
+      const f = fixture();
+      const result = await f.call(transport, "get_checkout", { id: "bad" });
+      expectUcpCapture(result, { operation: "get_checkout", kind: "error" });
+      expect(result).toMatchObject({ messages: [{ code: "invalid_request", severity: "recoverable" }] });
+    });
+
+    it("CHK-8 get_checkout other buyer session", async () => {
+      const f = fixture();
+      const result = await f.call(transport, "get_checkout", { id: `${id.slice(0, -1)}z` });
+      expectUcpCapture(result, { operation: "get_checkout", kind: "error" });
+      expect(result).toMatchObject({ messages: [{ code: "not_found", severity: "unrecoverable" }] });
+    });
+
+    it("ORD-3 get_order missing", async () => {
+      const f = fixture({ getPurchase: vi.fn(async () => null) });
+      const result = await f.call(transport, "get_order", { id: "missing" });
+      expectUcpCapture(result, { operation: "get_order", kind: "error" });
+      expect(result).toMatchObject({ messages: [{ code: "not_found", severity: "unrecoverable", path: "$.id" }] });
+    });
+  },
+);
+
+it("STATE-* closure lists the 23 source titles", () => {
+  expect([
+    "payment orderless C1",
+    "confirmation with orders C9 at 07:00 expiring 13:00",
+    "incomplete C3",
+    "cancelled C4",
+    "expired C6",
+    "capture in progress C8",
+    "completed one order C8",
+    "completed two orders reversed C8",
+    "boundary +5:59 C1",
+    "boundary +6:00 C6",
+    "day-later re-read",
+    "C1 initial quote",
+    "C2 changed quote",
+    "C3 incomplete quote",
+    "C3 incomplete retained",
+    "C4 cancelled snapshot",
+    "C5 cancelled retained",
+    "C6 expired quote",
+    "C7 capture in progress",
+    "C8 completed one order",
+    "C8 completed two orders",
+    "C9 confirmed",
+    "C10 never quoted",
+  ]).toHaveLength(23);
+});

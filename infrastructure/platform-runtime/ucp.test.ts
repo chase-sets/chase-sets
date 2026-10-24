@@ -16,7 +16,7 @@ import {
   UCP_MCP_TOOLS,
   UCP_VERSION,
 } from "./ucp";
-import { ucpSchemaValidator } from "./ucp-schema-test-support";
+import { expectUcpCapture, ucpSchemaValidator } from "./ucp-schema-test-support";
 import { ucpToolInputSchema, ucpToolOutputSchema } from "./ucp-tool-schemas";
 import {
   MCP_LEGACY_PROTOCOL_VERSIONS,
@@ -506,20 +506,33 @@ describe("UCP 2026-08-25 descriptor captures", () => {
     }
   });
 
-  it("UCP 2026-08-25 transport bytes validate and REST equals MCP structuredContent", async () => {
-    const success = createUcpEnvelope("success", { products: [], pagination: { has_next_page: false } });
-    const failure = createUcpEnvelope("error", {}, [
-      { type: "error", code: "invalid_request", severity: "recoverable", content: "The UCP request is invalid." },
-    ]);
+  const transportErrorCodes = [
+    "agent_grant_rate_limited",
+    "authentication_required",
+    "authorization_forbidden",
+    "capabilities_incompatible",
+    "idempotency_key_conflict",
+    "idempotency_key_in_progress",
+    "idempotency_key_mismatch",
+    "idempotency_key_required",
+    "invalid_profile_url",
+    "operation_not_wired",
+    "profile_malformed",
+    "profile_mismatch",
+    "profile_unreachable",
+    "signed_request_required",
+    "tool_call_limited",
+    "version_unsupported",
+  ] as const;
+
+  it.each(transportErrorCodes)("UCP 2026-08-25 transport bytes validate %s", async (code) => {
     const handlers = {
-      search_catalog: vi.fn(async (input: { request: Request }) =>
-        (await input.request.clone().json()).forceError ? failure : success,
-      ),
+      search_catalog: vi.fn(async (input: { request: Request }) => createUcpEnvelope("error", {}, [{ code }])),
     };
     const app = new Hono()
       .route("/ucp/v1", buildUcpRestRoutes({ restHandlers: handlers, profileResolver: resolveTestProfile }))
       .route("/ucp/mcp", buildUcpMcpRoutes({ mcpToolHandlers: handlers, profileResolver: resolveTestProfile }));
-    const restBody = JSON.stringify({ query: "cards" });
+    const restBody = JSON.stringify({ query: "cards", forceError: true });
     const rest = await app.request("https://marketplace.example/ucp/v1/catalog/search", {
       method: "POST",
       body: restBody,
@@ -538,21 +551,30 @@ describe("UCP 2026-08-25 descriptor captures", () => {
     });
     const restCapture = await rest.json();
     const mcpCapture = await mcp.json();
-    const validate = ucpSchemaValidator(
-      "https://ucp.dev/2026-08-25/schemas/shopping/catalog_search.json#/$defs/search_response",
-    );
-    expect(validate(restCapture), JSON.stringify(validate.errors)).toBe(true);
-    expect(validate(mcpCapture.result.structuredContent), JSON.stringify(validate.errors)).toBe(true);
+    expectUcpCapture(restCapture, { operation: "search_catalog", kind: "error" });
+    expectUcpCapture(mcpCapture.result.structuredContent, { operation: "search_catalog", kind: "error" });
     expect(mcpCapture.result.structuredContent).toEqual(restCapture);
+  });
 
-    const error = await app.request("https://marketplace.example/ucp/v1/catalog/search", {
-      method: "POST",
-      body: JSON.stringify({ forceError: true }),
-      headers: { "Content-Type": "application/json" },
-    });
-    const errorCapture = await error.json();
-    const validateError = ucpSchemaValidator("https://ucp.dev/2026-08-25/schemas/common/types/error_response.json");
-    expect(validateError(errorCapture), JSON.stringify(validateError.errors)).toBe(true);
+  it("UCP 2026-08-25 transport error code list is closed", () => {
+    expect([...transportErrorCodes].sort()).toEqual([
+      "agent_grant_rate_limited",
+      "authentication_required",
+      "authorization_forbidden",
+      "capabilities_incompatible",
+      "idempotency_key_conflict",
+      "idempotency_key_in_progress",
+      "idempotency_key_mismatch",
+      "idempotency_key_required",
+      "invalid_profile_url",
+      "operation_not_wired",
+      "profile_malformed",
+      "profile_mismatch",
+      "profile_unreachable",
+      "signed_request_required",
+      "tool_call_limited",
+      "version_unsupported",
+    ]);
   });
 });
 
@@ -683,7 +705,9 @@ describe("UCP REST routes", () => {
     const firstResponse = await Promise.resolve(first);
 
     expect(duplicate.status).toBe(409);
-    await expect(duplicate.json()).resolves.toMatchObject({
+    const duplicateCapture = await duplicate.json();
+    expectUcpCapture(duplicateCapture, { operation: "create_checkout", kind: "error" });
+    expect(duplicateCapture).toMatchObject({
       messages: [{ code: "idempotency_key_in_progress" }],
     });
     await expect(firstResponse.json()).resolves.toMatchObject({
@@ -1249,6 +1273,105 @@ describe("UCP profile key cache", () => {
     });
     const keyResolver = createUcpProfileKeyResolver(resolver);
     await expect(keyResolver("https://agent.example/.well-known/ucp", "legacy")).resolves.toBeNull();
+  });
+
+  it("legacy negative control (route): legacy-only keys fail on REST and MCP, fetch and cache hit", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const jwk = { ...(publicKey.export({ format: "jwk" }) as JsonWebKey), kid: "platform-2026" };
+    const records = new Map<string, unknown>();
+    const reserve = vi.fn(async (input: Record<string, unknown>) => {
+      const record = { ...input, status: "pending", response: null };
+      records.set(String(input.key), record);
+      return { outcome: "reserved" as const, record };
+    });
+    const store = {
+      reserve,
+      get: vi.fn(async (key: string) => records.get(key) ?? null),
+      complete: vi.fn(),
+      put: vi.fn(),
+      abandon: vi.fn(),
+    } as never;
+    const handler = vi.fn(() => createUcpEnvelope("success", { checkout: { id: "chk_1" } }));
+    const fetch = vi.fn(async () => Response.json({ ...testPlatformProfile, signing_keys: [jwk] }));
+    const profileResolver = createUcpProfileResolver({
+      db: createFakeProfileDb(),
+      fetch,
+      lookup: async () => [{ address: "8.8.8.8", family: 4 }],
+    });
+    const app = new Hono()
+      .route(
+        "/ucp/v1",
+        buildUcpRestRoutes({
+          profileResolver,
+          restHandlers: { create_checkout: handler },
+          idempotencyStore: store,
+          signatureVerification: { keyResolver: createUcpProfileKeyResolver(profileResolver) },
+        }),
+      )
+      .route(
+        "/ucp/mcp",
+        buildUcpMcpRoutes({
+          profileResolver,
+          mcpToolHandlers: { complete_checkout: handler },
+          idempotencyStore: store,
+          signatureVerification: { keyResolver: createUcpProfileKeyResolver(profileResolver) },
+        }),
+      );
+    const body = "{}";
+    for (const path of ["/ucp/v1/checkout-sessions", "/ucp/mcp"]) {
+      const requestBody =
+        path === "/ucp/mcp"
+          ? JSON.stringify({
+              jsonrpc: "2.0",
+              id: "legacy",
+              method: "tools/call",
+              params: { name: "complete_checkout", arguments: { id: "chk_1" } },
+            })
+          : body;
+      const headers = signedHeadersWithKey("POST", path, requestBody, privateKey, {
+        "Idempotency-Key": `legacy-${path}`,
+      });
+      const first = await app.request(path, { method: "POST", body: requestBody, headers });
+      const second = await app.request(path, { method: "POST", body: requestBody, headers });
+      expect(first.status).toBe(path === "/ucp/mcp" ? 200 : 400);
+      expect(second.status).toBe(path === "/ucp/mcp" ? 200 : 400);
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(handler).not.toHaveBeenCalled();
+    expect(reserve).not.toHaveBeenCalled();
+
+    const canonicalFetch = vi.fn(async () =>
+      Response.json({
+        ...testPlatformProfile,
+        keys: [jwk],
+        signing_keys: [{ ...jwk, kid: "alias" }],
+        ucp: { ...testPlatformProfile.ucp, signing_keys: [{ ...jwk, kid: "alias" }] },
+      }),
+    );
+    const canonicalResolver = createUcpProfileResolver({
+      db: createFakeProfileDb(),
+      fetch: canonicalFetch,
+      lookup: async () => [{ address: "8.8.8.8", family: 4 }],
+    });
+    const canonicalHandler = vi.fn(() => createUcpEnvelope("success", { checkout: { id: "chk_1" } }));
+    const canonicalApp = new Hono().route(
+      "/ucp/v1",
+      buildUcpRestRoutes({
+        profileResolver: canonicalResolver,
+        restHandlers: { create_checkout: canonicalHandler },
+        signatureVerification: { keyResolver: createUcpProfileKeyResolver(canonicalResolver) },
+      }),
+    );
+    const canonicalBody = "{}";
+    const canonicalResponse = await canonicalApp.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body: canonicalBody,
+      headers: signedHeadersWithKey("POST", "/ucp/v1/checkout-sessions", canonicalBody, privateKey, {
+        "Idempotency-Key": "canonical",
+      }),
+    });
+    expect(canonicalResponse.status).toBe(200);
+    expect(canonicalHandler).toHaveBeenCalledTimes(1);
   });
 
   it("uses argument retry keys for signed MCP writes and replays the equivalent header retry", async () => {
@@ -2303,6 +2426,40 @@ describe("UCP MCP routes", () => {
     expect(handoffBody.result.contents[0].text).not.toContain("action.url");
   });
 
+  it("checkout handoff action.url-only payload renders the empty state", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+    const response = await app.request("https://marketplace.example/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "handoff-action-only",
+        method: "resources/read",
+        params: { uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI },
+      }),
+    });
+    const html = (await response.json()).result.contents[0].text as string;
+    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+    let listener: ((event: { data: unknown }) => void) | undefined;
+    const root = { innerHTML: "" };
+    new Function("document", "window", script!)(
+      { getElementById: () => root },
+      {
+        addEventListener: (_type: string, callback: (event: { data: unknown }) => void) => {
+          listener = callback;
+        },
+      },
+    );
+    listener?.({
+      data: {
+        method: "ui/notifications/tool-result",
+        params: { result: { structuredContent: { action: { url: "https://x" } } } },
+      },
+    });
+    expect(root.innerHTML).toContain("Checkout handoff details will appear here");
+    expect(root.innerHTML).not.toContain("Open trusted checkout");
+  });
+
   it("rejects UCP MCP JSON-RPC batches as transport-level invalid requests", async () => {
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
 
@@ -2764,10 +2921,10 @@ describe("UCP MCP routes", () => {
       result: { structuredContent: { checkout: { id: "chk_1" } } },
     });
     expect(conflict.status).toBe(200);
-    await expect(conflict.json()).resolves.toMatchObject({
-      error: {
-        message: "Idempotency-Key was already used with different request parameters.",
-      },
+    const conflictCapture = await conflict.json();
+    expectUcpCapture(conflictCapture.result.structuredContent, { operation: "complete_checkout", kind: "error" });
+    expect(conflictCapture).toMatchObject({
+      result: { structuredContent: { messages: [{ code: "idempotency_key_conflict" }] } },
     });
   });
 
@@ -2816,11 +2973,10 @@ describe("UCP MCP routes", () => {
     const firstResponse = await Promise.resolve(first);
 
     expect(duplicate.status).toBe(200);
-    await expect(duplicate.json()).resolves.toMatchObject({
-      error: {
-        code: -32029,
-        message: "A matching request is already in progress. Retry later.",
-      },
+    const duplicateCapture = await duplicate.json();
+    expectUcpCapture(duplicateCapture.result.structuredContent, { operation: "complete_checkout", kind: "error" });
+    expect(duplicateCapture).toMatchObject({
+      result: { structuredContent: { messages: [{ code: "idempotency_key_in_progress" }] } },
     });
     await expect(firstResponse.json()).resolves.toMatchObject({
       result: { structuredContent: { checkout: { id: "chk_1" } } },

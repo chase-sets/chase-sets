@@ -73,7 +73,7 @@ export type UcpBusinessProfile = Readonly<{
 
 export type UcpMessage = Readonly<{
   type: "error" | "warning" | "info";
-  severity: UcpMessageSeverity;
+  severity?: UcpMessageSeverity;
   code: string;
   content: string;
   path?: string;
@@ -81,7 +81,7 @@ export type UcpMessage = Readonly<{
 
 export type UcpMessageInput = Readonly<{
   type?: "error" | "warning" | "info";
-  severity?: UcpMessageSeverity | "info" | "warning" | "error";
+  severity?: UcpMessageSeverity;
   code: string;
   content?: string;
   path?: string;
@@ -362,9 +362,10 @@ export function createUcpEnvelope<TPayload extends Readonly<Record<string, unkno
   options: Readonly<{ paymentHandlers?: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>> }> = {},
 ): UcpEnvelope<TPayload> {
   const normalizedMessages = messages.map((message) => {
-    const severity = normalizeMessageSeverity(message.severity, message.code);
+    const type = message.type ?? "error";
+    const severity = type === "error" ? (message.severity ?? ucpErrorSeverity(message.code)) : undefined;
     return {
-      type: message.type ?? "error",
+      type,
       code: message.code,
       content: message.content ?? fixedMessageContent(message.code),
       ...(message.path ? { path: message.path } : {}),
@@ -380,12 +381,6 @@ export function createUcpEnvelope<TPayload extends Readonly<Record<string, unkno
     ...(normalizedMessages.length > 0 ? { messages: normalizedMessages } : {}),
     ...payload,
   };
-}
-
-function normalizeMessageSeverity(severity: UcpMessageInput["severity"], code: string): UcpMessageSeverity | undefined {
-  if (severity === "info" || severity === "warning") return undefined;
-  if (severity === "error" || severity === undefined) return ucpErrorSeverity(code);
-  return severity;
 }
 
 function fixedMessageContent(code: string) {
@@ -406,10 +401,8 @@ function fixedMessageContent(code: string) {
 export function unsupportedUcpOperation(operation: string): UcpEnvelope {
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
       code: "operation_not_wired",
       content: fixedMessageContent("operation_not_wired"),
-      path: operation,
     },
   ]);
 }

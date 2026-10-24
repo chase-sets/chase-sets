@@ -12,7 +12,7 @@ import {
   toUcpMinorUnits,
   type UcpCatalogListing,
 } from "../support/ucp-support/catalog";
-import { ucpSchemaValidator } from "@chase-sets/platform-runtime/ucp-schema-test-support";
+import { expectUcpCapture, ucpSchemaValidator } from "@chase-sets/platform-runtime/ucp-schema-test-support";
 import type { DiscoveryItemDetailRow } from "../features/item-detail/read-model/queries";
 import type { DiscoveryItemsServices } from "../support/item-support/runtime";
 
@@ -107,7 +107,9 @@ function detailFor(
 
 describe("Discovery UCP catalog handlers", () => {
   it("keeps corrected rows mode-free in REST and MCP search_catalog", async () => {
-    const items = buildItems();
+    const items = buildItems({
+      detail: { ...buildItems().detail, getItemDetail: vi.fn(async () => detailFor("cat_1")) },
+    });
     const original = await items.search.searchItems();
     vi.mocked(items.search.searchItems).mockResolvedValue({
       ...original,
@@ -123,7 +125,10 @@ describe("Discovery UCP catalog handlers", () => {
       }),
       params: {},
     } as never);
-    expect(result).toMatchObject({ products: [], pagination: { has_next_page: false } });
+    expect(result).toMatchObject({
+      products: [expect.objectContaining({ id: "cat_1" })],
+      pagination: { has_next_page: false },
+    });
     expect(JSON.stringify(result)).not.toMatch(/retrievalMode|lexicalCount|corrected/);
     const mcp = await handlers.mcpToolHandlers.search_catalog({
       request: new Request("https://marketplace.example/mcp", {
@@ -135,7 +140,9 @@ describe("Discovery UCP catalog handlers", () => {
     expect(mcp).toEqual(result);
   });
   it("returns interpreted final rows without interpretation metadata in REST and MCP search_catalog", async () => {
-    const items = buildItems();
+    const items = buildItems({
+      detail: { ...buildItems().detail, getItemDetail: vi.fn(async () => detailFor("cat_1")) },
+    });
     const original = await items.search.searchItems();
     vi.mocked(items.search.searchItems).mockResolvedValue({
       ...original,
@@ -152,7 +159,10 @@ describe("Discovery UCP catalog handlers", () => {
         params: {},
       }) as never;
     const rest = await handlers.restHandlers.search_catalog(input("https://marketplace.example/ucp/v1/catalog/search"));
-    expect(rest).toMatchObject({ products: [], pagination: { has_next_page: false } });
+    expect(rest).toMatchObject({
+      products: [expect.objectContaining({ id: "cat_1" })],
+      pagination: { has_next_page: false },
+    });
     expect(JSON.stringify(rest)).not.toMatch(/interpretation|remainingQuery|Gem Mint|retrievalMode/);
     expect(await handlers.mcpToolHandlers.search_catalog(input("https://marketplace.example/mcp"))).toEqual(rest);
   });
@@ -179,7 +189,146 @@ describe("Discovery UCP catalog handlers", () => {
     expect(result).toMatchObject({
       ucp: { status: "success" },
       products: [],
+      pagination: { has_next_page: false },
     });
+    expectUcpCapture(result, { operation: "search_catalog", kind: "resource" });
+    expect(result.pagination).not.toHaveProperty("total_count");
+  });
+
+  it.each([
+    ["search_catalog", { query: "pikachu", limit: 3 }, "searchItems"],
+    ["lookup_catalog", { ids: ["cat_1"] }, "getItemDetail"],
+    ["get_product", { id: "cat_1" }, "getItemDetail"],
+  ] as const)("rejects flat MCP args for %s", async (operation, arguments_, spyName) => {
+    const items = buildItems({
+      detail: { ...buildItems().detail, getItemDetail: vi.fn(async () => detailFor("cat_1")) },
+    });
+    const handlers = createDiscoveryUcpHandlers(items);
+    const result = await handlers.mcpToolHandlers[operation]({
+      actor: null,
+      context: null,
+      arguments: arguments_,
+      params: {},
+      request: new Request("https://marketplace.example/ucp/mcp", {
+        method: "POST",
+        body: JSON.stringify(arguments_),
+      }),
+    });
+    expectUcpCapture(result, { operation, kind: "error" });
+    expect(result).toMatchObject({ messages: [{ code: "invalid_request", severity: "recoverable" }] });
+    const spy = spyName === "searchItems" ? items.search.searchItems : items.detail.getItemDetail;
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  const catalogMatrix = [
+    ...(["M1", "M2", "ineligible-only"] as const).flatMap((productSet) =>
+      (["USD", "EUR", "absent", "JPY"] as const).flatMap((currency) =>
+        (["none", "USD min 500 / max 1500 minor"] as const).flatMap((bound) =>
+          (["search_catalog", "lookup_catalog", "get_product"] as const).map((tool) => ({
+            name: `${productSet} ${currency} ${bound} ${tool}`,
+            productSet,
+            currency,
+            bound,
+            tool,
+          })),
+        ),
+      ),
+    ),
+  ] as const;
+
+  it.each(catalogMatrix)("UCP 2026-08-25 catalog currency matrix $name", async (cell) => {
+    const listing = (id: string, amount: string, code: string) => ({
+      listing_id: `${id}-${code.toLowerCase()}`,
+      listing_slug: `${id}-${code.toLowerCase()}`,
+      price_amount: amount,
+      price_currency_code: code,
+    });
+    const definitions = {
+      M1: [listing("M1", "10.00", "USD"), listing("M1", "9.00", "EUR")],
+      M2: [listing("M2", "20.00", "USD"), listing("M2", "18.00", "EUR")],
+      "ineligible-only": [listing("ineligible", "1000.50", "JPY")],
+    } as const;
+    const ids = cell.productSet === "ineligible-only" ? ["ineligible"] : [cell.productSet];
+    const details = new Map(ids.map((id) => [id, detailFor(id, definitions[cell.productSet])]));
+    const rows = ids.map((id) => ({ catalog_item_id: id, slug: `${id}-slug`, title: `Product ${id}` }));
+    const searchItems = vi.fn(async () => ({ items: rows, total: rows.length, nextCursor: null }));
+    const items = buildItems({
+      search: { ...buildItems().search, searchItems },
+      detail: { ...buildItems().detail, getItemDetail: vi.fn(async (id: string) => details.get(id) ?? null) },
+    });
+    const handlers = createDiscoveryUcpHandlers(items);
+    const context = cell.currency === "absent" ? {} : { currency: cell.currency };
+    const filters = cell.bound === "none" || cell.currency !== "USD" ? {} : { price: { min: 500, max: 1500 } };
+    const catalog =
+      cell.tool === "search_catalog"
+        ? { query: "cards", context, filters }
+        : cell.tool === "lookup_catalog"
+          ? { ids, context, filters }
+          : { id: ids[0], context, filters };
+    const rest = await handlers.restHandlers[cell.tool]({
+      actor: null,
+      context: null,
+      arguments: {},
+      params: {},
+      request: new Request("https://marketplace.example/ucp/v1/catalog", {
+        method: "POST",
+        body: JSON.stringify(catalog),
+      }),
+    });
+    const mcp = await handlers.mcpToolHandlers[cell.tool]({
+      actor: null,
+      context: null,
+      arguments: { catalog },
+      params: {},
+      request: new Request("https://marketplace.example/ucp/mcp", { method: "POST" }),
+    });
+    expect(mcp).toEqual(rest);
+    const failed = rest.ucp.status === "error";
+    const kind = failed ? "error" : "resource";
+    expectUcpCapture(rest, { operation: cell.tool, kind });
+    if (failed && cell.tool === "get_product") {
+      expect(rest).toMatchObject({ messages: [{ code: "product_not_found", severity: "unrecoverable" }] });
+    } else {
+      const products = (
+        cell.tool === "get_product" ? (rest.product ? [rest.product] : []) : (rest.products ?? [])
+      ) as Array<Record<string, unknown>>;
+      const expectedProductCount =
+        (cell.productSet === "ineligible-only" && cell.currency !== "JPY") ||
+        (cell.productSet === "M2" &&
+          cell.currency === "USD" &&
+          cell.bound !== "none" &&
+          cell.tool === "lookup_catalog") ||
+        (cell.productSet === "ineligible-only" && cell.currency === "JPY")
+          ? 0
+          : 1;
+      expect(products).toHaveLength(expectedProductCount);
+      if (cell.tool === "search_catalog") expect(rest.pagination).not.toHaveProperty("cursor");
+      if (cell.tool === "search_catalog") {
+        if (expectedProductCount === 1) expect(rest.pagination).toHaveProperty("total_count");
+        else expect(rest.pagination).not.toHaveProperty("total_count");
+        expect(searchItems).toHaveBeenCalledWith(
+          expect.objectContaining({
+            limit: 20,
+            includeTotal: true,
+            ...(cell.currency === "absent" ? {} : { priceCurrency: cell.currency }),
+            ...(cell.bound === "USD min 500 / max 1500 minor" && cell.currency === "USD"
+              ? { priceMin: "5.00", priceMax: "15.00" }
+              : {}),
+          }),
+        );
+      }
+      if (products.length > 0) {
+        const variants = (products[0]?.variants ?? []) as Array<Record<string, unknown>>;
+        expect(variants).toHaveLength(1);
+        const selectedCurrency =
+          cell.productSet === "ineligible-only"
+            ? "jpy"
+            : cell.currency === "USD" || cell.currency === "EUR"
+              ? cell.currency.toLowerCase()
+              : "eur";
+        expect(variants[0]?.id).toBe(`${cell.productSet}-${selectedCurrency}`);
+      }
+    }
   });
 
   it("applies the twenty-row default and cursor before hydration", async () => {
