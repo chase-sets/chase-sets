@@ -152,9 +152,7 @@ describe("whole-game repair regressions", () => {
         toBeVisible: async () => {},
         toHaveAttribute: async () => {
           if (!expanded) {
-            const error = new Error("review-changes stage did not expand before its deadline");
-            error.name = "TimeoutError";
-            throw error;
+            throw new Error("review-changes stage did not expand before its deadline");
           }
         },
         toHaveCount: async () => {},

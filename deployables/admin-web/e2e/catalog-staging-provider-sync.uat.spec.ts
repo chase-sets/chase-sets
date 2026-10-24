@@ -8064,6 +8064,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       }
       return undefined;
     });
+    await page.goto(`${wholeGameStagingOrigin}/catalog/scopes/scope-1`);
     const runtime: WholeGameRuntime = { deadlineAt: Date.now() + 1_000, pollMs: 10 };
     await expect(submitPromoteAllReady(page, "scope-1", [], runtime)).rejects.toMatchObject({
       name: "TimeoutError",
