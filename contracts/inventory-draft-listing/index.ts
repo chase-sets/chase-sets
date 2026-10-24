@@ -90,6 +90,14 @@ export type InventoryDraftListingMessage = z.infer<typeof inventoryDraftListingM
 export const inventoryDraftListingErrorCodes = ["inventory-draft-conflict", "inventory-draft-unavailable"] as const;
 export type InventoryDraftListingErrorCode = (typeof inventoryDraftListingErrorCodes)[number];
 
+export const inventoryDraftListingUnavailableDiagnostics = [
+  "listing-rejected",
+  "unexpected-failure",
+  "receipt-ledger-not-ready",
+  "consumer-unbound",
+] as const;
+export type InventoryDraftListingUnavailableDiagnostic = (typeof inventoryDraftListingUnavailableDiagnostics)[number];
+
 export const inventoryDraftListingReceiptSchema = z
   .strictObject({
     schemaVersion: z.literal("inventory-draft-listing-receipt/v1"),
