@@ -3,6 +3,7 @@ import {
   createUcpEnvelope,
   readUcpRequestMeta,
   type UcpEnvelope,
+  type UcpMessageInput,
   type UcpOperationHandlerInput,
 } from "@chase-sets/platform-runtime/ucp";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
@@ -103,7 +104,7 @@ export function createCheckoutUcpHandlers(
   const payload = async (
     input: UcpOperationHandlerInput,
     session: CheckoutSessionRow,
-    preparedPreview?: Parameters<typeof checkoutUcpState>[3],
+    preparedPreview?: CheckoutFulfillmentPreview,
   ) => {
     const currentTime = now();
     const hasOrders = session.order_ids.length > 0;
@@ -120,49 +121,27 @@ export function createCheckoutUcpHandlers(
             line: session.lines[0],
           })));
     const state = checkoutUcpState(session, facts, payment, preview, currentTime);
-    return {
-      id: session.session_id,
-      status: state.status,
-      source_type: session.source_type,
-      shipping_option: session.shipping_option,
-      optimization_goal: session.optimization_goal,
-      shipping_address: session.shipping_address,
-      line_items: session.lines.map((line) => ({
-        catalog_item_id: line.catalogItemId,
-        product_id: line.productId,
-        listing_id: line.listingId,
-        title: line.itemTitle,
-        subtitle: line.itemSubtitle,
-        selected_options: line.selectedOptions,
-        product_summary: line.productSummary,
-        quantity: line.quantity,
-        fulfillment_mode: line.fulfillmentMode ?? "optimize",
-        availability_state: line.availabilityState ?? "available",
-      })),
-      order_ids: session.order_ids,
-      payment_id: session.payment_id,
-      offer_id: session.submitted_offer_id,
-      cancelled_at: session.cancelled_at,
-      ...(options.paymentHandoff ? { payment: options.paymentHandoff.payment } : {}),
-      created_at: session.created_at,
-      updated_at: session.updated_at,
-      ...(state.continue ? { continue_url: checkoutContinueUrl(input.request, session.session_id) } : {}),
-      ...(session.handoff_expires_at ? { expires_at: session.handoff_expires_at } : {}),
-      ...(state.order
-        ? {
-            order: state.order.map((fact) => ({
-              id: fact.id,
-              label: fact.label ?? fact.id,
-              permalink_url: new URL(
-                fact.permalinkUrl ?? `/account/purchases/${encodeURIComponent(fact.id)}`,
-                resolvePublicRequestOrigin(input.request),
-              ).href,
-            })),
-          }
-        : {}),
-      ...(state.messages.length ? { messages: state.messages } : {}),
-    };
+    const quote = await resolveCheckoutUcpQuote({
+      session,
+      orderFacts: facts,
+      preview,
+      loadRetainedQuote: () =>
+        typeof checkout.sessions.getLastRecordedQuote === "function"
+          ? checkout.sessions.getLastRecordedQuote(session.session_id, session.buyer_account_id)
+          : Promise.resolve(null),
+    });
+    if (!quote) return null;
+    return checkoutUcpResource({ session, state, quote, payment, request: input.request, now: currentTime });
   };
+  const resourceEnvelope = (
+    resource: Readonly<Record<string, unknown>> | null,
+    messages: readonly UcpMessageInput[] = [],
+  ) =>
+    resource
+      ? createUcpEnvelope("success", resource, messages, { paymentHandlers: {} })
+      : createUcpEnvelope("error", {}, [
+          { severity: "unrecoverable", code: "not_found", content: "The requested checkout was not found." },
+        ]);
 
   const handler =
     (permission: "orders.view" | "orders.manage", run: UcpHandler): UcpHandler =>
@@ -218,10 +197,10 @@ export function createCheckoutUcpHandlers(
       });
       const session = await checkout.sessions.getSession(prepared.sessionId, input.actor!.accountId);
       if (!session) throw new CheckoutDomainError("Checkout was not found after creation.", "not_found");
-      return createUcpEnvelope("ok", { checkout: await payload(input, session, prepared.fulfillmentPreview) });
+      return resourceEnvelope(await payload(input, session, prepared.fulfillmentPreview));
     }),
     get_checkout: handler("orders.view", async (input) =>
-      createUcpEnvelope("ok", { checkout: await payload(input, await loadSession(input)) }),
+      resourceEnvelope(await payload(input, await loadSession(input))),
     ),
     update_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
@@ -233,35 +212,24 @@ export function createCheckoutUcpHandlers(
         JSON.stringify(session.lines.map((line) => ({ listingId: line.listingId, quantity: line.quantity })))
       )
         throw new CheckoutDomainError("Checkout line updates are not supported.", "line_items_update_unsupported");
-      return createUcpEnvelope("ok", { checkout: await payload(input, session) });
+      return resourceEnvelope(await payload(input, session));
     }),
     complete_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
       const session = await loadSession(input);
       assertHandoffLive(session, now());
-      const derived = await payload(input, session);
-      return createUcpEnvelope(
-        derived.status === "requires_escalation" ? "requires_action" : "ok",
-        { checkout: derived },
-        derived.messages ?? [],
-      );
+      return resourceEnvelope(await payload(input, session));
     }),
     cancel_checkout: handler("orders.manage", async (input) => {
       const session = await loadSession(input);
       if (!["Signature-Input", "Signature", "Content-Digest"].some((name) => input.request.headers.has(name)))
-        return createUcpEnvelope("ok", { checkout: await payload(input, session) });
-      const released = await releaseCheckoutInventoryReservations(input.request, session);
+        return resourceEnvelope(await payload(input, session));
+      await releaseCheckoutInventoryReservations(input.request, session);
       const result = await checkout.sessions.cancelSession(
         { sessionId: session.session_id, accountId: input.actor!.accountId as AccountId },
         input.context!,
       );
-      return createUcpEnvelope("ok", {
-        checkout: await payload(input, result.session),
-        released_reservation_ids: released.map((reservation) => reservation.holdId),
-        ...(result.commitPosition ? { commit_position: result.commitPosition } : {}),
-        ...(result.commitEventIds ? { commit_event_ids: result.commitEventIds } : {}),
-        ...(result.commitPositions ? { commit_positions: result.commitPositions } : {}),
-      });
+      return resourceEnvelope(await payload(input, result.session));
     }),
   };
   return {
@@ -476,7 +444,7 @@ export function checkoutUcpResource({
 
 function checkoutUcpMessage(row: ReturnType<typeof checkoutUcpState>["messages"][number]) {
   return {
-    type: "error" as const,
+    type: row.severity === "warning" ? ("warning" as const) : ("error" as const),
     code: row.code,
     content: row.message,
     severity: row.recoverability,
@@ -609,11 +577,12 @@ function readSelectedOptions(value: unknown) {
     : [];
 }
 function validationError(error: unknown) {
+  const code = error instanceof CheckoutDomainError ? error.code : "validation_failed";
   return createUcpEnvelope("error", {}, [
     {
-      severity: "error",
-      code: error instanceof CheckoutDomainError ? error.code : "validation_failed",
-      message: error instanceof Error ? error.message : String(error),
+      severity: code === "checkout_expired" ? "unrecoverable" : "recoverable",
+      code,
+      content: "The checkout request could not be completed.",
     },
   ]);
 }

@@ -9,7 +9,7 @@ const functionNode = syntax.statements.find(
   (node) => ts.isFunctionDeclaration(node) && node.name?.text === "expectUcpEndpoints",
 );
 
-function fixture(checkoutStatus = 400, catalogStatus = "ok") {
+function fixture(checkoutStatus = 400, catalogStatus = "success") {
   const origin = "https://synthetic-marketplace.example";
   const calls = [];
   const fetch = vi.fn(async (_label, url) => {
@@ -32,6 +32,8 @@ function fixture(checkoutStatus = 400, catalogStatus = "ok") {
       });
     return Response.json({
       ucp: {
+        version: "2026-08-25",
+        payment_handlers: {},
         services: {
           "dev.ucp.shopping": [
             { transport: "rest", endpoint: `${origin}/ucp/v1` },
