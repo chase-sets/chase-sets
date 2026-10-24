@@ -126,17 +126,126 @@ describeDb("Reference Data seed reconciliation of missing seed attributes (#1005
       expect({ ...state, attributes: null }, id).toEqual({ ...prior.state, attributes: null });
     }
     expect((await history(editedBaseSet)).state.attributes.abbreviation).toBe(editedAbbreviation);
-    const scopeRecords = await pool.query<{ reference_record_id: string; language_editions: string[] }>(
-      "SELECT reference_record_id, language_editions FROM catalog_scope_records WHERE reference_record_id = ANY($1) ORDER BY reference_record_id",
+    const scopeRecords = await pool.query<{
+      reference_record_id: string;
+      language_editions: string[];
+      lifecycle_status: string;
+    }>(
+      "SELECT reference_record_id, language_editions, lifecycle_status FROM catalog_scope_records WHERE reference_record_id = ANY($1) ORDER BY reference_record_id",
       [seededExpansionIds],
     );
     expect(scopeRecords.rows).toEqual(
-      [...seededExpansionIds].sort().map((id) => ({ reference_record_id: id, language_editions: ["en"] })),
+      [...seededExpansionIds]
+        .sort()
+        .map((id) => ({ reference_record_id: id, language_editions: ["en"], lifecycle_status: "active" })),
     );
 
     const afterFirstRun = await referenceRecordEventCount();
     await runSeed();
 
     expect(await referenceRecordEventCount()).toBe(afterFirstRun);
+  });
+
+  it("preserves draft, active, and deprecated lifecycle on revise while lifecycle events still transition", async () => {
+    await runSeed();
+    const parentReferenceId = catalogSeedIds.referenceRecords.series.scarletViolet;
+    const records = [
+      { id: "ref_test_scope_draft", expected: "draft" as const },
+      { id: "ref_test_scope_active", expected: "active" as const },
+      { id: "ref_test_scope_deprecated", expected: "deprecated" as const },
+    ];
+
+    for (const { id } of records) {
+      await services.referenceData.referenceRecordCommandHandler({
+        streamId: recordStream(id),
+        command: {
+          type: "CreateReferenceRecord",
+          referenceRecordId: id,
+          typeKey: "expansion",
+          key: id,
+          name: { en: id },
+          attributes: { "language-editions": ["en"] },
+          relationships: [{ relationshipType: "part-of", referenceId: parentReferenceId }],
+        },
+        context: seedContext,
+      });
+      await drain();
+    }
+
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: recordStream(records[1].id),
+      command: { type: "PublishReferenceRecord" },
+      context: seedContext,
+    });
+    await drain();
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: recordStream(records[2].id),
+      command: { type: "PublishReferenceRecord" },
+      context: seedContext,
+    });
+    await drain();
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: recordStream(records[2].id),
+      command: { type: "DeprecateReferenceRecord" },
+      context: seedContext,
+    });
+    await drain();
+
+    for (const { id } of records) {
+      const { state } = await history(id);
+      await services.referenceData.referenceRecordCommandHandler({
+        streamId: recordStream(id),
+        command: {
+          type: "ReviseReferenceRecord",
+          typeKey: state.typeKey!,
+          key: `${state.key}-revised`,
+          name: state.name!,
+          description: state.description,
+          attributes: state.attributes,
+          relationships: state.relationships,
+        },
+        context: seedContext,
+      });
+      await drain();
+    }
+
+    const scopeRecords = await pool.query<{ reference_record_id: string; lifecycle_status: string }>(
+      "SELECT reference_record_id, lifecycle_status FROM catalog_scope_records WHERE reference_record_id = ANY($1) ORDER BY reference_record_id",
+      [records.map(({ id }) => id)],
+    );
+    expect(scopeRecords.rows).toEqual(
+      [...records]
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map(({ id, expected }) => ({ reference_record_id: id, lifecycle_status: expected })),
+    );
+
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: recordStream(records[1].id),
+      command: { type: "DeprecateReferenceRecord" },
+      context: seedContext,
+    });
+    await drain();
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: recordStream(records[1].id),
+      command: { type: "ArchiveReferenceRecord" },
+      context: seedContext,
+    });
+    await drain();
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: recordStream(records[2].id),
+      command: { type: "ArchiveReferenceRecord" },
+      context: seedContext,
+    });
+    await drain();
+
+    const transitioned = await pool.query<{ reference_record_id: string; lifecycle_status: string }>(
+      "SELECT reference_record_id, lifecycle_status FROM catalog_scope_records WHERE reference_record_id = ANY($1) ORDER BY reference_record_id",
+      [records.map(({ id }) => id)],
+    );
+    expect(transitioned.rows).toEqual([
+      { reference_record_id: records[1].id, lifecycle_status: "archived" },
+      { reference_record_id: records[2].id, lifecycle_status: "archived" },
+      { reference_record_id: records[0].id, lifecycle_status: "draft" },
+    ]);
   });
 });
