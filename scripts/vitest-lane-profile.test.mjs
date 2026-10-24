@@ -14,6 +14,7 @@ import {
 import { defineScriptsTestConfig } from "../vitest.scripts.config.mjs";
 import { heavySlotVitestGlobalSetupPath } from "./lib/heavy-slot.mjs";
 import { heavySlotScriptBatteryGlobalSetupPath } from "./lib/heavy-slot-script-battery.mjs";
+import { scriptBatteryTempCensusGlobalSetupPath } from "./lib/script-battery-temp-census.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
 const originalLaneMode = process.env.CHASE_SETS_LANE_MODE;
@@ -46,7 +47,7 @@ test("keeps the default and hosted workspace profile byte-semantically strict", 
 test("keeps the default and hosted scripts profile byte-semantically strict", () => {
   for (const env of [{}, { CI: "true" }, { CHASE_SETS_LANE_MODE: "0", CI: "true" }]) {
     assert.deepEqual(defineScriptsTestConfig(env).test, {
-      globalSetup: [heavySlotScriptBatteryGlobalSetupPath],
+      globalSetup: [heavySlotScriptBatteryGlobalSetupPath, scriptBatteryTempCensusGlobalSetupPath],
       setupFiles: ["./scripts/lib/tracked-checkout-write-guard.mjs"],
       include: ["scripts/**/*.test.mjs"],
     });
@@ -72,7 +73,7 @@ test("applies the lane profile once to every shared-config consumer and the scri
   assert.deepEqual(defineBoundedContextTestConfig().test.include, boundedContextTestInclude);
   assert.deepEqual(defineScriptsTestConfig({ CHASE_SETS_LANE_MODE: "1" }).test, {
     ...laneProfile,
-    globalSetup: [heavySlotScriptBatteryGlobalSetupPath],
+    globalSetup: [heavySlotScriptBatteryGlobalSetupPath, scriptBatteryTempCensusGlobalSetupPath],
     setupFiles: ["./scripts/lib/tracked-checkout-write-guard.mjs"],
     include: ["scripts/**/*.test.mjs"],
   });

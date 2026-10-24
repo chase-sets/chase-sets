@@ -1,13 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildProjectionHotLagEvidence,
   PROJECTION_HOT_LAG_EVIDENCE_VERSION,
   renderProjectionHotLagMarkdown,
 } from "./projection-hot-lag-evidence.mjs";
+
+const temporaryDirectories = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
 
 describe("projection hot lag evidence", () => {
   it("attributes hot lag to database pool pressure before runner queue symptoms", () => {
@@ -222,6 +228,7 @@ describe("projection hot lag evidence", () => {
 
   it("writes a redacted JSON evidence record from the CLI", () => {
     const dir = mkdtempSync(join(tmpdir(), "projection-hot-lag-"));
+    temporaryDirectories.push(dir);
     const workerStatusPath = join(dir, "worker-status.json");
     const outPath = join(dir, "evidence.json");
     writeFileSync(
