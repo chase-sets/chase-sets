@@ -86,6 +86,24 @@ export const pricingEnglishTranslations = {
   "pricing.features.pricingHealth.goals.empty": "No selectable pricing goal is available",
   "pricing.features.pricingHealth.goals.comparison": "Compare pricing goals",
   "pricing.features.pricingHealth.goals.compare": "Compare goals",
+  "pricing.features.pricingHealth.goals.apply": "Apply goal",
+  "pricing.features.pricingHealth.goals.applied": "Pricing goal applied",
+  "pricing.features.pricingHealth.goals.applied.description":
+    "Revision {revision} created. Raised {raised}, lowered {lowered}, held {held}; floor-binding alerts: {floorBinding}.",
+  "pricing.features.pricingHealth.goals.applyError":
+    "This goal could not be applied. The policy or preview may have changed; refresh and compare again.",
+  "pricing.features.pricingHealth.goals.confirm.title": "Review goal revision",
+  "pricing.features.pricingHealth.goals.confirm.policy":
+    "Policy {policy}, current revision {revision}, body hash {hash}.",
+  "pricing.features.pricingHealth.goals.confirm.goal": "Goal {goal} version {version}.",
+  "pricing.features.pricingHealth.goals.confirm.parameters": "Parameters: {parameters}.",
+  "pricing.features.pricingHealth.goals.confirm.bodyHash": "Compared candidate body hash: {hash}.",
+  "pricing.features.pricingHealth.goals.confirm.movement":
+    "Preview movement: raised {raised}, lowered {lowered}, held {held}.",
+  "pricing.features.pricingHealth.goals.confirm.guardrails": "Unchanged guardrails: {guardrails}.",
+  "pricing.features.pricingHealth.goals.confirm.currencyFloor": "Currency: {currency}; floor: {floor}.",
+  "pricing.features.pricingHealth.goals.confirm.apply": "Apply this goal",
+  "pricing.features.pricingHealth.goals.confirm.cancel": "Keep current policy",
   "pricing.features.pricingHealth.goals.compareEmpty": "No durable candidate runs yet",
   "pricing.features.pricingHealth.goals.goal": "Goal",
   "pricing.features.pricingHealth.goals.scope": "Candidate scope",
