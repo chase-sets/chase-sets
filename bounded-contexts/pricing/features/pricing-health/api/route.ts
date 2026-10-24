@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import type { PricingApiEnv } from "../../../api";
-import { PricingHealthCandidateRefusedError, type PricingHealthServices } from "./services";
+import {
+  PricingHealthApplyRefusedError,
+  PricingHealthCandidateRefusedError,
+  type ApplyGoalRequest,
+  type PricingHealthServices,
+} from "./services";
 
 export function createPricingHealthRoutes(services: PricingHealthServices) {
   const app = new Hono<PricingApiEnv>();
@@ -43,5 +48,47 @@ export function createPricingHealthRoutes(services: PricingHealthServices) {
       throw error;
     }
   });
+  app.post("/:policyId/apply-goal", async (c) => {
+    const context = c.get("context");
+    if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
+    let body: ApplyGoalRequest;
+    try {
+      body = (await c.req.json()) as ApplyGoalRequest;
+    } catch {
+      return c.json({ error: { code: "validation_failed" } }, 400);
+    }
+    if (!validApplyGoalRequest(body)) return c.json({ error: { code: "validation_failed" } }, 400);
+    try {
+      const result = await services.applyGoal(c.get("actor")!.accountId, c.req.param("policyId"), body, context);
+      return result ? c.json(result) : c.json({ error: { code: "not_found" } }, 404);
+    } catch (error) {
+      if (error instanceof PricingHealthApplyRefusedError)
+        return c.json({ error: { code: "goal_apply_refused", reason: error.code } }, 409);
+      throw error;
+    }
+  });
   return app;
+}
+
+function validApplyGoalRequest(value: ApplyGoalRequest): value is ApplyGoalRequest {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof value.dryRunId === "string" &&
+    value.dryRunId.length > 0 &&
+    Number.isSafeInteger(value.targetRevision) &&
+    value.targetRevision > 0 &&
+    typeof value.targetBodyHash === "string" &&
+    value.targetBodyHash.length > 0 &&
+    typeof value.candidateBodyHash === "string" &&
+    value.candidateBodyHash.length > 0 &&
+    typeof value.goalId === "string" &&
+    value.goalId.length > 0 &&
+    Number.isSafeInteger(value.goalVersion) &&
+    value.goalVersion > 0 &&
+    !!value.parameters &&
+    typeof value.parameters === "object" &&
+    !Array.isArray(value.parameters) &&
+    Object.values(value.parameters).every((parameter) => typeof parameter === "number" && Number.isFinite(parameter))
+  );
 }

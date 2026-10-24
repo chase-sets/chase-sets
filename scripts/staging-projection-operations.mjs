@@ -598,6 +598,8 @@ function sanitizeProjectionGroup(group) {
     targetContextName,
     projectionName,
     state: readSafeEnum(value.state, "idle"),
+    projectionStatusSource: readProjectionStatusSource(value.projectionStatusSource),
+    snapshotAgeMs: readSnapshotAgeMs(value.snapshot),
     initialized: value.initialized === true,
     caughtUp: value.caughtUp === true,
     revisionStale: value.revisionStale === true,
@@ -1174,6 +1176,17 @@ function readSafeEventType(value) {
 function readSafeEnum(value, fallback) {
   const text = String(value ?? "");
   return /^[a-z][a-z0-9_-]{0,80}$/.test(text) ? text : fallback;
+}
+
+function readProjectionStatusSource(value) {
+  return value === "fresh-snapshot" || value === "stale-snapshot" || value === "runtime-memory" ? value : "unknown";
+}
+
+function readSnapshotAgeMs(snapshot) {
+  if (!isRecord(snapshot)) {
+    return null;
+  }
+  return Number.isInteger(snapshot.ageMs) && snapshot.ageMs >= 0 ? snapshot.ageMs : null;
 }
 
 function readSafeTimestamp(value) {
