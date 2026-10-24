@@ -59,6 +59,7 @@ const validateCreatorIdentitySql = `DO $$ BEGIN
 END $$;`;
 
 const widenRevokeReasonSql = `DO $$ BEGIN
+  SET LOCAL lock_timeout = '5s';
   IF EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conrelid = 'catalog_operator_session_grants'::regclass
