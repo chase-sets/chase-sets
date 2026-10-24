@@ -614,9 +614,7 @@ describe("platform runtime Postgres concurrency guards", () => {
     );
     expect(holderLease.rows).toHaveLength(1);
     const holderToken = holderLease.rows[0]!.fencing_token;
-    await expect(
-      controlPlane.acquireLease({ leaseName, ownerId: "worker-a", ttlMs: 30_000 }),
-    ).resolves.toBeNull();
+    await expect(controlPlane.acquireLease({ leaseName, ownerId: "worker-a", ttlMs: 30_000 })).resolves.toBeNull();
     await expectGroupLeaseRow(pools.platform, leaseName, "worker-a:projection-operations", holderToken);
 
     gate.resolve();
@@ -737,12 +735,10 @@ describe("platform runtime Postgres concurrency guards", () => {
     expect(displacedLease).not.toBeNull();
     if (!displacedLease) throw new Error("Displaced holder did not acquire the lease.");
     expect(BigInt(displacedLease.fencingToken)).toBeGreaterThan(BigInt(firstLease.fencingToken));
-    await saveSubscriptionCheckpoint(
-      pools.platform,
-      subscription,
-      "20" as never,
-      { ownerId: displacedLease.ownerId, fencingToken: displacedLease.fencingToken },
-    );
+    await saveSubscriptionCheckpoint(pools.platform, subscription, "20" as never, {
+      ownerId: displacedLease.ownerId,
+      fencingToken: displacedLease.fencingToken,
+    });
 
     await expect(saveSubscriptionCheckpoint(pools.platform, subscription, "30" as never, firstContext)).rejects.toThrow(
       /rejected stale lease fencing token/,
@@ -814,17 +810,19 @@ describe("platform runtime Postgres concurrency guards", () => {
               handlerEnteredAt = Date.now();
               gate.enter();
               await gate.promise;
-              await context!.db!.query(
-                "INSERT INTO long_drain_items (stream_id, position) VALUES ($1, $2::bigint)",
-                [event.streamId, event.globalPosition],
-              );
+              await context!.db!.query("INSERT INTO long_drain_items (stream_id, position) VALUES ($1, $2::bigint)", [
+                event.streamId,
+                event.globalPosition,
+              ]);
             },
           },
         },
       ],
     });
     await bootstrapContextDatabase(module, pools.platform);
-    const mounted = createMountedContextTestRuntime([{ contextName: "catalog", module, pool: pools.platform, ports: {} }]);
+    const mounted = createMountedContextTestRuntime([
+      { contextName: "catalog", module, pool: pools.platform, ports: {} },
+    ]);
     const mountedGroup = mounted.projectionGroups.find((candidate) => candidate.projectionName === projectionName)!;
     const revisionSyncObservations: Array<Readonly<{ checkpoint: string | null; token: unknown }>> = [];
     const group = {
@@ -896,7 +894,9 @@ describe("platform runtime Postgres concurrency guards", () => {
       scheduledLoop.start();
       await new Promise((resolve) => setTimeout(resolve, 600));
       expect(Date.now() - handlerEnteredAt).toBeGreaterThanOrEqual(500);
-      expect(acquisitions.filter((entry) => entry.ownerId === "worker-a" && entry.fencingToken === null).length).toBeGreaterThan(0);
+      expect(
+        acquisitions.filter((entry) => entry.ownerId === "worker-a" && entry.fencingToken === null).length,
+      ).toBeGreaterThan(0);
       const heldTokens = acquisitions
         .filter((entry) => entry.ownerId === "worker-a:projection-operations" && entry.fencingToken)
         .map((entry) => entry.fencingToken);
@@ -911,9 +911,7 @@ describe("platform runtime Postgres concurrency guards", () => {
       const deadline = Date.now() + 3_000;
       let scheduledAcquire: string | null = null;
       while (Date.now() < deadline && scheduledAcquire === null) {
-        const candidate = acquisitions.find(
-          (entry) => entry.ownerId === "worker-a" && entry.fencingToken !== null,
-        );
+        const candidate = acquisitions.find((entry) => entry.ownerId === "worker-a" && entry.fencingToken !== null);
         scheduledAcquire = candidate?.fencingToken ?? null;
         if (scheduledAcquire === null) await new Promise((resolve) => setTimeout(resolve, 20));
       }
