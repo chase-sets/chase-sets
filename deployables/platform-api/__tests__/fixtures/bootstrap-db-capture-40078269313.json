@@ -16,9 +16,7 @@
     "captureParent": "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
     "sourceBase": "4b18cca2b65df8094fbe93d5c4213c421e6d842e",
     "jobName": "Diagnostic API Bootstrap Measurement Only",
-    "parents": [
-      "4b18cca2b65df8094fbe93d5c4213c421e6d842e"
-    ],
+    "parents": ["4b18cca2b65df8094fbe93d5c4213c421e6d842e"],
     "node": "v24.21.0",
     "pnpm": "11.0.9",
     "vitest": "vitest/4.1.12 linux-x64 node-v24.21.0",
