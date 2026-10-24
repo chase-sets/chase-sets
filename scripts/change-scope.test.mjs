@@ -198,7 +198,10 @@ it("keeps fallback notices off json stdout", () => {
 
 it("kills a source mutant that sends the fallback notice to json stdout", () => {
   const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
-  const mutatedSource = source.replace("console.error(`Change-scope derivation fallback:", "console.log(`Change-scope derivation fallback:");
+  const mutatedSource = source.replace(
+    "console.error(`Change-scope derivation fallback:",
+    "console.log(`Change-scope derivation fallback:",
+  );
   expect(mutatedSource).not.toBe(source);
   const mutantPath = path.join(repoRoot, "scripts", `.change-scope-mutant-${process.pid}-${Date.now()}.mjs`);
   writeFileSync(mutantPath, mutatedSource, "utf8");
