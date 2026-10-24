@@ -288,8 +288,6 @@ const violations = [];
 const warnings = [];
 const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
 violations.push(...lostUpdateWriteGuard.violations);
-const tcgplayerHostCredentialGuard = await scanTcgplayerHostCredentialPolicy({ repoRoot });
-violations.push(...tcgplayerHostCredentialGuard.violations);
 const providerScopePickerShapeGuard = await validateProviderScopePickerShapeGuard({ repoRoot });
 violations.push(...providerScopePickerShapeGuard.violations);
 const pricingRegistryConformance = await validatePricingRegistryConformance({ repoRoot });
@@ -2047,6 +2045,8 @@ export async function runStructureCheck(options = {}) {
   violations.push(...sqlExecutionSurface.violations);
   const realClockElapsedBounds = await validateRealClockElapsedBounds({ repoRoot });
   violations.push(...realClockElapsedBounds.violations);
+  const tcgplayerHostCredentialGuard = await scanTcgplayerHostCredentialPolicy({ repoRoot });
+  violations.push(...tcgplayerHostCredentialGuard.violations);
 
   for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
     addPathViolation(violation.testPath, violation.message);

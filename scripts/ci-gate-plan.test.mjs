@@ -929,6 +929,11 @@ describe("shared CI gate plan", () => {
     expect(structureEntrypoint).toContain("runStructureCheck");
     expect(structureRun).toContain("await scanTcgplayerHostCredentialPolicy({ repoRoot })");
     expect(structureRun).toContain("violations.push(...tcgplayerHostCredentialGuard.violations)");
+    const runStart = structureRun.indexOf("export async function runStructureCheck(");
+    const reset = structureRun.indexOf("violations.length = 0;", runStart);
+    expect(runStart).toBeGreaterThan(-1);
+    expect(reset).toBeGreaterThan(runStart);
+    expect(structureRun.indexOf("await scanTcgplayerHostCredentialPolicy({ repoRoot })")).toBeGreaterThan(reset);
     expect(VERIFY_STATIC_SURFACES["check:structure"].scopedSteps).toContainEqual(
       expect.objectContaining({ name: "aggregate", classification: ALWAYS_RUN }),
     );
