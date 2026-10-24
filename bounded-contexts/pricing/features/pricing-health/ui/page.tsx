@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Banner, LinkButton, Page, PageHeader, PageSection, Skeleton, Stack } from "@chase-sets/design-system";
-import type { PricingHealthData } from "../api/services";
+import type { ApplyGoalResult, PricingHealthData } from "../api/services";
 import { HealthSummary } from "./health-summary";
 import { ForecastGradePanel } from "./forecast-grade-panel";
 import { healthCopy as copy } from "./copy";
@@ -13,6 +13,8 @@ export function PricingHealthPage({
   policySelector,
   computeAction,
   compareAction,
+  applyAction,
+  applyResult,
 }: Readonly<{
   data: PricingHealthData | null;
   loading?: boolean;
@@ -20,6 +22,8 @@ export function PricingHealthPage({
   policySelector?: ReactNode;
   computeAction?: ReactNode;
   compareAction?: ReactNode;
+  applyAction?: (candidate: NonNullable<PricingHealthData["comparison"]>[number]) => ReactNode;
+  applyResult?: ApplyGoalResult | null;
 }>) {
   return (
     <Page>
@@ -44,6 +48,19 @@ export function PricingHealthPage({
                 {copy("retry")}
               </LinkButton>
             }
+          />
+        ) : null}
+        {applyResult ? (
+          <Banner
+            tone="success"
+            title={copy("goals.applied")}
+            description={copy("goals.applied.description", {
+              revision: applyResult.revision,
+              raised: applyResult.movement.raised,
+              lowered: applyResult.movement.lowered,
+              held: applyResult.movement.held,
+              floorBinding: applyResult.alerts.floorBinding,
+            })}
           />
         ) : null}
         {loading ? (
@@ -83,6 +100,7 @@ export function PricingHealthPage({
                         goals={data.goals ?? []}
                         targetPolicyId={data.target.policyId}
                         recommendation={data.recommendation ?? { kind: "compare-goals" }}
+                        applyAction={applyAction}
                       />
                     </PageSection>
                     <PageSection title={copy("grades.title")} description={copy("grades.platform")}>

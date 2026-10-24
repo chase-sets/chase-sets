@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { formatDateTime, formatMoney } from "@chase-sets/localization";
 import { Banner, Card, DataTable, Fieldset, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import type { CandidateMetrics, GoalChoice, Recommendation } from "../api/goal-comparison";
@@ -42,12 +43,14 @@ export function GoalComparison({
   recommendation,
   goals = [],
   targetPolicyId,
+  applyAction,
 }: Readonly<{
   branch: "comparison" | "advanced-editor" | "create-editor";
   candidates: readonly CandidateMetrics[];
   recommendation: Recommendation;
   goals?: readonly GoalChoice[];
   targetPolicyId?: string;
+  applyAction?: (candidate: CandidateMetrics) => ReactNode;
 }>) {
   if (branch === "advanced-editor")
     return (
@@ -177,6 +180,15 @@ export function GoalComparison({
                   .map(([reason, count]) => `${healthReasonLabel(reason)}: ${count}`)
                   .join(", "),
             },
+            ...(applyAction
+              ? [
+                  {
+                    key: "apply",
+                    header: copy("goals.apply"),
+                    cell: (row: CandidateMetrics) => (row.status === "completed" ? applyAction(row) : null),
+                  },
+                ]
+              : []),
           ]}
         />
       </Stack>
