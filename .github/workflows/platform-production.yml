@@ -1779,6 +1779,8 @@ jobs:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
+          EBAY_APPLICATION_CLIENT_ID: ${{ secrets.EBAY_APPLICATION_CLIENT_ID || '' }}
+          EBAY_APPLICATION_CLIENT_SECRET: ${{ secrets.EBAY_APPLICATION_CLIENT_SECRET || '' }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -3900,6 +3902,8 @@ jobs:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
+          EBAY_APPLICATION_CLIENT_ID: ${{ secrets.EBAY_APPLICATION_CLIENT_ID || '' }}
+          EBAY_APPLICATION_CLIENT_SECRET: ${{ secrets.EBAY_APPLICATION_CLIENT_SECRET || '' }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}

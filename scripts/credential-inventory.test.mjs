@@ -63,7 +63,7 @@ describe("credential inventory check (AC1)", () => {
   it("passes on the repository inventory, workflows and actions", () => {
     expect(checkCredentialInventory(resolve("."))).toEqual([]);
     const { inventory } = validateCredentialInventory(repositoryInventory);
-    expect(inventory.entries.filter((candidate) => candidate.optional)).toHaveLength(11);
+    expect(inventory.entries.filter((candidate) => candidate.optional)).toHaveLength(13);
   });
 
   it("names a referenced secret that has no entry", () => {

@@ -1199,9 +1199,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 130,
+      "platform-api": 132,
       "platform-bootstrap": 59,
-      "platform-worker": 132,
+      "platform-worker": 134,
       "public-web": 13,
     });
     const retiredNames = Object.values(values.components).flatMap((component) =>

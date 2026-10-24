@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   assertNoSensitiveLoadEvidenceValues,
   buildPushWakeLoadEvidence,
@@ -11,6 +11,12 @@ import {
   PUSH_WAKE_LOAD_EVIDENCE_VERSION,
   renderPushWakeLoadEvidenceMarkdown,
 } from "./push-wake-load-evidence.mjs";
+
+const temporaryDirectories = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
 
 function passingArtifact(overrides = {}) {
   return {
@@ -525,6 +531,7 @@ describe("push wake load evidence evaluator", () => {
 
   it("parses CLI options and writes an evaluation record from the command line", () => {
     const directory = mkdtempSync(join(tmpdir(), "push-wake-load-evidence-"));
+    temporaryDirectories.push(directory);
     const artifactPath = join(directory, "staging-wake-drill-load.json");
     const outPath = join(directory, "evaluation.json");
     writeFileSync(artifactPath, `${JSON.stringify(passingArtifact())}\n`);

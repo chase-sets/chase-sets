@@ -1,7 +1,7 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   EMERGENCY_RECOVERY_GUIDE_VERSION,
   buildEmergencyRecoveryGuide,
@@ -11,6 +11,11 @@ import {
 import { parseReleaseDispatchContractArgs, validateReleaseDispatchContract } from "./release-dispatch-contract.mjs";
 
 const targetCommit = "0123456789abcdef0123456789abcdef01234567";
+const temporaryDirectories = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 describe("emergency recovery guide", () => {
   it("guides rollback readiness without allowing release-lock bypass", () => {
@@ -85,6 +90,7 @@ describe("emergency recovery guide", () => {
 
   it("writes a summary artifact", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-emergency-recovery-"));
+    temporaryDirectories.push(directory);
     const outFile = join(directory, "guide.json");
     const result = await runEmergencyRecoveryGuide({
       outPath: outFile,

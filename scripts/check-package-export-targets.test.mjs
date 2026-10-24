@@ -1,8 +1,13 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { checkPackageExportTargets, collectExportTargets } from "./check-package-export-targets.mjs";
+
+const roots = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 describe("package export target guard", () => {
   it("collects simple, conditional, and array fallback export targets", () => {
@@ -24,6 +29,7 @@ describe("package export target guard", () => {
 
   it("reports package-relative exports whose target file is missing", () => {
     const rootDir = path.join(tmpdir(), `package-export-targets-${process.pid}-${Date.now()}`);
+    roots.push(rootDir);
     const packageDir = path.join(rootDir, "packages", "design-system");
     mkdirSync(path.join(packageDir, "src"), { recursive: true });
     writeFileSync(path.join(packageDir, "src", "index.ts"), "export const ok = true;\n");
@@ -54,6 +60,7 @@ describe("package export target guard", () => {
 
   it("accepts wildcard export targets when matching package files exist", () => {
     const rootDir = path.join(tmpdir(), `package-export-wildcards-${process.pid}-${Date.now()}`);
+    roots.push(rootDir);
     const packageDir = path.join(rootDir, "bounded-contexts", "auth");
     mkdirSync(path.join(packageDir, "routes", "admin"), { recursive: true });
     writeFileSync(path.join(packageDir, "routes", "admin", "sessions.tsx"), "export const route = true;\n");
