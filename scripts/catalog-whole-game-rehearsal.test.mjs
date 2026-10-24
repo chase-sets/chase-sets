@@ -167,9 +167,9 @@ describe("whole-game repair regressions", () => {
     });
     vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
     const startedAt = Date.now();
-    await expect(
-      context.submitPromoteAllReady(page, "scope-1", [], runtime),
-    ).rejects.toBeInstanceOf(rehearsal.WholeGameDeadlineReached);
+    await expect(context.submitPromoteAllReady(page, "scope-1", [], runtime)).rejects.toBeInstanceOf(
+      rehearsal.WholeGameDeadlineReached,
+    );
     expect(Date.now() - startedAt).toBeLessThan(10_000);
     expect(posted).toBe(false);
   });
@@ -179,7 +179,10 @@ describe("whole-game repair regressions", () => {
     const count = source.indexOf("await expect(form).toHaveCount(1");
     const origin = source.indexOf("assertWholeGameOrigin(page.url())", count);
     const expansion = source.indexOf('expandWorkflowStage(page, "review-changes"', origin);
-    const click = source.indexOf('clickWholeGameControl(page, form.getByRole("button", { name: "Promote all ready"', expansion);
+    const click = source.indexOf(
+      'clickWholeGameControl(page, form.getByRole("button", { name: "Promote all ready"',
+      expansion,
+    );
     expect(count).toBeGreaterThanOrEqual(0);
     expect(origin).toBeGreaterThan(count);
     expect(expansion).toBeGreaterThan(origin);

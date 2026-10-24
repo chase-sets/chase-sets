@@ -8444,7 +8444,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
             result: { promoted: 0, outcomes: [] },
           });
         return {
-            html: `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false" onclick="this.setAttribute('aria-expanded','true'); this.nextElementSibling.hidden=false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form></div>`,
+          html: `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false" onclick="this.setAttribute('aria-expanded','true'); this.nextElementSibling.hidden=false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form></div>`,
         };
       }
       if (request.path.startsWith("/api/catalog/source-observations/bulk-jobs/zero-"))
