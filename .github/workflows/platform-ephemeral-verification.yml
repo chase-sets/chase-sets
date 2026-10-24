@@ -67,7 +67,7 @@ jobs:
       needs.select-promoted-release.outputs.eligible == 'true'
     needs: select-promoted-release
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 150
     environment: preview
     concurrency:
       group: ${{ inputs.dispatch_source == 'automatic' && 'platform-ephemeral-verification-automatic' || format('platform-ephemeral-verification-manual-{0}', github.run_id) }}
@@ -333,6 +333,7 @@ jobs:
         id: runtime_secrets
         env:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
+          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ""
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
           EBAY_APPLICATION_CLIENT_ID: ${{ secrets.EBAY_APPLICATION_CLIENT_ID || '' }}
@@ -473,6 +474,18 @@ jobs:
           EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
         run: node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
 
+      - name: Hold for preview census
+        id: census_hold
+        if: success() && inputs.dispatch_source == 'manual'
+        timeout-minutes: 70
+        run: |
+          set -euo pipefail
+          hold_start="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          idle_end="$(date -u -d '+10 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+          hold_end="$(date -u -d '+65 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'hold_start=%s\nidle_end=%s\nhold_end=%s\n' "$hold_start" "$idle_end" "$hold_end"
+          sleep 3900
+
       - name: Delete verification Kubernetes namespace
         id: namespace_teardown
         if: always() && steps.namespace.outcome != 'skipped'
@@ -510,6 +523,7 @@ jobs:
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
           STRIPE_OUTCOME: ${{ steps.stripe.outcome }}
           PROVIDER_TEARDOWN_OUTCOME: ${{ steps.provider_teardown.outcome }}
+          CENSUS_HOLD_OUTCOME: ${{ steps.census_hold.outcome }}
           NAMESPACE_TEARDOWN_OUTCOME: ${{ steps.namespace_teardown.outcome }}
         run: |
           mkdir -p artifacts/ephemeral-verification
@@ -535,6 +549,7 @@ jobs:
             ["platform-smoke", process.env.SMOKE_OUTCOME],
             ["stripe-money-smoke", process.env.STRIPE_OUTCOME],
             ["provider-teardown", process.env.PROVIDER_TEARDOWN_OUTCOME],
+            ["census-hold", process.env.CENSUS_HOLD_OUTCOME],
             ["namespace-teardown", process.env.NAMESPACE_TEARDOWN_OUTCOME],
           ];
           const failedPhase = terminalPhases.find(([, outcome]) => ["failure", "cancelled"].includes(outcome));
