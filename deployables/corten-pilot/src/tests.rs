@@ -188,43 +188,6 @@ async fn a_signed_out_visitor_signs_in_through_admin_web() {
     assert!(pilot.policy_calls().is_empty(), "nothing is read for a visitor who is not signed in");
 }
 
-/// Access is checked in each handler (Corten has no guard for a set of routes), so every route
-/// is tried: none reads or writes for a visitor who is not signed in or may not see the screen.
-/// <https://github.com/todd-skelton/corten/issues/2>
-#[tokio::test]
-async fn every_route_checks_access_before_it_calls_the_api() {
-    let pilot = Pilot::new().await;
-    let policy = create_body("Draft", "8");
-    let writes = [
-        ("", policy.as_str()),
-        ("/opp_seed/revise", policy.as_str()),
-        ("/opp_seed/preview", policy.as_str()),
-        ("/opp_seed/activate", "label=Default&activation_reason=Reviewed"),
-        ("/opp_seed/retire", "label=Default&retirement_reason=Done"),
-        ("/opp_seed/clone", "clone_label=Rollback&clone_effective_from=2026-01-01"),
-    ];
-    for session in [None, Some("reader")] {
-        let (status, _, _) = pilot.send(get("/commerce/postage-policies/opp_seed", session)).await;
-        assert_eq!(status, if session.is_none() { StatusCode::SEE_OTHER } else { StatusCode::FORBIDDEN }, "open {session:?}");
-        for (path, body) in writes {
-            let mut req = post(&format!("/commerce/postage-policies{path}"), body, false);
-            req.headers_mut().remove(header::COOKIE);
-            if let Some(session) = session {
-                req.headers_mut().insert(header::COOKIE, format!("chase_sets_session={session}").parse().unwrap());
-            }
-            let (status, headers, _) = pilot.send(req).await;
-            match session {
-                None => {
-                    assert_eq!(status, StatusCode::SEE_OTHER, "{path}");
-                    assert!(headers[header::LOCATION].to_str().unwrap().contains("/access/sign-in"), "{path}");
-                }
-                Some(_) => assert_eq!(status, StatusCode::FORBIDDEN, "{path}"),
-            }
-        }
-    }
-    assert!(pilot.policy_calls().is_empty(), "{:?}", pilot.policy_calls());
-}
-
 #[tokio::test]
 async fn staff_without_the_permission_are_refused_and_an_unreachable_session_is_not_signed_out() {
     let pilot = Pilot::new().await;

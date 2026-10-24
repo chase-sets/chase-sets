@@ -1,4 +1,4 @@
-use corten::{FieldName, prelude::*};
+use corten::prelude::*;
 
 use super::Draft;
 use crate::{app::url, form::PolicyInput, text::Msg};

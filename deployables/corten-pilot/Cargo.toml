@@ -8,7 +8,7 @@ description = "Pilot: the admin Commerce > Postage policies screen on Corten, ag
 [dependencies]
 # Pinned to a Corten revision on purpose (no release is tagged). Move the pin forward when a fix
 # the pilot needs lands; see README.md, "Corten pin".
-corten = { git = "https://github.com/todd-skelton/corten", rev = "028655da44ff47dee8a9827dc924dde9b509cfdc", features = ["compress", "json"] }
+corten = { git = "https://github.com/todd-skelton/corten", rev = "ad8d3affb83b492a94c2bbf4af990b9d261111a0", features = ["compress", "json"] }
 percent-encoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }

@@ -49,6 +49,7 @@ git's `url.<local checkout>.insteadOf=https://github.com/todd-skelton/corten` an
 | `01586b4` | `tokens!` themes under a media condition; `Errors::add_form` |
 | `122fd5d` | `App::serve` listens on both loopback addresses |
 | `028655d` | a stylesheet class may be named like its component (the pilot's renames are undone) |
+| `ad8d3af` | the four commits above rebased onto Corten `main` at `340c133`, which closed the pilot's gaps: `App::guard`, `FieldName` in the prelude, `Result<T, E>` (see Corten gaps) |
 
 ## What lives where
 
@@ -70,8 +71,12 @@ git's `url.<local checkout>.insteadOf=https://github.com/todd-skelton/corten` an
    Chase Sets' consistency protocol, not Corten's.
 2. **Business rules stay in the API.** A refusal with a message becomes the form's message
    (`Errors::add_form`), so the pilot never restates a rule ([`refused`](src/app.rs)).
-3. **Access is checked in every handler** ([`staff`](src/app.rs)). Corten has no way to say a
-   set of routes needs a context; see the gaps below.
+3. **One guard covers the whole pilot** (`App::guard("/", ..)` in [`app`](src/app.rs)): staff
+   with `postage-policies.view` pass, anyone else with a session gets a 403, a session the API
+   could not look up gets a 502 (signing in again would loop while it is down), and no session
+   signs in at admin-web. Corten answers before the handler runs, in the request's mode, so a
+   route added later is covered too. A write whose API call says the session ended meanwhile
+   still signs in from the handler ([`refused`](src/app.rs)).
 4. **Every write is its own route** (`/revise`, `/activate`, ...) where admin-web posts one form
    with an `intent`; the preview button posts the revise form to `/preview` with `formaction`.
 5. **The sheet is a `<dialog open>`** that works without JavaScript; its script reopens it as a
@@ -80,14 +85,14 @@ git's `url.<local checkout>.insteadOf=https://github.com/todd-skelton/corten` an
 
 ## Corten gaps
 
-Filed in Corten, one gap each. Remove the workaround when the fix lands and the pin moves past it.
+Filed in Corten, one gap each, all fixed in
+[todd-skelton/corten#5 App::guard, a defaulted Result error type and FieldName in the prelude](https://github.com/todd-skelton/corten/pull/5);
+the pin is past it and the workarounds are gone.
 
 1. [todd-skelton/corten#2 A set of routes cannot require a context (sign-in, a permission)](https://github.com/todd-skelton/corten/issues/2)
-   (correctness): `staff()` at the top of every handler in [`app.rs`](src/app.rs), and the
-   test `every_route_checks_access_before_it_calls_the_api` in [`tests.rs`](src/tests.rs).
+   (correctness): was `staff()` at the top of every handler and a test that tried every route
+   signed out; now the guard above.
 2. [todd-skelton/corten#3 FieldName is not in the prelude](https://github.com/todd-skelton/corten/issues/3)
-   (convenience): `use corten::{FieldName, prelude::*}` in [`form.rs`](src/form.rs) and
-   [`policy_fields.rs`](src/views/policy_fields.rs).
+   (convenience): was `use corten::{FieldName, prelude::*}`.
 3. [todd-skelton/corten#4 The prelude's Result hides std::result::Result](https://github.com/todd-skelton/corten/issues/4)
-   (one way to do things): `std::result::Result` in [`app.rs`](src/app.rs) and
-   [`form.rs`](src/form.rs).
+   (one way to do things): was `std::result::Result`; helpers now write `Result<T, Errors>`.

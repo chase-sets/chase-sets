@@ -5,7 +5,7 @@
 //! (`Errors::add_form`). The pilot checks only what it needs to build the request, which the
 //! inputs' `required` and `type="number"` already ask of the browser: text is there and numbers
 //! are numbers. The fields hold the text as typed, so a form re-rendered with errors shows it.
-use corten::{FieldName, prelude::*};
+use corten::prelude::*;
 use serde::Deserialize;
 
 use crate::{
@@ -108,7 +108,7 @@ impl PolicyInput {
     }
 
     /// The create or revise request, or what is missing.
-    pub fn command(&self, t: Pilot) -> std::result::Result<PolicyCommand, Errors> {
+    pub fn command(&self, t: Pilot) -> Result<PolicyCommand, Errors> {
         let f = Self::FIELDS;
         let mut check = Check { t, errors: Errors::new() };
         check.text(f.label, &self.label);
@@ -147,7 +147,7 @@ impl PolicyInput {
     }
 
     /// The preview's rules, or what is missing. The request borrows the input and the payload.
-    pub fn preview_payload(&self, t: Pilot) -> std::result::Result<(Payload, [f64; 5]), Errors> {
+    pub fn preview_payload(&self, t: Pilot) -> Result<(Payload, [f64; 5]), Errors> {
         let f = Self::FIELDS;
         let mut check = Check { t, errors: Errors::new() };
         let payload = self.payload(&mut check);
@@ -235,14 +235,14 @@ pub struct CloneInput {
 }
 
 /// A required reason, or its error.
-pub fn reason(t: Pilot, field: FieldName, text: &str) -> std::result::Result<String, Errors> {
+pub fn reason(t: Pilot, field: FieldName, text: &str) -> Result<String, Errors> {
     let mut check = Check { t, errors: Errors::new() };
     check.text(field, text);
     check.errors.into_result(text.trim().to_owned())
 }
 
 impl CloneInput {
-    pub fn command(&self, t: Pilot) -> std::result::Result<CloneCommand<'_>, Errors> {
+    pub fn command(&self, t: Pilot) -> Result<CloneCommand<'_>, Errors> {
         let f = Self::FIELDS;
         let mut check = Check { t, errors: Errors::new() };
         check.text(f.clone_label, &self.clone_label);

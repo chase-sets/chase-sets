@@ -20,7 +20,7 @@ use serde::Serialize;
 
 use crate::{
     api::{ApiError, PackagePlan, Platform, Policy, PolicyList, Written},
-    auth::{self, ColorMode, SESSION_COOKIE, Session, Viewer},
+    auth::{self, ColorMode, SESSION_COOKIE, Session},
     form::{ActivateInput, CloneInput, PolicyInput, RetireInput, reason},
     receipt::Receipt,
     text::{Msg, Pilot},
@@ -28,6 +28,8 @@ use crate::{
 };
 
 const VIEW: &str = "postage-policies.view";
+/// admin-web's sign-in, coming back to the screen there (admin-web only returns to its own paths).
+const SIGN_IN: &str = "/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies";
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 500;
 
@@ -113,6 +115,7 @@ pub mod url {
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     let context = shared.clone();
+    let sign_in_at = views::admin_web(SIGN_IN);
     App::new(routes(shared))
         .shell(views::shell)
         .context(move |headers: &HeaderMap| {
@@ -133,6 +136,17 @@ pub fn app(config: Config) -> App {
                 auth::session(config.platform.caller(&forward, config.proto, None), color_mode).await
             }
         })
+        // Every route the pilot serves, and any added later, is for staff who may see the screen.
+        .guard("/", move |session: Option<&Session>, _| match session {
+            Some(Session::Staff(viewer)) if viewer.can(VIEW) => Access::ALLOW,
+            Some(Session::Staff(_)) => Access::refuse(corten::Error::status(StatusCode::FORBIDDEN)),
+            // The API could not say whose the cookie is: signing in again would loop while it is down.
+            Some(Session::Unavailable) => Access::refuse(corten::Error::status(StatusCode::BAD_GATEWAY)),
+            None => match &sign_in_at {
+                Some(to) => Access::sign_in(to),
+                None => Access::refuse(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
+            },
+        })
         .messages::<Msg>()
         .components(views::COMPONENTS)
         .error_page(views::error_page)
@@ -150,7 +164,8 @@ fn routes(shared: Shared) -> Router {
         .with_state(shared)
 }
 
-/// Why a request gets something other than the screen.
+/// Why a write's API call ends in something other than the form: the guard let the request in,
+/// but the API says the session ended meanwhile, or failed.
 enum Denied {
     /// Not signed in (or no longer): sign in at admin-web.
     SignIn,
@@ -167,20 +182,9 @@ impl Denied {
     }
 }
 
-/// The viewer when they may see the screen. Every handler calls it first until Corten can guard a
-/// set of routes: <https://github.com/todd-skelton/corten/issues/2>
-fn staff(req: &Req) -> std::result::Result<&Viewer, Denied> {
-    match req.context::<Session>() {
-        Some(Session::Staff(viewer)) if viewer.can(VIEW) => Ok(viewer),
-        Some(Session::Staff(_)) => Err(Denied::Error(corten::Error::status(StatusCode::FORBIDDEN))),
-        Some(Session::Unavailable) => Err(Denied::Error(corten::Error::status(StatusCode::BAD_GATEWAY))),
-        None => Err(Denied::SignIn),
-    }
-}
-
-/// admin-web's sign-in, coming back to the screen there (admin-web only returns to its own paths).
+/// admin-web's sign-in, for a session the API says has ended (the guard sends the rest there).
 fn sign_in(req: &Req) -> corten::Result {
-    match views::admin_web("/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies") {
+    match views::admin_web(SIGN_IN) {
         Some(to) => req.redirect(&to),
         None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
     }
@@ -214,9 +218,6 @@ pub struct Screen {
 
 /// The page for `query`, with `forms` in place of the forms' defaults.
 async fn render(req: &Req, config: &Config, headers: &HeaderMap, query: &url::Policies, forms: Forms) -> corten::Result {
-    if let Err(denied) = staff(req) {
-        return denied.answer(req);
-    }
     let receipt = Receipt::from_param(query.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
@@ -244,9 +245,6 @@ async fn list(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(
 }
 
 async fn open(req: Req, Path(id): Path<String>) -> corten::Result {
-    if let Err(denied) = staff(&req) {
-        return denied.answer(&req);
-    }
     req.redirect(&url::Policies { policy: Some(id), ..Default::default() })
 }
 
@@ -260,7 +258,7 @@ fn written(req: &Req, written: Written) -> corten::Result {
 }
 
 /// A write the API refused with a message for the user, or the answer for any other failure.
-fn refused(error: ApiError) -> std::result::Result<Errors, Denied> {
+fn refused(error: ApiError) -> Result<Errors, Denied> {
     match error.refusal() {
         Some(message) => {
             let mut errors = Errors::new();
@@ -287,9 +285,6 @@ async fn invalid(
 }
 
 async fn create(req: Req, State(config): State<Shared>, headers: HeaderMap, Form(input): Form<PolicyInput>) -> corten::Result {
-    if let Err(denied) = staff(&req) {
-        return denied.answer(&req);
-    }
     let pilot: Pilot = req.t();
     let errors = match input.command(pilot) {
         Ok(command) => match config.platform.caller(&headers, config.proto, None).create(&command).await {
@@ -314,9 +309,6 @@ async fn revise(
     Path(id): Path<String>,
     Form(input): Form<PolicyInput>,
 ) -> corten::Result {
-    if let Err(denied) = staff(&req) {
-        return denied.answer(&req);
-    }
     let errors = match input.command(req.t()) {
         Ok(command) => match config.platform.caller(&headers, config.proto, None).revise(&id, &command).await {
             Ok(done) => return written(&req, done),
@@ -340,9 +332,6 @@ async fn preview(
     Path(id): Path<String>,
     Form(input): Form<PolicyInput>,
 ) -> corten::Result {
-    if let Err(denied) = staff(&req) {
-        return denied.answer(&req);
-    }
     let errors = match input.preview_payload(req.t()) {
         Ok((payload, numbers)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
@@ -375,9 +364,6 @@ async fn activate(
     Path(id): Path<String>,
     Form(input): Form<ActivateInput>,
 ) -> corten::Result {
-    if let Err(denied) = staff(&req) {
-        return denied.answer(&req);
-    }
     let errors = match reason(req.t(), ActivateInput::FIELDS.activation_reason, &input.activation_reason) {
         Ok(text) => match config.platform.caller(&headers, config.proto, None).activate(&id, &text).await {
             Ok(done) => return written(&req, done),
@@ -402,9 +388,6 @@ async fn retire(
     Path(id): Path<String>,
     Form(input): Form<RetireInput>,
 ) -> corten::Result {
-    if let Err(denied) = staff(&req) {
-        return denied.answer(&req);
-    }
     let errors = match reason(req.t(), RetireInput::FIELDS.retirement_reason, &input.retirement_reason) {
         Ok(text) => match config.platform.caller(&headers, config.proto, None).retire(&id, &text).await {
             Ok(done) => return written(&req, done),
@@ -428,9 +411,6 @@ async fn clone(
     Path(id): Path<String>,
     Form(input): Form<CloneInput>,
 ) -> corten::Result {
-    if let Err(denied) = staff(&req) {
-        return denied.answer(&req);
-    }
     let errors = match input.command(req.t()) {
         Ok(command) => match config.platform.caller(&headers, config.proto, None).clone_policy(&id, &command).await {
             Ok(done) => return written(&req, done),
