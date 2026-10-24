@@ -34,43 +34,7 @@ const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
 // appends its literal reviewed records to this delta; a slice that removes grants lists them as an explicit reviewed
 // removal list, in that slice's own PR. Never derive either list from the candidate. Re-baselining needs its own slice.
-// #8449 delta: the five baseline Channels keyring Apply-step grants with only `secretName` changed.
 const reviewedCatalogDelta = [
-  {
-    file: ".github/workflows/platform-ephemeral-verification.yml",
-    jobId: "verify-release",
-    stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-merge-gate-verification.yml",
-    jobId: "verify",
-    stepAnchor: "name:Apply gate Kubernetes runtime secrets#11",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-pr.yml",
-    jobId: "preview-deploy-smoke",
-    stepAnchor: "name:Apply preview Kubernetes runtime secrets#13",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-production.yml",
-    jobId: "deploy-production",
-    stepAnchor: "name:Apply production Kubernetes runtime secrets#33",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
-  {
-    file: ".github/workflows/platform-production.yml",
-    jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#31",
-    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
-    purpose: "application-runtime",
-  },
   // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
   {
     file: ".github/workflows/catalog-completion-report.yml",
@@ -530,6 +494,10 @@ const reviewedRetiredVerifierRemovals = new Set([
 // An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
 const uploadArtifact = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 const reviewedStepInsertions = [
+  // #10259: scheduled batch download, batch resolution and target-number steps ahead of destroy-preview cleanup.
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 7 },
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 8 },
+  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 9 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 52 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
@@ -550,11 +518,21 @@ const reviewedStepInsertions = [
     uses: uploadArtifact,
     occurrence: 6,
   },
-  // #10259: scheduled batch download, batch resolution and target-number steps ahead of the destroy-preview cleanup steps.
-  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 7 },
-  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 8 },
-  { file: ".github/workflows/platform-preview-cleanup.yml", jobId: "destroy-preview", position: 9 },
 ];
+const previewStateRetirementDelta = [
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
+  ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
+  ["SPACES_ACCESS_ID", "terraform-infra"],
+  ["SPACES_SECRET_KEY", "terraform-infra"],
+].map(([secretName, purpose]) => ({
+  file: ".github/workflows/platform-preview-cleanup.yml",
+  jobId: "destroy-preview",
+  stepAnchor: "name:Retire empty preview Terraform state#17",
+  secretName,
+  purpose,
+}));
 
 function applyReviewedStepInsertions(record) {
   return reviewedStepInsertions.reduce((current, insertion) => {
@@ -572,6 +550,127 @@ function applyReviewedStepInsertions(record) {
       : current;
   }, record);
 }
+
+// Advisory qualification reuses the reviewed gate grants; only step positions move.
+function applyQualificationStepInsertions(record) {
+  const insertions = [
+    { file: ".github/workflows/platform-merge-gate-verification.yml", jobId: "verify", positions: [2, 8, 11, 12] },
+    { file: ".github/workflows/platform-merge-gate-verification.yml", jobId: "stranded-fixture-drill", positions: [2] },
+    { file: ".github/workflows/platform-pr.yml", jobId: "docker-image", positions: [9, 10, 11, 12, 13, 14] },
+  ];
+  const insertion = insertions.find(({ file, jobId }) => file === record.file && jobId === record.jobId);
+  const match = /^(name:.*#)(\d+)$/.exec(record.stepAnchor);
+  if (!insertion || !match) return record;
+  const position = insertion.positions.reduce(
+    (index, inserted) => (index >= inserted ? index + 1 : index),
+    Number(match[2]),
+  );
+  return { ...record, stepAnchor: `${match[1]}${position}` };
+}
+
+const qualificationCleanupDelta = [
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Configure observer Kubernetes context#8",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Delete exact gate provider webhooks#10",
+    secretName: "EASYPOST_API_KEY",
+    purpose: "marketplace-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Delete exact gate provider webhooks#10",
+    secretName: "STRIPE_SECRET_KEY",
+    purpose: "marketplace-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Persist cancelled post-identity attempt#11",
+    secretName: "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
+    purpose: "release-evidence",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Persist cancelled post-identity attempt#11",
+    secretName: "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+    purpose: "release-evidence",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "EASYPOST_API_KEY",
+    purpose: "marketplace-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
+    purpose: "release-evidence",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+    purpose: "release-evidence",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "name:Validate observer cleanup credentials#5",
+    secretName: "STRIPE_SECRET_KEY",
+    purpose: "marketplace-ops",
+  },
+  {
+    file: ".github/workflows/platform-merge-qualification-observer.yml",
+    jobId: "cleanup",
+    stepAnchor: "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+];
+// #10396: deploy-production's inline Kubernetes context step moved into the shared marker recovery
+// composite, and the isolated marker-only job receives only the composite and registry-identity grants.
+const productionMarkerRecoveryRetiredAnchor = "name:Configure production Kubernetes context#25";
+const productionMarkerRecoveryDelta = [
+  ...["DIGITALOCEAN_ACCESS_TOKEN", "SPACES_ACCESS_ID", "SPACES_SECRET_KEY"].flatMap((secretName) =>
+    ["deploy-production", "reconcile-production-marker"].map((jobId) => ({
+      file: ".github/workflows/platform-production.yml",
+      jobId,
+      stepAnchor: "uses:./.github/actions/production-marker-recovery-context",
+      secretName,
+      purpose: "terraform-infra",
+    })),
+  ),
+  ...[
+    "name:Derive source registry identity#6",
+    "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+  ].map((stepAnchor) => ({
+    file: ".github/workflows/platform-production.yml",
+    jobId: "reconcile-production-marker",
+    stepAnchor,
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "terraform-infra",
+  })),
+];
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -776,13 +875,23 @@ describe("managed Postgres authority source generator", () => {
         ...collectionsAnonymousOwnerRedactionDelta,
         ...stagingEvidenceWindowDelta,
         ...collectionsCutoverAuthorityCaptureDelta,
-      ],
+        ...qualificationCleanupDelta,
+        ...previewStateRetirementDelta,
+      ]
+        .map(applyQualificationStepInsertions)
+        .filter(
+          (record) =>
+            !(
+              record.file === ".github/workflows/platform-production.yml" &&
+              record.jobId === "deploy-production" &&
+              record.stepAnchor === productionMarkerRecoveryRetiredAnchor
+            ),
+        )
+        .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1692);
+    expect(expected.grants).toHaveLength(1706);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
-    expect(generated.grants.filter(isCatalogKeyring)).toEqual(
-      reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
-    );
+    expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
     expectParity(expected, canonical);
     expect(canonical).toEqual(generated);
@@ -793,6 +902,7 @@ describe("managed Postgres authority source generator", () => {
       const owner = `${AUTHORITY_ROOT}/${basename(record.file).replace(/\.ya?ml$/, "")}/${record.jobId}.json`;
       expectedOwners.set(owner, [...(expectedOwners.get(owner) ?? []), record]);
     }
+    expectedOwners.set(`${AUTHORITY_ROOT}/platform-production-lock-monitor/monitor-production-release-lock.json`, []);
     const sources = await snapshot(repositoryRoot, AUTHORITY_ROOT);
     expect(Object.keys(sources).sort()).toEqual([...expectedOwners.keys()].sort());
     for (const [owner, records] of expectedOwners) {
@@ -969,11 +1079,12 @@ describe("managed Postgres authority source generator", () => {
       ],
       [
         "owner case mismatch",
-        async (root) =>
-          rename(
-            join(root, `${AUTHORITY_ROOT}/platform-production`),
-            join(root, `${AUTHORITY_ROOT}/Platform-Production`),
-          ),
+        async (root) => {
+          const source = join(root, `${AUTHORITY_ROOT}/platform-production`);
+          const intermediate = join(root, `${AUTHORITY_ROOT}/platform-production-renamed`);
+          await rename(source, intermediate);
+          await rename(intermediate, join(root, `${AUTHORITY_ROOT}/Platform-Production`));
+        },
         "case mismatch",
       ],
       [

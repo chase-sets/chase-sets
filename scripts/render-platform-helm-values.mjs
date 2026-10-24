@@ -7,6 +7,7 @@ import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 export const chartValuesRelativePath = "infrastructure/helm/platform/values.yaml";
 export const chartStagingValuesRelativePath = "infrastructure/helm/platform/values.staging.yaml";
 export const chartProductionValuesRelativePath = "infrastructure/helm/platform/values.production.yaml";
+export const chartPreviewValuesRelativePath = "infrastructure/helm/platform/values.preview.yaml";
 export const runtimeValuesRelativePath = "infrastructure/helm/platform/runtime-values.json";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
 const platformHelmChartName = "chase-sets-platform";
@@ -24,6 +25,15 @@ const doksIngressTlsSecretName = "chase-sets-platform-doks-tls";
 const previewEnvironmentZone = "preview.chasesets.com";
 const previewPostgresPort = 5432;
 const previewPostgresSecretName = "chase-sets-preview-postgres";
+const previewComponentMemoryRequests = {
+  "public-web": "1024Mi",
+  marketplace: "1152Mi",
+  "admin-web": "832Mi",
+  "platform-api": "640Mi",
+  "platform-worker": "832Mi",
+  "platform-bootstrap": "1152Mi",
+};
+const previewPostgresMemoryRequest = "448Mi";
 // Every preview namespace references this SAME shared *.preview.chasesets.com
 // wildcard certificate secret (copied in before the Helm deploy runs) instead
 // of requesting a per-PR certificate, so the name is a stable constant rather
@@ -499,6 +509,27 @@ export function renderPlatformHelmProductionValues(options = {}) {
   return `${renderYaml(buildPlatformHelmProductionValues(options))}\n`;
 }
 
+export function buildPlatformHelmPreviewValues() {
+  return {
+    global: {
+      previewStackIsolation: true,
+    },
+    components: Object.fromEntries(
+      Object.entries(previewComponentMemoryRequests).map(([name, memory]) => [
+        name,
+        { resources: { requests: { memory } } },
+      ]),
+    ),
+    previewPostgres: {
+      resources: { requests: { memory: previewPostgresMemoryRequest } },
+    },
+  };
+}
+
+export function renderPlatformHelmPreviewValues() {
+  return `${renderYaml(buildPlatformHelmPreviewValues())}\n`;
+}
+
 export function renderPlatformHelmStagingValues() {
   return `${renderYaml(buildPlatformHelmStagingValues())}\n`.replace(
     "  platform-worker:\n",
@@ -679,6 +710,10 @@ export function syncPlatformHelmValues(options = {}) {
     {
       relativePath: chartProductionValuesRelativePath,
       content: renderPlatformHelmProductionValues({ repoRoot: rootDir }),
+    },
+    {
+      relativePath: chartPreviewValuesRelativePath,
+      content: renderPlatformHelmPreviewValues(),
     },
   ];
 

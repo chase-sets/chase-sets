@@ -169,6 +169,42 @@ topologySpreadConstraints:
 {{- end }}
 {{- end -}}
 
+{{- define "chase-sets-platform.previewStackAffinity" -}}
+{{- if .Values.global.previewStackIsolation }}
+{{- if not (empty .Values.global.affinity) }}
+{{- fail "global.affinity cannot be set when global.previewStackIsolation is enabled" }}
+{{- end }}
+affinity:
+  podAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - {{ include "chase-sets-platform.name" . | quote }}
+            - key: app.kubernetes.io/instance
+              operator: In
+              values:
+                - {{ .Release.Name | quote }}
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        namespaceSelector: {}
+        labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - {{ include "chase-sets-platform.name" . | quote }}
+            - key: app.kubernetes.io/instance
+              operator: NotIn
+              values:
+                - {{ .Release.Name | quote }}
+{{- end }}
+{{- end -}}
+
 {{- define "chase-sets-platform.podSpec" -}}
 {{- $root := .root -}}
 {{- $component := .component -}}
@@ -184,9 +220,13 @@ serviceAccountName: {{ include "chase-sets-platform.serviceAccountName" $root }}
 nodeSelector:
 {{ toYaml . | nindent 2 }}
 {{- end }}
+{{- if $root.Values.global.previewStackIsolation }}
+{{ include "chase-sets-platform.previewStackAffinity" $root }}
+{{- else }}
 {{- with $root.Values.global.affinity }}
 affinity:
 {{ toYaml . | nindent 2 }}
+{{- end }}
 {{- end }}
 {{- with $root.Values.global.tolerations }}
 tolerations:

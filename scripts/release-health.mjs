@@ -3,6 +3,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isCommitSha, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { RELEASE_LOCK_ARTIFACT_VERSION, validateLockDeadline, validateLockExitRoute } from "./release-lock.mjs";
 
 export const RELEASE_HEALTH_VERSION = "release-health/v1";
 
@@ -123,8 +124,14 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     releaseLocked: normalizeBoolean(
       readOption(argv, "--release-locked") ?? readEnv("PRODUCTION_RELEASE_LOCKED", env) ?? "false",
     ),
+    releaseLockReason:
+      readOption(argv, "--release-lock-reason") ?? readEnv("PRODUCTION_RELEASE_LOCK_REASON", env) ?? null,
     releaseLockReference:
       readOption(argv, "--release-lock-reference") ?? readEnv("PRODUCTION_RELEASE_LOCK_REFERENCE", env) ?? null,
+    releaseLockExitRoute:
+      readOption(argv, "--release-lock-exit-route") ?? env.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE ?? null,
+    releaseLockDeadline:
+      readOption(argv, "--release-lock-deadline") ?? readEnv("PRODUCTION_RELEASE_LOCK_DEADLINE", env) ?? null,
     emergencyReference:
       readOption(argv, "--emergency-reference") ?? readEnv("EMERGENCY_RELEASE_REFERENCE", env) ?? null,
     recoveryMode: readOption(argv, "--recovery-mode") ?? readEnv("RECOVERY_MODE", env) ?? "none",
@@ -214,6 +221,14 @@ export function buildReleaseHealthRecord(input) {
     typeof input.stagingApplied === "boolean"
       ? input.stagingApplied
       : normalizeResult(input.stagingResult) === "success";
+
+  const lockRoute = input.releaseLocked
+    ? validateLockExitRoute(input.releaseLockExitRoute)
+    : { value: null, errors: [] };
+  const lockDeadline = input.releaseLocked
+    ? validateLockDeadline(input.releaseLockDeadline)
+    : { value: null, errors: [] };
+  errors.push(...lockRoute.errors, ...lockDeadline.errors);
 
   if (!isCommitSha(input.releaseCommit)) {
     errors.push("releaseCommit must be a 40-character Git commit SHA.");
@@ -341,9 +356,13 @@ export function buildReleaseHealthRecord(input) {
       result: normalizeResult(input.productionResult),
     },
     releaseLock: {
+      schemaVersion: RELEASE_LOCK_ARTIFACT_VERSION,
       locked: input.releaseLocked,
       bypassed: releaseMode === "emergency",
-      reference: emptyToNull(input.releaseLockReference),
+      reason: input.releaseLocked ? emptyToNull(input.releaseLockReason) : null,
+      reference: input.releaseLocked ? emptyToNull(input.releaseLockReference) : null,
+      exitRoute: lockRoute.value,
+      deadline: lockDeadline.value,
       emergencyReference: emptyToNull(input.emergencyReference),
     },
     verification: {

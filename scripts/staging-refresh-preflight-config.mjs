@@ -16,6 +16,8 @@ export const stagingRefreshRequiredSecrets = Object.freeze([
 export const stagingRefreshCredentialedProviders = Object.freeze(["tcgplayer", "scrydex"]);
 
 export const stagingRefreshOverlapWorkflowFiles = Object.freeze([
+  // platform-production-lock-monitor.yml is deliberately excluded: it reads
+  // production variables and delivers issues, with no staging/provider writes.
   ".github/workflows/platform-production.yml",
   ".github/workflows/platform-staging-reset.yml",
   ".github/workflows/platform-staging-wake-drills.yml",

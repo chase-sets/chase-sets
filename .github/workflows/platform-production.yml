@@ -87,6 +87,21 @@ on:
         required: false
         default: false
         type: boolean
+      reconcile_marker_only:
+        description: Repair only the retained production marker from exact source authority. Never deploys.
+        required: false
+        default: false
+        type: boolean
+      marker_source_run_id:
+        description: Exact retained Platform Deploy source run for marker-only recovery.
+        required: false
+        default: ""
+        type: string
+      marker_source_attempt:
+        description: Exact retained source run attempt for marker-only recovery.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -271,7 +286,7 @@ jobs:
     name: Resolve Release
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    if: github.event_name == 'workflow_dispatch' && inputs.decommission_plan_only != true
+    if: github.event_name == 'workflow_dispatch' && inputs.decommission_plan_only != true && inputs.reconcile_marker_only != true
     permissions:
       actions: read
       checks: read
@@ -434,6 +449,99 @@ jobs:
             --circuit-reason "${{ inputs.circuit_reason }}" \
             --enforcement "$DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
+
+  reconcile-production-marker:
+    name: Reconcile Production Marker Only
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'workflow_dispatch' && inputs.reconcile_marker_only == true && inputs.decommission_plan_only != true
+    environment: production
+    concurrency:
+      group: platform-deploy-production
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_EVENT_NAME: ${{ github.event_name }}
+      GITHUB_REF_NAME: ${{ github.ref_name }}
+      RECONCILE_MARKER_ONLY: ${{ inputs.reconcile_marker_only == true && 'true' || 'false' }}
+      MARKER_SOURCE_RUN_ID: ${{ inputs.marker_source_run_id }}
+      MARKER_SOURCE_ATTEMPT: ${{ inputs.marker_source_attempt }}
+      MARKER_RECOVERY_REASON: ${{ inputs.reason }}
+      RELEASE_IMAGE: registry.digitalocean.com/${{ vars.DIGITALOCEAN_CONTAINER_REGISTRY || 'unknown' }}/chase-sets-platform:marker-only
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
+      PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
+      PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+      PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
+      DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
+      CIRCUIT_ISSUE_NUMBER: ${{ inputs.circuit_issue_number }}
+      CIRCUIT_REASON: ${{ inputs.circuit_reason }}
+    steps:
+      - name: Validate marker-only admission
+        env:
+          DISPATCH_SOURCE: ${{ inputs.dispatch_source }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+          DISPATCH_RUN_ID: ${{ inputs.dispatch_run_id }}
+          DISPATCH_ATTEMPT: ${{ inputs.dispatch_attempt }}
+          FORCE_DEPLOY: ${{ inputs.force_deploy == true && 'true' || 'false' }}
+          AGENT_GRANT_REVOCATION_ACTIVATION: ${{ inputs.agent_grant_revocation_activation }}
+          CATALOG_PROVIDER_SEND_WINDOW_ENABLED: ${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}
+          FORCE_RESTORE_POINT: ${{ inputs.force_restore_point == true && 'true' || 'false' }}
+          RECOVERY_REASON: ${{ inputs.recovery_reason }}
+          EMERGENCY_RELEASE: ${{ inputs.emergency_release == true && 'true' || 'false' }}
+          EMERGENCY_REFERENCE: ${{ inputs.emergency_reference }}
+          DECOMMISSION_PLAN_ONLY: ${{ inputs.decommission_plan_only == true && 'true' || 'false' }}
+          MARKER_RECOVERY_REASON: ${{ inputs.reason }}
+          CIRCUIT_ISSUE_NUMBER: ${{ inputs.circuit_issue_number }}
+          CIRCUIT_REASON: ${{ inputs.circuit_reason }}
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "marker-only recovery requires refs/heads/main" >&2; exit 1; }
+          [ "$DISPATCH_SOURCE" = recovery ] || { echo "marker-only recovery requires dispatch_source=recovery" >&2; exit 1; }
+          [ "$RELEASE_REF" = main ] || { echo "marker-only recovery requires release_ref=main" >&2; exit 1; }
+          [ -z "$DISPATCH_RUN_ID" ] && [ -z "$DISPATCH_ATTEMPT" ] || { echo "marker-only recovery rejects ordinary dispatch provenance" >&2; exit 1; }
+          [ "$FORCE_DEPLOY" = false ] && [ "$AGENT_GRANT_REVOCATION_ACTIVATION" = none ] && [ "$CATALOG_PROVIDER_SEND_WINDOW_ENABLED" = false ] || { echo "marker-only recovery rejects deploy activation inputs" >&2; exit 1; }
+          [ "$FORCE_RESTORE_POINT" = false ] && [ -z "$RECOVERY_REASON" ] && [ "$EMERGENCY_RELEASE" = false ] && [ -z "$EMERGENCY_REFERENCE" ] && [ "$DECOMMISSION_PLAN_ONLY" = false ] || { echo "marker-only recovery rejects rollout and emergency inputs" >&2; exit 1; }
+          [ -z "$CIRCUIT_ISSUE_NUMBER" ] && [ -z "$CIRCUIT_REASON" ] || { echo "marker-only recovery rejects circuit inputs" >&2; exit 1; }
+          [ -n "$MARKER_RECOVERY_REASON" ] || { echo "marker-only recovery requires an audited reason" >&2; exit 1; }
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - uses: ./.github/actions/production-marker-recovery-context
+        with:
+          digitalocean-token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          spaces-access-id: ${{ secrets.SPACES_ACCESS_ID }}
+          spaces-secret-key: ${{ secrets.SPACES_SECRET_KEY }}
+      - name: Derive source registry identity
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header | tr -d '[:space:]')"
+          [[ "$registry_name" =~ ^[a-z0-9-]+$ ]] || { echo "Unknown production registry identity." >&2; exit 1; }
+          echo "RELEASE_IMAGE=registry.digitalocean.com/${registry_name}/chase-sets-platform:marker-only" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Reconcile retained production marker
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_IMAGE: ${{ env.RELEASE_IMAGE }}
+          RELEASE_COMMIT: 0000000000000000000000000000000000000000
+          RELEASE_IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        run: node ./scripts/production-release-marker.mjs marker-only
 
   deployment-contract-preflight:
     name: Preflight Deployment Contract (${{ matrix.environment }})
@@ -1671,7 +1779,6 @@ jobs:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
-          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -2970,6 +3077,8 @@ jobs:
       PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
       PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
       PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+      PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
     steps:
       - name: Configure Git defaults
         env:
@@ -3023,7 +3132,7 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           EMERGENCY_RELEASE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
-        run: node ./scripts/release-lock.mjs
+        run: node ./scripts/release-lock.mjs --out artifacts/release-health/production-release-lock.json
 
       - name: Validate production configuration
         if: env.SHOULD_DEPLOY != 'false'
@@ -3587,98 +3696,13 @@ jobs:
             --out artifacts/release-health/production-db-restore-point.json \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Configure production Kubernetes context
+      - name: Configure production marker recovery context
         if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/doks
-        env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-          ../../../scripts/terraform-init-with-retry.sh \
-            -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=doks/production.tfstate \
-            -backend-config=region=us-east-1 \
-            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
-            -backend-config=skip_credentials_validation=true \
-            -backend-config=skip_metadata_api_check=true \
-            -backend-config=skip_region_validation=true \
-            -backend-config=skip_requesting_account_id=true \
-            -backend-config=use_path_style=true \
-            -backend-config=use_lockfile=true
-
-          kubeconfig="${RUNNER_TEMP}/chase-sets-production.kubeconfig"
-          terraform output -raw kubeconfig > "$kubeconfig" || true
-          chmod 600 "$kubeconfig"
-
-          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
-            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
-            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
-            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
-            if [ -z "$cluster_id" ] && [ -z "$cluster_name" ]; then
-              cluster_address="$(
-                terraform state list \
-                  | awk '/(^|\.)digitalocean_kubernetes_cluster\./ { print; exit }'
-              )"
-              if [ -n "$cluster_address" ]; then
-                echo "Using production DOKS cluster Terraform state address ${cluster_address}." >&2
-                cluster_state="$(terraform state show -no-color "$cluster_address")"
-                cluster_id="$(
-                  printf '%s\n' "$cluster_state" \
-                    | awk -F '=' '
-                        {
-                          key=$1
-                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
-                          if (key == "id") {
-                            value=$2
-                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
-                            print value
-                            exit
-                          }
-                        }
-                      '
-                )"
-                cluster_name="$(
-                  printf '%s\n' "$cluster_state" \
-                    | awk -F '=' '
-                        {
-                          key=$1
-                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
-                          if (key == "name") {
-                            value=$2
-                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
-                            print value
-                            exit
-                          }
-                        }
-                      '
-                )"
-              fi
-            fi
-            if [ -n "$cluster_id" ]; then
-              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
-            elif [ -n "$cluster_name" ]; then
-              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
-            else
-              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure production Kubernetes context." >&2
-              exit 1
-            fi
-            chmod 600 "$kubeconfig"
-          fi
-
-          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
-          if [ -z "$current_context" ]; then
-            echo "Production Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
-            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
-            exit 1
-          fi
-
-          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
-          echo "Configured production Kubernetes context: ${current_context}"
+        uses: ./.github/actions/production-marker-recovery-context
+        with:
+          digitalocean-token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          spaces-access-id: ${{ secrets.SPACES_ACCESS_ID }}
+          spaces-secret-key: ${{ secrets.SPACES_SECRET_KEY }}
 
       - name: Install Argo Rollouts kubectl plugin for production
         env:
@@ -3876,7 +3900,6 @@ jobs:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
-          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -4828,6 +4851,11 @@ jobs:
           CI_TOP_FLAKY_JOBS: ${{ steps.ci_metadata.outputs.ci_top_flaky_jobs }}
           MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}
           MAIN_TO_PRODUCTION_DRIFT_SECONDS: ${{ steps.release_health_metadata.outputs.drift_seconds }}
+          PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
+          PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
+          PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
+          PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
+          PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}
           RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback' || github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'fix-forward' || 'none' }}
           RECOVERY_REFERENCE: ${{ steps.production_rollback.outputs.rollback_reference || steps.release_lock.outputs.emergency_reference }}
@@ -4865,6 +4893,7 @@ jobs:
           name: production-release-health
           path: |
             artifacts/release-health/production-release.json
+            artifacts/release-health/production-release-lock.json
             artifacts/release-health/production-db-restore-point.json
             artifacts/release-health/production-readiness-gate.json
             artifacts/release-health/production-rollback.json

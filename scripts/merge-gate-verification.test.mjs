@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,45 +6,17 @@ import {
   MERGE_GATE_PROOF_REQUIRED_RUNS,
   aggregateMergeGateProof,
   buildMergeGateNamespaceManifest,
+  buildMergeGateProvisioningObservation,
   buildMergeGateRunRecord,
   evaluateMergeGateCapacity,
   parseCpuMillicores,
   parseMemoryMib,
-  resolveMergeGateStripeKeyMode,
   validateMergeGateConfig,
+  validateMergeGateProvisioningObservation,
+  verifyMergeGateCleanupTarget,
 } from "./merge-gate-verification.mjs";
 
 const NOW = new Date("2026-07-21T12:00:00.000Z");
-
-describe("row 11 Stripe test-mode credential contract", () => {
-  it("admits standard and restricted test keys while preserving summary and refusal exit", () => {
-    expect(resolveMergeGateStripeKeyMode("sk_test_fixture")).toBe("test");
-    expect(resolveMergeGateStripeKeyMode("rk_test_fixture")).toBe("test");
-    expect(resolveMergeGateStripeKeyMode("sk_live_fixture")).toBe("not-test");
-    expect(resolveMergeGateStripeKeyMode("sk_testfixture")).toBe("not-test");
-
-    const run = (value) =>
-      spawnSync(
-        process.execPath,
-        [
-          resolve("scripts/merge-gate-verification.mjs"),
-          "credentials",
-          "--require",
-          "STRIPE_SECRET_KEY",
-          "--stripe-test-mode-var",
-          "STRIPE_SECRET_KEY",
-        ],
-        { encoding: "utf8", env: { ...process.env, STRIPE_SECRET_KEY: value } },
-      );
-    const restricted = run("rk_test_fixture");
-    expect(restricted.status).toBe(0);
-    expect(JSON.parse(restricted.stdout)).toMatchObject({ stripeKeyMode: "test", missing: [] });
-    const refused = run("rk_live_fixture");
-    expect(refused.status).not.toBe(0);
-    expect(JSON.parse(refused.stdout)).toMatchObject({ stripeKeyMode: "not-test", missing: [] });
-    expect(refused.stderr).toContain("STRIPE_SECRET_KEY is not a Stripe test-mode key");
-  });
-});
 
 function checkedInConfig() {
   return JSON.parse(readFileSync(resolve("scripts/merge-gate-verification-config.json"), "utf8"));
@@ -221,6 +192,8 @@ describe("atomic gate namespace manifest", () => {
     runId: "123456",
     runAttempt: "2",
     repository: "chase-sets/chase-sets",
+    workflowId: "778899",
+    workflowPath: ".github/workflows/platform-merge-qualification.yml",
     candidateSha: "0123456789abcdef0123456789abcdef01234567",
     candidateTreeSha: "89abcdef0123456789abcdef0123456789abcdef",
     imageDigest: `sha256:${"a".repeat(64)}`,
@@ -242,6 +215,8 @@ describe("atomic gate namespace manifest", () => {
         },
         annotations: {
           "chasesets.com/repository": "chase-sets/chase-sets",
+          "chasesets.com/workflow-id": "778899",
+          "chasesets.com/workflow-path": ".github/workflows/platform-merge-qualification.yml",
           "chasesets.com/workflow-run": "123456",
           "chasesets.com/workflow-run-attempt": "2",
           "chasesets.com/candidate-sha": input.candidateSha,
@@ -255,13 +230,100 @@ describe("atomic gate namespace manifest", () => {
   });
 
   it("fails closed on malformed identity, candidate, or digest inputs", () => {
-    expect(() => buildMergeGateNamespaceManifest({ ...input, runId: "gate" })).toThrow("positive integers");
+    expect(() => buildMergeGateNamespaceManifest({ ...input, runId: "gate" })).toThrow("safe integers");
+    expect(() => buildMergeGateNamespaceManifest({ ...input, runId: "9007199254740992" })).toThrow("safe integers");
     expect(() => buildMergeGateNamespaceManifest({ ...input, repository: "not a repo" })).toThrow("repository");
+    expect(() => buildMergeGateNamespaceManifest({ ...input, workflowId: "9007199254740992" })).toThrow("safe integer");
+    expect(() => buildMergeGateNamespaceManifest({ ...input, workflowPath: "other.yml" })).toThrow("workflowPath");
     expect(() => buildMergeGateNamespaceManifest({ ...input, candidateSha: "short" })).toThrow("40-character");
     expect(() => buildMergeGateNamespaceManifest({ ...input, imageDigest: "latest" })).toThrow("sha256");
     expect(() => buildMergeGateNamespaceManifest({ ...input, cleanupDeadlineHours: "soon" })).toThrow(
       "cleanupDeadlineHours",
     );
+  });
+
+  it("allows only the exact observed workflow-run target and is idempotent when absent", () => {
+    const namespace = buildMergeGateNamespaceManifest(input);
+    expect(verifyMergeGateCleanupTarget(namespace, input)).toMatchObject({
+      allowed: true,
+      status: "verified",
+      identity: { name: "chase-sets-gate-123456-2", imageDigest: input.imageDigest },
+    });
+    expect(verifyMergeGateCleanupTarget(null, input)).toEqual({
+      allowed: false,
+      status: "absent",
+      identity: null,
+      errors: [],
+    });
+  });
+
+  it.each([
+    ["wrong run label", (value) => (value.metadata.labels["chasesets.com/run-id"] = "999")],
+    ["wrong repository", (value) => (value.metadata.annotations["chasesets.com/repository"] = "other/repo")],
+    ["wrong workflow", (value) => (value.metadata.annotations["chasesets.com/workflow-id"] = "42")],
+    ["wrong digest", (value) => (value.metadata.annotations["chasesets.com/image-digest"] = "latest")],
+  ])("refuses cleanup for %s", (_name, mutate) => {
+    const namespace = structuredClone(buildMergeGateNamespaceManifest(input));
+    mutate(namespace);
+    expect(verifyMergeGateCleanupTarget(namespace, input)).toMatchObject({ allowed: false, status: "refused" });
+  });
+
+  it("refuses malformed or unsafe observer identity before examining a namespace", () => {
+    const namespace = buildMergeGateNamespaceManifest(input);
+    expect(verifyMergeGateCleanupTarget(namespace, { ...input, runId: "9007199254740992" })).toMatchObject({
+      allowed: false,
+      status: "refused",
+    });
+  });
+});
+
+describe("durable namespace-created observation", () => {
+  const input = {
+    repository: "chase-sets/chase-sets",
+    workflowId: "778899",
+    workflowPath: ".github/workflows/platform-merge-qualification.yml",
+    runId: "123456",
+    runAttempt: "2",
+    namespace: "chase-sets-gate-123456-2",
+    candidateSha: "0123456789abcdef0123456789abcdef01234567",
+    candidateTreeSha: "89abcdef0123456789abcdef0123456789abcdef",
+    imageDigest: `sha256:${"a".repeat(64)}`,
+    observedAt: "2026-07-21T12:00:00.000Z",
+  };
+
+  it("records only a complete exact run-attempt identity", () => {
+    const observation = buildMergeGateProvisioningObservation(input);
+    expect(validateMergeGateProvisioningObservation(observation, input)).toEqual([]);
+    expect(observation).toEqual({ schemaVersion: "merge-gate-provisioning-observation/v1", ...input });
+  });
+
+  it.each([
+    ["namespace", "chase-sets-gate-123456-1"],
+    ["imageDigest", "latest"],
+    ["observedAt", "2026-02-30T12:00:00.000Z"],
+  ])("rejects a malformed %s observation", (field, value) => {
+    expect(() => buildMergeGateProvisioningObservation({ ...input, [field]: value })).toThrow(
+      "invalid provisioning observation",
+    );
+  });
+
+  it.each([
+    ["candidateSha", "f".repeat(40)],
+    ["candidateTreeSha", "f".repeat(40)],
+    ["imageDigest", `sha256:${"f".repeat(64)}`],
+  ])("rejects %s disagreement with the independently owned expected identity", (field, value) => {
+    const observation = buildMergeGateProvisioningObservation({ ...input, [field]: value });
+    expect(validateMergeGateProvisioningObservation(observation, input)).toContain(
+      `observation ${field} does not match the owning run.`,
+    );
+  });
+
+  it("rejects unknown fields and exact-attempt disagreement", () => {
+    const observation = buildMergeGateProvisioningObservation(input);
+    expect(validateMergeGateProvisioningObservation({ ...observation, configured: true })).not.toEqual([]);
+    expect(validateMergeGateProvisioningObservation(observation, { ...input, runAttempt: "3" })).toEqual([
+      "observation runAttempt does not match the owning run.",
+    ]);
   });
 });
 

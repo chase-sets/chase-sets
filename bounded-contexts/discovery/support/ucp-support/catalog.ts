@@ -27,6 +27,9 @@ export type UcpPresentmentBound = Readonly<{
   currency?: string | UcpCurrency | null;
 }>;
 
+export type CatalogUcpMode = "search" | "lookup" | "get_product";
+export type CatalogUcpInput = Readonly<{ id: string; match: "featured" }>;
+
 export const PRICE_FILTER_IGNORED_CONTENT =
   "Price filter was not applied where its currency was absent or unsupported, or where a product is not priced only in that currency.";
 
@@ -161,6 +164,66 @@ export function lookupInputs(
     products.set(pair.productId, product);
   }
   return [...products.values()];
+}
+
+/** Build the UCP 2026-08-25 Product resource from one native-currency presentment. */
+export function catalogUcpProduct({
+  source,
+  presentment,
+  request,
+  mode,
+  inputs = [],
+}: Readonly<{
+  source: DiscoveryItemDetailRow;
+  presentment: UcpPresentment<DiscoveryItemDetailRow["market_listings"][number]>;
+  request: Request;
+  mode: CatalogUcpMode;
+  inputs?: readonly CatalogUcpInput[];
+}>) {
+  const productUrl = marketplaceUrl(request, `/items/${source.slug}`);
+  if (mode === "lookup" && inputs.length === 0) throw new Error("UCP lookup Product requires request inputs");
+  const variants = presentment.listings.slice(0, mode === "lookup" ? 1 : undefined).map((listing) => {
+    const price = toUcpMinorUnits(listing.price_amount, listing.price_currency_code);
+    if (!price) throw new Error(`UCP Product listing ${listing.listing_id} has no exact presentment price.`);
+    const listingUrl = marketplaceUrl(request, `/listings/${listing.listing_slug}`);
+    return {
+      id: listing.listing_id,
+      title: listing.item_title ?? listing.product_summary ?? source.title,
+      description: { plain: listing.product_summary ?? source.description },
+      url: listingUrl,
+      price: { currency: price.currency, amount: price.minor },
+      extensions: {
+        chase_sets: {
+          catalog_item_id: source.catalog_item_id,
+          slug: source.slug,
+          listing_id: listing.listing_id,
+          listing_slug: listing.listing_slug,
+          inventory_item_id: listing.inventory_item_id,
+          product_id: listing.product_id,
+        },
+      },
+      ...(mode === "lookup" ? { inputs } : {}),
+    };
+  });
+  return {
+    id: source.catalog_item_id,
+    title: source.title,
+    description: { plain: source.description },
+    url: productUrl,
+    price_range: {
+      min: { currency: presentment.currency, amount: presentment.priceRange.min },
+      max: { currency: presentment.currency, amount: presentment.priceRange.max },
+    },
+    variants,
+    extensions: {
+      chase_sets: {
+        catalog_item_id: source.catalog_item_id,
+        slug: source.slug,
+        listing_count: presentment.listings.length,
+        omitted_listings: presentment.omittedListings,
+      },
+    },
+  };
 }
 
 export type DiscoveryUcpHandlers = Readonly<{

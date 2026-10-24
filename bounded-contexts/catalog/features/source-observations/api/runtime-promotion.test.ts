@@ -127,14 +127,14 @@ describe("source observation runtime: promotion and reapply", () => {
       context,
     });
 
-    expect(expansionReferenceId).toBe("ref_tcgdex_expansion_sv8");
+    expect(expansionReferenceId).toBe("ref_tcgdex_expansion_ja_sv8");
     expect(harness.referenceRecordCreateCommands).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           typeKey: "expansion",
-          key: "sv8",
+          key: "ja-sv8",
           name: expect.objectContaining({ values: { en: "超電ブレイカー" } }),
-          attributes: expect.objectContaining({ "tcgdex-set-id": "SV8" }),
+          attributes: expect.objectContaining({ "tcgdex-set-id": "SV8", "language-editions": ["ja"] }),
         }),
       ]),
     );
