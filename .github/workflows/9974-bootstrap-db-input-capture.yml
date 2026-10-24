@@ -107,10 +107,8 @@ jobs:
               "inventory-seed-resume.db.test.ts",
               "catalog-seed-aggregate-state.db.test.ts",
               "operator-session/operator-session-grant-mint.db.test.ts",
-              "operator-session/operator-session-grant-lifecycle.db.test.ts",
               "operator-session/operator-session-grant-scope.db.test.ts",
               "operator-session/operator-session-push.db.test.ts",
-              "operator-session/operator-extension-route-contract.db.test.ts",
               "seed-command-catalog.db.test.ts",
               "catalog-seed-interruption-resume.db.test.ts",
             ],
@@ -227,7 +225,7 @@ jobs:
           // Evidence-only binding for the one #9974 capture of frozen S. Every unit, file,
           // case and command below is S's own, derived from S by the canonical producers
           // before publication; nothing is carried over from an earlier capture's groups.
-          export const frozenS = '347cf5342284585ef5b30d0a5124bbc6c6684f0b';
+          export const frozenS = 'b39b5eb863fe5f5d100ccbc9f3f8f4f48c6d432b';
           export const frozenGroups = Object.freeze({
             "test:db:1": [
               "bootstrap-production-reconciliation.db.test.ts",
@@ -255,10 +253,10 @@ jobs:
             ]
           });
           export const frozenDigests = Object.freeze({
-            "caseManifestSha256": "acf95739611a9a0d43149339abfb008e9164dc26c5d49b7d02661678d5036013",
-            "commandsSha256": "db230c159f8f294a676fab11d92f3ea6a0a7aff52490c9f6d46f322b988fdb63",
-            "censusSha256": "b4efba85da0dd7b5618f98a7febde80b1a1f6c9744b3c8a353d9eda5fb1d1735",
-            "sourceManifestSha256": "7c6dc63d4a778c241abbbf77cf7f041ad4842d32457c6e636440dbe91ec7c9bb"
+            "caseManifestSha256": "ee4d7f56b776bf75a42ffffa3c8269aabc1e0b95b06a82ec5cf957d7244d10c7",
+            "commandsSha256": "c172ab0bb3565a3e4e53345f8d3845686b844357a41bf39d17f87249d74d5db8",
+            "censusSha256": "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
+            "sourceManifestSha256": "31f13775fff868d0b76a67544a17d06f45a156c090bb853424e7579300c46a36"
           });
           export const frozenCounts = Object.freeze({"files":16,"bootstrapFiles":12,"bootstrapCases":68,"cases":79});
           // The immutable #8396 census helper supplies only its reviewed literal-table parser.
@@ -371,8 +369,8 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: eventPayload.after,
-            captureParent: '347cf5342284585ef5b30d0a5124bbc6c6684f0b',
-            sourceBase: '347cf5342284585ef5b30d0a5124bbc6c6684f0b',
+            captureParent: 'b39b5eb863fe5f5d100ccbc9f3f8f4f48c6d432b',
+            sourceBase: 'b39b5eb863fe5f5d100ccbc9f3f8f4f48c6d432b',
             jobName: 'Diagnostic API Bootstrap Measurement Only',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
               .split('\n').filter(line => line.startsWith('parent ')).map(line => line.slice(7)),
