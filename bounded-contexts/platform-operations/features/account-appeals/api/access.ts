@@ -102,7 +102,9 @@ export type AppealableActionLookup = Readonly<{
 export type ResolutionResult =
   | Readonly<{ status: "resolved"; action: AppealableEnforcementActionCapability }>
   | Readonly<{ status: "indeterminate" }>;
-export const APPEALABLE_ACTION_INDETERMINATE: ResolutionResult = Object.freeze({ status: "indeterminate" });
+export const APPEALABLE_ACTION_INDETERMINATE: Readonly<{ status: "indeterminate" }> = Object.freeze({
+  status: "indeterminate",
+});
 
 export function createAppealableEnforcementActionResolver(lookup: AppealableActionLookup) {
   return async function resolveAppealableEnforcementAction(
