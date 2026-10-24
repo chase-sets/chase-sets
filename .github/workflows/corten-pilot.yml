@@ -34,6 +34,9 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          # scripts/export.mjs imports admin-web's TypeScript sources through tsx.
+          install: "true"
 
       - name: The exported text, tokens, nav and defaults match admin-web's sources
         run: node --import tsx scripts/export.mjs --check
