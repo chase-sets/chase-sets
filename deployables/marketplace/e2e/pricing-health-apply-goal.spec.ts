@@ -62,6 +62,7 @@ test("applies one compared Pricing Goal with fenced confirmation @marketplace-se
   try {
     await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk%2Frepricing");
     await signInThroughMarketplaceForm(page, marketplaceBrowserE2eSellerCredentials());
+    await expect(page).toHaveURL(/\/account\/desk\/repricing(?:\?|$)/);
     const body = {
       scope: { kind: "listing-set", listingIds: [listingId] },
       excludedListingIds: [],
