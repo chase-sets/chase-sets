@@ -75,8 +75,6 @@ function interestIndex(runtime: WorkerHostRuntime, disableRegistry = false) {
 
 function createPlatformWorkerHost() {
   const syntheticPricingHostPorts = {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver: createNoopCommercialTermsResolver(),
     channelConnectionIdentityReader: { resolve: async () => null },
   } satisfies PricingHostPorts;
