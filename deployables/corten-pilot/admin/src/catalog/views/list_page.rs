@@ -34,19 +34,19 @@ pub fn Filters<'a, C: Render>(t: Cat, action: &'a str, children: C) -> impl Rend
 
 /// The search box.
 #[component(css = ListPage)]
-pub fn Search<'a>(t: Cat, title: &'a str, value: &'a str) -> impl Render {
+pub fn Search<'a>(t: Cat, name: FieldName, title: &'a str, value: &'a str) -> impl Render {
     let placeholder = t.list_search_placeholder(title.to_lowercase()).to_string();
     html! {
         <label class={Filter}>
             <span class={Label}>{t.list_search()}</span>
-            <input type="search" name="search" value={value} placeholder={&placeholder}>
+            <input type="search" name={name} value={value} placeholder={&placeholder}>
         </label>
     }
 }
 
 /// A filter with a fixed set of values; `all` (the empty value) leaves it out.
 #[component(css = ListPage)]
-pub fn Pick<'a>(label: &'a str, name: &'a str, all: &'a str, options: &'a [(&'a str, &'a str)], value: &'a str) -> impl Render {
+pub fn Pick<'a>(label: &'a str, name: FieldName, all: &'a str, options: &'a [(&'a str, &'a str)], value: &'a str) -> impl Render {
     html! {
         <label class={Filter}>
             <span class={Label}>{label}</span>

@@ -101,13 +101,13 @@ pub fn LifecycleForm<'a>(
                             <button type="button" class={(Small, Secondary)} command="close" commandfor={&dialog}>
                                 {t.lifecycle_cancel()}
                             </button>
-                            <button type="submit" class={(Small, Danger)} name={f.action} value={step.action}>
+                            <button type="submit" class={(Small, Danger)} name={f.step} value={step.action}>
                                 {step.label}
                             </button>
                         </div>
                     </dialog>
                 } else {
-                    <button type="submit" class={Small} name={f.action} value={step.action}>{step.label}</button>
+                    <button type="submit" class={Small} name={f.step} value={step.action}>{step.label}</button>
                 }
             }
         </form>
@@ -123,12 +123,12 @@ pub fn OptionLifecycleForm<'a>(t: Cat, id: &'a str, action: &'a str, status: &'a
             {errors.form_message()}
             <input type="hidden" name={f.status} value={status}>
             if status == "active" {
-                <button type="submit" class={(Small, Secondary)} name={f.action} value="deprecate">
+                <button type="submit" class={(Small, Secondary)} name={f.step} value="deprecate">
                     {t.dimension_deprecate_2()}
                 </button>
             }
             if status == "deprecated" {
-                <button type="submit" class={(Small, Secondary)} name={f.action} value="reactivate">
+                <button type="submit" class={(Small, Secondary)} name={f.step} value="reactivate">
                     {t.dimension_reactivate()}
                 </button>
             }

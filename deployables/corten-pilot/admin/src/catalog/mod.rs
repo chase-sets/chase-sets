@@ -47,7 +47,7 @@ const PAGE_SIZE: u32 = 50;
 
 /// Every URL the area serves.
 pub mod url {
-    use corten::Route;
+    use corten::{Fields, Route};
     use serde::Deserialize;
 
     pub use super::Done;
@@ -57,9 +57,9 @@ pub mod url {
     #[route("/catalog")]
     pub struct Catalog;
 
-    /// The dimensions list: its filters, the page (from 1), and the receipt and notice of the
-    /// write before.
-    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    /// The dimensions list: its filters (the filter form's fields), the page (from 1), and the
+    /// receipt and notice of the write before.
+    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
     #[route("/catalog/dimensions")]
     pub struct Dimensions {
         pub search: Option<String>,
@@ -117,7 +117,7 @@ pub mod url {
     }
 
     /// The fields list; the flags are `true` or `false`.
-    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
     #[route("/catalog/fields")]
     pub struct Fields {
         pub search: Option<String>,

@@ -240,19 +240,20 @@ impl ReorderInput {
     }
 }
 
-/// A lifecycle form: the action its button names, and the status it was drawn for (only to draw
-/// the form again after a refusal; the API decides what the status allows).
+/// A lifecycle form: the step its button names, and the status it was drawn for (only to draw
+/// the form again after a refusal; the API decides what the status allows). Not `action`: a
+/// control named `action` hides `form.action` from Corten's runtime (see README.md, Corten gaps).
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct ActionInput {
-    pub action: String,
+    pub step: String,
     pub status: String,
 }
 
 impl ActionInput {
     /// The action, when it is one of `allowed`.
     pub fn of<'a>(&self, allowed: &[&'a str]) -> Option<&'a str> {
-        allowed.iter().copied().find(|a| *a == self.action)
+        allowed.iter().copied().find(|a| *a == self.step)
     }
 }
 

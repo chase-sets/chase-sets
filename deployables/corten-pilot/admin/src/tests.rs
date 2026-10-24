@@ -503,10 +503,11 @@ async fn a_dimension_shows_its_options_and_the_changes_its_status_allows() {
     assert!(html.contains(r#"command="show-modal" commandfor="catalog-lifecycle-deprecate">Deprecate</button>"#), "{html}");
     assert!(!html.contains(r#"value="activate""#), "an active dimension is not activated: {html}");
     assert!(html.contains("2 option(s)") && html.contains(">NM<") && html.contains(">2.5<"), "{html}");
-    assert!(html.contains(r#"name="action" value="deprecate">Deprecate</button>"#), "the active option: {html}");
-    assert!(html.contains(r#"name="action" value="reactivate">Reactivate</button>"#), "the deprecated one: {html}");
+    assert!(html.contains(r#"name="step" value="deprecate">Deprecate</button>"#), "the active option: {html}");
+    assert!(html.contains(r#"name="step" value="reactivate">Reactivate</button>"#), "the deprecated one: {html}");
     assert!(html.contains(r#"value="chc_a, chc_b""#), "the reorder form starts from the order: {html}");
     assert!(html.contains(r#"name="label_locale" value="fr""#), "an option's edit form has its labels: {html}");
+    assert!(!html.contains(r#"name="action""#), "a control named action hides form.action from the runtime: {html}");
 
     let (status, _, _) = pilot.send(get("/catalog/dimensions/dim_missing", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -519,7 +520,7 @@ async fn a_dimension_shows_its_options_and_the_changes_its_status_allows() {
 async fn lifecycle_changes_go_to_their_api_routes_and_a_refusal_is_the_forms_message() {
     let pilot = Pilot::new().await;
     let (status, headers, _) =
-        pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "action=deprecate&status=active", true)).await;
+        pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "step=deprecate&status=active", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap();
     assert!(to.starts_with("/catalog/dimensions/dim_seed?after_write=") && to.ends_with("&done=deprecated"), "{to}");
@@ -529,13 +530,13 @@ async fn lifecycle_changes_go_to_their_api_routes_and_a_refusal_is_the_forms_mes
     assert!(html.contains(r#"<div id="ui-toast">Dimension deprecated.</div>"#), "{html}");
 
     let (status, _, html) =
-        pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "action=archive&status=deprecated", true)).await;
+        pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "step=archive&status=deprecated", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.starts_with(r#"<form class="detail-page__lifecycle" id="catalog-lifecycle""#), "{html}");
     assert!(html.contains("Only a deprecated dimension can be archived."), "{html}");
 
     let writes = pilot.catalog_writes().len();
-    let (status, _, html) = pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "action=delete&status=active", true)).await;
+    let (status, _, html) = pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "step=delete&status=active", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This action is not available here."), "{html}");
     assert_eq!(pilot.catalog_writes().len(), writes, "an action the form does not offer is not sent");
@@ -571,10 +572,10 @@ async fn options_are_added_revised_retired_and_reordered() {
             "option_added",
         ),
         ("/catalog/dimensions/dim_seed/options/chc_a", rows.to_owned(), "option_revised"),
-        ("/catalog/dimensions/dim_seed/options/chc_a/lifecycle", "action=deprecate&status=active".into(), "option_deprecated"),
+        ("/catalog/dimensions/dim_seed/options/chc_a/lifecycle", "step=deprecate&status=active".into(), "option_deprecated"),
         (
             "/catalog/dimensions/dim_seed/options/chc_b/lifecycle",
-            "action=reactivate&status=deprecated".into(),
+            "step=reactivate&status=deprecated".into(),
             "option_reactivated",
         ),
         ("/catalog/dimensions/dim_seed/options/order", "option_ids=chc_b%2C+chc_a%2C".into(), "reordered"),
@@ -614,7 +615,7 @@ async fn fields_are_created_configured_and_activated() {
     let (status, _, _) =
         pilot.send(post("/catalog/fields/fld_seed/edit", "key=language&name=Language&value_type=number", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "without JavaScript a write is a redirect");
-    let (status, _, _) = pilot.send(post("/catalog/fields/fld_seed/lifecycle", "action=activate&status=draft", true)).await;
+    let (status, _, _) = pilot.send(post("/catalog/fields/fld_seed/lifecycle", "step=activate&status=draft", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     let sent = pilot.catalog_writes();
@@ -627,6 +628,6 @@ async fn fields_are_created_configured_and_activated() {
 
     let (_, _, html) = pilot.send(get("/catalog/fields/fld_seed", Some("staff"))).await;
     assert!(html.contains("<dt>Filterable</dt>") && html.contains("<dd>Yes</dd>") && html.contains("<dd>No</dd>"), "{html}");
-    assert!(html.contains(r#"name="action" value="activate">Activate</button>"#), "a draft is activated: {html}");
+    assert!(html.contains(r#"name="step" value="activate">Activate</button>"#), "a draft is activated: {html}");
     assert!(html.contains(r#"name="filterable" checked"#), "the configure form starts from the field: {html}");
 }

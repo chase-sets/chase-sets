@@ -134,22 +134,23 @@ pub fn dimension_list<'a>(
     let create_action = list.href();
     let filters = url::Dimensions::default().href();
     let (states, kinds) = (statuses(t), value_kinds(t));
+    let f = url::Dimensions::FIELDS;
     html! {
         <ListPage title={title}>
             <Trigger dialog={ids::CREATE_DIALOG} label={t.dimension_list_new_dimension()} secondary={false} />
         </ListPage>
         <Filters t={t} action={&filters}>
-            <Search t={t} title={title} value={value(&query.search)} />
+            <Search t={t} name={f.search} title={title} value={value(&query.search)} />
             <Pick
                 label={t.list_status()}
-                name="status"
+                name={f.status}
                 all={t.list_all_statuses()}
                 options={&states}
                 value={value(&query.status)}
             />
             <Pick
                 label={t.dimension_list_value_kind_2()}
-                name="value_kind"
+                name={f.value_kind}
                 all={t.list_all_value_kinds()}
                 options={&kinds}
                 value={value(&query.value_kind)}
@@ -208,43 +209,44 @@ pub fn field_list<'a>(
     let filters = url::Fields::default().href();
     let (states, types) = (statuses(t), value_types(t));
     let flags = [("true", t.list_yes()), ("false", t.list_no())];
+    let f = url::Fields::FIELDS;
     html! {
         <ListPage title={title}>
             <Trigger dialog={ids::CREATE_DIALOG} label={t.field_list_new_field()} secondary={false} />
         </ListPage>
         <Filters t={t} action={&filters}>
-            <Search t={t} title={title} value={value(&query.search)} />
+            <Search t={t} name={f.search} title={title} value={value(&query.search)} />
             <Pick
                 label={t.list_status()}
-                name="status"
+                name={f.status}
                 all={t.list_all_statuses()}
                 options={&states}
                 value={value(&query.status)}
             />
             <Pick
                 label={t.field_list_value_type()}
-                name="value_type"
+                name={f.value_type}
                 all={t.list_all_value_types()}
                 options={&types}
                 value={value(&query.value_type)}
             />
             <Pick
                 label={t.field_list_filterable()}
-                name="filterable"
+                name={f.filterable}
                 all={t.list_all()}
                 options={&flags}
                 value={value(&query.filterable)}
             />
             <Pick
                 label={t.field_list_searchable()}
-                name="searchable"
+                name={f.searchable}
                 all={t.list_all()}
                 options={&flags}
                 value={value(&query.searchable)}
             />
             <Pick
                 label={t.field_list_sortable()}
-                name="sortable"
+                name={f.sortable}
                 all={t.list_all()}
                 options={&flags}
                 value={value(&query.sortable)}
