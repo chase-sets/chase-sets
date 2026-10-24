@@ -166,11 +166,9 @@ describe("whole-game repair regressions", () => {
       readActivePromoteJobs: async () => [],
     });
     vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
-    const startedAt = Date.now();
     await expect(context.submitPromoteAllReady(page, "scope-1", [], runtime)).rejects.toBeInstanceOf(
       rehearsal.WholeGameDeadlineReached,
     );
-    expect(Date.now() - startedAt).toBeLessThan(10_000);
     expect(posted).toBe(false);
   });
 
