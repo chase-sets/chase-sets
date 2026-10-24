@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { batchE2eSuiteIds, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
+import { batchBrowserE2eSuiteIds, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
 
@@ -110,7 +110,11 @@ const exposurePosturePatterns = {
     /^docs\/runbooks\/email-operations\.md$/,
   ],
   "ucp-signed-write": [/ucp/i, /^docs\/adr\/0002-adopt-ucp-for-agent-commerce\.md$/],
-  "rollout-policy": [/^scripts\/release-lock/, /^docs\/runbooks\/release-process-evolution\.md$/],
+  "rollout-policy": [
+    /^scripts\/release-lock/,
+    /^\.github\/workflows\/platform-production-lock-monitor\.yml$/,
+    /^docs\/runbooks\/(?:release-process-evolution|doks-platform-operations)\.md$/,
+  ],
 };
 
 function normalizeFilePath(filePath) {
@@ -545,7 +549,7 @@ export function toOutputMap(scope) {
     e2e_tests: String(scope.e2eTestsRequired),
     e2e_suites: scope.e2eSuiteIds.join(","),
     e2e_suites_json: JSON.stringify(scope.e2eSuiteIds),
-    e2e_suite_batches_json: JSON.stringify(batchE2eSuiteIds(scope.e2eSuiteIds)),
+    e2e_suite_batches_json: JSON.stringify(batchBrowserE2eSuiteIds(scope.e2eSuiteIds)),
     integration_risk_required: String(scope.integrationRiskRequired),
     integration_risk_reason: scope.integrationRiskReason,
     build: String(scope.buildRequired),

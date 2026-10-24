@@ -6,10 +6,8 @@ import {
   type NotificationChannelAdapter,
   type NotificationPreferenceResolver,
 } from "@chase-sets/outbound-messaging";
-import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
-  createObjectStorageTcgplayerMarketCaptureReceiptSink,
   createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
@@ -30,6 +28,7 @@ import type {
 } from "@chase-sets/inventory/server";
 import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
+import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -245,20 +244,6 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
-  pool: pools.catalog,
-  config: config.tcgplayerAutomation,
-  keyring: config.catalogOperatorSessionKeyring,
-});
-const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
-const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(
-  {
-    pool: pools.catalog,
-    config: config.tcgplayerAutomation,
-    keyring: config.catalogOperatorSessionKeyring,
-  },
-  { ownership: "pricing-non-window" },
-)?.httpClients;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
@@ -275,8 +260,6 @@ const commercialTermsResolver = pools["commercial-terms"]
   : undefined;
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
-      tcgplayerMarketTransport: pricingTcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
-      tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
       channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
         const services = runtime?.services.channels;
@@ -312,6 +295,9 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
 
   return createDraft(params, context);
 };
+const inventoryDraftListingConsumer = createPlatformWorkerInventoryDraftListingConsumer(
+  () => runtime?.services.marketplace as MarketplaceServices | undefined,
+);
 
 const identityHostPorts = {
   capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
@@ -323,6 +309,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      inventoryDraftListingConsumer,
       ...identityHostPorts,
       ...supportEvidenceCleanupHostPort,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
@@ -332,7 +319,6 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       postageLabelProvider,
       addressVerificationProvider: postageLabelProvider,
       catalogAssetStorage,
-      ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
       ...(pricingHostPorts ?? {}),
       sourceObservationTelemetry,
       evidenceWindowCorrelation,

@@ -27,8 +27,6 @@ const context: EventStoreContext = {
   audit: { performedByUserId: "usr_synthetic" as never, forAccountId: "acc_synthetic" as never },
 };
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies Parameters<typeof pricingModule.createServices>[1];

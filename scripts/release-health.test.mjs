@@ -2,6 +2,80 @@ import { describe, expect, it } from "vitest";
 import { buildReleaseHealthRecord, parseReleaseHealthArgs } from "./release-health.mjs";
 
 describe("release health summary", () => {
+  it.each(["", "stale-reference", "https://github.com/other/repo/pull/1", "{malformed}"])(
+    "clears all false stale lock metadata, including stale reference %s",
+    (reference) => {
+      const result = buildReleaseHealthRecord({
+        ...minimalReleaseHealthInput(),
+        releaseLocked: false,
+        releaseLockReason: "old",
+        releaseLockReference: reference,
+        releaseLockExitRoute: "malformed",
+        releaseLockDeadline: "yesterday",
+      });
+      expect(result.passesReleaseHealthGate).toBe(true);
+      expect(result.record.releaseLock).toMatchObject({
+        locked: false,
+        reason: null,
+        reference: null,
+        exitRoute: null,
+        deadline: null,
+      });
+    },
+  );
+
+  it("fails the health gate for a legacy true lock without route or deadline", () => {
+    const result = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      releaseLocked: true,
+      releaseLockReason: "legacy lock",
+      releaseLockReference: "INC-1",
+      releaseLockExitRoute: "",
+      releaseLockDeadline: "",
+    });
+
+    expect(result.passesReleaseHealthGate).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        "PRODUCTION_RELEASE_LOCK_EXIT_ROUTE is required when PRODUCTION_RELEASE_LOCKED=true.",
+        "PRODUCTION_RELEASE_LOCK_DEADLINE is required when PRODUCTION_RELEASE_LOCKED=true.",
+      ]),
+    );
+  });
+
+  it("records effective true lock metadata and a separate emergency reference in a versioned nested artifact", () => {
+    const route = JSON.stringify({
+      kind: "host-revert",
+      reference: "https://github.com/chase-sets/chase-sets/issues/10391",
+    });
+    const env = {
+      PRODUCTION_RELEASE_LOCKED: "true",
+      PRODUCTION_RELEASE_LOCK_REASON: "hold",
+      PRODUCTION_RELEASE_LOCK_REFERENCE: "lock-ref",
+      PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: route,
+      PRODUCTION_RELEASE_LOCK_DEADLINE: "2026-10-22T12:00:00Z",
+      EMERGENCY_RELEASE_REFERENCE: "INC-123",
+    };
+    const input = parseReleaseHealthArgs([], env);
+    const result = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      ...input,
+      releaseCommit: "a".repeat(40),
+      workflowRunId: "synthetic",
+      releaseMode: "emergency",
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.record.releaseLock).toMatchObject({
+      schemaVersion: "production-release-lock/v2",
+      locked: true,
+      bypassed: true,
+      reason: "hold",
+      reference: "lock-ref",
+      exitRoute: JSON.parse(route),
+      deadline: env.PRODUCTION_RELEASE_LOCK_DEADLINE,
+      emergencyReference: "INC-123",
+    });
+  });
   it("records active, pending, coalesced, and promoted release transitions", () => {
     const activeCommit = "a".repeat(40);
     const pendingCommit = "b".repeat(40);
@@ -353,6 +427,7 @@ describe("release health summary", () => {
       emergencyReference: "FIX-FORWARD-PR-123",
     });
     expect(result.record.production.result).toBe("failure");
+    expect(result.passesReleaseHealthGate).toBe(false);
     expect(result.record.recovery).toMatchObject({
       mode: "fix-forward",
       reference: "FIX-FORWARD-PR-123",

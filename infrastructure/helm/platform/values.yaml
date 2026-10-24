@@ -419,9 +419,10 @@ components:
       - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         secret: true
         secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
-      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+      - name: "EVIDENCE_WINDOW_ADMISSION_SECRET"
         secret: true
-        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secretKey: "EVIDENCE_WINDOW_ADMISSION_SECRET"
+        optional: true
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -581,14 +582,6 @@ components:
         secretKey: "STRIPE_WEBHOOK_SECRET"
       - name: "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
         value: "false"
-      - name: "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS"
-        value: "2"
-      - name: "TCGPLAYER_AUTOMATION_MAX_RETRIES"
-        value: "3"
-      - name: "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS"
-        value: "30000"
-      - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
-        value: "250"
       - name: "UCP_BUSINESS_SIGNING_ALG"
         secret: true
         secretKey: "UCP_BUSINESS_SIGNING_ALG"
@@ -751,9 +744,10 @@ components:
       - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         secret: true
         secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
-      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+      - name: "EVIDENCE_WINDOW_ADMISSION_SECRET"
         secret: true
-        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secretKey: "EVIDENCE_WINDOW_ADMISSION_SECRET"
+        optional: true
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -926,14 +920,6 @@ components:
       - name: "STRIPE_WEBHOOK_SECRET"
         secret: true
         secretKey: "STRIPE_WEBHOOK_SECRET"
-      - name: "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS"
-        value: "2"
-      - name: "TCGPLAYER_AUTOMATION_MAX_RETRIES"
-        value: "3"
-      - name: "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS"
-        value: "30000"
-      - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
-        value: "250"
       - name: "VOYAGE_API_KEY"
         secret: true
         secretKey: "VOYAGE_API_KEY"
@@ -1165,14 +1151,6 @@ components:
         secretKey: "SCRYDEX_TEAM_ID"
       - name: "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
         value: "false"
-      - name: "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS"
-        value: "2"
-      - name: "TCGPLAYER_AUTOMATION_MAX_RETRIES"
-        value: "3"
-      - name: "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS"
-        value: "30000"
-      - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
-        value: "250"
     resources: {}
     podAnnotations: {}
     podLabels: {}

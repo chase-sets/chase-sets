@@ -157,6 +157,8 @@ vi.mock("react-router", async () => {
     Form: ({ children, ...props }: { children: ReactNode }) => React.createElement("form", props, children),
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
+    useNavigation: () => ({ state: "idle", formMethod: undefined, formAction: undefined }),
+    useFormAction: () => "/",
     useRevalidator: mockUseRevalidator,
   };
 });

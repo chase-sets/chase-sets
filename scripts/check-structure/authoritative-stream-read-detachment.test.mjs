@@ -195,8 +195,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 20,
-      authoritativeSites: 20,
+      discoveredCallCandidates: 18,
+      authoritativeSites: 18,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -219,16 +219,16 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives twenty-six green grammar instances across twenty-four live locations without a registry", () => {
+  it("derives twenty-seven green grammar instances across twenty-five live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(26);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(24);
+    expect(green).toHaveLength(27);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(25);
     expect(green).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
-          line: 168,
+          line: 169,
         }),
         expect.objectContaining({
           category: "member-declaration",
@@ -243,12 +243,22 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
-          line: 45,
+          line: 47,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
+          line: 76,
         }),
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
           line: 71,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
+          line: 247,
         }),
       ]),
     );

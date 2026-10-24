@@ -509,11 +509,10 @@ export function createSourceObservationProviderImportRuntime({
       return bindProviderAdapter(createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profileVersion }));
     }
 
-    if (profileVersion.profile.connector.kind === "tcgplayer-automation-client") {
+    if (profileVersion.providerKey === "tcgplayer") {
       return bindProviderAdapter(
         createTcgplayerProviderAdapter({
           loadProfileVersions: async () => [profileVersion],
-          client: deps.tcgplayerAutomationCatalogClient,
         }),
       );
     }

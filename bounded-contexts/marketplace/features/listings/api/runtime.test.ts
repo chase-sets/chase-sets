@@ -1595,6 +1595,66 @@ describe("marketplace listing runtime", () => {
       };
     }
 
+    it("creates channel-only without Terms and refuses native publication, Resume, prices, purchase limits and capacity with zero events", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const terms = bulkTermsResolver();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: terms as never,
+      });
+      const params = {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "20",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        publicationScope: "channel-only" as const,
+        listingIdOverride: "lst_channel" as never,
+      };
+      const result = await services.createListing(params, context);
+      expect(result.state).toEqual(await services.loadListingState("lst_channel"));
+      expect(result.state).toMatchObject({
+        status: "draft",
+        publicationScope: "channel-only",
+        nativeVisibility: "disabled",
+        nativeFeeState: "not-enrolled",
+        priceAmount: "20.00",
+        priceCurrencyCode: "USD",
+        feeLocks: [],
+      });
+      const owned = { accountId: "acc_seller", listingId: "lst_channel" };
+      for (const command of [
+        () => services.publishListing(owned, context),
+        () => services.updateListingPrice({ ...owned, priceAmount: "25.00", priceCurrencyCode: "USD" }, context),
+        () => services.updateListingQuantityCap({ ...owned, quantityCap: 2 }, context),
+        () => services.updateListingPurchaseLimits({ ...owned, purchaseLimits: { maxUnitsPerOrder: 1 } }, context),
+      ])
+        await expect(command()).rejects.toThrow("channel-only");
+      expect(
+        await services.applyBulkListingPriceUpdates(
+          {
+            accountId: "acc_seller",
+            updates: [{ listingId: "lst_channel", priceAmount: "25.00", priceCurrencyCode: "USD" }],
+          },
+          context,
+        ),
+      ).toMatchObject([{ outcome: "error", message: expect.stringContaining("channel-only") }]);
+      expect(terms.resolveListingTerms).not.toHaveBeenCalled();
+      expect(terms.openListingTermsSession).not.toHaveBeenCalled();
+      expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_channel" })).toHaveLength(1);
+      expect(await services.createListing(params, context)).toEqual(result);
+      await expect(services.createListing({ ...params, publicationScope: "native" }, context)).rejects.toThrow(
+        "scope cannot change",
+      );
+      await services.withdrawListing(owned, context);
+      expect(await services.loadListingState("lst_channel")).toMatchObject({
+        status: "withdrawn",
+        publicationScope: "channel-only",
+      });
+    });
+
     it("preserves a synthetic 0% founder tranche's seven stored terms while changing its price fingerprint", async () => {
       const { eventStore } = createInMemoryEventStore();
       const termsResolver = mutableBulkTermsResolver(syntheticFounderTerms);
@@ -2537,5 +2597,105 @@ describe("marketplace listing runtime", () => {
       expect(report.storageDeletionPerformed).toBe(false);
       expect(report.deletedAssetKeyCount).toBe(0);
     });
+  });
+});
+
+describe("issue-5258-marketplace-ac2 Listing Evidence description pre-check", () => {
+  function createFixture() {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const putObject = vi.fn();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                product_measure_snapshot: productMeasureSnapshot,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "1.00",
+          sellerNetUnitAmount: "19.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        })),
+      } as never,
+      listingPhotoStorage: { getObject: vi.fn(), putObject },
+    });
+    const createParams = {
+      accountId: "acc_seller" as never,
+      inventoryItemId: "inv_1",
+      priceAmount: "20.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 1,
+      listingIdOverride: "lst_alt" as never,
+    };
+    return { allEvents, putObject, services, createParams };
+  }
+
+  const upload = (altText: string) => ({
+    body: new Uint8Array([1, 2, 3]),
+    contentType: "image/png",
+    originalFilename: "front.png",
+    altText,
+  });
+
+  it("rejects an unsafe description before image work, storing and appending nothing", async () => {
+    const { allEvents, putObject, services, createParams } = createFixture();
+
+    await expect(
+      services.createListing({ ...createParams, listingPhotoUploads: [upload("Front javascript:alert(1)")] }, context),
+    ).rejects.toMatchObject({ name: "AuthoredTextRejectedError", code: "text_unsafe_link" });
+    expect(putObject).not.toHaveBeenCalled();
+    expect(allEvents).toHaveLength(0);
+  });
+
+  it("rejects an unsafe replacement description before image work", async () => {
+    const { allEvents, putObject, services, createParams } = createFixture();
+    await services.createListing(createParams, context);
+    await services.commandHandler({
+      streamId: "marketplace.listing-lst_alt",
+      command: { type: "AddListingPhotos", photos: [listingPhoto] as never },
+      context,
+    });
+    const eventCount = allEvents.length;
+
+    await expect(
+      services.replaceListingPhoto(
+        { accountId: "acc_seller", listingId: "lst_alt", replacedPhotoId: "lpho_1", upload: upload("Back \u0000") },
+        context,
+      ),
+    ).rejects.toMatchObject({ name: "AuthoredTextRejectedError", code: "text_control_character" });
+    expect(putObject).not.toHaveBeenCalled();
+    expect(allEvents).toHaveLength(eventCount);
   });
 });

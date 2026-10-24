@@ -102,6 +102,8 @@ Integration health shows the cached Scrydex usage snapshot: credits as remaining
 
 #### Scrydex usage launch gate
 
+The bounded `scrydex-force-refresh-bounded` staging journey is the only route for refreshing the five accepted Scrydex option caches before cache capture. It reads the daily Integration health projection, requires fresh ready usage with a non-null allowance and at least 1,000 remaining credits, then makes one typed `sets` force-read per declared unit. The hosted runner records `scrydex-option-refresh/v1`; a refused or stopped run is diagnostic and must not be treated as a zero-credit result. It never refreshes cursors, provider-wide targets, TCGplayer, imports, previews, or confirmations.
+
 The launch gate never authorizes a paid import. It refuses when the usage read is unchecked, older than 15 minutes, missing the remaining balance or the total allowance, or exhausted (a reported remaining balance of zero refuses whatever credit state accompanies it); otherwise it requires explicit operator confirmation. Launch evidence has two stages. Before merge, the committed fixture, derived unchanged through the production sanitizer from a real usage read, proves parser and gate behavior only. After staging deployment, the host dispatches an attributed verifier that binds the deployed Integration health `usageBudget` and a selected-scope Import preflight to a recorded no-launch decision; a standalone usage read or a replay is not a substitute. To derive the fixture:
 
 1. In a checkout of the reviewed branch with dependencies installed, supply staging credentials only through `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID`, and leave `CATALOG_PROVIDER_SEND_WINDOW_ENABLED` unset.

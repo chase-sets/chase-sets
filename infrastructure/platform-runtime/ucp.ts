@@ -1,4 +1,10 @@
-import { createHash, createPrivateKey, createPublicKey, verify as verifySignatureBytes } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  verify as verifySignatureBytes,
+  type JsonWebKey as NodeJsonWebKey,
+} from "node:crypto";
 import { Hono, type Context } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -28,6 +34,7 @@ import {
   UCP_MCP_APP_RESOURCE_MIME_TYPE,
   UCP_MCP_TOOLS,
   UCP_VERSION,
+  ucpErrorSeverity,
   unsupportedUcpOperation,
   type UcpBusinessProfile,
   type UcpEnvelope,
@@ -66,9 +73,11 @@ export {
   UCP_SHOPPING_SERVICE,
   UCP_SPEC_BASE_URL,
   UCP_VERSION,
+  ucpErrorSeverity,
   unsupportedUcpOperation,
   type UcpBusinessProfile,
   type UcpCapabilityDeclaration,
+  type UcpErrorSeverity,
   type UcpEnvelope,
   type UcpMcpResourceDescriptor,
   type UcpMcpSecurityScheme,
@@ -980,12 +989,22 @@ function validateSignatureInputCoverage(
   return null;
 }
 
+// node:crypto reads a JWK only through ordinary property gets, and only the members its key
+// family needs. Forwarding each get to the caller's key when Node performs it keeps inherited and
+// non-enumerable members, never reads a member Node skips, and lets accessor errors surface from
+// Node unchanged, exactly as if Node had been handed the original object.
+function nodeJsonWebKey(jwk: JsonWebKey): NodeJsonWebKey {
+  return new Proxy<NodeJsonWebKey>({}, { get: (_target, member): unknown => Reflect.get(jwk, member) });
+}
+
 function publicKeyAlgorithm(jwk: JsonWebKey) {
   return jwk.alg === "EdDSA" || jwk.crv === "Ed25519" ? null : "sha256";
 }
 
 function publicJwkForPrivateKey(key: UcpBusinessSigningKey): UcpSigningJsonWebKey {
-  const publicJwk = createPublicKey(createPrivateKey({ key: key.privateJwk, format: "jwk" })).export({ format: "jwk" });
+  const publicJwk = createPublicKey(createPrivateKey({ key: nodeJsonWebKey(key.privateJwk), format: "jwk" })).export({
+    format: "jwk",
+  });
   return {
     ...publicJwk,
     kid: key.kid,
@@ -1044,12 +1063,12 @@ async function verifyHttpMessageSignature(
   }
 
   try {
-    const key = createPublicKey({ key: jwk, format: "jwk" });
+    const key = createPublicKey({ key: nodeJsonWebKey(jwk), format: "jwk" });
     const base = signatureBase(request, input.components, input.params);
     const verified = verifySignatureBytes(publicKeyAlgorithm(jwk), Buffer.from(base), key, signature);
     return verified ? null : "HTTP Message Signature verification failed.";
-  } catch (error) {
-    return error instanceof Error ? error.message : "HTTP Message Signature verification failed.";
+  } catch {
+    return "HTTP Message Signature verification failed.";
   }
 }
 

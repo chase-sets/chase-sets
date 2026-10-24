@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { classified } from "./backlog-classify.mjs";
 import { BLOCKED_BY_QUERY, BLOCKING_QUERY, LABELS_QUERY, reduceUnlockCounts } from "./dispatch-unlock-count.mjs";
+import { extractReceipt, projectComment, sameMilestoneRevision, stableBotComments } from "./issue-readiness.mjs";
 import {
   compareOutcomeOrder,
   findOutcomeOrderTies,
@@ -18,6 +19,7 @@ export const DEFAULT_REPOSITORY = "chase-sets/chase-sets";
 export const EXCLUSION_REASONS = Object.freeze([
   "EPIC",
   "TRACKING_ONLY",
+  "PLATFORM_HELD",
   "NO_MILESTONE",
   "NOT_COMMITTED_OUTCOME",
   "EXCLUDED_MILESTONE",
@@ -35,6 +37,9 @@ const PAGE_INTERVAL_MS = 1000;
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 const MAX_RATE_LIMIT_WAITS = 3;
 const DEFAULT_TOP = 10;
+const DEFAULT_READINESS_DEPTH = 15;
+const COMMENTS_PAGE_SIZE = 100;
+const MAX_COMMENT_PAGES = 100;
 
 const DEPENDENCY_EDGE = "nodes { id number state repository { nameWithOwner } }";
 
@@ -117,6 +122,7 @@ function exclusionReason(issue, milestone, excluded) {
   const labels = labelNames(issue);
   if (issue.issueType === "Epic") return "EPIC";
   if (labels.includes("status:tracking-only")) return "TRACKING_ONLY";
+  if (labels.includes("dispatch:platform") || labels.includes("dispatch:platform-return")) return "PLATFORM_HELD";
   if (issue.milestone === null) return "NO_MILESTONE";
   if (milestone === null || !isExecutableOutcome(milestone)) return "NOT_COMMITTED_OUTCOME";
   if (excluded.has(milestone.number)) return "EXCLUDED_MILESTONE";
@@ -272,6 +278,142 @@ export function rankNextWork(facts, options = {}) {
     classes,
     excluded: exclusions,
   };
+}
+
+function issueCommentUrl(repository, issue, comment) {
+  return `https://github.com/${repository}/issues/${issue}#issuecomment-${comment.id}`;
+}
+
+function sameStringSet(left, right) {
+  const a = [...new Set(left)].sort();
+  const b = [...new Set(right)].sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function receiptIsCurrent(receipt, issue, milestone, repository) {
+  if (
+    receipt.subject.repository !== repository ||
+    receipt.subject.number !== issue.number ||
+    receipt.subject.nodeId !== issue.id ||
+    (issue.lastEditedAt !== null && Date.parse(issue.lastEditedAt) > Date.parse(receipt.subject.updatedAt))
+  ) {
+    return false;
+  }
+  if (!sameMilestoneRevision(receipt.facts.milestone, milestone)) return false;
+  if (!sameStringSet(receipt.facts.labels, labelNames(issue))) return false;
+  return (receipt.facts.issueType?.name ?? null) === issue.issueType;
+}
+
+function dependencyOnlyStale(receipt, issue) {
+  const failures = receipt.checkedRules.filter((rule) => rule.status === "fail").map((rule) => rule.id);
+  if (failures.length !== 1 || failures[0] !== "ready-00-dependencies-resolved") return false;
+  if (!Array.isArray(receipt.facts.dependencies) || receipt.facts.dependencies.length === 0) return false;
+  const current = new Map(issue.blockedBy.map((dependency) => [dependency.id, dependency.state]));
+  return receipt.facts.dependencies.every(
+    (dependency) => current.get(dependency.nodeId) === "CLOSED" || current.get(dependency.nodeId) === "closed",
+  );
+}
+
+function classifyReadiness({ comments, complete, issue, milestone, repository }) {
+  if (!complete) return { readiness: "unknown", readinessSource: null };
+  const stable = stableBotComments(comments);
+  if (stable.length !== 1) {
+    return { readiness: stable.length === 0 ? "missing" : "unknown", readinessSource: null };
+  }
+  const comment = stable[0];
+  const source = issueCommentUrl(repository, issue.number, comment);
+  if (comment.body.includes("Current structural evaluation: unknown")) {
+    return { readiness: "unknown", readinessSource: source };
+  }
+  const receipt = extractReceipt(comment.body);
+  if (receipt === null) return { readiness: "unknown", readinessSource: source };
+  if (!receiptIsCurrent(receipt, issue, milestone, repository)) {
+    return { readiness: "stale", readinessSource: source };
+  }
+  if (receipt.status === "ready") return { readiness: "ready", readinessSource: source };
+  if (receipt.status === "not-ready") {
+    return {
+      readiness: dependencyOnlyStale(receipt, issue) ? "stale" : "not-ready",
+      readinessSource: source,
+    };
+  }
+  return { readiness: "unknown", readinessSource: source };
+}
+
+async function collectReadinessComments(transport, repository, issueNumber) {
+  const comments = [];
+  for (let page = 1; ; page += 1) {
+    if (page > MAX_COMMENT_PAGES) {
+      throw new NextWorkError("NEXT_WORK_FACTS_INCOMPLETE", "comments pagination exceeded 100 pages");
+    }
+    const batch = await transport.rest(
+      `/repos/${repository.owner}/${repository.name}/issues/${issueNumber}/comments?per_page=${COMMENTS_PAGE_SIZE}&page=${page}`,
+    );
+    if (!Array.isArray(batch)) throw new NextWorkError("NEXT_WORK_REQUEST_FAILED", "comments response is not a list");
+    comments.push(...batch.map(projectComment));
+    if (batch.length < COMMENTS_PAGE_SIZE) return { comments, complete: true };
+  }
+}
+
+/**
+ * Attaches historical structural readiness to only the dispatchable frontier.
+ * Comment authority is advisory: any failed or incomplete read becomes unknown.
+ */
+export async function attachReadiness(
+  document,
+  facts,
+  {
+    token,
+    depth = DEFAULT_READINESS_DEPTH,
+    fetchImplementation = globalThis.fetch,
+    sleep,
+    now,
+    pageIntervalMs = PAGE_INTERVAL_MS,
+  } = {},
+) {
+  const target = parseRepository(facts.repository);
+  const transport = createTransport({
+    fetchImplementation,
+    token,
+    sleep: sleep ?? ((ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))),
+    now: now ?? Date.now,
+    pageIntervalMs,
+  });
+  const milestones = new Map(facts.milestones.map((milestone) => [milestone.number, milestone]));
+  const classes = Object.fromEntries(
+    LANE_CLASSES.map((name) => [name, document.classes[name].map((entry) => ({ ...entry }))]),
+  );
+  const issues = new Map(facts.issues.map((issue) => [issue.number, issue]));
+  for (const name of LANE_CLASSES) {
+    for (const entry of classes[name].slice(0, depth)) {
+      if (entry.action !== "implement") continue;
+      const issue = issues.get(entry.issue);
+      const milestone = milestones.get(entry.milestone.number) ?? null;
+      let result;
+      try {
+        result = await collectReadinessComments(transport, target, entry.issue);
+      } catch {
+        result = { comments: [], complete: false };
+      }
+      const readiness = classifyReadiness({
+        comments: result.comments,
+        complete: result.complete,
+        issue,
+        milestone,
+        repository: facts.repository,
+      });
+      entry.readiness = readiness.readiness;
+      entry.readinessSource = readiness.readinessSource;
+      if (entry.readiness === "not-ready") {
+        entry.action = "planning-repair";
+        entry.reasons = ["STRUCTURAL_NOT_READY"];
+      } else if (["stale", "missing", "unknown"].includes(entry.readiness)) {
+        entry.action = "readiness-check";
+        entry.reasons = [];
+      }
+    }
+  }
+  return { ...document, classes };
 }
 
 // ---------------------------------------------------------------------------
@@ -520,10 +662,17 @@ export async function collectNextWorkFacts({
 // ---------------------------------------------------------------------------
 
 const USAGE =
-  "usage: node scripts/next-work.mjs [--json <path>] [--top <n>] [--exclude-milestone <n,...>] [--check] [--repository <owner/name>]";
+  "usage: node scripts/next-work.mjs [--json <path>] [--top <n>] [--readiness-depth <n>] [--exclude-milestone <n,...>] [--check] [--repository <owner/name>]";
 
 export function parseArguments(argv) {
-  const options = { json: null, top: DEFAULT_TOP, excludeMilestones: [], check: false, repository: DEFAULT_REPOSITORY };
+  const options = {
+    json: null,
+    top: DEFAULT_TOP,
+    readinessDepth: DEFAULT_READINESS_DEPTH,
+    excludeMilestones: [],
+    check: false,
+    repository: DEFAULT_REPOSITORY,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--check") {
@@ -531,7 +680,10 @@ export function parseArguments(argv) {
       continue;
     }
     const value = argv[index + 1];
-    if (!["--json", "--top", "--exclude-milestone", "--repository"].includes(flag) || value === undefined) {
+    if (
+      !["--json", "--top", "--readiness-depth", "--exclude-milestone", "--repository"].includes(flag) ||
+      value === undefined
+    ) {
       throw new NextWorkError("NEXT_WORK_USAGE", USAGE);
     }
     index += 1;
@@ -540,6 +692,11 @@ export function parseArguments(argv) {
     if (flag === "--top") {
       if (!/^[1-9]\d*$/.test(value)) throw new NextWorkError("NEXT_WORK_USAGE", `--top must be a positive integer`);
       options.top = Number(value);
+    }
+    if (flag === "--readiness-depth") {
+      if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value)))
+        throw new NextWorkError("NEXT_WORK_USAGE", `--readiness-depth must be a positive integer`);
+      options.readinessDepth = Number(value);
     }
     if (flag === "--exclude-milestone") {
       options.excludeMilestones = normalizeExcludedMilestones(
@@ -560,6 +717,8 @@ function formatEntry(entry) {
     `unlocks ${entry.unlockCount}`,
   ];
   if (entry.openPrs.length > 0) parts.push(`prs ${entry.openPrs.map((number) => `#${number}`).join(",")}`);
+  parts.push(`readiness ${entry.readiness}`);
+  parts.push(`readinessSource ${entry.readinessSource ?? "-"}`);
   return `${parts.join("  ")}  ${entry.title}`;
 }
 
@@ -605,13 +764,15 @@ export async function main({
   stdout = (text) => process.stdout.write(text),
   stderr = (text) => process.stderr.write(text),
   collect = collectNextWorkFacts,
+  readiness = attachReadiness,
   generatedAt,
 } = {}) {
   try {
     const options = parseArguments(argv);
     const token = env.GITHUB_TOKEN || getToken();
     const facts = await collect({ token, repository: options.repository });
-    const document = rankNextWork(facts, { excludeMilestones: options.excludeMilestones, generatedAt });
+    const ranked = rankNextWork(facts, { excludeMilestones: options.excludeMilestones, generatedAt });
+    const document = await readiness(ranked, facts, { token, depth: options.readinessDepth });
     if (options.json !== null) writeFile(options.json, `${JSON.stringify(document, null, 2)}\n`);
     stdout(formatNextWorkText(document, options.top));
     return options.check && document.defects.length > 0 ? 1 : 0;

@@ -6,6 +6,7 @@ import {
   type UcpOperationHandlerInput,
 } from "@chase-sets/platform-runtime/ucp";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
+import { sumMoneyAmounts, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { UcpPaymentHandlerHandoff } from "@chase-sets/payments/server";
 import {
@@ -15,6 +16,7 @@ import {
 import type { CheckoutServices } from "../runtime-support/services";
 import { CheckoutDomainError } from "../runtime-support/common";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
+import type { CheckoutFulfillmentPreview } from "../../features/sessions/domain/fulfillment-preview";
 import { prepareBuyNowCheckout } from "../../features/sessions/api/buy-now-preparation";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
@@ -26,6 +28,20 @@ export type CheckoutUcpOrderFact = Readonly<{
   readyForFulfillmentAt?: string | null;
   label?: string;
   permalinkUrl?: string;
+  totals?: Readonly<{ itemSubtotal: string; shipping: string; tax: string; total: string }>;
+  lines?: readonly Readonly<{ listingId: string; unitPrice: string }>[];
+}>;
+
+export type CheckoutUcpQuote = Readonly<{
+  subtotal: string;
+  fulfillment: string;
+  tax: string;
+  total: string;
+  linePrice: (listingId: string) => string | null;
+}>;
+
+export type CheckoutUcpResourcePayment = Readonly<{
+  currency_code?: string | null;
 }>;
 
 export type CheckoutUcpListing = Readonly<{
@@ -370,6 +386,187 @@ export function checkoutUcpState(
     continue: true,
     messages: [message("payment_required", "requires_buyer_input")],
   };
+}
+
+/** Build the UCP 2026-08-25 Checkout resource from the already-resolved rules. */
+export function checkoutUcpResource({
+  session,
+  state,
+  quote,
+  payment,
+  request,
+  now = new Date(),
+}: Readonly<{
+  session: CheckoutSessionRow;
+  state: ReturnType<typeof checkoutUcpState>;
+  quote: CheckoutUcpQuote;
+  payment: CheckoutUcpResourcePayment | null;
+  request: Request;
+  now?: Date;
+}>) {
+  const currency = payment?.currency_code?.trim().toUpperCase() || "USD";
+  const currentTime = now;
+  const line_items = session.lines.map((line, index) => {
+    const listingId = line.listingId ?? "";
+    const linePrice = quote.linePrice(listingId);
+    const unitPrice = exactMinorUnits(String(linePrice ?? ""), `line ${listingId}`);
+    const lineTotal = unitPrice * BigInt(line.quantity);
+    return {
+      id: line.cartLineId ?? line.listingId ?? `line_${index + 1}`,
+      item: {
+        id: listingId,
+        title: line.itemTitle ?? line.productSummary ?? line.listingId,
+        price: wireMinorUnits(unitPrice, `line ${listingId}`),
+      },
+      quantity: line.quantity,
+      totals: [
+        { type: "subtotal", amount: wireMinorUnits(lineTotal, `line ${listingId} total`) },
+        { type: "total", amount: wireMinorUnits(lineTotal, `line ${listingId} total`) },
+      ],
+    };
+  });
+  const totals = [
+    { type: "subtotal", amount: wireMinorUnits(exactMinorUnits(quote.subtotal, "subtotal"), "subtotal") },
+    { type: "fulfillment", amount: wireMinorUnits(exactMinorUnits(quote.fulfillment, "fulfillment"), "fulfillment") },
+    { type: "tax", amount: wireMinorUnits(exactMinorUnits(quote.tax, "tax"), "tax") },
+    { type: "total", amount: wireMinorUnits(exactMinorUnits(quote.total, "total"), "total") },
+  ];
+  const terminal = state.status === "canceled" || state.status === "completed";
+  const resources = {
+    id: session.session_id,
+    status: state.status,
+    currency,
+    line_items,
+    totals,
+    links: [
+      { type: "terms_of_service", url: new URL("/terms", resolvePublicRequestOrigin(request)).href },
+      { type: "privacy_policy", url: new URL("/privacy", resolvePublicRequestOrigin(request)).href },
+    ],
+    ...(state.messages.length ? { messages: state.messages.map(checkoutUcpMessage) } : {}),
+    ...(state.continue ? { continue_url: checkoutContinueUrl(request, session.session_id) } : {}),
+    ...(!terminal
+      ? {
+          ...(session.order_ids.length > 0
+            ? { expires_at: new Date(currentTime.getTime() + handoffTtlMs).toISOString() }
+            : session.handoff_expires_at
+              ? { expires_at: session.handoff_expires_at }
+              : {}),
+        }
+      : {}),
+    ...(state.status === "completed" && state.order?.length
+      ? (() => {
+          const confirmed = state.order.find((fact) => fact.id === session.order_ids[0]);
+          return {
+            order: {
+              id: session.order_ids[0]!,
+              ...(confirmed?.label ? { label: confirmed.label } : {}),
+              permalink_url: new URL(
+                session.order_ids.length > 1
+                  ? "/account/purchases"
+                  : (confirmed?.permalinkUrl ?? `/account/purchases/${encodeURIComponent(session.order_ids[0]!)}`),
+                resolvePublicRequestOrigin(request),
+              ).href,
+            },
+          };
+        })()
+      : {}),
+  };
+  return resources;
+}
+
+function checkoutUcpMessage(row: ReturnType<typeof checkoutUcpState>["messages"][number]) {
+  return {
+    type: "error" as const,
+    code: row.code,
+    content: row.message,
+    severity: row.recoverability,
+    ...(row.target ? { path: row.target } : {}),
+  };
+}
+
+function exactMinorUnits(amount: string | null, label: string) {
+  const value = typeof amount === "string" ? tryMoneyToCents(amount) : null;
+  if (value === null) throw new Error(`UCP Checkout ${label} has no exact USD amount.`);
+  return value;
+}
+
+function wireMinorUnits(value: bigint, label: string) {
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new Error(`UCP Checkout ${label} exceeds safe minor units.`);
+  return Number(value);
+}
+
+/**
+ * Decision D1, "an honest quote source for every Checkout state", cells C1-C10. With orders,
+ * Ordering's purchase facts are summed once every order has one (C8); the retained quote answers
+ * until then (C9). An orderless session uses its snapshot, else `preview`, else the retained quote
+ * (C1-C7). No source returns null (C10). The retained quote is loaded only in C3, C5, C7 and C9;
+ * C10 is that load finding none.
+ */
+export async function resolveCheckoutUcpQuote({
+  session,
+  orderFacts,
+  preview,
+  loadRetainedQuote,
+}: Readonly<{
+  session: CheckoutSessionRow;
+  orderFacts: readonly CheckoutUcpOrderFact[];
+  preview: CheckoutFulfillmentPreview | null;
+  loadRetainedQuote: () => Promise<CheckoutFulfillmentPreview | null>;
+}>): Promise<CheckoutUcpQuote | null> {
+  const offerPrice = (listingId: string) =>
+    session.lines.find((line) => line.listingId === listingId)?.offerPriceAmount ?? null;
+  if (session.order_ids.length > 0) {
+    const purchases = session.order_ids.flatMap((orderId) => {
+      const fact = orderFacts.find((candidate) => candidate.id === orderId);
+      return fact?.totals ? [{ totals: fact.totals, lines: fact.lines ?? [] }] : [];
+    });
+    if (purchases.length < session.order_ids.length) return quoteFromPreview(await loadRetainedQuote(), offerPrice);
+    const sum = (amount: keyof NonNullable<CheckoutUcpOrderFact["totals"]>) =>
+      sumMoneyAmounts(purchases.map(({ totals }) => totals[amount]));
+    const lines = purchases.flatMap((purchase) => purchase.lines);
+    return {
+      subtotal: sum("itemSubtotal"),
+      fulfillment: sum("shipping"),
+      tax: sum("tax"),
+      total: sum("total"),
+      linePrice: (listingId) =>
+        offerPrice(listingId) ?? lines.find((line) => line.listingId === listingId)?.unitPrice ?? null,
+    };
+  }
+  const snapshot = session.fulfillment_preview_snapshot;
+  const source = snapshot ?? preview;
+  if (!source) return quoteFromPreview(await loadRetainedQuote(), offerPrice);
+  // C3: the same-request preview omits an unavailable line, which only the retained quote still prices.
+  const unpriced =
+    !snapshot &&
+    session.lines.some(
+      ({ listingId }) => listingId && offerPrice(listingId) === null && previewLinePrice(source, listingId) === null,
+    );
+  return quoteFromPreview(source, offerPrice, unpriced ? await loadRetainedQuote() : null);
+}
+
+function quoteFromPreview(
+  source: CheckoutFulfillmentPreview | null,
+  offerPrice: (listingId: string) => string | null,
+  fallback: CheckoutFulfillmentPreview | null = null,
+): CheckoutUcpQuote | null {
+  if (!source) return null;
+  return {
+    subtotal: source.totals.itemSubtotalAmount,
+    fulfillment: source.totals.shippingAmount,
+    tax: source.totals.salesTaxAmount,
+    total: source.totals.totalAmount,
+    linePrice: (listingId) =>
+      offerPrice(listingId) ?? previewLinePrice(source, listingId) ?? previewLinePrice(fallback, listingId),
+  };
+}
+
+function previewLinePrice(preview: CheckoutFulfillmentPreview | null, listingId: string) {
+  return (
+    preview?.sellerGroups.flatMap((group) => group.lines).find((line) => line.listingId === listingId)
+      ?.estimatedUnitPriceAmount ?? null
+  );
 }
 
 function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {

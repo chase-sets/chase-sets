@@ -173,9 +173,10 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: read
     env:
       BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     needs: [change-scope, static-source]
     if: always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.static_required == 'true'
     steps:
@@ -192,7 +193,10 @@ jobs:
         run: pnpm run verify:metadata
 
       - name: Install provider browser boundary
-        run: bash scripts/provider-object-disposition/browser-boundary/ci-setup.sh
+        env:
+          INSTALLER_TIMEOUT_SECONDS: "600"
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/provider-browser-install-timeout.mjs
 
       - name: Installed-boundary controls
         run: |
@@ -523,10 +527,23 @@ jobs:
           OPERATOR_EVIDENCE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
           OPERATOR_EVIDENCE_JOB_INDEX: ${{ strategy.job-index }}
           CHASE_SETS_BROWSER_E2E_SYSTEM: production
+          RENDERED_COPY_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+          RENDERED_COPY_JOB_INDEX: ${{ strategy.job-index }}
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: |
           set -o pipefail
           pnpm run test:e2e:suite "${{ matrix.suite_batch }}" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
+
+      - name: Upload rendered-copy observation part
+        id: rendered-copy-part-upload
+        if: ${{ github.event_name == 'pull_request' && matrix.suite_batch == 'rendered_copy' && steps.e2e-producer.outputs.rendered-copy-part != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.e2e-producer.outputs.rendered-copy-part }}
+          path: .artifacts/rendered-copy-parts/${{ steps.e2e-producer.outputs.rendered-copy-part }}/part.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Prepare sanitized operator extension evidence
         id: operator-evidence
@@ -593,8 +610,15 @@ jobs:
     name: Docker Image Build
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
     needs: change-scope
     if: needs['change-scope'].outputs.docker_image_required == 'true'
+    outputs:
+      image_digest: ${{ steps.push.outputs.image_digest }}
+      image_pushed: ${{ steps.push.outputs.image_pushed }}
     env:
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
@@ -696,6 +720,7 @@ jobs:
           boot_smoke public-web "@chase-sets/app-public-web" / 18081
 
       - name: Push boot-smoked merge-group image
+        id: push
         if: github.event_name == 'merge_group' && env.DIGITALOCEAN_REGISTRY_TOKEN != ''
         env:
           DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -712,9 +737,117 @@ jobs:
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${tree_tag}"
           docker tag "$PLATFORM_IMAGE" "$image"
-          docker push "$image"
-          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          push_output="${RUNNER_TEMP}/merge-qualification-image-push.txt"
+          docker push "$image" | tee "$push_output"
+          digest="$(sed -n 's/^.*digest: \(sha256:[0-9a-f]\{64\}\).*$/\1/p' "$push_output" | tail -n 1)"
+          if ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "Docker push did not emit an immutable sha256 digest." >&2
+            exit 1
+          fi
+          registry_digest="$(docker buildx imagetools inspect "${image%:*}@${digest}" --format '{{.Manifest.Digest}}')"
+          if [ "$registry_digest" != "$digest" ]; then
+            echo "Registry verification returned ${registry_digest}, not the pushed digest." >&2
+            exit 1
+          fi
+          {
+            echo "image_digest=${digest}"
+            echo "image_pushed=true"
+          } >> "$GITHUB_OUTPUT"
           echo "Pushed boot-smoked merge-group image ${image}@${digest}"
+
+      - name: Checkout trusted merge qualification authority
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .qualification-authority
+          persist-credentials: false
+
+      - name: Evaluate trusted merge qualification policy
+        id: qualification_policy
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        working-directory: .qualification-authority
+        run: |
+          node ./scripts/merge-qualification.mjs policy \
+            --policy ./scripts/merge-qualification-policy.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Record exact merge qualification candidate image
+        id: candidate_record
+        if: github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILT_IMAGE_DIGEST: ${{ steps.push.outputs.image_digest }}
+          MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
+        working-directory: .qualification-authority
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics"
+          run_metadata="$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics/run.json"
+          merge_queue_snapshot="$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics/merge-queue-snapshot.json"
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" > "$run_metadata"
+          candidate_sha="$(jq -r '.head_sha' "$run_metadata")"
+          candidate_tree="$(jq -r '.head_commit.tree_id' "$run_metadata")"
+          test "$candidate_sha" = "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          test "$candidate_tree" = "$(git -C "$GITHUB_WORKSPACE" rev-parse 'HEAD^{tree}')"
+          queue_branch="${MERGE_GROUP_BASE_REF#refs/heads/}"
+          query="$(cat <<'GRAPHQL'
+          query($owner: String!, $name: String!, $branch: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { entries(first: 100) { totalCount nodes { position state solo enqueuedAt headCommit { oid } baseCommit { oid } pullRequest { number headRefOid } } } } } }
+          GRAPHQL
+          )"
+          gh api graphql \
+            -f owner="${GITHUB_REPOSITORY%/*}" \
+            -f name="${GITHUB_REPOSITORY#*/}" \
+            -f branch="$queue_branch" \
+            -f query="$query" \
+            > "$merge_queue_snapshot"
+          node ./scripts/merge-qualification.mjs candidate-evidence \
+            --repository "${{ github.repository }}" \
+            --run-metadata "$run_metadata" \
+            --merge-queue-snapshot "$merge_queue_snapshot" \
+            --queue-base-sha "${{ github.event.merge_group.base_sha }}" \
+            --built-image-digest "$BUILT_IMAGE_DIGEST" \
+            --out "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/candidate.json"
+
+      - name: Upload exact merge qualification candidate image
+        if: github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true' && steps.candidate_record.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification-candidate/candidate.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload candidate capture diagnostics
+        if: always() && github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-candidate-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification-candidate/diagnostics/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Dispatch merge qualification producer
+        if: github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true' && steps.candidate_record.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run platform-merge-qualification.yml \
+            --ref "${{ github.event.repository.default_branch }}" \
+            -f producer_run_id="${{ github.run_id }}" \
+            -f producer_run_attempt="${{ github.run_attempt }}" \
+            -f candidate_sha="${{ github.event.merge_group.head_sha }}" \
+            -f candidate_tree="$(git rev-parse 'HEAD^{tree}')" \
+            -f base_sha="${{ github.event.merge_group.base_sha }}"
 
       - name: Report skipped merge-group image push
         env:
@@ -1454,7 +1587,6 @@ jobs:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
           EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
           EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
-          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
           DEPLOYMENT_ENVIRONMENT: preview
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -1849,6 +1981,9 @@ jobs:
     timeout-minutes: 10
     continue-on-error: true
     if: github.event_name == 'merge_group'
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Record job start for the Actions-minutes wager
         id: clock

@@ -7,6 +7,10 @@ import {
   type ReviewOpportunity,
 } from "../request-support/reputation-api-client";
 import { ReviewSubmissionPage } from "../../features/reviews/ui/review-submission-page";
+import {
+  authoredTextRecoveryFromApiError,
+  type AuthoredTextRecovery,
+} from "../../features/reviews/ui/authored-text-recovery";
 
 type ReviewSubmissionActionData = Readonly<{
   error: string;
@@ -14,6 +18,7 @@ type ReviewSubmissionActionData = Readonly<{
     rating: number;
     feedback: string;
   }>;
+  recovery?: AuthoredTextRecovery;
 }>;
 
 type ReviewSubmissionLoaderData = Readonly<{
@@ -112,12 +117,14 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
         throw new Response(config.notFoundMessage, { status: 404 });
       }
 
+      const recovery = error instanceof ReputationApiError ? authoredTextRecoveryFromApiError(error.body) : null;
       return {
-        error: error instanceof Error ? error.message : "Review could not be submitted.",
+        error: recovery?.message ?? (error instanceof Error ? error.message : "Review could not be submitted."),
         values: {
           rating,
           feedback,
         },
+        ...(recovery ? { recovery } : {}),
       } satisfies ReviewSubmissionActionData;
     }
   };
@@ -139,6 +146,7 @@ export function ReviewSubmissionRoute({ config }: { config: ReviewSubmissionRout
       backHref={config.buildBackHref(data.opportunity.order_id)}
       opportunity={data.opportunity}
       errorMessage={actionData?.error ?? null}
+      feedbackRecovery={actionData?.recovery ?? null}
       isSubmitting={navigation.state === "submitting"}
       defaultRating={actionData?.values?.rating ?? 5}
       defaultFeedback={actionData?.values?.feedback ?? ""}

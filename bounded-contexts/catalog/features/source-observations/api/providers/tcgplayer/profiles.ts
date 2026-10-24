@@ -6,7 +6,7 @@ export const tcgplayerAutomationClientProviderProfile = {
   providerKey: "tcgplayer",
   displayName: "TCGplayer Pokemon Single Cards",
   status: "active",
-  capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+  capabilities: ["source-observation-import", "external-reference-extraction"],
   supportedScopes: ["product-line/category", "set-name", "product", "sku"],
   languageOptions: ["en"],
   optionQueries: [
@@ -102,38 +102,6 @@ export const tcgplayerAutomationClientProviderProfile = {
       commit: "bf42aa8",
     },
     sourceContractDocument: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
-    authentication: {
-      scheme: "tcgplayer-production-cookie",
-      cookieName: "TCGAuthTicket_Production",
-      userAgentRequired: true,
-    },
-    domains: {
-      search: "mp-search-api.tcgplayer.com",
-      marketplaceApi: "mpapi.tcgplayer.com",
-      infiniteApi: "infinite-api.tcgplayer.com",
-      marketplaceGateway: "mpgateway.tcgplayer.com",
-    },
-    retryStatusCodes: [403, 429, 502, 503, 504],
-    throttling: {
-      strategy: "domain-adaptive",
-      controls: ["request-delay", "cooldown", "max-concurrency", "learned-min-delay"],
-    },
-    catalogFlow: {
-      productLineScope: "product-lines",
-      setScope: "catalog-set-names-by-product-line",
-      productScope: "product-search-by-set",
-      detailScope: "product-detail-with-skus",
-      detectsProductSetReclassification: true,
-    },
-    externalReferencePolicy: {
-      catalogItemReferencePrefix: "product:",
-      productReferencePrefix: "sku:",
-      productConditionIdSource: "sku-product-condition-id",
-    },
-    catalogBoundary: {
-      acceptedEvidence: ["product-id", "sku-id", "product-condition-id", "set-name", "product-line"],
-      excludedEvidence: ["listing-price", "sales-history", "order", "message", "seller-inventory"],
-    },
   },
   normalizedObservationMapping: {
     kind: "pokemon-card",
@@ -374,12 +342,7 @@ export const tcgplayerPokemonSealedProductProviderProfile = {
   ...tcgplayerAutomationClientProviderProfile,
   displayName: "TCGplayer Pokemon Sealed Products",
   status: "active",
-  capabilities: [
-    "provider-option-query",
-    "source-observation-import",
-    "catalog-item-promotion",
-    "external-reference-extraction",
-  ],
+  capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
   normalizedObservationMapping: {
     kind: "pokemon-sealed-product",
     variantRules: [],
@@ -561,12 +524,7 @@ export const tcgplayerMtgSealedProductProviderProfile = {
   ...tcgplayerAutomationClientProviderProfile,
   displayName: "TCGplayer Magic Sealed Products",
   status: "active",
-  capabilities: [
-    "provider-option-query",
-    "source-observation-import",
-    "catalog-item-promotion",
-    "external-reference-extraction",
-  ],
+  capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
   normalizedObservationMapping: {
     kind: "magic-sealed-product",
     variantRules: [],

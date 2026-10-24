@@ -101,7 +101,22 @@ export function reconcileIndexedPathRecords(enumerated, staged) {
 }
 
 function readIndexedPaths(root) {
-  const entries = reconcileIndexedPathRecords(git(root, ["ls-files", "-z"]), git(root, ["ls-files", "--stage", "-z"]));
+  const entries = reconcileIndexedPathRecords(
+    execFileSync("git", ["ls-files", "-z"], {
+      cwd: root,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
+    }),
+    execFileSync("git", ["ls-files", "--stage", "-z"], {
+      cwd: root,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
+    }),
+  );
   return entries.map((entry) => {
     const worktreePath = Buffer.concat([Buffer.from(path.resolve(root) + path.sep), entry.pathBytes]);
     if (entry.mode === "100644" || entry.mode === "100755") return { ...entry, bytes: readFileSync(worktreePath) };
@@ -211,7 +226,26 @@ export function withProofClone(candidate, action, log = console.log) {
     git(clone, ["checkout", "--quiet", "--detach", candidate.head]);
     git(clone, ["update-ref", "refs/remotes/origin/main", candidate.base]);
     assert.deepEqual(inspectProofCandidate(clone, clone), { ...candidate, root: realpathSync(clone) });
-    assert.equal(gitText(clone, ["ls-files", "--stage"]), gitText(candidate.root, ["ls-files", "--stage"]));
+    assert.equal(
+      execFileSync("git", ["ls-files", "--stage"], {
+        cwd: clone,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 32 * 1024 * 1024,
+        windowsHide: true,
+      })
+        .toString("utf8")
+        .trim(),
+      execFileSync("git", ["ls-files", "--stage"], {
+        cwd: candidate.root,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 32 * 1024 * 1024,
+        windowsHide: true,
+      })
+        .toString("utf8")
+        .trim(),
+    );
     if (existsSync(path.join(candidate.root, "node_modules")))
       symlinkSync(path.join(candidate.root, "node_modules"), path.join(clone, "node_modules"), "junction");
     return action(clone);

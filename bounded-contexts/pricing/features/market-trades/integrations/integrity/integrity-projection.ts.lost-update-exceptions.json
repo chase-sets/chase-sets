@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exception-7151a90aa65aed07",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_market_trades",
+      "digest": "6e775816419ec531d86d9d391144bf0ef414b8971b1ed7328de36d800d058379"
+    },
+    "classification": "key-only but safe",
+    "reason": "SET uses only the incoming fraud flag and timestamp; excluded state is a WHERE eligibility predicate."
+  },
+  {
+    "id": "exception-12106dd94b92369c",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_market_trades",
+      "digest": "54552aaf923031ce413335d32c288ed3b510c0b19ae224d5f99d261dd7293433"
+    },
+    "classification": "key-only but safe",
+    "reason": "SET uses only the incoming fraud flag and timestamp; excluded state is a WHERE eligibility predicate."
+  },
+  {
+    "id": "exception-2f617418c37e6b26",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_market_trades",
+      "digest": "fe58ca76d853ce16cb0f7c91bcebdd21828745ec88b9c51812242a901b194843"
+    },
+    "classification": "key-only but safe",
+    "reason": "SET uses only linkage-event literals and timestamp; the old linkage membership is tested only in WHERE."
+  },
+  {
+    "id": "exception-cf34dc2919da762d",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_market_trades",
+      "digest": "4b51cd65b604fc88326bde9c499d7836bd19a3ba9096db4c48c74d00d378fee7"
+    },
+    "classification": "key-only but safe",
+    "reason": "SET uses only linkage-event literals and timestamp; the old linkage membership is tested only in WHERE."
+  },
+  {
+    "id": "exception-61ba813fdb706ebd",
+    "binding": {
+      "module": "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts",
+      "kind": "UPDATE",
+      "table": "pricing_market_trades",
+      "digest": "278c3beeeef352c5310235f270e543460284e76950761f0fe5c8b6a84431d889"
+    },
+    "classification": "key-only but safe",
+    "reason": "SET uses only the incoming authenticity fact and timestamp; no stored column is read by its assignment."
+  }
+]

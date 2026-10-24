@@ -1286,11 +1286,13 @@ export function createStripePaymentProcessorGateway(
     init: RequestInit,
     requestOptions: Readonly<{
       idempotencyKey?: string | null;
-      write?: Readonly<{
-        binding: ProviderWriteBinding;
-        window?: ProviderWriteWindow | null;
-        governance?: ProviderCancelGovernance;
-      }>;
+      write?:
+        | Readonly<{
+            binding: ProviderWriteBinding;
+            window?: ProviderWriteWindow | null | undefined;
+            governance?: ProviderCancelGovernance | undefined;
+          }>
+        | undefined;
     }> = {},
   ): Promise<T> {
     const covered =
@@ -2126,8 +2128,9 @@ export function createStripePaymentProcessorGateway(
         }
       }
       if (matches.length !== 1) return null;
-      const refund = matches[0];
+      const [refund] = matches;
       if (
+        refund === undefined ||
         refund.metadata?.payment_id !== input.fundingId ||
         refund.metadata?.refund_id !== input.refundId ||
         refund.metadata?.purpose !== "wallet-funding" ||

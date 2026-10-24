@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -160,15 +161,22 @@ function trackedFiles(rootDir) {
 
 function loadTrackedTypeScriptFiles(rootDir) {
   const files = {};
-  for (const relativeFile of git(rootDir, ["ls-files", "*.ts", "*.tsx"]).split(/\r?\n/).filter(Boolean)) {
+  for (const relativeFile of git(rootDir, ["ls-files", "*.ts", "*.tsx"], { maxBuffer: GIT_LISTING_MAX_BUFFER })
+    .split(/\r?\n/)
+    .filter(Boolean)) {
     files[relativeFile] = readFileSync(path.join(rootDir, relativeFile), "utf8");
   }
   return files;
 }
 
-function git(rootDir, args, { allowFailure = false } = {}) {
+function git(rootDir, args, { allowFailure = false, maxBuffer: _maxBuffer } = {}) {
   try {
-    return execFileSync("git", args, { cwd: rootDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execFileSync("git", args, {
+      cwd: rootDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    }).trim();
   } catch (error) {
     if (allowFailure) return null;
     throw error;

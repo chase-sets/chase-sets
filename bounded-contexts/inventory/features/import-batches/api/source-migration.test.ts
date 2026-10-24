@@ -1,33 +1,78 @@
 import { describe, expect, it } from "vitest";
-import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
 import { contractInventoryImportSources } from "./source-migration";
+import { prepareInventoryImportSnapshot } from "./safe-snapshot";
+
+type Page = readonly [RegExp, readonly Record<string, unknown>[]];
+
+function migrationClient(pages: readonly Page[] = []) {
+  const statements: string[] = [];
+  const served = new Set<Page>();
+  const db: BcSchemaMigrationClient = {
+    query: async <Row>(sql: string) => {
+      statements.push(sql.replace(/\s+/g, " ").trim());
+      const page = pages.find((candidate) => candidate[0].test(sql) && !served.has(candidate));
+      if (page) served.add(page);
+      return { rows: (page?.[1] ?? []) as Row[] };
+    },
+  };
+  return { db, statements };
+}
 
 describe("contractInventoryImportSources", () => {
-  it("does not reacquire the table lock after a clean marked contraction", async () => {
-    const calls: string[] = [];
-    let marked = false;
-    const client: PgPoolClient = {
-      query: async <Row>(sql: string) => {
-        calls.push(sql);
-        if (sql.includes("information_schema.columns")) return { rows: [{ exists: 1 }] } as { rows: Row[] };
-        if (sql.includes("marker_exists"))
-          return { rows: [{ marker_exists: marked, legacy_inputs: false, normalized_jobs: false }] } as { rows: Row[] };
-        if (sql.includes("INSERT INTO bounded_context_schema_migrations")) marked = true;
-        return { rows: [] } as { rows: Row[] };
-      },
-      release: () => undefined,
-    };
-    const pool: PgTransactionalPool = {
-      query: client.query,
-      connect: async () => client,
-    };
+  it("takes every cutover lock before any read and leaves the transaction to the migration runner", async () => {
+    const { db, statements } = migrationClient();
 
-    await contractInventoryImportSources(pool);
-    const secondCallStart = calls.length;
-    await contractInventoryImportSources(pool);
-    const secondCall = calls.slice(secondCallStart);
+    await contractInventoryImportSources(db);
 
-    expect(secondCall.some((sql) => sql.includes("LOCK TABLE"))).toBe(false);
-    expect(secondCall.some((sql) => /^\s*UPDATE\b/i.test(sql))).toBe(false);
+    expect(statements.slice(0, 4)).toEqual([
+      "SELECT pg_advisory_xact_lock(hashtextextended('inventory-import-source-cutover/v1', 0))",
+      "SET LOCAL lock_timeout = '5s'",
+      "LOCK TABLE inventory_import_batch_job_inputs, inventory_import_batches IN ACCESS EXCLUSIVE MODE",
+      "LOCK TABLE inventory_import_batch_jobs, inventory_import_batch_rows, inventory_import_batch_job_events IN SHARE ROW EXCLUSIVE MODE",
+    ]);
+    expect(statements.slice(4).filter((sql) => /\bLOCK\b|lock_timeout|pg_advisory/i.test(sql))).toEqual([]);
+    expect(
+      statements.filter((sql) =>
+        /^(?:BEGIN|COMMIT|ROLLBACK)\b|CONCURRENTLY|information_schema|_source_contracted/i.test(sql),
+      ),
+    ).toEqual([]);
+  });
+
+  it("leaves already-safe retained rows and results unwritten", async () => {
+    // A floor-era TCGplayer row: re-normalizing it through its adapter would blank the derived rowNote.
+    const rawRow = prepareInventoryImportSnapshot({
+      accountId: "acc_safe_synthetic",
+      sourceKey: "tcgplayer-csv",
+      csvText:
+        "TCGplayer Id,Product Line,Set Name,Product Name,Condition,Total Quantity,Add to Quantity,TCG Marketplace Price\n" +
+        "9846,Pokemon,Base,Pikachu,Near Mint,3,0,1.50",
+    }).rows[0].rawRow;
+    expect(rawRow.rowNote).toBe("Pikachu | Base | Near Mint");
+    const { db, statements } = migrationClient([
+      [
+        /FROM inventory_import_batch_rows AS row/,
+        [
+          {
+            row_id: "imr_safe_synthetic",
+            account_id: "acc_safe_synthetic",
+            source_key: "tcgplayer-csv",
+            row_number: 2,
+            raw_row: rawRow,
+          },
+        ],
+      ],
+      [
+        /SELECT job_id, result/,
+        [
+          { job_id: "job_safe_synthetic", result: { source_key: "tcgplayer-csv", raw_row: rawRow } },
+          { job_id: "job_unset_synthetic", result: null },
+        ],
+      ],
+    ]);
+
+    await contractInventoryImportSources(db);
+
+    expect(statements.filter((sql) => sql.startsWith("UPDATE"))).toEqual([]);
   });
 });

@@ -2,6 +2,17 @@ export { createCheckoutRequestApiClient } from "./support/request-support/api-cl
 export { createCheckoutInventoryReservationAuthority } from "./features/sessions/api/inventory-reservation-authority";
 export type { CheckoutSessionRow } from "./support/request-support/api-client";
 export { ACCOUNT_CART_ADD_LINE_HANDOFF } from "./support/request-support/account-cart-handoffs";
+export {
+  checkoutCartAttemptCommitSource,
+  submitCheckoutCartAttempt,
+  type CheckoutCartAttemptSubmission,
+} from "./features/command-attempts/api/attempt-submission";
+export {
+  CHECKOUT_CART_ATTEMPT_CART_TARGET,
+  isCheckoutCommandAttemptId,
+  mintCheckoutCommandAttemptId,
+  type CheckoutCommandAttemptResolvedState,
+} from "./features/command-attempts/api/contracts";
 export { ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF } from "./support/request-support/account-sell-list-handoffs";
 export { createCheckoutUcpHandlers } from "./support/ucp-support/checkout";
 export {

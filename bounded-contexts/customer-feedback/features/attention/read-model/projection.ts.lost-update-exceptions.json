@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exception-0dc191345ccfdb77",
+    "binding": {
+      "module": "bounded-contexts/customer-feedback/features/attention/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "customer_feedback_case_attention",
+      "digest": "b565f5ff637635db7607ae9cce60c9ff8ac56fa4b8e6d0f73811f05b2cf8a0a4"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/customer-feedback/features/attention/read-model/projection.ts:92 directly synchronizes customer_feedback_case_attention from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-11fbf311395290c1",
+    "binding": {
+      "module": "bounded-contexts/customer-feedback/features/attention/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "customer_feedback_attention_digest_runs",
+      "digest": "667f1e6bbb78b1f2940b193e52462d126c93d9260a76f35d9ccb1654e94e5ace"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/customer-feedback/features/attention/read-model/projection.ts:131 directly synchronizes customer_feedback_attention_digest_runs from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-19eb7052ae505129",
+    "binding": {
+      "module": "bounded-contexts/customer-feedback/features/attention/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "customer_feedback_case_attention",
+      "digest": "06ef1c051be302d22a30adf12d39fec2e83452526e5c97b0a5943be13205cbf8"
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/customer-feedback/features/attention/read-model/projection.ts:145 directly synchronizes customer_feedback_case_attention from an incoming projection or command fact; no prior row state decides this write."
+  }
+]

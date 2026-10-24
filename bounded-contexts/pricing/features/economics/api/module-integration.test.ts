@@ -62,19 +62,13 @@ function compilePricingHostPortBoundary(pool: Parameters<typeof pricingModule.cr
   pricingModule.createServices(pool);
   // @ts-expect-error Commercial Terms cannot be omitted while the Channel reader is mounted.
   pricingModule.createServices(pool, {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     channelConnectionIdentityReader: syntheticChannelConnectionIdentityReader,
   });
   // @ts-expect-error The Channel reader cannot be omitted while Commercial Terms is mounted.
   pricingModule.createServices(pool, {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver: failingCommercialTermsResolver,
   });
   const completePorts: Parameters<typeof pricingModule.createServices>[1] = {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver: failingCommercialTermsResolver,
     channelConnectionIdentityReader: syntheticChannelConnectionIdentityReader,
   };
@@ -104,8 +98,6 @@ describe("Pricing Economics bounded-context integration", () => {
       ).toThrow("Pricing Economics requires Commercial Terms and Channel Connection host ports.");
       expect(() =>
         createPricingServices({} as never, {
-          tcgplayerMarketTransport: { kind: "not-mounted" },
-          tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
           commercialTermsResolver: commercialTermsResolver as never,
           channelConnectionIdentityReader: syntheticChannelConnectionIdentityReader,
         }),
@@ -127,8 +119,6 @@ describe("Pricing Economics bounded-context integration", () => {
       ).toThrow("Pricing Economics requires Commercial Terms and Channel Connection host ports.");
       expect(() =>
         createPricingServices({} as never, {
-          tcgplayerMarketTransport: { kind: "not-mounted" },
-          tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
           commercialTermsResolver: failingCommercialTermsResolver,
           channelConnectionIdentityReader: channelConnectionIdentityReader as never,
         }),
@@ -263,8 +253,6 @@ describe("Pricing Economics bounded-context integration", () => {
       shippingAllowancePercentageBps: 1_000,
     });
     const services = createPricingServices(pricingPool, {
-      tcgplayerMarketTransport: { kind: "not-mounted" },
-      tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
       commercialTermsResolver,
       channelConnectionIdentityReader,
     });

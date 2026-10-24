@@ -311,13 +311,16 @@ const ygojsonBaseProviderProfile = {
       {
         ruleKey: "yugioh-product-line",
         typeKey: "product-line",
-        recordId: { kind: "provider", typeKey: "product-line", providerValuePaths: ["productLineName"] },
-        key: { kind: "static", value: "yu-gi-oh" },
-        name: { kind: "static", value: "Yu-Gi-Oh!" },
-        description: { kind: "static", value: "Yu-Gi-Oh trading card game." },
+        recordId: {
+          kind: "static",
+          referenceRecordId: catalogSeedIds.referenceRecords.productLines.yuGiOhOfficialCardGame,
+        },
+        key: { kind: "static", value: "yu-gi-oh-official-card-game" },
+        name: { kind: "static", value: "Yu-Gi-Oh! Official Card Game" },
+        description: { kind: "static", value: "The Yu-Gi-Oh! Official Card Game product line." },
         attributes: [
-          { attributeKey: "official-name", value: { kind: "static", value: "Yu-Gi-Oh!" } },
-          { attributeKey: "short-name", value: { kind: "static", value: "YGO" } },
+          { attributeKey: "official-name", value: { kind: "static", value: "Yu-Gi-Oh! Official Card Game" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "Yu-Gi-Oh!" } },
           { attributeKey: "ygojson-product-line", value: { kind: "static", value: "yugioh" } },
         ],
       },
@@ -366,7 +369,10 @@ const ygojsonBaseProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
-export const ygojsonYugiohSetReferenceProviderProfile = ygojsonBaseProviderProfile;
+export const ygojsonYugiohSetReferenceProviderProfile = {
+  ...ygojsonBaseProviderProfile,
+  capabilities: [...ygojsonBaseProviderProfile.capabilities, "reference-data-promotion"],
+} as const satisfies CatalogProviderIntegrationProfile;
 
 export const ygojsonYugiohSealedProductReferenceProviderProfile = {
   ...ygojsonBaseProviderProfile,

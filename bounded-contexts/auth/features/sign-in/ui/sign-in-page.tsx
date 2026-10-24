@@ -16,6 +16,7 @@ import {
   ValidationSummary,
   type SegmentedControlItem,
 } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import type { FormEvent } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import {
@@ -112,8 +113,10 @@ export function SignInPage(
       allowManualMagicLinkTokenEntry?: boolean;
       socialLoginDescription?: string;
       socialLoginLinks?: readonly SocialLoginLink[];
+      submissionMode?: "document" | "router";
     }>,
 ) {
+  const submissionMode = props.submissionMode ?? "document";
   const signInMethods = props.signInMethods ?? DEFAULT_SIGN_IN_METHODS;
   const initialIdentifier = identifierFromNotice(props.notice) || props.initialIdentifier?.trim() || "";
   const initialIdentifierKind = initialIdentifier ? detectIdentifierKind(initialIdentifier) : null;
@@ -256,6 +259,7 @@ export function SignInPage(
       : feedback.notice?.status === "phone-code-sent"
         ? t("auth.features.signIn.ui.signInPage.phone.code.ready.check.your.phone")
         : null;
+  const phoneCodeTokenId = props.notice?.status === "phone-code-sent" ? props.notice.tokenId : "";
 
   return (
     <Stack gap={4}>
@@ -390,23 +394,43 @@ export function SignInPage(
 
       {hasIdentifier && identifierKind === "email" && method === "password" && signInMethods.includes("password") ? (
         <Card elevation="elevated">
-          <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
-            <Stack gap={3}>
-              <HiddenFields fields={props.hiddenFields} />
-              <HiddenInput type="hidden" name="intent" value="password" readOnly />
-              <HiddenInput type="hidden" name="email" value={identifier} readOnly />
-              <PasswordInput
-                id={passwordId}
-                label={t("auth.features.signIn.ui.signInPage.password.2")}
-                name="password"
-                autoComplete="current-password"
-                required
-              />
-              <Button type="submit" leadingIcon="lock">
-                {t("auth.features.signIn.ui.signInPage.sign.in.2")}
-              </Button>
-            </Stack>
-          </Form>
+          {submissionMode === "router" ? (
+            <RouterForm spacing="none" action={props.action} method="post">
+              <Stack gap={3}>
+                <HiddenFields fields={props.hiddenFields} />
+                <HiddenInput type="hidden" name="intent" value="password" readOnly />
+                <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                <PasswordInput
+                  id={passwordId}
+                  label={t("auth.features.signIn.ui.signInPage.password.2")}
+                  name="password"
+                  autoComplete="current-password"
+                  required
+                />
+                <Button type="submit" leadingIcon="lock">
+                  {t("auth.features.signIn.ui.signInPage.sign.in.2")}
+                </Button>
+              </Stack>
+            </RouterForm>
+          ) : (
+            <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
+              <Stack gap={3}>
+                <HiddenFields fields={props.hiddenFields} />
+                <HiddenInput type="hidden" name="intent" value="password" readOnly />
+                <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                <PasswordInput
+                  id={passwordId}
+                  label={t("auth.features.signIn.ui.signInPage.password.2")}
+                  name="password"
+                  autoComplete="current-password"
+                  required
+                />
+                <Button type="submit" leadingIcon="lock">
+                  {t("auth.features.signIn.ui.signInPage.sign.in.2")}
+                </Button>
+              </Stack>
+            </Form>
+          )}
         </Card>
       ) : null}
 
@@ -416,40 +440,70 @@ export function SignInPage(
       signInMethods.includes("phone-code") ? (
         <Card elevation="elevated">
           <Stack gap={4}>
-            <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
-              <Stack gap={3}>
-                <HiddenFields fields={props.hiddenFields} />
-                <HiddenInput type="hidden" name="intent" value="phone-code-request" readOnly />
-                <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
-                <Button id={methodButtonId} type="submit" leadingIcon="message">
-                  {t("auth.features.signIn.ui.signInPage.send.phone.code")}
-                </Button>
-              </Stack>
-            </Form>
-            <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
-              <Stack gap={3}>
-                <HiddenFields fields={props.hiddenFields} />
-                <HiddenInput type="hidden" name="intent" value="phone-code-consume" readOnly />
-                <HiddenInput
-                  type="hidden"
-                  name="tokenId"
-                  value={props.notice?.status === "phone-code-sent" ? props.notice.tokenId : ""}
-                  readOnly
-                />
-                <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
-                <TextInput
-                  id={codeId}
-                  label={t("auth.features.signIn.ui.signInPage.phone.code.2")}
-                  name="code"
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  required
-                />
-                <Button type="submit" tone="secondary">
-                  {t("auth.features.signIn.ui.signInPage.continue.with.code")}
-                </Button>
-              </Stack>
-            </Form>
+            {submissionMode === "router" ? (
+              <RouterForm spacing="none" action={props.action} method="post">
+                <Stack gap={3}>
+                  <HiddenFields fields={props.hiddenFields} />
+                  <HiddenInput type="hidden" name="intent" value="phone-code-request" readOnly />
+                  <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
+                  <Button id={methodButtonId} type="submit" leadingIcon="message">
+                    {t("auth.features.signIn.ui.signInPage.send.phone.code")}
+                  </Button>
+                </Stack>
+              </RouterForm>
+            ) : (
+              <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
+                <Stack gap={3}>
+                  <HiddenFields fields={props.hiddenFields} />
+                  <HiddenInput type="hidden" name="intent" value="phone-code-request" readOnly />
+                  <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
+                  <Button id={methodButtonId} type="submit" leadingIcon="message">
+                    {t("auth.features.signIn.ui.signInPage.send.phone.code")}
+                  </Button>
+                </Stack>
+              </Form>
+            )}
+            {submissionMode === "router" ? (
+              <RouterForm spacing="none" action={props.action} method="post">
+                <Stack gap={3}>
+                  <HiddenFields fields={props.hiddenFields} />
+                  <HiddenInput type="hidden" name="intent" value="phone-code-consume" readOnly />
+                  <HiddenInput type="hidden" name="tokenId" value={phoneCodeTokenId} readOnly />
+                  <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
+                  <TextInput
+                    id={codeId}
+                    label={t("auth.features.signIn.ui.signInPage.phone.code.2")}
+                    name="code"
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    required
+                  />
+                  <Button type="submit" tone="secondary">
+                    {t("auth.features.signIn.ui.signInPage.continue.with.code")}
+                  </Button>
+                </Stack>
+              </RouterForm>
+            ) : (
+              <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
+                <Stack gap={3}>
+                  <HiddenFields fields={props.hiddenFields} />
+                  <HiddenInput type="hidden" name="intent" value="phone-code-consume" readOnly />
+                  <HiddenInput type="hidden" name="tokenId" value={phoneCodeTokenId} readOnly />
+                  <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
+                  <TextInput
+                    id={codeId}
+                    label={t("auth.features.signIn.ui.signInPage.phone.code.2")}
+                    name="code"
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    required
+                  />
+                  <Button type="submit" tone="secondary">
+                    {t("auth.features.signIn.ui.signInPage.continue.with.code")}
+                  </Button>
+                </Stack>
+              </Form>
+            )}
           </Stack>
         </Card>
       ) : null}
@@ -463,33 +517,65 @@ export function SignInPage(
             <Text size="sm" tone="secondary">
               {t("auth.features.signIn.ui.signInPage.magic.link.description")}
             </Text>
-            <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
-              <Stack gap={3}>
-                <HiddenFields fields={props.hiddenFields} />
-                <HiddenInput type="hidden" name="intent" value="magic-link-request" readOnly />
-                <HiddenInput type="hidden" name="email" value={identifier} readOnly />
-                <Button id={methodButtonId} type="submit" leadingIcon="mail">
-                  {t("auth.features.signIn.ui.signInPage.send.magic.link")}
-                </Button>
-              </Stack>
-            </Form>
-            {props.allowManualMagicLinkTokenEntry ? (
+            {submissionMode === "router" ? (
+              <RouterForm spacing="none" action={props.action} method="post">
+                <Stack gap={3}>
+                  <HiddenFields fields={props.hiddenFields} />
+                  <HiddenInput type="hidden" name="intent" value="magic-link-request" readOnly />
+                  <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                  <Button id={methodButtonId} type="submit" leadingIcon="mail">
+                    {t("auth.features.signIn.ui.signInPage.send.magic.link")}
+                  </Button>
+                </Stack>
+              </RouterForm>
+            ) : (
               <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
                 <Stack gap={3}>
                   <HiddenFields fields={props.hiddenFields} />
-                  <HiddenInput type="hidden" name="intent" value="magic-link-consume" readOnly />
+                  <HiddenInput type="hidden" name="intent" value="magic-link-request" readOnly />
                   <HiddenInput type="hidden" name="email" value={identifier} readOnly />
-                  <TextInput
-                    id={tokenId}
-                    label={t("auth.features.signIn.ui.signInPage.magic.link.token")}
-                    name="token"
-                    required
-                  />
-                  <Button type="submit" tone="secondary">
-                    {t("auth.features.signIn.ui.signInPage.continue.with.token")}
+                  <Button id={methodButtonId} type="submit" leadingIcon="mail">
+                    {t("auth.features.signIn.ui.signInPage.send.magic.link")}
                   </Button>
                 </Stack>
               </Form>
+            )}
+            {props.allowManualMagicLinkTokenEntry ? (
+              submissionMode === "router" ? (
+                <RouterForm spacing="none" action={props.action} method="post">
+                  <Stack gap={3}>
+                    <HiddenFields fields={props.hiddenFields} />
+                    <HiddenInput type="hidden" name="intent" value="magic-link-consume" readOnly />
+                    <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                    <TextInput
+                      id={tokenId}
+                      label={t("auth.features.signIn.ui.signInPage.magic.link.token")}
+                      name="token"
+                      required
+                    />
+                    <Button type="submit" tone="secondary">
+                      {t("auth.features.signIn.ui.signInPage.continue.with.token")}
+                    </Button>
+                  </Stack>
+                </RouterForm>
+              ) : (
+                <Form spacing="none" action={props.action} method="post" onSubmit={handleServerSubmit}>
+                  <Stack gap={3}>
+                    <HiddenFields fields={props.hiddenFields} />
+                    <HiddenInput type="hidden" name="intent" value="magic-link-consume" readOnly />
+                    <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                    <TextInput
+                      id={tokenId}
+                      label={t("auth.features.signIn.ui.signInPage.magic.link.token")}
+                      name="token"
+                      required
+                    />
+                    <Button type="submit" tone="secondary">
+                      {t("auth.features.signIn.ui.signInPage.continue.with.token")}
+                    </Button>
+                  </Stack>
+                </Form>
+              )
             ) : null}
           </Stack>
         </Card>
@@ -497,27 +583,63 @@ export function SignInPage(
 
       {hasIdentifier && identifierKind === "email" && method === "passkey" && signInMethods.includes("passkey") ? (
         <Card elevation="elevated">
-          <Form spacing="none" ref={passkeyFormRef} action={props.action} method="post" onSubmit={handlePasskeySubmit}>
-            <Stack gap={3}>
-              <HiddenFields fields={props.hiddenFields} />
-              <HiddenInput type="hidden" name="intent" value="passkey-sign-in" readOnly />
-              <PasskeyHiddenFields payload={passkeyPayload} />
-              <HiddenInput type="hidden" name="email" value={identifier} readOnly />
-              {passkeyError ? (
-                <Banner
-                  id={warningId}
-                  tabIndex={-1}
-                  title={t("auth.features.signIn.ui.signInPage.passkey.unavailable")}
-                  description={passkeyError}
-                  tone="warning"
-                  role="alert"
-                />
-              ) : null}
-              <Button id={methodButtonId} type="submit" leadingIcon="shield" loading={passkeyLoading}>
-                {t("auth.features.signIn.ui.signInPage.use.passkey")}
-              </Button>
-            </Stack>
-          </Form>
+          {submissionMode === "router" ? (
+            <RouterForm
+              spacing="none"
+              ref={passkeyFormRef}
+              action={props.action}
+              method="post"
+              onSubmit={handlePasskeySubmit}
+            >
+              <Stack gap={3}>
+                <HiddenFields fields={props.hiddenFields} />
+                <HiddenInput type="hidden" name="intent" value="passkey-sign-in" readOnly />
+                <PasskeyHiddenFields payload={passkeyPayload} />
+                <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                {passkeyError ? (
+                  <Banner
+                    id={warningId}
+                    tabIndex={-1}
+                    title={t("auth.features.signIn.ui.signInPage.passkey.unavailable")}
+                    description={passkeyError}
+                    tone="warning"
+                    role="alert"
+                  />
+                ) : null}
+                <Button id={methodButtonId} type="submit" leadingIcon="shield" loading={passkeyLoading}>
+                  {t("auth.features.signIn.ui.signInPage.use.passkey")}
+                </Button>
+              </Stack>
+            </RouterForm>
+          ) : (
+            <Form
+              spacing="none"
+              ref={passkeyFormRef}
+              action={props.action}
+              method="post"
+              onSubmit={handlePasskeySubmit}
+            >
+              <Stack gap={3}>
+                <HiddenFields fields={props.hiddenFields} />
+                <HiddenInput type="hidden" name="intent" value="passkey-sign-in" readOnly />
+                <PasskeyHiddenFields payload={passkeyPayload} />
+                <HiddenInput type="hidden" name="email" value={identifier} readOnly />
+                {passkeyError ? (
+                  <Banner
+                    id={warningId}
+                    tabIndex={-1}
+                    title={t("auth.features.signIn.ui.signInPage.passkey.unavailable")}
+                    description={passkeyError}
+                    tone="warning"
+                    role="alert"
+                  />
+                ) : null}
+                <Button id={methodButtonId} type="submit" leadingIcon="shield" loading={passkeyLoading}>
+                  {t("auth.features.signIn.ui.signInPage.use.passkey")}
+                </Button>
+              </Stack>
+            </Form>
+          )}
         </Card>
       ) : null}
     </Stack>

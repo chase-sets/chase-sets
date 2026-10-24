@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,15 @@ const rootSecretNames = ["SPACES_ACCESS_ID", "SPACES_SECRET_KEY", "DIGITALOCEAN_
 const constrainedStackSize = 68;
 const largePaddingFileCount = 12_000;
 const smallPaddingFileCount = 64;
+const probeUses = "synthetic/authority-probe@v1";
+const lifecycleProbePath = "lifecycle/probe.mjs";
+const lifecycleStep = { name: "Lifecycle probe", run: `node ./${lifecycleProbePath}` };
+const benignLifecycleSource = 'export const target = "postgresqx://lifecycle.invalid/db";\n';
+const materialLifecycleSource = 'export const target = "postgresql://lifecycle.invalid/db";\n';
+const longerMaterialLifecycleSource = 'export const target = "postgresql://lifecycle.invalid/database";\n';
+const pinnedLifecycleTime = new Date("2001-02-03T04:05:06.000Z");
+const producerActionSource =
+  "name: Export managed Postgres authority\ninputs:\n  environment:\n    required: true\n  contexts:\n    required: false\n  connection-mode:\n    required: false\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: node ./scripts/terraform-state-database-urls.mjs\n";
 
 afterEach(async () => {
   await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -411,6 +420,289 @@ process.stderr.write(${JSON.stringify(`${spreadOverflowMarker}\n`)});
     expect(result.exitCode).toBe(1);
     expect(codes(result.report)).toContain("uses-kind-unknown");
   });
+
+  it("discovers each workflow and action manifest once at nested, hidden, ignored, generated, untracked and mixed-case paths", async () => {
+    const root = await createFixture({
+      files: {
+        ".gitignore": "ignored-capabilities/\n",
+        ".github/workflows/deep/er/nest/nested-probe.yml": probeWorkflowSource(),
+        ".github/workflows/action.yml": probeWorkflowSource(),
+        ".github/workflows/upper-extension.YML": probeWorkflowSource(),
+        ".github/workflows/notes.txt": "not a workflow\n",
+        ".hidden-capabilities/probe/action.yaml": probeActionSource(),
+        "ignored-capabilities/probe/action.yml": probeActionSource(),
+        "generated/dist/probe/Action.YML": probeActionSource(),
+        "untracked/probe/ACTION.yaml": probeActionSource(),
+        "excluded/node_modules/probe/action.yml": probeActionSource(),
+        "excluded/.pnpm/probe/action.yml": probeActionSource(),
+        "decoys/probe/action.yml.disabled": probeActionSource(),
+        "decoys/probe/composite-action.yml": probeActionSource(),
+        "decoys/action.yml/README.md": "a directory named like a manifest\n",
+      },
+    });
+    await write(join(root, ".git/capabilities/action.yml"), probeActionSource());
+    await symlink(join(root, ".hidden-capabilities"), join(root, "linked-capabilities"), "junction");
+
+    const result = await runGuard(root);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.report).toEqual(
+      baseFixtureReport({
+        workflowFileCount: 3,
+        actionManifestFileCount: 5,
+        totalYamlFileCount: 8,
+        scannedYamlFileCount: 8,
+        yamlCoverage: "8/8",
+        violations: [
+          probeViolation(".github/workflows/action.yml", "probe"),
+          probeViolation(".github/workflows/deep/er/nest/nested-probe.yml", "probe"),
+          probeViolation(".hidden-capabilities/probe/action.yaml", "action"),
+          probeViolation("generated/dist/probe/Action.YML", "action"),
+          probeViolation("ignored-capabilities/probe/action.yml", "action"),
+          probeViolation("untracked/probe/ACTION.yaml", "action"),
+        ],
+      }),
+    );
+  });
+
+  it("discovers a workflows root that root traversal reaches only through a link", async () => {
+    const root = await createFixture();
+    await rename(join(root, ".github/workflows"), join(root, "linked-workflows-target"));
+    await symlink(join(root, "linked-workflows-target"), join(root, ".github/workflows"), "junction");
+
+    const result = await runGuard(root);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.report).toEqual(baseFixtureReport());
+  });
+
+  describe("fresh input reads across invocations", () => {
+    let root;
+    let probe;
+    let initial;
+
+    beforeAll(async () => {
+      root = await createFixture({
+        registerForCleanup: false,
+        additionalSteps: [lifecycleStep],
+        files: { [lifecycleProbePath]: benignLifecycleSource },
+      });
+      probe = join(root, lifecycleProbePath);
+      await restoreLifecycleProbe(probe);
+      initial = await runGuard(root);
+    });
+
+    afterAll(async () => {
+      if (root) {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("starts from the exact clean report", () => {
+      expect(initial.exitCode).toBe(0);
+      expect(initial.report).toEqual(baseFixtureReport({ scannedExecutableSurfaceCount: 4 }));
+    });
+
+    it("re-reads a changed executable", async () => {
+      await writeFile(probe, longerMaterialLifecycleSource, "utf8");
+      const changed = await runGuard(root);
+      await restoreLifecycleProbe(probe);
+
+      expect(changed.exitCode).toBe(1);
+      expect(changed.report).toEqual({
+        ...initial.report,
+        violations: [lifecycleViolation("connection-material", lifecycleProbePath)],
+      });
+      expect(changed.stdout).not.toContain("postgresql://");
+    });
+
+    it("re-reads a same-length change that keeps size and modification time", async () => {
+      const before = await stat(probe);
+      await writeFile(probe, materialLifecycleSource, "utf8");
+      await utimes(probe, pinnedLifecycleTime, pinnedLifecycleTime);
+      const after = await stat(probe);
+      const changed = await runGuard(root);
+      await restoreLifecycleProbe(probe);
+
+      expect([after.size, after.mtimeMs]).toEqual([before.size, before.mtimeMs]);
+      expect(changed.exitCode).toBe(1);
+      expect(changed.report).toEqual({
+        ...initial.report,
+        violations: [lifecycleViolation("connection-material", lifecycleProbePath)],
+      });
+    });
+
+    it("reports a deleted executable as missing", async () => {
+      await rm(probe);
+      const deleted = await runGuard(root);
+      await restoreLifecycleProbe(probe);
+
+      expect(deleted.exitCode).toBe(1);
+      expect(deleted.report).toEqual({
+        ...initial.report,
+        scannedExecutableSurfaceCount: 3,
+        violations: [lifecycleViolation("referenced-executable-missing", arbitraryWorkflowPath)],
+      });
+    });
+
+    it("discovers an added action manifest", async () => {
+      const addedAction = "lifecycle/added-capability/action.yml";
+      await write(join(root, addedAction), probeActionSource());
+      const added = await runGuard(root);
+      await rm(join(root, addedAction));
+
+      expect(added.exitCode).toBe(1);
+      expect(added.report).toEqual({
+        ...initial.report,
+        actionManifestFileCount: 2,
+        totalYamlFileCount: 3,
+        scannedYamlFileCount: 3,
+        yamlCoverage: "3/3",
+        violations: [probeViolation(addedAction, "action")],
+      });
+    });
+
+    it("returns the exact initial result once every input is restored", async () => {
+      const restored = await runGuard(root);
+
+      expect(restored).toEqual(initial);
+    });
+  });
+
+  it("fails closed for each malformed or unbounded YAML input without exposing its contents", async () => {
+    const root = await createFixture({
+      files: {
+        ".github/workflows/alias-flood.yml": `anchor: &shared [1]\nflood: [${Array.from({ length: 101 }, () => "*shared").join(", ")}]\n`,
+        ".github/workflows/broken-syntax.yml": "name: [unterminated-private-token",
+        ".github/workflows/duplicate-keys.yml": "name: first\nname: second\n",
+        ".github/workflows/empty.yml": "",
+        ".github/workflows/scalar.yaml": "scalar-private-token\n",
+        ".github/workflows/zz-valid-probe.yml": probeWorkflowSource(),
+        ".hidden-capabilities/list/action.yaml": "- list-private-token\n- second\n",
+      },
+    });
+
+    const result = await runGuard(root);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.report).toEqual(
+      baseFixtureReport({
+        workflowFileCount: 2,
+        totalYamlFileCount: 9,
+        scannedYamlFileCount: 3,
+        yamlCoverage: "3/9",
+        violations: [
+          { code: "authority-source-invalid", file: ".github/authority" },
+          probeViolation(".github/workflows/zz-valid-probe.yml", "probe"),
+          ...[
+            ".github/workflows/alias-flood.yml",
+            ".github/workflows/broken-syntax.yml",
+            ".github/workflows/duplicate-keys.yml",
+            ".github/workflows/empty.yml",
+            ".github/workflows/scalar.yaml",
+            ".hidden-capabilities/list/action.yaml",
+          ].map((file) => ({ code: "yaml-parse-failed", file })),
+        ],
+      }),
+    );
+    for (const privateValue of ["private-token", "*shared"]) {
+      expect(result.stdout).not.toContain(privateValue);
+    }
+  });
+
+  it.each([
+    {
+      copies: 1,
+      exitCode: 1,
+      counts: { manifestedIngressCount: 4, manifestGrantCount: 4, ingressCoverage: "4/5" },
+      code: "unmanifested-secret-ingress",
+    },
+    { copies: 2, exitCode: 0, counts: { manifestedIngressCount: 5, manifestGrantCount: 5, ingressCoverage: "5/5" } },
+    {
+      copies: 3,
+      exitCode: 1,
+      counts: { manifestedIngressCount: 5, manifestGrantCount: 6, ingressCoverage: "5/5" },
+      code: "manifest-entry-unmatched",
+    },
+  ])(
+    "reconciles $copies repeated grant copies against two identical ingress occurrences",
+    async ({ copies, exitCode, counts, code }) => {
+      const stepAnchor = "name:Repeated grant#3";
+      const root = await createFixture({
+        additionalSteps: [
+          {
+            name: "Repeated grant",
+            env: {
+              FIRST_COPY: "${{ secrets.REPEATED_PRIVATE_SECRET }}",
+              SECOND_COPY: "${{ secrets.REPEATED_PRIVATE_SECRET }}",
+            },
+            run: 'echo "redacted"',
+          },
+        ],
+        extraGrants: Array.from({ length: copies }, () => grant({ stepAnchor, secretName: "REPEATED_PRIVATE_SECRET" })),
+      });
+
+      const result = await runGuard(root);
+
+      expect(result.exitCode).toBe(exitCode);
+      expect(result.report).toEqual(
+        baseFixtureReport({
+          totalIngressCount: 5,
+          ...counts,
+          scannedExecutableSurfaceCount: 3,
+          violations: code ? [{ code, file: arbitraryWorkflowPath, jobId: "probe", stepAnchor }] : [],
+        }),
+      );
+      expect(result.stdout).not.toContain("REPEATED_PRIVATE_SECRET");
+    },
+  );
+
+  it("keeps missing-descendant findings for every parent and producer context of shared executables", async () => {
+    const root = await createFixture({
+      additionalSteps: [
+        { name: "First consumer", run: "node ./shared/entry.mjs" },
+        { name: "Second consumer", run: "node ./shared/entry.mjs" },
+        { name: "Repeated consumer", run: "node ./shared/entry.mjs && node ./shared/entry.mjs" },
+        { name: "Producer reuse", run: "node ./scripts/terraform-state-database-urls.mjs" },
+      ],
+      files: {
+        [canonicalActionPath]: producerActionSource,
+        "scripts/terraform-state-database-urls.mjs": 'import "./absent-producer-helper.mjs";\n',
+        "shared/entry.mjs":
+          'import { helper } from "./middle.mjs";\nawait import("./absent-entry-helper.mjs");\nhelper();\n',
+        "shared/middle.mjs": 'export { helper } from "./absent-middle-helper.mjs";\n',
+        "shared/present-main.mjs": 'import "./absent-main-helper.mjs";\n',
+        "node-actions/alpha/action.yml": nodeActionSource("../../shared/absent-main.mjs"),
+        "node-actions/beta/action.yml": nodeActionSource("../../shared/absent-main.mjs"),
+        "node-actions/delta/action.yml": nodeActionSource("../../shared/present-main.mjs"),
+        "node-actions/gamma/action.yml": nodeActionSource("../../shared/present-main.mjs"),
+      },
+    });
+
+    const result = await runGuard(root);
+
+    const consumers = ["name:First consumer#3", "name:Repeated consumer#5", "name:Second consumer#4"];
+    const missing = (file, jobId, stepAnchor) => ({ code: "referenced-executable-missing", file, jobId, stepAnchor });
+    expect(result.exitCode).toBe(1);
+    expect(result.report).toEqual(
+      baseFixtureReport({
+        actionManifestFileCount: 5,
+        totalYamlFileCount: 6,
+        scannedYamlFileCount: 6,
+        yamlCoverage: "6/6",
+        scannedExecutableSurfaceCount: 10,
+        violations: [
+          missing("node-actions/alpha/action.yml", "action", "action"),
+          missing("node-actions/beta/action.yml", "action", "action"),
+          missing("scripts/terraform-state-database-urls.mjs", "action", "step:1"),
+          missing("scripts/terraform-state-database-urls.mjs", "probe", "name:Producer reuse#6"),
+          ...consumers.map((stepAnchor) => missing("shared/entry.mjs", "probe", stepAnchor)),
+          ...consumers.map((stepAnchor) => missing("shared/middle.mjs", "probe", stepAnchor)),
+          missing("shared/present-main.mjs", "action", "action"),
+        ],
+      }),
+    );
+  });
 });
 
 async function createFixture(options = {}) {
@@ -606,6 +898,51 @@ async function runGuard(root, options = {}) {
       report: JSON.parse(error.stdout ?? "{}"),
     };
   }
+}
+
+function baseFixtureReport(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    workflowFileCount: 1,
+    actionManifestFileCount: 1,
+    totalYamlFileCount: 2,
+    scannedYamlFileCount: 2,
+    yamlCoverage: "2/2",
+    totalIngressCount: 3,
+    manifestedIngressCount: 3,
+    manifestGrantCount: 3,
+    ingressCoverage: "3/3",
+    boundaryConsumerCount: 1,
+    boundaryConsumers: [{ file: arbitraryWorkflowPath, jobId: "probe", stepAnchor: `uses:${canonicalActionTarget}` }],
+    scannedExecutableSurfaceCount: 2,
+    violations: [],
+    ...overrides,
+  };
+}
+
+function probeWorkflowSource() {
+  return workflowSource([{ name: "Probe", uses: probeUses }]);
+}
+
+function probeActionSource() {
+  return `${JSON.stringify({ name: "Synthetic authority probe", runs: { using: "composite", steps: [{ uses: probeUses }] } })}\n`;
+}
+
+function probeViolation(file, jobId) {
+  return { code: "uses-kind-unknown", file, jobId, stepAnchor: `uses:${probeUses}` };
+}
+
+function lifecycleViolation(code, file) {
+  return { code, file, jobId: "probe", stepAnchor: "name:Lifecycle probe#3" };
+}
+
+async function restoreLifecycleProbe(probe) {
+  await writeFile(probe, benignLifecycleSource, "utf8");
+  await utimes(probe, pinnedLifecycleTime, pinnedLifecycleTime);
+}
+
+function nodeActionSource(main) {
+  return `name: node action\nruns:\n  using: node20\n  main: ${main}\n`;
 }
 
 function codes(report) {

@@ -44,6 +44,7 @@ import type {
 } from "./contracts";
 import { EvidenceReadinessChecklist } from "./listing-evidence-readiness";
 import { trackListingEvidenceEvent } from "./listing-evidence-analytics";
+import { AuthoredTextGuidance } from "../../reviews/ui/authored-text-guidance";
 
 const CATALOG_SUGGESTION_API_URL = "/api/marketplace/items/suggest";
 const CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
@@ -835,6 +836,7 @@ export function MarketplaceListingCreatePage({
                   },
                 ]}
               />
+              <AuthoredTextGuidance />
               <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "center" }} gap={2}>
                 <Button
                   type="submit"
