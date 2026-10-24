@@ -5,7 +5,11 @@ import type { CatalogValue } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { seedContext, sendSeedCommand } from "../../../support/seed-support/context";
-import { loadSeedAggregateState, loadSeedStreamEvents } from "../../../support/seed-support/aggregate-state";
+import {
+  loadSeedAggregateState,
+  loadSeedStreamEvents,
+  type SeedAggregateState,
+} from "../../../support/seed-support/aggregate-state";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import {
   evolveReferenceRecord,
@@ -110,6 +114,7 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
     attributeKeys: [
       "abbreviation",
       "card-count",
+      "language-editions",
       "parallel-set-card-count",
       "printed-card-count",
       "release-date",
@@ -661,7 +666,7 @@ async function reconcileReferenceRecord(services: CatalogServices, def: Referenc
     await createReferenceRecord(services, def);
     return;
   }
-  await correctSupersededAttributes(services, def, streamId, aggregate.state, aggregate.events.length);
+  await reconcileExistingReferenceRecord(services, def, streamId, aggregate);
   if (aggregate.kind === "draft") {
     await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
       type: "PublishReferenceRecord",
@@ -669,20 +674,29 @@ async function reconcileReferenceRecord(services: CatalogServices, def: Referenc
   }
 }
 
-async function correctSupersededAttributes(
+/**
+ * Adds missing seed keys and corrects exact superseded values in one fenced
+ * revision, keeping every other value the record already holds, including an
+ * operator edit. The narrow exception is an attribute explicitly declared as
+ * superseded: it is replaced only while it still has that exact old value.
+ */
+async function reconcileExistingReferenceRecord(
   services: CatalogServices,
   def: ReferenceRecordDef,
   streamId: string,
-  state: ReferenceRecordState,
-  expectedVersion: number,
+  aggregate: SeedAggregateState<ReferenceRecordState, ReferenceRecordEvent>,
 ): Promise<void> {
+  const { state } = aggregate;
   const corrected = Object.entries(def.supersededAttributes ?? {}).flatMap(([attributeKey, supersededValue]) => {
     const value = def.attributes?.[attributeKey];
     return value !== undefined && state.attributes[attributeKey] === supersededValue
       ? [[attributeKey, value] as const]
       : [];
   });
-  if (corrected.length === 0) {
+  const missing = Object.entries(def.attributes ?? {}).filter(
+    ([attributeKey]) => !Object.hasOwn(state.attributes, attributeKey),
+  );
+  if (corrected.length === 0 && missing.length === 0) {
     return;
   }
 
@@ -694,11 +708,11 @@ async function correctSupersededAttributes(
       key: def.key,
       name: state.name ?? localizedTextMapFromEnglish(def.name),
       description: state.description,
-      attributes: { ...state.attributes, ...Object.fromEntries(corrected) },
+      attributes: { ...state.attributes, ...Object.fromEntries(missing), ...Object.fromEntries(corrected) },
       relationships: state.relationships,
     },
     context: seedContext,
-    expectedVersion,
+    expectedVersion: aggregate.events.length,
   });
 }
 
@@ -806,6 +820,7 @@ async function retireDuplicateReferenceRecord(
   });
 }
 
+/** A seeded Pokemon expansion is the English edition of its product. */
 function expansion(
   key: string,
   name: string,
@@ -820,7 +835,7 @@ function expansion(
     key,
     name,
     description: `${name} Pokemon TCG expansion.`,
-    attributes,
+    attributes: { ...attributes, "language-editions": ["en"] },
     relationships: [{ relationshipType: "part-of", referenceId: seriesId }],
     ...(supersededAttributes ? { supersededAttributes } : {}),
   };

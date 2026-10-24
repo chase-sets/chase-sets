@@ -67,13 +67,13 @@ const staleTcgdexSetIds: Readonly<Record<string, string>> = {
 };
 /** SHA-256 of each seeded expansion's sorted attributes once its English TCGdex id is exact. */
 const correctedAttributeDigests = {
-  "base-set": "98a5a2410a2bae1a8e0724a7df7d9cc20be65f799e1878c6834e0d0af4f3f8a0",
-  jungle: "1414fc1bcf6c5612e33d0076d1924bf6d0d1f896f6424180f0e440b328c1b392",
-  "neo-genesis": "13dcd234b9a5eb9060c3a636bf30b7c2b788cb5e0638481fb72ef24bba1f2b6b",
-  "wizards-black-star-promos": "0f3bb5674a9c559f328b1e90131cde51e5f4726b1c890cd7ba9d02a856a2082b",
-  "prismatic-evolutions": "e7876d7a8c123eb6d627975c47e68c1299a5f2c2269ad1fa3096344146bdc870",
-  "surging-sparks": "33989d8e068e56866c6cccdc7eb4a060266735602b0a18c75ac514e658b6b127",
-  "twilight-masquerade": "3b434402dd1f64290a7d329f98caece6bb7fa05ff276441f77da20a25c1d00bb",
+  "base-set": "dc19084c9ebfd0f4b83f7243930c4aa3544b1c23d83929dc1bfc394fdce1678f",
+  jungle: "8186d9d25f08320c7b1cbcdf6caeca5276483760722cc1ace132fa0f7e41bec0",
+  "neo-genesis": "4ad20b7f287a7c673f5290540359bfe9fb21479d10ca5080dc6cd5ce79be25ae",
+  "wizards-black-star-promos": "bca0ac1ac5c674ec809074a9cb74f3e4f9acbfe21c1a4effa432db2734c88900",
+  "prismatic-evolutions": "98dda5dea4ec2852ffb2d6314c15db89783e64470976916db34e8bc651016d4e",
+  "surging-sparks": "6cbab639671875fde4b04b4fb3ceefdea51068ae56789063502dd83acb7bb099",
+  "twilight-masquerade": "aff3fe70860e45645b50eca42cff24853e453ccb676996d40a6c5711e01a2c1b",
 } as const;
 const duplicateId = "ref_tcgdex_expansion_sv08" as ReferenceRecordId;
 const canonicalId = expansionIds.surgingSparks as ReferenceRecordId;

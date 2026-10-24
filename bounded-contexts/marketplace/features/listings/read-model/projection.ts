@@ -3,6 +3,7 @@ import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
 import contextManifest from "../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createMarketplaceListingPatch } from "../../../support/realtime-support/projection-patches";
@@ -35,13 +36,13 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     price_amount: string;
     price_currency_code: string | null;
     listing_stream_version: number | null;
-    marketplace_sales_fee_unit_amount: string;
-    seller_net_unit_amount: string;
+    marketplace_sales_fee_unit_amount: string | null;
+    seller_net_unit_amount: string | null;
     shipping_allowance_percentage_bps: number;
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
     terms_resolved_at: string | null;
-    fee_quote_fingerprint: string;
+    fee_quote_fingerprint: string | null;
     fee_locks: unknown;
     quantity_cap: number;
     max_units_per_order: number | null;
@@ -147,41 +148,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
   };
   return {
     "marketplace.listing.created": async (event) => {
-      const data = event.data as {
-        listingId: string;
-        accountId: string;
-        inventoryItemId: string;
-        catalogItemId: string;
-        productId: string;
-        itemTitle: string | null;
-        itemSubtitle: string | null;
-        itemLanguageCode?: string | null;
-        selectedOptions: unknown;
-        productSummary: string | null;
-        productMeasureSnapshot?: unknown;
-        gradedCard: unknown;
-        storageLocationName: string | null;
-        shipFromCode: string | null;
-        shipFromAddress: unknown;
-        priceAmount: string;
-        priceCurrencyCode?: string | null;
-        marketplaceSalesFeeUnitAmount: string;
-        sellerNetUnitAmount: string;
-        shippingAllowancePercentageBps?: number;
-        termsScheduleId: string | null;
-        termsAgreementId: string | null;
-        termsResolvedAt: string | null;
-        feeQuoteFingerprint: string;
-        feeLocks: unknown;
-        quantityCap: number;
-        purchaseLimits?: {
-          maxUnitsPerOrder: number | null;
-          maxUnitsPerDay: number | null;
-          maxUnitsPerCustomerAccount: number | null;
-        };
-        evidenceRequirements?: unknown;
-        evidence?: unknown;
-      };
+      const data = event.data as ChaseSetsEventPayloads["marketplace.listing.created"];
 
       await db.query(
         `INSERT INTO marketplace_listing_pages (
@@ -285,7 +252,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
-          data.feeQuoteFingerprint,
+          data.feeQuoteFingerprint ?? null,
           JSON.stringify(Array.isArray(data.feeLocks) ? data.feeLocks : []),
           data.quantityCap,
           data.purchaseLimits?.maxUnitsPerOrder ?? null,

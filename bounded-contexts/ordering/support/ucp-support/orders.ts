@@ -2,6 +2,7 @@ import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtim
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import type { OrderingServices } from "../runtime-support/services";
 import type { OrderingOrderDetailRow, OrderingOrderListRow } from "../../features/orders/read-model/queries";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 
@@ -155,6 +156,21 @@ function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | 
     extensions: {
       chase_sets: listOrderExtension(row, perspective),
     },
+  };
+}
+
+/** Build the UCP 2026-08-25 Order resource without changing the legacy handler payload. */
+export function orderUcpResource(row: OrderingOrderDetailRow, perspective: "purchase" | "sale", request: Request) {
+  const resource = orderToUcpOrder(row, perspective);
+  return {
+    ...resource,
+    permalink_url: new URL(resource.permalink_url, resolvePublicRequestOrigin(request)).href,
+    line_items: resource.line_items.map((line) => ({
+      ...line,
+      ...(row.status === "cancelled" ? { quantity: { original: line.quantity.total, total: 0, fulfilled: 0 } } : {}),
+      status: line.status === "cancelled" ? "removed" : line.status === "fulfilled" ? "fulfilled" : "processing",
+    })),
+    adjustments: resource.adjustments.map((adjustment) => ({ ...adjustment, status: "completed" as const })),
   };
 }
 

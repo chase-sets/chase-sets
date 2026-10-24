@@ -1,19 +1,18 @@
 {
   "schema": "db-enrollment-workload/v1",
   "capture": {
-    "fileName": "bootstrap-db-capture-39208562697.json",
-    "fixtureSha256": "30da03aaf60d08835a72c3ea79fad9b9a642708ecef157365deb19ab6e0e157d",
-    "runId": "39208562697",
-    "checkoutSha": "3fdb7a4fdc6236ddd14fc287bfeb677c790dcdc3",
-    "sourceBase": "b6fd1b599d82dfb7fc020503d26fe4a9bca3abb9",
-    "captureParent": "b6fd1b599d82dfb7fc020503d26fe4a9bca3abb9"
+    "fileName": "bootstrap-db-capture-39950765563.json",
+    "fixtureSha256": "069b80a17b12282d4c76a8fee3b6f52b29f69d286b7a62911e2d98e370ff8687",
+    "runId": "39950765563",
+    "checkoutSha": "a8c2312af4c0d8844655bdf700658e67da71bf96",
+    "sourceBase": "dfd8d09fb0a1bb621ed3353bf7a9c2dc610df888",
+    "captureParent": "dfd8d09fb0a1bb621ed3353bf7a9c2dc610df888"
   },
   "source": {
-    "commit": "b6fd1b599d82dfb7fc020503d26fe4a9bca3abb9",
-    "ref": "refs/pull/10075/head"
+    "commit": "dfd8d09fb0a1bb621ed3353bf7a9c2dc610df888"
   },
   "selectorsSha256": "bcf6348282ba58d198791e0ef64aa71b3f2c961837a3fadc8ded98610bdf4da0",
-  "bindingsSha256": "d080e18a4862be217aa16d09ee1750fad37feb3a7f7830f7e369be8db9938ea1",
+  "bindingsSha256": "1c992d4590bdcb6731d8ff2748ad4b7e652e81da019921729f0386a73f9d4c28",
   "bindings": [
     [
       "W1 case identities",
@@ -43,7 +42,7 @@
       [
         {
           "name": "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
-          "identity": "309fc59ff41d9ee4"
+          "identity": "1b443164687508bd"
         },
         {
           "name": "enumerates stream-sourced seed-state coverage from the runtime mount list",
@@ -179,7 +178,7 @@
       [
         {
           "name": "reconciles all required aggregates for a clean scenario-seed-only module seed",
-          "identity": "f78d626bdd98a1c4"
+          "identity": "c749fe673131aada"
         },
         {
           "name": "does not re-author unchanged Product Measures facts on scenario-seed repeat",
@@ -347,91 +346,23 @@
     ],
     [
       "W1 case identities",
-      "deployables/platform-api/__tests__/operator-session/operator-extension-route-contract.db.test.ts",
-      [
-        {
-          "name": "stored 1 -> Disconnect cleared 2 -> NEW grant stale 2 -> fresh cookie stored 3; unpair preserves custody",
-          "identity": "67cb0c1de031423a"
-        }
-      ]
-    ],
-    [
-      "W1 case identities",
-      "deployables/platform-api/__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
-      [
-        {
-          "name": "Disconnect returns a stale clear without retry and keeps its acknowledged revoke",
-          "identity": "a9489449a64511f8"
-        },
-        {
-          "name": "%s renews exactly from DB time only after COMMIT acknowledgement",
-          "identity": "2f67f112bf012169"
-        },
-        {
-          "name": "two apps serialize %s through a paused custody write",
-          "identity": "634e8d52eb3bd173"
-        },
-        {
-          "name": "kills the SAME paused accept backend before another app revokes; no late write or leaked slot",
-          "identity": "0fcaf678a1e3984e"
-        },
-        {
-          "name": "lost COMMIT acknowledgement discriminates both durable outcomes for %s",
-          "identity": "79f1a0be42cdeead"
-        },
-        {
-          "name": "Disconnect %s failure preserves its asymmetric commit contract",
-          "identity": "55e80da6627768e8"
-        }
-      ]
-    ],
-    [
-      "W1 case identities",
       "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
       [
         {
-          "name": "upgrades the registered v1 grant schema with retained rows=%s",
-          "identity": "561077a966da44ee"
-        },
-        {
-          "name": "mints for Identity-shaped user and membership ids with an idle expiry",
-          "identity": "99671143509a030d"
-        },
-        {
-          "name": "warns once with only the SQLSTATE and operation while returning a custody 503",
-          "identity": "84f17a6c0115c60b"
+          "name": "mints a hash-only grant for an Identity-shaped actor",
+          "identity": "9a3ebed97918a57e"
         },
         {
           "name": "refuses %s without minting",
-          "identity": "6efc29b77133c562"
+          "identity": "36f6d2edde893ee6"
         },
         {
-          "name": "enforces the exact ten-minute/future boundary at %i ms",
-          "identity": "413177c6476d8f5d"
+          "name": "rejects mutation origins before writes",
+          "identity": "325a736e86f517cf"
         },
         {
-          "name": "rejects mutation Origin/fetch metadata %# without writes",
-          "identity": "65e154573a66ac04"
-        },
-        {
-          "name": "stores only a unique hash with creator identity and DB-time instants",
-          "identity": "20a951543208dbdf"
-        },
-        {
-          "name": "metadata prefers the unrevoked replacement with %s",
-          "identity": "d2dcd2745dcf6f6d"
-        },
-        {
-          "name": "metadata retains inactive historical fallback when every grant is revoked",
-          "identity": "a0a726fa47c45aeb"
-        },
-        {
-          "name": "GET requires platform-admin/catalog.view but not recent authentication",
-          "identity": "f8c704f7354db320"
-        },
-        {
-          "name": "concurrent two-replica mint replaces even an expired unrevoked grant",
-          "identity": "d50131da6ac7cf56"
+          "name": "unpairs a minted grant and keeps the public route idempotently invalid",
+          "identity": "10e3adc3a130e1ac"
         }
       ]
     ],
@@ -440,40 +371,12 @@
       "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
       [
         {
-          "name": "bearer alone authorizes only the two public methods; cookie/actor/query/body never do",
-          "identity": "3c7e8d8d6941fd0b"
+          "name": "bearer authorizes only public unpair and does not expose removed custody routes",
+          "identity": "d8a6ee905783d826"
         },
         {
-          "name": "strict DB expiry never revives and next-day pushes renew only valid grants",
-          "identity": "f709c4b068b1b0d7"
-        },
-        {
-          "name": "closed request refusal %# leaves both tables unchanged",
-          "identity": "8aa0b3ebec0f2544"
-        },
-        {
-          "name": "largest valid, chunked cap+1, wrong media and empty-route body controls use actual bytes",
-          "identity": "2e58ce8def99ab0c"
-        },
-        {
-          "name": "six PUTs per valid id, no renewal at 429, expiry of the replica window restores admission",
-          "identity": "2ae7ff3a47d665de"
-        },
-        {
-          "name": "renewal-first fault control rolls back renewal on %s refusal",
-          "identity": "66ed0c888f5b9383"
-        },
-        {
-          "name": "accept-first %s renewal refusal rolls back real custody",
-          "identity": "fd1d46cf6bca8bb1"
-        },
-        {
-          "name": "missing write key refuses even stale PUT; actual maximum-revision increment refuses without renewal",
-          "identity": "338ca4de472c7f12"
-        },
-        {
-          "name": "endless authenticated and empty-route bodies cancel without durable effects",
-          "identity": "64c4d729efc6edc3"
+          "name": "empty public unpair body and invalid bearer are rejected without durable changes",
+          "identity": "c4eb8104fd9dbdbd"
         }
       ]
     ],
@@ -482,16 +385,8 @@
       "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts",
       [
         {
-          "name": "stored 1, cleared 2, new-grant stale 0, stored 3, replay stale and unchanged preserve the fence",
-          "identity": "0f6ea58c9137db6c"
-        },
-        {
-          "name": "direct same-key delayed %s reaches resume and cannot damage HTTP replacement",
-          "identity": "f5166973b6210276"
-        },
-        {
-          "name": "key-loss clear needs no decrypt and repeated cleared/absent DELETE is inert",
-          "identity": "fe25da22e2aede1f"
+          "name": "mounts metadata, mint, and bearer unpair without a server-side provider session",
+          "identity": "f1b52e662bf81bb3"
         }
       ]
     ],
@@ -552,8 +447,6 @@
         "deployables/platform-api/__tests__/catalog-seed-interruption-resume.db.test.ts",
         "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts",
         "deployables/platform-api/__tests__/inventory-seed-resume.db.test.ts",
-        "deployables/platform-api/__tests__/operator-session/operator-extension-route-contract.db.test.ts",
-        "deployables/platform-api/__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
         "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
         "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
         "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts",
@@ -569,7 +462,7 @@
     [
       "W1 file",
       "deployables/platform-api/__tests__/authoritative-seed-resume-reconciliation.db.test.ts",
-      "860f607a29270dacb631db0bafb5b85ed0c2c18c8de120d536bf11780b51b8f2"
+      "3f5f3bf358034dccbde4006c48f797a3510dac28793a55125df2113c13e63ad8"
     ],
     [
       "W1 file",
@@ -599,7 +492,7 @@
     [
       "W1 file",
       "deployables/platform-api/__tests__/catalog-seed-aggregate-state.db.test.ts",
-      "5ed5c6a7f5bb10eb2585d6dfe22ed8a325a18dc56166bbad7e5f2f27586a4b63"
+      "8c09d4db83b39de12df7b5f8b2facccc5e064044a6e66413d2a8141fddd206ff"
     ],
     [
       "W1 file",
@@ -618,28 +511,18 @@
     ],
     [
       "W1 file",
-      "deployables/platform-api/__tests__/operator-session/operator-extension-route-contract.db.test.ts",
-      "48334a8bcca7ee10afd1d5db3c8bb326063dbbc459e0bea20e1560fb3caf4bf7"
-    ],
-    [
-      "W1 file",
-      "deployables/platform-api/__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
-      "82757533ab191b7094e093463e22777eabb494974cd5fd83280ee87858c67837"
-    ],
-    [
-      "W1 file",
       "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
-      "93d5571d8dce54e15607ba01dc996c17bbed184f7d69049f36aef0caa2c12fca"
+      "bce4f240babd850c6f4f642faad6105edbf4f5c6be9a40ce268dd8fdb92a64c4"
     ],
     [
       "W1 file",
       "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
-      "69b1653dc791697231a86674f57939ba8f8d0300cfedf91efdf2ba7127b312cc"
+      "44c71cac0f5319926b00e47d1aee49f7d7fa74d8fbf6971375b1cad316bba59c"
     ],
     [
       "W1 file",
       "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts",
-      "58d699d56dfe7e2869d159c4fd4f0166d72c634cc6e62a7bfe9a0ef01ecf91c0"
+      "497ded24654522b68b484a9c8f5b4d715ec91adad8123abb7ad555046db2a2af"
     ],
     [
       "W1 file",
@@ -655,11 +538,28 @@
       "W1 partition",
       "test:db:1",
       {
-        "command": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/bootstrap-production-reconciliation.db.test.ts __tests__/authoritative-seed-resume-core.db.test.ts __tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/bootstrap-lock-contention.db.test.ts __tests__/connector-mount-gate-isolation.db.test.ts __tests__/seed-command-full-pools.db.test.ts --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
+        "command": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/bootstrap-production-reconciliation.db.test.ts __tests__/authoritative-seed-resume-core.db.test.ts __tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
         "entries": [
           "__tests__/bootstrap-production-reconciliation.db.test.ts",
           "__tests__/authoritative-seed-resume-core.db.test.ts",
-          "__tests__/authoritative-seed-resume-reconciliation.db.test.ts",
+          "__tests__/authoritative-seed-resume-reconciliation.db.test.ts"
+        ],
+        "maxWorkers": 3
+      }
+    ],
+    [
+      "W1 partition",
+      "test:db:2",
+      {
+        "command": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/bootstrap-scenario.db.test.ts __tests__/catalog-seed-aggregate-state.db.test.ts __tests__/operator-session/operator-session-grant-mint.db.test.ts __tests__/operator-session/operator-session-grant-scope.db.test.ts __tests__/operator-session/operator-session-push.db.test.ts __tests__/seed-command-catalog.db.test.ts __tests__/bootstrap-shared-seed-command.db.test.ts __tests__/bootstrap-lock-contention.db.test.ts __tests__/connector-mount-gate-isolation.db.test.ts __tests__/seed-command-full-pools.db.test.ts --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
+        "entries": [
+          "__tests__/bootstrap-scenario.db.test.ts",
+          "__tests__/catalog-seed-aggregate-state.db.test.ts",
+          "__tests__/operator-session/operator-session-grant-mint.db.test.ts",
+          "__tests__/operator-session/operator-session-grant-scope.db.test.ts",
+          "__tests__/operator-session/operator-session-push.db.test.ts",
+          "__tests__/seed-command-catalog.db.test.ts",
+          "__tests__/bootstrap-shared-seed-command.db.test.ts",
           "__tests__/bootstrap-lock-contention.db.test.ts",
           "__tests__/connector-mount-gate-isolation.db.test.ts",
           "__tests__/seed-command-full-pools.db.test.ts"
@@ -669,19 +569,10 @@
     ],
     [
       "W1 partition",
-      "test:db:2",
+      "test:db:3",
       {
-        "command": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/bootstrap-scenario.db.test.ts __tests__/catalog-seed-aggregate-state.db.test.ts __tests__/operator-session/operator-session-grant-mint.db.test.ts __tests__/operator-session/operator-session-grant-lifecycle.db.test.ts __tests__/operator-session/operator-session-grant-scope.db.test.ts __tests__/operator-session/operator-session-push.db.test.ts __tests__/operator-session/operator-extension-route-contract.db.test.ts __tests__/seed-command-catalog.db.test.ts __tests__/bootstrap-shared-seed-command.db.test.ts __tests__/authoritative-seed-resume-recovery.db.test.ts __tests__/inventory-seed-resume.db.test.ts __tests__/catalog-seed-interruption-resume.db.test.ts --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
+        "command": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/authoritative-seed-resume-recovery.db.test.ts __tests__/inventory-seed-resume.db.test.ts __tests__/catalog-seed-interruption-resume.db.test.ts --maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
         "entries": [
-          "__tests__/bootstrap-scenario.db.test.ts",
-          "__tests__/catalog-seed-aggregate-state.db.test.ts",
-          "__tests__/operator-session/operator-session-grant-mint.db.test.ts",
-          "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
-          "__tests__/operator-session/operator-session-grant-scope.db.test.ts",
-          "__tests__/operator-session/operator-session-push.db.test.ts",
-          "__tests__/operator-session/operator-extension-route-contract.db.test.ts",
-          "__tests__/seed-command-catalog.db.test.ts",
-          "__tests__/bootstrap-shared-seed-command.db.test.ts",
           "__tests__/authoritative-seed-resume-recovery.db.test.ts",
           "__tests__/inventory-seed-resume.db.test.ts",
           "__tests__/catalog-seed-interruption-resume.db.test.ts"
@@ -727,7 +618,7 @@
     [
       "W2 file",
       "deployables/platform-api/__tests__/authoritative-seed-resume-test-support.ts",
-      "5364d6c1094bd8f319532cc142ecba15dddb6256cf72121f70637ebf7dd0f101"
+      "8c8a9f4ca8d6292a0722b90651388e8536997ce0e81a0df54b10275cdf02818f"
     ],
     [
       "W2 file",
@@ -747,7 +638,7 @@
     [
       "W2 file",
       "deployables/platform-api/__tests__/operator-session/fixture.ts",
-      "73bf8bf5ef676379b972312cb1b0bcdfee9a5d15fc74e79845bb39703524b4ae"
+      "4896dc6b89cf9e691d13375ef26ab35525f246a4d338d2791a94791e02226dd9"
     ],
     [
       "W2 file",
@@ -812,7 +703,7 @@
     [
       "W3 file",
       "bounded-contexts/catalog/features/reference-data/api/seed.ts",
-      "b5d8204d7cf78e6c3d099272df9ab38e9ab45e19a04a5051277d539d80ad1dcc"
+      "a769bd7da8cbcb1119479474385a135f00e8cf46a620a9a6613b3e47de41c39f"
     ],
     [
       "W3 file",
@@ -882,7 +773,7 @@
     [
       "W3 file",
       "bounded-contexts/catalog/features/source-observations/api/seeding/runtime-test-harness.ts",
-      "9572c0ba3700f9632eae619e9cad2d4ae0beca1760e97c6a696a16e51e56ca06"
+      "29936b40e8f3f055d1b0eebbbeec90a43a29e100ee25f6a8885fd49e2f56b79e"
     ],
     [
       "W3 file",
@@ -1124,7 +1015,7 @@
       "contracts/catalog-seed/fallback-assets.ts",
       "5edc8606d8d48e2ad0ba7e5b4abb0ed143e144ddde036f25f9a85c72effdbc00"
     ],
-    ["W3 file", "contracts/catalog-seed/ids.ts", "bf1a5c94d6a56d5e6a742cf112ae39f3eebb9ba215b8ca20e7d3ab23532810a3"],
+    ["W3 file", "contracts/catalog-seed/ids.ts", "eebdac1d7309d1c3420c200dc50236c7393f0f4e1a716f8c23e3d5fbcd30a651"],
     ["W3 file", "contracts/catalog-seed/index.ts", "a8cb2f454868a9792b6e2c8d6d9175924ff20d2d3736bb4d164b5d96437e6ab1"],
     [
       "W3 file",
@@ -1306,19 +1197,9 @@
           "contextName": "catalog",
           "hostPorts": [
             {
-              "portName": "catalogOperatorSessionConfiguration",
-              "providedBy": "platform-api",
-              "purpose": "Supplies the existing operator custody factory configuration and keyring; Catalog owns grant authority."
-            },
-            {
               "portName": "catalogAssetStorage",
               "providedBy": "platform-api",
               "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
-            },
-            {
-              "portName": "tcgplayerAutomationCatalogClient",
-              "providedBy": "platform-api, platform-worker",
-              "purpose": "Provides Catalog-owned TCGplayer provider option queries and source observation imports with the runtime automation client configured by deployable-owned credentials."
             },
             {
               "portName": "sourceObservationTelemetry",
@@ -1907,16 +1788,6 @@
               "portName": "channelConnectionIdentityReader",
               "providedBy": "channels",
               "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
-            },
-            {
-              "portName": "tcgplayerMarketTransport",
-              "providedBy": "platform-api, platform-worker",
-              "purpose": "Supply Pricing's concrete TCGplayer price-point and market-evidence transport; non-worker hosts mount not-mounted."
-            },
-            {
-              "portName": "tcgplayerMarketCaptureReceiptSink",
-              "providedBy": "platform-api, platform-worker",
-              "purpose": "Retain privacy-safe TCGplayer market-capture receipts whose field summaries are captured before decoding; non-worker hosts mount not-mounted."
             }
           ],
           "seedRequirements": [
@@ -2223,7 +2094,47 @@
         "resolveExtensions": [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
       }
     ],
+    [
+      "W4 unit",
+      "test:db:3",
+      {
+        "allowOnly": false,
+        "clearMocks": false,
+        "dangerouslyIgnoreUnhandledErrors": false,
+        "environment": "node",
+        "exclude": ["**/node_modules/**", "**/.git/**", "**/dist/**"],
+        "execArgv": [],
+        "fakeTimers": {
+          "loopLimit": 10000,
+          "shouldClearNativeTimers": true
+        },
+        "globalSetup": ["scripts/lib/heavy-slot.mjs"],
+        "globals": true,
+        "hookTimeout": 120000,
+        "include": ["__tests__/**/*.test.ts"],
+        "isolate": true,
+        "maxConcurrency": 5,
+        "maxWorkers": 3,
+        "mockReset": false,
+        "pool": "forks",
+        "restoreMocks": false,
+        "sequence": {
+          "sequencer": {
+            "function": "BaseSequencer",
+            "sha256": "8ccd71598e3398a9d045abe634d11729a8ecc1bb66862f3b6808c8a4ac4f4a02"
+          },
+          "groupOrder": 0,
+          "hooks": "stack"
+        },
+        "setupFiles": [],
+        "teardownTimeout": 10000,
+        "testTimeout": 120000,
+        "unstubEnvs": false,
+        "unstubGlobals": false,
+        "resolveExtensions": [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
+      }
+    ],
     ["W5 version", "pg", "8.20.0"],
-    ["W5 version", "vitest", "4.1.5"]
+    ["W5 version", "vitest", "4.1.12"]
   ]
 }
