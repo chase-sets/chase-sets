@@ -1,6 +1,11 @@
 import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
 import type { RepricingDryRun, RepricingDryRunBody } from "../../repricing-engine/api/dry-run";
-import type { RepricingRule, RepricingRuleDirective } from "../../repricing-policies/domain/domain";
+import type {
+  RepricingFloor,
+  RepricingGuardrail,
+  RepricingRule,
+  RepricingRuleDirective,
+} from "../../repricing-policies/domain/domain";
 import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 
 export type GoalChoice = Readonly<{
@@ -44,6 +49,11 @@ export type CandidateMetrics = Readonly<{
   capitalTurn: Readonly<Record<string, number | null>> | null;
   economicsSet: EconomicsSet | null;
   flags: Readonly<Record<string, number>>;
+  /** The exact values shown in the apply confirmation. */
+  parameters?: Readonly<Record<string, number>>;
+  currencyCode?: string | null;
+  floor?: RepricingFloor;
+  guardrails?: readonly RepricingGuardrail[];
 }>;
 
 export type Recommendation = Readonly<{
