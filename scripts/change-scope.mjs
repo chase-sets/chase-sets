@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { batchBrowserE2eSuiteIds, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
+import { batchBrowserE2eSuiteIds, e2eSuites, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
 
@@ -497,26 +497,111 @@ export function listChangedFiles(base, head, options = {}) {
   // first parent is the current base tip, so diffing that parent keeps main's
   // intervening commits out of the PR-owned changed set.
   if (!mergeBase && options.firstParent) {
-    const parents = exec("git", ["rev-list", "--parents", "-n", "1", head], { cwd, encoding: "utf8" })
-      .trim()
-      .split(/\s+/);
+    let parentOutput;
+    try {
+      parentOutput = exec("git", ["rev-list", "--parents", "-n", "1", head], { cwd, encoding: "utf8" });
+    } catch {
+      throw new ScopeDerivationError("synthetic-parent-lookup-failed");
+    }
+    if (typeof parentOutput !== "string" || !parentOutput.trim()) {
+      throw new ScopeDerivationError("synthetic-parent-lookup-empty");
+    }
+    const parents = parentOutput.trim().split(/\s+/);
     mergeBase = parents.length > 2 ? parents[1] : undefined;
   }
-  mergeBase ??= exec("git", ["merge-base", base, head], { cwd, encoding: "utf8" }).trim();
+  if (!mergeBase) {
+    let mergeBaseOutput;
+    try {
+      mergeBaseOutput = exec("git", ["merge-base", base, head], { cwd, encoding: "utf8" });
+    } catch {
+      throw new ScopeDerivationError("merge-base-failed");
+    }
+    if (typeof mergeBaseOutput !== "string" || !mergeBaseOutput.trim()) {
+      throw new ScopeDerivationError("merge-base-empty");
+    }
+    mergeBase = mergeBaseOutput.trim();
+  }
   // `--name-only` on its own collapses a detected rename to its destination
   // path only, which drops the source from the changed-file set and silently
   // unselects every gate keyed on that exact path — renaming a scheduler-owned
   // artifact away would stop requiring the DB profile tests it owns.
   // `--no-renames` reports a move conservatively as a deletion plus an
   // addition, so both sides reach the classifier.
-  const output = exec("git", ["diff", "--no-renames", "--name-only", `${mergeBase}...${head}`], {
-    cwd,
-    encoding: "utf8",
-  });
+  let output;
+  try {
+    output = exec("git", ["diff", "--no-renames", "--name-only", `${mergeBase}...${head}`], {
+      cwd,
+      encoding: "utf8",
+    });
+  } catch {
+    throw new ScopeDerivationError("diff-failed");
+  }
+  if (typeof output !== "string" || !output.trim()) {
+    throw new ScopeDerivationError("diff-empty");
+  }
   return output
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+class ScopeDerivationError extends Error {
+  constructor(reason) {
+    super(reason);
+    this.name = "ScopeDerivationError";
+    this.reason = reason;
+  }
+}
+
+function fullScopeForUnavailableChangeSet(workspaces, reason) {
+  const workspaceNames = workspaces.map((workspace) => workspace.name).sort();
+  return {
+    changedFiles: [],
+    affectedWorkspaces: workspaceNames,
+    runtimeAffectedWorkspaces: workspaceNames,
+    devDependencyTestAffectedWorkspaces: workspaceNames,
+    directlyAffectedWorkspaces: workspaceNames,
+    directlyRuntimeAffectedWorkspaces: workspaceNames,
+    directlyTestOnlyAffectedWorkspaces: workspaceNames,
+    docsOnly: false,
+    localChecksRequired: true,
+    unitTestsRequired: true,
+    dbTestsRequired: true,
+    e2eSuiteIds: orderE2eSuiteIds(e2eSuites.map((suite) => suite.id)),
+    e2eTestsRequired: true,
+    integrationRiskRequired: true,
+    integrationRiskReason: `Scope derivation unavailable; widened to full scope (${reason})`,
+    buildRequired: true,
+    dockerImageRequired: true,
+    terraformRequired: true,
+    workflowLintRequired: true,
+    deployRequired: true,
+    clusterPreviewRequired: true,
+    composeSmokeRequired: true,
+    exposurePostureChanged: true,
+    exposurePostureCategories: Object.keys(exposurePosturePatterns).sort(),
+  };
+}
+
+export function resolveChangeScope(base, head, options = {}) {
+  const workspaces = options.workspaces ?? listWorkspacePackages({ repoRoot: rootDir });
+  const baseDir = options.baseDir ?? rootDir;
+  try {
+    return {
+      scope: classifyChanges({
+        changedFiles: listChangedFiles(base, head, options),
+        workspaces,
+        baseDir,
+      }),
+      fallbackReason: null,
+    };
+  } catch (error) {
+    const reason = error instanceof ScopeDerivationError ? error.reason : "scope-derivation-failed";
+    return {
+      scope: fullScopeForUnavailableChangeSet(workspaces, reason),
+      fallbackReason: reason,
+    };
+  }
 }
 
 function parseArgs(argv) {
@@ -591,11 +676,14 @@ function writeGithubOutputs(outputPath, scope) {
 
 function main() {
   const { command, options } = parseArgs(process.argv.slice(2));
-  const scope = classifyChanges({
-    changedFiles: listChangedFiles(options.base, options.head, { firstParent: options.firstParent }),
+  const { scope, fallbackReason } = resolveChangeScope(options.base, options.head, {
+    firstParent: options.firstParent,
     workspaces: listWorkspacePackages({ repoRoot }),
     baseDir: repoRoot,
   });
+  if (fallbackReason) {
+    console.log(`Change-scope derivation fallback: ${fallbackReason}; widened to full scope.`);
+  }
 
   if (command === "json") {
     console.log(JSON.stringify(scope, null, 2));

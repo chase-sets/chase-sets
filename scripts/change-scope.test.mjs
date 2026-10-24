@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { classifyChanges, listChangedFiles, toGithubOutputMap, toOutputMap } from "./change-scope.mjs";
+import { classifyChanges, listChangedFiles, resolveChangeScope, toGithubOutputMap, toOutputMap } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
@@ -53,6 +53,60 @@ it("uses the synthetic merge commit first parent for a PR's own changed files", 
   }
 });
 
+it.each([
+  ["synthetic-parent-lookup-failed", { firstParent: true, exec: () => { throw new Error("rev-list unavailable"); } }],
+  [
+    "synthetic-parent-lookup-empty",
+    { firstParent: true, exec: () => "" },
+  ],
+  [
+    "merge-base-failed",
+    { exec: (_command, args) => { if (args[0] === "merge-base") throw new Error("merge-base unavailable"); return ""; } },
+  ],
+  [
+    "merge-base-empty",
+    { exec: (_command, args) => (args[0] === "merge-base" ? "" : "") },
+  ],
+  [
+    "diff-failed",
+    {
+      exec: (_command, args) => {
+        if (args[0] === "merge-base") return "abc123\n";
+        throw new Error("diff unavailable");
+      },
+    },
+  ],
+  [
+    "diff-empty",
+    { exec: (_command, args) => (args[0] === "merge-base" ? "abc123\n" : "") },
+  ],
+])("widens to full scope when %s prevents PR-owned change derivation", (reason, fixture) => {
+  const result = resolveChangeScope("base", "head", {
+    ...fixture,
+    execFileSync: fixture.exec,
+    workspaces: [],
+    baseDir: process.cwd(),
+  });
+
+  expect(result.fallbackReason).toBe(reason);
+  expect(result.scope).toMatchObject({
+    changedFiles: [],
+    localChecksRequired: true,
+    unitTestsRequired: true,
+    dbTestsRequired: true,
+    e2eTestsRequired: true,
+    integrationRiskRequired: true,
+    buildRequired: true,
+    dockerImageRequired: true,
+    terraformRequired: true,
+    workflowLintRequired: true,
+    deployRequired: true,
+    clusterPreviewRequired: true,
+    composeSmokeRequired: true,
+  });
+  expect(toOutputMap(result.scope).integration_risk_reason).toContain(reason);
+});
+
 it("enables first-parent scope for both hosted PR merge events", () => {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8");
   expect(workflow).toContain(
@@ -61,6 +115,22 @@ it("enables first-parent scope for both hosted PR merge events", () => {
   expect(workflow).toContain('first_parent="--first-parent"');
   expect(workflow).toContain('github-output --base="${base}" --head="${head}" $first_parent');
 });
+
+async function importChangeScopeVariant(source) {
+  const directory = mkdtempSync(path.join(tmpdir(), "change-scope-mutant-"));
+  for (const specifier of ["./e2e-suites.mjs", "./lib/repo.mjs", "./lib/risk-policy-v1.mjs"]) {
+    const quoted = JSON.stringify(specifier);
+    if (!source.includes(quoted)) throw new Error(`Mutant source no longer imports ${specifier}`);
+    source = source.replace(quoted, JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts", specifier)).href));
+  }
+  const file = path.join(directory, "change-scope.mjs");
+  writeFileSync(file, source);
+  try {
+    return await import(`${pathToFileURL(file).href}?mutant=${Date.now()}-${Math.random()}`);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
 
 describe("rendered-copy real-provider selection corpus", () => {
   it("preserves current-main owning selection for modified, added, deleted and --no-renames paths", async () => {
@@ -2895,18 +2965,36 @@ describe("change-scope", () => {
     ["platform PR preview workflow", ".github/workflows/platform-pr.yml"],
   ];
 
-  it("kills one recorded cluster-preview safety mutant per deploy guard", () => {
-    const mutantTable = clusterPreviewSafetyFixtures.map(([guard, file]) => {
-      const scope = classifyChanges({ changedFiles: [file] });
-      const mutant = { ...scope, clusterPreviewRequired: false, composeSmokeRequired: false };
-      return {
-        guard,
-        file,
-        baseline: scope.clusterPreviewRequired,
-        mutant: mutant.clusterPreviewRequired,
-        killed: scope.clusterPreviewRequired && !mutant.clusterPreviewRequired,
-      };
-    });
+  it("kills one recorded source safety mutant per deploy guard", async () => {
+    const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
+    const predicateMutations = [
+      ["helmChanged", "false ||"],
+      ["previewDeployTerraformChanged", "false ||"],
+      ["dockerChanged", "false ||"],
+      ["clusterPreviewScriptChanged", "false ||"],
+      ["clusterPreviewWorkflowChanged", "false;"],
+    ];
+    const mutantTable = [];
+    const clusterBlockStart = source.indexOf("const clusterPreviewRequired =");
+    const clusterBlockEnd = source.indexOf("const composeSmokeRequired", clusterBlockStart);
+    const clusterBlock = source.slice(clusterBlockStart, clusterBlockEnd);
+    for (const [guard, replacement] of predicateMutations) {
+      const search = guard === "clusterPreviewWorkflowChanged" ? `${guard};` : `${guard} ||`;
+      const mutatedBlock = clusterBlock.replace(search, replacement);
+      const mutatedSource = `${source.slice(0, clusterBlockStart)}${mutatedBlock}${source.slice(clusterBlockEnd)}`;
+      expect(mutatedSource, guard).not.toBe(source);
+      const mutantClassifier = await importChangeScopeVariant(mutatedSource);
+      const file = clusterPreviewSafetyFixtures.find(([fixtureGuard]) => fixtureGuard === {
+        helmChanged: "Helm",
+        previewDeployTerraformChanged: "preview Terraform",
+        dockerChanged: "Dockerfile",
+        clusterPreviewScriptChanged: "deploy script",
+        clusterPreviewWorkflowChanged: "platform PR preview workflow",
+      }[guard])?.[1];
+      const baseline = classifyChanges({ changedFiles: [file] }).clusterPreviewRequired;
+      const mutant = mutantClassifier.classifyChanges({ changedFiles: [file] }).clusterPreviewRequired;
+      mutantTable.push({ guard, file, baseline, mutant, killed: baseline && !mutant });
+    }
 
     expect(mutantTable.every(({ killed }) => killed)).toBe(true);
     console.info("cluster-preview safety mutant table", mutantTable);
