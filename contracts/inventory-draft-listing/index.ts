@@ -96,8 +96,7 @@ export const inventoryDraftListingUnavailableDiagnostics = [
   "receipt-ledger-not-ready",
   "consumer-unbound",
 ] as const;
-export type InventoryDraftListingUnavailableDiagnostic =
-  (typeof inventoryDraftListingUnavailableDiagnostics)[number];
+export type InventoryDraftListingUnavailableDiagnostic = (typeof inventoryDraftListingUnavailableDiagnostics)[number];
 
 export const inventoryDraftListingReceiptSchema = z
   .strictObject({
