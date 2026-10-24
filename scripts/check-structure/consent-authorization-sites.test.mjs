@@ -64,15 +64,6 @@ import {
 } from "./consent-authorization-sites.mjs";
 import { deriveGuardCandidateProvenance } from "./guard-candidate-provenance.mjs";
 import {
-  ConsentAuthorizationEvidenceError,
-  collectConsentAuthorizationEvidenceWorkUnitViolations,
-  consentAuthorizationEvidenceFailureCodes,
-  consentAuthorizationEvidenceWorkUnitCeilings,
-  deriveConsentAuthorizationEvidenceInventory,
-  executeConsentAuthorizationMutationEvidence,
-  mutationEvidenceCases,
-} from "./consent-authorization-mutation-evidence.mjs";
-import {
   compareTypeScriptOwnerContexts,
   deriveTypeScriptOwnerContexts,
   loadTypeScriptOwnerContextArtifact,
@@ -321,7 +312,29 @@ const enumeration = loadConsentAuthorizationCaseEnumeration();
 const enumerationSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-case-enumeration-v1.schema.json`);
 const receiptSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-v1.schema.json`);
 const aggregateSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-aggregate-v1.schema.json`);
-const liveMutationEvidence = await executeConsentAuthorizationMutationEvidence();
+const mutationEvidenceRoot = mkdtempSync(path.join(tmpdir(), "consent-mutation-evidence-"));
+const previousTemporaryEnvironment = new Map(["TEMP", "TMP", "TMPDIR"].map((key) => [key, process.env[key]]));
+for (const key of previousTemporaryEnvironment.keys()) process.env[key] = mutationEvidenceRoot;
+afterAll(() => {
+  try {
+    rmSync(mutationEvidenceRoot, { recursive: true, force: true });
+  } finally {
+    for (const [key, value] of previousTemporaryEnvironment) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+const mutationEvidenceModule = await import("./consent-authorization-mutation-evidence.mjs");
+const liveMutationEvidence = await mutationEvidenceModule.executeConsentAuthorizationMutationEvidence();
+const {
+  ConsentAuthorizationEvidenceError,
+  collectConsentAuthorizationEvidenceWorkUnitViolations,
+  consentAuthorizationEvidenceFailureCodes,
+  consentAuthorizationEvidenceWorkUnitCeilings,
+  deriveConsentAuthorizationEvidenceInventory,
+  mutationEvidenceCases,
+} = mutationEvidenceModule;
 const {
   receipts: liveMutationReceipts,
   aggregate: liveMutationAggregate,
@@ -1024,10 +1037,6 @@ const arbitraryPathResult = buildPlantedSiteEvidence(
   `${fixtureRoot}/reconciliation/unregistered-seventh-with-six-safe.ts`,
 );
 
-afterAll(() => {
-  for (const scratch of retainedScratchRepos) rmSync(scratch, { recursive: true, force: true });
-});
-
 /* -------------------------------------------------------------------------- */
 /* Scripted provenance -- the shipped ordered resolver, never a merge-base call */
 /* -------------------------------------------------------------------------- */
@@ -1420,6 +1429,10 @@ function registerAnalyzerModuleImport(kind, counter = batteryWorkUnits) {
 
 /* Suite                                                                      */
 /* -------------------------------------------------------------------------- */
+
+afterAll(() => {
+  for (const scratch of retainedScratchRepos) rmSync(scratch, { recursive: true, force: true });
+});
 
 describe("Consent authorization sites", () => {
   it("compares no resolved provenance value against a committed sha literal", () => {

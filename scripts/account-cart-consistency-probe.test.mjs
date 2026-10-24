@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   ACCOUNT_CART_PROBE_AUTOMATION_CONTRACT,
   ACCOUNT_CART_PROBE_OUTCOMES,
@@ -14,6 +14,11 @@ import {
 } from "./account-cart-consistency-probe.mjs";
 
 const checkedAt = "2026-06-15T18:10:00.000Z";
+const temporaryDirectories = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 const releaseCommit = "0123456789abcdef0123456789abcdef01234567";
 const passingObservation = {
   strategy: "optimistic-with-correction",
@@ -164,6 +169,7 @@ describe("account cart consistency probe", () => {
 
   it("writes redacted evidence from an observation file", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-account-cart-consistency-probe-"));
+    temporaryDirectories.push(directory);
     const observationFile = join(directory, "observation.json");
     const outFile = join(directory, "evidence.json");
     await writeFile(observationFile, `${JSON.stringify(passingObservation, null, 2)}\n`);
