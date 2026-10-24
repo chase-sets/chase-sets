@@ -189,6 +189,47 @@ describe("merge", () => {
 });
 
 describe("chain", () => {
+  it("coordinate-precedence", () => {
+    expect(
+      scrydexCacheCaptureCoordinate(
+        {
+          mappingId: "synthetic-coordinate-precedence",
+          unitKey: "scrydex:one-piece:set:reference-data",
+          reviewStatus: "accepted",
+          version: startedAt,
+          setId: "explicit-set-id",
+          setName: "ignored-set-name",
+        },
+        "synthetic-scope-one-piece",
+      ),
+    ).toBe("explicit-set-id");
+  });
+
+  it("coordinate-refused", () => {
+    expect(
+      scrydexCacheCaptureCoordinate(
+        {
+          mappingId: "synthetic-coordinate-refused",
+          unitKey: "scrydex:one-piece:set:reference-data",
+          reviewStatus: "accepted",
+          version: startedAt,
+          setId: null,
+          setName: "",
+        },
+        "synthetic-scope-one-piece",
+      ),
+    ).toBeNull();
+  });
+
+  it("red control: non-usage send", () => {
+    const receipt = run({
+      requests: { ...observed().requests, forbidden: 1 },
+      forbiddenCalls: ["provider:POST"],
+    });
+    expect(receipt.outcome).toBe("governed-unknown");
+    expect(receipt.reasons).toContain("forbidden-call");
+  });
+
   it("complete", async () => {
     const calls: string[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
