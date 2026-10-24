@@ -1,5 +1,6 @@
 import {
   createCheckpointReadinessRecorder,
+  collectProjectionOperationRunners,
   createProjectionGroupWorkerRunner,
   createWorkerRunnerLeaseName,
   createWorkerRunnerLoop,
@@ -23,7 +24,7 @@ import {
   encodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPostgresEventStore,
   type PgQueryFunction,
@@ -410,6 +411,136 @@ describe("platform runtime Postgres concurrency guards", () => {
     expect(BigInt(stolen?.fencingToken ?? "0")).toBeGreaterThan(BigInt(firstLease.fencingToken));
     await expect(controlPlane.renewLease(firstLease, 30_000)).resolves.toBe(false);
   });
+
+  it("keeps the scheduled group lease fenced while every operation runner contends", async () => {
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const leaseName = "projection-group:catalog.catalog-scope-registry-projection";
+    const scheduledLease = await controlPlane.acquireLease({
+      leaseName,
+      ownerId: "worker-a",
+      ttlMs: 30_000,
+    });
+    expect(scheduledLease).not.toBeNull();
+    if (!scheduledLease) throw new Error("Scheduled runner did not acquire the group lease.");
+
+    for (const operationRunnerName of ["projection-operations", "projection-operations-2"]) {
+      await expect(
+        controlPlane.acquireLease({
+          leaseName,
+          ownerId: `worker-a:${operationRunnerName}`,
+          ttlMs: 30_000,
+        }),
+      ).resolves.toBeNull();
+    }
+
+    const row = await pools.platform.query<{ owner_id: string; lease_fencing_token: string }>(
+      `SELECT owner_id, lease_fencing_token::text
+       FROM platform_control_leases
+       WHERE lease_name = $1`,
+      [leaseName],
+    );
+    expect(row.rows).toEqual([
+      {
+        owner_id: "worker-a",
+        lease_fencing_token: scheduledLease.fencingToken,
+      },
+    ]);
+  });
+
+  it("keeps an operation group lease fenced while the scheduled runner contends", async () => {
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const leaseName = "projection-group:catalog.catalog-scope-registry-projection";
+    const operationLease = await controlPlane.acquireLease({
+      leaseName,
+      ownerId: "worker-a:projection-operations",
+      ttlMs: 30_000,
+    });
+    expect(operationLease).not.toBeNull();
+    if (!operationLease) throw new Error("Operation runner did not acquire the group lease.");
+
+    await expect(
+      controlPlane.acquireLease({
+        leaseName,
+        ownerId: "worker-a",
+        ttlMs: 30_000,
+      }),
+    ).resolves.toBeNull();
+
+    const row = await pools.platform.query<{ owner_id: string; lease_fencing_token: string }>(
+      `SELECT owner_id, lease_fencing_token::text
+       FROM platform_control_leases
+       WHERE lease_name = $1`,
+      [leaseName],
+    );
+    expect(row.rows).toEqual([
+      {
+        owner_id: operationLease.ownerId,
+        lease_fencing_token: operationLease.fencingToken,
+      },
+    ]);
+  });
+
+  it.each(["rebuild-projection-group", "rebuild-context", "retry-blocked-stream"] as const)(
+    "requeues %s without reset when the scheduled runner holds the group lease",
+    async (operationKind) => {
+      const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+      const projectionName = "catalog-scope-registry-projection";
+      const projectionKey = `${projectionName}:catalog:v1`;
+      const leaseName = `projection-group:catalog.${projectionName}`;
+      const scheduledLease = await controlPlane.acquireLease({
+        leaseName,
+        ownerId: "worker-a",
+        ttlMs: 30_000,
+      });
+      expect(scheduledLease).not.toBeNull();
+      if (!scheduledLease) throw new Error("Scheduled runner did not acquire the group lease.");
+
+      const reset = vi.fn(async () => undefined);
+      const subscriptionRunner = { checkpointKey: projectionKey };
+      const group = {
+        targetContextName: "catalog",
+        projectionName,
+        subscriptionRunners: [subscriptionRunner],
+        reset,
+      };
+      const runtime = {
+        mountedContexts: [],
+        services: {},
+        projectionGroups: [group],
+        subscriptionRunners: [subscriptionRunner],
+      } as never;
+      const operation = await controlPlane.enqueueProjectionOperation({
+        operationKind,
+        contextName: "catalog",
+        ...(operationKind === "rebuild-projection-group" ? { projectionName } : {}),
+        ...(operationKind === "retry-blocked-stream" ? { projectionKey, streamId: "catalog.scope-registry" } : {}),
+      });
+      const [runner] = collectProjectionOperationRunners(runtime, {
+        controlPlane,
+        leaseAcquireTimeoutMs: 0,
+        maxAttempts: 5,
+      });
+
+      await expect(runner.runOnce({ ownerId: "worker-a" })).rejects.toThrow(/lease .* already active/);
+      const persisted = await controlPlane.getProjectionOperation(operation.operationId);
+      expect(persisted?.state).toBe("queued");
+      expect(persisted?.error?.message).toMatch(/lease .* already active/);
+      expect(reset).not.toHaveBeenCalled();
+
+      const row = await pools.platform.query<{ owner_id: string; lease_fencing_token: string }>(
+        `SELECT owner_id, lease_fencing_token::text
+         FROM platform_control_leases
+         WHERE lease_name = $1`,
+        [leaseName],
+      );
+      expect(row.rows).toEqual([
+        {
+          owner_id: scheduledLease.ownerId,
+          lease_fencing_token: scheduledLease.fencingToken,
+        },
+      ]);
+    },
+  );
 
   it("charges projection operation attempts at claim time, backs off reclaims, and quarantines at the cap", async () => {
     const controlPlane = createPostgresPlatformControlPlane(pools.platform);
