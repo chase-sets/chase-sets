@@ -89,7 +89,61 @@ const supplyPreview: orderingServer.CheckoutFulfillmentPreview = {
   optimizationGoal: "lowest-total",
   readyLineKeys: ["lst_synthetic"],
   unavailableLineKeys: [],
-  sellerGroups: [{ lines: [{ listingId: "lst_synthetic", estimatedUnitPriceAmount: "20.00" }] }],
+  sellerGroups: [
+    {
+      sellerAccountId: "seller_synthetic",
+      sellerDisplayName: null,
+      itemSubtotalAmount: "20.00",
+      shippingChargeAmount: "0.00",
+      salesTaxAmount: "0.00",
+      totalAmount: "20.00",
+      postageRequirements: {
+        policyVersion: "synthetic",
+        parcelRequired: false,
+        parcelReasons: [],
+        signatureRequired: false,
+        signatureReasons: [],
+        insuranceRequired: false,
+        insuranceReasons: [],
+        insuredValueAmount: null,
+        shippingEvidenceTier: "synthetic",
+      },
+      deliveryEstimate: {
+        earliestDate: "2026-10-17",
+        latestDate: "2026-10-20",
+        minimumTransitDays: 1,
+        maximumTransitDays: 3,
+        handlingDays: 1,
+        packageCount: 1,
+        shipFromRegion: "US-IL",
+        serviceLevel: "standard",
+        promiseOwner: "fulfillment",
+        promiseSource: "fulfillment-promise-policy",
+        promiseConfidence: "estimated",
+        cutoffTimeLocal: "17:00",
+        packingStartDate: "2026-10-16",
+        carrierHandoffDate: "2026-10-17",
+        basis: "synthetic",
+      },
+      lines: [
+        {
+          lineKey: "lst_synthetic",
+          listingId: "lst_synthetic",
+          sellerAccountId: "seller_synthetic",
+          inventoryItemId: "inv_synthetic",
+          catalogItemId: "cat_synthetic",
+          productId: "prod_synthetic",
+          itemTitle: "Synthetic item",
+          productSummary: null,
+          quantity: 1,
+          estimatedUnitPriceAmount: "20.00",
+          estimatedLineTotalAmount: "20.00",
+          priceState: "available",
+          materialChangeReasons: [],
+        },
+      ],
+    },
+  ],
   totals: {
     itemSubtotalAmount: "20.00",
     shippingAmount: "0.00",
@@ -131,10 +185,7 @@ function fixture(checkoutServices?: ReturnType<typeof checkoutModule.createServi
   const checkout =
     checkoutServices ??
     checkoutModule.createServices(pool, { checkoutObservabilityTelemetry: { recordCheckoutEvent } });
-  vi.spyOn(checkout.sessions, "getLastRecordedQuote").mockResolvedValue({
-    ...supplyPreview,
-    sellerGroups: [{ lines: [{ listingId: "lst_synthetic", estimatedUnitPriceAmount: "20.00" }] }],
-  } as never);
+  vi.spyOn(checkout.sessions, "getLastRecordedQuote").mockResolvedValue(supplyPreview);
   const ordering = orderingModule.createServices(pool, { inventoryCleanupAuthority: { kind: "not-mounted" } });
   const createAccountPayment = vi.spyOn(payments.payments, "createAccountPayment");
   const recoverCheckoutPayment = vi.spyOn(payments.payments, "recoverCheckoutPayment");

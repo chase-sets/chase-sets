@@ -206,7 +206,7 @@ beforeEach(() => {
 describe("UCP buy-now readiness AC1", () => {
   it("uses canonical error severity for missing and malformed checkout sessions", async () => {
     const f = fixture();
-    f.sessions.getSession.mockResolvedValue(null);
+    vi.spyOn(f.sessions, "getSession").mockResolvedValue(null);
     const missing = await f.restHandlers.get_checkout(input({ id }, false, false));
     expect(missing).toMatchObject({
       ucp: { status: "error" },

@@ -94,7 +94,7 @@ function fixture(response: () => Response | Promise<Response> = () => Response.j
                 {
                   severity: "error",
                   code: "authentication_required",
-                  message: "Authenticate first.",
+                  content: "Authenticate first.",
                 },
               ]),
         complete_checkout: handler,
