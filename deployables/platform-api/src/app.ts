@@ -188,6 +188,7 @@ import {
   createProjectionOperationsRoutes,
   type ProjectionWakeStatusWorkSignalStore,
 } from "@chase-sets/platform-runtime/projection-operations-routes";
+import { createProjectionOperationsMcpHandlers } from "@chase-sets/platform-runtime/projection-operations-mcp";
 import {
   createUcpMcpRoutes,
   createUcpProfileRoutes,
@@ -1012,8 +1013,13 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     : undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;
   const moduleMcpHandlers = buildMcpHandlersFromModules(runtime.mountedModules);
+  const projectionOperationsMcpHandlers = createProjectionOperationsMcpHandlers(runtime, {
+    controlPlane: options.controlPlane,
+    workSignalStore: options.workSignalStore,
+  });
   const toolHandlers = {
     ...moduleMcpHandlers.toolHandlers,
+    ...projectionOperationsMcpHandlers.toolHandlers,
     ...options.mcp?.toolHandlers,
   };
   if (options.checkoutClosed && toolHandlers["checkout.select-saved-address"]) {
@@ -1028,6 +1034,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     toolHandlers,
     resourceHandlers: {
       ...moduleMcpHandlers.resourceHandlers,
+      ...projectionOperationsMcpHandlers.resourceHandlers,
       ...options.mcp?.resourceHandlers,
     },
   };

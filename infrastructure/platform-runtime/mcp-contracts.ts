@@ -50,6 +50,7 @@ import { settlementService } from "@chase-sets/platform-runtime/mcp-contracts/ca
 import { reputationService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/reputation";
 import { insightsService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/insights";
 import { platformOperationsService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/platform-operations";
+import { projectionOperationsService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/projection-operations";
 import { stripePaymentsService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/stripe-payments";
 import { stripeConnectService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/stripe-connect";
 import { easypostPostageService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/easypost-postage";
@@ -93,6 +94,7 @@ export const mcpServiceCatalog = [
   reputationService,
   insightsService,
   platformOperationsService,
+  projectionOperationsService,
   stripePaymentsService,
   stripeConnectService,
   easypostPostageService,
@@ -186,6 +188,7 @@ export function authorizeMcpToolInvocation(
     };
   }
 
+  // Account-scoped actor admission is checked before any confirmation or write guardrail.
   if (tool.permissionBoundary.accountScoped && !actor?.accountId) {
     return { allowed: false, reason: "An account-scoped actor is required." };
   }
@@ -225,6 +228,7 @@ export function authorizeMcpToolInvocation(
   const confirmationExpectedValue = getMcpToolConfirmationExpectedValue(tool);
   const matchInputField = tool.guardrails.confirmation.matchInputField;
 
+  // Account-scoped actor authorization remains the boundary for the following confirmation checks.
   if (confirmationExpectedValue && matchInputField) {
     const confirmationText = confirmation.text?.trim() ?? "";
     const inputConfirmationText = input?.[matchInputField];
