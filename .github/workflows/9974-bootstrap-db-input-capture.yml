@@ -225,7 +225,7 @@ jobs:
           // Evidence-only binding for the one #9974 capture of frozen S. Every unit, file,
           // case and command below is S's own, derived from S by the canonical producers
           // before publication; nothing is carried over from an earlier capture's groups.
-          export const frozenS = 'b39b5eb863fe5f5d100ccbc9f3f8f4f48c6d432b';
+          export const frozenS = 'e193e2451babcdc1412dd6223500019f8232e3ed';
           export const frozenGroups = Object.freeze({
             "test:db:1": [
               "bootstrap-production-reconciliation.db.test.ts",
@@ -256,7 +256,7 @@ jobs:
             "caseManifestSha256": "ee4d7f56b776bf75a42ffffa3c8269aabc1e0b95b06a82ec5cf957d7244d10c7",
             "commandsSha256": "c172ab0bb3565a3e4e53345f8d3845686b844357a41bf39d17f87249d74d5db8",
             "censusSha256": "02fb19ecc1966cb95c3300dda9635c8fc5741319e8571b92c7c9cb721ca504b9",
-            "sourceManifestSha256": "31f13775fff868d0b76a67544a17d06f45a156c090bb853424e7579300c46a36"
+            "sourceManifestSha256": "93219a95c0d548cb64113e024369358ee2103c869996e11e238e317b9381065d"
           });
           export const frozenCounts = Object.freeze({"files":16,"bootstrapFiles":12,"bootstrapCases":68,"cases":79});
           // The immutable #8396 census helper supplies only its reviewed literal-table parser.
@@ -369,8 +369,8 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: eventPayload.after,
-            captureParent: 'b39b5eb863fe5f5d100ccbc9f3f8f4f48c6d432b',
-            sourceBase: 'b39b5eb863fe5f5d100ccbc9f3f8f4f48c6d432b',
+            captureParent: 'e193e2451babcdc1412dd6223500019f8232e3ed',
+            sourceBase: 'e193e2451babcdc1412dd6223500019f8232e3ed',
             jobName: 'Diagnostic API Bootstrap Measurement Only',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
               .split('\n').filter(line => line.startsWith('parent ')).map(line => line.slice(7)),
