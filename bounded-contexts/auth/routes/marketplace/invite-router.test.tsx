@@ -30,6 +30,43 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 describe("invitation-acceptance-real-route", () => {
+  it("invitation forms never render the invitation token", async () => {
+    api.inspectInvitation.mockResolvedValue(pending);
+    const router = createMemoryRouter(
+      [{ path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute }],
+      { initialEntries: ["/invite/ivt_invited?token=synthetic-secret"] },
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByText("Accept your invitation");
+    for (const method of ["Passkey", "Password"]) {
+      fireEvent.click(screen.getByRole("radio", { name: method }));
+      expect(document.body.innerHTML).not.toContain("synthetic-secret");
+    }
+    router.dispose();
+    cleanup();
+
+    const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
+    window.history.replaceState({ invitationAcceptanceAttempt: { invitationId: "ivt_invited", attemptId } }, "");
+    Object.assign(invitationAttemptRollout, { active: false });
+    api.inspectInvitation.mockResolvedValue({ status: "accepted" });
+    api.getInvitationAcceptanceStatus.mockResolvedValue({ type: "accepted-reauth-required", attemptId });
+    const statusRouter = createMemoryRouter(
+      [{ path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute }],
+      { initialEntries: ["/invite/ivt_invited?token=synthetic-secret"] },
+    );
+    render(<RouterProvider router={statusRouter} />);
+    await screen.findByText("Confirming invitation acceptance");
+    expect(document.body.innerHTML).not.toContain("synthetic-secret");
+    fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+    await screen.findByText("Invitation accepted. Sign in to continue.");
+    expect(api.getInvitationAcceptanceStatus).toHaveBeenCalledWith({
+      invitationId: "ivt_invited",
+      token: "synthetic-secret",
+      attemptId,
+    });
+    expect(document.body.innerHTML).not.toContain("synthetic-secret");
+  });
+
   it("invitation-acceptance-compatibility-floor activates the real route from the shared rollout", async () => {
     api.inspectInvitation.mockResolvedValue(pending);
     const url = new URL("https://marketplace.test/invite/ivt_invited?token=synthetic-secret");

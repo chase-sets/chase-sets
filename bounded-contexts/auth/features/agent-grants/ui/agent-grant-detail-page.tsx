@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigation, useSubmit } from "react-router";
 import { t } from "@chase-sets/localization";
 import { formatDateTime, formatMoney } from "@chase-sets/localization";
@@ -197,10 +197,16 @@ function WebhookForm({
   savedWebhook?: AgentGrantWebhook | null;
 }) {
   const current = savedWebhook === undefined ? webhook : savedWebhook;
+  const navigation = useNavigation();
+  const [settledWebhookKey, setSettledWebhookKey] = useState(() => current?.callback_url ?? "disabled");
+  useEffect(() => {
+    if (navigation.state === "idle") setSettledWebhookKey(current?.callback_url ?? "disabled");
+  }, [current?.callback_url, navigation.state]);
+
   return (
     <Stack gap={3}>
       <Text tone="secondary">{t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.description")}</Text>
-      <RouterForm spacing="md" method="post">
+      <RouterForm key={settledWebhookKey} spacing="md" method="post">
         <Stack gap={3}>
           <TextInput
             label={t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.callback.url")}

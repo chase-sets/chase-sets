@@ -822,7 +822,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["registration", "sign-in"],
+      "expectedConsumers": ["sessions"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
@@ -1186,7 +1186,7 @@
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /token",
         "api-client:bounded-contexts/auth/client.ts:PUT Hbc5f03363dca#1",
         "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:He840736eb4c0#1",
-        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:He840736eb4c0#2",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:Hfafac129789d#1",
         "route-action:bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx"
       ],
       "visibleDestination": {
