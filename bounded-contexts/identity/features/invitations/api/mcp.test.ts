@@ -1,5 +1,5 @@
+import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { describe, expect, it, vi } from "vitest";
-import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
 import type { InvitationServices } from "./runtime";
 import { createInvitationMcpHandlers } from "./mcp";
@@ -116,4 +116,40 @@ describe("identity invitation MCP handlers", () => {
     ).rejects.toThrow("Only pending");
     expect(f.commandHandler).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["identity.cancel-invitation", "CancelInvitation"],
+    ["identity.decline-invitation", "DeclineInvitation"],
+  ] as const)("dispatches %s with the exact command and actor context", async (toolName, commandType) => {
+    const f = services();
+    const handlers = createInvitationMcpHandlers(f.services, f.accounts as never).toolHandlers;
+
+    await expect(handlers[toolName]!(request({ invitationId: "ivt_1" }))).resolves.toMatchObject({
+      id: "ivt_1",
+      version: 1,
+      status: "pending",
+    });
+    expect(f.commandHandler).toHaveBeenCalledWith({
+      streamId: "identity.invitation-ivt_1",
+      command: { type: commandType },
+      context: createActorEventStoreContext(actor),
+    });
+  });
+
+  it.each(["identity.cancel-invitation", "identity.decline-invitation"] as const)(
+    "%s rejects wrong-account and non-pending invitations before dispatch",
+    async (toolName) => {
+      const f = services();
+      const handlers = createInvitationMcpHandlers(f.services, f.accounts as never).toolHandlers;
+
+      await expect(
+        handlers[toolName]!(request({ invitationId: "ivt_1" }, { ...actor, accountId: "acc_other" })),
+      ).rejects.toThrow("cannot manage");
+      expect(f.commandHandler).not.toHaveBeenCalled();
+
+      f.getInvitationForRead.mockResolvedValue({ ...invitation, status: "cancelled" as "pending" });
+      await expect(handlers[toolName]!(request({ invitationId: "ivt_1" }))).rejects.toThrow("Only pending");
+      expect(f.commandHandler).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -117,7 +117,8 @@ export function createInvitationMcpHandlers(
   };
 
   const cancelInvitation: McpToolHandler = async ({ actor, arguments: args }) => {
-    const { actor: scopedActor, invitationId } = await loadInvitation(actor, args);
+    const { actor: scopedActor, invitationId, invitation } = await loadInvitation(actor, args);
+    if (invitation.status !== "pending") throw new Error("Only pending invitations can change.");
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
       command: { type: "CancelInvitation" },
@@ -127,7 +128,8 @@ export function createInvitationMcpHandlers(
   };
 
   const declineInvitation: McpToolHandler = async ({ actor, arguments: args }) => {
-    const { actor: scopedActor, invitationId } = await loadInvitation(actor, args);
+    const { actor: scopedActor, invitationId, invitation } = await loadInvitation(actor, args);
+    if (invitation.status !== "pending") throw new Error("Only pending invitations can change.");
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
       command: { type: "DeclineInvitation" },
