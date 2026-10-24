@@ -434,7 +434,7 @@ describe("platform runtime Postgres concurrency guards", () => {
     }
 
     const row = await pools.platform.query<{ owner_id: string; lease_fencing_token: string }>(
-      `SELECT owner_id, lease_fencing_token::text
+      `SELECT owner_id, fencing_token::text AS lease_fencing_token
        FROM platform_control_leases
        WHERE lease_name = $1`,
       [leaseName],
@@ -467,7 +467,7 @@ describe("platform runtime Postgres concurrency guards", () => {
     ).resolves.toBeNull();
 
     const row = await pools.platform.query<{ owner_id: string; lease_fencing_token: string }>(
-      `SELECT owner_id, lease_fencing_token::text
+      `SELECT owner_id, fencing_token::text AS lease_fencing_token
        FROM platform_control_leases
        WHERE lease_name = $1`,
       [leaseName],
@@ -496,7 +496,11 @@ describe("platform runtime Postgres concurrency guards", () => {
       if (!scheduledLease) throw new Error("Scheduled runner did not acquire the group lease.");
 
       const reset = vi.fn(async () => undefined);
-      const subscriptionRunner = { checkpointKey: projectionKey };
+      const subscriptionRunner = {
+        checkpointKey: projectionKey,
+        targetContextName: "catalog",
+        projectionName,
+      };
       const group = {
         targetContextName: "catalog",
         projectionName,
@@ -528,7 +532,7 @@ describe("platform runtime Postgres concurrency guards", () => {
       expect(reset).not.toHaveBeenCalled();
 
       const row = await pools.platform.query<{ owner_id: string; lease_fencing_token: string }>(
-        `SELECT owner_id, lease_fencing_token::text
+        `SELECT owner_id, fencing_token::text AS lease_fencing_token
          FROM platform_control_leases
          WHERE lease_name = $1`,
         [leaseName],
