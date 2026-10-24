@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
+import { SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES } from "../domain/source-observation-payload-chunks";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
@@ -1115,7 +1116,8 @@ describe("source observation runtime: provider integration jobs", () => {
     });
     expect(
       harness.appendedSourceEvents.every(
-        (event) => Buffer.byteLength(JSON.stringify(event.payload), "utf8") <= EVENT_STORE_MAX_PAYLOAD_BYTES,
+        (event) =>
+          Buffer.byteLength(JSON.stringify(event.payload), "utf8") <= SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES,
       ),
     ).toBe(true);
 
