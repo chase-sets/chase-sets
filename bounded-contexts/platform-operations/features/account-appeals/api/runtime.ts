@@ -79,7 +79,7 @@ export function createAccountAppealRuntime(db: PgQueryable, eventStore: EventSto
       context.audit.performedByUserId !== capability.userId ||
       context.audit.forAccountId !== capability.accountId
     )
-      throw new Error("Event-store context does not match the seller capability.");
+      throw new Error("Event-store context does not match the account capability.");
   };
   const assertOperatorContext = (
     capability: AccountAppealOperatorCapability,

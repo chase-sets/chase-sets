@@ -116,7 +116,7 @@ describe("account appeal access", () => {
     } as never;
     const forgedAction = { ...action } as never;
 
-    expect(() => assertAccountAppealFileCapability(forgedSeller)).toThrow("seller capability is invalid");
+    expect(() => assertAccountAppealFileCapability(forgedSeller)).toThrow("appeal capability is invalid");
     expect(() => assertAccountAppealOperatorCapability(forgedOperator)).toThrow("operator capability is invalid");
     expect(() => assertAppealableEnforcementActionCapability(forgedAction)).toThrow(
       "enforcement action capability is invalid",
@@ -126,7 +126,7 @@ describe("account appeal access", () => {
         forgedSeller,
         action.appealableActionId,
       ),
-    ).rejects.toThrow("seller capability is invalid");
+    ).rejects.toThrow("appeal capability is invalid");
 
     await withAccountAppealSellerAccess(actor, "account-appeals.file", async (capability) => {
       expect(() => fileAccountAppeal(capability, forgedAction, { statement: "forged action" })).toThrow(

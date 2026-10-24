@@ -61,7 +61,7 @@ function isIssued(value: unknown, issued: WeakSet<object>): value is object {
 }
 
 function assertIssuedSellerCapability(capability: AccountAppealSellerCapability): void {
-  if (!isIssued(capability, issuedSellerCapabilities)) throw new Error("Account appeal seller capability is invalid.");
+  if (!isIssued(capability, issuedSellerCapabilities)) throw new Error("Account appeal capability is invalid.");
 }
 
 function assertIssuedOperatorCapability(capability: AccountAppealOperatorCapability): void {

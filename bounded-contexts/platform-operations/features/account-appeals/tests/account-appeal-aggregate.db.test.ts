@@ -413,7 +413,7 @@ describeDb("account appeal aggregate DB proof", () => {
             tenantId: seller.tenantId,
             audit: { performedByUserId: createId("usr"), forAccountId: owner },
           }),
-        ).rejects.toThrow("seller capability");
+        ).rejects.toThrow("account capability");
         const race = await Promise.allSettled([
           runtime.file(capability, resolved.action, input, {
             tenantId: seller.tenantId,
