@@ -526,7 +526,7 @@ function grantsPackagesWrite(permissions) {
   return permissions === "write-all" || permissions?.packages === "write";
 }
 
-function workflowTriggers(on) {
+export function workflowTriggers(on) {
   if (typeof on === "string") return [on];
   if (Array.isArray(on)) return on;
   return Object.keys(on ?? {});
