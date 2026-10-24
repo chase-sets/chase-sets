@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { WorkerHolderLifecycleEvent, WorkerRuntimeObserver } from "./worker";
-import type { ProjectorHandler } from "@chase-sets/event-core/projector";
+import type { ProjectorHandler, ProjectionRunContext } from "@chase-sets/event-core/projector";
 import {
   attachReadConsistencyMiddleware,
   bootstrapContextDatabase,
@@ -827,7 +827,10 @@ describe("platform runtime Postgres concurrency guards", () => {
     const revisionSyncObservations: Array<Readonly<{ checkpoint: string | null; token: unknown }>> = [];
     const group = {
       ...mountedGroup,
-      markRevisionSynced: async (token: Parameters<typeof mountedGroup.markRevisionSynced>[0], context?: never) => {
+      markRevisionSynced: async (
+        token: Parameters<typeof mountedGroup.markRevisionSynced>[0],
+        context?: ProjectionRunContext,
+      ) => {
         const checkpoint = await pools.platform.query<{ last_global_position: string }>(
           "SELECT last_global_position::text FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
           [projectionKey],
@@ -920,7 +923,13 @@ describe("platform runtime Postgres concurrency guards", () => {
       expect(revisionSyncObservations.length).toBeGreaterThan(0);
       expect(revisionSyncObservations.every((observation) => observation.checkpoint === headPosition)).toBe(true);
       const events = await controlPlane.listProjectionOperationEvents(operation.operationId);
-      expect(events.some((event) => event.error?.message.includes("rejected stale lease fencing token"))).toBe(false);
+      expect(
+        events.some(
+          (event) =>
+            typeof event.operation.error?.message === "string" &&
+            event.operation.error.message.includes("rejected stale lease fencing token"),
+        ),
+      ).toBe(false);
     } finally {
       gate.resolve();
       await operationRun.catch(() => undefined);
