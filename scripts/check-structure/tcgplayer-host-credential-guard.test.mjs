@@ -19,6 +19,21 @@ describe("TCGplayer host and credential boundary", () => {
     expect(first.violations).toEqual([]);
     expect(second).toEqual(first);
     expect(first.digest).toMatch(/^[a-f0-9]{64}$/);
+    const unusedCredentialExceptions = Object.entries(policy.credentialExceptions).flatMap(([file, tokens]) =>
+      tokens
+        .filter(
+          (token) =>
+            !first.inventory.some(
+              (row) =>
+                row.rule === "credential" && row.file === file && row.token.toLowerCase() === token.toLowerCase(),
+            ),
+        )
+        .map((token) => `${file} ${token}`),
+    );
+    const unusedHostExceptions = Object.keys(policy.hostExceptions).filter(
+      (file) => !first.inventory.some((row) => row.rule === "host" && row.file === file && row.symbol === "allowed"),
+    );
+    expect([...unusedCredentialExceptions, ...unusedHostExceptions]).toEqual([]);
   });
 
   it("fails an unexcepted credential token mutant without exposing a value", () => {
@@ -47,6 +62,54 @@ describe("TCGplayer host and credential boundary", () => {
         'const sourceUrl: "https://api.tcgplayer.com";',
     });
     expect(allowed.violations).toEqual([]);
+  });
+
+  it("requires an exact parser allowlist change for a synthetic host exception", () => {
+    const parserPath = "bounded-contexts/channels/features/connector-feed/api/handoff-parser.ts";
+    const sourceUrl = 'const sourceUrl = "https://www.tcgplayer.com/x";';
+    expect(scan({ [parserPath]: sourceUrl }).violations).toEqual([`${parserPath}:1 TCGplayer host`]);
+
+    const changedPolicy = structuredClone(policy);
+    changedPolicy.hostExceptions[parserPath] = ["sourceUrl"];
+    expect(
+      validateTcgplayerHostCredentialPolicy({
+        repoRoot: root,
+        files: [parserPath],
+        contents: { [parserPath]: sourceUrl },
+        policy: changedPolicy,
+      }).violations,
+    ).toEqual([]);
+    expect(
+      validateTcgplayerHostCredentialPolicy({
+        repoRoot: root,
+        files: [parserPath],
+        contents: { [parserPath]: 'const url = "https://www.tcgplayer.com/x";' },
+        policy: changedPolicy,
+      }).violations,
+    ).toEqual([`${parserPath}:1 TCGplayer host`]);
+
+    const wildcardPolicy = structuredClone(policy);
+    wildcardPolicy.hostExceptions["bounded-contexts/channels/features/connector-feed/api/*"] = ["sourceUrl"];
+    expect(
+      validateTcgplayerHostCredentialPolicy({
+        repoRoot: root,
+        files: [parserPath],
+        contents: { [parserPath]: sourceUrl },
+        policy: wildcardPolicy,
+      }).violations,
+    ).toEqual([`${parserPath}:1 TCGplayer host`]);
+    const siblingPolicy = structuredClone(policy);
+    siblingPolicy.hostExceptions["bounded-contexts/channels/features/connector-feed/api/other-parser.ts"] = [
+      "sourceUrl",
+    ];
+    expect(
+      validateTcgplayerHostCredentialPolicy({
+        repoRoot: root,
+        files: [parserPath],
+        contents: { [parserPath]: sourceUrl },
+        policy: siblingPolicy,
+      }).violations,
+    ).toEqual([`${parserPath}:1 TCGplayer host`]);
   });
 
   it("does not scan tests, fixtures, extension packages, or docs as server runtime", () => {

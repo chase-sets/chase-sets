@@ -11,6 +11,7 @@ const guardFiles = new Set([
   "scripts/check-structure/tcgplayer-host-credential-policy.json",
 ]);
 const hostPattern = /(?:[a-z0-9-]+\.)*tcgplayer\.com/gi;
+const hostLiteral = /tcgplayer\.com/i;
 const credentialPattern = new RegExp(policy.credentialTokens.map(escapeRegExp).join("|"), "gi");
 
 function escapeRegExp(value) {
@@ -49,34 +50,38 @@ function isRule2File(file) {
   );
 }
 
-function hostAllowed(file, line) {
+function hostAllowed(file, line, activePolicy = policy) {
   const normalized = file.replaceAll("\\", "/");
   if (
-    policy.excludedHostPaths.includes(normalized) ||
-    policy.excludedHostPrefixes.some((prefix) => normalized.startsWith(prefix))
+    activePolicy.excludedHostPaths.includes(normalized) ||
+    activePolicy.excludedHostPrefixes.some((prefix) => normalized.startsWith(prefix))
   )
     return true;
-  const exceptions = policy.hostExceptions[normalized] ?? [];
+  const exceptions = activePolicy.hostExceptions[normalized] ?? [];
   if (exceptions.includes("sourceUrl") && /\bsourceUrl\s*[:=]/.test(line)) return true;
   if (exceptions.includes("citation-comment") && /^\s*\/\//.test(line)) return true;
   return false;
 }
 
-function credentialAllowed(file, token) {
-  const allowed = policy.credentialExceptions[file.replaceAll("\\", "/")];
+function credentialAllowed(file, token, activePolicy = policy) {
+  const allowed = activePolicy.credentialExceptions[file.replaceAll("\\", "/")];
   const canonical =
     policy.credentialTokens.find((candidate) => candidate.toLowerCase() === token.toLowerCase()) ?? token;
   return Array.isArray(allowed) && allowed.includes(canonical);
 }
 
-export function validateTcgplayerHostCredentialPolicy({ repoRoot, files = trackedFiles(repoRoot), contents } = {}) {
+export function validateTcgplayerHostCredentialPolicy({
+  repoRoot,
+  files = trackedFiles(repoRoot),
+  contents,
+  policy: activePolicy = policy,
+} = {}) {
   const diagnostics = [];
   const inventory = [];
   const sortedFiles = [...new Set(files.map((file) => file.replaceAll("\\", "/")))].sort();
   for (const file of sortedFiles) {
     if (guardFiles.has(file)) continue;
     const text = contents?.[file] ?? "";
-    const lines = text.split(/\r?\n/);
     for (const match of text.matchAll(credentialPattern)) {
       const token = match[0];
       if (
@@ -87,19 +92,22 @@ export function validateTcgplayerHostCredentialPolicy({ repoRoot, files = tracke
         continue;
       const canonicalToken =
         policy.credentialTokens.find((candidate) => candidate.toLowerCase() === token.toLowerCase()) ?? token;
-      if (!credentialAllowed(file, token))
+      if (!credentialAllowed(file, token, activePolicy))
         diagnostics.push(`${file}:${lineNumber(text, match.index)} credential token ${canonicalToken}`);
       inventory.push({ rule: "credential", file, line: lineNumber(text, match.index), token });
     }
-    if (!isRule2File(file)) continue;
+    if (!isRule2File(file) || !hostLiteral.test(text)) continue;
+    let lines;
+    const lineAt = (line) => (lines ??= text.split(/\r?\n/))[line - 1] ?? "";
     for (const match of text.matchAll(hostPattern)) {
-      const line = lines[lineNumber(text, match.index) - 1] ?? "";
-      if (!hostAllowed(file, line)) diagnostics.push(`${file}:${lineNumber(text, match.index)} TCGplayer host`);
+      const line = lineAt(lineNumber(text, match.index));
+      if (!hostAllowed(file, line, activePolicy))
+        diagnostics.push(`${file}:${lineNumber(text, match.index)} TCGplayer host`);
       inventory.push({
         rule: "host",
         file,
         line: lineNumber(text, match.index),
-        symbol: hostAllowed(file, line) ? "allowed" : "denied",
+        symbol: hostAllowed(file, line, activePolicy) ? "allowed" : "denied",
       });
     }
   }
