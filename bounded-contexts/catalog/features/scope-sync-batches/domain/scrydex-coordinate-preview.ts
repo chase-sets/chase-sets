@@ -32,7 +32,11 @@ export const scrydexCoordinatePreviewMaxForbiddenCalls = 100;
 
 // --- Request classifier ----------------------------------------------------------
 
-export type ScrydexCoordinatePreviewRequestClass = ScrydexCacheCaptureRequestClass | "isolation-document";
+export type ScrydexCoordinatePreviewRequestClass =
+  | ScrydexCacheCaptureRequestClass
+  | "isolation-document"
+  | "preview-post"
+  | "usage-read";
 export type ScrydexCoordinatePreviewRequestVerdict = Readonly<{
   requestClass: ScrydexCoordinatePreviewRequestClass;
   allowed: boolean;
@@ -41,10 +45,13 @@ export type ScrydexCoordinatePreviewRequestVerdict = Readonly<{
 
 const isolationDocumentUrl = `${scrydexCacheCaptureOrigin}${scrydexCoordinatePreviewIsolationPath}`;
 
-// The cache-capture fence plus one class: the sign-in GET navigation to exactly
-// the isolation document. Anywhere else the isolation path is an ordinary
-// request (an ambient read in capture, a refused navigation with a query, a
-// refused mutation), and every request the fence refuses is a forbidden call.
+const scrydexCoordinatePreviewPath = "/api/catalog/scope-sync-batches/preview";
+const scrydexCoordinatePreviewUsagePath = "/api/catalog/source-observations/integration-control-plane/overview";
+
+// The cache-capture fence plus three classes: the sign-in GET navigation to
+// exactly the isolation document, the one capture-phase preview POST, and the
+// one capture-phase usage-readiness GET. Anywhere else those paths are handled
+// by the delegated fence and remain refused.
 export function classifyScrydexCoordinatePreviewRequest(
   request: Readonly<{ method: string; url: string; phase: ScrydexCacheCapturePhase; navigation: boolean }>,
 ): ScrydexCoordinatePreviewRequestVerdict {
@@ -55,6 +62,22 @@ export function classifyScrydexCoordinatePreviewRequest(
     request.url === isolationDocumentUrl
   ) {
     return { requestClass: "isolation-document", allowed: true, reason: "isolation-document" };
+  }
+  if (
+    request.phase === "capture" &&
+    !request.navigation &&
+    request.method === "POST" &&
+    request.url === `${scrydexCacheCaptureOrigin}${scrydexCoordinatePreviewPath}`
+  ) {
+    return { requestClass: "preview-post", allowed: true, reason: "preview-post" };
+  }
+  if (
+    request.phase === "capture" &&
+    !request.navigation &&
+    request.method === "GET" &&
+    request.url === `${scrydexCacheCaptureOrigin}${scrydexCoordinatePreviewUsagePath}?audience=daily`
+  ) {
+    return { requestClass: "usage-read", allowed: true, reason: "usage-read" };
   }
   return classifyScrydexCacheCaptureRequest(request);
 }
