@@ -47,8 +47,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin/corten
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
             deployables/corten-pilot/target
-          key: corten-pilot-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
+          # v2: v1 cached the binary without cargo's install records, so a cache hit made
+          # `cargo install` refuse ("binary `corten` already exists").
+          key: corten-pilot-v2-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
 
       - name: Rust toolchain and the Corten CLI at the pinned revision
         run: |
@@ -56,7 +60,8 @@ jobs:
           rustup component add clippy rustfmt
           rev="$(sed -n 's/^corten = { git = "[^"]*", rev = "\([0-9a-f]*\)".*/\1/p' Cargo.toml)"
           test -n "$rev"
-          # Skipped when the cached binary was built from the same revision.
+          # Skipped when the cached binary was built from the same revision (cargo's install records
+          # are cached with it).
           cargo install --locked --git https://github.com/todd-skelton/corten --rev "$rev" corten-cli
 
       - name: corten check (cargo fmt, corten fmt, clippy -D warnings, tests)
