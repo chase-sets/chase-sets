@@ -211,6 +211,8 @@ runs:
       ["artifacts/catalog-scale-probe/preview.json"],
       ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
       ["artifacts/catalog-count-lifecycle/receipt.json"],
+      ["artifacts/catalog-scrydex-coordinate-preview/receipt.json"],
+      ["artifacts/catalog-scrydex-coordinate-preview/receipt.json"],
       ["artifacts/catalog-scrydex-cache-capture/capture.json"],
       ["artifacts/catalog-scrydex-cache-capture/capture.json"],
       ["artifacts/catalog-scrydex-option-refresh/receipt.json"],

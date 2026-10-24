@@ -1,8 +1,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   buildProducer,
   coordinatePreviewRunnerIdentity,
@@ -86,6 +88,149 @@ const testRunner = {
   journeyScope: "scrydex-coordinate-preview",
   origin: "admin.staging.chasesets.com",
 };
+
+const workflowSource = readFileSync(resolve(".github/workflows/catalog-staging-provider-uat.yml"), "utf8");
+const workflow = () => parseYaml(workflowSource);
+const coordinateCredentialKeys = ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"];
+const coordinateCaptureEnv = {
+  CATALOG_ADMIN_E2E_EMAIL: "${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
+  CATALOG_ADMIN_E2E_PASSWORD: "${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
+  GH_TOKEN: "${{ github.token }}",
+};
+
+function coordinateJob(document) {
+  return document.jobs["scrydex-coordinate-preview"];
+}
+
+describe("Scrydex coordinate preview workflow", () => {
+  it("workflow job-if: admits only the exact coordinate-preview journey", () => {
+    const document = workflow();
+    expect(document.on.workflow_dispatch.inputs.journey_scope.options).toContain("scrydex-coordinate-preview");
+    expect(coordinateJob(document).if).toBe(
+      "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-coordinate-preview'",
+    );
+    const mutant = workflow();
+    mutant.jobs["scrydex-coordinate-preview"].if = "always()";
+    expect(() =>
+      expect(coordinateJob(mutant).if).toBe(
+        "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scrydex-coordinate-preview'",
+      ),
+    ).toThrow();
+  });
+
+  it("workflow receipt-if: validates after capture unless capture was skipped", () => {
+    const receipt = coordinateJob(workflow()).steps.find((step) => step.id === "receipt");
+    expect(receipt.if).toBe("${{ always() && steps.capture.outcome != 'skipped' }}");
+    const mutant = workflow();
+    mutant.jobs["scrydex-coordinate-preview"].steps.find((step) => step.id === "receipt").if = "${{ always() }}";
+    expect(mutant.jobs["scrydex-coordinate-preview"].steps.find((step) => step.id === "receipt").if).not.toBe(
+      receipt.if,
+    );
+  });
+
+  it("workflow complete-upload-if: promotes only a successful complete receipt", () => {
+    const uploads = coordinateJob(workflow()).steps.filter((step) => step.uses?.startsWith("actions/upload-artifact@"));
+    expect(uploads[0].if).toBe(
+      "${{ always() && steps.capture.outcome == 'success' && steps.receipt.outcome == 'success' && steps.receipt.outputs.capture_status == 'complete' }}",
+    );
+    const mutant = workflow();
+    mutant.jobs["scrydex-coordinate-preview"].steps.find((step) =>
+      step.uses?.startsWith("actions/upload-artifact@"),
+    ).if = "${{ always() }}";
+    expect(
+      mutant.jobs["scrydex-coordinate-preview"].steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"))
+        .if,
+    ).not.toBe(uploads[0].if);
+  });
+
+  it("workflow diagnostic-upload-if: publishes governed-unknown separately", () => {
+    const uploads = coordinateJob(workflow()).steps.filter((step) => step.uses?.startsWith("actions/upload-artifact@"));
+    expect(uploads[1].if).toBe(
+      "${{ always() && steps.receipt.outcome == 'success' && steps.receipt.outputs.capture_status == 'governed-unknown' }}",
+    );
+    const mutant = workflow();
+    mutant.jobs["scrydex-coordinate-preview"].steps.at(-1).if = "${{ always() }}";
+    expect(mutant.jobs["scrydex-coordinate-preview"].steps.at(-1).if).not.toBe(uploads[1].if);
+  });
+
+  it("workflow artifact-names: uploads one validated receipt path under complete and diagnostic names", () => {
+    const uploads = coordinateJob(workflow()).steps.filter((step) => step.uses?.startsWith("actions/upload-artifact@"));
+    expect(uploads.map((upload) => upload.with.name)).toEqual([
+      "catalog-scrydex-coordinate-preview-${{ github.run_id }}-${{ github.run_attempt }}",
+      "catalog-scrydex-coordinate-preview-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}",
+    ]);
+    expect(uploads.map((upload) => upload.with.path)).toEqual([
+      "artifacts/catalog-scrydex-coordinate-preview/receipt.json",
+      "artifacts/catalog-scrydex-coordinate-preview/receipt.json",
+    ]);
+    expect(uploads.every((upload) => upload.with["if-no-files-found"] === "error")).toBe(true);
+    const mutant = workflow();
+    mutant.jobs["scrydex-coordinate-preview"].steps.at(-1).with.path = "artifacts/catalog-scrydex-coordinate-preview";
+    expect(mutant.jobs["scrydex-coordinate-preview"].steps.at(-1).with.path).not.toBe(uploads[1].with.path);
+  });
+
+  it("workflow step-local-credentials: admin credentials stay only on capture", () => {
+    const steps = coordinateJob(workflow()).steps;
+    const capture = steps.find((step) => step.id === "capture");
+    expect(capture.env).toEqual(coordinateCaptureEnv);
+    for (const step of steps.filter((step) => step !== capture))
+      for (const key of coordinateCredentialKeys)
+        expect(step.env?.[key], `${step.name ?? step.uses} holds ${key}`).toBeUndefined();
+    const mutant = workflow();
+    mutant.jobs["scrydex-coordinate-preview"].steps.find((step) => step.id === "receipt").env = {
+      ...coordinateCaptureEnv,
+    };
+    expect(() => {
+      for (const key of coordinateCredentialKeys)
+        expect(
+          mutant.jobs["scrydex-coordinate-preview"].steps.find((step) => step.id === "receipt").env?.[key],
+        ).toBeUndefined();
+    }).toThrow();
+  });
+
+  it("workflow no-retry: has a timeout but no retry, refresh, count, or continue-on-error path", () => {
+    const job = coordinateJob(workflow());
+    expect(job.timeout).toBeUndefined();
+    expect(job["timeout-minutes"]).toBe(20);
+    const text = JSON.stringify(job).toLowerCase();
+    for (const forbidden of ["retry", "refresh", "count", "continue-on-error"]) expect(text).not.toContain(forbidden);
+    const mutant = workflow();
+    mutant.jobs["scrydex-coordinate-preview"].steps[0]["continue-on-error"] = true;
+    expect(JSON.stringify(mutant.jobs["scrydex-coordinate-preview"]).toLowerCase()).toContain("continue-on-error");
+  });
+
+  it("workflow exclusions: resolver and generic worker exclude the dedicated option", () => {
+    const document = workflow();
+    const resolver = document.jobs["resolve-provider-uat-plan"];
+    const worker = document.jobs["staging-provider-uat"];
+    expect(resolver.if).toContain("inputs.journey_scope != 'scrydex-coordinate-preview'");
+    expect(worker.if).toContain("inputs.journey_scope != 'scrydex-coordinate-preview'");
+    expect(resolver.steps[0].run).not.toContain("scrydex-coordinate-preview)");
+    const mutant = workflow();
+    mutant.jobs["staging-provider-uat"].if = mutant.jobs["staging-provider-uat"].if.replace(
+      " && inputs.journey_scope != 'scrydex-coordinate-preview'",
+      "",
+    );
+    expect(mutant.jobs["staging-provider-uat"].if).not.toContain(
+      "inputs.journey_scope != 'scrydex-coordinate-preview'",
+    );
+  });
+
+  it("workflow no-trace: the dedicated job has no browser trace, media, screenshot, or storage-state upload", () => {
+    const job = coordinateJob(workflow());
+    const text = JSON.stringify(job).toLowerCase();
+    for (const forbidden of ["trace", "video", "screenshot", "storage-state", "test-results"])
+      expect(text).not.toContain(forbidden);
+    expect(job.steps.filter((step) => step.uses?.startsWith("actions/upload-artifact@")).length).toBe(2);
+    const mutant = workflow();
+    mutant.jobs["scrydex-coordinate-preview"].steps.push({
+      name: "Upload trace",
+      uses: "actions/upload-artifact@v7",
+      with: { path: "trace.zip" },
+    });
+    expect(JSON.stringify(mutant.jobs["scrydex-coordinate-preview"]).toLowerCase()).toContain("trace");
+  });
+});
 
 function optionBody(unitKey, value) {
   return {
