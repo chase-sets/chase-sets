@@ -204,6 +204,8 @@ export type UcpRuntimeToolLimitEvent = Readonly<{
 export type CreateUcpRoutesOptions = Readonly<{
   restHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
+  /** Explicitly overrides the middleware context for focused route fixtures. */
+  contextOverride?: EventStoreContext | null;
   idempotencyStore?: UcpIdempotencyStore;
   mcpOriginPolicy?: McpHttpOriginPolicyOptions;
   mcpToolCallLimiter?: McpToolCallLimiter;
@@ -1397,7 +1399,7 @@ async function invokeRestWrite(
       !hasSignedWriteHeaders(c.req.raw) &&
       (operation === "complete_checkout" || operation === "cancel_checkout")
     ) {
-      return c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params)));
+      return c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params, options)));
     }
     emitObserver(options.observer?.signedWriteRejected, {
       transport: "rest",
@@ -1436,7 +1438,7 @@ async function invokeRestWrite(
     return c.json(rateLimit, 429);
   }
 
-  const input = { ...handlerInput(c, params), requestMeta: meta };
+  const input = { ...handlerInput(c, params, options), requestMeta: meta };
   const preflight = options.preflight?.[operation];
   if (preflight) {
     const failure = await preflight(input);
@@ -1516,7 +1518,7 @@ async function invokeMcpTool(
 
   const input: UcpOperationHandlerInput = {
     actor: c.get("actor") ?? null,
-    context: c.get("context") ?? null,
+    context: resolveUcpContext(c, options),
     arguments: args,
     request: c.req.raw,
     params: {},
@@ -1748,7 +1750,7 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
     }
     return write
       ? invokeRestWrite(c, options, operation, params, idempotencyStore, meta)
-      : c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params)));
+      : c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params, options)));
   };
 
   app.get("/", (c) =>
@@ -1980,7 +1982,7 @@ async function invokeNonIdempotentMcpTool(
   try {
     return await (options.mcpToolHandlers?.[tool.name]?.({
       actor: c.get("actor") ?? null,
-      context: c.get("context") ?? null,
+      context: resolveUcpContext(c, options),
       arguments: args,
       request: c.req.raw,
       params: {},
@@ -1991,10 +1993,18 @@ async function invokeNonIdempotentMcpTool(
   }
 }
 
-function handlerInput(c: Context<UcpRuntimeEnv>, params: Readonly<Record<string, string>>): UcpOperationHandlerInput {
+function resolveUcpContext(c: Context<UcpRuntimeEnv>, options: CreateUcpRoutesOptions): EventStoreContext | null {
+  return options.contextOverride === undefined ? (c.get("context") ?? null) : options.contextOverride;
+}
+
+function handlerInput(
+  c: Context<UcpRuntimeEnv>,
+  params: Readonly<Record<string, string>>,
+  options: CreateUcpRoutesOptions,
+): UcpOperationHandlerInput {
   return {
     actor: c.get("actor") ?? null,
-    context: c.get("context") ?? null,
+    context: resolveUcpContext(c, options),
     arguments: {},
     request: c.req.raw,
     params,

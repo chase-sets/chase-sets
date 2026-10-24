@@ -139,9 +139,13 @@ export function createCheckoutUcpHandlers(
       : createUcpEnvelope("error", {}, [{ code: "not_found", content: "The requested checkout was not found." }]);
 
   const handler =
-    (permission: "orders.view" | "orders.manage", run: UcpHandler): UcpHandler =>
+    (
+      permission: "orders.view" | "orders.manage",
+      run: UcpHandler,
+      handlerOptions: Readonly<{ checkContext?: boolean }> = {},
+    ): UcpHandler =>
     async (input) => {
-      const accessError = requireCheckoutAccess(input, permission);
+      const accessError = requireCheckoutAccess(input, permission, handlerOptions.checkContext);
       if (accessError) return accessError;
       try {
         return await run(input);
@@ -192,8 +196,17 @@ export function createCheckoutUcpHandlers(
       if (!session) throw new CheckoutDomainError("Checkout was not found after creation.", "not_found");
       return resourceEnvelope(await payload(input, session, prepared.fulfillmentPreview));
     }),
-    get_checkout: handler("orders.view", async (input) =>
-      resourceEnvelope(await payload(input, await loadSession(input))),
+    get_checkout: handler(
+      "orders.view",
+      async (input) => {
+        const session = await loadSession(input);
+        return input.context
+          ? resourceEnvelope(await payload(input, session))
+          : createUcpEnvelope("error", {}, [
+              { code: "context_required", content: "UCP checkout requires an event-store context." },
+            ]);
+      },
+      { checkContext: false },
     ),
     update_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
@@ -530,7 +543,11 @@ function previewLinePrice(preview: CheckoutFulfillmentPreview | null, listingId:
   );
 }
 
-function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {
+function requireCheckoutAccess(
+  input: UcpOperationHandlerInput,
+  permission: "orders.view" | "orders.manage",
+  checkContext = true,
+) {
   if (!input.actor)
     return createUcpEnvelope("error", {}, [
       { code: "authentication_required", content: "UCP checkout requires a linked buyer account." },
@@ -542,7 +559,7 @@ function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "ord
         content: "The linked buyer account cannot manage this checkout session.",
       },
     ]);
-  if (!input.context)
+  if (checkContext && !input.context)
     return createUcpEnvelope("error", {}, [
       { code: "context_required", content: "UCP checkout requires an event-store context." },
     ]);

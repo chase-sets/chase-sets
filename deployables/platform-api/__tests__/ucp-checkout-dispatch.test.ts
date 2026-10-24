@@ -94,6 +94,7 @@ function fixture(
     retainedQuote?: unknown;
     paymentStatus?: string | null;
     previewUnavailable?: boolean;
+    contextUnavailable?: boolean;
   }> = {},
 ) {
   if (options.previewUnavailable) {
@@ -251,6 +252,7 @@ function fixture(
     checkoutClosed: options.checkoutClosed,
     resolveActor: async () => actor,
     ucp: {
+      contextOverride: options.contextUnavailable ? null : undefined,
       idempotencyStore: store,
       signatureVerification: { keyResolver: async () => keys.publicKey.export({ format: "jwk" }) },
       profileResolver: async () => ({
@@ -1112,9 +1114,9 @@ describe("UCP 2026-08-25 finite route proof matrix", () => {
   });
 
   it("CHK-12 context-required rule remains an explicit schema-valid error capture", async () => {
-    const result = await expectTransportParity("get_checkout", { id: "bad" });
+    const result = await expectTransportParity("get_checkout", { id }, { contextUnavailable: true });
     expectUcpCapture(result, { operation: "get_checkout", kind: "error" });
-    expect(result).toMatchObject({ messages: [{ code: "invalid_request", severity: "recoverable" }] });
+    expect(result).toMatchObject({ messages: [{ code: "context_required", severity: "unrecoverable" }] });
   });
 
   it.each([
