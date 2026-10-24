@@ -1183,7 +1183,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(68);
+    expect(result.expectedCaseCount).toBe(71);
     expect(result.caseCount).toBe(result.expectedCaseCount);
     expect(result.fileCount).toBe(12);
     expect(result.partitionUnitCount).toBe(3);
@@ -3136,7 +3136,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       },
       {
         label: "a literal removed without an environment declaration",
-        edit: (workflow: string) => workflow.replace(/^\s*DB_WORKSPACE_CONCURRENCY:.*\r?\n/m, ""),
+        edit: (workflow: string) => workflow.replace(/^\s*DB_WORKSPACE_CONCURRENCY:.*\n?\n/m, ""),
       },
       {
         label: "two environment declarations",

@@ -130,6 +130,21 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
+        name: "pins the existing namespace and auth database across profiles and releases",
+        referenceDurationMs: 250,
+        identity: "ad976356b2912639",
+      }),
+      Object.freeze({
+        name: "standalone seeds acquire L, while caller-held seeds never acquire or release it twice",
+        referenceDurationMs: 571,
+        identity: "877a4e0fe640592b",
+      }),
+      Object.freeze({
+        name: "real bootstrap holds L through every admin phase and a killed bootstrap frees L",
+        referenceDurationMs: 24713,
+        identity: "fdca859603f42881",
+      }),
+      Object.freeze({
         name: "recovers when bootstrap-touched table locks release within the retry budget",
         referenceDurationMs: 1660,
         identity: "bf6e839e420caad8",
