@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
 import {
   closeMultiContextTestPools,
@@ -13,10 +14,6 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildIdentityApi, createBootstrapContext } from "../api";
-import { createAccountRuntime } from "../features/accounts/api/runtime";
-import { createConsentRuntime } from "../features/consents/api/runtime";
-import { createMembershipRuntime } from "../features/memberships/api/runtime";
-import { createUserRuntime } from "../features/users/api/runtime";
 import { identityAccountSchemaSql } from "../features/accounts/read-model/schema";
 import {
   mintRegistrationConsentResolution,
@@ -30,7 +27,15 @@ import {
   type RegistrationOperationClaim,
 } from "../support/runtime-support/registration-operation";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
-import type { IdentityServices } from "../support/runtime-support/services";
+import { createIdentityServices, type IdentityServices } from "../support/runtime-support/services";
+import { activeRegistrationConsentFixture } from "./consent-activation-authority-fixtures";
+import * as consentBundle from "../features/consents/domain/consent-bundle";
+import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../features/account-capabilities/api/authority";
+import {
+  ConsentActivationAuthorityError,
+  decodeConsentActivationAuthoritySnapshot,
+} from "@chase-sets/platform-policy/consent-activation-authority";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -45,6 +50,15 @@ function requireDatabaseBaseUrl(): string {
     throw new Error("TEST_DATABASE_URL is required for database-backed tests.");
   }
   return databaseBaseUrl;
+}
+
+// Production serves this router behind the platform error boundary, which owns
+// the generic body an unclassified registration failure returns.
+function buildApp(services: IdentityServices) {
+  const app = new Hono();
+  app.onError(errorHandler);
+  app.route("/", buildIdentityApi(services));
+  return app;
 }
 
 const EMAIL = "owner@pokebash.example";
@@ -77,23 +91,17 @@ describeDb("registration operation semantic validation", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
   let eventStore: EventStore;
   let services: IdentityServices;
+  let consentFixture: Awaited<ReturnType<typeof activeRegistrationConsentFixture>>;
+  let resolveBundleMock: { mockRestore(): void } | undefined;
   const context: EventStoreContext = createBootstrapContext();
 
   function createServices(store: EventStore): IdentityServices {
-    const dependencies = {
-      eventStore: store,
-      checkpointStore: createPostgresProjectionStore({ db: pool }),
-      db: pool,
-    } as const;
     return {
+      ...createIdentityServices(pool, {
+        capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+      }),
       eventStore: store,
-      db: pool,
-      accounts: createAccountRuntime(dependencies),
-      users: createUserRuntime(dependencies),
-      memberships: createMembershipRuntime(dependencies),
-      consents: createConsentRuntime(dependencies),
-      projectors: [],
-    } as unknown as IdentityServices;
+    };
   }
 
   beforeAll(async () => {
@@ -113,6 +121,13 @@ describeDb("registration operation semantic validation", () => {
     await pool.query(identityAccountSchemaSql);
 
     eventStore = createPostgresEventStore({ pool });
+    consentFixture = await activeRegistrationConsentFixture(eventStore, pool, { "terms-of-service": "v1" });
+    resolveBundleMock?.mockRestore();
+    resolveBundleMock = vi
+      .spyOn(consentBundle, "resolveConsentBundle")
+      .mockImplementation((authority, bundleKey) =>
+        consentBundle.resolveConsentBundleAgainstCorpus(authority, bundleKey, consentFixture.publications),
+      );
     services = createServices(eventStore);
   });
 
@@ -126,7 +141,7 @@ describeDb("registration operation semantic validation", () => {
     body: Record<string, unknown> = {},
     requirements: readonly RegistrationConsentRequirement[] = [TERMS_V1],
   ) {
-    const response = await buildIdentityApi(services).request("/internal/auth/personal-identities", {
+    const response = await buildApp(services).request("/internal/auth/personal-identities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -360,6 +375,41 @@ describeDb("registration operation semantic validation", () => {
     expect((response.body.error as { code?: string } | undefined)?.code).toBe(code);
     expect(await stateSnapshot()).toEqual(before);
   }
+
+  it.each(["lifecycle", "stream", "revision", "history"] as const)(
+    "rejects %s authority corruption with the generic registration error",
+    async (kind) => {
+      const before = await stateSnapshot();
+      const originalRead = services.policies.consentActivation.read;
+      vi.spyOn(services.policies.consentActivation, "read").mockImplementation(async (policyKey) => {
+        const snapshot = await originalRead(policyKey);
+        if (kind === "history") {
+          throw new ConsentActivationAuthorityError(
+            "history_too_long",
+            "synthetic authority history exceeded its bound",
+          );
+        }
+        const mutated =
+          kind === "lifecycle"
+            ? { ...snapshot, status: "inactive" }
+            : kind === "stream"
+              ? { ...snapshot, streamId: `${snapshot.streamId}-forged` }
+              : { ...snapshot, authorityVersion: -1 };
+        return decodeConsentActivationAuthoritySnapshot(policyKey, mutated as never);
+      });
+      const append = vi.spyOn(eventStore, "appendToStreams");
+
+      const response = await register();
+
+      expect(response).toEqual({
+        status: 500,
+        body: { error: { code: "internal_error", message: "Internal server error." } },
+      });
+      expect(append).not.toHaveBeenCalled();
+      expect(await stateSnapshot()).toEqual(before);
+      expect(JSON.stringify(response.body)).not.toContain("platform-policy.consent-activation-authority");
+    },
+  );
 
   const claimDisagreements = [
     ["operation key digest", { operationKeyDigest: "0".repeat(64) }, undefined],
@@ -697,6 +747,7 @@ describeDb("registration operation semantic validation", () => {
   });
 
   it("captures authoritative state beyond the first event-store page", async () => {
+    const before = await stateSnapshot();
     await appendEvents(
       "identity.snapshot-pagination-control",
       Array.from({ length: 501 }, (_, ordinal) => ({
@@ -707,7 +758,7 @@ describeDb("registration operation semantic validation", () => {
 
     const snapshot = await stateSnapshot();
 
-    expect(snapshot.events).toHaveLength(501);
+    expect(snapshot.events).toHaveLength(before.events.length + 501);
     expect(snapshot.events.at(-1)).toMatchObject({
       streamId: "identity.snapshot-pagination-control",
       streamVersion: 501,
@@ -865,6 +916,11 @@ describeDb("registration operation semantic validation", () => {
   ] as const;
 
   it.each(claimlessShapes)("rejects a claim-less partial with a committed %s", async (_label, shape) => {
+    consentFixture = await activeRegistrationConsentFixture(eventStore, pool, {
+      "terms-of-service": "v1",
+      "privacy-policy": "v3",
+    });
+    services = createServices(eventStore);
     const fixture = createFixtureClaim(operationFor());
     await appendEvents(`identity.account-${fixture.accountId}`, [accountCreated(fixture)]);
     if (shape.user) {

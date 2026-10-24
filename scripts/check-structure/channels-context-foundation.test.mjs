@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,7 +21,14 @@ import {
   sourceContextWakeRegistry,
   summarizeSourceContextWakeRegistry,
 } from "../../infrastructure/platform-runtime/source-context-wake-registry.ts";
-import { isAllowedDeployableBoundedContextImport } from "./run.mjs";
+import {
+  findTestSupportImportViolations,
+  hasValidTestSupportDeclaration,
+  isAllowedDeployableBoundedContextImport,
+  isAllowedPublicExportName,
+  walk,
+} from "./run.mjs";
+import { runImportBoundaryValidation } from "./phases.mjs";
 
 const channelsRoot = path.join(repoRoot, "bounded-contexts/channels");
 const manifestPath = path.join(channelsRoot, "context.json");
@@ -46,6 +62,33 @@ const requiredReadmeSections = [
   "## Invariants",
 ];
 const tempRoots = [];
+
+it("changed claim-to-prepared persistence trace opens at most three non-test files", () => {
+  const root = path.join(channelsRoot, "features/connector-client");
+  const journalPath = existsSync(path.join(root, "integrations/operation-indexeddb.ts"))
+    ? "integrations/operation-indexeddb.ts"
+    : "integrations/connector-indexeddb.ts";
+  const anchors = [
+    [
+      "domain/operation-coordinator.ts",
+      "claim = await parseOperationClaim(body.reservation, input.connectionId);",
+      "return journal.change(input.connectionId, state, {",
+      `from "../${journalPath.replace(/\.ts$/, "")}"`,
+    ],
+    ["domain/operation-protocol.ts", "export async function parseOperationClaim"],
+    [journalPath, "const db = await openConnectorDatabase(indexedDB);", "store.put(row);"],
+    [
+      "integrations/connector-indexeddb.ts",
+      "export function openConnectorDatabase",
+      "indexedDB.open(connectorDatabaseName, connectorDatabaseVersion)",
+    ],
+  ];
+  for (const [file, ...tokens] of anchors) {
+    const source = readFileSync(path.join(root, file), "utf8");
+    for (const token of tokens) expect(source).toContain(token);
+  }
+  expect([...new Set(anchors.map(([file]) => file))]).toHaveLength(3);
+});
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
@@ -110,7 +153,10 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     relativeFiles.some(
       (file) =>
-        file.startsWith("features/connector-client/") && !/^features\/connector-client\/(?:domain|tests)\//.test(file),
+        file.startsWith("features/connector-client/") &&
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/(?:raw-export|connector)-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+          file,
+        ),
     )
   ) {
     violations.push("connector-client-buckets");
@@ -176,13 +222,17 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (
     JSON.stringify((candidate.readAfterWriteRouteInventory ?? []).map((entry) => entry.id)) !==
-    JSON.stringify(["channels.publication-settings-to-detail"])
+    JSON.stringify([
+      "channels.activation-to-manual-sync",
+      "channels.connect-to-detail",
+      "channels.publication-settings-to-detail",
+    ])
   ) {
     violations.push("readAfterWriteRouteInventory");
   }
   if (
     JSON.stringify(candidate.allowedContextDependencies) !==
-    JSON.stringify(["@chase-sets/marketplace", "@chase-sets/inventory"])
+    JSON.stringify(["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"])
   ) {
     violations.push("allowedContextDependencies");
   }
@@ -192,6 +242,28 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.hostPorts) !==
     JSON.stringify([
+      {
+        portName: "ebayAccountDeletionConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+      },
+      {
+        portName: "webhookTelemetry",
+        providedBy: "platform-api",
+        purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+      },
+      {
+        portName: "storageLocationAuthority",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+      },
+      {
+        portName: "connectorOAuth",
+        providedBy: "platform-api",
+        purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",
+      },
       {
         portName: "marketplaceChannelInboundClamp",
         providedBy: "platform-api, platform-worker",
@@ -217,12 +289,17 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.slices) !==
     JSON.stringify([
+      "ebay-account-deletion",
+      "connector-feed",
       "connections",
       "credentials",
       "connector-client",
       "publication-port",
       "listing-composition",
       "tcgplayer-csv",
+      "tcgplayer-orders",
+      "live-export-snapshot",
+      "order-fulfillment-observations",
       "outbound-sync",
       "connection-health",
       "connection-attention",
@@ -238,8 +315,8 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("allowedSupportDirectories");
   }
-  if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
-  if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
+  if (candidate.eventSubscriptions?.length !== 6) violations.push("eventSubscriptions");
+  if (candidate.eventReactions?.length !== 6) violations.push("eventReactions");
   if (candidate.deployableContributions?.[0]?.routes?.length !== 5) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
     violations.push("shellContributions");
@@ -347,12 +424,17 @@ describe("channels-context-foundation", () => {
         "channel-sync-run",
       ]),
       slices: [
+        "ebay-account-deletion",
+        "connector-feed",
         "connections",
         "credentials",
         "connector-client",
         "publication-port",
         "listing-composition",
         "tcgplayer-csv",
+        "tcgplayer-orders",
+        "live-export-snapshot",
+        "order-fulfillment-observations",
         "outbound-sync",
         "connection-health",
         "connection-attention",
@@ -360,10 +442,32 @@ describe("channels-context-foundation", () => {
         "reconciliation",
       ],
       allowedSupportDirectories: ["request-support", "runtime-support", "seed-support"],
-      publicExports: [".", "./client", "./context", "./server", "./routes/*", "./seed-support/*"],
-      allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory"],
+      publicExports: [".", "./client", "./context", "./server", "./test-support", "./routes/*", "./seed-support/*"],
+      allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
       seedRequirements: ["inventory"],
       hostPorts: [
+        {
+          portName: "ebayAccountDeletionConfiguration",
+          providedBy: "platform-api",
+          purpose:
+            "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+        },
+        {
+          portName: "webhookTelemetry",
+          providedBy: "platform-api",
+          purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+        },
+        {
+          portName: "storageLocationAuthority",
+          providedBy: "platform-api, platform-worker",
+          purpose:
+            "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+        },
+        {
+          portName: "connectorOAuth",
+          providedBy: "platform-api",
+          purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",
+        },
         {
           portName: "marketplaceChannelInboundClamp",
           providedBy: "platform-api, platform-worker",
@@ -384,15 +488,16 @@ describe("channels-context-foundation", () => {
         },
       ],
     });
-    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40, 50]);
+    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([31, 10, 20, 30, 40, 50]);
     expect(manifest.eventSubscriptions.map((entry) => entry.sourceContextName)).toEqual([
+      "inventory",
       "marketplace",
       "catalog",
       "inventory",
       "channels",
       "channels",
     ]);
-    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
+    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([64, 65, 60, 61, 62, 63]);
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
       ["channels.view"],
       ["channels.view"],
@@ -667,7 +772,7 @@ describe("channels glossary alias evidence", () => {
 });
 
 describe("channels-foundation-deployable-registration", () => {
-  it("registers Channels in API, worker, and its marketplace route host while excluding unrelated hosts", () => {
+  it("registers Channels in API, worker, marketplace, and admin-web support hosts while excluding public-web", () => {
     const root = createTempRepo("channels-metadata-");
     writeJson(path.join(root, "tsconfig.base.json"), { compilerOptions: { paths: {} } });
     const fixtureManifestPath = path.join(root, "bounded-contexts/channels/context.json");
@@ -690,11 +795,11 @@ describe("channels-foundation-deployable-registration", () => {
     syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
     const candidate = readRegistryBytes(root);
 
-    for (const relativePath of [registryPaths[0], registryPaths[1], registryPaths[3]]) {
+    for (const relativePath of [registryPaths[0], registryPaths[1], registryPaths[2], registryPaths[3]]) {
       expect(candidate[relativePath]).not.toEqual(before[relativePath]);
       expect(candidate[relativePath].toString("utf8")).toContain("@chase-sets/channels");
     }
-    for (const relativePath of [registryPaths[2], registryPaths[4]]) {
+    for (const relativePath of [registryPaths[4]]) {
       expect(candidate[relativePath]).toEqual(before[relativePath]);
     }
 
@@ -714,10 +819,129 @@ describe("channels-foundation-deployable-registration", () => {
 });
 
 describe("channels-foundation-surface-fence", () => {
+  it.each(["connector-indexeddb.ts"])("admits the exact connector coordination integration %s", (file) => {
+    expect(
+      collectChannelsSurfaceViolations(readJson(manifestPath), [
+        ...listFiles(channelsRoot),
+        `features/connector-client/integrations/${file}`,
+      ]),
+    ).toEqual([]);
+  });
+  it("admits exactly the ruled raw-export IndexedDB integration", () => {
+    expect(
+      collectChannelsSurfaceViolations(readJson(manifestPath), [
+        ...listFiles(channelsRoot),
+        "features/connector-client/integrations/raw-export-indexeddb.ts",
+      ]),
+    ).toEqual([]);
+  });
+  it.each(["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"])(
+    "admits the exact order-authority probe path %s",
+    (file) => {
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          `features/connector-client/integrations/order-authority-probe/${file}`,
+        ]),
+      ).toEqual([]);
+    },
+  );
+
+  it.each([
+    "integrations/operation-indexeddb.ts",
+    "integrations/synthetic-forbidden-sibling/worker.js",
+    "integrations/raw-export-indexeddb.ts.backup",
+    "integrations/raw-export-indexeddb.ts/extra.ts",
+    ...["connector-indexeddb.ts", "operation-indexeddb.ts"].flatMap((file) => [
+      `integrations/${file}.backup`,
+      `integrations/${file}/extra.ts`,
+      `integrations/prefix-${file}`,
+      `integrations/${file}-suffix`,
+      `integrations/nested/${file}`,
+    ]),
+    "integrations/order-authority-probe/extra.js",
+    "integrations/order-authority-probe/nested/worker.js",
+    "integrations/order-authority-probe/worker.js/extra.js",
+    "integrations/order-authority-probe/worker.js.backup",
+    "integrations/order-detection-pagination-probe/extra.js",
+    "integrations/order-detection-pagination-probe/nested/worker.js",
+    "integrations/order-detection-pagination-probe/worker.js/extra.js",
+    "integrations/order-detection-pagination-probe/worker.js.backup",
+    ...["order-authority-probe", "order-detection-pagination-probe"].flatMap((probe) => [
+      `integrations/prefix-${probe}/worker.js`,
+      `integrations/${probe}-suffix/worker.js`,
+      `integrations/${probe}extra/worker.js`,
+      `integrations/${probe}/nested/${probe}/worker.js`,
+    ]),
+    "ui/synthetic-forbidden-sibling.ts",
+    "synthetic-forbidden-sibling.ts",
+  ])("rejects the forbidden connector-client sibling %s", (file) => {
+    expect(
+      collectChannelsSurfaceViolations(readJson(manifestPath), [
+        ...listFiles(channelsRoot),
+        `features/connector-client/${file}`,
+      ]),
+    ).toEqual(["connector-client-buckets"]);
+  });
+
+  it.each(["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"])(
+    "admits the exact order-detection-pagination probe path %s",
+    (file) => {
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          `features/connector-client/integrations/order-detection-pagination-probe/${file}`,
+        ]),
+      ).toEqual([]);
+    },
+  );
+
+  it.each(["order-authority-probe", "order-detection-pagination-probe"])(
+    "admits the complete six-file %s package alongside the real Channels inventory",
+    (probe) => {
+      const files = ["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"];
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          ...files.map((file) => `features/connector-client/integrations/${probe}/${file}`),
+        ]),
+      ).toEqual([]);
+    },
+  );
+
   it("accepts the desired-state slice while freezing forbidden context dependencies and excluding landing", () => {
     const manifest = readJson(manifestPath);
     const files = listFiles(channelsRoot);
     expect(collectChannelsSurfaceViolations(manifest, files)).toEqual([]);
+    expect(
+      collectChannelsSurfaceViolations(
+        { ...manifest, allowedContextDependencies: [...manifest.allowedContextDependencies, "@chase-sets/identity"] },
+        files,
+      ),
+    ).toEqual(["allowedContextDependencies"]);
+    for (const dependency of manifest.allowedContextDependencies) {
+      expect(
+        collectChannelsSurfaceViolations(
+          {
+            ...manifest,
+            allowedContextDependencies: manifest.allowedContextDependencies.filter((entry) => entry !== dependency),
+          },
+          files,
+        ),
+      ).toEqual(["allowedContextDependencies"]);
+    }
+    expect(
+      collectChannelsSurfaceViolations(
+        { ...manifest, hostPorts: manifest.hostPorts.filter((entry) => entry.portName !== "connectorOAuth") },
+        files,
+      ),
+    ).toEqual(["hostPorts"]);
+    expect(
+      collectChannelsSurfaceViolations(
+        { ...manifest, slices: manifest.slices.filter((entry) => entry !== "connector-feed") },
+        files,
+      ),
+    ).toEqual(["slices"]);
     expect(
       collectChannelsSurfaceViolations(
         manifest,
@@ -933,27 +1157,344 @@ describe("deployable-browser-test-support-import-fence", () => {
   });
 });
 
-describe("declared-browser-test-support-resolution", () => {
+describe("declared-api-db-test-support", () => {
+  afterEach(({ task }) => {
+    process.stdout.write(`declared-api-db-test-support control executed: ${task.name}\n`);
+  });
+
+  const specifier = "@chase-sets/neutral-package/test-support";
+  const witness = "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts";
+  const nested = "deployables/platform-api/__tests__/neutral/nested/neutral.db.test.ts";
+  const mapping = "./features/neutral-slice/tests/neutral.ts";
+
+  function declaredTarget() {
+    const root = createTempRepo("api-db-support-");
+    const rootAbs = path.join(root, "bounded-contexts/neutral-context");
+    writeSource(rootAbs, mapping, "export const neutral = true;\n");
+    return {
+      rootAbs,
+      packageName: "@chase-sets/neutral-package",
+      manifest: {
+        contextName: "neutral-context",
+        packageName: "@chase-sets/neutral-package",
+        publicExports: ["./test-support"],
+      },
+      packageJson: { name: "@chase-sets/neutral-package", exports: { "./test-support": mapping } },
+    };
+  }
+
+  function check(file, target, imported = specifier) {
+    return isAllowedDeployableBoundedContextImport(file, imported, target);
+  }
+
+  it("admits only the exact vocabulary entry and the actual declared Channels witness", () => {
+    expect(isAllowedPublicExportName("./test-support")).toBe(true);
+    expect(isAllowedPublicExportName("./test-support/*")).toBe(false);
+    expect(isAllowedPublicExportName("./test-support/extra")).toBe(false);
+    const target = {
+      rootAbs: channelsRoot,
+      packageName: "@chase-sets/channels",
+      manifest: readJson(manifestPath),
+      packageJson: readJson(packagePath),
+    };
+    expect(check(witness, target, "@chase-sets/channels/test-support")).toBe(true);
+    expect(
+      findTestSupportImportViolations(witness, readFileSync(path.join(repoRoot, witness), "utf8"), [target]),
+    ).toEqual([]);
+  });
+
+  it.each([
+    `import "${specifier}";`,
+    `void import("${specifier}");`,
+    `export * from "${specifier}";`,
+    `const fixture = require("${specifier}");`,
+  ])("discovers denied side effects, dynamic imports and re-exports: %s", (content) => {
+    expect(
+      findTestSupportImportViolations("bounded-contexts/channels/server.ts", content, [declaredTarget()]),
+    ).toHaveLength(1);
+  });
+
+  async function discover(file, target, imported = specifier) {
+    const root = createTempRepo("api-db-consumer-");
+    writeSource(
+      root,
+      file,
+      `import { neutral } from ${JSON.stringify(imported)};\nexport { neutral } from ${JSON.stringify(imported)};\n`,
+    );
+    const found = [];
+    const violations = [];
+    await runImportBoundaryValidation({
+      roots: [root],
+      walk,
+      onDirectory() {},
+      onFile(filePath) {
+        const relative = path.relative(root, filePath).replaceAll("\\", "/");
+        found.push(relative);
+        violations.push(
+          ...findTestSupportImportViolations(relative, readFileSync(filePath, "utf8"), [target].values()),
+        );
+      },
+    });
+    expect(found).toEqual([file]);
+    return violations;
+  }
+
+  it.each([witness, nested])("admits %s by declaration, not context directory name", async (file) => {
+    const target = declaredTarget();
+    expect(hasValidTestSupportDeclaration(target)).toBe(true);
+    expect(check(file, target)).toBe(true);
+    expect(check(file.replaceAll("/", "\\"), target)).toBe(true);
+    expect(await discover(file, target)).toEqual([]);
+  });
+
+  const deniedConsumers = [
+    "deployables/platform-api/src/neutral.ts",
+    "deployables/platform-api/server.ts",
+    "deployables/platform-api/__tests__/neutral.test.ts",
+    "deployables/platform-api/__tests__/neutral.db.spec.ts",
+    "deployables/platform-api/__tests__/neutral.db.test.tsx",
+    "deployables/platform-api/__tests__/neutral.db.test.js",
+    "deployables/platform-api/__tests__/neutral.ts",
+    "deployables/platform-api/neutral.db.test.ts",
+    ...[
+      "platform-worker",
+      "admin-web",
+      "marketplace",
+      "public-web",
+      "tcgplayer-operator-extension",
+      "tcgplayer-connector-extension",
+    ].map((name) => `deployables/${name}/__tests__/neutral.db.test.ts`),
+    "bounded-contexts/neutral-context/features/neutral-slice/tests/neutral.db.test.ts",
+    "bounded-contexts/other/features/neutral/tests/neutral.db.test.ts",
+    "bounded-contexts/other/support/seed-support/neutral.ts",
+    "bounded-contexts/other/seed.ts",
+    "infrastructure/platform-runtime/tests/neutral.test.ts",
+    "contracts/neutral/tests/neutral.test.ts",
+    "packages/neutral/tests/neutral.test.ts",
+    "scripts/neutral.test.mjs",
+    "bounded-contexts/channels/server.ts",
+  ];
+  it.each(deniedConsumers)("refuses %s through predicate and real discovery", async (file) => {
+    const target = declaredTarget();
+    expect(check(witness, target)).toBe(true);
+    expect(check(file, target)).toBe(false);
+    expect(check(file.replaceAll("/", "\\"), target)).toBe(false);
+    expect(await discover(file, target)).toHaveLength(2);
+  });
+
+  it.each([
+    "deployables/platform-api/__tests__//neutral.db.test.ts",
+    "deployables/platform-api/__tests__/./neutral.db.test.ts",
+    "deployables/platform-api/__tests__/../neutral.db.test.ts",
+    "/deployables/platform-api/__tests__/neutral.db.test.ts",
+    "prefix/deployables/platform-api/__tests__/neutral.db.test.ts",
+    "C:/deployables/platform-api/__tests__/neutral.db.test.ts",
+    "deployables/platform-api/__tests__/C:/neutral.db.test.ts",
+    `${witness}/`,
+    `${witness}?query`,
+    `${witness}#fragment`,
+    "",
+  ])("rejects unnormalized importer %s without collapsing it", (file) => {
+    const target = declaredTarget();
+    expect(check(file, target)).toBe(false);
+    expect(check(file.replaceAll("/", "\\"), target)).toBe(false);
+    expect(findTestSupportImportViolations(file, `import "${specifier}";`, [target])).toHaveLength(1);
+  });
+
+  const declarationMutations = [
+    [
+      "package declaration absent",
+      (t) => {
+        delete t.packageJson.exports["./test-support"];
+      },
+    ],
+    [
+      "context declaration absent",
+      (t) => {
+        t.manifest.publicExports = [];
+      },
+    ],
+    [
+      "package identity mismatch",
+      (t) => {
+        t.packageJson.name = "@chase-sets/other";
+      },
+    ],
+    [
+      "context identity mismatch",
+      (t) => {
+        t.manifest.packageName = "@chase-sets/other";
+      },
+    ],
+    [
+      "root absent",
+      (t) => {
+        delete t.rootAbs;
+      },
+    ],
+    [
+      "root missing",
+      (t) => {
+        t.rootAbs += "-missing";
+      },
+    ],
+    [
+      "conditional export",
+      (t) => {
+        t.packageJson.exports["./test-support"] = { default: mapping };
+      },
+    ],
+    [
+      "non-string export",
+      (t) => {
+        t.packageJson.exports["./test-support"] = [mapping];
+      },
+    ],
+    ...[
+      "./features/neutral-slice/tests/*.ts",
+      "./features/neutral-slice/tests/missing.ts",
+      "./features/neutral-slice/tests",
+      "./features/neutral-slice/api/neutral.ts",
+      "./features/neutral-slice/tests//neutral.ts",
+      "./features/neutral-slice/tests/./neutral.ts",
+      "./features/neutral-slice/tests/../tests/neutral.ts",
+      "./features/neutral-slice/tests/..\\tests/neutral.ts",
+      "/features/neutral-slice/tests/neutral.ts",
+      "C:/features/neutral-slice/tests/neutral.ts",
+      "./features/neutral-slice/tests/neutral.ts?query",
+      "./features/neutral-slice/tests/neutral.ts#fragment",
+      "features/neutral-slice/tests/neutral.ts",
+      "./../features/neutral-slice/tests/neutral.ts",
+    ].map((value) => [
+      value,
+      (t) => {
+        t.packageJson.exports["./test-support"] = value;
+      },
+    ]),
+  ];
+  it.each(declarationMutations)("refuses %s with all other inputs fixed", async (_label, mutate) => {
+    const target = declaredTarget();
+    writeSource(target.rootAbs, "features/neutral-slice/api/neutral.ts", "export const neutral = true;");
+    expect(check(witness, target)).toBe(true);
+    mutate(target);
+    expect(hasValidTestSupportDeclaration(target)).toBe(false);
+    expect(check(witness, target)).toBe(false);
+    expect(await discover(witness, target)).toHaveLength(2);
+  });
+
+  it("refuses absent metadata and a different actual target package", async () => {
+    expect(check(witness, undefined)).toBe(false);
+    const target = declaredTarget();
+    const wrong = "@chase-sets/neutral-context/test-support";
+    expect(check(witness, target, wrong)).toBe(false);
+    target.packageName = target.packageJson.name = target.manifest.packageName = "@chase-sets/other";
+    expect(check(witness, target)).toBe(false);
+    expect(await discover(witness, target, "@chase-sets/other/test-support/extra")).toHaveLength(2);
+  });
+
+  it("rejects an existing directory and symlink escaping its owner tests tree", async () => {
+    const target = declaredTarget();
+    const outside = createTempRepo("outside-fixture-");
+    writeSource(outside, "neutral.ts", "export const neutral = true;");
+    const link = path.join(target.rootAbs, "features/neutral-slice/tests/link");
+    symlinkSync(outside, link, process.platform === "win32" ? "junction" : "dir");
+    target.packageJson.exports["./test-support"] = "./features/neutral-slice/tests/link/neutral.ts";
+    expect(check(witness, target)).toBe(false);
+    expect(await discover(witness, target)).toHaveLength(2);
+    mkdirSync(path.join(target.rootAbs, "features/neutral-slice/tests/directory.ts"));
+    target.packageJson.exports["./test-support"] = "./features/neutral-slice/tests/directory.ts";
+    expect(check(witness, target)).toBe(false);
+    expect(await discover(witness, target)).toHaveLength(2);
+  });
+
+  it.each(["/extra", "/../server", "/./neutral", "//neutral", "/", "?query", "#fragment", "\\extra"])(
+    "rejects malformed specifier suffix %s",
+    async (suffix) => {
+      const target = declaredTarget();
+      expect(check(witness, target, `${specifier}${suffix}`)).toBe(false);
+      expect(await discover(witness, target, `${specifier}${suffix}`)).toHaveLength(2);
+    },
+  );
+
+  it("retains seed-support refusal and relative deep-import refusal for API DB witnesses", () => {
+    const target = declaredTarget();
+    target.manifest.publicExports.push("./seed-support/*");
+    target.packageJson.exports["./seed-support/*"] = "./features/neutral-slice/tests/*.ts";
+    expect(check(witness, target, "@chase-sets/neutral-package/seed-support/neutral")).toBe(false);
+    expect(
+      check(witness, target, "../../../bounded-contexts/neutral-context/features/neutral-slice/tests/neutral"),
+    ).toBe(false);
+    const source = readFileSync(path.join(repoRoot, "scripts/check-structure/run.mjs"), "utf8");
+    expect(source).toContain("addViolation(file, `deployables must use package imports (${specifier})`)");
+  });
+
+  it("discriminates declaration-removal and consumer-broadening mutants independently", () => {
+    const source = readFileSync(path.join(repoRoot, "scripts/check-structure/run.mjs"), "utf8");
+    const start = source.indexOf("export function isAllowedDeployableBoundedContextImport(");
+    const end = source.indexOf("\nfunction isAllowedContextImporter", start);
+    const original = source.slice(start, end).replace("export ", "");
+    const compile = (body) =>
+      new Function(
+        "hasValidTestSupportDeclaration",
+        "hasSafePathSegments",
+        `${body}; return isAllowedDeployableBoundedContextImport;`,
+      )(hasValidTestSupportDeclaration, (value) =>
+        value.split("/").every((segment) => segment && segment !== "." && segment !== ".."),
+      );
+    const declarationRemoved = original.replace("hasValidTestSupportDeclaration(targetContext)", "true");
+    expect(declarationRemoved).not.toBe(original);
+    const target = declaredTarget();
+    target.manifest.publicExports = [];
+    expect(check(witness, target)).toBe(false);
+    expect(compile(declarationRemoved)(witness, specifier, target)).toBe(true);
+    const consumerBroadened = original.replace(
+      "/^deployables\\/platform-api\\/__tests__\\/(?:[^/]+\\/)*[^/]+\\.db\\.test\\.ts$/",
+      "/^deployables\\//",
+    );
+    expect(consumerBroadened).not.toBe(original);
+    const valid = declaredTarget();
+    expect(check(deniedConsumers[0], valid)).toBe(false);
+    expect(compile(consumerBroadened)(deniedConsumers[0], specifier, valid)).toBe(true);
+  });
+});
+
+describe.each([
+  [
+    "browser seed",
+    "./seed-support/*",
+    "./support/seed-support/*.ts",
+    "seed-support/neutral",
+    "support/seed-support/neutral.ts",
+    ["deployables/admin-web/e2e/neutral.spec.ts", "deployables/marketplace/e2e/nested/neutral.probe.spec.ts"],
+  ],
+  [
+    "API DB",
+    "./test-support",
+    "./features/neutral/tests/neutral.ts",
+    "test-support",
+    "features/neutral/tests/neutral.ts",
+    [
+      "deployables/platform-api/__tests__/neutral.db.test.ts",
+      "deployables/platform-api/__tests__/nested/neutral.db.test.ts",
+    ],
+  ],
+])("declared %s support resolution", (_label, exportKey, mapping, subpath, modulePath, specPaths) => {
   it("resolves both specs through generated package exports and loses resolution when only the export is removed", () => {
     const root = createTempRepo("browser-seed-resolution-");
     const contextRoot = "bounded-contexts/neutral-context";
-    const target = `${contextRoot}/support/seed-support/neutral.ts`;
-    const specifier = "@chase-sets/neutral-package/seed-support/neutral";
-    const specPaths = [
-      "deployables/admin-web/e2e/neutral.spec.ts",
-      "deployables/marketplace/e2e/nested/neutral.probe.spec.ts",
-    ];
+    const target = `${contextRoot}/${modulePath}`;
+    const specifier = `@chase-sets/neutral-package/${subpath}`;
     writeJson(path.join(root, "tsconfig.base.json"), {
       compilerOptions: { moduleResolution: "Bundler", module: "ESNext", paths: {} },
     });
     writeJson(path.join(root, contextRoot, "context.json"), {
       contextName: "neutral-context",
       packageName: "@chase-sets/neutral-package",
-      publicExports: ["./seed-support/*"],
+      publicExports: [exportKey],
     });
     const packageJson = {
       name: "@chase-sets/neutral-package",
-      exports: { "./seed-support/*": "./support/seed-support/*.ts" },
+      exports: { [exportKey]: mapping },
     };
     writeJson(path.join(root, contextRoot, "package.json"), packageJson);
     writeSource(root, target, "export const neutral = true;\n");
@@ -981,18 +1522,15 @@ describe("declared-browser-test-support-resolution", () => {
     };
 
     sync();
-    expect(readJson(path.join(root, contextRoot, "package.json")).exports["./seed-support/*"]).toBe(
-      "./support/seed-support/*.ts",
-    );
-    expect(readConfig().compilerOptions.paths["@chase-sets/neutral-package/seed-support/*"]).toEqual([
-      `./${contextRoot}/support/seed-support/*.ts`,
-    ]);
+    expect(readJson(path.join(root, contextRoot, "package.json")).exports[exportKey]).toBe(mapping);
+    const alias = `@chase-sets/neutral-package/${exportKey.slice(2)}`;
+    expect(readConfig().compilerOptions.paths[alias]).toEqual([`./${contextRoot}/${mapping.slice(2)}`]);
     for (const file of specPaths) expect(path.resolve(resolve(file).resolvedFileName)).toBe(path.join(root, target));
 
-    delete packageJson.exports["./seed-support/*"];
+    delete packageJson.exports[exportKey];
     writeJson(path.join(root, contextRoot, "package.json"), packageJson);
     sync();
-    expect(readConfig().compilerOptions.paths).not.toHaveProperty("@chase-sets/neutral-package/seed-support/*");
+    expect(readConfig().compilerOptions.paths).not.toHaveProperty(alias);
     for (const file of specPaths) expect(resolve(file)).toBeUndefined();
   });
 });
@@ -1109,12 +1647,17 @@ describe("channels-wake-registry-derivation", () => {
     expect(derive(manifests)).toEqual({
       affectedProjectionNames: [
         "channels:channel-connection-projection",
+        "channels:channel-fulfillment-observation-retry",
         "channels:channel-listing-desired-state-reaction",
         "channels:channel-owned-publication-state",
         "channels:platform-policy-document-projection",
         "channels:tcgplayer-csv-projection",
       ],
-      routeDependencyIds: ["channels.publication-settings-to-detail"],
+      routeDependencyIds: [
+        "channels.activation-to-manual-sync",
+        "channels.connect-to-detail",
+        "channels.publication-settings-to-detail",
+      ],
     });
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: manifests.length,
@@ -1131,6 +1674,7 @@ describe("channels-wake-registry-derivation", () => {
     ]);
     expect(projectionMutant.affectedProjectionNames).toEqual([
       "channels:channel-connection-projection",
+      "channels:channel-fulfillment-observation-retry",
       "channels:channel-listing-desired-state-reaction",
       "channels:channel-owned-publication-state",
       "channels:platform-policy-document-projection",

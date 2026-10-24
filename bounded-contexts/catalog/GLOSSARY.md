@@ -49,6 +49,8 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Product Content Line`
 - `Product Content Type`
 - `Product Content Inclusion Policy`
+- `TCGplayer Market Observation Request`
+- `TCGplayer Market Observation Batch`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
@@ -69,6 +71,14 @@ session to Catalog using a narrow Operator Session Push Grant. It is separate
 from the seller connector. Pairing is per environment; unpairing revokes the
 grant, not custody or the browser/provider session. The popup cannot read
 stored grants or cookies.
+
+- `Admin pair handoff` is the primary pairing path: after a successful mint,
+  the Admin TCGplayer provider page sends the grant once to the extension
+  without displaying it. The extension takes the environment from the Admin
+  origin, which is the trust principal, not proof of a mint. `paired` means the
+  grant was committed to local storage only. Otherwise Admin shows the grant as
+  not confirmed for popup paste, which is not proof of non-receipt. The grant
+  is never recorded.
 
 - `Provider-send quota` is an installed, durable maximum of admitted application HTTP attempts for a supervised staging window. Retries, redirects and uncertain sends retain their debits; unused quota is not transferable or refillable.
 - `Enforced admission maximum` is a policy reservation enforced before sending, not a measured provider inventory or page-count estimate. Ordinal 18 may use its installed 256-attempt maximum while its estimate remains unavailable.
@@ -97,6 +107,19 @@ The current implementation also uses four supporting authoring concepts:
 - `Scope Coverage` — the read model answer showing which provider units can cover a Catalog Scope Record and which mappings or provider capabilities are missing
 - `Scope Sync` — the workflow that starts from a Catalog Scope Record, applies approved Provider Scope Mappings, and then plans provider pulls
 - `Scope Sync Batch` — a durable, bounded Catalog workflow that previews and executes Scope Sync across explicit or server-resolved matching Catalog Scope Records while preserving per-scope planning, provider budgets, stale-evidence checks, and settled work
+- `Count quote` — an expiring, fingerprinted display of selected sets, missing Scrydex card/sealed counts, per-kind credits, reuse and a server-bounded cap. Approval authorizes counts, not a Scope Sync Batch.
+- `Count spend` — append-only credits debited before a possible count request, with its retained result or uncertainty. Separate from account usage and batch reservations; uncertainty never refunds or re-arms a query.
+- `Whole-quote admission` — the opt-in, staging-only acquisition of a Count quote that buys all of its approved credits or none: under the account headroom lock, current net headroom must cover the whole quote before any debit or send, and each quote admits one execution.
+- `Quote allocation` — the capacity a whole-quote admission holds for its quote. It is not Count spend or a batch reservation: each claim converts one credit of it into a debit, ordinary claims and new batch reservations cannot take it, and terminal end or quote expiry releases only credits never converted.
+- `page-1-count` — validated total, observed page size and page-1 length retained on count spend without option items or any claim of all-page completion.
+- `Possible-send debit` — a staging count-capture slot durably committed under one lock before a bound Scrydex transport call, within fixed per-phase caps. A failed, redirected or uncertain send keeps its debit and stops the run. Capture-only: it is neither count spend nor a send-window debit.
+- `Capture run` — the one staging count capture a real platform-admin session owns, admitted from a validated host authority envelope that one host dispatch can admit only once. At most one is active across replicas; its identity is derived from the session, never supplied by a client, and its phases advance strictly in order and never re-arm. Capture-only.
+- `Pre-spend notice` — the first of a Capture run's two notices, derived from its recorded baseline, the declared host authority and the fixed caps. This initial notice is durably recorded once and read back before any phase that can send; the second is the Final pre-spend notice before acquisition. Capture-only.
+- `Final pre-spend notice` — the second notice of a Capture run, derived from its retained, read-back final Count quote. It binds the quote ID and fingerprint, authority and membership fingerprints, quote expiry, usage age, P (planned missing-kind credits), planned cards/sealed kinds, server cap = P, reused sources, remaining preview/pre-confirm/total caps, the declared host, and count debits kept separate from batch reservation. It is recorded once and read back before the single acquisition; a changed quote, authority, membership or expiry stops the run without re-quoting. Capture-only.
+- `Capture freeze` — the seal of a Capture run, reachable from any admitted state and only for the run's own dispatch. The server's clock fixes `frozenAt` once, records the sealing runner and acknowledges the run ID and `frozenAt`; it collects, reads and assembles nothing, and refuses a deployment collection. A frozen run refuses every later action except one Capture completion of that exact run. Capture-only.
+- `Capture completion` — the one terminal step of a frozen Capture run: the sealing runner's deployment collection, gathered once its clock reached the acknowledged `frozenAt`, is appended to that exact run within its lifetime. It reads only bounded local state, with no provider I/O, to compare effects against the baseline and retains the run's one closed `scope-sync-count-lifecycle` receipt (or stop receipt). It never moves `frozenAt`, reopens the run or replaces a receipt; a sealed run left without one stays visibly non-conforming. Capture-only.
+- `pre-confirm-planner-read` — the capture label for one Scope Sync Batch planner read that resolves the plan and applies the same confirmation check as confirm, returning the compared and current fingerprints, eligibility and refusal code. It holds no batch store, reservation, worker or enqueue capability; it is never a confirm and never a renamed preview.
+- `Count-source winner` — the count source a reader selected for one query in one observed planner read, with the reader's own read time. Every selected Scrydex unit's consumed source must match exactly one winner of that same read by query and source fingerprint; any other winner stops the read.
 - `Provider Participation Preview` — a unit-aware pre-sync answer showing which provider units can participate in a Catalog Sync Scope, which are required or optional, why they are eligible or blocked, and which child Source Observation execution scope each selected unit would use
 - `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
 - `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL
@@ -111,12 +134,27 @@ The current implementation also uses four supporting authoring concepts:
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
 - `Product Measure Profile` — a reusable Catalog-owned physical measurement rule for Products that share size, weight, stack behavior, and physical flags
 - `Resolved Product Measure` — the per-Product measurement snapshot published for downstream shipping quote and fulfillment use
+- `Product Measure Publication` — the complete resolved measure set for one Catalog Item, applied as one replacement
+- `Publication Part` — a contiguous, zero-based portion of a Product Measure Publication, staged until completion
+- `completion revision` — the stream version of the completion event for a Product Measure Publication
 - `Product Contents` — the Catalog-owned relationship describing what one configured Product contains
 - `Product Content Line` — one contained Catalog Item or Product selection inside Product Contents
 - `Product Content Type` — configured Catalog data that names and orders the meaning of a Product Content Line
 - `Product Content Inclusion Policy` — configured Catalog data that describes exact, variable, random, optional, choice-based, or other inclusion semantics
 
 These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
+
+## Product Measure Publication
+
+A Product Measure Publication is Catalog's complete resolved Product measure set for one Catalog Item. A legacy resolved event publishes the set directly; multipart publication records Publication Parts followed by completion. Consumers stage parts and replace their prior complete set only after verifying every part, the Product count and the canonical SHA-256 digest. The digest detects assembly errors, not authentication.
+
+## Publication Part
+
+A Publication Part carries the Catalog Item identity, a zero-based part index and Product measure snapshots. For completion at stream version V with k parts, the parts occupy precisely V-k through V-1 on the same Catalog Product Measures stream. Parts alone never change serving state.
+
+## completion revision
+
+The completion revision is the stream version of the Product Measure Publication completion event. It identifies the complete replacement, not an individual Publication Part.
 
 ## Rich Reference Model
 
@@ -144,6 +182,14 @@ A `Scope Sync Batch` is Catalog-owned orchestration over existing Scope Sync Run
 
 The batch advances a bounded number of scope units per leased worker turn. It never fans out the complete catalog in one request and never creates a provider-specific execution shortcut. Completed units remain completed through cancel, resume, and failed-unit retry; an unchanged settled fingerprint is a fast no-op.
 
+## Scope Sync Count Lifecycle Receipt
+
+A `scope-sync-count-lifecycle` receipt is the closed, support-safe staging artifact of one combined count-lifecycle capture for #9424 AC5 and #9431 AC7: the host authority envelope it ran under, the approved page-1 count acquisitions, the card and sealed count sources each preview and pre-confirm planner read consumed, every possible provider send, and the zero-effects comparison. It classifies itself `CONFORMING` only when every claim holds, otherwise `INCOMPLETE` for missing evidence or `FAILED` for contradicted evidence, separately per acceptance criterion; a complete-cache source never satisfies a page-1 claim. Validating it proves shape and causal consistency only; the live deployment, pods, review and spend authority are bound by the host verifier. Contract: `features/scope-sync-batches/domain/count-lifecycle-receipt.ts`.
+
+## Scrydex Coordinate Preview Receipt
+
+A `scrydex-coordinate-preview/v1` receipt is the closed, support-safe staging artifact of the `scrydex-coordinate-preview` journey scope: one signed-in Admin session makes one ordinary two-ID Scope Sync Batch preview over one active One Piece and one active Lorcana `set` Scope Record and joins it to exactly five rows, one per participating Scrydex unit (One Piece set, card and sealed; Lorcana set and card). Each row carries the accepted mapping's id, version and review status, its coordinates, the coordinate the shipped planner reads from them (`setId` before `setName`), that coordinate's membership in the unit's cache-only option row, and the preview's plan fingerprint and sample entries for that mapping and profile. The coordinates are the Admin-recorded `setId` and `setName` on the accepted Provider Scope Mapping; there is no separate Admin set identity. The deployment generation read before sign-in must equal the one read after capture and name the runner's reviewed head. Only a Scrydex `scope-planning-blocked` blocker on a selected Scope Record, or on none, blocks; every other preview blocker, estimate-unavailable included, is kept verbatim. `requests.signIn` counts every allowed sign-in-phase request, the isolation document included, and `requests.forbidden` counts every refused request. The isolation document is the same-origin path `/__scrydex-coordinate-preview-isolation`, loaded as a sign-in navigation and fulfilled with a constant script-free page so no Admin app code issues requests during capture; anywhere else the fence treats that path like any other request. The receipt is `complete` only with zero reasons; any other receipt is `governed-unknown`, a diagnostic that never promotes. Contract: `features/scope-sync-batches/domain/scrydex-coordinate-preview.ts`.
+
 ## Held-Set Export
 
 A `Held-Set Export` is a seller's TCGplayer Live CSV used by a Catalog operator to select Scope Sync Batch scope. Catalog reads only the exact `Product Line` and `Set Name` columns, resolves their distinct normalized pairs through TCGplayer single-card units and accepted Provider Scope Mappings, and discards the upload after the read-only response.
@@ -154,9 +200,15 @@ A `Production Catalog Completion Report` is the versioned, Catalog-owned contrac
 
 Every scope or provider unit excluded from required coverage carries one stable reason — `ineligible`, `validation-only`, `comparison-only`, `unapproved`, `retired`, `rollout-blocked`, `provider-unavailable`, `mapping-missing`, or `operator-deferred`. Missing mappings, never-synced or stale or failed units, unresolved merge conflicts, duplicate-prevention blocks, blocked promotions, and unexplained exclusions are launch blockers. Repeat-run reconciliation compares a re-execution against the accepted manifest and fails on duplicate Catalog truth, a changed plan fingerprint, or unexpected new work. The retained ops verifier emits support-safe JSON plus a human summary and exits nonzero for any launch blocker.
 
+`Provider Agreement` is the database-mode report aggregate of current merge-candidate observations by product domain and matcher fact key. Each candidate and field contributes exactly one of `agreed`, `single-source`, `mismatch`, `absent`, or `intra-provider-conflict`; mismatch pairs count unordered provider pairs once. Identity fallback values are omitted from agreement evidence, and only current candidate membership is observed.
+
 ## Provider Scope Observation
 
 A `Provider Scope Observation` records the provider, ingestion unit, scope kind, external id, label, parent coordinates, language, provider metadata, and deterministic hash returned by an option sync. Observations are provider evidence, not canonical Scope Records. The matcher may auto-accept a unique exact canonical match, propose ambiguous mappings, or create one reviewable canonical Scope Record proposal for unmatched evidence. Accepted, rejected, and revoked mapping dispositions survive later observation refreshes.
+
+## Usage Snapshot
+
+A `Usage Snapshot` is a provider adapter's cached, redacted observation of a provider account's credit usage: credit state, total, remaining, and used credits, the observed-at time of the last successful read, the latest attempt state, and the provider lag category. It never carries credentials, account identifiers, endpoint URLs, pricing, or raw provider responses, and an unreported value stays null rather than zero. For Scrydex the total is consumed plus remaining credits for the current billing period and is unreported once overage credits are consumed. Health reads share one snapshot per adapter and freshness window; import planning reads usage live. The Admin usage budget derives `fresh`, `stale`, `unavailable`, or `never-observed` from the snapshot's observed age, withholds balances older than the provider's unavailable window, and projects `null` for providers that do not report usage.
 
 ## Alias Model
 
@@ -247,6 +299,24 @@ Natural keys are normalized once at Source Observation ingest before they are pe
 | `languageCode` | Canonical BCP-47 language tag | Uses the shared locale contract, such as `EN-us` → `en-US`. |
 | `providerKey` | Trimmed lowercase | Provider identity is case-insensitive. |
 | `externalKey` | Trimmed and otherwise preserved exactly as provider-issued | External identifiers are provider-owned and may be case/format significant. |
+
+### Promotion Reference Canonical Form
+
+Promotion discovery compares references by a canonical form `C(s)` that is
+ECMAScript `s.trim().toLowerCase()`: Unicode default lowercase with the
+language-independent special cases (dotted I expansion, final sigma), no case
+folding, no normalization and no locale. It never rewrites stored keys; Catalog
+Item references already store `C(value)` and Source Observation references keep
+their case, so `C` is applied at the access path.
+
+| Public term | Meaning |
+| --- | --- |
+| `catalog_promotion_reference_text_v1(text)` | Immutable Catalog SQL function computing `C` byte-for-byte with the supported Node runtime from pinned Unicode 17.0 casing data. A casing-data change is a new version with new function and index names. |
+| `catalog_promotion_reference_pairs_v1(jsonb)` | Immutable Catalog SQL function mapping a Source Observation `normalized` header to `{ externalCatalogItemReferences, externalProductReferences }` arrays of canonical `{ providerKey, externalKey }` pairs. It keeps level and pairing and never flattens or lowercases serialized JSON. |
+
+The dormant access paths these functions back are described in
+`bounded-contexts/catalog/docs/catalog-scope-sync-merge-candidate-handoff.md`
+under Promotion Reference Access Paths.
 
 The promotion command planner and duplicate-prevention resolver use the same `languageCode:externalKey` composition after this normalization. Natural-key normalization does not rewrite historical event or reference keys.
 
@@ -376,9 +446,22 @@ Catalog does not define:
 
 Catalog sync decision vocabulary:
 
+- `scrydex-option-refresh/v1` is the bounded hosted staging receipt for exactly five Scrydex `sets` option-cache force reads. A complete receipt proves five live/bypass responses; refused or stopped runs are diagnostic only and never imply zero spend.
+
 - `split` means one provider-sourced candidate should become more than one Catalog candidate.
 - `update` means an approved candidate refreshes existing Catalog Item/Product facts through Catalog commands.
 - `delete` means a candidate is rejected, ignored, or withdrawn from the merged candidate set. It is not canonical Catalog Item/Product removal.
+
+Catalog Merge Candidate approval is not application:
+
+- `promoted` (candidate status and the `catalog.merge-candidate.promoted` event) means the candidate was approved for Catalog promotion. It never claims a Catalog Item was written.
+- `promotion-planned` (`catalog.merge-candidate.promotion-planned`) is the candidate-owned, immutable application plan bound to one approval before any Catalog Item command: initiating job and work unit, target Catalog Item, actual mode, target baseline, resolved profile versions, mapping, reference and asset inputs, exact ordered commands and the validated plan fingerprint. A resumed application replays it; it is never regenerated or retargeted.
+- `promotion-applied` (`catalog.merge-candidate.promotion-applied`) records that the bound plan's commands are proven complete on the target stream. It is appended once per approval.
+- `appliedMode` is the action a completed application actually took: `create`, `refresh` (including a create intent redirected to a retained Catalog Item) or `link-existing`. It is not the reviewed `promotionIntent`.
+- `appliedCatalogItemId` is the Catalog Item a completed application wrote. A scope job result's `catalogItemId` stays the historical matched target, never application evidence.
+- `promotionApplicationVersion` is the persisted scope promotion job discriminator: `1` for jobs whose `promoted` outcomes are completed applications; absent for retained jobs whose `promoted` outcomes recorded approval only.
+
+Owning contracts: `bounded-contexts/catalog/features/source-observations/domain/catalog-merge-candidate.ts` and `bounded-contexts/catalog/features/source-observations/api/source-observation-runtime-contracts.ts`; lifecycle, rollout and rollback in `bounded-contexts/catalog/docs/catalog-scope-sync-merge-candidate-handoff.md`.
 
 ## One-Line Summary
 

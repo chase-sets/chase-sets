@@ -4,6 +4,7 @@ import { redirect } from "react-router";
 import { readFreshWriteToken, readPostWriteHandoff, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../../request-support/api-client";
 import {
   ensureAnonymousProductAlertOwnerId,
@@ -357,6 +358,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     return {
       item,
+      entryAttemptKey: createId("chkentry"),
+      recoveryAuthority: actor ? { accountId: actor.accountId, actorUserId: actor.userId } : null,
       similarItems: await similarItemsPromise,
       accountOfferMatches,
       sellerInventoryItems,

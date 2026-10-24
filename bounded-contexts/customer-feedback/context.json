@@ -29,7 +29,7 @@
   "apiBasePath": "/api/customer-feedback",
   "slices": ["csat", "cases", "attention", "privacy"],
   "allowedSupportDirectories": ["runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "eventReactions": [
@@ -58,11 +58,23 @@
       "failurePolicy": "surface-as-reaction-failure"
     }
   ],
+  "eventSubscriptions": [
+    { "sourceContextName": "auth", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["auth.session.started"], "order": 1, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
+    { "sourceContextName": "identity", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["identity.registration.completed", "identity.onboarding.completed"], "order": 2, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
+    { "sourceContextName": "discovery", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["discovery.search-session.started"], "order": 3, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] }
+  ],
   "projectionGroups": [
     {
       "projectionName": "customer-feedback-csat-invitation-projection",
       "sourceContextNames": ["customer-feedback"],
       "ownedTables": ["customer_feedback_csat_invitations", "customer_feedback_response_privacy_audit"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextNames": ["auth", "identity", "discovery"],
+      "ownedTables": ["customer_feedback_csat_outcome_facts"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -165,6 +177,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "customer-feedback-attention": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -175,7 +190,26 @@
           "fileExport": "./routes/admin/attention",
           "routeType": "route",
           "sourceContext": "customer-feedback",
-          "section": "support"
+          "section": "support",
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "linkParameters": {
+            "query": {
+              "caseId": {
+                "kind": "value",
+                "maxLength": 256
+              }
+            }
+          },
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": ["support.view"]
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          }
         }
       ]
     }

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   contextManifestContributesToApiHost,
   listBoundedContextManifests,
@@ -154,6 +155,7 @@ export function listTrackedLocaleModulePaths(rootDir, options = {}) {
     output = execGit("git", ["ls-files", "--", localizationRoot], {
       cwd: rootDir,
       encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     });
   } catch (error) {
     throw new Error(`Failed to discover tracked localization modules with git ls-files: ${gitErrorMessage(error)}`);
@@ -642,9 +644,27 @@ function syncTsconfigBase(workspaces, options) {
   writeFileSync(tsconfigBasePath, content, "utf8");
 }
 
+function resolveContexts(workspaces, options) {
+  return options.contexts ?? listBoundedContextManifests({ repoRoot: options.rootDir, workspaces });
+}
+
+function syncCanonicalContextManifests(contexts, options) {
+  const { check, drift, rootDir } = options;
+
+  for (const context of contexts) {
+    if (!context.sourcePath) continue;
+    const content = `${JSON.stringify(context.manifest, null, 2)}\n`;
+    if (check) {
+      checkExpectedFile(context.manifestPath, content, drift, rootDir);
+    } else {
+      writeFileEnsured(context.manifestPath, content);
+    }
+  }
+}
+
 function syncDeployableRegistries(workspaces, options) {
   const { check, drift, rootDir } = options;
-  const contexts = listBoundedContextManifests({ repoRoot: rootDir, workspaces });
+  const contexts = resolveContexts(workspaces, options);
 
   for (const output of buildGeneratedRegistryOutputs(rootDir)) {
     const content =
@@ -676,7 +696,7 @@ function syncLocaleCatalogs(workspaces, options) {
   const { check, drift, rootDir } = options;
   const trackedModulePaths =
     options.trackedLocaleFiles ?? listTrackedLocaleModulePaths(rootDir, { execGit: options.execGit });
-  const contexts = listBoundedContextManifests({ repoRoot: rootDir, workspaces });
+  const contexts = resolveContexts(workspaces, options);
   const plan = buildLocaleCatalogPlan(contexts, trackedModulePaths, rootDir);
 
   for (const output of plan.outputs) {
@@ -732,6 +752,11 @@ export function syncWorkspaceMetadata(options = {}) {
   const rootDir = options.rootDir ?? repoRoot;
   const workspaces = options.workspaces ?? listWorkspacePackages({ repoRoot: rootDir });
   const drift = [];
+  // Compose every source before any downstream generator runs. A source error
+  // therefore cannot fall back to stale context.json or partially generate data.
+  const contexts = options.contexts ?? listBoundedContextManifests({ repoRoot: rootDir, workspaces });
+
+  syncCanonicalContextManifests(contexts, { check, drift, rootDir });
 
   const localeCatalogs = syncLocaleCatalogs(workspaces, {
     check,
@@ -739,9 +764,10 @@ export function syncWorkspaceMetadata(options = {}) {
     rootDir,
     trackedLocaleFiles: options.trackedLocaleFiles,
     execGit: options.execGit,
+    contexts,
   });
   syncTsconfigBase(workspaces, { check, drift, rootDir });
-  syncDeployableRegistries(workspaces, { check, drift, rootDir });
+  syncDeployableRegistries(workspaces, { check, drift, rootDir, contexts });
   syncEventCorePostgresSchema({ check, drift, rootDir });
 
   if (drift.length > 0) {

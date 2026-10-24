@@ -25,6 +25,18 @@ export async function resolveChannelExternalSaleTarget(
   db: PgQueryable,
   input: Readonly<{ connectionId: string; externalListingId: string; externalOfferId: string | null }>,
 ): Promise<ChannelExternalSaleTarget> {
+  return resolveTarget(db, input);
+}
+
+async function resolveTarget(
+  db: PgQueryable,
+  input: Readonly<{
+    connectionId: string;
+    externalListingId: string;
+    externalOfferId: string | null;
+    channelListingId?: string;
+  }>,
+): Promise<ChannelExternalSaleTarget> {
   const result = await db.query<{
     connection_account_id: string;
     link_account_id: string;
@@ -47,8 +59,9 @@ export async function resolveChannelExternalSaleTarget(
      LEFT JOIN channels_inventory_item_facts AS item ON item.item_id=listing.inventory_item_id
      WHERE link.connection_id=$1 AND link.external_listing_id=$2
        AND (($3::text IS NULL AND link.external_offer_id IS NULL) OR link.external_offer_id=$3)
+       AND ($4::text IS NULL OR link.channel_listing_id=$4)
      ORDER BY link.channel_listing_id LIMIT 2`,
-    [input.connectionId, input.externalListingId, input.externalOfferId],
+    [input.connectionId, input.externalListingId, input.externalOfferId, input.channelListingId ?? null],
   );
   if (result.rows.length === 0) return { kind: "unmappable", reason: "link-not-found" };
   if (result.rows.length > 1) return { kind: "unmappable", reason: "duplicate-link" };
@@ -73,6 +86,36 @@ export async function resolveChannelExternalSaleTarget(
     inventoryItemId: row.inventory_item_id,
     storageLocationId: row.storage_location_id,
   };
+}
+
+export async function resolveTcgplayerOrderSaleTarget(
+  db: PgQueryable,
+  input: Readonly<{ accountId: string; connectionId: string; skuId: string }>,
+): Promise<ChannelExternalSaleTarget> {
+  // Count Links before joining target facts: damaged targets must not hide ambiguity.
+  const links = await db.query<{
+    channel_listing_id: string;
+    external_listing_id: string;
+    external_offer_id: string | null;
+  }>(
+    `SELECT channel_listing_id,external_listing_id,external_offer_id FROM channels_channel_listing_links
+     WHERE connection_id=$1 AND channel_tcgplayer_listing_sku(external_listing_id)=$2
+       AND NOT (last_desired_intent='delist' AND publish_state='delisted')
+     ORDER BY channel_listing_id LIMIT 2`,
+    [input.connectionId, input.skuId],
+  );
+  if (links.rows.length === 0) return { kind: "unmappable", reason: "link-not-found" };
+  if (links.rows.length > 1) return { kind: "unmappable", reason: "duplicate-link" };
+  const link = links.rows[0]!;
+  const target = await resolveTarget(db, {
+    connectionId: input.connectionId,
+    externalListingId: link.external_listing_id,
+    externalOfferId: link.external_offer_id,
+    channelListingId: link.channel_listing_id,
+  });
+  if (target.kind === "mapped" && target.accountId !== input.accountId)
+    return { kind: "unmappable", reason: "account-mismatch" };
+  return target;
 }
 
 function bindingIds(value: unknown): ReadonlySet<string> {

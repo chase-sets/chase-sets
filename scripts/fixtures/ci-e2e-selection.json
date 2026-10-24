@@ -1,4 +1,125 @@
 {
+  "renderedCopy": {
+    "baseSha": "89d932d8de7e68f6805898c5231fe2ad6c3bb794",
+    "cases": [
+      {
+        "path": "bounded-contexts/catalog/support/authoring-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Catalog authoring seed supplies the integration witness"
+      },
+      {
+        "path": "bounded-contexts/checkout/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Checkout seed supplies the empty Sell List witness"
+      },
+      {
+        "path": "bounded-contexts/commercial-terms/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: commercial terms seed participates in fresh seeded buyer/seller state"
+      },
+      {
+        "path": "bounded-contexts/fulfillment/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Fulfillment seed supplies the shipment witnesses"
+      },
+      {
+        "path": "bounded-contexts/inventory/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Inventory seed supplies listing witnesses"
+      },
+      {
+        "path": "bounded-contexts/marketplace/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Marketplace seed supplies submitted-offer and listing witnesses"
+      },
+      {
+        "path": "bounded-contexts/ordering/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Ordering seed supplies packing-slip and postage-policy witnesses"
+      },
+      {
+        "path": "bounded-contexts/payments/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Payments seed supplies payment-summary witnesses"
+      },
+      {
+        "path": "bounded-contexts/platform-operations/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Platform Operations seed supplies support and feedback witnesses"
+      },
+      {
+        "path": "bounded-contexts/pricing/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Pricing seed participates in fresh seeded listing state"
+      },
+      {
+        "path": "bounded-contexts/settlement/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: Settlement seed supplies money-health and wallet witnesses"
+      },
+      {
+        "path": "deployables/platform-api/src/bootstrap.ts",
+        "selected": true,
+        "reason": "bootstrap retains old browser runtime ownership"
+      },
+      {
+        "path": "deployables/platform-api/src/bootstrap-storage.ts",
+        "selected": true,
+        "reason": "storage bootstrap retains old browser runtime ownership"
+      },
+      {
+        "path": "infrastructure/stripe-payments/index.ts",
+        "selected": false,
+        "reason": "Stripe infrastructure is not browser-owned"
+      },
+      {
+        "path": "infrastructure/provider-webhook-inbox/index.ts",
+        "selected": false,
+        "reason": "provider-webhook infrastructure is not browser-owned"
+      },
+      {
+        "path": "contracts/provider-credentials/index.ts",
+        "selected": false,
+        "reason": "provider-credentials contract is not browser-owned"
+      },
+      {
+        "path": "infrastructure/digitalocean/platform/main.tf",
+        "selected": false,
+        "reason": "DigitalOcean infrastructure is not browser-owned"
+      },
+      {
+        "path": "bounded-contexts/payments/tests/stripe-release-channel.test.ts",
+        "selected": false,
+        "reason": "payments-provider test-only negative control"
+      },
+      {
+        "path": "bounded-contexts/payments/features/payments/api/provider-webhook-paths.ts",
+        "selected": true,
+        "reason": "payments-provider API retains old marketplace_account ownership despite provider spelling"
+      },
+      { "path": "tsconfig.base.json", "selected": true, "reason": "root browser runtime retains all owning suites" },
+      {
+        "path": "deployables/marketplace/app/smoke-auth-support.test.ts",
+        "selected": false,
+        "reason": "smoke-auth test-only negative control"
+      },
+      {
+        "path": "bounded-contexts/auth/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "Auth seed retains old marketplace_account ownership"
+      },
+      {
+        "path": "bounded-contexts/identity/support/runtime-support/seed.ts",
+        "selected": true,
+        "reason": "intentional delta: sibling seeded tuple family now triggers the dedicated sweep"
+      },
+      {
+        "path": "infrastructure/playwright-evidence/rendered-copy.ts",
+        "selected": true,
+        "reason": "intentional delta: the new substrate is a browser runtime input"
+      }
+    ]
+  },
   "baseSha": "6dd05a038a8863a1b28a96d68ccdb7906a16bed4",
   "incidentHead": "6ad07d20f93f9e6fa5baef975583b71d9b4a1aac",
   "incident": [
@@ -7,7 +128,6 @@
     "bounded-contexts/catalog/features/operator-session/api/store.ts",
     "bounded-contexts/catalog/features/operator-session/domain/rate-budget-context.ts",
     "bounded-contexts/catalog/features/operator-session/domain/readiness.ts",
-    "bounded-contexts/catalog/features/operator-session/read-model/outcome-schema.ts",
     "bounded-contexts/catalog/features/operator-session/tests/operator-session-attempt-capture.test.ts",
     "bounded-contexts/catalog/features/operator-session/tests/operator-session-custody.test.ts",
     "bounded-contexts/catalog/features/operator-session/tests/operator-session-hot-reload.db.test.ts",
@@ -20,12 +140,9 @@
     "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-credential-readiness.ts",
     "bounded-contexts/catalog/features/source-observations/api/provider-adapters/provider-adapter.test.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts",
-    "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.test.ts",
-    "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer/adapter.ts",
     "bounded-contexts/catalog/package.json",
     "bounded-contexts/catalog/support/authoring-support/schema.ts",
-    "bounded-contexts/pricing/features/price-signals/tests/market-capture-staging-probe-shape.test.ts",
     "contracts/localization/catalog-key-set.test.ts",
     "contracts/localization/locales/en/catalog/source-observations-api-detail-mapping.ts",
     "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts",
@@ -124,7 +241,7 @@
     },
     {
       "family": "browserRuntimePatterns:11",
-      "pattern": "/^infrastructure\\/playwright-evidence\\/(?:index\\.ts|package\\.json|responsive-evidence-manifest\\.json)$/",
+      "pattern": "/^infrastructure\\/playwright-evidence\\/(?:index\\.ts|package\\.json|responsive-evidence-manifest\\.json|rendered-copy\\.ts)$/",
       "suites": null,
       "path": "infrastructure/playwright-evidence/index.ts",
       "trackedCandidates": 3,
@@ -144,6 +261,30 @@
       "suites": null,
       "path": "scripts/run-e2e-suite.mjs",
       "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "browserRuntimePatterns:14",
+      "pattern": "/^docker-compose\\.dev\\.yml$/",
+      "suites": null,
+      "path": "docker-compose.dev.yml",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "browserRuntimePatterns:15",
+      "pattern": "/^scripts\\/lib\\/sandbox\\.mjs$/",
+      "suites": null,
+      "path": "scripts/lib/sandbox.mjs",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "browserRuntimePatterns:16",
+      "pattern": "/^scripts\\/dev-system(?:-config)?\\.mjs$/",
+      "suites": null,
+      "path": "scripts/dev-system.mjs",
+      "trackedCandidates": 2,
       "synthetic": false
     },
     {
@@ -395,6 +536,14 @@
       "synthetic": false
     },
     {
+      "family": "adminContextRouteSuiteOwnership:channels",
+      "pattern": "/^bounded-contexts\\/channels\\/routes\\/(?:admin|access-admin|catalog-admin)\\//",
+      "suites": ["admin_support"],
+      "path": "bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
       "family": "adminContextRouteSuiteOwnership:commercial-terms",
       "pattern": "/^bounded-contexts\\/commercial-terms\\/routes\\/(?:admin|access-admin|catalog-admin)\\//",
       "suites": ["admin_commerce"],
@@ -468,6 +617,14 @@
     },
     {
       "family": "e2eSpecSuiteOwnership:0",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/account-management-interruption\\.spec\\.ts$/",
+      "suites": ["marketplace_account"],
+      "path": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:1",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/account-elevation-intent\\.spec\\.ts$/",
       "suites": ["marketplace_account"],
       "path": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
@@ -475,7 +632,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:1",
+      "family": "e2eSpecSuiteOwnership:2",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/item-detail\\.spec\\.ts$/",
       "suites": ["marketplace_browse"],
       "path": "deployables/marketplace/e2e/item-detail.spec.ts",
@@ -483,7 +640,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:2",
+      "family": "e2eSpecSuiteOwnership:3",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/critical-flows\\.spec\\.ts$/",
       "suites": ["marketplace_browse", "marketplace_account", "marketplace_checkout", "marketplace_seller"],
       "path": "deployables/marketplace/e2e/critical-flows.spec.ts",
@@ -491,7 +648,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:3",
+      "family": "e2eSpecSuiteOwnership:4",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/(?:account-payment|buy-funnel-redesign|buyer-purchase-journey|sell-checkout-session)\\.spec\\.ts$/",
       "suites": ["marketplace_checkout"],
       "path": "deployables/marketplace/e2e/account-payment.spec.ts",
@@ -499,7 +656,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:4",
+      "family": "e2eSpecSuiteOwnership:5",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/responsive-evidence-contract\\.spec\\.ts$/",
       "suites": ["marketplace_browse"],
       "path": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
@@ -507,7 +664,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:5",
+      "family": "e2eSpecSuiteOwnership:6",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/access-/",
       "suites": ["admin_access"],
       "path": "deployables/admin-web/e2e/access-account-badges.spec.ts",
@@ -515,7 +672,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:6",
+      "family": "e2eSpecSuiteOwnership:7",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/admin-tablet-navigation\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations", "admin_support"],
       "path": "deployables/admin-web/e2e/admin-tablet-navigation.spec.ts",
@@ -523,7 +680,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:7",
+      "family": "e2eSpecSuiteOwnership:8",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/auth-shell-rbac\\.spec\\.ts$/",
       "suites": ["admin_auth"],
       "path": "deployables/admin-web/e2e/auth-shell-rbac.spec.ts",
@@ -531,7 +688,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:8",
+      "family": "e2eSpecSuiteOwnership:9",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-integrations\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations"],
       "path": "deployables/admin-web/e2e/catalog-integrations.spec.ts",
@@ -539,7 +696,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:9",
+      "family": "e2eSpecSuiteOwnership:10",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-scopes\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations"],
       "path": "deployables/admin-web/e2e/catalog-scopes.spec.ts",
@@ -547,7 +704,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:10",
+      "family": "e2eSpecSuiteOwnership:11",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-modeling\\.spec\\.ts$/",
       "suites": ["catalog_admin_modeling"],
       "path": "deployables/admin-web/e2e/catalog-modeling.spec.ts",
@@ -555,7 +712,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:11",
+      "family": "e2eSpecSuiteOwnership:12",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/commerce-/",
       "suites": ["admin_commerce"],
       "path": "deployables/admin-web/e2e/commerce-commercial-terms.spec.ts",
@@ -563,7 +720,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:12",
+      "family": "e2eSpecSuiteOwnership:13",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/growth-/",
       "suites": ["admin_growth"],
       "path": "deployables/admin-web/e2e/growth-google-shopping-waitlist.spec.ts",
@@ -571,7 +728,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:13",
+      "family": "e2eSpecSuiteOwnership:14",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/support-/",
       "suites": ["admin_support"],
       "path": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
@@ -579,11 +736,50 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:14",
+      "family": "e2eSpecSuiteOwnership:15",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/(?:admin-cross-cutting-topology|platform-projection-operations)\\.spec\\.ts$/",
       "suites": ["admin_platform"],
       "path": "deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts",
       "trackedCandidates": 2,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:16",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/inventory-recovery\\.spec\\.ts$/",
+      "suites": ["marketplace_seller"],
+      "path": "deployables/marketplace/e2e/inventory-recovery.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:17",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/marketplace-shell-header\\.spec\\.ts$/",
+      "suites": ["marketplace_browse"],
+      "path": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:18",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/rendered-copy-sweep\\.spec\\.ts$/",
+      "suites": ["marketplace_account", "marketplace_seller"],
+      "path": "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:19",
+      "pattern": "/^deployables\\/admin-web\\/e2e\\/rendered-copy-sweep\\.spec\\.ts$/",
+      "suites": [
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_access"
+      ],
+      "path": "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
+      "trackedCandidates": 1,
       "synthetic": false
     },
     {
@@ -1109,9 +1305,114 @@
   ],
   "cases": [
     {
-      "changedFiles": [],
-      "suiteIds": [],
-      "batches": []
+      "changedFiles": ["deployables/marketplace/e2e/inventory-recovery.spec.ts"],
+      "suiteIds": ["marketplace_seller"],
+      "batches": ["marketplace_seller"]
+    },
+    {
+      "changedFiles": ["docker-compose.dev.yml"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/lib/sandbox.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/dev-system.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/dev-system-config.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["bounded-contexts/catalog/features/operator-session/api/route.ts"],
+      "suiteIds": ["marketplace_browse", "catalog_admin_integrations"],
+      "batches": ["marketplace_browse,catalog_admin_integrations"]
     },
     {
       "changedFiles": [".github/workflows/platform-pr.yml"],
@@ -1194,11 +1495,9 @@
       "batches": ["tcgplayer_operator_extension"]
     },
     {
-      "changedFiles": [
-        "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts"
-      ],
-      "suiteIds": ["marketplace_browse", "catalog_admin_integrations"],
-      "batches": ["marketplace_browse,catalog_admin_integrations"]
+      "changedFiles": [],
+      "suiteIds": [],
+      "batches": []
     },
     {
       "changedFiles": ["bounded-contexts/catalog/routes/admin/blueprints-detail.tsx"],
@@ -1234,6 +1533,11 @@
       "changedFiles": ["bounded-contexts/channels/features/connector-client/api/client.ts"],
       "suiteIds": ["tcgplayer_connector_extension"],
       "batches": ["tcgplayer_connector_extension"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
     },
     {
       "changedFiles": [
@@ -2164,11 +2468,47 @@
     },
     {
       "changedFiles": [
-        "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
+        "bounded-contexts/catalog/features/operator-session/api/route.ts",
         "bounded-contexts/inventory/features/listings/ui/listing.tsx"
       ],
       "suiteIds": ["marketplace_browse", "marketplace_seller", "catalog_admin_integrations"],
       "batches": ["catalog_admin_integrations", "marketplace_browse,marketplace_seller"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/auth/support/runtime-support/seed.ts"],
+      "suiteIds": ["marketplace_account", "admin_auth"],
+      "batches": ["marketplace_account,admin_auth"]
+    },
+    {
+      "changedFiles": ["deployables/marketplace/e2e/account-management-interruption.spec.ts"],
+      "suiteIds": ["marketplace_account"],
+      "batches": ["marketplace_account"]
+    },
+    {
+      "changedFiles": ["deployables/marketplace/e2e/marketplace-shell-header.spec.ts"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
+    {
+      "changedFiles": ["deployables/marketplace/e2e/rendered-copy-sweep.spec.ts"],
+      "suiteIds": ["marketplace_account", "marketplace_seller"],
+      "batches": ["marketplace_account,marketplace_seller"]
+    },
+    {
+      "changedFiles": ["deployables/admin-web/e2e/rendered-copy-sweep.spec.ts"],
+      "suiteIds": [
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_support",
+        "catalog_admin_modeling,admin_access",
+        "admin_growth,admin_commerce"
+      ]
     }
   ]
 }

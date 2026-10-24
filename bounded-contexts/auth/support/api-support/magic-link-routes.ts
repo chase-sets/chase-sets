@@ -5,6 +5,7 @@ import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/s
 import { createAuthRateLimitPair } from "../../features/sign-in/api/rate-limits";
 import { consumeMagicLinkToken, insertMagicLinkToken } from "../auth-support/store";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { insertCreatedAuthIdentityAccountMirror } from "../auth-support/identity-projection";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import {
   createIdentityMutations,
@@ -156,6 +157,10 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
         userId: identity.userId,
         email: record.email,
       });
+      await insertCreatedAuthIdentityAccountMirror(services.db, {
+        accountId: identity.accountId,
+        displayName: createOwnedUserDisplayName(record.email),
+      });
       const authResult = await startInteractiveAuth(services, {
         userId: identity.userId,
         accountId: identity.accountId,
@@ -170,7 +175,6 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
             rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
           },
         ],
-        publishAuthenticationOutcome: true,
       });
 
       return jsonWithMutationReceipts(c, authResult, 200, [identity, verifiedEmail]);
@@ -186,7 +190,6 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
       accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "magic-link",
       context: getBootstrapContext(c),
-      publishAuthenticationOutcome: true,
     });
 
     return jsonWithMutationReceipts(c, authResult, 200, [verifiedEmail]);

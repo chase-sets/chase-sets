@@ -15,6 +15,10 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Discovery Concepts
 
+### Search Session
+
+A **Search Session** is the authenticated session context associated with a signed-in Discovery search occurrence.
+
 ### Discovery Query
 
 A **Discovery Query** is the normalized set of search text, filters, sort order, and pagination inputs used to request catalog-item browse results.
@@ -46,6 +50,19 @@ Notes:
 ### Result Set
 
 A **Result Set** is the paginated collection of Search Results returned for a Discovery Query, including total-match metadata.
+
+### Corrected Result Set
+
+A **Corrected Result Set** recovers close spellings only after a fresh relevance query has no lexical matches.
+Every query term remains required, protected collector numbers and served set codes stay literal, and the result is
+one bounded page with no cursor. It is distinct from semantic Rescue and is labelled "Showing close spellings."
+
+### Search Interpretation
+
+A **Search Interpretation** turns Condition, Grading Company, Grade, and language words in a zero-result query into
+Filter State, once, before spelling correction. It keeps explicit filters authoritative and never feeds semantic
+Rescue; the marketplace canonicalizes it to a marked URL. It is Discovery's reading of the words, not Catalog truth.
+See `bounded-contexts/discovery/docs/dynamic-search-filters.md`.
 
 ### Facet
 
@@ -101,6 +118,15 @@ Notes:
 - An alias adds matchable search text; it never replaces the title, subtitle, or slug. Display is owned by item detail (#1914).
 - Alias text contributes at type- and confidence-aware weights so an official equivalent ranks high while a broad species name or generated translation ranks low and never outranks an exact title match.
 - A `broad` alias (one alias text that fans out to many items, e.g. a species name) is down-weighted so it cannot flood or outrank specific matches; matches dedupe by `catalog_item_id`.
+
+### Query-Vocabulary Expansion
+
+**Query-vocabulary expansion** adds reviewed Discovery alternatives to a Discovery Query: ETB (elite trainer box),
+BB (booster box), pkmn (Pokemon), zard (Charizard), and ygo (Yu-Gi-Oh). Each original token or complete expansion
+phrase remains required alongside all other tokens, in both full search and suggestions. Expansion is always on
+and non-recursive; its keys are in-vocabulary. Raw digit-bearing tokens and served set codes before collector
+numbers stay literal. Original query text, display identity, and URLs do not change. This is not **Catalog Alias**
+truth: no alias storage, event, review, rollout, or retraction behavior changes.
 
 ### Search Text Tokenization
 

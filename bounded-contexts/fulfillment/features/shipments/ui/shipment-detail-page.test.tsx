@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
+
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { formatDateTime } from "@chase-sets/localization";
 import type {
   FulfillmentPostageLabelOperationDiagnostic,
   FulfillmentPostageProviderEventDiagnostic,
@@ -173,6 +176,79 @@ const shipment: FulfillmentShipmentDetail = {
 };
 
 describe("FulfillmentShipmentDetailPage", () => {
+  it.each(["shp_first", "shp_second & extra"])(
+    "prints only %s with one new-tab cue before and after label purchase",
+    (shipmentId) => {
+      for (const label_status of ["not-purchased", "purchased"]) {
+        const container = document.createElement("div");
+        container.innerHTML = renderToString(
+          <FulfillmentShipmentDetailPage
+            role="seller"
+            backHref="/account/sales/shipments"
+            shipment={{ ...shipment, shipment_id: shipmentId, label_status }}
+          />,
+        );
+        const links = container.querySelectorAll<HTMLAnchorElement>('a[href*="packing-slips"]');
+        expect(links).toHaveLength(1);
+        const link = links[0]!;
+        const target = new URL(link.href);
+        expect(target.pathname).toBe("/account/sales/shipments/packing-slips");
+        expect(target.searchParams.getAll("shipmentIds")).toEqual([shipmentId]);
+        expect(target.searchParams.getAll("format")).toEqual(["letter"]);
+        expect(link.target).toBe("_blank");
+        expect(link.getAttribute("aria-label")).toBe("Print packing slip (opens in a new tab)");
+        expect(link.querySelectorAll("svg")).toHaveLength(1);
+        expect(link.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+        expect(link.querySelector("title")).toBeNull();
+      }
+    },
+  );
+
+  it("does not add seller print controls to the shared buyer detail page", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(
+      <FulfillmentShipmentDetailPage role="buyer" backHref="/account/shipments" shipment={shipment} />,
+    );
+    expect(container.querySelector('a[href*="packing-slips"]')).toBeNull();
+    expect(container.textContent).not.toContain("Preparing shipment actions");
+  });
+
+  const deliveredAt = "2026-04-09T17:42:00.000Z";
+  const deliveredShipment = { ...shipment, status: "delivered", delivered_at: deliveredAt };
+
+  it("shows the buyer the recorded delivery date and time", () => {
+    const html = renderToString(
+      <FulfillmentShipmentDetailPage role="buyer" backHref="/account/shipments" shipment={deliveredShipment} />,
+    );
+    expect(html).toContain("Delivered at");
+    expect(html).toContain(formatDateTime(deliveredAt));
+    expect(html).not.toContain(formatDateTime(shipment.dispatched_at!));
+  });
+
+  it("omits delivery time when no delivery instant is recorded", () => {
+    const html = renderToString(
+      <FulfillmentShipmentDetailPage
+        role="buyer"
+        backHref="/account/shipments"
+        shipment={{ ...deliveredShipment, delivered_at: null }}
+      />,
+    );
+    expect(html).not.toContain("Delivered at");
+    expect(html).not.toContain(formatDateTime(deliveredAt));
+  });
+
+  it("keeps the same seller shipment render unchanged by the delivery timestamp", () => {
+    const renderSeller = (delivered_at: string | null) =>
+      renderToString(
+        <FulfillmentShipmentDetailPage
+          role="seller"
+          backHref="/account/sales/shipments"
+          shipment={{ ...deliveredShipment, delivered_at }}
+        />,
+      );
+    expect(renderSeller(deliveredAt)).toBe(renderSeller(null));
+  });
+
   it("renders populated shipment sections with zero marked entity roots", () => {
     const html = renderToString(
       <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={shipment} />,

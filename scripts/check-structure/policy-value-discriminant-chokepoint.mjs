@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 // A route must not be able to render an unresolved public policy value
 // without the machine-readable degraded-state markers. Nothing stops that
@@ -197,22 +198,18 @@ export function findPolicyValueDiscriminantViolations(sourceRecords) {
   };
 }
 
-function defaultExecGit(args, repoRoot) {
-  return execFileSync("git", args, {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
 /**
  * Derives the production corpus from Git-tracked files (not a readdir walk
  * of known route roots), so an arbitrary tracked .ts/.tsx path anywhere in
  * the repo is in scope, not only the public-presence bounded context.
  */
-export function listPolicyValueDiscriminantGuardCandidates(repoRoot, { execGit } = {}) {
-  const runGit = execGit ?? ((args) => defaultExecGit(args, repoRoot));
-  return runGit(["ls-files", "-z", "--cached"])
+export function listPolicyValueDiscriminantGuardCandidates(repoRoot, { execGit = execFileSync } = {}) {
+  return execGit("git", ["ls-files", "-z", "--cached"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean)
     .map((file) => file.replaceAll("\\", "/"))

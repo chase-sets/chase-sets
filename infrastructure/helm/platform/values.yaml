@@ -83,6 +83,10 @@ previewPostgres:
   storage:
     emptyDir: {}
   resources: {}
+  settings:
+    max_connections: 350
+    reserved_connections: 0
+    superuser_reserved_connections: 3
 components:
   public-web:
     enabled: true
@@ -281,7 +285,15 @@ components:
       instanceCountExpression: "local.api_instances"
     command: "pnpm --filter @chase-sets/app-platform-api run start:production"
     env:
+      - name: "CHASE_SETS_DEPLOYMENT_INSTANCE"
+        value: ""
+      - name: "CHASE_SETS_IMPLEMENTATION_SHA"
+        value: ""
+      - name: "SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON"
+        value: ""
       - name: "CHASE_SETS_CHECKOUT_CLOSED"
+        value: "false"
+      - name: "CHASE_SETS_OFFER_LIFECYCLE_OPEN"
         value: "false"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
         value: ""
@@ -309,13 +321,27 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_IMPORTS_DISABLED"
         value: ""
+      - name: "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
       - name: "CATALOG_INTEGRATION_PROMOTION_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES"
         value: "open"
       - name: "CATALOG_INTEGRATION_REAPPLY_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE"
         value: ""
       - name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED"
         value: "false"
@@ -387,9 +413,16 @@ components:
       - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
         secret: true
         secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
-      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+      - name: "EBAY_ACCOUNT_DELETION_ENDPOINT"
         secret: true
-        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secretKey: "EBAY_ACCOUNT_DELETION_ENDPOINT"
+      - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+        secret: true
+        secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+      - name: "EVIDENCE_WINDOW_ADMISSION_SECRET"
+        secret: true
+        secretKey: "EVIDENCE_WINDOW_ADMISSION_SECRET"
+        optional: true
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -549,26 +582,6 @@ components:
         secretKey: "STRIPE_WEBHOOK_SECRET"
       - name: "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
         value: "false"
-      - name: "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS"
-        value: "2"
-      - name: "TCGPLAYER_AUTOMATION_MAX_RETRIES"
-        value: "3"
-      - name: "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS"
-        value: "30000"
-      - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
-        value: "250"
-      - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
-        secret: true
-        secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
-      - name: "UCP_AP2_VERIFIER_AUTH_TOKEN"
-        secret: true
-        secretKey: "UCP_AP2_VERIFIER_AUTH_TOKEN"
-      - name: "UCP_AP2_VERIFIER_TIMEOUT_MS"
-        secret: true
-        secretKey: "UCP_AP2_VERIFIER_TIMEOUT_MS"
-      - name: "UCP_AP2_VERIFIER_URL"
-        secret: true
-        secretKey: "UCP_AP2_VERIFIER_URL"
       - name: "UCP_BUSINESS_SIGNING_ALG"
         secret: true
         secretKey: "UCP_BUSINESS_SIGNING_ALG"
@@ -584,6 +597,12 @@ components:
       - name: "VOYAGE_API_KEY"
         secret: true
         secretKey: "VOYAGE_API_KEY"
+      - name: "EBAY_APPLICATION_CLIENT_ID"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_ID"
+      - name: "EBAY_APPLICATION_CLIENT_SECRET"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
     resources: {}
     podAnnotations: {}
     podLabels: {}
@@ -638,6 +657,12 @@ components:
       instanceCountExpression: "local.worker_instances"
     command: "pnpm --filter @chase-sets/app-platform-worker run start:production"
     env:
+      - name: "CHASE_SETS_DEPLOYMENT_INSTANCE"
+        value: ""
+      - name: "CHASE_SETS_IMPLEMENTATION_SHA"
+        value: ""
+      - name: "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON"
+        value: ""
       - name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
@@ -673,13 +698,27 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_IMPORTS_DISABLED"
         value: ""
+      - name: "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
       - name: "CATALOG_INTEGRATION_PROMOTION_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES"
         value: "open"
       - name: "CATALOG_INTEGRATION_REAPPLY_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE"
         value: ""
       - name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED"
         value: "false"
@@ -705,9 +744,16 @@ components:
       - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
         secret: true
         secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
-      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+      - name: "EBAY_ACCOUNT_DELETION_ENDPOINT"
         secret: true
-        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secretKey: "EBAY_ACCOUNT_DELETION_ENDPOINT"
+      - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+        secret: true
+        secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+      - name: "EVIDENCE_WINDOW_ADMISSION_SECRET"
+        secret: true
+        secretKey: "EVIDENCE_WINDOW_ADMISSION_SECRET"
+        optional: true
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -880,17 +926,6 @@ components:
       - name: "STRIPE_WEBHOOK_SECRET"
         secret: true
         secretKey: "STRIPE_WEBHOOK_SECRET"
-      - name: "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS"
-        value: "2"
-      - name: "TCGPLAYER_AUTOMATION_MAX_RETRIES"
-        value: "3"
-      - name: "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS"
-        value: "30000"
-      - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
-        value: "250"
-      - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
-        secret: true
-        secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
       - name: "VOYAGE_API_KEY"
         secret: true
         secretKey: "VOYAGE_API_KEY"
@@ -939,6 +974,12 @@ components:
         value: "1"
       - name: "WORKER_WAKE_STATEMENT_TIMEOUT_MS"
         value: "30000"
+      - name: "EBAY_APPLICATION_CLIENT_ID"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_ID"
+      - name: "EBAY_APPLICATION_CLIENT_SECRET"
+        secret: true
+        secretKey: "EBAY_APPLICATION_CLIENT_SECRET"
     resources: {}
     podAnnotations: {}
     podLabels: {}
@@ -997,13 +1038,27 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_IMPORTS_DISABLED"
         value: ""
+      - name: "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
       - name: "CATALOG_INTEGRATION_PROMOTION_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES"
         value: "open"
       - name: "CATALOG_INTEGRATION_REAPPLY_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE"
         value: ""
       - name: "CHASE_SETS_RUNTIME_PROFILE"
         value: "public"
@@ -1108,17 +1163,6 @@ components:
         secretKey: "SCRYDEX_TEAM_ID"
       - name: "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
         value: "false"
-      - name: "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS"
-        value: "2"
-      - name: "TCGPLAYER_AUTOMATION_MAX_RETRIES"
-        value: "3"
-      - name: "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS"
-        value: "30000"
-      - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
-        value: "250"
-      - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
-        secret: true
-        secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
     resources: {}
     podAnnotations: {}
     podLabels: {}

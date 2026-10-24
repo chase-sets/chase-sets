@@ -1,6 +1,104 @@
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { parse as parseYaml } from "yaml";
 import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
 import { browserE2eLifecyclePathEnv } from "./browser-e2e-evidence.mjs";
+
+export function readSandboxPostgresSettings({ invocation, env, execute = spawnSync }) {
+  const settings = ["max_connections", "superuser_reserved_connections", "reserved_connections"];
+  const result = execute(
+    invocation.command,
+    [
+      ...invocation.args,
+      "exec",
+      "-T",
+      "postgres",
+      "env",
+      "-i",
+      "PATH=/usr/local/bin:/usr/bin:/bin",
+      "psql",
+      "-X",
+      "-h",
+      "/var/run/postgresql",
+      "-U",
+      "postgres",
+      "-d",
+      "postgres",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-At",
+      "-c",
+      settings.map((name) => `SHOW ${name};`).join(" "),
+    ],
+    { env: buildMinimalProcessEnvironment(env), encoding: "utf8", windowsHide: true },
+  );
+  if (result.error || result.status !== 0) {
+    const composeDiagnostic = "docker: unknown command: docker compose";
+    const diagnostic = result.stderr?.includes(composeDiagnostic) ? composeDiagnostic : "Diagnostic text omitted.";
+    throw new Error(`Unable to SHOW owned sandbox Postgres settings. Exit status: ${result.status}. ${diagnostic}`, {
+      cause: result.error,
+    });
+  }
+  const values = result.stdout.trim().split(/\r?\n/);
+  if (values.length !== settings.length || values.some((value) => !/^\d+$/.test(value)))
+    throw new Error("Missing or invalid sandbox Postgres SHOW settings.");
+  return Object.fromEntries(settings.map((name, index) => [name, Number(values[index])]));
+}
+
+export function assertSandboxPostgresSettings(effective, composeSource) {
+  const configuredSettings = configuredSandboxPostgresSettings(composeSource);
+  for (const name of ["max_connections", "superuser_reserved_connections", "reserved_connections"]) {
+    const configured = configuredSettings[name];
+    if (!Number.isSafeInteger(configured) || effective[name] !== configured)
+      throw new Error(
+        `Sandbox Postgres ${name}: configured=${configured}, effective=${effective[name]}. Recreate the owned Postgres container before client fan-out.`,
+      );
+  }
+}
+
+export function configuredSandboxPostgresSettings(composeSource) {
+  const command = parseYaml(composeSource)?.services?.postgres?.command;
+  if (!Array.isArray(command) || command[0] !== "postgres") throw new Error("Missing sandbox Postgres command.");
+  const settings = {};
+  for (let index = 1; index < command.length; index += 2) {
+    const match = /^([a-z_]+)=(\d+)$/.exec(command[index + 1]);
+    if (command[index] !== "-c" || !match || Object.hasOwn(settings, match[1]))
+      throw new Error("Invalid sandbox Postgres setting.");
+    settings[match[1]] = Number(match[2]);
+  }
+  return settings;
+}
+
+export function createMarketplaceDevProcessDefinition(sandbox, sandboxEnvironment) {
+  return {
+    name: "marketplace",
+    workspace: "@chase-sets/app-marketplace-web",
+    env: {
+      ...sandboxEnvironment,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      CHASE_SETS_INTERNAL_API_ORIGIN: sandbox.urls.platformApi,
+      PORT: String(sandbox.ports.marketplaceWeb),
+    },
+    port: sandbox.ports.marketplaceWeb,
+  };
+}
+
+export function createPublicWebDevProcessDefinition(sandbox, sandboxEnvironment) {
+  return {
+    name: "public-web",
+    workspace: "@chase-sets/app-public-web",
+    env: {
+      ...sandboxEnvironment,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      CHASE_SETS_INTERNAL_API_ORIGIN: sandbox.urls.platformApi,
+      CHASE_SETS_MARKETPLACE_ORIGIN: sandbox.urls.marketplaceWeb,
+      PORT: String(sandbox.ports.publicWeb),
+    },
+    port: sandbox.ports.publicWeb,
+  };
+}
 
 const representativeSnapshotEnvironmentNames = Object.freeze([
   "CATALOG_ASSET_LOCAL_ROOT",
@@ -162,33 +260,32 @@ function resolveBrowserE2ePlatformWorkerLogPath(environment, configuredLogFilePa
   return logFilePath;
 }
 
-export const browserE2ePlatformWorkerCiCommand = Object.freeze({
-  command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-  args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"]),
-});
+function resolveBrowserE2ePlatformWorkerCiCommand(platform) {
+  return platform === "win32"
+    ? { command: undefined, args: undefined, script: "dev:ci" }
+    : { command: "pnpm", args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"]) };
+}
 
-const packageManagerCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+export const browserE2ePlatformWorkerCiCommand = Object.freeze(
+  resolveBrowserE2ePlatformWorkerCiCommand(process.platform),
+);
 
 export const browserE2eProductionTarget = "browser-e2e-production";
 
-export const browserE2eProductionCommands = Object.freeze({
-  "platform-api": Object.freeze({
-    command: packageManagerCommand,
-    args: Object.freeze(["--filter", "@chase-sets/app-platform-api", "run", "start"]),
-  }),
-  "platform-worker": Object.freeze({
-    command: packageManagerCommand,
-    args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "start"]),
-  }),
-  "admin-web": Object.freeze({
-    command: packageManagerCommand,
-    args: Object.freeze(["--filter", "@chase-sets/app-admin-web", "run", "start"]),
-  }),
-  marketplace: Object.freeze({
-    command: packageManagerCommand,
-    args: Object.freeze(["--filter", "@chase-sets/app-marketplace-web", "run", "start"]),
-  }),
+const browserE2eProductionWorkspaces = Object.freeze({
+  "platform-api": "@chase-sets/app-platform-api",
+  "platform-worker": "@chase-sets/app-platform-worker",
+  "admin-web": "@chase-sets/app-admin-web",
+  marketplace: "@chase-sets/app-marketplace-web",
 });
+
+function resolveBrowserE2eProductionCommand(name, platform) {
+  const workspace = browserE2eProductionWorkspaces[name];
+  if (workspace === undefined) return undefined;
+  return platform === "win32"
+    ? { command: undefined, args: undefined, script: "start" }
+    : { command: "pnpm", args: Object.freeze(["--filter", workspace, "run", "start"]) };
+}
 
 export const browserE2eProductionBuilds = Object.freeze([
   Object.freeze({ name: "admin-web", workspace: "@chase-sets/app-admin-web" }),
@@ -247,7 +344,7 @@ export function createBrowserE2eProductionIngressDefinitions(processDefinitions,
 export function applyDevTargetEnvOverrides(
   targetName,
   processDefinitions,
-  { ci = Boolean(process.env.CI), environment = process.env } = {},
+  { ci = Boolean(process.env.CI), environment = process.env, platform = process.platform } = {},
 ) {
   if (!isBrowserE2eTarget(targetName)) {
     return processDefinitions;
@@ -255,7 +352,9 @@ export function applyDevTargetEnvOverrides(
 
   return processDefinitions.map((definition) => {
     const productionCommand =
-      targetName === browserE2eProductionTarget ? browserE2eProductionCommands[definition.name] : undefined;
+      targetName === browserE2eProductionTarget
+        ? resolveBrowserE2eProductionCommand(definition.name, platform)
+        : undefined;
 
     if (definition.name === "platform-api") {
       return {
@@ -280,7 +379,7 @@ export function applyDevTargetEnvOverrides(
           ...browserE2ePlatformWorkerEnv,
           ...(logFilePath === undefined ? {} : { LOG_FILE_PATH: logFilePath }),
         },
-        ...(productionCommand ?? (ci ? browserE2eDirectCiCommands[definition.name] : {})),
+        ...(productionCommand ?? (ci ? resolveBrowserE2ePlatformWorkerCiCommand(platform) : {})),
       };
     }
 

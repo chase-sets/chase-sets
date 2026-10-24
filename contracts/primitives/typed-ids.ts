@@ -26,8 +26,8 @@ function createUuidFromRandomValues(getRandomValues: Crypto["getRandomValues"] |
   }
 
   const bytes = getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
 
   return [...bytes]
     .map((byte, index) => {
@@ -113,6 +113,12 @@ export type SupportRequestId = TypedUlid<"sup">;
 
 /** Identity-owned immutable account enforcement action identity. */
 export type EnforcementActionId = TypedUlid<"enf">;
+
+/** Marketplace-owned immutable listing removal identity; distinct from Identity's `enf_` account actions. */
+export type ListingEnforcementActionId = TypedUlid<"lea">;
+
+/** Platform-Operations-minted identity of one operator moderation action on reported content. */
+export type ReportedContentActionId = TypedUlid<"rca">;
 
 /** Support-owned handle for a single authorized remedy on a support request (ADR 0022). */
 export type RemedyId = TypedUlid<"rmd">;

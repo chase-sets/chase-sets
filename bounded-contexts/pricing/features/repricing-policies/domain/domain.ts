@@ -2,6 +2,15 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import { compareMoneyAmounts } from "@chase-sets/primitives/money";
 import type { AccountId, RepricingPolicyId } from "@chase-sets/primitives/typed-ids";
 import { worstCaseRepricingFloorAmount } from "./floor-resolution";
+import { cashTargetGoal } from "./goals/cash-target";
+import { fixedPercentileGoal } from "./goals/fixed-percentile";
+import { holdValueGoal } from "./goals/hold-value";
+import { targetHorizonGoal } from "./goals/target-horizon";
+import { profitPerDayGoal } from "./goals/profit-per-day";
+import { createPricingGoalRegistry, validateParameters } from "./goals/registry";
+import { createGuardrailRegistry, type RepricingGuardrail } from "./guardrails/registry";
+import { marketEvidenceFloor } from "./guardrails/market-evidence-floor";
+import { hopelessForecastHold } from "./guardrails/hopeless-forecast-hold";
 import {
   REPRICING_POLICY_ANCHOR_CHAIN_CAP,
   REPRICING_POLICY_COMP_PERCENTILE_MAX,
@@ -14,6 +23,21 @@ import {
 } from "./policy-bounds";
 
 export class RepricingPolicyValidationError extends Error {}
+
+export type { RepricingGuardrail } from "./guardrails/registry";
+
+const pricingGoals = createPricingGoalRegistry([
+  fixedPercentileGoal,
+  targetHorizonGoal,
+  profitPerDayGoal,
+  holdValueGoal,
+  cashTargetGoal,
+]);
+export const pricingGoalDefinitions = () => pricingGoals.definitions();
+/** Null when the authored goal version is no longer registered (retired). */
+export const resolvePricingGoal = (goalId: string, goalVersion: number) => pricingGoals.resolve(goalId, goalVersion);
+const guardrailKinds = createGuardrailRegistry([marketEvidenceFloor, hopelessForecastHold]);
+export const resolveRepricingGuardrail = (kind: string) => guardrailKinds.resolve(kind);
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -123,7 +147,8 @@ export type RepricingAnchor =
       band: Readonly<{ ground: "market-estimate"; minPercentOfGround: number }>;
     }>
   | Readonly<{ source: "comp-percentile"; percentile: number }>
-  | Readonly<{ source: "last-sold" }>;
+  | Readonly<{ source: "last-sold" }>
+  | Readonly<{ source: "curve-objective"; goalId: string; goalVersion: number; parameters: Record<string, number> }>;
 
 export type RepricingOffset =
   | Readonly<{ mode: "percent"; percent: number }>
@@ -167,6 +192,7 @@ export type RepricingRuleDirective = Readonly<{
   /** Governs every absolute amount in this directive; historical missing values fail closed during evaluation. */
   currencyCode?: string | null;
   anchorChain: readonly RepricingAnchor[];
+  guardrails?: readonly RepricingGuardrail[];
   offset: RepricingOffset;
   floor: RepricingFloor;
   ceiling: RepricingCeiling | null;
@@ -210,6 +236,28 @@ function normalizeAnchorChain(anchorChain: readonly RepricingAnchor[]): readonly
       };
     }
     assert(!("band" in anchor), "Anchor bands are only allowed on lowest-competing-ask with strata any.");
+    if (anchor.source === "curve-objective") {
+      assert(
+        pricingGoals.definitions().some((goal) => goal.id === anchor.goalId),
+        "goal-unknown",
+      );
+      assert(Number.isSafeInteger(anchor.goalVersion) && anchor.goalVersion > 0, "goal-not-selectable");
+      const goal = pricingGoals.resolve(anchor.goalId, anchor.goalVersion);
+      assert(goal?.lifecycle === "selectable", "goal-not-selectable");
+      const validation = validateParameters(goal.parameterSchema, anchor.parameters);
+      assert(
+        validation.kind === "valid",
+        validation.kind === "rejected"
+          ? validation.rejections.map(({ reason, parameter }) => `${reason}: ${parameter}`).join(", ")
+          : "",
+      );
+      return {
+        source: anchor.source,
+        goalId: anchor.goalId,
+        goalVersion: anchor.goalVersion,
+        parameters: { ...validation.parameters },
+      };
+    }
     if (anchor.source === "comp-percentile") {
       assert(
         Number.isFinite(anchor.percentile) &&
@@ -385,9 +433,13 @@ function normalizeDirective(directive: RepricingRuleDirective): RepricingRuleDir
     );
   }
 
+  const anchorChain = normalizeAnchorChain(directive.anchorChain);
+  const guardrails =
+    directive.guardrails === undefined ? undefined : normalizeGuardrails(directive.guardrails, anchorChain);
   return {
     currencyCode: normalizeCurrencyCode(directive.currencyCode),
-    anchorChain: normalizeAnchorChain(directive.anchorChain),
+    anchorChain,
+    ...(guardrails === undefined ? {} : { guardrails }),
     offset: normalizeOffset(directive.offset),
     floor,
     ceiling,
@@ -396,6 +448,26 @@ function normalizeDirective(directive: RepricingRuleDirective): RepricingRuleDir
     maxMovePercent,
     terminal: normalizeTerminal(directive.terminal, floor),
   };
+}
+
+function normalizeGuardrails(
+  guardrails: readonly RepricingGuardrail[],
+  anchorChain: readonly RepricingAnchor[],
+): readonly RepricingGuardrail[] {
+  const seen = new Set<string>();
+  return guardrails.map(({ kind, ...parameters }) => {
+    assert(!seen.has(kind), `guardrail-duplicate-kind: ${kind}`);
+    seen.add(kind);
+    const definition = guardrailKinds.resolve(kind);
+    assert(definition !== null, `guardrail-unknown: ${kind}`);
+    const validation = definition.validateParameters(parameters);
+    assert(validation.kind === "valid", validation.kind === "rejected" ? validation.reason : "");
+    assert(
+      kind !== "hopeless-forecast-hold" || anchorChain.some((anchor) => anchor.source === "curve-objective"),
+      "guardrail-requires-curve-objective",
+    );
+    return { kind, ...validation.parameters } as RepricingGuardrail;
+  });
 }
 
 function normalizeRules(rules: readonly RepricingRule[]): readonly RepricingRule[] {

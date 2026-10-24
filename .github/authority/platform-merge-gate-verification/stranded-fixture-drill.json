@@ -3,7 +3,7 @@
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "stranded-fixture-drill",
-      "stepAnchor": "name:Configure fixture Kubernetes context#3",
+      "stepAnchor": "name:Configure fixture Kubernetes context#4",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
     },

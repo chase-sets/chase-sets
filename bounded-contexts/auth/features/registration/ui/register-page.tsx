@@ -1,7 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
   HiddenInput,
-  Form,
   Banner,
   Badge,
   Button,
@@ -15,13 +14,21 @@ import {
   Stack,
   Text,
   TextInput,
+  ValidationSummary,
+  firstFieldError,
+  type FormProps,
   type IconName,
 } from "@chase-sets/design-system";
-import type { FormEvent, ReactNode, Ref } from "react";
-import { useEffect, useRef, useState } from "react";
-import type { AuthActionNotice } from "../../../support/route-support/auth-host";
+import { RouterForm } from "@chase-sets/design-system/react-router";
+import { type FormEvent, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
+import {
+  authFormErrors,
+  useAuthFormFeedback,
+  type AuthFormFeedbackProps,
+} from "../../../support/ui-support/auth-form-feedback";
 
 type RegistrationMethod = "passkey" | "phone-code" | "magic-link" | "password";
 type RegistrationAnalyticsStage = "shown" | "selected" | "completed" | "abandoned" | "failed";
@@ -65,14 +72,13 @@ type RegistrationDetails = Readonly<{
   password: string;
 }>;
 
-type RegistrationPageProps = Readonly<{
-  action?: string;
-  errorMessage?: string | null;
-  hiddenFields?: readonly { name: string; value: string }[];
-  contextMessage?: Readonly<{ title: string; description: string }> | null;
-  notice?: AuthActionNotice | null;
-  returnTo?: string;
-}>;
+type RegistrationPageProps = AuthFormFeedbackProps &
+  Readonly<{
+    action?: string;
+    hiddenFields?: readonly { name: string; value: string }[];
+    contextMessage?: Readonly<{ title: string; description: string }> | null;
+    returnTo?: string;
+  }>;
 
 type RegistrationFormCardProps = Readonly<{
   action?: string;
@@ -83,6 +89,7 @@ type RegistrationFormCardProps = Readonly<{
   intent: string;
   method: RegistrationMethod;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+  errorAnnouncement?: FormProps["errorAnnouncement"];
 }>;
 
 type IdentityFieldsProps = Readonly<{
@@ -136,18 +143,29 @@ function RegistrationFormCard({
   intent,
   method,
   onSubmit,
+  errorAnnouncement,
 }: RegistrationFormCardProps) {
+  const fields = (
+    <Stack gap={3}>
+      <HiddenFields fields={hiddenFields} />
+      <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
+      <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
+      <HiddenInput type="hidden" name="intent" value={intent} readOnly />
+      {children}
+    </Stack>
+  );
   return (
     <Card elevation="elevated" glow={glow}>
-      <Form spacing="none" ref={formRef} action={action} method="post" onSubmit={onSubmit}>
-        <Stack gap={3}>
-          <HiddenFields fields={hiddenFields} />
-          <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
-          <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
-          <HiddenInput type="hidden" name="intent" value={intent} readOnly />
-          {children}
-        </Stack>
-      </Form>
+      <RouterForm
+        spacing="none"
+        ref={formRef}
+        action={action}
+        method="post"
+        onSubmit={onSubmit}
+        errorAnnouncement={errorAnnouncement}
+      >
+        {fields}
+      </RouterForm>
     </Card>
   );
 }
@@ -192,6 +210,25 @@ export function RegisterPage(props: RegistrationPageProps) {
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
   const submittedRef = useRef(false);
+  const phoneRequestId = useId();
+  const phoneConsumeId = useId();
+  const codeId = useId();
+  const warningId = useId();
+  const feedback = useAuthFormFeedback(
+    props,
+    props.notice?.status === "phone-code-sent" && method === "phone-code" ? codeId : undefined,
+  );
+  const phoneIntent = feedback.error?.intent;
+  const phoneTarget =
+    method === "phone-code" && (phoneIntent === "phone-code-request" || phoneIntent === "phone-code-consume")
+      ? {
+          intent: phoneIntent,
+          id: phoneIntent === "phone-code-request" ? phoneRequestId : phoneConsumeId,
+          label: t("auth.features.registration.ui.registerPage.phone"),
+        }
+      : undefined;
+  const { errors, summary } = authFormErrors(feedback.error, phoneTarget);
+  const observedError = useRef<typeof feedback.error>(null);
 
   useEffect(() => {
     registrationMethods.forEach((shownMethod) => {
@@ -203,16 +240,21 @@ export function RegisterPage(props: RegistrationPageProps) {
   }, []);
 
   useEffect(() => {
-    if (!props.errorMessage) {
+    if (!feedback.error || observedError.current === feedback.error) {
       return;
     }
 
+    observedError.current = feedback.error;
     trackRegistrationAnalytics({
       method,
       stage: "failed",
-      reason: props.errorMessage,
+      reason: feedback.error.classification,
     });
-  }, [method, props.errorMessage]);
+  }, [method, feedback.error]);
+
+  useEffect(() => {
+    if (passkeyError) document.getElementById(warningId)?.focus();
+  }, [passkeyError, warningId]);
 
   useEffect(() => {
     function handleAbandoned() {
@@ -230,45 +272,54 @@ export function RegisterPage(props: RegistrationPageProps) {
   }
 
   function selectMethod(nextMethod: RegistrationMethod) {
+    feedback.clear();
+    setPasskeyError(null);
+    setPasskeyPayload(null);
+    setPasskeyLoading(false);
     setMethod(nextMethod);
     trackRegistrationAnalytics({ method: nextMethod, stage: "selected" });
   }
 
-  function handleCompleted(methodCompleted: RegistrationMethod) {
+  function handleCompleted(methodCompleted: RegistrationMethod, event: FormEvent<HTMLFormElement>) {
+    feedback.begin();
+    setPasskeyError(null);
     submittedRef.current = true;
     trackRegistrationAnalytics({ method: methodCompleted, stage: "completed" });
+    props.onSubmit?.(event);
   }
 
   async function handlePasskeySubmit(event: FormEvent<HTMLFormElement>) {
     if (passkeyPayload) {
-      handleCompleted("passkey");
+      handleCompleted("passkey", event);
       return;
     }
 
     event.preventDefault();
+    feedback.begin();
     setPasskeyError(null);
     setPasskeyLoading(true);
+    const form = event.currentTarget;
 
     try {
       const formData = new FormData(event.currentTarget);
       const displayName = String(formData.get("displayName") ?? "");
       const email = String(formData.get("email") ?? "");
       const payload = await createPasskeyCredential({ displayName, email });
+      if (passkeyFormRef.current !== form) return;
       setPasskeyPayload(payload);
-      window.setTimeout(() => passkeyFormRef.current?.requestSubmit(), 0);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : t("auth.features.registration.ui.registerPage.passkey.registration.failed");
-      setPasskeyError(message);
+      window.setTimeout(() => {
+        if (passkeyFormRef.current === form) form.requestSubmit();
+      }, 0);
+    } catch {
+      if (passkeyFormRef.current !== form) return;
+      setPasskeyError(t("auth.features.registration.ui.registerPage.passkey.registration.failed"));
       trackRegistrationAnalytics({
         method: "passkey",
         stage: "failed",
-        reason: message,
+        reason: "browser-passkey-failed",
       });
     } finally {
-      setPasskeyLoading(false);
+      if (passkeyFormRef.current === form) setPasskeyLoading(false);
     }
   }
 
@@ -293,23 +344,34 @@ export function RegisterPage(props: RegistrationPageProps) {
         <Banner title={props.contextMessage.title} description={props.contextMessage.description} tone="info" />
       ) : null}
 
-      {props.errorMessage ? (
+      <ValidationSummary
+        ref={feedback.summaryRef}
+        title={t("auth.features.registration.ui.registerPage.registration.failed")}
+        errors={summary}
+      />
+      {!feedback.error && feedback.socialError ? (
         <Banner
+          id={feedback.socialId}
+          tabIndex={-1}
           title={t("auth.features.registration.ui.registerPage.registration.failed")}
-          description={props.errorMessage}
+          description={feedback.socialError}
           tone="danger"
           role="alert"
         />
       ) : null}
-      {props.notice?.status === "passkey-recovery" ? (
+      {feedback.notice?.status === "passkey-recovery" ? (
         <Banner
+          id={feedback.successId}
+          tabIndex={-1}
           title={t("auth.features.registration.ui.registerPage.passkey.added")}
-          description={props.notice.message}
+          description={feedback.notice.message}
           tone="success"
         />
       ) : null}
-      {props.notice?.status === "phone-code-sent" ? (
+      {feedback.notice?.status === "phone-code-sent" ? (
         <Banner
+          id={feedback.successId}
+          tabIndex={-1}
           title={t("auth.features.registration.ui.registerPage.phone.code.sent")}
           description={t("auth.features.registration.ui.registerPage.phone.code.ready.check.your.phone")}
           tone="success"
@@ -318,12 +380,9 @@ export function RegisterPage(props: RegistrationPageProps) {
 
       <Card elevation="flush">
         <Stack gap={3}>
-          <Inline>
-            <Badge tone="accent">{t("auth.features.registration.ui.registerPage.fastest")}</Badge>
-            <Text size="sm" tone="secondary">
-              {t("auth.features.registration.ui.registerPage.use.an.account.you.already.have")}
-            </Text>
-          </Inline>
+          <Text size="sm" tone="secondary">
+            {t("auth.features.registration.ui.registerPage.use.an.account.you.already.have")}
+          </Text>
           <Inline>
             <LinkButton
               href={`/api/auth/social/google/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
@@ -375,6 +434,8 @@ export function RegisterPage(props: RegistrationPageProps) {
           <IdentityFields details={details} onChange={updateDetails} />
           {passkeyError ? (
             <Banner
+              id={warningId}
+              tabIndex={-1}
               title={t("auth.features.registration.ui.registerPage.passkey.unavailable")}
               description={passkeyError}
               tone="warning"
@@ -394,7 +455,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           hiddenFields={props.hiddenFields}
           intent="magic-link-register"
           method="magic-link"
-          onSubmit={() => handleCompleted("magic-link")}
+          onSubmit={(event) => handleCompleted("magic-link", event)}
         >
           <Text size="sm" tone="secondary">
             {t("auth.features.registration.ui.registerPage.magic.link.copy")}
@@ -413,7 +474,10 @@ export function RegisterPage(props: RegistrationPageProps) {
             hiddenFields={props.hiddenFields}
             intent="phone-code-request"
             method="phone-code"
-            onSubmit={() => handleCompleted("phone-code")}
+            errorAnnouncement={
+              phoneTarget?.intent === "phone-code-request" && summary.length > 0 ? "summary" : "inline"
+            }
+            onSubmit={(event) => handleCompleted("phone-code", event)}
           >
             <Text size="sm" tone="secondary">
               {t("auth.features.registration.ui.registerPage.phone.code.copy")}
@@ -428,6 +492,8 @@ export function RegisterPage(props: RegistrationPageProps) {
             />
             <TextInput
               label={t("auth.features.registration.ui.registerPage.phone")}
+              id={phoneRequestId}
+              error={phoneTarget?.id === phoneRequestId ? firstFieldError(errors, "phone") : undefined}
               name="phone"
               type="tel"
               autoComplete="tel"
@@ -445,7 +511,10 @@ export function RegisterPage(props: RegistrationPageProps) {
             hiddenFields={props.hiddenFields}
             intent="phone-code-consume"
             method="phone-code"
-            onSubmit={() => handleCompleted("phone-code")}
+            errorAnnouncement={
+              phoneTarget?.intent === "phone-code-consume" && summary.length > 0 ? "summary" : "inline"
+            }
+            onSubmit={(event) => handleCompleted("phone-code", event)}
           >
             <Text size="sm" tone="secondary">
               {t("auth.features.registration.ui.registerPage.enter.phone.code.copy")}
@@ -459,6 +528,8 @@ export function RegisterPage(props: RegistrationPageProps) {
             <HiddenInput type="hidden" name="displayName" value={details.displayName} readOnly />
             <TextInput
               label={t("auth.features.registration.ui.registerPage.phone")}
+              id={phoneConsumeId}
+              error={phoneTarget?.id === phoneConsumeId ? firstFieldError(errors, "phone") : undefined}
               name="phone"
               type="tel"
               autoComplete="tel"
@@ -467,6 +538,7 @@ export function RegisterPage(props: RegistrationPageProps) {
               onChange={(event) => updateDetails("phone", event.currentTarget.value)}
             />
             <TextInput
+              id={codeId}
               label={t("auth.features.registration.ui.registerPage.phone.code.2")}
               name="code"
               autoComplete="one-time-code"
@@ -488,7 +560,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           hiddenFields={props.hiddenFields}
           intent="password"
           method="password"
-          onSubmit={() => handleCompleted("password")}
+          onSubmit={(event) => handleCompleted("password", event)}
         >
           <Text size="sm" tone="secondary">
             {t("auth.features.registration.ui.registerPage.password.fallback.copy")}

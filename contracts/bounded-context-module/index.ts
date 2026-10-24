@@ -6,6 +6,8 @@ import type {
   ProjectorHandlerContext,
   ProjectorHandlerMap,
 } from "@chase-sets/event-core/projector";
+import type { LinkParameterSchema } from "./link-intents";
+export type * from "./link-intents";
 import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 
 /**
@@ -58,6 +60,7 @@ export type BcRouteModule = Readonly<{
   readonly fileExport: string;
   readonly routeType: BcRouteType;
   readonly sourceContext: string;
+  readonly linkParameters?: LinkParameterSchema;
   readonly placement?: BcRoutePlacement;
   readonly section?: string;
 }>;
@@ -202,7 +205,7 @@ export type BcDeployableContribution = Readonly<{
   readonly routes: readonly BcRouteModule[];
 }>;
 
-export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav";
+export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav" | "account-menu";
 export type BcShellContributionVisibility = "always" | "signed-in" | "signed-out";
 
 export type BcShellContributionItemBase = Readonly<{
@@ -213,15 +216,42 @@ export type BcShellContributionItemBase = Readonly<{
   readonly order: number;
   readonly visibility: BcShellContributionVisibility;
   readonly requiredPermissions: readonly string[];
+  /** Defaults to all; an empty permission list passes in either mode. */
+  readonly requiredPermissionsMatch?: "all" | "any";
+  readonly parentKey?: string;
+  readonly placement?: "primary" | "utility";
+  readonly packingPriority?: number;
+  readonly excludedRoleKeys?: readonly string[];
+  readonly badge?: Readonly<{
+    valueKey: string;
+    max: number;
+    hideWhenEmptyForSignedOut: boolean;
+  }>;
 }>;
 
 export type BcShellContributionItem = BcShellContributionItemBase &
   Readonly<
     | {
+        readonly activation: "action";
+        readonly href?: never;
+        readonly children?: never;
+        readonly activePathPatterns?: never;
+      }
+    | {
+        readonly activation: "route";
+        readonly href: string;
+        readonly children?: never;
+        readonly activePathPatterns?: readonly string[];
+      }
+    | {
+        readonly activation?: undefined;
+        readonly activePathPatterns?: readonly string[];
         readonly href: string;
         readonly children?: readonly BcShellContributionItem[];
       }
     | {
+        readonly activation?: undefined;
+        readonly activePathPatterns?: readonly string[];
         readonly href?: string;
         readonly children: readonly BcShellContributionItem[];
       }
@@ -281,6 +311,26 @@ export type BcMcpCapabilities = Readonly<{
   readonly tools?: readonly BcMcpToolDeclaration[];
   readonly resources?: readonly BcMcpResourceDeclaration[];
 }>;
+
+export type BcAgentCoverageExemptionCode =
+  | "sign-in-flow"
+  | "navigation-only"
+  | "human-presence-required"
+  | "file-upload";
+
+/**
+ * How operators reach one admin-web route through MCP: the tools that cover
+ * it (at least one), a closed exemption code with its note, or the `#N` issue
+ * that owns the gap. The admin-web Agent Coverage guard enforces the shape.
+ */
+export type BcAgentCoverageDeclaration = Readonly<
+  | { readonly tools: readonly string[] }
+  | { readonly exempt: BcAgentCoverageExemptionCode; readonly note: string; readonly tools: readonly string[] }
+  | { readonly pending: string }
+>;
+
+/** Keyed by the `routeId` of each admin-web route this context contributes. */
+export type BcAgentCoverage = Readonly<Record<string, BcAgentCoverageDeclaration>>;
 
 export type BcMcpHandlers<TToolHandler = unknown, TResourceHandler = unknown> = Readonly<{
   readonly toolHandlers?: Readonly<Record<string, TToolHandler>>;
@@ -431,19 +481,19 @@ export type BcEventSubscription = Readonly<{
   readonly handlers: ProjectorHandlerMap;
   /** Runtime-derived from the matching local projection handler set. */
   readonly inlineApply?: boolean;
-  readonly idempotencyPolicy?: BcReactionIdempotencyPolicy;
-  readonly retryPolicy?: BcReactionRetryPolicy;
-  readonly failurePolicy?: BcReactionFailurePolicy;
-  readonly eventTypes?: readonly string[];
-  readonly streamPrefixes?: readonly string[];
-  readonly errorPolicy?: ProjectionErrorPolicy;
-  readonly batchSize?: number;
-  readonly checkpointBatchSize?: number;
-  readonly projectionTransactionTimeoutMs?: number;
-  readonly projectionStatementTimeoutMs?: number;
-  readonly projectionTransactionBudgetEscalationMs?: number;
-  readonly projectionCascadeChunkSize?: number;
-  readonly order?: number;
+  readonly idempotencyPolicy?: BcReactionIdempotencyPolicy | undefined;
+  readonly retryPolicy?: BcReactionRetryPolicy | undefined;
+  readonly failurePolicy?: BcReactionFailurePolicy | undefined;
+  readonly eventTypes?: readonly string[] | undefined;
+  readonly streamPrefixes?: readonly string[] | undefined;
+  readonly errorPolicy?: ProjectionErrorPolicy | undefined;
+  readonly batchSize?: number | undefined;
+  readonly checkpointBatchSize?: number | undefined;
+  readonly projectionTransactionTimeoutMs?: number | undefined;
+  readonly projectionStatementTimeoutMs?: number | undefined;
+  readonly projectionTransactionBudgetEscalationMs?: number | undefined;
+  readonly projectionCascadeChunkSize?: number | undefined;
+  readonly order?: number | undefined;
 }>;
 
 export type BcContextManifest = Readonly<{
@@ -453,6 +503,7 @@ export type BcContextManifest = Readonly<{
   readonly apiMounts?: readonly BcApiMount[];
   readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly mcpCapabilities?: BcMcpCapabilities;
+  readonly agentCoverage?: BcAgentCoverage;
   readonly accountCapabilities?: readonly BcAccountCapabilityDeclaration[];
   readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
   readonly eventReactions?: readonly BcEventReactionDeclaration[];
@@ -671,10 +722,29 @@ export const ENVIRONMENT_DATA_PROFILES = [
 
 export type EnvironmentDataProfile = (typeof ENVIRONMENT_DATA_PROFILES)[number];
 
+/**
+ * The client a schema migration's `dataStep` receives: one parameterized
+ * `query`, shaped so `PgQueryable` helpers accept it without a cast.
+ */
+export type BcSchemaMigrationClient = Readonly<{
+  query<Row = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<Readonly<{ rows: Row[]; rowCount?: number | null }>>;
+}>;
+
 export type BcSchemaMigration = Readonly<{
   readonly migrationId: string;
   readonly description: string;
   readonly statements: readonly string[];
+  /**
+   * TypeScript data work for the migration. The runner applies it, then
+   * `statements`, then the ledger row in one transaction it owns; any error
+   * rolls all three back and the next bootstrap retries. The step issues no
+   * `BEGIN`, `COMMIT` or `ROLLBACK` (savepoints are allowed), and neither it
+   * nor `statements` may use `CONCURRENTLY`.
+   */
+  readonly dataStep?: (db: BcSchemaMigrationClient) => Promise<void>;
 }>;
 
 /**
@@ -874,6 +944,7 @@ export function normalizeContextManifest(manifest: BcContextManifestInput): BcCo
     ...(manifest.apiMounts ? { apiMounts: manifest.apiMounts as readonly BcApiMount[] } : {}),
     ...(manifest.anonymousRoutes ? { anonymousRoutes: manifest.anonymousRoutes as readonly BcAnonymousRoute[] } : {}),
     ...(manifest.mcpCapabilities ? { mcpCapabilities: manifest.mcpCapabilities } : {}),
+    ...(manifest.agentCoverage ? { agentCoverage: manifest.agentCoverage } : {}),
     ...(manifest.accountCapabilities
       ? {
           accountCapabilities: normalizeAccountCapabilityDeclarations(

@@ -40,7 +40,6 @@ function metadata() {
 
 function validSecretEnv() {
   return {
-    TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE: "fixture-cookie",
     SCRYDEX_API_KEY: "fixture-scrydex-key",
     SCRYDEX_TEAM_ID: "fixture-team",
     STRIPE_SECRET_KEY: "sk_test_fixture",
@@ -68,7 +67,6 @@ describe("staging refresh credential posture", () => {
     expect(posture.every((secret) => secret.metadataState === "present" && secret.valueState === "verified")).toBe(
       true,
     );
-    expect(JSON.stringify(posture)).not.toContain(values.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE);
     expect(JSON.stringify(posture)).not.toContain(values.SCRYDEX_API_KEY);
   });
 
@@ -347,9 +345,11 @@ describe("staging refresh overlap and CLI posture", () => {
       "Platform Staging Wake Drills",
       "Platform Staging Mixed-Version Wake Evidence",
       "Platform Database Restore Drill",
+      "Catalog Staging Count Preparation",
       "Catalog Staging Provider UAT",
       "Catalog Integration Staging Reset",
       "Platform Staging Representative Commerce State",
+      "Platform Staging Cluster Add-ons",
     ]);
     expect(stagingRefreshOverlapWorkflowFiles.map(workflowNameFromFile)).toEqual(stagingRefreshOverlapWorkflowNames);
   });

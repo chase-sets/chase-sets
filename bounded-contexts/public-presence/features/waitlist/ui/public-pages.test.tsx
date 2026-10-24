@@ -1,6 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { act, cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderWithoutRouter,
+  within,
+  type RenderOptions,
+} from "@testing-library/react";
 import { Children, type ComponentProps, type ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { renderToString } from "react-dom/server";
@@ -651,6 +658,58 @@ describe("public waitlist form migration smoke", () => {
     // No per-question Surface cards remain: the four items are one disclosure group.
     expect(faqSection.querySelectorAll("[data-test-surface]")).toHaveLength(0);
     expect(faqSection.querySelector('a[href="/faq"]')?.textContent).toBe(t("publicPresence.faq.all"));
+  });
+
+  // #8606: the hero and FAQ bound the 0% claim to the founder 60-day window
+  // and never claim the seller keeps 100% (the Order Protection contribution
+  // applies to every order). Pinned as literal copy, not via t(), so a locale
+  // edit that reintroduces the claim fails here as well as in the guard.
+  it("renders the hero highlight and FAQ fee answer bounded to the founder 60-day window (#8606 AC2)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const heroSection = container.querySelector('[data-public-presence-section="hero"]');
+    const faqSection = container.querySelector('[data-public-presence-section="faq"]');
+    if (!heroSection || !faqSection) {
+      throw new Error("Expected hero and FAQ sections to render.");
+    }
+
+    const highlightCells = Array.from(
+      heroSection.querySelector('[aria-label="Marketing highlights"]')?.children ?? [],
+    ).map((cell) => cell.textContent);
+    expect(highlightCells).toContain(
+      "Founders window0% sales fee on listings you create in your first 60 days of beta",
+    );
+    expect(heroSection.textContent).not.toContain("Keep 100% of the sale");
+    expect(heroSection.textContent).not.toContain("0% beta seller fees");
+    expect(heroSection.textContent).not.toContain("0% fees during beta");
+
+    expect(faqSection.textContent).toContain(
+      "Listings you create in your first 60 days of beta lock a 0% sales fee until they sell. Listings created after that window lock the published standard sales fee at listing time.",
+    );
+    expect(faqSection.textContent).not.toContain("Listings created during beta keep a 0% seller fee");
+    expect(container.textContent).not.toContain("100%");
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    if (!feeComparisonSection) {
+      throw new Error("Expected the fee comparison section to render.");
+    }
+    const keepCells = Array.from(feeComparisonSection.querySelectorAll("tbody tr td"));
+    expect(keepCells.map((cell) => cell.textContent)).toEqual(["You keep", "$9.90", "$8.38", "$8.38"]);
+    expect(keepCells[1]?.textContent).not.toBe("$10.00");
+    expect(feeComparisonSection.textContent).toContain("On a $10 card");
+    expect(feeComparisonSection.textContent).toContain(
+      "Every order funds Order Protection at 1% of item value, paid by the seller.",
+    );
+    expect(faqSection.textContent).toContain(
+      "Every order funds Order Protection at 1% of item value, paid by the seller.",
+    );
   });
 
   it.each([
@@ -2050,6 +2109,35 @@ describe("public shell single content gutter (#8499)", () => {
 
     expect(renderSites).toBe(10);
     expect(shellConsumers).toHaveLength(renderSites);
+  });
+
+  it.each(shellConsumers)("keeps all public destinations discoverable in the %s footer", (_name, renderConsumer) => {
+    stubPromoMessages([]);
+    const { container } = render(renderConsumer());
+    const { footer } = shellParts(container);
+    const destinations = [
+      ["Help", "/help"],
+      ["Terms", "/terms"],
+      ["Privacy", "/privacy"],
+      ["Refunds and returns", "/refunds-and-returns"],
+      ["Order Protection", "/order-protection"],
+      ["Marketplace sales fees", "/sales-fees"],
+      ["Founders offer terms", "/founders"],
+      ["Contact", "/contact"],
+      ["Seller agreement", "/seller-agreement"],
+      ["Payments terms", "/payments-terms"],
+      ["Authenticity service terms", "/authenticity-terms"],
+      ["Agent connector terms", "/agent-terms"],
+      ["Creator and press fact sheet", "/press"],
+    ] as const;
+
+    expect(within(footer).getAllByRole("link")).toHaveLength(destinations.length);
+    for (const [name, href] of destinations) {
+      const links = within(footer).getAllByRole("link", { name });
+      expect(links).toHaveLength(1);
+      expect(links[0]!.getAttribute("href")).toBe(href);
+      expect(footer.querySelectorAll(`a[href="${href}"]`)).toHaveLength(1);
+    }
   });
 
   it.each(shellConsumers)(

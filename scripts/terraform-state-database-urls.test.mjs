@@ -294,14 +294,19 @@ describe("Terraform state database URL export", () => {
 
   it("keeps every shared-exporter workflow consumer behind the canonical byte-equivalent trust action", async () => {
     const expectedConsumers = [
+      "catalog-completion-report.yml",
       "catalog-integration-staging-reset.yml",
       "catalog-provider-refresh-watch.yml",
       "checkout-order-readiness-trace.yml",
+      "collections-anonymous-owner-redaction.yml",
+      "collections-cutover-authority-capture.yml",
       "marketplace-provider-proof-status.yml",
       "platform-postgres-growth-evidence.yml",
       "platform-postgres-slow-query-digest.yml",
       "platform-production.yml",
       "platform-staging-admin-qa-actor-fixtures.yml",
+      "platform-staging-evidence-window-cleanup.yml",
+      "platform-staging-evidence-window.yml",
       "platform-staging-representative-commerce-state.yml",
       "platform-staging-wake-drills.yml",
     ];

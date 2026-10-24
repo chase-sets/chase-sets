@@ -128,7 +128,14 @@ export function createAuthApiClient({
       return postJson<T>(configuredFetch, buildUrl("invitations/acceptance-link/request"), body, headers);
     },
     async acceptInvitation<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(configuredFetch, buildUrl("invitations/accept"), body, headers);
+      const attemptHeaders = new Headers(headers);
+      if (typeof body.attemptId === "string") attemptHeaders.set("Idempotency-Key", body.attemptId);
+      return postJson<T>(configuredFetch, buildUrl("invitations/accept"), body, attemptHeaders);
+    },
+    async getInvitationAcceptanceStatus<T>(body: Record<string, unknown>): Promise<T> {
+      const attemptHeaders = new Headers(headers);
+      if (typeof body.attemptId === "string") attemptHeaders.set("Idempotency-Key", body.attemptId);
+      return postJson<T>(configuredFetch, buildUrl("invitations/acceptance-status"), body, attemptHeaders);
     },
     async requestPhoneCode<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("phone-code/request"), body, headers);
@@ -222,6 +229,17 @@ const DEFAULT_UCP_OAUTH_BASE_URL = "/ucp/oauth";
 // mandate, and activity routes are Auth-owned but mounted at /ucp/oauth rather than /api/auth
 // (bounded-contexts/auth/support/ucp-support/oauth.ts), so this is a distinct base URL from
 // createAuthApiClient rather than a second baseUrl on the same client instance.
+export type AgentOAuthConsent = Readonly<{
+  clientName: string;
+  redirectOrigin: string;
+  sessionId: string;
+  accountId: string;
+  accountName: string;
+  scopes: readonly string[];
+  memberships: readonly { accountId: string; accountName: string }[];
+  authorizePath: string;
+}>;
+
 export function createUcpOAuthApiClient({
   baseUrl = DEFAULT_UCP_OAUTH_BASE_URL,
   fetch = globalThis.fetch,
@@ -237,6 +255,10 @@ export function createUcpOAuthApiClient({
   const buildUrl = (path: string) => new URL(path, `${baseUrl}/`).toString();
 
   return {
+    async getAgentConsent(token: string): Promise<{ consent: AgentOAuthConsent }> {
+      const query = new URLSearchParams({ consent_token: token });
+      return parseJsonResponse(await configuredFetch(`${buildUrl("consent")}?${query}`, { headers }));
+    },
     async listAgentGrants<T>(): Promise<T> {
       return parseJsonResponse<T>(await configuredFetch(buildUrl("authorizations"), { headers }));
     },
@@ -250,8 +272,23 @@ export function createUcpOAuthApiClient({
         await configuredFetch(search ? `${buildUrl(path)}?${search}` : buildUrl(path), { headers }),
       );
     },
-    async revokeAgentGrant<T>(id: string): Promise<T> {
-      return postJson<T>(configuredFetch, buildUrl(`authorizations/${id}/revoke`), {}, headers);
+    async revokeAgentGrant<T>(id: string, attemptId?: string): Promise<T> {
+      const requestHeaders = new Headers(headers);
+      if (attemptId) requestHeaders.set("Idempotency-Key", attemptId);
+      return postJson<T>(
+        configuredFetch,
+        buildUrl(`authorizations/${id}/revoke`),
+        attemptId ? { attempt_id: attemptId } : {},
+        requestHeaders,
+      );
+    },
+    async getAgentGrantRevocation<T>(id: string, attemptId: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await configuredFetch(
+          buildUrl(`authorizations/${encodeURIComponent(id)}/revocation/${encodeURIComponent(attemptId)}`),
+          { headers },
+        ),
+      );
     },
     async updateAgentGrantMandate<T>(id: string, mandate: Record<string, unknown>): Promise<T> {
       return putJson<T>(configuredFetch, buildUrl(`authorizations/${id}/mandate`), mandate, headers);

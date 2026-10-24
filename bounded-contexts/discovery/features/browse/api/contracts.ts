@@ -24,6 +24,7 @@ export interface DiscoveryBrowseSetPage {
   code: string | null;
   game: string | null;
   release_date: string | null;
+  reference_card_count?: number | null;
   item_count: number;
   items: DiscoveryBrowseSetItem[];
   updated_at: string;

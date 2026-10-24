@@ -2,6 +2,8 @@ import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { createHash } from "node:crypto";
+import { acquireSourceObservationTarget, promotionCurrentItem } from "./promotion/source-observation-target-exclusion";
+import { trackPromotionProfileAuthority } from "./promotion/promotion-profile-authority";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemId, ReferenceRecordId } from "../../../ids";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
@@ -11,9 +13,11 @@ import {
   isLorcanaSetReferenceSourceObservationNormalized,
   isMagicSetReferenceSourceObservationNormalized,
   isOnePieceSetReferenceSourceObservationNormalized,
+  isYugiohSetReferenceSourceObservationNormalized,
   type SourceObservationLorcanaSetReferenceNormalized,
   type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationOnePieceSetReferenceNormalized,
+  type SourceObservationYugiohSetReferenceNormalized,
   type SourceObservationPromotionProfileEvidence,
 } from "../domain/domain";
 import {
@@ -32,7 +36,10 @@ import {
 } from "../read-model/queries";
 import { writePromotionAliases } from "./promotion/provider-promotion-alias-writer";
 import type { PromotionAliasTargetResolution } from "./promotion/provider-promotion-alias-planner";
-import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  assertCatalogIntegrationProfileUnitAllowed,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
 import { resolveCatalogProviderDuplicatePrevention } from "./promotion/provider-duplicate-prevention-resolver";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
@@ -59,6 +66,7 @@ import {
   summarizeReapplyOutcomes,
 } from "./source-observation-job-serialization";
 import {
+  CatalogAssetStorageError,
   capitalize,
   createCatalogDraftFromObservation,
   isPromotableObservationStatus,
@@ -155,7 +163,8 @@ export function createSourceObservationPromotionReapplyRuntime({
     if (
       isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
       isLorcanaSetReferenceSourceObservationNormalized(input.observation.normalized) ||
-      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized)
+      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized) ||
+      isYugiohSetReferenceSourceObservationNormalized(input.observation.normalized)
     ) {
       return promoteReferenceObservationFromRow({
         ...input,
@@ -181,6 +190,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       input.observation.provider_key,
       normalized,
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "promotion", providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
     requirePromotionAssetPorts({ deps, normalized, productAssetSource: input.productAssetSource });
 
@@ -216,13 +226,29 @@ export function createSourceObservationPromotionReapplyRuntime({
       existingCatalogItemId ??
       (duplicatePreventionResult?.status === "matched" ? duplicatePreventionResult.catalogItemId : null);
     const sourceCatalogItemId: CatalogItemId = `cat_source_${createHash("sha256").update(input.observation.observation_id).digest("hex")}`;
-    const catalogItemId = reusableCatalogItemId ?? sourceCatalogItemId;
+    if (!deps.promotionTargetExclusion) throw new Error("promotion-target-exclusion-required");
+    const authority = trackPromotionProfileAuthority(profileVersions, providerProfileVersion, (reader) =>
+      requireCatalogPromotionProfileVersion(reader, input.observation.provider_key, normalized),
+    );
+    const targetSession = await acquireSourceObservationTarget({
+      deps,
+      boundary: deps.promotionTargetExclusion,
+      observation: input.observation,
+      profileVersions: authority.reader,
+      selectedTargetId: reusableCatalogItemId,
+      expectedBlueprintId: catalogMapping.blueprintId,
+      context: input.context,
+      validateAuthority: authority.validate,
+    });
+    const catalogItemId = targetSession.targetId as CatalogItemId;
+    const targetState = targetSession.evidence.items.get(catalogItemId)!;
     const refreshExistingItem =
-      reusableCatalogItemId !== null &&
-      (existingCatalogItemId !== null || reusableCatalogItemId !== sourceCatalogItemId);
+      targetState.id !== null && (existingCatalogItemId !== null || catalogItemId !== sourceCatalogItemId);
 
     const { referenceRecordIdsByTypeKey, ...promotionEvidence } = refreshExistingItem
       ? await refreshCatalogItemFromObservation({
+          targetSession,
+          currentItem: promotionCurrentItem(targetState),
           items,
           referenceData,
           productContents,
@@ -241,6 +267,7 @@ export function createSourceObservationPromotionReapplyRuntime({
           promoteAsDraft: input.promoteAsDraft === true,
         })
       : await createCatalogDraftFromObservation({
+          targetSession,
           items,
           referenceData,
           productContents,
@@ -292,7 +319,8 @@ export function createSourceObservationPromotionReapplyRuntime({
     normalized:
       | SourceObservationMagicSetReferenceNormalized
       | SourceObservationLorcanaSetReferenceNormalized
-      | SourceObservationOnePieceSetReferenceNormalized;
+      | SourceObservationOnePieceSetReferenceNormalized
+      | SourceObservationYugiohSetReferenceNormalized;
     context: EventStoreContext;
   }): Promise<SourceObservationPromotionTargetResult> {
     const providerProfileVersion = await requireReferenceDataPromotionProfileVersion(
@@ -300,6 +328,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       input.observation.provider_key,
       input.normalized,
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "promotion", providerProfileVersion);
     const { targetReferenceRecordId } = await resolveReferenceDataPromotionHierarchy({
       deps,
       referenceData,
@@ -403,6 +432,9 @@ export function createSourceObservationPromotionReapplyRuntime({
             status: "failed",
             catalogItemId: null,
             reason: error instanceof Error ? error.message : "Promotion failed.",
+            ...(error instanceof CatalogAssetStorageError
+              ? { diagnosticCode: "asset-processing-failed" as const }
+              : {}),
           },
         );
       } finally {
@@ -451,7 +483,8 @@ export function createSourceObservationPromotionReapplyRuntime({
     if (
       isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
       isLorcanaSetReferenceSourceObservationNormalized(input.observation.normalized) ||
-      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized)
+      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized) ||
+      isYugiohSetReferenceSourceObservationNormalized(input.observation.normalized)
     ) {
       return reapplyReferenceObservationFromRow({
         ...input,
@@ -479,6 +512,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       input.reapplyProfileMode,
       input.profileSnapshot ?? null,
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
     requirePromotionAssetPorts({ deps, normalized });
 
@@ -491,7 +525,30 @@ export function createSourceObservationPromotionReapplyRuntime({
       throw new Error("Promoted source observation is missing its Catalog Item.");
     }
 
+    if (!deps.promotionTargetExclusion) throw new Error("promotion-target-exclusion-required");
+    const authority = trackPromotionProfileAuthority(profileVersions, providerProfileVersion, (reader) =>
+      requireCatalogPromotionProfileVersionForReapply(
+        reader,
+        input.observation,
+        normalized,
+        input.reapplyProfileMode,
+        input.profileSnapshot ?? null,
+      ),
+    );
+    const catalogMapping = await loadCatalogItemPromotionProfile(deps, providerProfile);
+    const targetSession = await acquireSourceObservationTarget({
+      deps,
+      boundary: deps.promotionTargetExclusion,
+      observation: input.observation,
+      profileVersions: authority.reader,
+      selectedTargetId: catalogItemId,
+      expectedBlueprintId: catalogMapping.blueprintId,
+      context: input.context,
+      validateAuthority: authority.validate,
+    });
     const { referenceRecordIdsByTypeKey, ...promotionEvidence } = await refreshCatalogItemFromObservation({
+      targetSession,
+      currentItem: promotionCurrentItem(targetSession.evidence.items.get(catalogItemId)!),
       items,
       referenceData,
       productContents,
@@ -502,7 +559,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       externalKey: input.observation.external_key,
       providerProfile,
       providerProfileVersion,
-      catalogMapping: await loadCatalogItemPromotionProfile(deps, providerProfile),
+      catalogMapping,
       sourceUpdatedAt: input.observation.source_updated_at,
       observedAt: input.observation.observed_at,
       context: input.context,
@@ -536,7 +593,8 @@ export function createSourceObservationPromotionReapplyRuntime({
     normalized:
       | SourceObservationMagicSetReferenceNormalized
       | SourceObservationLorcanaSetReferenceNormalized
-      | SourceObservationOnePieceSetReferenceNormalized;
+      | SourceObservationOnePieceSetReferenceNormalized
+      | SourceObservationYugiohSetReferenceNormalized;
     context: EventStoreContext;
     reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
@@ -548,6 +606,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       input.reapplyProfileMode,
       input.profileSnapshot ?? null,
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", providerProfileVersion);
 
     if (input.observation.status !== "promoted") {
       throw new Error("Only promoted source observations can be reapplied.");
@@ -866,7 +925,8 @@ export function createSourceObservationPromotionReapplyRuntime({
       if (
         isMagicSetReferenceSourceObservationNormalized(observation.normalized) ||
         isLorcanaSetReferenceSourceObservationNormalized(observation.normalized) ||
-        isOnePieceSetReferenceSourceObservationNormalized(observation.normalized)
+        isOnePieceSetReferenceSourceObservationNormalized(observation.normalized) ||
+        isYugiohSetReferenceSourceObservationNormalized(observation.normalized)
       ) {
         // Reference-data promotion writes no Catalog Item, so it has no display identity to validate.
         return [];

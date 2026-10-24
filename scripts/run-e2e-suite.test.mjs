@@ -1,6 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import * as channelsClient from "../bounded-contexts/channels/client.ts";
 import {
@@ -9,20 +11,202 @@ import {
   e2eNoSuiteExclusionForChangedFile,
   e2eSuiteIdsForChangedFile,
   e2eSuites,
+  estimatedE2eSuiteDurationSeconds,
   isE2eSpecFile,
   isRouteFile,
 } from "./e2e-suites.mjs";
 import { buildSuiteGrep, commandSuiteInvocation, parseSuiteArgs } from "./run-e2e-suite.mjs";
+import * as renderedCopyRunner from "./run-e2e-suite.mjs";
+import * as suiteRegistry from "./e2e-suites.mjs";
+import {
+  attributeRenderedCopy,
+  buildCapturePart,
+  classifyRenderedCopy,
+  finalRenderedCopyObservations,
+  renderedCopyClasses,
+  renderedCopyTupleKey,
+  renderedCopyTuples,
+  sweepRenderedCopy,
+  validateCapturePart,
+} from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import {
   TCGPLAYER_CONNECTOR_EXTENSION_ID,
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
   TCGPLAYER_CONNECTOR_REDIRECT_URI,
 } from "../bounded-contexts/channels/features/connector-client/domain/identity.ts";
-import {
-  extensionIdCandidate,
-  extensionKeyCandidate,
-  extensionRedirectUriCandidate,
-} from "../deployables/tcgplayer-connector-extension/src/authority-candidate.ts";
+
+describe("dedicated rendered-copy substrate", () => {
+  it("isolates the dedicated entry without changing ordinary batching", () => {
+    const ordinary = ["marketplace_account", "admin_access", "marketplace_browse"];
+    expect(suiteRegistry.batchBrowserE2eSuiteIds([...ordinary, "rendered_copy"])).toEqual([
+      ...batchE2eSuiteIds(ordinary),
+      "rendered_copy",
+    ]);
+    expect(() => parseSuiteArgs(["rendered_copy,admin_access"])).toThrow("unpaired");
+  });
+
+  it("rejects missing, extra, duplicate, owning-tagged, filtered and reordered listings", () => {
+    const order = renderedCopyRunner.expectedRenderedCopyListing();
+    expect(order).toHaveLength(32);
+    expect(() => renderedCopyRunner.assertRenderedCopyListing(order)).not.toThrow();
+    const owning = structuredClone(order);
+    owning[0].title = owning[0].title.replace("@rendered-copy", "@marketplace-account");
+    for (const mutant of [
+      order.slice(1),
+      [...order, order[0]],
+      [...order.slice(0, -1), order[0]],
+      owning,
+      order.filter((_, index) => index % 2),
+      [...order].reverse(),
+    ]) {
+      expect(() => renderedCopyRunner.assertRenderedCopyListing(mutant)).toThrow("exact listed set");
+    }
+    const owningGrep = new RegExp(buildSuiteGrep(e2eSuites.filter((suite) => suite.id !== "rendered_copy")));
+    for (const entry of order) expect(owningGrep.test(entry.title), entry.title).toBe(false);
+    for (const spec of new Set(order.map((entry) => entry.path))) {
+      const source = readFileSync(spec, "utf8");
+      expect(source).toContain("@rendered-copy @browser-e2e-seed");
+      expect(source).not.toContain("${tuple.tag}");
+    }
+  });
+
+  const observations = () =>
+    renderedCopyTuples.map((tuple) => ({
+      schema: "rendered-copy-observation/v1",
+      tuple,
+      retry: 0,
+      durationMs: 10,
+      witness: "populated",
+      counts: Object.fromEntries(renderedCopyClasses.map((kind) => [kind, 0])),
+      fields: [],
+    }));
+  const attempts = () =>
+    renderedCopyTuples.map((tuple) => ({ key: renderedCopyTupleKey(tuple), retry: 0, status: "passed" }));
+  const input = () => ({
+    candidate: { commit: "a".repeat(40), tree: "b".repeat(40), sourceHead: "c".repeat(40) },
+    run: {
+      workflow: "platform-pr.yml",
+      event: "pull_request",
+      id: 1,
+      attempt: 2,
+      jobIndex: 3,
+      batch: "rendered_copy",
+      capturedAt: "2026-10-19T00:00:00.000Z",
+    },
+    observations: observations(),
+    attempts: attempts(),
+  });
+
+  it("records a classified unattributed occurrence without a baseline or toggle", async () => {
+    expect(classifyRenderedCopy("ord_seed_visible")).toEqual([{ class: "seed-id", text: "ord_seed_visible" }]);
+    const data = input();
+    const { fields, violations } = attributeRenderedCopy(
+      data.observations[0].tuple.page,
+      [
+        {
+          class: "seed-id",
+          text: "ord_seed_visible",
+          region: "main",
+          label: null,
+          path: "body > main",
+          within: [],
+        },
+      ],
+      [],
+    );
+    expect(violations).toEqual([]);
+    data.observations[0].fields = fields;
+    data.observations[0].counts["seed-id"] = 1;
+    const part = buildCapturePart(data);
+    expect(part.observations[0].fields[0]).toMatchObject({ token: null, count: 1, samples: ["ord_seed_visible"] });
+    expect(validateCapturePart(part)).toEqual([]);
+    expect(validateCapturePart({ ...part, run: { ...part.run, event: "merge_group" } })).toContain(
+      "run: invalid producer identity",
+    );
+    const directory = mkdtempSync(join(tmpdir(), "rendered-copy-observe-"));
+    try {
+      const observed = await sweepRenderedCopy(
+        {
+          evaluate: async () => ({
+            total: ["seed-id"],
+            occurrences: [
+              {
+                class: "seed-id",
+                text: "ord_seed_visible",
+                region: "main",
+                label: null,
+                path: "body > main",
+                within: [],
+              },
+            ],
+          }),
+        },
+        renderedCopyTuples[0],
+        { retry: 0, startedAt: Date.now(), witness: "populated" },
+        directory,
+      );
+      expect(observed.fields[0]).toMatchObject({ token: null, count: 1 });
+      data.observations[0] = observed;
+      expect(validateCapturePart(buildCapturePart(data))).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("emits only final observations, lists retries, and rejects missing/conflicting terminal attempts and failed finals", () => {
+    const data = input();
+    data.attempts[0].status = "failed";
+    data.attempts.push({ ...data.attempts[0], retry: 1, status: "passed" });
+    data.observations.push({ ...data.observations[0], retry: 1, durationMs: 20 });
+    data.observations[0] = { ...data.observations[0], counts: { ...data.observations[0].counts, "seed-id": 7 } };
+    const part = buildCapturePart(data);
+    expect(part.retriedTuples).toEqual([renderedCopyTupleKey(renderedCopyTuples[0])]);
+    expect(part.observations[0].retry).toBe(1);
+    expect(part.observations[0].counts["seed-id"]).toBe(0);
+    expect(part.observations).toHaveLength(renderedCopyTuples.length);
+    expect(validateCapturePart(part)).toEqual([]);
+    const missing = data.attempts.filter((entry) => !(entry.key === data.attempts[0].key && entry.retry === 0));
+    expect(() => finalRenderedCopyObservations(data.observations, missing)).toThrow(
+      "missing or conflicting terminal attempt",
+    );
+    expect(() =>
+      finalRenderedCopyObservations(data.observations, [...data.attempts, { ...data.attempts[0], status: "passed" }]),
+    ).toThrow("conflicting terminal attempt");
+    expect(() => finalRenderedCopyObservations(data.observations, data.attempts.slice(0, -1))).toThrow("final attempt");
+    expect(() => finalRenderedCopyObservations(data.observations.slice(0, -1), data.attempts)).toThrow(
+      "missing final observation",
+    );
+    expect(() => finalRenderedCopyObservations([...data.observations, data.observations[0]], data.attempts)).toThrow(
+      "conflicting observation",
+    );
+  });
+
+  it("derives attempts from the actual terminal reporter, not observation presence", () => {
+    const order = renderedCopyRunner.expectedRenderedCopyListing();
+    const report = {
+      config: { projects: [{ name: "marketplace-chromium" }, { name: "admin-web-chromium" }] },
+      suites: [...new Set(order.map((entry) => entry.path))].map((path) => ({
+        specs: order
+          .filter((entry) => entry.path === path)
+          .map((entry, index) => ({
+            file: path,
+            title: entry.title,
+            line: index,
+            column: 1,
+            tests: [{ projectName: entry.project, results: [{ retry: 0, status: "passed" }] }],
+          })),
+      })),
+    };
+    expect(renderedCopyRunner.renderedCopyAttempts(report)).toEqual(attempts());
+    const unknown = structuredClone(report);
+    unknown.suites[0].specs[0].tests.push({ projectName: "synthetic-unknown", results: [] });
+    expect(() => renderedCopyRunner.renderedCopyAttempts(unknown)).toThrow("unknown project");
+    report.suites[0].specs[0].tests[0].results = [{ retry: 0, status: "failed" }];
+    expect(() =>
+      finalRenderedCopyObservations(observations(), renderedCopyRunner.renderedCopyAttempts(report)),
+    ).toThrow("final attempt 0 failed");
+  });
+});
 
 function walkFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -30,6 +214,157 @@ function walkFiles(dir) {
     return entry.isDirectory() ? walkFiles(entryPath) : [entryPath.replace(/\\/g, "/")];
   });
 }
+
+// Planner at the implementation base; expectations never come from the planner under test.
+const PINNED_PLANNER_SHA = "4024691b0120fe169f79fa1f6dbbe3e0e314a07f";
+
+async function importPinnedPlanner() {
+  const source = execFileSync("git", ["show", `${PINNED_PLANNER_SHA}:scripts/e2e-suites.mjs`], {
+    encoding: "utf8",
+    timeout: 30_000,
+  }).replace('"./lib/risk-policy-v1.mjs"', JSON.stringify(new URL("./lib/risk-policy-v1.mjs", import.meta.url).href));
+  const directory = mkdtempSync(join(tmpdir(), "e2e-planner-baseline-"));
+  try {
+    const file = join(directory, "e2e-suites.mjs");
+    writeFileSync(file, source);
+    return await import(pathToFileURL(file).href);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+describe("unpaired connector extension batching", () => {
+  const extension = "tcgplayer_connector_extension";
+  const suitesIn = (batches) => batches.flatMap((batch) => batch.split(","));
+
+  it("declares isolation on the registry entry and honors it without a suite literal in the planner", () => {
+    expect(e2eSuites.filter((suite) => suite.unpaired === true).map(({ id }) => id)).toEqual([extension]);
+    expect(estimatedE2eSuiteDurationSeconds(extension)).toBeGreaterThanOrEqual(1002);
+    for (const { id } of e2eSuites) expect(batchE2eSuiteIds.toString()).not.toContain(id);
+  });
+
+  it.each([
+    { name: "empty input", input: [], expected: [] },
+    { name: "the extension only", input: [extension], expected: [extension] },
+    { name: "a duplicated extension", input: [extension, extension], expected: [extension] },
+    {
+      name: "the reversed account pair",
+      input: [extension, "marketplace_account"],
+      expected: ["marketplace_account", extension],
+    },
+    {
+      name: "a duplicated account pair",
+      input: ["marketplace_account", extension, "marketplace_account", extension],
+      expected: ["marketplace_account", extension],
+    },
+    {
+      name: "the reversed account and seller selection",
+      input: [extension, "marketplace_account", "marketplace_seller"],
+      expected: ["marketplace_account,marketplace_seller", extension],
+    },
+    {
+      name: "the other command suites",
+      input: ["tcgplayer_operator_extension", extension, "platform_mcp_sdk"],
+      expected: ["platform_mcp_sdk,tcgplayer_operator_extension", extension],
+    },
+  ])("batches $name", ({ input, expected }) => {
+    expect(batchE2eSuiteIds(input)).toEqual(expected);
+  });
+
+  it.each(e2eSuites.map(({ id }) => id).filter((id) => id !== extension))(
+    "keeps the connector extension alone beside %s in either order",
+    (companion) => {
+      for (const input of [
+        [companion, extension],
+        [extension, companion],
+        [extension, companion, companion, extension],
+      ]) {
+        expect(batchE2eSuiteIds(input)).toEqual([companion, extension]);
+      }
+    },
+  );
+
+  it("keeps the connector extension alone in the full registered roster, reversed and duplicated", () => {
+    const roster = [
+      "marketplace_browse",
+      "marketplace_account",
+      "marketplace_checkout",
+      "marketplace_seller",
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_platform",
+      "admin_auth",
+      "admin_access",
+      "platform_mcp_sdk",
+      extension,
+      "tcgplayer_operator_extension",
+      "rendered_copy",
+    ];
+    for (const input of [roster, [...roster].reverse(), [...roster, ...roster]]) {
+      expect(batchE2eSuiteIds(input)).toEqual([
+        "rendered_copy",
+        "catalog_admin_integrations,tcgplayer_operator_extension",
+        "catalog_admin_modeling,platform_mcp_sdk",
+        "marketplace_checkout,admin_auth",
+        "marketplace_browse,admin_support",
+        "admin_commerce,admin_platform",
+        "marketplace_account,marketplace_seller",
+        "admin_growth,admin_access",
+        extension,
+      ]);
+    }
+  });
+
+  it.each([1, 2, 3, 8, 15, 16, 100])("never pairs the connector extension at batch size %i", (batchSize) => {
+    const roster = e2eSuites.map(({ id }) => id);
+    const batches = batchE2eSuiteIds([...roster].reverse(), batchSize);
+    expect(batches.filter((batch) => batch.split(",").includes(extension))).toEqual([extension]);
+    expect(suitesIn(batches).sort()).toEqual([...roster].sort());
+    expect(batchE2eSuiteIds(roster, batchSize)).toEqual(batches);
+  });
+
+  it("inherits isolation through the browser dispatch wrapper", () => {
+    expect(suiteRegistry.batchBrowserE2eSuiteIds([extension])).toEqual([extension]);
+    expect(suiteRegistry.batchBrowserE2eSuiteIds(["marketplace_account", extension])).toEqual([
+      "marketplace_account",
+      extension,
+      "rendered_copy",
+    ]);
+    expect(suiteRegistry.batchBrowserE2eSuiteIds(["rendered_copy", extension, "platform_mcp_sdk"])).toEqual([
+      "platform_mcp_sdk",
+      extension,
+      "rendered_copy",
+    ]);
+  });
+
+  it("matches the pinned planner for small and near-complete selections and appends the extension alone", async () => {
+    const pinned = await importPinnedPlanner();
+    const companions = pinned.e2eSuites.map(({ id }) => id).filter((id) => id !== extension);
+    expect(companions).toHaveLength(15);
+    const mismatches = [];
+    let checked = 0;
+    for (let mask = 0; mask < 2 ** companions.length; mask++) {
+      const selected = companions.filter((_id, index) => (mask & (2 ** index)) !== 0);
+      if (selected.length > 3 && selected.length < companions.length - 3) continue;
+      checked++;
+      const expected = pinned.batchE2eSuiteIds(selected);
+      for (const [input, output] of [
+        [selected, expected],
+        [
+          [...selected, extension],
+          [...expected, extension],
+        ],
+      ]) {
+        if (JSON.stringify(batchE2eSuiteIds(input)) !== JSON.stringify(output)) mismatches.push({ input, output });
+      }
+    }
+    expect(checked).toBe(1152);
+    expect(mismatches).toEqual([]);
+  });
+});
 
 describe("run e2e suite", () => {
   it("claims one playwright root before dispatching registered suites through the production entrypoint", async () => {
@@ -113,16 +448,43 @@ describe("run e2e suite", () => {
     ]);
   });
 
-  it("pins the probe candidate to the Channels client contract", () => {
+  it("pins the product identity to the Channels client contract", () => {
     expect(Object.keys(channelsClient).sort()).toEqual([
       "TCGPLAYER_CONNECTOR_EXTENSION_ID",
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
+      "assertConnectorRunSettlement",
+      "assertTcgplayerOrderRecord",
+      "buildConnectorManifest",
+      "buildTcgplayerStagedImportEnvelope",
+      "composeChannelOrderFulfillmentInbound",
+      "composeChannelOrderFulfillmentReference",
+      "composeTcgplayerOrderInbound",
+      "composeTcgplayerOrderObservation",
+      "createConnectorBackground",
+      "createConnectorOperationCoordinator",
+      "createConnectorRetentionStore",
+      "createTcgplayerLiveExportExecutor",
+      "createTcgplayerStagedImportReleaseGate",
+      "decodeTcgplayerStagedImportFieldClassification",
+      "decodeTcgplayerStagedImportReadback",
+      "deriveTcgplayerStagedImportReadbackVerdict",
+      "isLiveExportAuthorityRequest",
+      "parseTcgplayerStagedImportReadback",
+      "preflightTcgplayerStagedImport",
+      "stagedImportMembershipDigest",
+      "tcgplayerLiveExportAuthority",
+      "tcgplayerOrderLimits",
+      "tcgplayerSaleKey",
+      "tcgplayerStagedImportCandidateClassification",
+      "tcgplayerStagedImportReadbackLimits",
+      "translateOrderShippingType",
+      "translateOrderStatus",
     ]);
-    expect({ extensionIdCandidate, extensionKeyCandidate, extensionRedirectUriCandidate }).toEqual({
-      extensionIdCandidate: TCGPLAYER_CONNECTOR_EXTENSION_ID,
-      extensionKeyCandidate: TCGPLAYER_CONNECTOR_EXTENSION_KEY,
-      extensionRedirectUriCandidate: TCGPLAYER_CONNECTOR_REDIRECT_URI,
+    expect(channelsClient).toMatchObject({
+      TCGPLAYER_CONNECTOR_EXTENSION_ID,
+      TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+      TCGPLAYER_CONNECTOR_REDIRECT_URI,
     });
   });
 
@@ -204,6 +566,31 @@ describe("run e2e suite", () => {
     ]);
   });
 
+  it("runs the connector extension alone for the observed account pair and seller selection", () => {
+    expect(batchE2eSuiteIds(["marketplace_account", "tcgplayer_connector_extension"])).toEqual([
+      "marketplace_account",
+      "tcgplayer_connector_extension",
+    ]);
+    expect(batchE2eSuiteIds(["marketplace_seller", "marketplace_account", "tcgplayer_connector_extension"])).toEqual([
+      "marketplace_account,marketplace_seller",
+      "tcgplayer_connector_extension",
+    ]);
+  });
+
+  it.each([
+    "docker-compose.dev.yml",
+    "scripts/lib/sandbox.mjs",
+    "scripts/dev-system.mjs",
+    "scripts/dev-system-config.mjs",
+  ])("shared sandbox runtime %s covers account and seller in normal suite batches", (file) => {
+    const selected = e2eSuiteIdsForChangedFile(file);
+    const batched = batchE2eSuiteIds(selected).flatMap((batch) => batch.split(","));
+    expect(selected).toContain("marketplace_account");
+    expect(selected).toContain("marketplace_seller");
+    expect(batched).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    expect(new Set(batched).size).toBe(selected.length);
+  });
+
   it("routes the marketplace index route to browse coverage", () => {
     expect(e2eSuiteIdsForChangedFile("deployables/marketplace/app/routes/index.tsx")).toEqual(["marketplace_browse"]);
   });
@@ -276,6 +663,35 @@ describe("run e2e suite", () => {
       "marketplace_account",
       "admin_auth",
     ]);
+  });
+
+  it("routes the Auth seed to its owning suites without widening runtime support", () => {
+    const seedPath = "bounded-contexts/auth/support/runtime-support/seed.ts";
+    const owningSuites = ["marketplace_account", "admin_auth"];
+    expect(e2eSuiteIdsForChangedFile(seedPath)).toEqual(owningSuites);
+    expect(e2eSuiteIdsForChangedFile(seedPath.replaceAll("/", "\\"))).toEqual(owningSuites);
+
+    for (const filePath of [
+      "bounded-contexts/auth/support/runtime-support/seed.db.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.ts.bak",
+      "bounded-contexts/auth/support/runtime-support/retention-policy.ts",
+      "bounded-contexts/unknown/support/runtime-support/seed.ts",
+      "bounded-contexts/auth/features/sessions/ui/session-list-page.test.tsx",
+      "bounded-contexts/auth/routes/access-admin/sessions.test.ts",
+      "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts",
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(filePath), filePath).toEqual([]);
+    }
+
+    expect(e2eSuiteIdsForChangedFile("scripts/e2e-suites.mjs")).toEqual(
+      e2eSuites
+        .filter(
+          (suite) =>
+            suite.id !== "rendered_copy" && (suite.deployable === "marketplace" || suite.deployable === "admin-web"),
+        )
+        .map((suite) => suite.id),
+    );
   });
 
   it("routes shared responsive evidence contract changes to every browser suite", () => {
@@ -473,6 +889,9 @@ describe("run e2e suite", () => {
   });
 
   it("channels-e2e-suite-ownership", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx")).toEqual([
+      "admin_support",
+    ]);
     // Both Channels ownership keys must independently resolve to marketplace_account,
     // so deleting either one fails here with an unexpected empty array instead of
     // silently letting `e2eSuiteIdsForChangedFile` fall through to `?? []`.

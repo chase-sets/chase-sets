@@ -37,7 +37,8 @@ export type SupportRequestCommandSnapshot = Readonly<{
     | "escalated"
     | "resolved"
     | "closed"
-    | "cancelled";
+    | "cancelled"
+    | "return-condition-disputed";
 }>;
 
 export type SupportRequestEscalationSnapshot = Readonly<{

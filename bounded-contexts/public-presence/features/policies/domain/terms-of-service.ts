@@ -93,16 +93,16 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "wallet-nature-custody-interest",
       title: "Wallet nature, custody, and interest",
       draftText:
-        "The Chase Sets Wallet is a marketplace ledger account that Settlement maintains to record what Chase Sets owes to, or is owed by, your Account. It is not a bank account, and Chase Sets is not a bank. Chase Sets holds funds corresponding to Wallet balances as an operational matter of running the marketplace, not as a custodian acting on instructions outside the marketplace uses described in these Terms.",
+        "The Chase Sets Wallet is a marketplace ledger account that Settlement maintains to record what Chase Sets owes to, or is owed by, your Account. It is not a bank account, and Chase Sets is not a bank. Buyer payments are collected and held on Chase Sets' own platform account with Stripe. After a seller requests and qualifies for payout, Chase Sets transfers net proceeds from its platform balance to the seller's connected account and requests an on-demand payout through Stripe. This describes the technical fund flow, not its legal custody classification.",
       reviewStatus: "counsel-required",
       claimDisclosures: walletInterestClaimDisclosures,
       reviewManifest: {
-        scopeNote:
-          "State that the Wallet is a marketplace ledger rather than a bank deposit, and define the reviewed custody and interest posture.",
+        scopeNote: "Describe the Wallet and fund flow; reserve legal classification and ordinary interest for counsel.",
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/settlement/GLOSSARY.md:5-7",
-          "bounded-contexts/settlement/features/wallets/domain/domain.ts",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
         ],
         openQuestions: [
           "Regulatory classification (money transmission, stored value, prepaid access) requires qualified counsel review per #5004/#4995 before publication; ADR 0020 is ratified product truth, not a counsel opinion.",
@@ -122,18 +122,20 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "cash-equivalent-and-marketplace-credit",
       title: "Cash-equivalent balance and Marketplace Credit",
       draftText:
-        "Amounts credited to your Wallet as ordinary available balance are cash-equivalent: spendable toward marketplace purchases and eligible for payout under the same readiness and clearance rules that apply to any other available balance. Chase Sets does not currently offer Marketplace Credit, a separate, non-withdrawable, promotional or prepaid form of value. If Chase Sets introduces Marketplace Credit in the future, it will be governed by its own terms, will never be summed into your spendable, payoutable Wallet balance, and will be clearly labeled as distinct from cash-equivalent Wallet funds.",
+        "Amounts credited to your Wallet as ordinary available balance are cash-equivalent: spendable toward marketplace purchases and eligible for payout under the same readiness and clearance rules that apply to any other available balance. Prepaid Balance is value you add by card, governed separately by the Payments Terms, including its spending and refund-to-source rules; it is not Marketplace Credit. Chase Sets does not currently offer Marketplace Credit, a separate promotional, non-withdrawable form of value. If Chase Sets offers Marketplace Credit, it will be governed by its own terms, will never be summed into your spendable, payoutable Wallet balance, and will be clearly labeled as distinct from cash-equivalent Wallet funds and Prepaid Balance.",
       reviewStatus: "counsel-required",
       reviewManifest: {
-        scopeNote:
-          "Distinguish cash-equivalent Wallet funds, which are spendable and payoutable under normal readiness rules, from any future non-withdrawable Marketplace Credit.",
-        decisionRefs: [5004],
-        productTruthRefs: ["docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25,27-35"],
+        scopeNote: "Distinguish Wallet funds, Prepaid Balance and Marketplace Credit without asserting activation.",
+        decisionRefs: [5004, 7807],
+        productTruthRefs: [
+          "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25,27-35",
+          "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
+        ],
         openQuestions: [],
         assumptions: [
           {
-            assertion: "Marketplace Credit is not yet built; only cash-equivalent Wallet balance exists today.",
-            evidenceRef: "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:29",
+            assertion: "#7807 distinguishes Prepaid Balance from promotional, non-withdrawable Marketplace Credit.",
+            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
           },
         ],
       },
@@ -142,18 +144,18 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "adjustment-authority",
       title: "Wallet Adjustment authority",
       draftText:
-        "Chase Sets may credit or debit your Wallet outside the ordinary course of a purchase or sale, called a Wallet Adjustment, for reasons that include: correcting a mis-posted ledger entry; correcting the wallet-side consequence of a payment refund; correcting a previously posted fee or fee-related credit; resolving a payment processor dispute; recovering confirmed fraud losses; resolving a support case within Chase Sets' published remedy authority; complying with a court order, regulator directive, or other legal mandate; extending a discretionary goodwill credit; and correcting Chase Sets' own operational errors. Every Wallet Adjustment is requested by one authorized Chase Sets operator and approved by a different authorized operator, who may never approve a request they submitted themselves, and is posted as a single, permanent Wallet ledger entry.",
+        "Chase Sets may credit or debit your Wallet outside the ordinary course of a purchase or sale, called a Wallet Adjustment, for reasons that include: correcting a mis-posted ledger entry; correcting the wallet-side consequence of a payment refund; correcting a previously posted fee or fee-related credit; resolving a payment processor dispute; recovering confirmed fraud losses; resolving a support case within Chase Sets' published remedy authority; complying with a court order, regulator directive, or other legal mandate; extending a discretionary goodwill credit; and correcting Chase Sets' own operational errors. Every Wallet Adjustment is requested by one authorized Chase Sets operator and approved by a different authorized operator, who may never approve a request they submitted themselves, and is posted as a single, permanent Wallet ledger entry. A high-value Wallet Adjustment, or one that would create or increase a Negative Balance, also requires a second, elevated approval from an operator distinct from both the requester and the first approver, and Chase Sets blocks outright any Wallet Adjustment an operator requests for their own Account.",
       reviewStatus: "counsel-required",
       reviewManifest: {
-        scopeNote:
-          "Authorize evidence-backed credits and debits for transaction, refund, fee, dispute, fraud, support, legal, goodwill, and operational-error reasons.",
+        scopeNote: "Authorize evidence-backed Wallet Adjustments for the ratified reasons under the shipped controls.",
         decisionRefs: [5004],
         productTruthRefs: [
           "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:41-58,60-68",
-          "bounded-contexts/settlement/GLOSSARY.md:148",
+          "bounded-contexts/settlement/features/wallets/domain/wallet-adjustment.ts:24-35,291-306,325-328,360-369",
+          "bounded-contexts/settlement/features/wallets/domain/wallet-adjustment-controls-policy.ts:10-24,38-45",
         ],
         openQuestions: [
-          "The typed request/approve/reject/reverse lifecycle (#4998), platform-admin permissions (#5000), and the wallet-adjustment-controls policy document are implementation work still in progress; this clause states the ratified authority rather than claiming every control surface is already live.",
+          "The Wallet Adjustment lifecycle (#4998), typed APIs (#4999), and platform-admin controls (#5000) have shipped: the WalletAdjustment decider enforces the closed reason codes, requester-distinct approval, elevated approval, and the self-benefiting block, and the settlement.wallet-adjustment-controls policy sets the high-value thresholds and recent-authentication window. Shipped code flags an adjustment as self-benefiting only when its target is the requesting operator's own Account (bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:574,618); ADR 0020's approver-account and common-control cases are not enforced by shipped code, so this draft asserts only the requester-account block.",
         ],
         assumptions: [
           {
@@ -217,22 +219,20 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "negative-balances-and-restrictions",
       title: "Negative balances and capability restrictions",
       draftText:
-        "Your Wallet can carry a Negative Balance when chargeback, refund, or payout-recovery obligations exceed your available balance. Creating or increasing a Negative Balance, and any Wallet Adjustment that would benefit the requesting or approving operator's own account or an account under their common control, always requires separation-of-duties approval beyond the ordinary single-approver path; self-benefiting adjustments are blocked outright, with no override. While your Account remains in Negative Balance at or beyond Chase Sets' configured threshold and grace period, Chase Sets may pause new listings and payout requests until the balance is restored to good standing.",
+        "Your Wallet can carry a Negative Balance when chargeback, refund, or payout-recovery obligations exceed your available balance. A Wallet Adjustment that would create or increase a Negative Balance always requires elevated, separation-of-duties approval beyond the ordinary single-approver path. Automated postings outside the Wallet Adjustment path, such as a chargeback clawback or a shipping-label postage charge, can also create or increase a Negative Balance without that approval. While your Account remains in Negative Balance at or beyond Chase Sets' configured threshold and grace period, Chase Sets may pause new listings and payout requests until the balance is restored to good standing.",
       reviewStatus: "counsel-required",
       reviewManifest: {
-        scopeNote:
-          "Describe negative-balance creation and recovery, how later funds offset an amount owed, and when marketplace or payout capabilities may be restricted.",
+        scopeNote: "Describe negative-balance creation, approval, recovery, and offset, and capability restrictions.",
         decisionRefs: [5004],
         productTruthRefs: [
-          "bounded-contexts/settlement/GLOSSARY.md:149,152-170",
+          "bounded-contexts/settlement/GLOSSARY.md:127-135,158-166,168-176,178-186",
           "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:70-82",
         ],
         openQuestions: [],
         assumptions: [
           {
-            assertion:
-              "Collections pauses new listings (Marketplace Seller Listing Availability, operations reason) and payout requests until the Wallet returns to in-good-standing.",
-            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:162-170",
+            assertion: "Collections pauses new listings and payout requests until the Wallet is in-good-standing.",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:178-186",
           },
         ],
       },
@@ -301,7 +301,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/terms-of-service-policy.ts:28-59",
-          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:12-13",
+          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:39-40",
         ],
         openQuestions: [],
         assumptions: [
@@ -338,17 +338,17 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "marketplace-role-and-limited-payments-agent",
       title: "Marketplace role and limited payments agent",
       draftText:
-        "Chase Sets operates an online marketplace that connects buyers and sellers of trading cards and related collectibles. When you sell through Chase Sets, you, not Chase Sets, are the seller of the item, responsible for its description, condition, and lawful sale; when you buy through Chase Sets, your contract for the item is with the seller, not with Chase Sets, apart from the marketplace, payment-collection, and platform services Chase Sets itself provides under these Terms. Chase Sets processes buyer payments through its payment processor and initially collects those funds on Chase Sets' own platform account. Chase Sets then remits the seller's net proceeds, after the fees described in the Marketplace Sales Fee Schedule and the Marketplace Checkout Fee, to the seller's connected payout account once the seller requests and qualifies for payout under Chase Sets' payout-readiness rules. In this capacity, Chase Sets acts as the seller's limited payments collection agent for the sole purpose of collecting and remitting sale proceeds, and Chase Sets' acceptance of a buyer's payment satisfies the buyer's payment obligation to the seller for that order.",
+        "Chase Sets operates an online marketplace that connects buyers and sellers of trading cards and related collectibles. When you sell through Chase Sets, you, not Chase Sets, are the seller of the item, responsible for its description, condition, and lawful sale; when you buy through Chase Sets, your contract for the item is with the seller, not with Chase Sets, apart from the marketplace, payment-collection, and platform services Chase Sets itself provides under these Terms. Chase Sets processes buyer payments through Stripe and collects and holds those funds on Chase Sets' own platform account. After the seller requests and qualifies for payout under Chase Sets' payout-readiness rules, Chase Sets transfers the seller's net proceeds, after the fees described in the Marketplace Sales Fee Schedule and the payout fee described in the Payout Fee policy document, from its platform balance to the seller's connected account and requests an on-demand payout through Stripe.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe Chase Sets' marketplace-operator role, that sellers and buyers contract with each other, and Chase Sets' limited-payments-agent function in collecting and remitting sale proceeds.",
+          "Describe Chase Sets' marketplace-operator role, that sellers and buyers contract with each other, and the platform-held fund flow; leave limited-payments-agent framing for counsel.",
         decisionRefs: [],
         productTruthRefs: [
-          "infrastructure/stripe-payments/index.ts:1464-1494",
-          "infrastructure/stripe-connect/index.ts:1039-1094",
-          "docs/adr/0006-stripe-connect-custom-account-experience.md:15,51-56",
-          "docs/adr/0014-stripe-connect-accounts-api-boundary.md:11",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
+          "bounded-contexts/payments/GLOSSARY.md:101-103",
+          "bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:154",
         ],
         openQuestions: [
           "Whether to formally describe Chase Sets as a 'limited payments collection agent' for state money-transmission-exemption purposes is a counsel question distinct from the technical fund-flow description above; confirm this framing during the #5679 counsel engagement, alongside #5688's processor terms and the #5906 Stripe agreement-type proof.",
@@ -356,9 +356,9 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         assumptions: [
           {
             assertion:
-              "Buyer charges are captured to the Chase Sets platform Stripe account (platform-held); seller proceeds move only later via a separate platform-to-connected-account transfer and on-demand payout, not a Stripe Connect destination charge.",
+              "Buyer payment requests use the Chase Sets platform Stripe account (platform-held); seller proceeds move only later via a separate platform-to-connected-account transfer and on-demand payout, not a Stripe Connect destination charge.",
             evidenceRef:
-              "infrastructure/stripe-payments/index.ts:1464-1494; infrastructure/stripe-connect/index.ts:1039-1094",
+              "infrastructure/stripe-payments/index.ts:1669-1693; infrastructure/stripe-connect/index.ts:1100-1160",
           },
         ],
       },
@@ -404,19 +404,19 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         "A seller creates a Listing describing an item for sale. A buyer may purchase a Listing directly at checkout or submit an Offer that the seller may accept, counter, or decline. A binding sale contract between buyer and seller forms when Chase Sets' Ordering service records the Order, following direct-purchase checkout or Offer acceptance, a distinct and earlier step from payment capture, and the sale remains subject to the applicable cancellation, payment, and fulfillment terms described in these Terms and Chase Sets' published Help Center, including the buyer's limited self-service cancellation window before shipment. Chase Sets is not a party to the resulting sale contract and does not guarantee that a Listing or Offer is available, accurate, or free of error; sellers are solely responsible for honoring accepted Offers and completed purchases.",
       reviewStatus: "counsel-required",
       reviewManifest: {
-        scopeNote:
-          "Describe how Listings and Offers work, the point at which a binding sale contract forms, and that Chase Sets is not a party to that contract.",
+        scopeNote: "Describe Listings, Offers, when a binding sale contract forms, and that Chase Sets is not a party.",
         decisionRefs: [],
         productTruthRefs: [
           "bounded-contexts/marketplace/features/offers/domain/domain.ts:72,207-241,289",
           "bounded-contexts/ordering/features/orders/domain/domain.ts:263-300,338-346",
           "bounded-contexts/ordering/README.md:5,73",
         ],
-        openQuestions: [],
+        openQuestions: [
+          "Pricing ships a Market-Following Offer Target (bounded-contexts/pricing/GLOSSARY.md:186-188): a proposed unit item amount for a buyer Offer, derived from the exact Product's fresh published Market Price and clamped to the buyer's maximum unit item amount. This subject's draft text does not describe it; whether these Terms must address Offers whose amount follows that target is a counsel question.",
+        ],
         assumptions: [
           {
-            assertion:
-              "The Order created by Ordering (before pending-payment is recorded and before payment capture) is the commercial commitment between buyer and seller.",
+            assertion: "Ordering's Order, recorded before pending payment and capture, is the buyer-seller commitment.",
             evidenceRef: "bounded-contexts/ordering/GLOSSARY.md:1-22; bounded-contexts/ordering/README.md:5",
           },
           {
@@ -442,7 +442,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "contracts/public-docs/generated/help-article-policy-citations.ts",
         ],
         openQuestions: [
-          "Chase Sets has not yet published a dedicated prohibited-items or community-guidelines policy document; until one exists, prohibited conduct is governed by this subject and the Seller Agreement together with the Marketplace Report reason codes, rather than a standalone incorporated policy.",
+          "#5693 shipped the prohibited-and-restricted-items and community-guidelines-and-enforcement Help Articles. Counsel must confirm whether and how to incorporate those compliance articles; their existence does not expand this subject's incorporation prose.",
           "#5695 adds the corpus test that checks this subject's slug/href enumeration against the registry; keep this list in sync with contracts/public-docs/policy-corpus.ts if either changes.",
         ],
         assumptions: [
@@ -458,20 +458,20 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "user-content-license",
       title: "User content license",
       draftText:
-        "When you submit content to Chase Sets, including listing photos, listing descriptions, reviews, and review responses, you represent that you own the content or otherwise have the right to submit it, and you grant Chase Sets a non-exclusive, worldwide, royalty-free, sublicensable license to host, store, reproduce, adapt (including normalizing images into Chase Sets' standard formats), display, and distribute that content solely to operate, promote, and improve the marketplace. You retain ownership of your content. Chase Sets may remove or restrict content that violates these Terms, including content reported and confirmed as counterfeit, stolen, prohibited, abusive, or otherwise policy-violating, and may act on a valid intellectual-property complaint sent to the notice address in the governing-law-and-forum subject below.",
+        "When you submit content to Chase Sets, including listing photos, listing descriptions, reviews, and review responses, you represent that you own the content or otherwise have the right to submit it, and you grant Chase Sets a non-exclusive, worldwide, royalty-free, sublicensable license to host, store, reproduce, adapt (including normalizing images into Chase Sets' standard formats), display, and distribute that content solely to operate, promote, and improve the marketplace. You retain ownership of your content. Chase Sets may remove or restrict content that violates these Terms, including content reported and confirmed as counterfeit, stolen, prohibited, abusive, or otherwise policy-violating, and may act on a valid DMCA copyright notice sent to the designated agent identified in Chase Sets' published Help Center, and on any other valid intellectual-property complaint sent to the notice address in the governing-law-and-forum subject below.",
       reviewStatus: "counsel-required",
       reviewManifest: {
-        scopeNote:
-          "Describe the content users submit, the license Chase Sets needs to operate the marketplace, and how reported or infringing content is handled.",
+        scopeNote: "Describe user content, Chase Sets' license, and how reported or infringing content is handled.",
         decisionRefs: [],
         productTruthRefs: [
           "bounded-contexts/marketplace/GLOSSARY.md:19-28,233-246",
           "bounded-contexts/marketplace/features/reports/domain/domain.ts:3-27",
           "bounded-contexts/platform-operations/GLOSSARY.md:70-76",
+          "bounded-contexts/public-presence/features/help/domain/articles/intellectual-property-and-dmca.en.md:58-62",
         ],
         openQuestions: [
-          "No prior IP-license grant language exists anywhere in the repository; this is original drafting, not a transcription of an existing artifact.",
-          "A formally registered DMCA designated agent is a separate, not-yet-made decision noted under #5677's blast radius; confirm before publication whether a registered agent is required and, if so, record its contact separately from the general notice address.",
+          "#5693 shipped the intellectual-property-and-dmca Help Article. Counsel must reconcile this draft's content-license and complaint language with that article before publication.",
+          "The intellectual-property-and-dmca article retains registration-status-unverified for the DMCA designated agent. That marker is not proof of registration; counsel review and verified registration evidence remain required before claiming registration, separately from the general notice address.",
         ],
         assumptions: [
           {
@@ -660,14 +660,14 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/terms-of-service-policy.ts:28-59",
           "bounded-contexts/identity/features/consents/api/terms-route.ts:31-90",
-          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:26-28",
+          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:53-55",
         ],
         openQuestions: [],
         assumptions: [
           {
             assertion:
               "The active-required-version policy and read model fail closed on missing or outdated acceptance, gating per-version re-acceptance.",
-            evidenceRef: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:19-30",
+            evidenceRef: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:46-57",
           },
         ],
       },

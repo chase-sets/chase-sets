@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 
@@ -9,21 +10,22 @@ const trackedTypeScriptFiles = execFileSync("git", ["ls-files", "-z", "--", "*.t
   cwd: repoRoot,
   encoding: "utf8",
   windowsHide: true,
+  maxBuffer: GIT_LISTING_MAX_BUFFER,
 })
   .split("\0")
   .filter(Boolean);
 const trackedFiles = new Set(
-  execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8", windowsHide: true })
+  execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split("\0")
     .filter(Boolean),
 );
 
 const boundedSites = [
-  {
-    id: "bounded-contexts/auth/support/request-support/csat-outcome-facts.ts#readStream#1",
-    pointer: "bounded-contexts/auth/support/request-support/csat-outcome-facts.test.ts",
-    consumption: "first-event",
-  },
   {
     id: "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts#readStream#1",
     pointer:
@@ -47,25 +49,46 @@ const boundedSites = [
     consumption: "presence",
   },
   {
-    id: "bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts#readStream#1",
-    pointer: "bounded-contexts/discovery/support/request-support/csat-outcome-facts.test.ts",
-    consumption: "first-event",
-  },
-  {
     id: "bounded-contexts/identity/api.ts#readStream#1",
     pointer: "bounded-contexts/identity/tests/registration-operation-recovery.db.test.ts",
     consumption: "presence",
-  },
-  {
-    id: "bounded-contexts/identity/support/request-support/csat-outcome-facts.ts#readStream#1",
-    pointer: "bounded-contexts/identity/support/request-support/csat-outcome-facts.test.ts",
-    consumption: "first-event",
   },
 ];
 
 const expectedInventory = [
   ...boundedSites.map(({ id }) => [id, "1"]),
+  // The authority-tracking decorator forwards the caller's complete read request.
+  [
+    "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
+    null,
+  ],
+  // Fenced enrollment reads the creation event; its decorator still forwards complete caller requests.
+  ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#1", "1"],
+  ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#2", null],
+  // Evidence Access Attempt audit pages are explicit cursor pages that report nextCursor.
+  ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts#readStream#1", "51"],
+  [
+    "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts#readStream#1",
+    null,
+  ],
+  [
+    "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts#readStream#2",
+    null,
+  ],
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
+  // The owner-transaction adapter forwards the complete request unchanged.
+  ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
+  // Synthetic policy discovery rejects streams that reach this bounded lifecycle cap.
+  ["bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts#readStream#1", "10"],
+  // The existing corpus includes slice-local .test-support.ts history assertions.
+  [
+    "bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts#readStream#1",
+    null,
+  ],
+  [
+    "bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts#readStream#2",
+    null,
+  ],
   ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1", "pageLimit"],
   ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#2", "batchSize"],
 ].sort(([left], [right]) => left.localeCompare(right));
@@ -83,9 +106,69 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact eleven-call production census and eight pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact eighteen-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("retains the synthetic Pricing Health lifecycle cap and truncation refusal", () => {
+    const file = "bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site.limit).toBe("10");
+    expect(readSource(file)).toContain("events.length >= 10");
+    expect(errorCodes(mutatedInventory(file, readSource(file).replace("limit: 10", "limit: 11")))).toContain(
+      "inventory-mismatch",
+    );
+  });
+
+  it("keeps the Identity eligibility adapter's complete read request unchanged", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("account-management/api/fences.ts#readStream#2"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments[0].getText(site.source)).toBe("input");
+    expect(site.limit).toBeNull();
+  });
+
+  it("limits the Identity enrollment read to exactly the creation event", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("account-management/api/fences.ts#readStream#1"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual([
+      "{ streamId: input.streamId, fromVersion: 1, limit: 1 }",
+    ]);
+    expect(site.limit).toBe("1");
+    const file = site.file;
+    const source = readSource(file);
+    expect(
+      errorCodes(mutatedInventory(file, source.replace("fromVersion: 1, limit: 1", "fromVersion: 1, limit: 2"))),
+    ).toContain("inventory-mismatch");
+    expect(
+      errorCodes(
+        mutatedInventory(
+          file,
+          source.replace(
+            "readStream: (input) => store.readStream(input)",
+            "readStream: (input) => store.readStream({ ...input, limit: 1 })",
+          ),
+        ),
+      ),
+    ).toContain("inventory-mismatch");
+  });
+
+  it("keeps the promotion authority decorator's page request unchanged", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("promotion-material-guards.ts#readStream#1"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["request"]);
+  });
+
+  it("keeps the Inventory owner-transaction adapter's complete read request unchanged", () => {
+    const site = candidateInventory.find((candidate) => candidate.id.endsWith("mutation-attempt.ts#readStream#1"));
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["input"]);
   });
 
   it("keeps test support free of a ninth direct readStream call", () => {
@@ -93,25 +176,26 @@ describe("bounded-stream-contracts-acceptance-control", () => {
   });
 
   it("rejects missing, duplicate, nonexistent, cross-workspace, and scripts-only pointers", () => {
-    const authFile = "bounded-contexts/auth/support/request-support/csat-outcome-facts.ts";
-    const authPointer = boundedSites[0].pointer;
-    const source = readSource(authFile);
+    const identityFile = "bounded-contexts/identity/api.ts";
+    const identitySite = boundedSites.find((site) => site.id === "bounded-contexts/identity/api.ts#readStream#1");
+    const identityPointer = identitySite.pointer;
+    const source = readSource(identityFile);
 
     expect(
       errorCodes(
         mutatedInventory(
-          authFile,
-          source.replace(`// @stream-read-contract ${authPointer}`, "// pointer intentionally removed"),
+          identityFile,
+          source.replace(`// @stream-read-contract ${identityPointer}`, "// pointer intentionally removed"),
         ),
       ),
     ).toContain("pointer-missing");
     expect(
       errorCodes(
         mutatedInventory(
-          authFile,
+          identityFile,
           source.replace(
-            `// @stream-read-contract ${authPointer}`,
-            `// @stream-read-contract ${authPointer}\n      // @stream-read-contract ${authPointer}`,
+            `// @stream-read-contract ${identityPointer}`,
+            `// @stream-read-contract ${identityPointer}\n      // @stream-read-contract ${identityPointer}`,
           ),
         ),
       ),
@@ -119,41 +203,37 @@ describe("bounded-stream-contracts-acceptance-control", () => {
     expect(
       errorCodes(
         mutatedInventory(
-          authFile,
-          source.replace(authPointer, "bounded-contexts/auth/support/request-support/not-a-test.test.ts"),
+          identityFile,
+          source.replace(identityPointer, "bounded-contexts/identity/support/request-support/not-a-test.test.ts"),
         ),
       ),
     ).toContain("pointer-nonexistent");
     expect(
       errorCodes(
         mutatedInventory(
-          authFile,
-          source.replace(authPointer, "bounded-contexts/discovery/support/request-support/csat-outcome-facts.test.ts"),
+          identityFile,
+          source.replace(identityPointer, "bounded-contexts/auth/support/api-support/password-routes.test.ts"),
         ),
       ),
     ).toContain("pointer-cross-workspace");
     expect(
-      errorCodes(mutatedInventory(authFile, source.replace(authPointer, "scripts/check-structure/example.test.ts"))),
+      errorCodes(
+        mutatedInventory(identityFile, source.replace(identityPointer, "scripts/check-structure/example.test.ts")),
+      ),
     ).toContain("pointer-scripts-only");
   });
 
   it("rejects a pointed owning test that omits its literal derived site ID", () => {
-    const site = boundedSites[0];
+    const site = boundedSites.find((candidate) => candidate.id === "bounded-contexts/identity/api.ts#readStream#1");
     const target = readSource(site.pointer).replace(site.id, `${site.id}-missing`);
     expect(errorCodes(candidateInventory, new Map([[site.pointer, target]]))).toContain("pointer-site-id-missing");
   });
 
   it("rejects bound, result-binding, later-event, and whole-page consumption mutants", () => {
-    const authFile = "bounded-contexts/auth/support/request-support/csat-outcome-facts.ts";
-    const authSource = readSource(authFile);
-    expect(errorCodes(mutatedInventory(authFile, authSource.replace(", limit: 1", "")))).toContain(
+    const identityFile = "bounded-contexts/identity/api.ts";
+    const identitySource = readSource(identityFile);
+    expect(errorCodes(mutatedInventory(identityFile, identitySource.replace("limit: 1,", "")))).toContain(
       "bounded-limit-not-one",
-    );
-    expect(
-      errorCodes(mutatedInventory(authFile, authSource.replace("existing[0]?.payload", "existing.at(0)?.payload"))),
-    ).toContain("first-event-consumption-changed");
-    expect(errorCodes(mutatedInventory(authFile, authSource.replaceAll("existing[0]", "existing[1]")))).toContain(
-      "first-event-consumption-changed",
     );
 
     const catalogFile =
@@ -278,9 +358,6 @@ function validateConsumption(site, expectedConsumption, errors) {
     }
   });
 
-  if (expectedConsumption === "first-event" && (indices.length !== 2 || indices.some((index) => index !== "0"))) {
-    errors.push({ code: "first-event-consumption-changed", siteId: site.id });
-  }
   if (
     expectedConsumption === "presence" &&
     (indices.length !== 0 || lengthComparisons.length !== 1 || !lengthComparisons[0])

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
 
@@ -18,6 +19,15 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 
 import { action as accountSupportAction, loader as accountSupportLoader } from "../routes/marketplace/account-support";
 import {
+  multipartRequest,
+  openingPhotoForm,
+  streamedIntakeRequest,
+} from "../features/support-requests/tests/attachment-intake.test-support";
+import {
+  SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES,
+  SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS,
+} from "../features/support-requests/api/attachment-intake";
+import {
   action as accountSupportDetailAction,
   loader as accountSupportDetailLoader,
 } from "../routes/marketplace/account-support-detail";
@@ -31,7 +41,11 @@ import { action as supportOperationsAction } from "../routes/admin/requests";
 function formRequest(url: string, form: URLSearchParams) {
   return new Request(url, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", cookie: "session=abc" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie: "session=abc",
+      "content-length": String(new TextEncoder().encode(form.toString()).length),
+    },
     body: form.toString(),
   });
 }
@@ -70,6 +84,154 @@ async function captureRedirect(actionCall: Promise<unknown>) {
 }
 
 describe("platform operations mutation consistency route actions", () => {
+  for (const scenario of ["declared-over", "stream-over", "cap", "stalled"] as const) {
+    it(`bounds opening intake ${scenario} before uploads`, async () => {
+      mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const cap = SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES;
+      const request = streamedIntakeRequest(
+        "http://localhost/account/support",
+        scenario === "stream-over" ? cap + 1 : cap,
+        scenario === "declared-over" ? cap + 1 : cap,
+        scenario === "stalled",
+      );
+      const parse = vi.spyOn(Response.prototype, "formData");
+      if (scenario === "stalled") vi.useFakeTimers();
+      try {
+        const pending = accountSupportAction({ request, params: {}, context: undefined } as never);
+        if (scenario === "stalled") await vi.advanceTimersByTimeAsync(SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS);
+        await pending;
+        expect(parse).toHaveBeenCalledTimes(scenario === "cap" ? 1 : 0);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        parse.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+  }
+
+  it("accepts five opening files plus hidden fields, but rejects file six before parsing", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/attachments")
+        ? jsonResponse({ attachments: [{ reference: `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg` }] })
+        : jsonResponse({ id: "sup_1" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    for (const count of [5, 6]) {
+      fetchMock.mockClear();
+      const request = await multipartRequest("http://localhost/account/support", await openingPhotoForm(count));
+      const parse = vi.spyOn(Response.prototype, "formData");
+      const decode = vi.spyOn(File.prototype, "arrayBuffer");
+      try {
+        const result = await accountSupportAction({ request, params: {}, context: undefined } as never);
+        if (count === 5) {
+          expect(result).toBeInstanceOf(Response);
+          expect(fetchMock).toHaveBeenCalledTimes(2);
+          expect(
+            new Headers((fetchMock.mock.calls[0]![1] as RequestInit).headers).get("x-support-attachment-operation-id"),
+          ).toBe("sao_01ARZ3NDEKTSV4RRFFQ69G5FAV");
+        } else {
+          expect(result).toMatchObject({ error: expect.any(String) });
+          expect(parse).not.toHaveBeenCalled();
+          expect(decode).not.toHaveBeenCalled();
+          expect(fetchMock).not.toHaveBeenCalled();
+        }
+      } finally {
+        parse.mockRestore();
+        decode.mockRestore();
+      }
+    }
+  });
+
+  it("recovers one id after ambiguity and refuses a second upload on retry; kills fresh retry id mutant", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+    const fetchMock = vi.fn(async () => {
+      throw new Error("Connection lost after dispatch");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const form = await openingPhotoForm(1);
+    const first = await accountSupportAction({
+      request: await multipartRequest("http://localhost/account/support", form),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(first).toMatchObject({
+      attachmentOperationId: form.get("attachmentOperationId"),
+      recoverySupportRequestId: "sup_1",
+      uploadUncertain: true,
+    });
+    form.set("uploadUncertain", "true");
+    const retry = await accountSupportAction({
+      request: await multipartRequest("http://localhost/account/support", form),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(retry).toMatchObject({
+      attachmentOperationId: form.get("attachmentOperationId"),
+      recoverySupportRequestId: "sup_1",
+      uploadUncertain: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a dropped operation field without opening or uploading", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const form = await openingPhotoForm(1);
+    form.delete("attachmentOperationId");
+    const result = await accountSupportAction({
+      request: await multipartRequest("http://localhost/account/support", form),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(result).toMatchObject({ error: expect.stringContaining("batch id") });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the operation id after a staged conflict and retries the same batch", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", tenantId: "tnt_identity" });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ error: { message: "Staged conflict" } }, 409))
+      .mockResolvedValueOnce(
+        jsonResponse({ attachments: [{ reference: `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg` }] }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "sup_1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = await openingPhotoForm(1);
+    const first = await accountSupportAction({
+      request: await multipartRequest("http://localhost/account/support", form),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(first).toMatchObject({ attachmentOperationId: form.get("attachmentOperationId"), uploadUncertain: false });
+    const result = await accountSupportAction({
+      request: await multipartRequest("http://localhost/account/support", form),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(result).toBeInstanceOf(Response);
+    for (const call of fetchMock.mock.calls.slice(0, 2))
+      expect(new Headers((call[1] as RequestInit).headers).get("x-support-attachment-operation-id")).toBe(
+        form.get("attachmentOperationId"),
+      );
+  });
+  it("rejects opening intake without Content-Length before parsing; kills API-only bound mutant", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("http://localhost/account/support", {
+      method: "POST",
+      body: new URLSearchParams({ orderId: "ord_1" }),
+    });
+    const parse = vi.spyOn(request, "formData");
+    const result = await accountSupportAction({ request, params: {}, context: undefined } as never);
+    expect(result).toMatchObject({ error: expect.any(String) });
+    expect(parse).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   afterEach(() => {
     vi.resetAllMocks();
     vi.unstubAllGlobals();
@@ -428,7 +590,7 @@ describe("platform operations mutation consistency route actions", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/support?opened=sup_1");
+    expect(response.headers.get("Location")).toBe("/account/support/sup_1");
   });
 
   it("rejects missing required photos before opening a support case", async () => {
@@ -454,7 +616,7 @@ describe("platform operations mutation consistency route actions", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("retries an uploaded attachment reference without opening a duplicate case", async () => {
+  it("retries recovered references under the original upload operation (mutant: omit or replace recovery id)", async () => {
     const reference =
       "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg";
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -472,6 +634,7 @@ describe("platform operations mutation consistency route actions", () => {
       photoRequired: "true",
       supportRequestId: "sup_1",
       uploadedAttachmentReferences: reference,
+      attachmentOperationId: "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     });
 
     const response = (await accountSupportAction({
@@ -490,11 +653,12 @@ describe("platform operations mutation consistency route actions", () => {
           evidenceType: "photo",
           summary: "Photos submitted when the support case was opened.",
           attachments: [reference],
+          attachmentOperationId: "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         }),
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/support?opened=sup_1");
+    expect(response.headers.get("Location")).toBe("/account/support/sup_1");
   });
 
   it("loads account support with account-scoped order context from the query handoff", async () => {

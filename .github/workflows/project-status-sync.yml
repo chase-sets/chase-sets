@@ -1,8 +1,11 @@
 name: Project Status Sync
 
 on:
+  issues:
+    types: [closed, reopened]
   schedule:
-    # Delivery and issue creation continue overnight and on weekends.
+    # Hourly fallback for other board changes, including nights and weekends.
+    # Closed and reopened issues trigger reconciliation without waiting for cron.
     - cron: "17 * * * *"
   workflow_dispatch:
 
@@ -28,7 +31,7 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
 
       # Recomputes every active derived state from native issue facts: an Epic
-      # (by native type, or the legacy kind:epic label on an untyped issue)
+      # (by native type only)
       # projects to Epic, a non-Epic carrying status:tracking-only projects to
       # Tracking, and everything else resolves to Blocked / Refined / Backlog
       # from dependencies, milestone, and labels. Closed issues reconcile to

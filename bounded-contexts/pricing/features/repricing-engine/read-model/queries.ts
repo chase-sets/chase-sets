@@ -1,6 +1,40 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
+import type { EconomicsServices } from "../../economics/api/services";
+import { toEconomicsForPricingGoal, type EconomicsResolution } from "../../economics/domain/resolution";
+import {
+  listDemandCurvesAsOf,
+  type DemandCurveWithPoints,
+} from "../../market-estimates/read-model/demand-curve-queries";
 import type { CreateRepricingPolicyCommand, RepricingRule } from "../../repricing-policies/domain/domain";
 import { candidateAssignmentSql } from "../../repricing-policies/read-model/schema";
+import type { RepricingListingEconomics } from "../domain/evaluate";
+import type { RepricingEnginePolicyValue } from "../domain/policy";
+import { readsDemandCurve, requiresGoalEconomics } from "../domain/round";
+
+/** A curve read that throws fails the round; an absent curve never does. */
+export class RepricingDemandCurveReadError extends Error {
+  constructor(options: Readonly<{ cause: unknown }>) {
+    super("Repricing round could not read its Demand Curves.", options);
+    this.name = "RepricingDemandCurveReadError";
+  }
+}
+
+/** An Economics resolve that throws fails the round; an unavailable result never does. */
+export class RepricingEconomicsResolveError extends Error {
+  constructor(listingId: string, options: Readonly<{ cause: unknown }>) {
+    super(`Repricing round could not resolve Economics for listing ${listingId}.`, options);
+    this.name = "RepricingEconomicsResolveError";
+  }
+}
+
+/** The instant a round captures its inputs at, and what it needs to decide which goal inputs to read. */
+export type RepricingRoundCapture = Readonly<{
+  capturedAt: string;
+  policy: RepricingEnginePolicyValue;
+  economics: Pick<EconomicsServices, "resolve">;
+  includeHealth?: boolean;
+}>;
 
 export type RepricingRoundListing = Readonly<{
   listingId: string;
@@ -23,6 +57,8 @@ export type RepricingRoundListing = Readonly<{
   policyRevision: string;
   rules: readonly RepricingRule[];
   maxChangesPerDay: number;
+  /** Null unless the matched chain holds a curve-objective anchor whose goal requires Economics. */
+  economics: RepricingListingEconomics | null;
 }>;
 
 export type RepricingRoundInputs = Readonly<{
@@ -36,6 +72,10 @@ export type RepricingRoundInputs = Readonly<{
   }>[];
   marketEstimate: Readonly<{ amount: string; currencyCode: string; freshUntil: string }> | null;
   lastSold: Readonly<{ amount: string; currencyCode: string | null; soldAt: string }> | null;
+  /** Read only when a listing's rules read the curve; null when none does or none is served at capture. */
+  demandCurve: DemandCurveWithPoints | null;
+  healthDemandCurve?: DemandCurveWithPoints | null;
+  healthEconomics?: ReadonlyMap<string, EconomicsResolution>;
 }>;
 
 type ListingRow = Readonly<{
@@ -92,37 +132,34 @@ type ProductRow = { catalog_catalog_item_id: string; product_id: string };
 
 export async function loadRepricingRoundInputs(
   db: PgQueryable,
-  product: RepricingProductKey,
-  candidate?: RepricingCandidate,
+  input: RepricingRoundCapture & Readonly<{ product: RepricingProductKey; candidate?: RepricingCandidate }>,
 ): Promise<RepricingRoundInputs> {
-  return (await loadRepricingRoundInputsPage(db, { products: [product], candidate })).get(
-    repricingProductKey(product),
-  )!;
+  const { product, ...page } = input;
+  return (await loadRepricingRoundInputsPage(db, { ...page, products: [product] })).get(repricingProductKey(product))!;
 }
 
 export async function loadRepricingRoundInputsPage(
   db: PgQueryable,
-  input: Readonly<{ products: readonly RepricingProductKey[]; candidate?: RepricingCandidate }>,
+  input: RepricingRoundCapture & Readonly<{ products: readonly RepricingProductKey[]; candidate?: RepricingCandidate }>,
 ): Promise<Map<string, RepricingRoundInputs>> {
   if (input.products.length > 500) throw new Error("Repricing pages cannot exceed 500 products.");
   const products = [...new Map(input.products.map((product) => [repricingProductKey(product), product])).values()];
-  const rounds = new Map<
-    string,
-    {
-      listings: RepricingRoundListing[];
-      competingAsks: Array<RepricingRoundInputs["competingAsks"][number]>;
-      marketEstimate: RepricingRoundInputs["marketEstimate"];
-      lastSold: RepricingRoundInputs["lastSold"];
-    }
-  >();
+  const rounds = new Map<string, PageRound>();
   for (const product of products) {
-    rounds.set(repricingProductKey(product), { listings: [], competingAsks: [], marketEstimate: null, lastSold: null });
+    rounds.set(repricingProductKey(product), {
+      listings: [],
+      competingAsks: [],
+      marketEstimate: null,
+      lastSold: null,
+      demandCurve: null,
+    });
   }
   if (!products.length) return rounds;
   const keys = [products.map((key) => key.catalogItemId), products.map((key) => key.productId)];
-  const [listings, asks, estimates, sales] = await Promise.all([
-    db.query<ListingRow>(
-      `WITH ${productKeysCte}, ${repricingCandidateCte}
+  const reads = [
+    Promise.resolve().then(() =>
+      db.query<ListingRow>(
+        `WITH ${productKeysCte}, ${repricingCandidateCte}
        SELECT listing.listing_id, listing.seller_account_id, listing.inventory_item_id,
          listing.catalog_catalog_item_id, listing.product_id, listing.price_amount::text,
          listing.price_currency_code, listing.quantity_cap, listing.last_stream_version,
@@ -149,18 +186,20 @@ export async function loadRepricingRoundInputsPage(
          AND ((candidate.seller_account_id IS NULL AND policy.status = 'active')
            OR (${candidateAssignmentSql}))
        ORDER BY policy_id, listing.listing_id`,
-      [...keys, input.candidate ? JSON.stringify(input.candidate) : null],
+        [...keys, input.candidate ? JSON.stringify(input.candidate) : null],
+      ),
     ),
-    db.query<
-      ProductRow & {
-        listing_id: string;
-        seller_account_id: string;
-        amount: string;
-        price_currency_code: string | null;
-        pricing_mode: "hard" | "derived";
-      }
-    >(
-      `WITH ${productKeysCte}
+    Promise.resolve().then(() =>
+      db.query<
+        ProductRow & {
+          listing_id: string;
+          seller_account_id: string;
+          amount: string;
+          price_currency_code: string | null;
+          pricing_mode: "hard" | "derived";
+        }
+      >(
+        `WITH ${productKeysCte}
        SELECT listing.catalog_catalog_item_id, listing.product_id, listing.listing_id,
          listing.seller_account_id, listing.price_amount::text AS amount, listing.price_currency_code,
          CASE WHEN assignment.listing_id IS NULL THEN 'hard' ELSE 'derived' END AS pricing_mode
@@ -168,26 +207,35 @@ export async function loadRepricingRoundInputsPage(
        JOIN pricing_market_listing_inputs AS listing USING (catalog_catalog_item_id, product_id)
        LEFT JOIN pricing_repricing_policy_assignments AS assignment ON assignment.listing_id = listing.listing_id
        WHERE listing.status = 'active' ORDER BY listing.listing_id`,
-      keys,
+        keys,
+      ),
     ),
-    db.query<ProductRow & { amount: string; currency_code: string; fresh_until: string }>(
-      `WITH ${productKeysCte}
+    Promise.resolve().then(() =>
+      db.query<ProductRow & { amount: string; currency_code: string; fresh_until: string }>(
+        `WITH ${productKeysCte}
        SELECT estimate.catalog_catalog_item_id, estimate.product_id, estimate.amount::text,
          UPPER(estimate.currency_code) AS currency_code, estimate.fresh_until::text
        FROM products JOIN pricing_market_price_estimates AS estimate USING (catalog_catalog_item_id, product_id)`,
-      keys,
+        keys,
+      ),
     ),
-    db.query<ProductRow & { unit_price_amount: string; currency_code: string | null; sold_at: string }>(
-      `WITH ${productKeysCte}
+    Promise.resolve().then(() =>
+      db.query<ProductRow & { unit_price_amount: string; currency_code: string | null; sold_at: string }>(
+        `WITH ${productKeysCte}
        SELECT DISTINCT ON (trade.catalog_catalog_item_id, trade.product_id)
          trade.catalog_catalog_item_id, trade.product_id, trade.unit_price_amount::text,
          NULL::text AS currency_code, trade.sold_at::text
        FROM products JOIN pricing_market_trades AS trade USING (catalog_catalog_item_id, product_id)
        WHERE trade.sold_at IS NOT NULL AND trade.excluded = false
        ORDER BY trade.catalog_catalog_item_id, trade.product_id, trade.sold_at DESC, trade.order_id DESC, trade.line_id DESC`,
-      keys,
+        keys,
+      ),
     ),
-  ]);
+  ] as const;
+  const [listings, asks, estimates, sales] = await Promise.all(reads).catch(async (error: unknown) => {
+    await Promise.allSettled(reads);
+    throw error;
+  });
   const partition = (row: ProductRow) =>
     rounds.get(
       repricingProductKey({
@@ -217,6 +265,7 @@ export async function loadRepricingRoundInputsPage(
       policyRevision: row.policy_revision,
       rules: typeof row.rules === "string" ? JSON.parse(row.rules) : row.rules,
       maxChangesPerDay: row.max_changes_per_day,
+      economics: null,
     });
   for (const row of asks.rows)
     partition(row).competingAsks.push({
@@ -238,7 +287,93 @@ export async function loadRepricingRoundInputsPage(
       currencyCode: row.currency_code,
       soldAt: row.sold_at,
     };
+  await readGoalInputs(db, input, products, rounds);
   return rounds;
+}
+
+type PageRound = {
+  listings: RepricingRoundListing[];
+  competingAsks: Array<RepricingRoundInputs["competingAsks"][number]>;
+  marketEstimate: RepricingRoundInputs["marketEstimate"];
+  lastSold: RepricingRoundInputs["lastSold"];
+  demandCurve: RepricingRoundInputs["demandCurve"];
+  healthDemandCurve?: NonNullable<RepricingRoundInputs["demandCurve"]>;
+  healthEconomics?: Map<string, EconomicsResolution>;
+};
+
+/**
+ * The page's curves in one versions and one points query, then one Economics
+ * resolve per listing whose matched chain requires it, sequentially so a
+ * 500-product page never fans out across the pool. A page whose rules read
+ * no curve reads none.
+ */
+async function readGoalInputs(
+  db: PgQueryable,
+  input: RepricingRoundCapture,
+  products: readonly RepricingProductKey[],
+  rounds: ReadonlyMap<string, PageRound>,
+): Promise<void> {
+  const identities = input.includeHealth
+    ? products
+    : products.filter((product) =>
+        rounds.get(repricingProductKey(product))!.listings.some((listing) => readsDemandCurve(listing.rules)),
+      );
+  if (identities.length === 0) return;
+  const curves = await listDemandCurvesAsOf(db, { identities, asOf: input.capturedAt }).catch((error: unknown) => {
+    throw new RepricingDemandCurveReadError({ cause: error });
+  });
+  for (const curve of curves) {
+    const round = rounds.get(repricingProductKey(curve))!;
+    if (input.includeHealth) round.healthDemandCurve = curve;
+    if (round.listings.some((listing) => readsDemandCurve(listing.rules))) round.demandCurve = curve;
+  }
+  for (const round of rounds.values()) {
+    for (const [index, listing] of round.listings.entries()) {
+      if (!requiresGoalEconomics(round, listing, input.capturedAt, input.policy)) continue;
+      const resolved = await resolveListingEconomics(input, round, listing);
+      round.listings[index] = { ...listing, economics: resolved.goal };
+      if (input.includeHealth && resolved.resolution) {
+        round.healthEconomics ??= new Map();
+        round.healthEconomics.set(listing.listingId, resolved.resolution);
+      }
+    }
+  }
+}
+
+/** Economics at the capture instant for one unit, valued at the currency-equal estimate or else the listing price. */
+async function resolveListingEconomics(
+  input: RepricingRoundCapture,
+  round: RepricingRoundInputs,
+  listing: RepricingRoundListing,
+): Promise<Readonly<{ goal: RepricingListingEconomics; resolution: EconomicsResolution | null }>> {
+  if (listing.inventoryItemId === null) {
+    return {
+      goal: { availability: "unavailable", reason: "inventory-item-missing" },
+      resolution: null,
+    };
+  }
+  // A matched rule implies a denominated listing price.
+  const currency = listing.priceCurrencyCode!.trim().toUpperCase();
+  const estimate = round.marketEstimate;
+  try {
+    const resolution = await input.economics.resolve({
+      accountId: listing.sellerAccountId,
+      scope: { kind: "native-marketplace" },
+      catalogItemId: listing.catalogItemId,
+      inventoryItemId: listing.inventoryItemId,
+      marketUnitPrice: {
+        amount: normalizeMoneyAmount(
+          estimate?.currencyCode.toUpperCase() === currency ? estimate.amount : listing.priceAmount,
+        ),
+        currency: currency.toLowerCase(),
+      },
+      quantity: 1,
+      effectiveAt: input.capturedAt,
+    });
+    return { goal: toEconomicsForPricingGoal(resolution), resolution };
+  } catch (error) {
+    throw new RepricingEconomicsResolveError(listing.listingId, { cause: error });
+  }
 }
 
 export async function listCandidateRepricingProducts(

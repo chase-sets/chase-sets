@@ -1,8 +1,7 @@
 import type { DomainEvent } from "@chase-sets/event-core";
-import type { JsonObject } from "@chase-sets/primitives/json";
-import { centsToMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
+import { moneyToCents } from "@chase-sets/primitives/money";
 import type { MarketplaceOfferState } from "../../offers/domain/domain";
-import { buyerOfferPolicyTermsSchema, type BuyerOfferPolicyTerms } from "./contracts";
+import { buyerOfferPolicyTermsSchema, type BuyerOfferPolicyTerms, type BuyerOfferPolicyOutcome } from "./contracts";
 
 export type BuyerOfferPolicyStatus = "draft" | "active" | "paused" | "stopped";
 export type BuyerOfferPolicyAudit = Readonly<{
@@ -18,6 +17,7 @@ export type BuyerOfferPolicyPreview = Readonly<{
   previewId: string;
   policyVersion: number;
   terms: BuyerOfferPolicyTerms;
+  outcomes?: readonly BuyerOfferPolicyOutcome[];
 }>;
 export type BuyerOfferPolicyState = Readonly<{
   policyId: string | null;
@@ -25,7 +25,6 @@ export type BuyerOfferPolicyState = Readonly<{
   status: BuyerOfferPolicyStatus;
   revision: number;
   currency: string | null;
-  consumedItemAmount: string;
   authority: BuyerOfferPolicyTerms | null;
   preview: BuyerOfferPolicyPreview | null;
 }>;
@@ -35,7 +34,6 @@ export const initialBuyerOfferPolicyState: BuyerOfferPolicyState = {
   status: "draft",
   revision: 0,
   currency: null,
-  consumedItemAmount: "0.00",
   authority: null,
   preview: null,
 };
@@ -48,20 +46,7 @@ export type BuyerOfferPolicyEvent =
     >
   | DomainEvent<"marketplace.offer-policy.paused", BuyerOfferPolicyAudit>
   | DomainEvent<"marketplace.offer-policy.stopped", BuyerOfferPolicyAudit>
-  | DomainEvent<
-      "marketplace.offer-policy.commitment-consumed",
-      BuyerOfferPolicyAudit & {
-        offerId: string;
-        offerVersion: number;
-        revision: number;
-        currency: string;
-        unitItemAmount: string;
-        quantity: number;
-        itemAmount: string;
-        consumedItemAmount: string;
-        evaluationEvidence: JsonObject;
-      }
-    >;
+  | DomainEvent<"marketplace.offer-policy.commitment-consumed", BuyerOfferPolicyAudit>;
 
 export class BuyerOfferPolicyError extends Error {
   constructor(
@@ -97,10 +82,6 @@ export function validateBuyerOfferPolicyTerms(state: BuyerOfferPolicyState, inpu
     state.currency === null || state.currency === terms.currency,
     "Policy currency cannot change after authorization.",
   );
-  assertPolicy(
-    moneyToCents(terms.itemCommitmentAllowance) >= moneyToCents(state.consumedItemAmount),
-    "Item allowance cannot be below consumed commitment.",
-  );
   return terms;
 }
 
@@ -132,7 +113,12 @@ export function assertBuyerOfferPolicySelection(
       "Offer scope and quantity must match exactly.",
     );
     assertPolicy(
-      JSON.stringify(state.selectedOptions) === JSON.stringify(selected.selectedOptions),
+      state.selectedOptions.length === selected.selectedOptions.length &&
+        state.selectedOptions.every(
+          (option, index) =>
+            option.dimensionId === selected.selectedOptions[index]?.dimensionId &&
+            option.optionId === selected.selectedOptions[index]?.optionId,
+        ),
       "Offer options must match exactly.",
     );
     assertPolicy(
@@ -216,7 +202,12 @@ export function evolveBuyerOfferPolicy(
     case "marketplace.offer-policy.previewed":
       return {
         ...state,
-        preview: { previewId: event.data.previewId, policyVersion: event.data.policyVersion, terms: event.data.terms },
+        preview: {
+          previewId: event.data.previewId,
+          policyVersion: event.data.policyVersion,
+          terms: event.data.terms,
+          ...(event.data.outcomes ? { outcomes: event.data.outcomes } : {}),
+        },
       };
     case "marketplace.offer-policy.authorized":
       return {
@@ -232,7 +223,7 @@ export function evolveBuyerOfferPolicy(
     case "marketplace.offer-policy.stopped":
       return { ...state, status: "stopped", preview: null };
     case "marketplace.offer-policy.commitment-consumed":
-      return { ...state, consumedItemAmount: event.data.consumedItemAmount, preview: null };
+      return state;
   }
 }
 
@@ -246,35 +237,4 @@ export function assertBuyerOfferPolicyAdmission(state: BuyerOfferPolicyState, of
   assertBuyerOfferPolicySelection(state.policyId!, state.buyerAccountId!, { ...state.authority, offers: [selection] }, [
     { state: offer, version: selection.offerVersion },
   ]);
-}
-
-export function consumeBuyerOfferCommitment(
-  state: BuyerOfferPolicyState,
-  offer: MarketplaceOfferState,
-  offerVersion: number,
-  audit: BuyerOfferPolicyAudit,
-  evaluationEvidence: JsonObject,
-): BuyerOfferPolicyEvent {
-  assertBuyerOfferPolicyAdmission(state, offer);
-  const itemAmount = moneyToCents(offer.priceAmount!) * BigInt(offer.quantityRequested);
-  const consumed = moneyToCents(state.consumedItemAmount) + itemAmount;
-  assertPolicy(
-    itemAmount > 0n && consumed <= moneyToCents(state.authority!.itemCommitmentAllowance),
-    "Item commitment allowance is insufficient.",
-  );
-  return {
-    type: "marketplace.offer-policy.commitment-consumed",
-    data: {
-      ...audit,
-      offerId: offer.offerId!,
-      offerVersion,
-      revision: state.revision,
-      currency: state.currency!,
-      unitItemAmount: offer.priceAmount!,
-      quantity: offer.quantityRequested,
-      itemAmount: centsToMoneyAmount(itemAmount),
-      consumedItemAmount: centsToMoneyAmount(consumed),
-      evaluationEvidence,
-    },
-  };
 }

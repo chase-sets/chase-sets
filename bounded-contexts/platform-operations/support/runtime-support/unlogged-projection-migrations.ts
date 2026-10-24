@@ -1,4 +1,8 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import {
+  supportEvidenceCleanupLocatorIndexSql,
+  supportEvidenceCleanupLocatorSchemaSql,
+} from "../../features/support-requests/read-model/cleanup-locator-schema";
 
 export const platformOperationsUnloggedProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
@@ -43,5 +47,11 @@ export const platformOperationsUnloggedProjectionSchemaMigrations: readonly BcSc
       "ALTER TABLE support_order_affected_line_amounts SET UNLOGGED;",
       "ALTER TABLE support_order_payment_currencies SET UNLOGGED;",
     ],
+  },
+  {
+    migrationId: "20261015_support_evidence_cleanup_locators",
+    description:
+      "Locate Support evidence upload operations for cleanup by state and eligibility (replayable, unlogged).",
+    statements: [supportEvidenceCleanupLocatorSchemaSql, supportEvidenceCleanupLocatorIndexSql],
   },
 ];

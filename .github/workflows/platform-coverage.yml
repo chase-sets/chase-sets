@@ -26,6 +26,7 @@ jobs:
     outputs:
       fast_status: ${{ steps.coverage.outputs.fast_status }}
       unit_status: ${{ steps.coverage.outputs.unit_status }}
+      alert_status: ${{ steps.alert-status.outputs.status }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -67,6 +68,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Preserve actual step failures before job-level continue-on-error normalizes the result.
+      - name: Capture workflow alert status
+        id: alert-status
+        if: ${{ always() }}
+        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
+
   coverage-db:
     name: DB Coverage (non-blocking)
     runs-on: ubuntu-latest
@@ -74,6 +81,7 @@ jobs:
     continue-on-error: true
     outputs:
       db_status: ${{ steps.coverage.outputs.db_status }}
+      alert_status: ${{ steps.alert-status.outputs.status }}
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -124,6 +132,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Capture workflow alert status
+        id: alert-status
+        if: ${{ always() }}
+        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
+
   coverage-summary:
     name: Coverage Summary (non-blocking)
     runs-on: ubuntu-latest
@@ -133,6 +146,8 @@ jobs:
       - coverage-db
     if: always()
     continue-on-error: true
+    outputs:
+      alert_status: ${{ steps.alert-status.outputs.status }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -164,3 +179,30 @@ jobs:
             artifacts/coverage
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Capture workflow alert status
+        id: alert-status
+        if: ${{ always() }}
+        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
+
+  reporter:
+    name: Report Coverage Failure (non-blocking)
+    needs: [coverage-fast, coverage-db, coverage-summary]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Report workflow failure
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.outputs.alert_status, 'failure') }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Coverage
+          alert-status: failure
+          alert-summary: Coverage workflow failed. Captured coverage-command exits remain advisory; see this run's jobs and artifacts.

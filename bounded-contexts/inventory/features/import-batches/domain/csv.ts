@@ -103,15 +103,25 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
 }
 
 export function parseImportCsv(text: string): ImportCsvRow[] {
+  if (/[\u0000\uFFFD]/u.test(text)) {
+    throw new Error("Import CSV contains invalid text encoding.");
+  }
   const records = parseRecords(text);
   if (records.length === 0) {
     return [];
   }
 
   const headers = records[0]?.map((header) => header.trim()) ?? [];
+  const normalizedHeaders = headers.map((header) => header.toLowerCase().replace(/[^a-z0-9:]+/g, ""));
+  if (headers.some((header) => !header) || new Set(normalizedHeaders).size !== headers.length) {
+    throw new Error("Import CSV headers must be nonempty and unique.");
+  }
   return records.slice(1).flatMap((record, index) => {
     if (record.every((value) => value.trim().length === 0)) {
       return [];
+    }
+    if (record.length !== headers.length) {
+      throw new Error("Import CSV row does not match its headers.");
     }
 
     const values: Record<string, string> = {};
@@ -155,6 +165,7 @@ function parseRecords(text: string): string[][] {
   let currentRecord: string[] = [];
   let currentValue = "";
   let inQuotes = false;
+  let closedQuote = false;
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -166,6 +177,10 @@ function parseRecords(text: string): string[][] {
         index += 1;
         continue;
       }
+      if (!inQuotes && (currentValue.length > 0 || closedQuote)) {
+        throw new Error("Import CSV has a quote outside a quoted cell.");
+      }
+      closedQuote = inQuotes;
       inQuotes = !inQuotes;
       continue;
     }
@@ -173,6 +188,7 @@ function parseRecords(text: string): string[][] {
     if (char === "," && !inQuotes) {
       currentRecord.push(currentValue);
       currentValue = "";
+      closedQuote = false;
       continue;
     }
 
@@ -184,12 +200,19 @@ function parseRecords(text: string): string[][] {
       records.push(currentRecord);
       currentRecord = [];
       currentValue = "";
+      closedQuote = false;
       continue;
     }
 
+    if (closedQuote) {
+      throw new Error("Import CSV has text after a closed quoted cell.");
+    }
     currentValue += char;
   }
 
+  if (inQuotes) {
+    throw new Error("Import CSV has an unclosed quoted cell.");
+  }
   currentRecord.push(currentValue);
   records.push(currentRecord);
   return records.filter((record) => record.some((value) => value.trim().length > 0));

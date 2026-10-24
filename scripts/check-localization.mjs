@@ -2,6 +2,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { repoRoot } from "./lib/repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { listTrackedLocaleModulePaths } from "./sync-workspace-metadata.mjs";
 
 const englishFilePaths = listTrackedLocaleModulePaths(repoRoot).filter(
@@ -14,8 +15,15 @@ const englishKeys = new Set(
   ),
 );
 
+// Server copy that moved out of the exempt payout api/runtime.ts into its behavior modules keeps that exemption.
+const runtimeBehaviorModules = new Set([
+  "bounded-contexts/settlement/features/payouts/api/payout-reconciliation-jobs.ts",
+  "bounded-contexts/settlement/features/payouts/api/payout-request-lifecycle.ts",
+]);
+
 const files = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
   encoding: "utf8",
+  maxBuffer: GIT_LISTING_MAX_BUFFER,
 })
   .trim()
   .split(/\r?\n/)
@@ -113,6 +121,7 @@ function isCheckedSourceFile(file) {
   if (normalized.includes("/features/") && normalized.includes("/integrations/")) return false;
   if (normalized.includes("/features/") && normalized.endsWith("/api/seed.ts")) return false;
   if (normalized.includes("/features/") && normalized.endsWith("/api/runtime.ts")) return false;
+  if (runtimeBehaviorModules.has(normalized)) return false;
 
   return (
     normalized.includes("/features/") ||

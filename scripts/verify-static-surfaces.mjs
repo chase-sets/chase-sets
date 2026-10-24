@@ -1,9 +1,142 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
+import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
+import { BRAND_FOIL_PROOF_ENTRY_PATHS, BRAND_FOIL_PROOF_INPUT_PATHS } from "./check-structure/brand-foil-proof.mjs";
+
+function scriptKind(file) {
+  if (/\.tsx?$/.test(file)) return ts.ScriptKind.TSX;
+  if (/\.jsx?$/.test(file)) return ts.ScriptKind.JSX;
+  return ts.ScriptKind.JS;
+}
+
+function resolveFile(root, candidate) {
+  const normalized = candidate.replaceAll("\\", "/");
+  const candidates = [
+    normalized,
+    ...[".mjs", ".js", ".ts", ".tsx", ".jsx", ".json"].map((ext) => `${normalized}${ext}`),
+    ...["index.mjs", "index.js", "index.ts", "index.tsx"].map((name) => path.posix.join(normalized, name)),
+  ];
+  for (const relative of candidates) if (existsSync(path.join(root, relative))) return relative;
+  throw new Error(`unresolved static import: ${normalized}`);
+}
+
+function staticModuleSpecifiers(sourceFile) {
+  const specifiers = [];
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier))
+      specifiers.push(statement.moduleSpecifier.text);
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier))
+      specifiers.push(statement.moduleSpecifier.text);
+  }
+  function visit(node) {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const argument = node.arguments[0];
+      if (!argument || !ts.isStringLiteral(argument))
+        throw new Error(`non-literal dynamic import in ${sourceFile.fileName}`);
+      specifiers.push(argument.text);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return specifiers;
+}
+
+function resolveSpecifier(root, fromRelative, specifier, packages) {
+  if (specifier.startsWith("node:")) return [];
+  const relativeSpecifier = specifier.startsWith("./") || specifier.startsWith("../");
+  if (!relativeSpecifier && !specifier.startsWith("@chase-sets/")) return [];
+  if (relativeSpecifier) {
+    const absolute = path.resolve(root, path.dirname(fromRelative), specifier);
+    const relative = path.relative(root, absolute).replaceAll("\\", "/");
+    if (relative.startsWith("../") || path.isAbsolute(relative))
+      throw new Error(`static import escapes repository: ${specifier}`);
+    return [resolveFile(root, relative)];
+  }
+  const parts = specifier.split("/");
+  const packageName = specifier.startsWith("@") ? `${parts.shift()}/${parts.shift()}` : parts.shift();
+  const workspace = packages.get(packageName);
+  if (!workspace) throw new Error(`unmapped workspace package import: ${specifier}`);
+  const packageJsonRelative = path.relative(root, workspace.packageJsonPath).replaceAll("\\", "/");
+  if (parts.length > 0)
+    return [
+      packageJsonRelative,
+      resolveFile(root, path.relative(root, path.join(workspace.dir, parts.join("/"))).replaceAll("\\", "/")),
+    ];
+  const target =
+    workspace.packageJson.exports?.["."]?.default ??
+    workspace.packageJson.exports?.["."] ??
+    workspace.packageJson.module ??
+    workspace.packageJson.main ??
+    "index.mjs";
+  return [
+    packageJsonRelative,
+    resolveFile(
+      root,
+      path
+        .relative(root, path.join(workspace.dir, typeof target === "string" ? target : "index.mjs"))
+        .replaceAll("\\", "/"),
+    ),
+  ];
+}
+
+function collectBrandFoilProofStaticImportPaths(root = repoRoot) {
+  const packages = new Map(listWorkspacePackages({ repoRoot: root }).map((workspace) => [workspace.name, workspace]));
+  const pending = [...BRAND_FOIL_PROOF_ENTRY_PATHS];
+  const discovered = new Set();
+  while (pending.length > 0) {
+    const relativePath = pending.pop();
+    if (discovered.has(relativePath)) continue;
+    discovered.add(relativePath);
+    const sourceFile = ts.createSourceFile(
+      relativePath,
+      readFileSync(path.join(root, relativePath), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind(relativePath),
+    );
+    for (const specifier of staticModuleSpecifiers(sourceFile)) {
+      for (const resolved of resolveSpecifier(root, relativePath, specifier, packages))
+        if (!discovered.has(resolved)) pending.push(resolved);
+    }
+  }
+  return Object.freeze([...discovered].sort());
+}
+
 export const ALWAYS_RUN = "always-run";
 export const MAY_NARROW = "may-narrow";
 
 const exact = (...values) => values.map((value) => ({ kind: "exact", value }));
 const prefix = (...values) => values.map((value) => ({ kind: "prefix", value }));
 const regex = (...values) => values.map((value) => ({ kind: "regex", value }));
+const brandFoilProofInputSurface = Object.freeze(
+  BRAND_FOIL_PROOF_INPUT_PATHS.map((value) => ({
+    kind: "exact",
+    value,
+  })),
+);
+
+const brandFoilProofSurfaceCache = new Map();
+
+export function deriveBrandFoilProofStepSurface(root = repoRoot, collect = collectBrandFoilProofStaticImportPaths) {
+  if (collect === collectBrandFoilProofStaticImportPaths && brandFoilProofSurfaceCache.has(root))
+    return brandFoilProofSurfaceCache.get(root);
+  const surface = Object.freeze([
+    { kind: "prefix", value: "scripts/check-structure" },
+    { kind: "exact", value: "pnpm-lock.yaml" },
+    ...[...new Set([...BRAND_FOIL_PROOF_INPUT_PATHS, ...collect(root)])].map((value) => ({
+      kind: "exact",
+      value,
+    })),
+  ]);
+  if (collect === collectBrandFoilProofStaticImportPaths) brandFoilProofSurfaceCache.set(root, surface);
+  return surface;
+}
+const brandFoilProofStepSurface = Object.freeze([
+  ...brandFoilProofInputSurface,
+  { kind: "prefix", value: "scripts/check-structure" },
+  { kind: "exact", value: "pnpm-lock.yaml" },
+]);
 
 // The complete scripts battery remains part of the authoritative hosted
 // verify:static chain, but it is intentionally outside the focused local
@@ -11,6 +144,110 @@ const regex = (...values) => values.map((value) => ({ kind: "regex", value }));
 export const VERIFY_STATIC_SCOPED_EXCLUSIONS = Object.freeze({
   "test:scripts": "complete scripts battery is a hosted-CI gate; run named focused script tests locally",
 });
+
+// Repository-wide reads cannot be narrowed to the paths in historical failures.
+// These rules describe scan inputs, not the tests' static import graphs.
+export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
+  "scripts/check-structure/lost-update-write-guard.test.mjs": {
+    rule: "owner-local lost-update metadata and every source admitted by the unchanged guard discovery predicate",
+    evidence: ["scripts/check-structure/lost-update-write-guard.mjs:1-40"],
+    include: [
+      ...exact(
+        "scripts/check-structure/lost-update-write-guard.mjs",
+        "scripts/check-structure/lost-update-write-guard.test.mjs",
+        "scripts/verify-static-surfaces.mjs",
+        "pnpm-lock.yaml",
+      ),
+      ...prefix("packages/typescript-compiler-api"),
+      ...regex(
+        "^bounded-contexts/.+\\.lost-update-exceptions\\.json$",
+        "^bounded-contexts/.+/read-model/.+\\.(?:ts|tsx|js|jsx|mjs|cjs)$",
+        "^bounded-contexts/.+(?:projection|queue)\\.(?:ts|tsx|js|jsx|mjs|cjs)$",
+      ),
+      ...exact("bounded-contexts/channels/features/credentials/api/runtime.ts"),
+    ],
+  },
+  "scripts/check-structure/tcgplayer-host-credential-guard.test.mjs": {
+    rule: "tracked platform source inventory for TCGplayer hosts and custody tokens",
+    evidence: ["scripts/check-structure/tcgplayer-host-credential-guard.mjs:1-114"],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/sql-execution-surface.test.mjs": {
+    rule: "repository-wide tracked TypeScript inventory and module-resolution file inventory",
+    evidence: [
+      "scripts/check-structure/sql-execution-surface.test.mjs:967-985,1038-1045",
+      "scripts/check-structure/module-resolution.mjs:264-315",
+    ],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/brand-mark-representations.test.mjs": {
+    rule: "repository-wide tracked callers, including documentation, plus raster outputs and lockfile",
+    evidence: ["scripts/check-structure/brand-mark-representations.test.mjs:236-265,277-300,560-574,695-733"],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/deployed-browser-e2e-profile.test.mjs": {
+    rule: "deployed browser config, three web E2E roots, and the guard source",
+    evidence: ["scripts/check-structure/deployed-browser-e2e-profile.test.mjs:1-9,64-73"],
+    include: [
+      ...exact("playwright.config.ts", "pnpm-lock.yaml"),
+      ...prefix(
+        "deployables/marketplace/e2e",
+        "deployables/admin-web/e2e",
+        "deployables/public-web/e2e",
+        "scripts",
+        "packages/typescript-compiler-api",
+      ),
+    ],
+  },
+  "scripts/ci-gate-plan.test.mjs": {
+    rule: "repository-wide tracked path existence, workspace discovery, workflow and scripts selection contracts",
+    evidence: ["scripts/ci-gate-plan.test.mjs:9-38,83-87,296-372"],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/consent-authorization-sites.test.mjs": {
+    rule: "repository-wide tracked authorization evidence inventory, product corpus, and fixture evidence",
+    evidence: ["scripts/check-structure/consent-authorization-sites.test.mjs:152-186,1238-1260,3266-3276"],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/json-import-attributes.test.mjs": {
+    rule: "repository-wide tracked JSON-import census (tracked TypeScript inventory, git grep, workspace vite/vitest partition), script analyzers and registry-builder helpers, plus the live Channels context-root contract",
+    evidence: [
+      "scripts/check-structure/json-import-attributes.test.mjs:1-15,139-140,489-497,700-760,880-906,1020-1027",
+      "scripts/check-structure/json-import-attributes.mjs:44-82,584-645",
+    ],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs": {
+    rule: "root command and lockfile, compiler wrapper, and script-owned artifact provenance chain",
+    evidence: [
+      "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs:6-18,92-119,170-177",
+      "scripts/check-structure/typescript-owner-context-derivation.mjs:155-177",
+    ],
+    include: [...exact("package.json", "pnpm-lock.yaml"), ...prefix("scripts", "packages/typescript-compiler-api")],
+  },
+  "scripts/check-structure/typescript-owner-context-derivation.test.mjs": {
+    rule: "compiler wrapper and lockfile, script-owned artifact/schema/partition/fixtures and scripts config",
+    evidence: [
+      "scripts/check-structure/typescript-owner-context-derivation.test.mjs:20-31,600-614,700-706",
+      "scripts/check-structure/typescript-owner-context-derivation.mjs:155-177",
+    ],
+    include: [
+      ...exact("pnpm-lock.yaml", "vitest.scripts.config.mjs"),
+      ...prefix("scripts", "packages/typescript-compiler-api"),
+    ],
+  },
+  "scripts/check-structure/issue-reference-comments.test.mjs": {
+    rule: "code comments under four source roots and the script-owned scanner/allowlist",
+    evidence: [
+      "scripts/check-structure/issue-reference-comments.mjs:1-6,26-38",
+      "scripts/check-structure/issue-reference-comments.test.mjs:220-225",
+    ],
+    include: [
+      ...exact("pnpm-lock.yaml"),
+      ...prefix("bounded-contexts", "infrastructure", "deployables", "scripts", "packages/typescript-compiler-api"),
+    ],
+  },
+};
 
 // This is the auditable link -> input-surface contract for verify:static.
 // ALWAYS_RUN links deliberately have no include rules: their input is not
@@ -189,10 +426,31 @@ export const VERIFY_STATIC_SURFACES = {
       "deployables/platform-worker/.env.example",
     ),
   },
+  "check:node-types-runtime": {
+    classification: MAY_NARROW,
+    rule: "any package.json the workspace definition can discover, or the guard itself; root workspace files fan out",
+    evidence: ["scripts/check-node-types-runtime.mjs:24-102"],
+    include: [...exact("scripts/check-node-types-runtime.mjs"), ...regex("(?:^|/)package\\.json$")],
+  },
   "check:structure": {
     classification: ALWAYS_RUN,
     rule: "repo-wide structure scan plus diff-consuming SQL and boot-schema guards",
-    evidence: ["scripts/check-structure/run.mjs:40-55,1344-1353,3370-3378"],
+    evidence: ["scripts/check-structure/run.mjs:40-55,1261-1270,3238-3246"],
+    scopedSteps: [
+      {
+        name: "aggregate",
+        command: "node ./scripts/check-structure.mjs",
+        classification: ALWAYS_RUN,
+        rule: "aggregate structure scan always runs before the causal proof",
+      },
+      {
+        name: "brand-foil-proof",
+        command: "node ./scripts/check-structure/brand-foil-proof.mjs",
+        classification: MAY_NARROW,
+        rule: "brand-foil proof inputs, static import closure, check-structure modules, or pnpm-lock.yaml",
+        include: brandFoilProofStepSurface,
+      },
+    ],
   },
   "check:localization": {
     classification: MAY_NARROW,

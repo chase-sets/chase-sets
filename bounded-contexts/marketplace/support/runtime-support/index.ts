@@ -6,6 +6,7 @@ import type { ObjectStorage } from "@chase-sets/object-storage";
 import type { CommercialTermsResolver } from "../../api";
 import type { ListingEvidencePolicyEvaluator } from "../../features/listings/api/evidence-requirement-resolver";
 import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
+import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
 
 export type ListingPhotoStorage = Readonly<{
   getObject: ObjectStorage["getObject"];
@@ -31,4 +32,6 @@ export type MarketplaceRuntimeDeps = Readonly<{
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
   listingEvidencePolicyEvaluator?: ListingEvidencePolicyEvaluator;
   managedOfferPricing?: ManagedOfferPricing;
+  /** Absent keeps Pause, Resume and Withdraw closed. */
+  offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
 }>;

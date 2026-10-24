@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from "react";
 import { cx } from "../../utils/cx";
 
 export interface ValidationSummaryError {
@@ -8,6 +8,11 @@ export interface ValidationSummaryError {
 }
 
 export interface ValidationSummaryProps {
+  /**
+   * Attached to the summary root. The root has tabIndex={-1}, so a caller may focus it
+   * after committing an action failure while it stays out of the tab order; it is never focused automatically.
+   */
+  ref?: Ref<HTMLElement>;
   id?: string;
   title?: ReactNode;
   description?: ReactNode;
@@ -33,26 +38,29 @@ export function ValidationMessageList({ messages }: ValidationMessageListProps) 
   );
 }
 
-function focusValidationTarget(fieldId: string) {
+function focusValidationTarget(fieldId: string): boolean {
   // ValidationSummary only receives stable field ids, so the id remains the
   // compatibility bridge for controls whose refs now point at their natural
   // focus target. A ref registry here would add context and lifecycle coupling
   // without improving the public ValidationSummary contract.
   const target = document.getElementById(fieldId);
   if (!target) {
-    return;
+    return false;
   }
 
   const focusableTarget = target.matches("button, input, select, textarea, [tabindex]")
     ? target
     : target.querySelector("button, input, select, textarea, [tabindex]");
 
-  if (focusableTarget instanceof HTMLElement) {
-    focusableTarget.focus();
+  if (!(focusableTarget instanceof HTMLElement)) {
+    return false;
   }
+  focusableTarget.focus();
+  return document.activeElement === focusableTarget;
 }
 
 export function ValidationSummary({
+  ref,
   id,
   title = "Check the form",
   description,
@@ -74,12 +82,18 @@ export function ValidationSummary({
     if (event.defaultPrevented || event.key !== "Enter") {
       return;
     }
-    focusValidationTarget(fieldId);
+    // Once focus has moved, the rest of this keystroke would reach the target;
+    // a text input inside a form would then submit it implicitly.
+    if (focusValidationTarget(fieldId)) {
+      event.preventDefault();
+    }
   }
 
   return (
     <section
+      ref={ref}
       id={id}
+      tabIndex={-1}
       role="alert"
       aria-live="assertive"
       className={cx("rounded-tokenMd border border-danger bg-surface-2 p-4 text-sm shadow-tokenSm", className)}

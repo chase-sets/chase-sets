@@ -1,6 +1,7 @@
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
+  readGapSafeEventStoreHead,
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -27,7 +28,10 @@ import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
 import { platformRemedyPolicy } from "../../features/support-requests/domain/platform-remedy-policy";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
+import { createLegacyReferenceReconstruction } from "../../features/support-requests/api/legacy-reference-reconstruction";
 import type { SupportEvidenceAttachmentStorage } from "../../features/support-requests/api/attachments";
+import type { SupportEvidenceCanonicalizationQueue } from "../../features/support-requests/api/evidence-canonicalization";
+import type { SupportEvidenceCleanupCapability } from "../../features/support-requests/api/attachment-cleanup";
 import type { PolicyConsoleCrossContextPort, PolicyConsoleEntry } from "../../features/policy-console/api/contracts";
 import { createSupportReferenceLookupRuntime } from "../../features/support-reference-lookup/api/runtime";
 import type {
@@ -38,11 +42,19 @@ import {
   getSupportRequestByDisplayReference,
   getSupportRequestById,
 } from "../../features/support-requests/read-model/queries";
+import { createAccountAppealRuntime, type AccountAppealRuntime } from "../../features/account-appeals/api/runtime";
 
 export type PlatformOperationsHostPorts = Readonly<{
   providerConnectionsCrossContext?: ProviderConnectionsCrossContextPort;
   notificationOutbox?: NotificationOutbox;
   supportEvidenceAttachmentStorage?: SupportEvidenceAttachmentStorage;
+  supportEvidenceCanonicalizer?: SupportEvidenceCanonicalizationQueue;
+  /**
+   * The platform-worker's Support Evidence Cleanup Binding capability. Only a
+   * valid, active, instance-scoped binding supplies `available`; every other
+   * host (and an omitted port) is `not-mounted`, so no cleanup runner exists.
+   */
+  supportEvidenceCleanup?: SupportEvidenceCleanupCapability;
   /**
    * Cross-context policy sources for the platform policy console: Settlement
    * and Commercial Terms' declared policies, assembled once in the
@@ -88,6 +100,7 @@ export type PlatformOperationsServices = Readonly<{
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
+  supportEvidenceLegacy: ReturnType<typeof createLegacyReferenceReconstruction>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (the rate-limit policy and the support-flow deadline policy). */
   policies: PolicyRuntime;
   /** The platform policy console's full registry: this context's own two policies plus any injected cross-context ones. */
@@ -95,6 +108,7 @@ export type PlatformOperationsServices = Readonly<{
   /** The unified support-reference lookup, routing to whichever cross-context sources were injected. */
   supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
   projectors: readonly ProjectionHandlerSet[];
+  accountAppeals: AccountAppealRuntime;
 }>;
 
 export function createPlatformOperationsServices(
@@ -109,6 +123,7 @@ export function createPlatformOperationsServices(
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const accountAppeals = createAccountAppealRuntime(db, eventStore);
   const platformFeedback = createPlatformFeedbackRuntime({
     eventStore,
     checkpointStore,
@@ -127,6 +142,8 @@ export function createPlatformOperationsServices(
     notificationOutbox,
     policies,
     attachmentStorage: ports.supportEvidenceAttachmentStorage,
+    attachmentCanonicalizer: ports.supportEvidenceCanonicalizer,
+    attachmentCleanup: ports.supportEvidenceCleanup,
   });
 
   const ownPolicyDefinitions = [
@@ -202,6 +219,10 @@ export function createPlatformOperationsServices(
     reportedContent,
     riskAlerts,
     supportRequests,
+    supportEvidenceLegacy: createLegacyReferenceReconstruction({
+      eventStore,
+      readHorizon: () => readGapSafeEventStoreHead(pool),
+    }),
     policies,
     policyConsoleEntries,
     supportReferenceLookup,
@@ -213,5 +234,6 @@ export function createPlatformOperationsServices(
       ...supportRequests.projectors,
       ...policies.projectors,
     ],
+    accountAppeals,
   };
 }

@@ -19,19 +19,26 @@ const { mockCreateAccountPayment, mockCreatePaymentsRequestApiClient, mockGetChe
   };
 });
 
-const { mockCreateCheckoutReservation, mockReleaseCheckoutReservation, mockCreateInventoryRequestApiClient } =
-  vi.hoisted(() => {
-    const mockCreateCheckoutReservation = vi.fn();
-    const mockReleaseCheckoutReservation = vi.fn();
-    return {
-      mockCreateCheckoutReservation,
-      mockReleaseCheckoutReservation,
-      mockCreateInventoryRequestApiClient: vi.fn(() => ({
-        createCheckoutReservation: mockCreateCheckoutReservation,
-        releaseCheckoutReservation: mockReleaseCheckoutReservation,
-      })),
-    };
-  });
+const {
+  mockCreateCheckoutReservation,
+  mockReleaseCheckoutReservation,
+  mockReadAttempt,
+  mockCreateInventoryRequestApiClient,
+} = vi.hoisted(() => {
+  const mockCreateCheckoutReservation = vi.fn();
+  const mockReleaseCheckoutReservation = vi.fn();
+  const mockReadAttempt = vi.fn();
+  return {
+    mockCreateCheckoutReservation,
+    mockReleaseCheckoutReservation,
+    mockReadAttempt,
+    mockCreateInventoryRequestApiClient: vi.fn((_request: Request, _options?: { mutationAttemptId?: string }) => ({
+      createCheckoutReservation: mockCreateCheckoutReservation,
+      releaseCheckoutReservation: mockReleaseCheckoutReservation,
+      getMutationAttempt: mockReadAttempt,
+    })),
+  };
+});
 
 vi.mock("@chase-sets/payments/server", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/payments/server")>("@chase-sets/payments/server");
@@ -50,6 +57,7 @@ vi.mock("@chase-sets/ordering/server", () => ({
 
 vi.mock("@chase-sets/inventory/server", () => ({
   createInventoryRequestApiClient: mockCreateInventoryRequestApiClient,
+  inventoryMutationAttemptFromSource: (source: string, operation: string) => `iat_${source}/${operation}`,
 }));
 
 vi.mock("@chase-sets/marketplace/server", () => ({
@@ -80,6 +88,38 @@ function paymentsApiError(status: number, code: string, message: string) {
 }
 
 describe("checkout confirmation request support", () => {
+  it("issue-7169-ac2 preserves the opaque line attempt before Checkout saves a response", async () => {
+    const session = checkoutSessionForReservationTests({
+      fulfillment_preview_snapshot: checkoutReservationPreview([checkoutReservationPreviewLine("cli_1")]),
+      checkout_reservations: [],
+    });
+    mockCreateCheckoutReservation.mockResolvedValue({ holdId: "hld_first" });
+    const request = new Request("https://checkout.test");
+    await createCheckoutInventoryReservations(request, session);
+    await createCheckoutInventoryReservations(request, session);
+    const attempts = mockCreateInventoryRequestApiClient.mock.calls
+      .map((call) => call[1]?.mutationAttemptId)
+      .filter(Boolean);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toBe(attempts[1]);
+  });
+
+  it("issue-7169-ac9 reads the exact receipt after response loss without another write", async () => {
+    const session = checkoutSessionForReservationTests({
+      fulfillment_preview_snapshot: checkoutReservationPreview([checkoutReservationPreviewLine("cli_1")]),
+      checkout_reservations: [],
+    });
+    const first = { holdId: "hld_first", expiresAt: "2099-01-01T00:00:00.000Z" };
+    mockCreateCheckoutReservation.mockRejectedValue(new TypeError("response lost"));
+    mockReadAttempt.mockResolvedValue({ version: 1, family: "hold-create", result: first });
+    expect(await createCheckoutInventoryReservations(new Request("https://checkout.test"), session)).toEqual({
+      reservations: [first],
+      unavailableLines: [],
+    });
+    expect(mockCreateCheckoutReservation).toHaveBeenCalledTimes(1);
+    expect(mockReadAttempt).toHaveBeenCalledTimes(1);
+  });
+
   it("releases with the resolved session ID and no body seller", async () => {
     const reservation = {
       holdId: "hld_1",
@@ -110,7 +150,10 @@ describe("checkout confirmation request support", () => {
         checkout_reservations: [reservation, { ...reservation, holdId: "hld_inactive", status: "released" }],
       }),
     );
-    expect(mockCreateInventoryRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockCreateInventoryRequestApiClient).toHaveBeenCalledWith(
+      request,
+      expect.objectContaining({ mutationAttemptId: expect.any(String) }),
+    );
     expect(mockReleaseCheckoutReservation).toHaveBeenCalledExactlyOnceWith("hld_1", {
       checkoutSessionId: "chk_resolved",
       lineKey: "cli_1",
@@ -135,6 +178,7 @@ describe("checkout confirmation request support", () => {
     mockCreatePaymentsRequestApiClient.mockClear();
     mockCreateCheckoutReservation.mockReset();
     mockReleaseCheckoutReservation.mockReset();
+    mockReadAttempt.mockReset();
     mockCreateInventoryRequestApiClient.mockClear();
   });
 
@@ -533,7 +577,7 @@ describe("checkout confirmation request support", () => {
     const result = await createCheckoutInventoryReservations(new Request("https://checkout.test"), session);
 
     expect(result).toEqual({ reservations: [reservation], unavailableLines: [] });
-    expect(mockCreateInventoryRequestApiClient).toHaveBeenCalledTimes(1);
+    expect(mockCreateInventoryRequestApiClient).not.toHaveBeenCalled();
     expect(mockCreateCheckoutReservation).not.toHaveBeenCalled();
   });
 
@@ -664,6 +708,7 @@ function checkoutSessionForReservationTests(overrides: Partial<CheckoutSessionRo
     checkout_reservations: [],
     payment_id: null,
     submitted_offer_id: null,
+    handoff_expires_at: null,
     created_at: "2026-04-29T00:00:00.000Z",
     updated_at: "2026-04-29T00:00:00.000Z",
     ...overrides,

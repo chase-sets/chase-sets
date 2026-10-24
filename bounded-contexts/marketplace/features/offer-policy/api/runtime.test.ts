@@ -3,15 +3,390 @@ import type { BuyerOfferPolicyRequest } from "../domain/contracts";
 import { activate, context, fixture, preview, seedOffer, terms } from "../tests/fixtures";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { managedFixture } from "../../offers/tests/managed-fixture";
+import { createBuyerOfferPolicyRuntime } from "./runtime";
+import { vi } from "vitest";
+import type { ManagedOfferTarget } from "../../offers/api/managed-authority";
+import { evolveBuyerOfferPolicy, initialBuyerOfferPolicyState } from "../domain/domain";
+import { buyerOfferPolicyCodec } from "../domain/codec";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 
 describe("Buyer Offer Policy authoritative runtime", () => {
-  it("preserves lifetime consumption across pause, fresh consent, resume and terminal stop", async () => {
+  it("records exactly the returned policy and every Authorize binding event, but not replay or empty decisions", async () => {
+    const { runtime, store } = await fixture();
+    await seedOffer(store, "off_two");
+    const append = vi.spyOn(store, "appendToStreams");
+    const p = await preview(runtime, {
+      ...terms,
+      offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }],
+    });
+    const command = {
+      type: "AuthorizeBuyerOfferPolicy",
+      expectedVersion: p.version,
+      previewId: p.preview!.previewId,
+      consent: true,
+      operationId: "receipt_authorize",
+    } as const;
+    const active = await runWithEventCommitMetadata(async () => {
+      const result = await runtime.execute("bop_one", command, context);
+      const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+      const returned = results.flatMap((batch) => batch.storedEvents);
+      expect(returned.map((event) => event.streamId)).toEqual([
+        "marketplace.offer-policy-bop_one",
+        "marketplace.offer-off_one",
+        "marketplace.offer-off_two",
+      ]);
+      const eventIds = returned.map((event) => String(event.eventId));
+      const maxGlobalPosition = String(returned.at(-1)!.globalPosition);
+      expect(getEventCommitMetadata()).toEqual({
+        committedEvents: returned,
+        eventIds,
+        maxGlobalPosition,
+        sources: [{ sourceContextName: "marketplace", eventIds, maxGlobalPosition }],
+      });
+      return result;
+    });
+    expect(active).toEqual(await runtime.get("bop_one", "acc_buyer"));
+    append.mockClear();
+    await runWithEventCommitMetadata(async () => {
+      expect(await runtime.execute("bop_one", command, context)).toEqual(active);
+      expect(getEventCommitMetadata().eventIds).toEqual([]);
+      const paused = await runtime.execute(
+        "bop_one",
+        { type: "PauseBuyerOfferPolicy", expectedVersion: active.version, operationId: "receipt_pause" },
+        context,
+      );
+      await runWithEventCommitMetadata(async () => {
+        expect(
+          await runtime.execute(
+            "bop_one",
+            { type: "PauseBuyerOfferPolicy", expectedVersion: paused.version, operationId: "receipt_empty" },
+            context,
+          ),
+        ).toEqual(paused);
+        expect(getEventCommitMetadata().eventIds).toEqual([]);
+      });
+    });
+    expect(append).toHaveBeenCalledTimes(1);
+  });
+
+  it("records only returned policy events when Preview has empty Offer guards", async () => {
+    const { runtime, store } = await fixture();
+    const append = vi.spyOn(store, "appendToStreams");
+    await runWithEventCommitMetadata(async () => {
+      await preview(runtime);
+      const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+      const returned = results.flatMap((batch) => batch.storedEvents);
+      expect(returned.map((event) => event.streamId)).toEqual(["marketplace.offer-policy-bop_one"]);
+      expect(getEventCommitMetadata().committedEvents).toEqual(returned);
+    });
+  });
+
+  it.each(["failure", "conflict-recovery"] as const)("records no policy receipt on %s", async (outcome) => {
+    let intercept = false;
+    const { runtime } = await fixture(true, (store) => ({
+      ...store,
+      appendToStreams: async (inputs) => {
+        if (!intercept) return store.appendToStreams!(inputs);
+        if (outcome === "failure") throw new Error("injected append failure");
+        await store.appendToStreams!(inputs);
+        throw Object.assign(new Error("concurrent duplicate committed"), { code: "concurrency_conflict" });
+      },
+    }));
+    const p = await preview(runtime);
+    intercept = true;
+    await runWithEventCommitMetadata(async () => {
+      const action = runtime.execute(
+        "bop_one",
+        {
+          type: "AuthorizeBuyerOfferPolicy",
+          expectedVersion: p.version,
+          previewId: p.preview!.previewId,
+          consent: true,
+          operationId: "receipt_race",
+        },
+        context,
+      );
+      if (outcome === "failure") await expect(action).rejects.toThrow("injected append failure");
+      else expect((await action).status).toBe("active");
+      expect(getEventCommitMetadata()).toEqual({
+        committedEvents: [],
+        eventIds: [],
+        sources: [],
+        maxGlobalPosition: undefined,
+      });
+    });
+  });
+
+  it("resumes the same bound Offer from snapshot versions while the projection stays at N", async () => {
+    const { runtime, store } = await fixture();
+    const active = await activate(runtime);
+    const paused = await runtime.execute(
+      "bop_one",
+      { type: "PauseBuyerOfferPolicy", expectedVersion: active.version, operationId: "pause_lag" },
+      context,
+    );
+    expect(await store.readStream({ streamId: "marketplace.offer-off_one" })).toHaveLength(2);
+    const versions = paused.offerVersions;
+    const resumedPreview = await preview(
+      runtime,
+      {
+        ...terms,
+        offers: terms.offers.map((offer) => ({
+          ...offer,
+          offerVersion: versions?.[offer.offerId] ?? offer.offerVersion,
+        })),
+      },
+      paused.version,
+      "resume_lag",
+    ).catch((error: unknown) => {
+      const failure = error as { code: string; message: string };
+      throw new Error(`resume Preview: ${failure.code}: ${failure.message}; projected=1 authoritative=2`);
+    });
+    expect(resumedPreview.preview?.terms.offers[0]?.offerVersion).toBe(2);
+    expect(active.authority?.offers[0]?.offerVersion).toBe(1);
+    expect(active.offerVersions).toEqual({ off_one: 2 });
+    expect((await runtime.get("bop_one", "acc_buyer")).offerVersions).toEqual({ off_one: 2 });
+  });
+  it.each(["absent", "lagging", "partial", "fresh"] as const)(
+    "returns authoritative bound policies and versions with %s projections, including replay and Stop",
+    async (projection) => {
+      const { runtime, store, db } = await fixture();
+      await seedOffer(store, "off_two");
+      await seedOffer(store, "off_foreign", "acc_other");
+      const active = await activate(runtime);
+      const policyEvents = await store.readStream({ streamId: "marketplace.offer-policy-bop_one" });
+      const projectedState = policyEvents
+        .map(buyerOfferPolicyCodec.decode)
+        .reduce(evolveBuyerOfferPolicy, initialBuyerOfferPolicyState);
+      const pause = {
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: active.version,
+        operationId: "pause_snapshot",
+      } as const;
+      const paused = await runtime.execute("bop_one", pause, context);
+      const stopped = await runtime.execute(
+        "bop_one",
+        {
+          type: "StopBuyerOfferPolicy",
+          expectedVersion: paused.version,
+          operationId: "stop_snapshot",
+        },
+        context,
+      );
+      await runtime.execute(
+        "bop_two",
+        { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create_two" },
+        context,
+      );
+      const otherPreview = await runtime.execute(
+        "bop_two",
+        {
+          type: "PreviewBuyerOfferPolicy",
+          expectedVersion: 1,
+          operationId: "preview_two",
+          terms: { ...terms, offers: [{ ...terms.offers[0]!, offerId: "off_two" }] },
+        },
+        context,
+      );
+      await runtime.execute(
+        "bop_two",
+        {
+          type: "AuthorizeBuyerOfferPolicy",
+          expectedVersion: otherPreview.version,
+          operationId: "authorize_two",
+          previewId: otherPreview.preview!.previewId,
+          consent: true,
+        },
+        context,
+      );
+      const stoppedEvents = await store.readStream({ streamId: "marketplace.offer-policy-bop_one" });
+      const stoppedState = stoppedEvents
+        .map(buyerOfferPolicyCodec.decode)
+        .reduce(evolveBuyerOfferPolicy, initialBuyerOfferPolicyState);
+      const rows =
+        projection === "absent"
+          ? []
+          : [
+              {
+                state: projection === "fresh" ? stoppedState : projectedState,
+                last_stream_version: projection === "fresh" ? stopped.version : active.version,
+              },
+            ];
+      if (projection === "lagging" || projection === "fresh") {
+        const otherEvents = await store.readStream({ streamId: "marketplace.offer-policy-bop_two" });
+        rows.push({
+          state: otherEvents
+            .map(buyerOfferPolicyCodec.decode)
+            .reduce(evolveBuyerOfferPolicy, initialBuyerOfferPolicyState),
+          last_stream_version: otherEvents.length,
+        });
+      }
+      db.query.mockResolvedValue({ rows, rowCount: rows.length } as never);
+      const list = await runtime.list("acc_buyer", "", 100, ["off_one", "off_two", "off_foreign", "off_missing"]);
+      expect(list.items.map((item) => [item.policyId, item.status])).toEqual([
+        ["bop_one", "stopped"],
+        ["bop_two", "active"],
+      ]);
+      expect(list.offerVersions).toEqual({ off_one: 2, off_two: 2 });
+      expect(list.items[0]).toEqual(stopped);
+      expect(await runtime.execute("bop_one", pause, context)).toEqual(stopped);
+      const page = await runtime.list("acc_buyer", "bop_one", 1, ["off_one", "off_two"]);
+      expect(page.items.map((item) => item.policyId)).toEqual(["bop_two"]);
+      expect(page.nextCursor).toBe("bop_two");
+    },
+  );
+  it("reports interleaved Offer drift as stale_preview without rewriting consent-bound terms or appending", async () => {
+    const { runtime, store } = await fixture();
+    const active = await activate(runtime);
+    const paused = await runtime.execute(
+      "bop_one",
+      {
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: active.version,
+        operationId: "pause_drift",
+      },
+      context,
+    );
+    await store.appendToStream({
+      streamId: "marketplace.offer-off_one",
+      expectedVersion: 2,
+      context,
+      events: [
+        {
+          eventType: "marketplace.offer.price-updated",
+          payload: {
+            offerId: "off_one",
+            buyerAccountId: "acc_buyer",
+            priceAmount: "11.00",
+            priceCurrencyCode: "USD",
+          },
+        },
+      ],
+    });
+    const before = await store.readAll();
+    await expect(
+      preview(
+        runtime,
+        { ...terms, offers: [{ ...terms.offers[0]!, offerVersion: paused.offerVersions.off_one! }] },
+        paused.version,
+        "stale_resume",
+      ),
+    ).rejects.toMatchObject({
+      code: "stale_preview",
+      message: "Offer selection is stale. Request a fresh preview.",
+    });
+    expect(await store.readAll()).toEqual(before);
+    const refreshed = await runtime.get("bop_one", "acc_buyer");
+    expect(refreshed.offerVersions).toEqual({ off_one: 3 });
+    expect(refreshed.authority).toEqual(active.authority);
+  });
+  it("accepts identical nested evidence after JSONB changes object key order", async () => {
+    const { store, db } = await fixture();
+    let reordered = false;
+    const runtime = createBuyerOfferPolicyRuntime({
+      eventStore: store,
+      db,
+      enforcement: { assertInstalled() {} },
+      managedOfferPricing: {
+        evaluateTargets: async (requests) =>
+          requests.map(() => ({
+            status: "target" as const,
+            unitItemAmount: "10.00",
+            evidence: {
+              marketPrice: reordered
+                ? { freshUntil: "2026-09-29T00:00:00.000Z", estimateVersion: "1", amount: "10.00" }
+                : { amount: "10.00", estimateVersion: "1", freshUntil: "2026-09-29T00:00:00.000Z" },
+            },
+          })),
+      },
+    });
+    const p = await preview(runtime);
+    reordered = true;
+    expect(
+      (
+        await runtime.execute(
+          "bop_one",
+          {
+            type: "AuthorizeBuyerOfferPolicy",
+            operationId: "reordered",
+            expectedVersion: p.version,
+            previewId: p.preview!.previewId,
+            consent: true,
+          },
+          context,
+        )
+      ).status,
+    ).toBe("active");
+  });
+  it("previews target and held evidence at draft revision 1 and binds every price-only/evidence change", async () => {
+    const { store, db } = await fixture();
+    await seedOffer(store, "off_two");
+    let amount = "12.00";
+    let estimateVersion = "1";
+    const evaluateTargets = vi.fn(
+      async (requests: readonly { policyRevision: number; evaluatedAt: string }[]): Promise<ManagedOfferTarget[]> => {
+        expect(requests.every((request) => request.policyRevision === 1)).toBe(true);
+        return requests.map((request, index) =>
+          index === 0
+            ? {
+                status: "target",
+                unitItemAmount: amount,
+                evidence: {
+                  marketPrice: { amount, estimateVersion, freshUntil: "2026-09-29T00:00:00.000Z" },
+                  evaluatedAt: request.evaluatedAt,
+                },
+              }
+            : {
+                status: "held",
+                reason: "market-price-unavailable",
+                evidence: { marketPrice: null, evaluatedAt: request.evaluatedAt },
+              },
+        );
+      },
+    );
+    const runtime = createBuyerOfferPolicyRuntime({
+      eventStore: store,
+      db,
+      managedOfferPricing: { evaluateTargets },
+      enforcement: { assertInstalled() {} },
+    });
+    const selected = { ...terms, offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }] };
+    const p = await preview(runtime, selected);
+    expect(p.preview!.outcomes).toMatchObject([
+      {
+        offerId: "off_one",
+        currentUnitItemAmount: "10.00",
+        result: { status: "target", unitItemAmount: "12.00", evidence: { marketPrice: { estimateVersion: "1" } } },
+      },
+      {
+        offerId: "off_two",
+        result: { status: "held", reason: "market-price-unavailable", evidence: { marketPrice: null } },
+      },
+    ]);
+    expect(evaluateTargets).toHaveBeenCalledTimes(1);
+    const command = {
+      type: "AuthorizeBuyerOfferPolicy",
+      expectedVersion: p.version,
+      previewId: p.preview!.previewId,
+      operationId: "evidence_authorize",
+      consent: true,
+    } as const;
+    amount = "13.00";
+    await expect(runtime.execute("bop_one", command, context)).rejects.toMatchObject({ code: "stale_preview" });
+    amount = "12.00";
+    estimateVersion = "2";
+    await expect(runtime.execute("bop_one", command, context)).rejects.toMatchObject({ code: "stale_preview" });
+    estimateVersion = "1";
+    expect((await runtime.execute("bop_one", command, context)).status).toBe("active");
+  });
+  it("keeps owner reads free of retired limits across acceptance, pause, fresh consent, resume and stop", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     const accepted = await f.acceptance();
     const outcome = await f.offers.acceptOffer(accepted, context);
     const paused = await f.policies.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: 4, operationId: "pause" },
+      { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" },
       context,
     );
     const fresh = await f.policies.execute(
@@ -22,7 +397,6 @@ describe("Buyer Offer Policy authoritative runtime", () => {
         operationId: "resume_preview",
         terms: {
           ...terms,
-          itemCommitmentAllowance: "40.00",
           offers: [{ ...terms.offers[0]!, offerId: "off_two", offerVersion: 2 }],
         },
       },
@@ -41,8 +415,6 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     );
     expect(resumed).toMatchObject({
       status: "active",
-      consumedItemAmount: "20.00",
-      remainingItemAllowance: "20.00",
       revision: 2,
     });
     const stopped = await f.policies.execute(
@@ -50,7 +422,12 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       { type: "StopBuyerOfferPolicy", expectedVersion: resumed.version, operationId: "stop" },
       context,
     );
-    expect(stopped).toMatchObject({ status: "stopped", consumedItemAmount: "20.00" });
+    expect(stopped).toMatchObject({ status: "stopped" });
+    for (const owner of [await f.policies.get("bop_one", "acc_buyer"), paused, fresh, resumed, stopped]) {
+      expect(owner).not.toHaveProperty("consumedItemAmount");
+      expect(owner).not.toHaveProperty("remainingItemAllowance");
+      expect(owner.authority).not.toHaveProperty("itemCommitmentAllowance");
+    }
     expect(await f.offers.acceptOffer(accepted, context)).toEqual(outcome);
   });
   it("authorizes the complete 100-Offer bound, including the last selection", async () => {
@@ -104,7 +481,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     ["positive adjustment", { ...terms, adjustmentBps: 1 }],
     ["excess discount", { ...terms, adjustmentBps: -2501 }],
     ["fractional adjustment", { ...terms, adjustmentBps: -1.5 }],
-    ["allowance overflow", { ...terms, itemCommitmentAllowance: "10000000000.00" }],
+    ["retired field", { ...terms, itemCommitmentAllowance: "100.00" }],
   ])("rejects %s with no events, even with a stale projection", async (_name, invalid) => {
     const { runtime, store, db } = await fixture();
     await seedOffer(store, "off_foreign", "acc_other");
@@ -238,7 +615,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
   it("concurrent preview revision invalidates old consent", async () => {
     const { runtime, store } = await fixture();
     const p = await preview(runtime);
-    await preview(runtime, { ...terms, itemCommitmentAllowance: "200.00" }, p.version, "revision");
+    await preview(runtime, { ...terms, adjustmentBps: -100 }, p.version, "revision");
     const before = await store.readAll();
     await expect(
       runtime.execute(
@@ -337,11 +714,11 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     expect((await runtime.execute("bop_one", pause, context)).version).toBe(4);
     const p = await preview(
       runtime,
-      { ...terms, itemCommitmentAllowance: "200.00", offers: [{ ...terms.offers[0]!, offerVersion: 2 }] },
+      { ...terms, adjustmentBps: -100, offers: [{ ...terms.offers[0]!, offerVersion: 2 }] },
       4,
       "resume_preview",
     );
-    expect(p.authority!.itemCommitmentAllowance).toBe("100.00");
+    expect(p.authority!.adjustmentBps).toBe(0);
     const resume = {
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: p.version,
@@ -362,7 +739,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     await runtime.list("acc_buyer", "bop_before", 10);
     expect(db.query).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining("buyer_account_id = $1 AND policy_id > $2"),
-      ["acc_buyer", "bop_before", 10],
+      ["acc_buyer", "bop_before", 10, []],
     );
     await expect(runtime.list("acc_buyer", "", 101)).rejects.toThrow();
   });

@@ -6,10 +6,8 @@ import {
   type NotificationChannelAdapter,
   type NotificationPreferenceResolver,
 } from "@chase-sets/outbound-messaging";
-import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
-  createObjectStorageTcgplayerMarketCaptureReceiptSink,
   createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
@@ -26,8 +24,11 @@ import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
+  InventoryServices,
 } from "@chase-sets/inventory/server";
+import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
+import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -79,7 +80,10 @@ import {
 import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/platform-runtime/projection-push-migration";
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
-import { collectRetentionSweepTargets } from "@chase-sets/platform-runtime/retention-sweep";
+import {
+  collectRetentionSweepTargets,
+  createRetentionSweepLogObserver,
+} from "@chase-sets/platform-runtime/retention-sweep";
 import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { closeContextPools } from "@chase-sets/platform-runtime/context-pools";
 import {
@@ -102,6 +106,11 @@ import {
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
+  listConsumedEventTypes,
+  PLATFORM_WORKER_KIND,
+  WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY,
+} from "@chase-sets/platform-runtime/worker-event-capability";
+import {
   createRuntimeLifecycleRegistry,
   runWithRuntimeLifecycleTimeout,
 } from "@chase-sets/platform-runtime/runtime-lifecycle";
@@ -110,7 +119,10 @@ import {
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
+  recordDiscoverySearchQuerySignal,
+  recordDiscoveryQueryEmbeddingLoad,
   recordProjectionInterestIndexLookup,
+  recordProjectionStatus,
   recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeRelayCatchUp,
@@ -135,7 +147,11 @@ import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
-import { createRegisteredScheduledRunners } from "./scheduled-runners";
+import {
+  createInventoryProductResolutionMaintenanceRunners,
+  createRegisteredScheduledRunners,
+  createSupportEvidenceCleanupHostPort,
+} from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
 import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
@@ -147,7 +163,7 @@ import {
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
 const config = loadConfig();
-const workerKind = "platform-worker";
+const workerKind = PLATFORM_WORKER_KIND;
 const platformWorkerGroupsEnabled = config.runtimeProfile !== "landing";
 const pools = createPlatformWorkerPools(config);
 await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
@@ -228,20 +244,6 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
-  pool: pools.catalog,
-  config: config.tcgplayerAutomation,
-  keyring: config.catalogOperatorSessionKeyring,
-});
-const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
-const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(
-  {
-    pool: pools.catalog,
-    config: config.tcgplayerAutomation,
-    keyring: config.catalogOperatorSessionKeyring,
-  },
-  { ownership: "pricing-non-window" },
-)?.httpClients;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
@@ -258,8 +260,6 @@ const commercialTermsResolver = pools["commercial-terms"]
   : undefined;
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
-      tcgplayerMarketTransport: pricingTcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
-      tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
       channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
         const services = runtime?.services.channels;
@@ -295,13 +295,23 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
 
   return createDraft(params, context);
 };
+const inventoryDraftListingConsumer = createPlatformWorkerInventoryDraftListingConsumer(
+  () => runtime?.services.marketplace as MarketplaceServices | undefined,
+);
 
+const identityHostPorts = {
+  capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+} satisfies Pick<import("@chase-sets/identity/server").IdentityHostPorts, "capabilityAdministrationAuthority">;
+const supportEvidenceCleanupHostPort = createSupportEvidenceCleanupHostPort(config, logger);
 const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation) =>
   createWorkerHost(workerContextRegistry, "platform-worker", {
     pools,
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      inventoryDraftListingConsumer,
+      ...identityHostPorts,
+      ...supportEvidenceCleanupHostPort,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
       processorGateway: paymentProcessorGateway,
       moneyMovementGateway,
@@ -309,7 +319,6 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       postageLabelProvider,
       addressVerificationProvider: postageLabelProvider,
       catalogAssetStorage,
-      ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
       ...(pricingHostPorts ?? {}),
       sourceObservationTelemetry,
       evidenceWindowCorrelation,
@@ -331,7 +340,16 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       marketplaceChannelInboundClamp,
       channelCredentialKeyring: config.channelCredentialKeyring,
       ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
+      storageLocationAuthority: {
+        resolve: pools.inventory
+          ? createStorageLocationAuthority(pools.inventory).resolveStorageLocationAuthority
+          : async () => null,
+      },
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
+      searchTelemetry: {
+        recordSearchQuery: recordDiscoverySearchQuerySignal,
+        recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+      },
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },
   });
@@ -435,7 +453,7 @@ const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   retryBackoffMaxMs: config.projectionOperations.retryBackoffMaxMs,
   leaseAcquireTimeoutMs: config.projectionOperations.leaseAcquireTimeoutMs,
   workSignalStore,
-  observer: createWorkerObserver(logger, workerKind),
+  observer: createWorkerObserver(logger, workerKind, undefined, recordProjectionStatus),
 });
 const inventoryImportJobRunners = platformWorkerGroupsEnabled
   ? createInventoryJobRunners(runtime.services, config)
@@ -472,24 +490,7 @@ const scheduledJobRunners = platformWorkerGroupsEnabled
         }),
         retentionSweep: () => ({
           targets: collectRetentionSweepTargets(runtime, pools.control),
-          observer: {
-            sweepCompleted: (event) => {
-              if (event.deleted > 0) {
-                logger.info("Retention sweep completed.", {
-                  type: "retention.sweep.completed",
-                  ...event,
-                });
-              }
-            },
-            sweepFailed: (event) =>
-              logger.error("Retention sweep failed; it will retry on its next interval.", {
-                type: "retention.sweep.failed",
-                contextName: event.contextName,
-                sweepName: event.sweepName,
-                tableName: event.tableName,
-                error: event.error instanceof Error ? event.error.message : String(event.error),
-              }),
-          },
+          observer: createRetentionSweepLogObserver(logger),
         }),
       }),
       ...(isChannelsServices(runtime.services.channels)
@@ -575,7 +576,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
-    observer: createWorkerObserver(logger, workerKind, group.name),
+    observer: createWorkerObserver(logger, workerKind, group.name, recordProjectionStatus),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
         type: "platform-worker.runner.failed",
@@ -739,6 +740,8 @@ void projectionWakeRelaySupervisor?.done.catch((error: unknown) => {
   });
 });
 const runnerCount = runnerGroups.reduce((total, group) => total + group.runners.length, 0);
+// Producers of event types newly added to existing subscriptions admit writes only once every live worker reads them.
+const consumedEventTypes = listConsumedEventTypes(runtime.subscriptionRunners);
 const runnerCapacity = summarizeRunnerCapacity(config.pool.max, runnerGroupCapacityInputs(runnerGroups));
 const getDatabasePoolPressure = () => summarizeDatabasePoolPressure(config.pool.max, pools);
 assertRunnerCapacity(runnerCapacity, {
@@ -754,6 +757,7 @@ await runWorkerStartupDatabaseStep("record initial worker heartbeat", () =>
     metadata: {
       runtimeProfile: config.runtimeProfile,
       runnerCount,
+      [WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY]: consumedEventTypes,
       runnerGroups: runnerGroupMetadata(runnerGroups),
       runnerCapacity,
       databasePoolPressure: getDatabasePoolPressure(),
@@ -769,6 +773,7 @@ const heartbeatTimer = setInterval(
         metadata: {
           runtimeProfile: config.runtimeProfile,
           runnerCount,
+          [WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY]: consumedEventTypes,
           runnerGroups: runnerGroupMetadata(runnerGroups),
           runnerCapacity,
           databasePoolPressure: getDatabasePoolPressure(),
@@ -1496,43 +1501,38 @@ function createInventoryJobRunners(
     | "inventoryImportBatchJobMaxActiveClaimsPerJob"
   >,
 ): readonly WorkerRunner[] {
-  const inventory = services.inventory as
-    | {
-        importBatches?: {
-          processNextImportBatchJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-      }
-    | undefined;
+  const inventory = services.inventory as InventoryServices | undefined;
   const processNextImportBatchJob = inventory?.importBatches?.processNextImportBatchJob;
+  const processNextProductResolutionMaintenanceJob =
+    inventory?.importBatches?.processNextImportProductResolutionMaintenanceJob;
 
-  if (!processNextImportBatchJob) {
+  if (!processNextImportBatchJob && !processNextProductResolutionMaintenanceJob) {
     return [];
   }
 
-  return createDurableJobLaneRunners({
-    workflowName: "inventory.import-batch-jobs",
-    laneCount: input.inventoryImportBatchJobLaneCount,
-    runLane: async (lane) => ({
-      processed: await processNextImportBatchJob({
-        claimOwnerId: `${input.workerId}:${lane.laneName}`,
-        claimTtlMs: input.leaseTtlMs * 4,
-        workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
-        jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
-        laneName: lane.laneName,
-        signal: lane.runnerContext?.signal,
-        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+  const runners: WorkerRunner[] = [];
+  if (processNextImportBatchJob) {
+    runners.push(
+      ...createDurableJobLaneRunners({
+        workflowName: "inventory.import-batch-jobs",
+        laneCount: input.inventoryImportBatchJobLaneCount,
+        runLane: async (lane) => ({
+          processed: await processNextImportBatchJob({
+            claimOwnerId: `${input.workerId}:${lane.laneName}`,
+            claimTtlMs: input.leaseTtlMs * 4,
+            workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
+            jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
+            laneName: lane.laneName,
+            signal: lane.runnerContext?.signal,
+            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+          }),
+          lastGlobalPosition: "0" as never,
+        }),
       }),
-      lastGlobalPosition: "0" as never,
-    }),
-  });
+    );
+  }
+  runners.push(...createInventoryProductResolutionMaintenanceRunners(services, input));
+  return runners;
 }
 
 function createGoogleShoppingJobRunners(

@@ -10,10 +10,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as pricingModule } from "../../../index";
 import { providerCaptureId, type ProviderObservationCapture } from "../domain/provider-observation-mapper";
 import { listProviderSaleEvidence } from "../read-model/provider-observation-queries";
-import {
-  commitProviderObservationCapture,
-  type MarketCaptureWorkItem,
-} from "../read-model/provider-observation-writes";
+import { commitProviderObservationCapture } from "../read-model/provider-observation-writes";
 import { generateSyntheticProviderObservationFixture } from "./fixtures/provider-observations/generate-fixture";
 import { captureSourceMutants, expectSourceMutantRed } from "./source-mutant-test-support";
 
@@ -22,7 +19,7 @@ if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is re
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 
 type CommitCapture = typeof commitProviderObservationCapture;
-type WritesModule = Readonly<{ commitProviderObservationCapture: CommitCapture }>;
+type WritesModule = typeof import("../read-model/provider-observation-writes");
 
 describeDb("provider sale occurrence identity and immutable replay", () => {
   let pool: PgTransactionalPool;
@@ -37,7 +34,7 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
   });
   afterAll(async () => closeMultiContextTestPools({ pricing: pool }));
 
-  it("reuses a byte-identical same-id replay without child append or cursor advance", async () => {
+  it("reuses a byte-identical same-id replay without child append or cursor access", async () => {
     await replayScenario(pool, commitProviderObservationCapture);
   });
 
@@ -52,15 +49,15 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
 
   it("rejects conflicting immutable header content and consolidates different captures by maximum", async () => {
     const first = compactCapture(2);
-    await commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:700000001", 1), first);
+    await commitProviderObservationCapture(pool, first);
 
     await expect(
-      commitProviderObservationCapture(pool, "tcgplayer", work("product:700000001", 1, "", 2), {
+      commitProviderObservationCapture(pool, {
         ...first,
         header: { ...first.header, recordedSignalCount: 99 },
       }),
     ).rejects.toThrow("capture-immutable-conflict");
-    await expect(cursor(pool)).resolves.toEqual({ after_external_key: "product:700000001", generation: "1" });
+    await expect(cursor(pool)).resolves.toBeUndefined();
 
     const secondStartedAt = "2026-09-02T15:00:00.000Z";
     const secondId = providerCaptureId(
@@ -79,9 +76,7 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
       },
       sales: first.sales.map((row) => ({ ...row, captureId: secondId, observedOccurrenceCount: 3 })),
     };
-    await expect(
-      commitProviderObservationCapture(pool, "tcgplayer", work("product:700000001", 1, "", 2), second),
-    ).resolves.toBe("committed");
+    await expect(commitProviderObservationCapture(pool, second)).resolves.toBe("committed");
 
     const evidence = await listProviderSaleEvidence(pool, {
       providerKey: "tcgplayer",
@@ -100,7 +95,7 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
 
 async function replayScenario(pool: PgTransactionalPool, commit: CommitCapture) {
   const capture = compactCapture(2);
-  await expect(commit(pool, "tcgplayer", work("", 0, "product:700000001", 1), capture)).resolves.toBe("committed");
+  await expect(commit(pool, capture)).resolves.toBe("committed");
   const before = await durableState(pool);
 
   const reordered = {
@@ -110,16 +105,14 @@ async function replayScenario(pool: PgTransactionalPool, commit: CommitCapture) 
     snapshots: [...capture.snapshots].reverse(),
     askDepth: [...capture.askDepth].reverse(),
   };
-  await expect(commit(pool, "tcgplayer", work("product:700000001", 1, "", 2), reordered)).resolves.toBe("replayed");
+  await expect(commit(pool, reordered)).resolves.toBe("replayed");
   expect(await durableState(pool), "F5:reordered-replay-state").toEqual(before);
 
   const appendedChildMutant = {
     ...capture,
     sales: [...capture.sales, { ...capture.sales[0]!, saleFingerprint: "synthetic-header-conflict-bypass-mutant" }],
   };
-  await expect(commit(pool, "tcgplayer", work("product:700000001", 1, "", 2), appendedChildMutant)).resolves.toBe(
-    "replayed",
-  );
+  await expect(commit(pool, appendedChildMutant)).resolves.toBe("replayed");
   expect(await durableState(pool), "F5:appended-replay-state").toEqual(before);
 }
 
@@ -131,22 +124,6 @@ function compactCapture(observedOccurrenceCount: number): ProviderObservationCap
     weekly: [],
     snapshots: [],
     askDepth: [],
-  };
-}
-
-function work(
-  afterExternalKey: string,
-  generation: number,
-  nextAfterExternalKey: string,
-  nextGeneration: number,
-): MarketCaptureWorkItem {
-  return {
-    productExternalKey: "product:700000001",
-    productId: 700000001,
-    catalogItemId: "cat_unmistakably_synthetic_provider_fixture",
-    skus: [],
-    expectedCursor: { afterExternalKey, generation },
-    nextCursor: { afterExternalKey: nextAfterExternalKey, generation: nextGeneration },
   };
 }
 

@@ -118,7 +118,6 @@ const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
   "PLATFORM_WORK_SIGNAL_DATABASE_URL",
-  "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
   ...platformApiContextNames().map((contextName) => getContextDatabaseEnvName(contextName)),
   ...platformApiContextNames().map((contextName) => getContextWaiterDatabaseEnvName(contextName)),
 ];
@@ -156,6 +155,7 @@ function resetConfigEnv() {
   delete process.env.VOYAGE_EMBEDDING_MODEL;
   delete process.env.VOYAGE_EMBEDDING_BATCH_SIZE;
   delete process.env.VOYAGE_EMBEDDING_TIMEOUT_MS;
+  delete process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS;
   delete process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS;
   delete process.env.VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS;
   delete process.env.VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS;
@@ -243,12 +243,64 @@ function resetConfigEnv() {
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_DISABLED;
   delete process.env.PROJECTION_INLINE_APPLY_ENABLED;
   delete process.env.CHASE_SETS_CHECKOUT_CLOSED;
+  delete process.env.CHASE_SETS_OFFER_LIFECYCLE_OPEN;
 }
 
 beforeEach(resetConfigEnv);
 afterEach(resetConfigEnv);
 
+describe("release-scoped Capability Administration Authority configuration", () => {
+  afterEach(() => {
+    delete process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON;
+    delete process.env.CHASE_SETS_DEPLOYMENT_INSTANCE;
+    delete process.env.CHASE_SETS_IMPLEMENTATION_SHA;
+  });
+  it("loads effective configuration independently from its declaration scope; malformed values deny all", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/synthetic";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.CHASE_SETS_DEPLOYMENT_INSTANCE = '["support-deployment-instance/v1","preview-9385","release-a"]';
+    process.env.CHASE_SETS_IMPLEMENTATION_SHA = "a".repeat(40);
+    const declaration = {
+      version: 1,
+      environment: "preview",
+      deploymentInstance: process.env.CHASE_SETS_DEPLOYMENT_INSTANCE,
+      authorityId: "support-admin",
+      revision: 1,
+      adminUserIds: ["usr_synthetic"],
+    };
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({ kind: "deny-all" });
+    process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON = JSON.stringify(declaration);
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({
+      kind: "configured",
+      adminUserIds: ["usr_synthetic"],
+    });
+    process.env.CHASE_SETS_DEPLOYMENT_INSTANCE = '["support-deployment-instance/v1","preview-9385","release-b"]';
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({ kind: "deny-all" });
+    process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON = "PLANTED_SECRET";
+    expect(loadConfig().capabilityAdministrationAuthority).toEqual({
+      kind: "deny-all",
+      diagnostic: "authority_invalid",
+    });
+  });
+});
+
 describe("platform api config", () => {
+  it("keeps the online query embedding deadline separate from batch policy", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.VOYAGE_EMBEDDING_TIMEOUT_MS = "60000";
+    process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS = "8";
+    expect(loadConfig().discoverySearchEmbeddings).toMatchObject({
+      timeoutMs: 60_000,
+      maxAttempts: 8,
+      queryTimeoutMs: 800,
+    });
+    process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = "250";
+    expect(loadConfig().discoverySearchEmbeddings.queryTimeoutMs).toBe(250);
+    for (const invalid of ["0", "-1", "NaN", "Infinity", "2147483648"]) {
+      process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = invalid;
+      expect(() => loadConfig()).toThrow("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS");
+    }
+  });
   it("loads the Channels keyring, fails malformed startup, and leaves bootstrap credential-free", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     const previous = process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
@@ -268,38 +320,6 @@ describe("platform api config", () => {
       else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
     }
   });
-  it("loads the optional Catalog operator-session keyring without affecting bootstrap", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
-    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = "";
-    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
-    const keyBase64 = Buffer.alloc(32, 7).toString("base64");
-    const logs = ["log", "error", "warn", "info", "debug"] as const;
-    const spies = logs.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
-    try {
-      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
-        activeKeyId: "synthetic",
-        keys: [{ keyId: "synthetic", keyBase64 }],
-      });
-      expect(loadConfig().catalogOperatorSessionKeyring?.activeKeyId).toBe("synthetic");
-      expect(loadConfig().tcgplayerAutomation).toMatchObject({ auth: { tcgAuthCookie: null } });
-      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = `malformed-synthetic-marker${keyBase64}`;
-      let message = "";
-      try {
-        loadConfig();
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).toBe("invalid-keyring");
-      expect(() => loadBootstrapConfig()).not.toThrow();
-      const output = JSON.stringify({ message, logs: spies.map((spy) => spy.mock.calls) });
-      expect(output).not.toContain("malformed-synthetic-marker");
-      expect(output).not.toContain(keyBase64);
-      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
-    } finally {
-      for (const spy of spies) spy.mockRestore();
-    }
-  });
   it("defaults checkout admission open and parses the explicit closure switch", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     expect(loadConfig().checkoutClosed).toBe(false);
@@ -307,6 +327,12 @@ describe("platform api config", () => {
     expect(loadConfig().checkoutClosed).toBe(true);
     process.env.CHASE_SETS_CHECKOUT_CLOSED = "false";
     expect(loadConfig().checkoutClosed).toBe(false);
+  });
+  it("defaults the Offer lifecycle switch closed and parses the explicit opening", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().offerLifecycleOpen).toBe(false);
+    process.env.CHASE_SETS_OFFER_LIFECYCLE_OPEN = "true";
+    expect(loadConfig().offerLifecycleOpen).toBe(true);
   });
   it("loads the shared database url", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
@@ -1080,35 +1106,20 @@ describe("platform api config", () => {
     expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(120_000);
   });
 
-  it("loads a complete AP2 verifier configuration", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.UCP_AP2_VERIFIER_URL = "https://verifier.example/verify";
-    process.env.UCP_AP2_VERIFIER_AUTH_TOKEN = "verifier-secret";
-    process.env.UCP_AP2_VERIFIER_TIMEOUT_MS = "2400";
-
-    expect(loadConfig().ucpAp2Verifier).toEqual({
-      endpoint: "https://verifier.example/verify",
-      authorizationToken: "verifier-secret",
-      timeoutMs: 2_400,
-    });
-  });
-
-  it("rejects partial AP2 verifier configuration", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.UCP_AP2_VERIFIER_URL = "https://verifier.example/verify";
-
-    expect(() => loadConfig()).toThrow(
-      "UCP_AP2_VERIFIER_URL and UCP_AP2_VERIFIER_AUTH_TOKEN must be configured together.",
-    );
-  });
-
-  it("requires HTTPS for a staging AP2 verifier", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+  it("ignores retired AP2 settings", () => {
+    setSyntheticStripeTestModeEnv();
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
     process.env.UCP_AP2_VERIFIER_URL = "http://verifier.example/verify";
-    process.env.UCP_AP2_VERIFIER_AUTH_TOKEN = "verifier-secret";
+    process.env.UCP_AP2_VERIFIER_TIMEOUT_MS = "not-a-number";
 
-    expect(() => loadConfig()).toThrow("UCP_AP2_VERIFIER_URL must use HTTPS in staging and production.");
+    const config = loadConfig();
+
+    expect(config.deploymentEnvironment).toBe("staging");
+    expect(config).not.toHaveProperty("ucpAp2Verifier");
+    expect(config.ucpBusinessSigningKeys).toBeUndefined();
   });
 
   it("loads social login provider credentials", () => {

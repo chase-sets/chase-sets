@@ -7,6 +7,7 @@ import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 export const chartValuesRelativePath = "infrastructure/helm/platform/values.yaml";
 export const chartStagingValuesRelativePath = "infrastructure/helm/platform/values.staging.yaml";
 export const chartProductionValuesRelativePath = "infrastructure/helm/platform/values.production.yaml";
+export const chartPreviewValuesRelativePath = "infrastructure/helm/platform/values.preview.yaml";
 export const runtimeValuesRelativePath = "infrastructure/helm/platform/runtime-values.json";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
 const platformHelmChartName = "chase-sets-platform";
@@ -24,6 +25,15 @@ const doksIngressTlsSecretName = "chase-sets-platform-doks-tls";
 const previewEnvironmentZone = "preview.chasesets.com";
 const previewPostgresPort = 5432;
 const previewPostgresSecretName = "chase-sets-preview-postgres";
+const previewComponentMemoryRequests = {
+  "public-web": "1024Mi",
+  marketplace: "1152Mi",
+  "admin-web": "832Mi",
+  "platform-api": "640Mi",
+  "platform-worker": "832Mi",
+  "platform-bootstrap": "1152Mi",
+};
+const previewPostgresMemoryRequest = "448Mi";
 // Every preview namespace references this SAME shared *.preview.chasesets.com
 // wildcard certificate secret (copied in before the Helm deploy runs) instead
 // of requesting a per-PR certificate, so the name is a stable constant rather
@@ -44,6 +54,7 @@ export const platformApiIngressPrefixes = [
   "/.well-known",
   "/ucp",
   "/mcp",
+  "/channel-connector",
   "/api/payments/provider/webhooks",
   "/api/settlement/provider/money-movement/webhooks",
   "/api/notifications/provider/email/webhooks",
@@ -90,98 +101,10 @@ const secretEnvFallbacks = new Set([
   "SES_AWS_SECRET_ACCESS_KEY",
   "SES_SOURCE_ARN",
   "OTEL_EXPORTER_OTLP_HEADERS",
-  "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
   "SCRYDEX_API_KEY",
   "SCRYDEX_TEAM_ID",
   "CHASE_SETS_DISCORD_INVITE_URL",
 ]);
-
-const envValueDefaults = {
-  NODE_ENV: "production",
-  PORT: "8080",
-  DEPLOYMENT_ENVIRONMENT: "preview",
-  CHASE_SETS_RUNTIME_PROFILE: "public",
-  READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED: "false",
-  READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED: "false",
-  PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "false",
-  PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "*",
-  DATABASE_POOL_IDLE_TIMEOUT_MS: "5000",
-  DATABASE_POOL_CONNECTION_TIMEOUT_MS: "10000",
-  CHASE_SETS_TRUST_FORWARDED_HEADERS: "true",
-  CHASE_SETS_PUBLIC_INDEXING: "false",
-  CHASE_SETS_M86_DEVELOPER_PORTAL_READY: "false",
-  CHASE_SETS_MARKETPLACE_INDEXING: "false",
-  CHASE_SETS_CHECKOUT_CLOSED: "false",
-  CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX: "30",
-  ADMIN_REGISTRATION_ENABLED: "false",
-  REALTIME_BACKGROUND_MAINTENANCE_ENABLED: "false",
-  REALTIME_WAKE_SIGNAL_ENABLED: "false",
-  CATALOG_ASSET_STORAGE_KIND: "s3",
-  CATALOG_ASSET_S3_BUCKET: "",
-  CATALOG_ASSET_S3_REGION: "nyc3",
-  CATALOG_ASSET_S3_ENDPOINT: "https://nyc3.digitaloceanspaces.com",
-  CATALOG_ASSET_PUBLIC_BASE_URL: "",
-  TAX_PROVIDER_BACKED_QUOTES_REQUIRED: "false",
-  OBSERVABILITY_ENABLED: "false",
-  OTEL_EXPORTER_OTLP_ENDPOINT: "",
-  OTEL_RESOURCE_ATTRIBUTES: "cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=preview",
-  STRIPE_CONNECT_ACCOUNTS_API: "v2",
-  STRIPE_API_BASE_URL: "https://api.stripe.com",
-  EASYPOST_API_BASE_URL: "https://api.easypost.com",
-  EASYPOST_MODE: "test",
-  ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: "",
-  REALTIME_STREAM_LIMITER: "postgres",
-  NOTIFICATION_EMAIL_PROVIDER: "noop",
-  SES_AWS_REGION: "",
-  SES_FROM_EMAIL: "",
-  SES_CONFIGURATION_SET_NAME: "",
-  PLATFORM_ADMIN_DISPLAY_NAME: "Platform Admin",
-  CHASE_SETS_PUBLIC_ORIGIN: "",
-  CHASE_SETS_MARKETPLACE_ORIGIN: "",
-  CHASE_SETS_INTERNAL_API_ORIGIN: platformApiInternalOrigin(),
-  WORKER_MAX_CONCURRENT_RUNNERS: "5",
-  WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "1",
-  WORKER_PROJECTION_OPERATION_RUNNER_COUNT: "1",
-  WORKER_JOB_MAX_CONCURRENT_RUNNERS: "1",
-  WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "2",
-  WORKER_WAKE_HOT_LANE_RUNNER_COUNT: "1",
-  WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "1",
-  WORKER_WAKE_BULK_LANE_RUNNER_COUNT: "1",
-  WORKER_WAKE_STATEMENT_TIMEOUT_MS: "30000",
-  WORKER_PROJECTION_WAKE_RELAY_ENABLED: "false",
-  SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT: "1",
-  SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  CATALOG_AUTHORING_BULK_JOB_LANE_COUNT: "1",
-  CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT: "1",
-  SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT: "1",
-  INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS: "1",
-  INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  PRICING_RECOMMENDATION_JOB_LANE_COUNT: "1",
-  PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT: "1",
-  SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS: "1",
-  WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS: "1",
-  TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS: "250",
-  TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS: "30000",
-  TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS: "2",
-  TCGPLAYER_AUTOMATION_MAX_RETRIES: "3",
-  CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
-  CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
-  CATALOG_INTEGRATION_IMPORTS_DISABLED: "",
-  CATALOG_INTEGRATION_PROMOTION_DISABLED: "",
-  CATALOG_INTEGRATION_REAPPLY_DISABLED: "",
-  CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP: "",
-  CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES: "open",
-};
 
 const databasePoolMaxByComponent = {
   "platform-api": "6",
@@ -586,6 +509,27 @@ export function renderPlatformHelmProductionValues(options = {}) {
   return `${renderYaml(buildPlatformHelmProductionValues(options))}\n`;
 }
 
+export function buildPlatformHelmPreviewValues() {
+  return {
+    global: {
+      previewStackIsolation: true,
+    },
+    components: Object.fromEntries(
+      Object.entries(previewComponentMemoryRequests).map(([name, memory]) => [
+        name,
+        { resources: { requests: { memory } } },
+      ]),
+    ),
+    previewPostgres: {
+      resources: { requests: { memory: previewPostgresMemoryRequest } },
+    },
+  };
+}
+
+export function renderPlatformHelmPreviewValues() {
+  return `${renderYaml(buildPlatformHelmPreviewValues())}\n`;
+}
+
 export function renderPlatformHelmStagingValues() {
   return `${renderYaml(buildPlatformHelmStagingValues())}\n`.replace(
     "  platform-worker:\n",
@@ -766,6 +710,10 @@ export function syncPlatformHelmValues(options = {}) {
     {
       relativePath: chartProductionValuesRelativePath,
       content: renderPlatformHelmProductionValues({ repoRoot: rootDir }),
+    },
+    {
+      relativePath: chartPreviewValuesRelativePath,
+      content: renderPlatformHelmPreviewValues(),
     },
   ];
 

@@ -139,7 +139,7 @@ function createMtgjsonAdapter(options: MtgjsonProviderAdapterOptions = {}): Prov
     async planImport(scope) {
       assertMtgjsonUnit(scope.unitKey);
       const setCode = requireString(
-        scope.values.setCode ?? scope.values.code,
+        scope.values.setCode ?? scope.values.code ?? scope.values.setName,
         "MTGJSON import planning requires setCode.",
       );
 

@@ -22,6 +22,7 @@ import {
   Grid,
   LinkButton,
   ListingCard,
+  LiveRegion,
   Slot,
   NoResultsRecovery,
   PlatformCredibilityCue,
@@ -264,26 +265,38 @@ function buildDynamicAppliedFilters(
   dynamicFilters: readonly DynamicSearchFilterSelection[],
   onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void,
 ) {
-  return dynamicFilters.map((filter) => {
-    const facet = facets.find((entry) => entry.kind === filter.kind && entry.id === filter.id);
-    const value = facet?.values.find((entry) => entry.id === filter.value);
-    const label =
-      facet && value
-        ? t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
-            facet: facet.label,
-            value: value.label,
-          })
-        : t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
-            facet: filter.id,
-            value: filter.value,
-          });
+  return dynamicFilters.map((filter) => ({
+    id: `${filter.kind}:${filter.id}:${filter.value}`,
+    label: dynamicFilterLabel(facets, filter),
+    onRemove: () => onDynamicFilterChange(filter),
+  }));
+}
 
-    return {
-      id: `${filter.kind}:${filter.id}:${filter.value}`,
-      label,
-      onRemove: () => onDynamicFilterChange(filter),
-    };
-  });
+function dynamicFilterLabel(facets: readonly DiscoveryFacetGroup[], filter: DynamicSearchFilterSelection): string {
+  const facet = facets.find((entry) => entry.kind === filter.kind && entry.id === filter.id);
+  const value = facet?.values.find((entry) => entry.id === filter.value);
+  return facet && value
+    ? t("discovery.features.search.ui.searchPage.dynamic.filter.label", { facet: facet.label, value: value.label })
+    : t("discovery.features.search.ui.searchPage.dynamic.filter.label", { facet: filter.id, value: filter.value });
+}
+
+/**
+ * Labels for the filters the URL marks as interpreted that are still applied: a removed chip
+ * leaves its marker key behind but drops out of the notice.
+ */
+function interpretedFilterLabels(
+  interpretedFilters: readonly string[],
+  facets: readonly DiscoveryFacetGroup[],
+  dynamicFilters: readonly DynamicSearchFilterSelection[],
+  languageLabel: string | null,
+): string[] {
+  const marked = new Set(interpretedFilters);
+  return [
+    ...dynamicFilters
+      .filter((filter) => marked.has(`${filter.kind}.${filter.id}`))
+      .map((filter) => dynamicFilterLabel(facets, filter)),
+    ...(languageLabel && marked.has("language") ? [languageLabel] : []),
+  ];
 }
 
 function buildItemDetailHref(slug: string, dynamicFilters: readonly DynamicSearchFilterSelection[]) {
@@ -321,6 +334,8 @@ export interface SearchPageProps {
   inStock: boolean;
   sort: string;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
+  /** Filter params the canonical URL marks as applied from the shopper's words. */
+  interpretedFilters?: readonly string[];
   data: DiscoverySearchResponse | null;
   resultSetKey?: string;
   categories: DiscoveryCategoryItem[];
@@ -359,7 +374,10 @@ export type BulkAddSearchActionData =
       mergedLineCount: number;
       failedLineCount: number;
       requestedLineCount: number;
-    }>;
+      failedLines?: readonly Readonly<{ title: string; message: string | null }>[];
+    }>
+  | Readonly<{ status: "bulk-ambiguous"; preview: DiscoveryBulkCartPreview; attemptId: string }>
+  | Readonly<{ status: "bulk-not-applied"; preview: DiscoveryBulkCartPreview; message: string | null }>;
 
 export type BulkAddSearchState = Readonly<{
   status: "idle" | "submitting";
@@ -367,7 +385,11 @@ export type BulkAddSearchState = Readonly<{
   error?: string | null;
   onPreview: () => void;
   onCommit: () => void;
+  /** Explicitly resends an ambiguous commit under the same attempt id; never automatic. */
+  onResend?: () => void;
 }>;
+
+const BULK_ADD_RESULT_HEADING_ID = "search-bulk-add-result";
 
 function selectedFacetValues(facet: DiscoveryFacetGroup) {
   return facet.values.filter((value) => value.selected);
@@ -397,6 +419,7 @@ export function SearchPage({
   inStock,
   sort,
   dynamicFilters,
+  interpretedFilters = [],
   data,
   resultSetKey,
   categories,
@@ -447,6 +470,8 @@ export function SearchPage({
   const categoryCounts = new Map(data?.category_counts?.map(({ slug, count }) => [slug, count]) ?? []);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
+  // Dismissal hides the notice only; the interpreted filters stay applied.
+  const [dismissedInterpretationNotice, setDismissedInterpretationNotice] = useState<string | null>(null);
   const exactTotal = data?.total ?? 0;
   const featuredCategories = categories.slice(0, 5);
   const activeCategoryLabel =
@@ -510,6 +535,15 @@ export function SearchPage({
     (homeMerchandising.featuredCategories.length > 0 || homeMerchandising.newArrivals.length > 0);
   const canLoadMore = Boolean(data?.nextCursor && onLoadMore);
   const dynamicAppliedFilters = buildDynamicAppliedFilters(data?.facets ?? [], dynamicFilters, onDynamicFilterChange);
+  const interpretationLabels = interpretedFilterLabels(
+    interpretedFilters,
+    data?.facets ?? [],
+    dynamicFilters,
+    language ? activeLanguageLabel : null,
+  );
+  const interpretationNoticeKey = `${committedSearch}\n${interpretedFilters.join(",")}`;
+  const showInterpretationNotice =
+    interpretationLabels.length > 0 && dismissedInterpretationNotice !== interpretationNoticeKey;
   const progressiveFacetLabels = {
     showMoreLabel: t("discovery.features.search.ui.searchPage.facet.option.show.more"),
     showLessLabel: t("discovery.features.search.ui.searchPage.facet.option.show.less"),
@@ -799,7 +833,8 @@ export function SearchPage({
     bulkPreview &&
     !bulkPreview.overLimit &&
     bulkPreview.eligibleCount > 0 &&
-    bulkActionData?.status !== "bulk-added",
+    bulkActionData?.status !== "bulk-added" &&
+    bulkActionData?.status !== "bulk-ambiguous",
   );
 
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
@@ -813,6 +848,9 @@ export function SearchPage({
     }
     if (bulkActionData?.status === "bulk-added") {
       notifyCartCountChanged(bulkActionData.addedLineCount + bulkActionData.mergedLineCount);
+    }
+    if (bulkActionData?.status === "bulk-ambiguous" || bulkActionData?.status === "bulk-not-applied") {
+      globalThis.document?.getElementById(BULK_ADD_RESULT_HEADING_ID)?.focus();
     }
   }, [bulkActionData]);
 
@@ -1019,7 +1057,7 @@ export function SearchPage({
         {error ? (
           <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} />
         ) : null}
-        {bulkAdd?.error ? (
+        {bulkAdd?.error && !(bulkSheetOpen && bulkPreview) ? (
           <Banner
             tone="danger"
             title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
@@ -1031,6 +1069,24 @@ export function SearchPage({
             tone="warning"
             title={t("collections.features.savedLists.ui.addToList.claim.error.title")}
             description={savedListClaim.error}
+          />
+        ) : null}
+        {showInterpretationNotice ? (
+          <Banner
+            tone="info"
+            title={t("discovery.features.search.ui.searchPage.interpretation.applied", {
+              filters: interpretationLabels.join(", "),
+            })}
+            actions={
+              <Button
+                type="button"
+                tone="secondary"
+                size="sm"
+                onClick={() => setDismissedInterpretationNotice(interpretationNoticeKey)}
+              >
+                {t("discovery.features.search.ui.searchPage.interpretation.dismiss")}
+              </Button>
+            }
           />
         ) : null}
 
@@ -1090,6 +1146,12 @@ export function SearchPage({
             />
           ) : data && data.items.length > 0 && !showHomeMerchandising ? (
             <>
+              {data.retrievalMode === "corrected" ? (
+                <Banner
+                  tone="info"
+                  title={t("discovery.features.search.ui.searchPage.close.spellings", { query: committedSearch })}
+                />
+              ) : null}
               {data.retrievalMode === "rescue" ? (
                 <Stack gap={1}>
                   <Heading level={2} visualSize={4}>
@@ -1103,7 +1165,11 @@ export function SearchPage({
                       : t("discovery.features.search.ui.searchPage.closest.matches.semantic.only")}
                   </Text>
                 </Stack>
-              ) : null}
+              ) : (
+                <Heading level={2} visualSize={4}>
+                  {t("discovery.features.search.ui.searchPage.results")}
+                </Heading>
+              )}
               <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
                 {data.items.map((item, index) => {
                   const listingCount = item.market_summary?.active_listing_count ?? 0;
@@ -1341,6 +1407,13 @@ export function SearchPage({
           }
         >
           <Stack gap={4}>
+            {bulkAdd.error ? (
+              <Banner
+                tone="danger"
+                title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
+                description={bulkAdd.error}
+              />
+            ) : null}
             {bulkPreview.overLimit ? (
               <Banner
                 tone="warning"
@@ -1349,6 +1422,47 @@ export function SearchPage({
                   limit: bulkPreview.limit,
                 })}
               />
+            ) : null}
+            {bulkActionData?.status === "bulk-ambiguous" || bulkActionData?.status === "bulk-not-applied" ? (
+              <Stack gap={2}>
+                <Heading level={3} visualSize={5} id={BULK_ADD_RESULT_HEADING_ID} tabIndex={-1}>
+                  {bulkActionData.status === "bulk-ambiguous"
+                    ? t("discovery.features.search.ui.searchPage.bulk.ambiguous.title")
+                    : t("discovery.features.search.ui.searchPage.bulk.not.applied.title")}
+                </Heading>
+                <LiveRegion politeness="polite">
+                  <Text tone="secondary">
+                    {bulkActionData.status === "bulk-ambiguous"
+                      ? t("discovery.features.search.ui.searchPage.bulk.ambiguous.description")
+                      : (bulkActionData.message ??
+                        t("discovery.features.search.ui.searchPage.bulk.not.applied.description"))}
+                  </Text>
+                </LiveRegion>
+                {bulkActionData.status === "bulk-ambiguous" && bulkAdd.onResend ? (
+                  <Inline gap={2}>
+                    <Button type="button" tone="secondary" disabled={bulkBusy} onClick={bulkAdd.onResend}>
+                      {t("discovery.features.search.ui.searchPage.bulk.resend")}
+                    </Button>
+                    <LinkButton href="/account/cart" tone="secondary">
+                      {t("discovery.features.search.ui.searchPage.review.cart")}
+                    </LinkButton>
+                  </Inline>
+                ) : null}
+              </Stack>
+            ) : null}
+            {bulkActionData?.status === "bulk-added" && (bulkActionData.failedLines?.length ?? 0) > 0 ? (
+              <Stack gap={1}>
+                {bulkActionData.failedLines!.map((line, index) => (
+                  <Text key={`${line.title}-${index}`} size="sm">
+                    {line.message
+                      ? t("discovery.features.search.ui.searchPage.bulk.failed.line", {
+                          title: line.title,
+                          message: line.message,
+                        })
+                      : line.title}
+                  </Text>
+                ))}
+              </Stack>
             ) : null}
             {bulkActionData?.status === "bulk-added" ? (
               <Banner

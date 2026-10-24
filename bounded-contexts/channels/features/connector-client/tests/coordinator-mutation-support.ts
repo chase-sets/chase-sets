@@ -1,0 +1,187 @@
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import ts from "@chase-sets/typescript-compiler-api";
+import * as validation from "../../outbound-sync/domain/validation";
+import * as protocol from "../domain/operation-protocol";
+import * as journal from "../integrations/connector-indexeddb";
+import * as retention from "../domain/raw-export-record";
+import * as handoff from "../domain/order-pull-handoff";
+import * as execution from "../domain/order-pull-execution";
+import * as liveExportExecution from "../domain/live-export-execution";
+import * as liveExportHandoff from "../domain/live-export-handoff";
+import * as stagedImport from "../domain/staged-import-dispatch";
+import * as stagedImportFit from "../domain/staged-import-fit";
+import * as stagedImportPolicy from "../../connector-feed/domain/staged-import-dispatch-policy";
+import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
+import * as records from "../domain/extension-records";
+import * as codec from "../domain/operation-codec";
+
+type Mutant =
+  | "captured-cancellation-bypass"
+  | "prepare-dispatch"
+  | "report-invalid"
+  | "per-member-batch-transaction"
+  | "completeness-bypass"
+  | "fence-removed"
+  | "replay-guard";
+function replace(source: string, before: string, after: string): string {
+  if (source.split(before).length !== 2) throw new Error(`coordinator-mutant-anchor-moved: ${before}`);
+  return source.replace(before, after);
+}
+export function evaluate(source: string, dependencies: Record<string, unknown>): Record<string, unknown> {
+  const exports: Record<string, unknown> = {};
+  runInNewContext(
+    ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } })
+      .outputText,
+    {
+      exports,
+      structuredClone,
+      URL,
+      URLSearchParams,
+      Request,
+      Response,
+      AbortSignal,
+      TextEncoder,
+      setTimeout,
+      clearTimeout,
+      crypto: globalThis.crypto,
+      require: (specifier: string) => {
+        if (!Object.hasOwn(dependencies, specifier)) throw new Error(`coordinator-mutant-import-unbound: ${specifier}`);
+        return dependencies[specifier];
+      },
+    },
+  );
+  return exports;
+}
+export function mutatedCoordinator(
+  mutant: Mutant,
+): typeof import("../domain/operation-coordinator").createConnectorOperationCoordinator {
+  let source = readFileSync(new URL("../domain/operation-coordinator.ts", import.meta.url), "utf8");
+  let journalModule: unknown = journal;
+  if (mutant === "captured-cancellation-bypass")
+    source = replace(
+      source,
+      'member.state === "prepared"\n            ? outcome([member], "abandoned").outcomes',
+      'true\n            ? outcome([member], "abandoned").outcomes',
+    );
+  if (mutant === "prepare-dispatch") source = replace(source, "if (!prepared.ready)", "if (false)");
+  if (mutant === "per-member-batch-transaction")
+    source = replace(
+      source,
+      "executors.set(executor.key, executor);",
+      'executors.set(executor.key, { ...executor, unit: "operation" });',
+    );
+  if (mutant === "report-invalid")
+    source = replace(
+      source,
+      "claim = await parseOperationClaim(body.reservation, input.connectionId);",
+      'await request(input, "report", { reservationId: "synthetic-invalid-report", outcomes: [] });\nclaim = await parseOperationClaim(body.reservation, input.connectionId);',
+    );
+  if (mutant === "replay-guard")
+    source = replace(
+      source,
+      "const executor = executors.get(reservation.executorKey);",
+      `const executor = executors.get(reservation.executorKey);
+    if (exact.members.some(member => member.state === "outcome-unknown")) {
+      state = await write(input, state, revise(reservation, { phase: "prepared" }), exact.members.map(member => {
+        const { dispatchedAt, unknownReason, receipt, ...retained } = member;
+        return revise(retained, { state: "prepared" });
+      }));
+      reservation = state.reservations.find(row => row.reservationId === reservation.reservationId)!;
+      exact = unit(state, reservation);
+    }`,
+    );
+  if (mutant === "completeness-bypass" || mutant === "fence-removed") {
+    let changed = readFileSync(new URL("../integrations/connector-indexeddb.ts", import.meta.url), "utf8");
+    if (mutant === "completeness-bypass")
+      changed = replace(changed, "rows.some((values, index) => counts[index] !== values.length)", "false");
+    else {
+      changed = replace(changed, "canonicalJson(expected) !== canonicalJson(result)", "false");
+      changed = replace(changed, "prior ? row.revision !== prior.revision + 1 : row.revision !== 0", "false");
+    }
+    journalModule = evaluate(changed, {
+      "../../outbound-sync/domain/validation": validation,
+      "../domain/raw-export-record": retention,
+      "../domain/operation-protocol": protocol,
+      "../domain/order-pull-handoff": handoff,
+      "../domain/live-export-handoff": liveExportHandoff,
+      "../domain/staged-import-dispatch": stagedImport,
+    });
+  }
+  const result = evaluate(source, {
+    "../../outbound-sync/domain/validation": validation,
+    "./raw-export-record": retention,
+    "./order-pull-handoff": handoff,
+    "./order-pull-execution": execution,
+    "./live-export-execution": liveExportExecution,
+    "./staged-import-dispatch": stagedImport,
+    "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
+    "../../outbound-sync/domain/order-pull-codec": pullCodec,
+    "../integrations/connector-indexeddb": journalModule,
+    "./operation-protocol": protocol,
+  });
+  if (typeof result.createConnectorOperationCoordinator !== "function")
+    throw new Error("coordinator-mutant-export-missing");
+  return result.createConnectorOperationCoordinator as typeof import("../domain/operation-coordinator").createConnectorOperationCoordinator;
+}
+
+type SourceEdit = readonly [before: string, after: string];
+function edited(path: string, edits: readonly SourceEdit[]): string {
+  let source = readFileSync(new URL(path, import.meta.url), "utf8");
+  for (const [before, after] of edits) source = replace(source, before, after);
+  return source;
+}
+/** Rebinds the staged-import chain (fit -> dispatch -> journal -> coordinator) with single-anchor source edits. */
+export function mutatedStagedImport(
+  edits: Readonly<{
+    fit?: readonly SourceEdit[];
+    dispatch?: readonly SourceEdit[];
+    journal?: readonly SourceEdit[];
+    coordinator?: readonly SourceEdit[];
+  }>,
+) {
+  const fitModule = evaluate(edited("../domain/staged-import-fit.ts", edits.fit ?? []), {
+    "./extension-records": records,
+    "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
+  }) as unknown as typeof stagedImportFit;
+  const dispatchModule = evaluate(edited("../domain/staged-import-dispatch.ts", edits.dispatch ?? []), {
+    "../../outbound-sync/domain/validation": validation,
+    "./extension-records": records,
+    "./operation-codec": codec,
+    "./staged-import-fit": fitModule,
+    "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
+  }) as unknown as typeof stagedImport;
+  const journalModule = edits.journal
+    ? evaluate(edited("../integrations/connector-indexeddb.ts", edits.journal), {
+        "../../outbound-sync/domain/validation": validation,
+        "../domain/raw-export-record": retention,
+        "../domain/operation-protocol": protocol,
+        "../domain/order-pull-handoff": handoff,
+        "../domain/live-export-handoff": liveExportHandoff,
+        "../domain/staged-import-dispatch": dispatchModule,
+      })
+    : journal;
+  const coordinatorModule = evaluate(edited("../domain/operation-coordinator.ts", edits.coordinator ?? []), {
+    "../../outbound-sync/domain/validation": validation,
+    "./raw-export-record": retention,
+    "./order-pull-handoff": handoff,
+    "./order-pull-execution": execution,
+    "./live-export-execution": liveExportExecution,
+    "./staged-import-dispatch": dispatchModule,
+    "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
+    "../../outbound-sync/domain/order-pull-codec": pullCodec,
+    "../integrations/connector-indexeddb": journalModule,
+    "./operation-protocol": protocol,
+  }) as unknown as typeof import("../domain/operation-coordinator");
+  for (const exported of [
+    fitModule.decodeStagedImportCapturePlan,
+    dispatchModule.prepareStagedImportDispatch,
+    coordinatorModule.createConnectorOperationCoordinator,
+  ])
+    if (typeof exported !== "function") throw new Error("staged-import-mutant-export-missing");
+  return {
+    decodeStagedImportCapturePlan: fitModule.decodeStagedImportCapturePlan,
+    prepareStagedImportDispatch: dispatchModule.prepareStagedImportDispatch,
+    createConnectorOperationCoordinator: coordinatorModule.createConnectorOperationCoordinator,
+  };
+}

@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { acquireHeavySlot } from "../lib/heavy-slot.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const aggregateFixture = "#8A682A80";
+const aggregateFixture = "#80612780";
 const validatorPath = "scripts/check-structure/brand-foil-sites.mjs";
 const aggregatePath = "scripts/check-structure.mjs";
 const runPath = "scripts/check-structure/run.mjs";
@@ -31,6 +31,15 @@ const candidatePaths = [
   "package.json",
   "scripts/check-heavy-slot-coverage.test.mjs",
 ];
+
+export const BRAND_FOIL_PROOF_INPUT_PATHS = Object.freeze([...candidatePaths]);
+export const BRAND_FOIL_PROOF_ENTRY_PATHS = Object.freeze([
+  validatorPath,
+  aggregatePath,
+  runPath,
+  "scripts/check-structure/brand-foil-proof.mjs",
+]);
+
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const git = (root, args) =>
   execFileSync("git", args, {
@@ -92,7 +101,22 @@ export function reconcileIndexedPathRecords(enumerated, staged) {
 }
 
 function readIndexedPaths(root) {
-  const entries = reconcileIndexedPathRecords(git(root, ["ls-files", "-z"]), git(root, ["ls-files", "--stage", "-z"]));
+  const entries = reconcileIndexedPathRecords(
+    execFileSync("git", ["ls-files", "-z"], {
+      cwd: root,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
+    }),
+    execFileSync("git", ["ls-files", "--stage", "-z"], {
+      cwd: root,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
+    }),
+  );
   return entries.map((entry) => {
     const worktreePath = Buffer.concat([Buffer.from(path.resolve(root) + path.sep), entry.pathBytes]);
     if (entry.mode === "100644" || entry.mode === "100755") return { ...entry, bytes: readFileSync(worktreePath) };
@@ -202,7 +226,26 @@ export function withProofClone(candidate, action, log = console.log) {
     git(clone, ["checkout", "--quiet", "--detach", candidate.head]);
     git(clone, ["update-ref", "refs/remotes/origin/main", candidate.base]);
     assert.deepEqual(inspectProofCandidate(clone, clone), { ...candidate, root: realpathSync(clone) });
-    assert.equal(gitText(clone, ["ls-files", "--stage"]), gitText(candidate.root, ["ls-files", "--stage"]));
+    assert.equal(
+      execFileSync("git", ["ls-files", "--stage"], {
+        cwd: clone,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 32 * 1024 * 1024,
+        windowsHide: true,
+      })
+        .toString("utf8")
+        .trim(),
+      execFileSync("git", ["ls-files", "--stage"], {
+        cwd: candidate.root,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 32 * 1024 * 1024,
+        windowsHide: true,
+      })
+        .toString("utf8")
+        .trim(),
+    );
     if (existsSync(path.join(candidate.root, "node_modules")))
       symlinkSync(path.join(candidate.root, "node_modules"), path.join(clone, "node_modules"), "junction");
     return action(clone);

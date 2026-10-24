@@ -101,12 +101,21 @@ export function ChannelDriftPanel({
           />
         ) : (
           <>
+            {detail.salesCoverage === "unverified" ? <Text>{t("channels.drift.sales-unverified")}</Text> : null}
             {detail.runState !== "completed" ? <Text>{t("channels.drift.retained")}</Text> : null}
             {detail.rows.length === 0 ? <Text>{t("channels.drift.empty")}</Text> : null}
             {detail.rows.map((row) => (
               <Stack key={`${row.rowKind}:${row.rowIdentity}`} gap={2}>
                 {row.rowKind === "finding" ? (
-                  <Badge tone="warning">{t("channels.drift.unmapped")}</Badge>
+                  <Badge tone="warning">
+                    {t(
+                      row.flag === "stale-snapshot"
+                        ? "channels.drift.stale-snapshot"
+                        : row.flag === "persistent-sale-gap"
+                          ? "channels.drift.missed-sale"
+                          : "channels.drift.unmapped",
+                    )}
+                  </Badge>
                 ) : (
                   <>
                     <Text>{row.channelListingId}</Text>

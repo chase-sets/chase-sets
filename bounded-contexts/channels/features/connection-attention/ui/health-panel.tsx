@@ -4,13 +4,20 @@ import {
   Card,
   Form,
   HiddenInput,
+  LinkButton,
   MarketplaceNotice,
   NativeSelect,
   Stack,
   Text,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
-import { channelAttentionResolutions, type ChannelConnectionAttention } from "../domain/contracts";
+import {
+  channelAttentionResolutions,
+  connectorAttentionKinds,
+  type ChannelConnectionAttention,
+  type ConnectorAttentionContribution,
+  type ConnectorUnknownOutcome,
+} from "../domain/contracts";
 
 export type ChannelHealthPanelState =
   | Readonly<{ kind: "loading" }>
@@ -25,6 +32,7 @@ const reasonKeys = {
   "provider-rate": "channels.attention.reason.provider-rate",
   "provider-availability": "channels.attention.reason.provider-availability",
   "sale-follow-up": "channels.attention.reason.sale-follow-up",
+  "connector-liveness": "channels.attention.reason.connector-liveness",
 } as const;
 const stateKeys = {
   unknown: "channels.attention.state.unknown",
@@ -70,7 +78,7 @@ export function ChannelConnectionHealthPanel({
             >
               {t(stateKeys[state.data.healthState])}
             </Badge>
-            {state.data.health.length === 0 ? (
+            {state.data.health.length === 0 && !state.data.orders?.count ? (
               <MarketplaceNotice
                 tone="info"
                 title={t("channels.attention.healthy")}
@@ -99,9 +107,107 @@ export function ChannelConnectionHealthPanel({
                 </Form>
               </Stack>
             ))}
+            {state.data.orders?.items.map((order) => (
+              <Stack key={`${order.externalOrderReference}:${order.reason}:${order.generation}`} gap={2}>
+                <Text>{t("channels.attention.orderReference", { reference: order.externalOrderReference })}</Text>
+                <Text>{t(orderReasonKeys[order.reason])}</Text>
+              </Stack>
+            ))}
+            {state.data.orders && state.data.orders.count > 0 && state.data.orders.items.length === 0 ? (
+              <LinkButton href="?">{t("channels.attention.firstOrders")}</LinkButton>
+            ) : null}
+            {state.data.orders?.nextCursor ? (
+              <LinkButton href={`?${new URLSearchParams({ orderCursor: state.data.orders.nextCursor })}`}>
+                {t("channels.attention.moreOrders")}
+              </LinkButton>
+            ) : null}
+            {state.data.connector ? <ConnectorSection connector={state.data.connector} /> : null}
           </>
         )}
       </Stack>
     </Card>
   );
 }
+
+// Unknown outcomes are an instruction only: Chase Sets never retries them, so no row carries a control.
+function ConnectorSection({ connector }: Readonly<{ connector: ConnectorAttentionContribution }>) {
+  const active = connectorAttentionKinds.filter((kind) => {
+    const activity = connector.activity[kind];
+    return activity.lastSucceededAt !== null || activity.queued > 0 || activity.inFlightSince !== null;
+  });
+  return (
+    <Stack gap={2} data-testid="channel-connector-attention">
+      <Text weight="semibold">{t("channels.attention.connector.title")}</Text>
+      {connector.signInNeeded ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("channels.attention.connector.signIn")}
+          description={t("channels.attention.connector.signIn.description")}
+        />
+      ) : null}
+      {connector.unknownOutcomes.length > 0 ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("channels.attention.connector.unknown")}
+          description={t("channels.attention.connector.unknown.description")}
+        />
+      ) : null}
+      {connector.unknownOutcomes.map((outcome) => (
+        <Stack key={outcome.kind} gap={1}>
+          <Badge tone="warning">{t(connectorKindKeys[outcome.kind])}</Badge>
+          <Text>
+            {t("channels.attention.connector.unknown.reference", { idSuffix: outcome.idSuffix, at: outcome.at })}
+          </Text>
+          <Text>{t(connectorReasonKeys[outcome.reason])}</Text>
+        </Stack>
+      ))}
+      {active.length === 0 ? <Text>{t("channels.attention.connector.idle")}</Text> : null}
+      {active.map((kind) => {
+        const activity = connector.activity[kind];
+        return (
+          <Stack key={kind} gap={1}>
+            <Text weight="semibold">{t(connectorKindKeys[kind])}</Text>
+            <Text>
+              {activity.lastSucceededAt
+                ? t("channels.attention.connector.lastSucceeded", { at: activity.lastSucceededAt })
+                : t("channels.attention.connector.notSucceeded")}
+            </Text>
+            <Text>{t("channels.attention.connector.queued", { count: String(activity.queued) })}</Text>
+            {activity.inFlightSince ? (
+              <Text>{t("channels.attention.connector.inFlight", { at: activity.inFlightSince })}</Text>
+            ) : null}
+          </Stack>
+        );
+      })}
+    </Stack>
+  );
+}
+
+const connectorKindKeys = {
+  "live-export": "channels.attention.connector.kind.live-export",
+  "order-pull": "channels.attention.connector.kind.order-pull",
+  "staged-import-batch": "channels.attention.connector.kind.staged-import-batch",
+} as const;
+const connectorReasonKeys = {
+  "authority-unavailable": "channels.attention.connector.reason.authority-unavailable",
+  "session-lost": "channels.attention.connector.reason.session-lost",
+  "download-unproven": "channels.attention.connector.reason.download-unproven",
+  "raw-unreadable": "channels.attention.connector.reason.raw-unreadable",
+  "parse-refused": "channels.attention.connector.reason.parse-refused",
+  "cap-exceeded": "channels.attention.connector.reason.cap-exceeded",
+  "admission-ambiguous": "channels.attention.connector.reason.admission-ambiguous",
+  "budget-exceeded": "channels.attention.connector.reason.budget-exceeded",
+  "completeness-unproven": "channels.attention.connector.reason.completeness-unproven",
+  "recovery-content-changed": "channels.attention.connector.reason.recovery-content-changed",
+  "application-unknown": "channels.attention.connector.reason.application-unknown",
+} as const satisfies Record<ConnectorUnknownOutcome["reason"], string>;
+
+const orderReasonKeys = {
+  "channel-order-unmapped": "channels.attention.orderUnmapped",
+  "channel-order-sale-absent": "channels.attention.orderRecordingRefused",
+  "tcgplayer-order-unmapped": "channels.attention.orderUnmapped",
+  "tcgplayer-order-identity-ambiguous": "channels.attention.orderIdentityAmbiguous",
+  "tcgplayer-order-recording-refused": "channels.attention.orderRecordingRefused",
+  "tcgplayer-order-cancelled": "channels.attention.orderCancelled",
+  "backdated-sale": "channels.attention.orderBackdated",
+} as const;

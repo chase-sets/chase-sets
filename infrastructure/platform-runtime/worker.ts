@@ -119,6 +119,7 @@ export type WorkerRuntimeObserver = Readonly<{
   leaseMissed?: (event: WorkerLeaseEvent) => void;
   leaseRenewFailed?: (event: WorkerLeaseEvent & Readonly<{ error?: unknown }>) => void;
   runnerCompleted?: (event: WorkerRunnerCompletedEvent) => void;
+  projectionStatusObserved?: (status: ContextProjectionGroupStatus) => void;
   runnerFailed?: (event: WorkerRunnerFailedEvent) => void;
   projectionOperationStarted?: (event: WorkerProjectionOperationEvent) => void;
   projectionOperationCompleted?: (event: WorkerProjectionOperationEvent) => void;
@@ -555,6 +556,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduling = false;
   let scheduleAgainAfterCurrentPass = false;
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
+  const retainedProjectionLeases = new Set<HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
   const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
   const refreshableRunners = options.runners.filter((runner) => runner.refreshPriority);
@@ -821,8 +823,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           //   already-satisfied) — the push-wake fast path degrades to the
           //   polling loop's rotation latency, which stretches to minutes
           //   during post-rollout replay.
-          // Busy passes (processed > 0) keep the lease and reschedule
-          // immediately, so backlog draining never churns its lease.
+          // Productive continuations reuse the lease; schedule releases a
+          // retained holder only after selection leaves it inactive.
           if (acquiredLease && shouldYieldIdleProjectionGroupLease(runner, completedResult)) {
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
@@ -830,6 +832,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
             void releaseHeldRunnerLease(acquiredLease, false, "idle").catch((error: unknown) => {
               options.onError?.(error, runner);
             });
+          } else if (acquiredLease && runner.kind === "projection-group" && (completedResult?.processed ?? 0) > 0) {
+            retainedProjectionLeases.add(acquiredLease);
           }
           try {
             if (shouldRescheduleAfterCompletion(runner, completedResult)) {
@@ -965,6 +969,28 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         }
         nextRunnerIndex = (selection.index + 1) % options.runners.length;
         startRunner(selection.runner, "shared");
+      }
+
+      for (const heldLease of retainedProjectionLeases) {
+        if (activeRunnerNames.has(heldLease.runner.name) || !heldLease.leaseActive) {
+          retainedProjectionLeases.delete(heldLease);
+          continue;
+        }
+        // Another runner can share this lease, including one selected above
+        // whose asynchronous acquisition has not incremented activeRunCount yet.
+        if (
+          heldLease.activeRunCount > 0 ||
+          options.runners.some(
+            (runner) =>
+              activeRunnerNames.has(runner.name) && createWorkerRunnerLeaseName(runner) === heldLease.leaseName,
+          )
+        ) {
+          continue;
+        }
+        retainedProjectionLeases.delete(heldLease);
+        void releaseHeldRunnerLease(heldLease, false, "idle").catch((error: unknown) => {
+          options.onError?.(error, heldLease.runner);
+        });
       }
     } finally {
       scheduling = false;
@@ -1257,6 +1283,13 @@ async function runLeasedRunner(
     }
     throwIfLeaseLost();
     const projectionStatusSnapshot = runner.projectionStatusSnapshot?.();
+    if (projectionStatusSnapshot) {
+      try {
+        options.observer?.projectionStatusObserved?.(projectionStatusSnapshot);
+      } catch {
+        // Telemetry must not fail an already-completed projection pass.
+      }
+    }
     options.observer?.runnerCompleted?.({
       ...leaseEvent(options.workerId, runner, lease),
       processed: result.processed,
@@ -1593,7 +1626,15 @@ function createProjectionOperationWorkerRunner(
           }),
           operation.operationId,
         );
-        await runProjectionOperationWithRenewedClaim(runtime, options, operation, ownerId, runningProgress, context);
+        await runProjectionOperationWithRenewedClaim(
+          runtime,
+          options,
+          operation,
+          ownerId,
+          runnerName,
+          runningProgress,
+          context,
+        );
         await requireProjectionOperationClaim(
           options.controlPlane.completeProjectionOperation({
             operationId: operation.operationId,
@@ -1697,6 +1738,7 @@ async function runProjectionOperationWithRenewedClaim(
   options: ProjectionOperationRunnerOptions,
   operation: ProjectionOperationRecord,
   ownerId: string,
+  runnerName: string,
   progress: Record<string, unknown>,
   runnerContext?: ProjectionRunContext,
 ): Promise<void> {
@@ -1771,7 +1813,7 @@ async function runProjectionOperationWithRenewedClaim(
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   try {
-    const workPromise = runProjectionOperation(runtime, options, operation, ownerId, operationContext);
+    const workPromise = runProjectionOperation(runtime, options, operation, ownerId, runnerName, operationContext);
     // If the deadline wins the race, the leaked work promise settles later
     // (or never); mark its eventual rejection as handled so a hung apply path
     // cannot crash the process.
@@ -1803,9 +1845,14 @@ async function runProjectionOperation(
   options: ProjectionOperationRunnerOptions,
   operation: ProjectionOperationRecord,
   ownerId: string,
+  runnerName: string,
   runnerContext?: ProjectionRunContext,
 ): Promise<void> {
   runnerContext?.throwIfLeaseLost?.();
+  // Operation claims remain owned by the worker, while each operation runner
+  // gets its own group-lease owner so a same-worker runner cannot fence a
+  // scheduled pass or another operation runner.
+  const groupLeaseOwnerId = `${ownerId}:${runnerName}`;
 
   if (operation.operationKind === "rebuild-projection-group") {
     const projectionName = requireProjectionOperationField(operation, "projectionName");
@@ -1816,7 +1863,7 @@ async function runProjectionOperation(
           targetContextName: operation.contextName,
           projectionName,
         }),
-        ownerId,
+        ownerId: groupLeaseOwnerId,
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
         acquireTimeoutMs: options.leaseAcquireTimeoutMs,
@@ -1851,7 +1898,7 @@ async function runProjectionOperation(
         options.controlPlane,
         {
           leaseName: createProjectionGroupRunnerLeaseName(group),
-          ownerId,
+          ownerId: groupLeaseOwnerId,
           ttlMs: options.leaseTtlMs,
           renewIntervalMs: options.leaseRenewIntervalMs,
           acquireTimeoutMs: options.leaseAcquireTimeoutMs,
@@ -1890,7 +1937,7 @@ async function runProjectionOperation(
       options.controlPlane,
       {
         leaseName: createProjectionGroupRunnerLeaseName(group),
-        ownerId,
+        ownerId: groupLeaseOwnerId,
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
         acquireTimeoutMs: options.leaseAcquireTimeoutMs,

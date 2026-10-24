@@ -1,22 +1,15 @@
 import { createHash } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { type JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
-import {
-  decideCatalogItem,
-  evolveCatalogItem,
-  initialCatalogItemState,
-  type CatalogItemCommand,
-  type CatalogItemEvent,
-} from "../../catalog-items/domain/domain";
+import type { PromotionTargetPlan, PromotionTargetSession } from "./promotion/promotion-target-exclusion";
+import { guardPromotionMaterial } from "./promotion/promotion-material-guards";
+import type { CatalogPromotionCurrentItem } from "./promotion/promotion-display-identity";
 import type { ProductContentServices } from "../../product-contents/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import {
@@ -29,8 +22,10 @@ import {
   type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationNormalized,
   type SourceObservationOnePieceSetReferenceNormalized,
+  type SourceObservationYugiohSetReferenceNormalized,
   type SourceObservationPromotionProfileEvidence,
 } from "../domain/domain";
+import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import { normalizeTcgdexImageAsset } from "./providers/tcgdex-client";
 import {
   extractApprovedLorcanaImageEvidence,
@@ -39,10 +34,6 @@ import {
 } from "./seeding/product-asset-normalization";
 import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
 import { createPromotionAliasReader } from "./promotion/provider-promotion-alias-reader";
-import {
-  buildTcgplayerAutomationSourceObservationPayload,
-  type TcgplayerAutomationProductDetail,
-} from "./providers/tcgplayer-automation-catalog-client";
 import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -99,10 +90,11 @@ export async function createCatalogDraftFromObservation(input: {
   productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   context: EventStoreContext;
   executeCommands?: boolean;
+  targetSession?: PromotionTargetSession;
+  currentItem?: CatalogPromotionCurrentItem | null;
   /** Explicit review choice; omitted or false fails closed on a degraded identity. */
   promoteAsDraft?: boolean;
 }): Promise<CatalogItemPromotionResult> {
-  const streamId = `catalog.item-${input.catalogItemId}`;
   const { targetReferenceRecordId, referenceRecordIdsByTypeKey } = await resolvePromotionReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
@@ -115,6 +107,14 @@ export async function createCatalogDraftFromObservation(input: {
     normalized: input.normalized,
     targetReferenceRecordId,
   });
+  if (input.targetSession)
+    await guardPromotionMaterial({
+      deps: input.deps,
+      session: input.targetSession,
+      profile: input.providerProfile,
+      mapping: input.catalogMapping,
+      normalized: input.normalized,
+    });
   const productAssetSet = await normalizePromotionProductAssetSet(input);
   const setReferenceId =
     input.normalized.kind === "magic-card-print" ||
@@ -128,6 +128,7 @@ export async function createCatalogDraftFromObservation(input: {
       : undefined;
   const plan = await planCatalogProviderPromotionCommands({
     db: input.deps.db,
+    currentItem: input.currentItem,
     promoteAsDraft: input.promoteAsDraft === true,
     profile: input.providerProfile,
     profileKey: input.providerProfileVersion.profileKey,
@@ -154,12 +155,10 @@ export async function createCatalogDraftFromObservation(input: {
 
   if (input.executeCommands !== false) {
     await executeCatalogItemPromotionCommandPlan({
-      eventStore: input.deps.eventStore,
-      items: input.items,
       productContents: input.productContents,
-      streamId,
       plan,
       context: input.context,
+      targetSession: input.targetSession,
     });
   }
 
@@ -183,10 +182,11 @@ export async function refreshCatalogItemFromObservation(input: {
   productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   context: EventStoreContext;
   executeCommands?: boolean;
+  targetSession?: PromotionTargetSession;
+  currentItem?: CatalogPromotionCurrentItem | null;
   /** Explicit review choice; omitted or false fails closed on a degraded identity. */
   promoteAsDraft?: boolean;
 }): Promise<CatalogItemPromotionResult> {
-  const streamId = `catalog.item-${input.catalogItemId}`;
   const { targetReferenceRecordId, referenceRecordIdsByTypeKey } = await resolvePromotionReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
@@ -199,6 +199,14 @@ export async function refreshCatalogItemFromObservation(input: {
     normalized: input.normalized,
     targetReferenceRecordId,
   });
+  if (input.targetSession)
+    await guardPromotionMaterial({
+      deps: input.deps,
+      session: input.targetSession,
+      profile: input.providerProfile,
+      mapping: input.catalogMapping,
+      normalized: input.normalized,
+    });
   const productAssetSet = await normalizePromotionProductAssetSet(input);
   const setReferenceId =
     input.normalized.kind === "magic-card-print" ||
@@ -219,6 +227,7 @@ export async function refreshCatalogItemFromObservation(input: {
     providerKey: input.providerKey,
     externalKey: input.externalKey,
     mode: "refresh",
+    currentItem: input.currentItem,
     catalogItemId: input.catalogItemId,
     normalized: input.normalized,
     catalog: {
@@ -238,12 +247,10 @@ export async function refreshCatalogItemFromObservation(input: {
 
   if (input.executeCommands !== false) {
     await executeCatalogItemPromotionCommandPlan({
-      eventStore: input.deps.eventStore,
-      items: input.items,
       productContents: input.productContents,
-      streamId,
       plan,
       context: input.context,
+      targetSession: input.targetSession,
     });
   }
 
@@ -267,6 +274,8 @@ export async function previewCatalogItemPromotionPlan(input: {
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   promoteAsDraft: boolean;
+  productAssetSet?: ProductAssetSet | null;
+  currentItem?: CatalogPromotionCurrentItem | null;
 }): Promise<CatalogProviderPromotionCommandPlanResult> {
   const { targetReferenceRecordId } = await resolvePromotionReferenceHierarchyReadOnly({
     deps: input.deps,
@@ -288,6 +297,7 @@ export async function previewCatalogItemPromotionPlan(input: {
     providerKey: input.providerKey,
     externalKey: input.externalKey,
     mode: input.mode,
+    currentItem: input.currentItem,
     catalogItemId: input.catalogItemId,
     normalized: input.normalized,
     catalog: {
@@ -301,7 +311,7 @@ export async function previewCatalogItemPromotionPlan(input: {
         : undefined,
     setReferenceId: setReferenceIdFor(input.normalized, targetReferenceRecordId),
     metadata,
-    productAssetSet: null,
+    productAssetSet: input.productAssetSet ?? null,
     preflight: { status: "ready" },
   });
 }
@@ -310,15 +320,28 @@ function setReferenceIdFor(
   normalized: CatalogItemPromotableSourceObservationNormalized,
   targetReferenceRecordId: ReferenceRecordId,
 ): ReferenceRecordId | undefined {
-  return normalized.kind === "magic-card-print" ||
-    normalized.kind === "magic-sealed-product" ||
-    normalized.kind === "lorcana-card-print" ||
-    normalized.kind === "lorcana-sealed-product" ||
-    normalized.kind === "one-piece-card-print" ||
-    normalized.kind === "one-piece-sealed-product" ||
-    normalized.kind === "yugioh-sealed-product"
-    ? targetReferenceRecordId
-    : undefined;
+  return promotionReferenceFieldKey(normalized.kind) === "set" ? targetReferenceRecordId : undefined;
+}
+
+/** Which mapped Catalog field receives the resolved hierarchy Reference Record for a promotable kind. */
+export function promotionReferenceFieldKey(
+  kind: CatalogItemPromotableSourceObservationNormalized["kind"],
+): "expansion" | "set" | null {
+  switch (kind) {
+    case "pokemon-card":
+    case "pokemon-sealed-product":
+      return "expansion";
+    case "magic-card-print":
+    case "magic-sealed-product":
+    case "lorcana-card-print":
+    case "lorcana-sealed-product":
+    case "one-piece-card-print":
+    case "one-piece-sealed-product":
+    case "yugioh-sealed-product":
+      return "set";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -366,7 +389,8 @@ export function referenceDataPromotionEvidence(input: {
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized;
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): SourceObservationPromotionProfileEvidence {
   return {
@@ -381,7 +405,8 @@ function referenceDataPromotionPlanFingerprint(input: {
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized;
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): string {
   const payload = {
@@ -399,50 +424,21 @@ function referenceDataPromotionPlanFingerprint(input: {
 }
 
 async function executeCatalogItemPromotionCommandPlan(input: {
-  eventStore: EventStore;
-  items: CatalogItemServices;
   productContents: ProductContentServices | null;
-  streamId: string;
   plan: CatalogProviderPromotionCommandPlanResult;
   context: EventStoreContext;
+  targetSession?: PromotionTargetSession;
 }) {
   if (input.plan.status === "blocked") {
     throw new Error(input.plan.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "));
   }
 
-  const commands = input.plan.plan.commands;
-  let completedCommands = 0;
-  let expectedVersion: number | undefined;
-  if (input.plan.plan.mode === "create") {
-    const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
-    const history = (await readCompleteStream(input.eventStore, { streamId: input.streamId })).map(codec.decode);
-    expectedVersion = history.length;
-    let expectedState = initialCatalogItemState;
-    const expectedEvents: CatalogItemEvent[] = [];
-    let matched = history.length === 0;
-    for (const [index, command] of commands.entries()) {
-      const events = decideCatalogItem(expectedState, command);
-      expectedState = events.reduce(evolveCatalogItem, expectedState);
-      expectedEvents.push(...events);
-      if (history.length === expectedEvents.length && isDeepStrictEqual(history, expectedEvents)) {
-        completedCommands = index + 1;
-        matched = true;
-      }
-    }
-    if (!matched) {
-      throw new Error(`promotion-catalog-item-history-invalid:${input.streamId}`);
-    }
-  }
-  for (const command of commands.slice(completedCommands)) {
-    const result = await executeCatalogItemPromotionCommand({
-      items: input.items,
-      streamId: input.streamId,
-      command,
-      context: input.context,
-      expectedVersion,
-    });
-    expectedVersion = result.version;
-  }
+  if (!input.targetSession) throw new Error("promotion-target-exclusion-required");
+  await executeCatalogItemPromotionCommands({
+    targetSession: input.targetSession,
+    plan: input.plan.plan,
+    context: input.context,
+  });
 
   if (input.plan.plan.productContents) {
     if (!input.productContents) {
@@ -452,19 +448,29 @@ async function executeCatalogItemPromotionCommandPlan(input: {
   }
 }
 
-async function executeCatalogItemPromotionCommand(input: {
-  items: CatalogItemServices;
-  streamId: string;
-  command: CatalogItemCommand;
+/**
+ * Every promotion writer's item-command boundary. The bound session folds the
+ * complete target stream and its recorded executions, so a resumed plan in any
+ * mode runs only the commands its exact suffix has not committed, each under a
+ * version check; unrelated or partial suffixes refuse inside `preparePlan`.
+ */
+export async function executeCatalogItemPromotionCommands(input: {
+  targetSession: PromotionTargetSession;
+  plan: PromotionTargetPlan;
   context: EventStoreContext;
-  expectedVersion: number | undefined;
-}) {
-  return input.items.commandHandler({
-    streamId: input.streamId,
-    command: input.command,
-    context: input.context,
-    expectedVersion: input.expectedVersion,
-  });
+}): Promise<void> {
+  const streamId = `catalog.item-${input.plan.catalogItemId}`;
+  const completedCommands = await input.targetSession.preparePlan(input.plan);
+  let expectedVersion: number | undefined;
+  for (const command of input.plan.commands.slice(completedCommands)) {
+    const result = await input.targetSession.commandHandler({
+      streamId,
+      command,
+      expectedVersion,
+      context: input.context,
+    });
+    expectedVersion = result.version;
+  }
 }
 
 async function formatCatalogItemPromotionMetadata(input: {
@@ -498,7 +504,37 @@ export function requirePromotionAssetPorts(input: {
   }
 }
 
-async function normalizePromotionProductAssetSet(input: {
+// A Catalog asset download, processing, or storage failure during promotion
+// (docs/runbooks/catalog-asset-storage.md Failure Policy). It keeps the original
+// message, so a failed outcome's reason is unchanged; the promotion catch reads
+// the class to record the asset-processing-failed diagnostic code.
+export class CatalogAssetStorageError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "CatalogAssetStorageError";
+  }
+}
+
+export async function normalizePromotionProductAssetSet(
+  input: Parameters<typeof storePromotionProductAssetSet>[0],
+): Promise<ProductAssetSet | null> {
+  try {
+    return await storePromotionProductAssetSet(input);
+  } catch (error) {
+    if (
+      error instanceof CatalogAssetStorageError ||
+      error instanceof ProviderSendStoppedError ||
+      isDurableJobHandoffError(error)
+    ) {
+      throw error;
+    }
+    throw new CatalogAssetStorageError(error instanceof Error ? error.message : "Catalog asset processing failed.", {
+      cause: error,
+    });
+  }
+}
+
+async function storePromotionProductAssetSet(input: {
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
   normalized: CatalogItemPromotableSourceObservationNormalized;
@@ -613,7 +649,7 @@ export function capitalize(value: string): string {
 
 function requireCatalogAssetStorage(assetStorage: CatalogRuntimeDeps["assetStorage"]) {
   if (!assetStorage) {
-    throw new Error("Catalog asset storage is required to promote source observation image assets.");
+    throw new CatalogAssetStorageError("Catalog asset storage is required to promote source observation image assets.");
   }
 
   return assetStorage;
@@ -739,7 +775,8 @@ export async function requireReferenceDataPromotionProfileVersion(
   normalized:
     | SourceObservationMagicSetReferenceNormalized
     | SourceObservationLorcanaSetReferenceNormalized
-    | SourceObservationOnePieceSetReferenceNormalized,
+    | SourceObservationOnePieceSetReferenceNormalized
+    | SourceObservationYugiohSetReferenceNormalized,
   selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const profile = selector
@@ -891,38 +928,11 @@ export function prepareProviderAdapterSourceObservationPayload(input: {
     };
   }
 
-  if (input.providerProfile.connector.kind !== "tcgplayer-automation-client") {
-    return { kind: "payload", payload: input.payload };
+  if (input.providerProfile.providerKey === "tcgplayer") {
+    return { kind: "failure", reason: "TCGplayer server transport is retired; use the browser handoff." };
   }
 
-  if (!isJsonRecord(input.payload)) {
-    return { kind: "failure", reason: "TCGplayer adapter returned an invalid product detail payload." };
-  }
-
-  if (input.payload.kind === "product-detail-failure") {
-    return {
-      kind: "failure",
-      reason: typeof input.payload.reason === "string" ? input.payload.reason : "TCGplayer product detail failed.",
-    };
-  }
-
-  if (input.payload.kind !== "product-detail" || !isJsonRecord(input.payload.detail)) {
-    return { kind: "failure", reason: "TCGplayer adapter returned an unsupported product payload." };
-  }
-
-  const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
-  if (!selectedOptionMapping) {
-    return { kind: "failure", reason: "TCGplayer import profile must define selected option mapping." };
-  }
-
-  return {
-    kind: "payload",
-    payload: buildTcgplayerAutomationSourceObservationPayload({
-      detail: input.payload.detail as TcgplayerAutomationProductDetail,
-      selectedOptionMapping,
-      externalReferenceRules: input.providerProfile.externalReferenceExtractionRules.rules,
-    }),
-  };
+  return { kind: "payload", payload: input.payload };
 }
 
 export async function defaultSourceObservationImportProviderKey(

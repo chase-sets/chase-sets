@@ -9,6 +9,7 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
+import type { InventoryServices } from "@chase-sets/inventory/server";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { isChannelsServices } from "@chase-sets/channels/server";
@@ -25,7 +26,19 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformWorkerContextsForRuntimeProfile } from "../src/config";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
-import { createRegisteredScheduledRunners, type RegisteredScheduledRunnerConfig } from "../src/scheduled-runners";
+import {
+  createInventoryProductResolutionMaintenanceRunners,
+  createRegisteredScheduledRunners,
+  createSupportEvidenceCleanupHostPort,
+  type RegisteredScheduledRunnerConfig,
+} from "../src/scheduled-runners";
+import {
+  attachmentOperationStreamId,
+  createAttachmentManifest,
+  parseSupportEvidenceCleanupBinding,
+  type PlatformOperationsServices,
+} from "@chase-sets/platform-operations/server";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
 import {
   createFakeMoneyMovementGateway,
@@ -39,13 +52,12 @@ if (!adminDatabaseUrl && process.env.CI) {
 }
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
-const EXPECTED_REGISTERED_RUNNER_COUNT = 28;
+// 34 factory sites, minus the legacy postage-purchase fallback, plus cleanup and retention.
+const EXPECTED_REGISTERED_RUNNER_COUNT = 34;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies PricingHostPorts;
@@ -55,7 +67,9 @@ const scheduledRunnerConfig: RegisteredScheduledRunnerConfig = {
   leaseTtlMs: 30_000,
   paymentReconciliationIntervalMs: 1,
   paymentDeadlineSweepIntervalMs: 1,
+  channelsConnectorLivenessSweepIntervalMs: 1,
   supportRequestDeadlineSweepIntervalMs: 1,
+  supportEvidenceCleanupIntervalMs: 1,
   customerFeedbackAttentionDigestIntervalMs: 1,
   customerFeedbackAttentionTeamRecipientUserIds: [],
   reviewWindowSweepIntervalMs: 1,
@@ -100,6 +114,7 @@ const scheduledRunnerConfig: RegisteredScheduledRunnerConfig = {
     hybridValue: "false",
     queryCacheMaxEntries: 1,
     queryCacheTtlMs: 1_000,
+    queryTimeoutMs: 800,
   },
 };
 
@@ -124,24 +139,10 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     await bootstrapPlatformControlPlane(pools.control);
     controlPlane = createPostgresPlatformControlPlane(pools.control);
 
-    const postageLabelProvider = createSandboxPostageLabelProvider();
     runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
       pools,
       runtimeProfile,
-      hostPorts: {
-        processorGateway: createFakePaymentProcessorGateway(),
-        moneyMovementGateway: createFakeMoneyMovementGateway(),
-        operationsRecorder: { record: () => undefined },
-        postageLabelProvider,
-        addressVerificationProvider: postageLabelProvider,
-        ...syntheticPricingHostPorts,
-        managedOfferPricing: createBuyerOfferPricing(pools.pricing),
-        // Real-registry composition: the worker states the Ordering
-        // cleanup-authority capability explicitly as not-mounted (#7222).
-        inventoryCleanupAuthority: { kind: "not-mounted" },
-        channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory),
-        searchEmbeddingConfig: scheduledRunnerConfig.discoverySearchEmbeddings,
-      },
+      hostPorts: workerHostPorts(),
     });
 
     for (const context of runtime.mountedContexts) {
@@ -164,12 +165,44 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         targets: collectRetentionSweepTargets(runtime, pools.control),
         observer: {
           sweepFailed: (event) => {
-            throw event.error;
+            throw new Error(
+              `Retention sweep ${event.contextName}.${event.sweepName} failed: ${event.failure.errorClass} ${event.failure.errorCode ?? "no-code"}`,
+            );
           },
         },
       }),
     });
   });
+
+  function workerHostPorts(overrides: Readonly<Record<string, unknown>> = {}) {
+    const postageLabelProvider = createSandboxPostageLabelProvider();
+    return {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+      processorGateway: createFakePaymentProcessorGateway(),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      operationsRecorder: { record: () => undefined },
+      postageLabelProvider,
+      addressVerificationProvider: postageLabelProvider,
+      ...syntheticPricingHostPorts,
+      managedOfferPricing: createBuyerOfferPricing(pools.pricing),
+      // Real-registry composition: the worker states the Ordering
+      // cleanup-authority capability explicitly as not-mounted (#7222).
+      inventoryCleanupAuthority: { kind: "not-mounted" },
+      channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory),
+      searchEmbeddingConfig: scheduledRunnerConfig.discoverySearchEmbeddings,
+      ...overrides,
+    };
+  }
+  function registeredRunnersOf(host: WorkerHostRuntime) {
+    return createRegisteredScheduledRunners({
+      services: host.services,
+      config: scheduledRunnerConfig,
+      controlPlane,
+      logger: { info: () => undefined, warn: () => undefined },
+      workSignalCleanup: () => ({ workSignalStore: createPostgresWorkSignalStore(pools.control), intervalMs: 1 }),
+      retentionSweep: () => ({ targets: collectRetentionSweepTargets(host, pools.control) }),
+    });
+  }
 
   afterAll(async () => {
     vi.unstubAllGlobals();
@@ -181,8 +214,57 @@ describeDatabase("registered platform-worker scheduled runners", () => {
   it("keeps the complete production registration set enumerable", () => {
     const names = registeredRunners.map((runner) => runner.name);
 
-    expect(registeredRunners.length).toBeGreaterThanOrEqual(EXPECTED_REGISTERED_RUNNER_COUNT);
+    expect(registeredRunners.length).toBe(EXPECTED_REGISTERED_RUNNER_COUNT);
+    expect(names.filter((name) => name === "channels.connector-liveness-sweep")).toHaveLength(1);
+    expect(names.filter((name) => name === "channels.ebay-account-deletion-receipt-expiry")).toHaveLength(1);
+    expect(names).not.toContain("pricing.tcgplayer-market-capture");
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("drains 1001 expired eBay receipts through the actual registered runner; omission leaves all expired rows", async () => {
+    await pools.channels.query(`INSERT INTO channels_ebay_account_deletion_receipts
+      (notification_id,topic,event_date,publish_date,publish_attempt_count,subject_key_id,subject_fingerprint,
+       subject_iv,subject_ciphertext,subject_tag,received_at,expires_at)
+      SELECT 'synthetic-expiry-' || n, 'MARKETPLACE_ACCOUNT_DELETION',statement_timestamp(),statement_timestamp(),1,
+        'synthetic-seal','v1:ebay-subject-root-v1:' || repeat('a',64),decode(repeat('00',12),'hex'),
+        decode('00','hex'),decode(repeat('00',16),'hex'),statement_timestamp()-interval '31 days',
+        CASE WHEN n=1002 THEN statement_timestamp()+interval '1 day' ELSE statement_timestamp()-interval '1 day' END
+      FROM generate_series(1,1002) n`);
+    const selected = registeredRunners.filter(
+      (runner) => runner.name === "channels.ebay-account-deletion-receipt-expiry",
+    );
+    const expiredCount = async () =>
+      (
+        await pools.channels.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM channels_ebay_account_deletion_receipts WHERE expires_at <= statement_timestamp()",
+        )
+      ).rows[0]!.count;
+    await runRegisteredRunnerSetOnce(selected.filter(() => false));
+    expect(await expiredCount()).toBe(1001);
+    expect(selected).toHaveLength(1);
+    const started = performance.now();
+    let processed = 0;
+    let result;
+    do {
+      result = await selected[0]!.runOnce();
+      processed += result.processed;
+    } while (selected[0]!.rescheduleOnCompletion?.(result));
+    const elapsedMs = performance.now() - started;
+    expect(processed).toBe(1001);
+    console.info(
+      JSON.stringify({
+        type: "synthetic-ebay-expiry-operating-envelope",
+        rows: 1001,
+        elapsedMs,
+        budgetMs: 1800000,
+        maxRowsPerDelete: 500,
+      }),
+    );
+    expect(await expiredCount()).toBe(0);
+    expect(
+      (await pools.channels.query("SELECT notification_id FROM channels_ebay_account_deletion_receipts")).rows,
+    ).toEqual([{ notification_id: "synthetic-expiry-1002" }]);
+    expect(externalFetch).not.toHaveBeenCalled();
   });
 
   it("executes the exact Channels outbound runner set with real composed services", async () => {
@@ -214,6 +296,27 @@ describeDatabase("registered platform-worker scheduled runners", () => {
 
     expect(result.rows.map((row) => row.runner_name)).toEqual(registeredRunners.map((runner) => runner.name).sort());
     expect(result.rows.every((row) => row.last_completed_at !== null)).toBe(true);
+    expect(result.rows.some((row) => row.runner_name === "durable-jobs.retention")).toBe(true);
+    expect(
+      result.rows.some((row) => row.runner_name === "inventory.import-product-resolution-maintenance.enqueue"),
+    ).toBe(true);
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("runs the live Import Product worker to its durable receipt and refuses a missing service source", async () => {
+    expect(createInventoryProductResolutionMaintenanceRunners({}, scheduledRunnerConfig)).toEqual([]);
+    const services = runtime.services.inventory as InventoryServices;
+    await services.importBatches.enqueueProductResolutionMaintenanceJob();
+    const runners = createInventoryProductResolutionMaintenanceRunners(runtime.services, scheduledRunnerConfig);
+    expect(runners).toHaveLength(1);
+    expect((await runners[0]!.runOnce()).processed).toBe(1);
+    const job = await services.importBatches.getImportBatchJob("inventory-import-product-resolution-maintenance");
+    expect(job?.status).toBe("completed");
+    expect(job?.result?.maintenanceReceipt).toMatchObject({
+      complete: true,
+      unitId: "normalize-legacy-rejected-products-v1",
+    });
+    expect((await runners[0]!.runOnce()).processed).toBe(0);
     expect(externalFetch).not.toHaveBeenCalled();
   });
 
@@ -266,7 +369,6 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         terms: {
           currency: "USD",
           adjustmentBps: 0,
-          itemCommitmentAllowance: "20.00",
           offers: [
             {
               offerId,
@@ -392,6 +494,134 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         { generation: String(initialGeneration + BigInt(generation + 1)), pending_work_ids: [] },
       ]);
     }
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("cleans a Support evidence operation only through the actual worker composition of a valid binding (AC-E2, AC-E4)", async () => {
+    const store = createPostgresEventStore({ pool: pools["platform-operations"] });
+    const context = {
+      tenantId: "tnt_identity" as never,
+      audit: { performedByUserId: "usr_worker_owner" as never, forAccountId: "acc_worker_owner" as never },
+    };
+    const owner = {
+      tenantId: "tnt_identity",
+      accountId: "acc_worker_owner",
+      supportRequestId: "sup_worker_cleanup",
+      operationId: "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    };
+    const fingerprint = {
+      profile: "support-evidence-raster/v1",
+      sharp: "t",
+      libvips: "t",
+      platform: "t",
+      arch: "t",
+      libc: "t",
+    };
+    const manifest = createAttachmentManifest({
+      owner,
+      profile: fingerprint.profile,
+      encoderFingerprint: fingerprint,
+      images: [{ canonicalSha256: "d".repeat(64), contentType: "image/png", byteSize: 4 }],
+    });
+    const streamId = attachmentOperationStreamId(owner);
+    await store.appendToStream({
+      streamId: `support.support-request-${owner.supportRequestId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "support.support-request.test-barrier", payload: {} }],
+    });
+    await store.appendToStream({
+      streamId,
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        { eventType: "support.attachment-operation.staged", payload: manifest },
+        { eventType: "support.attachment-operation.stored", payload: { index: 0 } },
+        { eventType: "support.attachment-operation.cleanup-required", payload: { reason: "put-failed" } },
+      ],
+    });
+    const key = `support-evidence/${owner.supportRequestId}/${manifest.items[0]!.attachmentId}/${"d".repeat(64)}.png`;
+    const objects = new Set([key]);
+    const privateStore = {
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(),
+      listPrivate: vi.fn(),
+      deleteKeys: vi.fn(async (keys: readonly string[]) =>
+        keys.map((k) => ({ key: k, status: objects.delete(k) ? ("deleted" as const) : ("absent" as const) })),
+      ),
+      verifyPrivate: vi.fn(async (k: string) =>
+        objects.has(k) ? { status: "match" as const } : { status: "absent" as const },
+      ),
+    };
+    const instance = JSON.stringify(["support-deployment-instance/v1", "test", "release-a"]);
+    const compose = (revision: number) =>
+      createWorkerHost(workerContextRegistry, "platform-worker", {
+        pools,
+        runtimeProfile,
+        hostPorts: workerHostPorts(
+          createSupportEvidenceCleanupHostPort(
+            {
+              deploymentEnvironment: "test",
+              supportEvidenceCleanupBinding: parseSupportEvidenceCleanupBinding(
+                JSON.stringify({
+                  version: 1,
+                  environment: "test",
+                  deploymentInstance: instance,
+                  bindingId: "cleanup-worker",
+                  revision,
+                  active: true,
+                }),
+                { environment: "test", deploymentInstance: instance, implementationSha: "b".repeat(40) },
+              ),
+              supportEvidenceStorage: {
+                kind: "s3",
+                bucket: "unused",
+                region: "unused",
+                publicBaseUrl: "https://unused.invalid",
+              },
+            },
+            { info: () => undefined },
+            () => privateStore,
+          ),
+        ),
+      });
+    const cleanupOf = (host: WorkerHostRuntime) =>
+      (host.services["platform-operations"] as PlatformOperationsServices).supportRequests.attachmentCleanup;
+    const cleanupRunner = (host: WorkerHostRuntime) => {
+      const runners = registeredRunnersOf(host);
+      expect(runners).toHaveLength(EXPECTED_REGISTERED_RUNNER_COUNT + 1);
+      return runners.find((runner) => runner.name === "support-evidence-operation-cleanup")!;
+    };
+    const host = compose(1);
+    const locator = (host.services["platform-operations"] as PlatformOperationsServices).projectors.find(
+      (set) => set.projectionName === "support-evidence-cleanup-locator-projection",
+    )!;
+    for (const event of await readCompleteStream(store, { streamId }))
+      await locator.handlers[event.eventType]!(toTransportEvent(event));
+
+    expect(await cleanupRunner(host).runOnce()).toMatchObject({ processed: 1 });
+    expect(privateStore.deleteKeys).toHaveBeenCalledTimes(1);
+    expect(privateStore.deleteKeys).toHaveBeenCalledWith([key]);
+    expect(objects.size).toBe(0);
+    const types = (await readCompleteStream(store, { streamId })).map((event) => event.eventType.split(".").at(-1));
+    expect(types).toEqual(["staged", "stored", "cleanup-required", "cleanup-claimed", "deleted-unreferenced"]);
+    const attempts = await readCompleteStream(store, { streamId: `support.evidence-access-${owner.supportRequestId}` });
+    expect(attempts.map((event) => event.payload.serviceBinding)).toEqual([
+      { bindingId: "cleanup-worker", revision: 1 },
+    ]);
+
+    // Restart and the day after: nothing resurrects and no further provider work happens.
+    expect(await cleanupRunner(compose(1)).runOnce()).toMatchObject({ processed: 0 });
+    // A newer binding revision makes the older process stale; it denies before any provider work.
+    const newer = cleanupOf(compose(2));
+    if (newer.kind !== "available") throw new Error("revision 2 must mount cleanup");
+    await newer.initialize();
+    const stale = cleanupOf(host);
+    if (stale.kind !== "available") throw new Error("revision 1 must mount cleanup");
+    expect(await stale.run()).toMatchObject({ denied: "binding_receipt_stale", examined: 0 });
+    expect(privateStore.deleteKeys).toHaveBeenCalledTimes(1);
+    for (const method of [privateStore.putPrivate, privateStore.readPrivate, privateStore.listPrivate])
+      expect(method).not.toHaveBeenCalled();
     expect(externalFetch).not.toHaveBeenCalled();
   });
 

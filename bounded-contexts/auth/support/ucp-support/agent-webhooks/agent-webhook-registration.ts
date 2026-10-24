@@ -23,7 +23,7 @@ ALTER TABLE identity_ucp_oauth_clients
   ADD COLUMN IF NOT EXISTS webhook_signing_secret_created_at timestamptz NULL;
 `;
 
-export const AGENT_WEBHOOK_ORDER_SCOPE = "order:read";
+export const AGENT_WEBHOOK_ORDER_SCOPE = "dev.ucp.shopping.order:read";
 const MAX_CALLBACK_URL_LENGTH = 2048;
 
 export type ParsedWebhookRegistration = Readonly<{ callbackUrl: string }>;
@@ -94,11 +94,12 @@ export type AgentWebhookTarget = Readonly<{
   clientId: string;
   accountId: string;
   callbackUrl: string;
+  grantIds?: readonly string[];
 }>;
 
 /**
  * Every agent-platform callback that should receive order updates for
- * `accountId`: an active linked-platform authorization granting `order:read`
+ * `accountId`: an active linked-platform authorization granting `dev.ucp.shopping.order:read`
  * whose OAuth client has registered a webhook callback. One order can fan out to
  * several linked platforms.
  *
@@ -113,8 +114,12 @@ export async function resolveAgentWebhookTargets(
   oauthClientsDb: PgQueryable,
   accountId: string,
 ): Promise<readonly AgentWebhookTarget[]> {
-  const grants = await linkedAuthorizationsDb.query<{ client_id: string; account_id: string }>(
-    `SELECT DISTINCT client_id, account_id
+  const grants = await linkedAuthorizationsDb.query<{
+    client_id: string;
+    account_id: string;
+    authorization_id: string;
+  }>(
+    `SELECT client_id, account_id, authorization_id
      FROM identity_linked_platform_authorizations
      WHERE account_id = $1
        AND status = 'active'
@@ -136,12 +141,28 @@ export async function resolveAgentWebhookTargets(
     [clientIds],
   );
 
+  const currentGrants = await linkedAuthorizationsDb.query<{
+    client_id: string;
+    account_id: string;
+    authorization_id: string;
+  }>(
+    `SELECT client_id, account_id, authorization_id FROM identity_linked_platform_authorizations
+     WHERE account_id = $1 AND status = 'active' AND scopes ? $2 AND authorization_id = ANY($3::text[])`,
+    [accountId, AGENT_WEBHOOK_ORDER_SCOPE, grants.rows.map((grant) => grant.authorization_id)],
+  );
+
   return clients.rows.flatMap((row) => {
     const targetAccountId = accountByClient.get(row.client_id);
     if (!targetAccountId) {
       return [];
     }
-    return [{ clientId: row.client_id, accountId: targetAccountId, callbackUrl: row.webhook_callback_url }];
+    const grantIds = currentGrants.rows
+      .filter((grant) => grant.client_id === row.client_id && grant.account_id === targetAccountId)
+      .map((grant) => grant.authorization_id)
+      .sort();
+    return grantIds.length
+      ? [{ clientId: row.client_id, accountId: targetAccountId, callbackUrl: row.webhook_callback_url, grantIds }]
+      : [];
   });
 }
 

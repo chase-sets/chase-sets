@@ -1,12 +1,131 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { managedFixture } from "../tests/managed-fixture";
 import { context, terms } from "../../offer-policy/tests/fixtures";
 
 describe("managed Offer application and commitment", () => {
-  it("batches a Product page into one Pricing read and writes no allowance for repricing", async () => {
+  it("rejects a policy-bound suspended buyer before managed acceptance", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
+    const params = await f.acceptance();
+    const policyBefore = await f.policies.get("bop_one", "acc_buyer");
+    f.evaluateTargets.mockClear();
+    const fixtureRow = (await f.db.query()).rows[0]!;
+    f.db.query.mockResolvedValue({ rows: [{ ...fixtureRow, account_status: "suspended" }], rowCount: 1 });
+
+    await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "offer_not_open" });
+    expect(f.evaluateTargets).not.toHaveBeenCalled();
+    const policyAfter = await f.policies.get("bop_one", "acc_buyer");
+    expect(policyAfter.version).toBe(policyBefore.version);
+    expect(policyAfter.revision).toBe(policyBefore.revision);
+  });
+
+  it.each(["acceptance", "price edit"] as const)(
+    "records exactly the returned managed %s events",
+    async (operation) => {
+      const f = await managedFixture(createInMemoryEventStore().eventStore);
+      const append = vi.spyOn(f.store, "appendToStreams");
+      const params = await f.acceptance();
+      await runWithEventCommitMetadata(async () => {
+        if (operation === "acceptance") await f.offers.acceptOffer(params, context);
+        else
+          await f.offers.updateOfferPrice(
+            {
+              offerId: "off_one" as never,
+              buyerAccountId: "acc_buyer" as never,
+              priceAmount: "11.00",
+              priceCurrencyCode: "USD",
+            },
+            context,
+          );
+        const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+        const returned = results.flatMap((batch) => batch.storedEvents);
+        expect(returned.map((event) => event.eventType)).toEqual(
+          operation === "acceptance"
+            ? [
+                "marketplace.offer.accepted",
+                "marketplace.listing.evidence-requirements-refreshed",
+                "marketplace.listing.offer-commitment-recorded",
+                "marketplace.seller-listing-availability.commitment-checked",
+              ]
+            : ["marketplace.offer.price-updated", "marketplace.offer.managed-evaluated"],
+        );
+        const eventIds = returned.map((event) => String(event.eventId));
+        const maxGlobalPosition = String(returned.at(-1)!.globalPosition);
+        expect(getEventCommitMetadata()).toEqual({
+          committedEvents: returned,
+          eventIds,
+          maxGlobalPosition,
+          sources: [{ sourceContextName: "marketplace", eventIds, maxGlobalPosition }],
+        });
+      });
+      append.mockClear();
+      await runWithEventCommitMetadata(async () => {
+        if (operation === "acceptance") await f.offers.acceptOffer(params, context);
+        else
+          await f.offers.updateOfferPrice(
+            {
+              offerId: "off_one" as never,
+              buyerAccountId: "acc_buyer" as never,
+              priceAmount: "11.00",
+              priceCurrencyCode: "USD",
+            },
+            context,
+          );
+        expect(getEventCommitMetadata().eventIds).toEqual([]);
+      });
+      expect(append).toHaveBeenCalledTimes(operation === "acceptance" ? 0 : 1);
+    },
+  );
+
+  it.each(["acceptance", "price edit"] as const)(
+    "records no managed %s receipt when append fails",
+    async (operation) => {
+      const f = await managedFixture(createInMemoryEventStore().eventStore);
+      const params = await f.acceptance();
+      vi.spyOn(f.store, "appendToStreams").mockRejectedValueOnce(new Error("injected append failure"));
+      const before = await f.store.readAll();
+      await runWithEventCommitMetadata(async () => {
+        await expect(
+          operation === "acceptance"
+            ? f.offers.acceptOffer(params, context)
+            : f.offers.updateOfferPrice(
+                {
+                  offerId: "off_one" as never,
+                  buyerAccountId: "acc_buyer" as never,
+                  priceAmount: "11.00",
+                  priceCurrencyCode: "USD",
+                },
+                context,
+              ),
+        ).rejects.toThrow("injected append failure");
+        expect(getEventCommitMetadata().eventIds).toEqual([]);
+      });
+      expect(await f.store.readAll()).toEqual(before);
+    },
+  );
+
+  it("records no managed acceptance receipt on conflict recovery", async () => {
+    const store = createInMemoryEventStore().eventStore;
+    const f = await managedFixture(store);
+    const params = await f.acceptance();
+    const append = store.appendToStreams!;
+    vi.spyOn(store, "appendToStreams").mockImplementationOnce(async (inputs) => {
+      await append(inputs);
+      throw Object.assign(new Error("concurrent duplicate committed"), { code: "concurrency_conflict" });
+    });
+    await runWithEventCommitMetadata(async () => {
+      expect(await f.offers.acceptOffer(params, context)).toMatchObject({ offerId: "off_one", version: 3 });
+      expect(getEventCommitMetadata().eventIds).toEqual([]);
+    });
+  });
+
+  it("batches a Product page into one Pricing read without changing policy authority", async () => {
+    const f = await managedFixture(createInMemoryEventStore().eventStore);
+    expect(f.evaluateTargets).toHaveBeenCalledTimes(2);
+    f.evaluateTargets.mockClear();
     f.setTarget({ status: "target", unitItemAmount: "12.00", evidence: {} });
     await f.store.appendToStream({
       streamId: "marketplace.offer-work-batch",
@@ -21,7 +140,7 @@ describe("managed Offer application and commitment", () => {
     );
     expect(f.evaluateTargets).toHaveBeenCalledTimes(1);
     expect(f.evaluateTargets.mock.calls[0]![0]).toHaveLength(2);
-    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("0.00");
+    expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(3);
   });
 
   it("rejects an evaluation after an authority revision at append", async () => {
@@ -71,9 +190,9 @@ describe("managed Offer application and commitment", () => {
     });
     const events = await f.store.readStream({ streamId: "marketplace.offer-off_one" });
     expect(events.at(-1)).toMatchObject({ eventType: "marketplace.offer.accepted", payload: { priceAmount: "10.00" } });
-    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("20.00");
+    expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(3);
   });
-  it("shares lifetime allowance across different Offers, fencing every authoritative stream", async () => {
+  it("accepts both Offers sharing one policy without a debit, fencing every authoritative stream", async () => {
     const memory = createInMemoryEventStore().eventStore;
     const appends: (readonly AppendToStreamInput[])[] = [];
     const f = await managedFixture({
@@ -85,19 +204,18 @@ describe("managed Offer application and commitment", () => {
     });
     const params = await Promise.all([f.acceptance("one"), f.acceptance("two")]);
     const results = await Promise.allSettled(params.map((p) => f.offers.acceptOffer(p, context)));
-    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("20.00");
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
+    expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(3);
     const events = await memory.readAll();
-    expect(events.filter((e) => e.eventType === "marketplace.offer.accepted")).toHaveLength(1);
-    expect(events.filter((e) => e.eventType === "marketplace.offer-policy.commitment-consumed")).toHaveLength(1);
+    expect(events.filter((e) => e.eventType === "marketplace.offer.accepted")).toHaveLength(2);
+    expect(events.filter((e) => e.eventType === "marketplace.offer-policy.commitment-consumed")).toHaveLength(0);
+    expect(appends.slice(-2).map((inputs) => inputs[0]!.events)).toEqual([[], []]);
     expect(appends.at(-1)!.map((a) => [a.streamId, a.expectedVersion])).toEqual([
       ["marketplace.offer-policy-bop_one", 3],
       ["marketplace.offer-off_two", 2],
       ["marketplace.listing-lst_two", 2],
       ["marketplace.seller-listing-availability-acc_two", "no_stream"],
     ]);
-    const loser = results[0]!.status === "rejected" ? 0 : 1;
-    await expect(f.offers.acceptOffer(params[loser]!, context)).rejects.toMatchObject({ code: "managed_offer_held" });
   });
 
   it("replays a timeout-after-commit and concurrent duplicate acceptance once even after pause", async () => {
@@ -119,15 +237,15 @@ describe("managed Offer application and commitment", () => {
     await expect(f.offers.acceptOffer(params, context)).rejects.toThrow("timeout after commit");
     await f.policies.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: 4, operationId: "pause" },
+      { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" },
       context,
     );
     const replay = await Promise.all([f.offers.acceptOffer(params, context), f.offers.acceptOffer(params, context)]);
     expect(replay[0]).toEqual(replay[1]);
     expect(
       (await memory.readAll()).filter((e) => e.eventType === "marketplace.offer-policy.commitment-consumed"),
-    ).toHaveLength(1);
-    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("20.00");
+    ).toHaveLength(0);
+    expect((await f.policies.get("bop_one", "acc_buyer")).status).toBe("paused");
   });
 
   it.each(["PauseBuyerOfferPolicy", "StopBuyerOfferPolicy"] as const)(
@@ -149,7 +267,7 @@ describe("managed Offer application and commitment", () => {
       await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "managed_offer_conflict" });
       await expect(f.offers.applyManagedOffer("off_one" as never, "work", context)).rejects.toThrow("active");
       expect((await memory.readAll()).filter((e) => e.eventType === "marketplace.offer.accepted")).toHaveLength(0);
-      expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("0.00");
+      expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(4);
     },
   );
 
@@ -195,7 +313,7 @@ describe("managed Offer application and commitment", () => {
       status: "unchanged",
     });
     expect(await f.store.readAll()).toEqual(committed);
-    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("24.00");
+    expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(3);
   });
 
   it("enforces manual edits without unbinding, and invalidates confirmation after Listing movement", async () => {

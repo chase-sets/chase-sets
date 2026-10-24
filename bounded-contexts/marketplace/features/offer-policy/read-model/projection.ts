@@ -51,7 +51,7 @@ export function buildBuyerOfferPolicyProjectionHandlers(db: PgQueryable): Projec
         patch = { status: "stopped", preview: null };
         break;
       case "marketplace.offer-policy.commitment-consumed":
-        patch = { consumedItemAmount: decoded.data.consumedItemAmount, preview: null };
+        patch = {};
         break;
     }
     await db.query(

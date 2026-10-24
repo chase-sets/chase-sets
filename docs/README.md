@@ -172,6 +172,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): current DOKS deployment workflow, durable Terraform state ownership, recovery, and destructive-plan approval boundaries; [ADR 0018](./adr/0018-doks-compute-runtime.md) records the pre-launch compute migration decision.
 - [DigitalOcean DOKS Foundation](../infrastructure/digitalocean/doks/README.md): ADR 0018-aligned DOKS cluster, node-pool, and DOCR integration Terraform scaffold; #4044 remains open until live DigitalOcean evidence is recorded.
 - [DOKS Platform Operations](./runbooks/doks-platform-operations.md): Kubernetes operator runbook for rollout status, diagnostics, rollback, runtime Secret rotation, ingress, certificates, and bootstrap-hook drills.
+- [Credential Rotation](./runbooks/credential-rotation.md): credential inventory, daily credential age and liveness levels, alert response, and the rotation GitHub App.
 - [Admin Shell Smoke Matrix](./runbooks/admin-shell-smoke-matrix.md): admin shell, actor, link, API topology, download, SSE, and durable-job release evidence matrix.
 - [Admin Workflows Staging QA](./runbooks/admin-workflows-staging-qa.md): support-safe admin actor matrix, evidence rules, and representative state checks for deployed staging QA.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
@@ -227,6 +228,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0029: My Collection Composition And Saved List Ownership](./adr/0029-my-collection-composition-and-saved-list-ownership.md)
 - [ADR 0031: Card Identification Authority And Provider Boundary](./adr/0031-card-identification-authority-and-provider-boundary.md)
 - [ADR 0032: Order Groups And Shipment Groups](./adr/0032-order-groups-and-shipment-groups.md)
+- [ADR 0033: Capability-First Provider Integrations](./adr/0033-capability-first-provider-integrations.md)
+- [ADR 0034: Money Representation And Arithmetic](./adr/0034-money-representation-and-arithmetic.md)
 
 ## Generated Markdown
 

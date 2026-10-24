@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "@chase-sets/localization";
+import { SHIPPING_ADDRESS_REQUIRED_MESSAGES } from "../features/shipping-addresses/domain/errors";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -26,6 +28,9 @@ import {
   loader as accountShippingAddressesLoader,
 } from "../routes/marketplace/account-shipping-addresses";
 import { action as accountTeamAction } from "../routes/marketplace/account-team";
+import { IdentityApiError } from "../client";
+import { syntheticMutationResult } from "../features/account-management/api/test-support";
+import type { MutationAction } from "../features/account-management/domain/contract";
 
 const actor = {
   sessionId: "ses_identity",
@@ -79,7 +84,13 @@ function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
 function formRequest(path: string, form: Record<string, string>) {
   return new Request(`https://chasesets.test${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", cookie: "session=identity" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie: "session=identity",
+      ...(path.startsWith("/account")
+        ? { "Idempotency-Key": "9230f01b-7871-420b-9c32-37139f80f749", Accept: "text/x-script" }
+        : {}),
+    },
     body: new URLSearchParams(form).toString(),
   });
 }
@@ -90,8 +101,37 @@ function requestUrl(input: RequestInfo | URL) {
 
 async function captureRedirect(actionCall: Promise<unknown>) {
   const response = (await actionCall) as Response;
+  if (response.status === 200) {
+    expect(response.headers.get("Location")).toBeNull();
+    return (await response.json()).destination as string;
+  }
   expect(response.status).toBe(302);
   return response.headers.get("Location") ?? "";
+}
+
+function participantReply(request: Request, secret?: string) {
+  const parts = new URL(request.url).pathname.split("/");
+  const last = parts.at(-1)!;
+  let action: MutationAction;
+  if (parts.includes("api-keys"))
+    action = last === "api-keys" ? "create-api-key" : last === "rotate" ? "rotate-api-key" : "revoke-api-key";
+  else if (parts.includes("invitations")) action = last === "invitations" ? "create-invitation" : "cancel-invitation";
+  else if (parts.includes("memberships"))
+    action = last === "role" ? "change-role" : last === "reinstate" ? "reinstate" : "revoke";
+  else if (parts.includes("consents")) action = "withdraw";
+  else if (parts.includes("shipping-addresses"))
+    action =
+      last === "shipping-addresses"
+        ? "create"
+        : last === "default"
+          ? "default"
+          : last === "archive"
+            ? "archive"
+            : "update";
+  else action = parts.includes("users") ? "update-user" : "update-profile";
+  return syntheticMutationResult(action, actor, {
+    ...(secret && ["create-api-key", "rotate-api-key"].includes(action) ? { secret } : {}),
+  });
 }
 
 function expectLocationPath(location: string, expectedPath: string | RegExp) {
@@ -115,6 +155,181 @@ describe("Identity mutation consistency route actions", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["create", "update"])("keyed field envelope preserves the real %s action response", async (intent) => {
+    const shippingAddressId = "adr_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const message = t(SHIPPING_ADDRESS_REQUIRED_MESSAGES.city);
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        if (request.url.includes("/api/auth/session")) return jsonResponse({ actor });
+        requests.push(request);
+        return jsonResponse(
+          { error: { code: "validation_failed", message, details: [{ field: "city", code: "required", message }] } },
+          400,
+        );
+      }),
+    );
+    const result = await accountShippingAddressesAction({
+      request: formRequest("/account/shipping-addresses", {
+        intent,
+        ...(intent === "update" ? { shippingAddressId } : {}),
+      }),
+      params: {},
+      context: undefined,
+    });
+    expect(result).toMatchObject({
+      init: { status: 400 },
+      data: {
+        failure: {
+          kind: "validation",
+          status: 400,
+          code: "validation_failed",
+          intent,
+          classification: "FIELD",
+          message,
+          errors: { fieldErrors: { city: [message] }, formErrors: [] },
+          ...(intent === "update" ? { shippingAddressId } : {}),
+        },
+      },
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0].headers.get("Idempotency-Key")).toBe("9230f01b-7871-420b-9c32-37139f80f749");
+    expect(requests[0].method).toBe(intent === "create" ? "POST" : "PUT");
+  });
+
+  it("preserves all ten marketplace successes and executes each request once", async () => {
+    const cases = [
+      {
+        action: accountAction,
+        path: "/account",
+        form: { intent: "update-profile", name: "Store", displayName: "Store" },
+      },
+      {
+        action: accountSecurityAction,
+        path: "/account/security",
+        form: { intent: "update-user", displayName: "Alex" },
+      },
+      { action: accountSecurityAction, path: "/account/security", form: { intent: "create-api-key", name: "Ops" } },
+      {
+        action: accountSecurityAction,
+        path: "/account/security",
+        form: { intent: "rotate-api-key", apiKeyId: "key_1" },
+      },
+      {
+        action: accountSecurityAction,
+        path: "/account/security",
+        form: { intent: "revoke-api-key", apiKeyId: "key_1" },
+      },
+      {
+        action: accountTeamAction,
+        path: "/account/team",
+        form: { intent: "create-invitation", email: "invitee@example.com", roleKey: "viewer" },
+      },
+      {
+        action: accountTeamAction,
+        path: "/account/team",
+        form: { intent: "change-role", membershipId: "mbr_1", roleKey: "viewer" },
+      },
+      { action: accountTeamAction, path: "/account/team", form: { intent: "revoke", membershipId: "mbr_1" } },
+      { action: accountTeamAction, path: "/account/team", form: { intent: "reinstate", membershipId: "mbr_1" } },
+      {
+        action: accountTeamAction,
+        path: "/account/team",
+        form: { intent: "cancel-invitation", invitationId: "ivt_1" },
+      },
+    ] as const;
+    for (const testCase of cases) {
+      const requests: string[] = [];
+      const fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+        requests.push(url);
+        return url.includes("/api/auth/session")
+          ? jsonResponse({ actor })
+          : jsonResponse(
+              syntheticMutationResult(testCase.form.intent, actor, {
+                ...(["create-api-key", "rotate-api-key"].includes(testCase.form.intent)
+                  ? { secret: "synthetic-secret" }
+                  : {}),
+              }),
+              200,
+              commitHeaders("79"),
+            );
+      });
+      vi.stubGlobal("fetch", fetch);
+      const response = await testCase.action({
+        request: formRequest(testCase.path, testCase.form),
+        params: {},
+        context: undefined,
+      });
+      expect(response).toBeInstanceOf(Response);
+      const result = response as Response;
+      if (["create-api-key", "rotate-api-key"].includes(testCase.form.intent)) {
+        expect(result.status).toBe(200);
+        expect(result.headers.get("Location")).toBeNull();
+        expect(await result.json()).toMatchObject({ outcome: "committed", secret: "synthetic-secret" });
+        expect(result.headers.get("Cache-Control")).toBe("no-store");
+      } else {
+        expect(result.status).toBe(200);
+        expect(result.headers.get("Location")).toBeNull();
+        const location = (await result.json()).destination;
+        expectLocationPath(location, testCase.path);
+        expect(readFreshWriteToken(`https://chasesets.test${location}`)?.commitPosition).toBe("79");
+      }
+      expect(requests.filter((url) => url.includes("/api/identity/"))).toHaveLength(1);
+      expect(requests.filter((url) => url.includes("/acceptance-link/request"))).toHaveLength(
+        testCase.form.intent === "create-invitation" ? 1 : 0,
+      );
+      expect(fetch).toHaveBeenCalledTimes(testCase.form.intent === "create-invitation" ? 3 : 2);
+    }
+  });
+
+  it("reports committed delivery-unknown after one write even for admitted API lookalikes", async () => {
+    const failures = [
+      ...[400, 422].flatMap((status) =>
+        ["validation_failed", "validation_error"].map((code) => new IdentityApiError(status, { error: { code } })),
+      ),
+      new IdentityApiError(404, { error: { code: "not_found" } }),
+      new IdentityApiError(409, { error: { code: "conflict" } }),
+      new TypeError("synthetic-delivery-network-error"),
+    ];
+    for (const failure of [...failures, null]) {
+      const requests: Request[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = input instanceof Request ? input : new Request(input, init);
+          requests.push(request);
+          if (request.url.includes("/api/auth/session")) return jsonResponse({ actor });
+          if (request.url.includes("/acceptance-link/request")) {
+            if (failure) throw failure;
+            return jsonResponse({ error: { code: "conflict" } }, 409);
+          }
+          return jsonResponse(syntheticMutationResult("create-invitation", actor), 200, commitHeaders("80"));
+        }),
+      );
+      const call = accountTeamAction({
+        request: formRequest("/account/team", {
+          intent: "create-invitation",
+          email: "invitee@example.com",
+          roleKey: "viewer",
+        }),
+        params: {},
+        context: undefined,
+      });
+      const response = (await call) as Response;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ outcome: "committed", delivery: "unknown" });
+      const writes = requests.filter((request) => request.url.includes("/api/identity/invitations"));
+      const deliveries = requests.filter((request) => request.url.includes("/acceptance-link/request"));
+      expect(writes).toHaveLength(1);
+      expect(deliveries).toHaveLength(1);
+      expect(requests).toHaveLength(3);
+      expect(await deliveries[0].clone().json()).toMatchObject({ invitationId: "ivt_synthetic" });
+    }
+  });
+
   it("carries command receipts from owned post forms into fresh-read redirects", async () => {
     const lifecycleBodies: unknown[] = [];
     vi.stubGlobal(
@@ -130,7 +345,13 @@ describe("Identity mutation consistency route actions", () => {
           lifecycleBodies.push(await request.clone().json());
         }
 
-        return jsonResponse({ id: "identity_written", version: 7, status: "active" }, 200, commitHeaders("77"));
+        return jsonResponse(
+          request.headers.has("Idempotency-Key")
+            ? participantReply(request)
+            : { id: "identity_written", version: 7, status: "active" },
+          200,
+          commitHeaders("77"),
+        );
       }),
     );
 
@@ -386,7 +607,7 @@ describe("Identity mutation consistency route actions", () => {
   it("returns API-key create and rotate secrets as transient action data without redirecting", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = requestUrl(input);
 
         if (url.includes("/api/auth/session")) {
@@ -394,13 +615,15 @@ describe("Identity mutation consistency route actions", () => {
         }
 
         return jsonResponse(
-          {
-            id: "key_identity_written",
-            version: 7,
-            status: "active",
-            keyPrefix: "key_identity",
-            secret: "key_identity_full_secret_value",
-          },
+          new Request(input, init).headers.has("Idempotency-Key")
+            ? participantReply(new Request(input, init), "key_identity_full_secret_value")
+            : {
+                id: "key_identity_written",
+                version: 7,
+                status: "active",
+                keyPrefix: "key_identity",
+                secret: "key_identity_full_secret_value",
+              },
           200,
           commitHeaders("78"),
         );
@@ -459,14 +682,17 @@ describe("Identity mutation consistency route actions", () => {
         oneTimeSecret?: { apiKeyId?: string; keyPrefix?: string; secret?: string; action?: string };
       };
 
-      expect(response.status).toBe(testCase.status);
+      expect(response.status).toBe(testCase.request.headers.has("Idempotency-Key") ? 200 : testCase.status);
       expect(response.headers.get("Location")).toBeNull();
-      expect(body.oneTimeSecret).toEqual({
-        apiKeyId: "key_identity_written",
-        keyPrefix: "key_identity",
-        secret: "key_identity_full_secret_value",
-        action: testCase.actionName,
-      });
+      if (testCase.request.headers.has("Idempotency-Key"))
+        expect(body).toMatchObject({ outcome: "committed", secret: "key_identity_full_secret_value" });
+      else
+        expect(body.oneTimeSecret).toEqual({
+          apiKeyId: "key_identity_written",
+          keyPrefix: "key_identity",
+          secret: "key_identity_full_secret_value",
+          action: testCase.actionName,
+        });
     }
   });
 
@@ -731,6 +957,7 @@ describe("Identity mutation consistency route actions", () => {
     expect(data).toEqual({
       addresses: [],
       loadError: "Shipping addresses are still updating. Reload this page in a moment.",
+      mutationActor: { tenantId: actor.tenantId, userId: actor.userId, accountId: actor.accountId },
     });
   });
 

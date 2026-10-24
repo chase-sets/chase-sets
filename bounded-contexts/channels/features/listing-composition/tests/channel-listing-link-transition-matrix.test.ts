@@ -12,6 +12,75 @@ import { listingInput, publishedLink } from "./test-support";
 import { composeChannelListingPublication } from "../domain/compose";
 
 describe("channel-listing-link-transition-matrix", () => {
+  it("low-stock withhold transitions converge after pending create and keep withheld/recovered steady states inert", () => {
+    let state = desiredState();
+    const compose = (withheld: boolean) => {
+      const input = listingInput({ link: { kind: "existing", state } });
+      if (input.listing.kind !== "present") throw new Error("Expected listing.");
+      return composeChannelListingPublication({
+        ...input,
+        listing: {
+          ...input.listing,
+          offer: {
+            ...input.listing.offer,
+            publishableQuantity: withheld ? { kind: "low-stock-withheld" } : { kind: "resolved", value: 3 },
+          },
+        },
+      });
+    };
+    let sequence = 1;
+    const decide = (withheld: boolean) =>
+      decideChannelListingComposition(state, {
+        ...compositionInputFor(state, compose(withheld)),
+        nextStreamVersion: ++sequence,
+      });
+    const blocked = decide(true);
+    expect(blocked).toMatchObject({ kind: "append", event: { data: { reasons: ["low-stock-withheld"] } } });
+    if (blocked.kind !== "append") throw new Error("Expected blocked transition.");
+    state = evolveChannelListing(state, blocked.event);
+    expect(decide(true)).toEqual({ kind: "unchanged" });
+    const pendingSuccess = decideChannelListingPublicationOutcome(
+      state,
+      report(state, { kind: "succeeded", externalListingId: "external-synthetic" }),
+    );
+    expect(pendingSuccess).toMatchObject({ kind: "append", recompose: true });
+    if (pendingSuccess.kind !== "append") throw new Error("Expected pending create success.");
+    state = evolveChannelListing(state, pendingSuccess.event);
+    const delist = decide(true);
+    expect(delist).toMatchObject({
+      kind: "append",
+      event: { data: { intent: "delist", delist: { delistReasons: ["low-stock-withheld"] } } },
+    });
+    if (delist.kind !== "append") throw new Error("Expected delist.");
+    state = evolveChannelListing(state, delist.event);
+    expect(decide(true)).toEqual({ kind: "unchanged" });
+    const delisted = decideChannelListingPublicationOutcome(state, {
+      ...report(state, { kind: "succeeded", externalListingId: "external-synthetic" }),
+      operationId: "operation-delist",
+    });
+    if (delisted.kind !== "append") throw new Error("Expected delist success.");
+    state = evolveChannelListing(state, delisted.event);
+    expect(state.publishState).toBe("delisted");
+    expect(decide(true)).toEqual({ kind: "unchanged" });
+    const recovered = decide(false);
+    expect(recovered).toMatchObject({ kind: "append", event: { data: { intent: "update" } } });
+    if (recovered.kind !== "append") throw new Error("Expected recovery.");
+    state = evolveChannelListing(state, recovered.event);
+    expect(decide(false)).toEqual({ kind: "unchanged" });
+    const updated = decideChannelListingPublicationOutcome(state, {
+      ...report(state, { kind: "succeeded", externalListingId: "external-synthetic" }),
+      operationId: "operation-update",
+    });
+    if (updated.kind !== "append") throw new Error("Expected update success.");
+    state = evolveChannelListing(state, updated.event);
+    expect(state).toMatchObject({
+      publishState: "published",
+      externalListingId: "external-synthetic",
+      lastPushedQuantity: 3,
+    });
+    expect(decide(false)).toEqual({ kind: "unchanged" });
+  });
+
   it("uses desiredStateSequence independently from equal listing revisions", () => {
     const firstResult = composeChannelListingPublication(listingInput());
     if (firstResult.kind !== "publishable" || firstResult.intent === "delist")

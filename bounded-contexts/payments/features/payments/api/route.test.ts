@@ -708,7 +708,11 @@ describe("payments routes", () => {
       new Request("http://payments.test/account/payment-methods/setup-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ returnUrlPath: "/account/payment-methods" }),
+        body: JSON.stringify({
+          accountId: "acc_buyer",
+          attemptId: "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e31",
+          returnUrlPath: "/account/payment-methods",
+        }),
       }),
     );
 
@@ -722,7 +726,12 @@ describe("payments routes", () => {
       processor_status: "open",
     });
     expect(services.createSavedCheckoutSetupSession).toHaveBeenCalledWith(
-      expect.objectContaining({ uiMode: "embedded" }),
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        attemptId: "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e31",
+        uiMode: "embedded",
+      }),
+      expect.objectContaining({ tenantId: "tnt_identity" }),
     );
     expect(JSON.stringify(body)).not.toContain("provider_customer_reference");
     expect(JSON.stringify(body)).not.toContain("consent_text");
@@ -831,10 +840,18 @@ describe("payments routes", () => {
     });
 
     const defaultResponse = await app.fetch(
-      new Request("http://payments.test/account/payment-methods/sci_card_1/default", { method: "POST" }),
+      new Request("http://payments.test/account/payment-methods/sci_card_1/default", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: "acc_buyer", attemptId: "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e32" }),
+      }),
     );
     const removeResponse = await app.fetch(
-      new Request("http://payments.test/account/payment-methods/sci_card_1/remove", { method: "POST" }),
+      new Request("http://payments.test/account/payment-methods/sci_card_1/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: "acc_buyer", attemptId: "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e33" }),
+      }),
     );
 
     expect(defaultResponse.status).toBe(200);
@@ -853,6 +870,65 @@ describe("payments routes", () => {
     });
     expect(JSON.stringify({ defaultBody, removeBody })).not.toContain("provider_reference");
     expect(JSON.stringify({ defaultBody, removeBody })).not.toContain("provider_customer_reference");
+  });
+
+  it("refuses a changed account before any service call and maps attempt outcomes to closed codes", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+    const post = (path: string, body: Record<string, unknown>) =>
+      app.fetch(
+        new Request(`http://payments.test/account/payment-methods/${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    const attemptId = "7c1f6a52-3e9b-4d2a-9f0e-5b8c7d6a4e34";
+
+    for (const path of ["setup-sessions", "sci_card_1/default", "sci_card_1/remove"]) {
+      const response = await post(path, { accountId: "acc_previous", attemptId });
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe("account_changed");
+    }
+    expect(services.createSavedCheckoutSetupSession).not.toHaveBeenCalled();
+    expect(services.setSavedCheckoutInstrumentDefault).not.toHaveBeenCalled();
+    expect(services.removeSavedCheckoutInstrument).not.toHaveBeenCalled();
+
+    vi.mocked(services.removeSavedCheckoutInstrument)
+      .mockRejectedValueOnce(Object.assign(new Error("SYNTHETIC_PRIVATE_DETAIL"), { code: "attempt_unconfirmed" }))
+      .mockRejectedValueOnce(Object.assign(new Error("SYNTHETIC_PRIVATE_DETAIL"), { code: "attempt_conflict" }));
+    const unconfirmed = await post("sci_card_1/remove", { accountId: "acc_buyer", attemptId });
+    const conflict = await post("sci_card_1/remove", { accountId: "acc_buyer", attemptId });
+    expect([unconfirmed.status, conflict.status]).toEqual([503, 409]);
+    const bodies = [await unconfirmed.json(), await conflict.json()];
+    expect(bodies.map((body) => body.error.code)).toEqual(["attempt_unconfirmed", "attempt_conflict"]);
+    expect(JSON.stringify(bodies)).not.toContain("SYNTHETIC_PRIVATE_DETAIL");
+
+    // Only a pre-send refusal may answer 400 (the caller then mints a fresh id); an unknown
+    // failure after `started` must never look refused, echo its text, or reach the framework.
+    const unknownFailure = () => Object.assign(new Error("SYNTHETIC_DB_FAILURE"), { code: "23505" });
+    vi.mocked(services.createSavedCheckoutSetupSession).mockRejectedValueOnce(unknownFailure());
+    vi.mocked(services.setSavedCheckoutInstrumentDefault).mockRejectedValueOnce(unknownFailure());
+    vi.mocked(services.removeSavedCheckoutInstrument).mockRejectedValueOnce(unknownFailure());
+    for (const path of ["setup-sessions", "sci_card_1/default", "sci_card_1/remove"]) {
+      const unknown = await post(path, { accountId: "acc_buyer", attemptId });
+      expect(unknown.status).toBe(503);
+      const body = await unknown.text();
+      expect(JSON.parse(body).error.code).toBe("attempt_unconfirmed");
+      expect(body).not.toContain("SYNTHETIC_DB_FAILURE");
+      expect(body).not.toContain("23505");
+    }
   });
 
   it("returns payment method reconciliation with the authoritative list snapshot", async () => {

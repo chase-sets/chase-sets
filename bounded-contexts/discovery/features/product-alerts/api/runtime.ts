@@ -3,6 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { DiscoveryRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -78,7 +79,9 @@ function normalizeOptionalMoney(value: string | null | undefined) {
   }
 
   assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Price threshold must be a valid decimal.");
-  return Number.parseFloat(normalized).toFixed(2);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, "Price threshold must be a valid decimal.");
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeOptionalCurrencyCode(value: string | null | undefined) {

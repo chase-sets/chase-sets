@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
@@ -27,11 +28,13 @@ import {
   EVIDENCE_WINDOW_ADMISSION_HEADER,
   type EvidenceWindowRegistration,
 } from "@chase-sets/platform-runtime/control-plane";
+import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import {
   createUcpEnvelope,
   UCP_MCP_CART_REVIEW_RESOURCE_URI,
   UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+  UCP_VERSION,
 } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp, createPlatformApiHost, createSavedListAnalyticsRecorder } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -135,7 +138,13 @@ async function withUninstrumentedPlatformApiRuntime(
     port: 6182,
   });
   try {
-    await action(createPlatformApiHost({ runtimeProfile: "public", pools, hostPorts: {} }));
+    await action(
+      createPlatformApiHost({
+        runtimeProfile: "public",
+        pools,
+        hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
+      }),
+    );
   } finally {
     await closePlatformApiPools(pools);
   }
@@ -490,16 +499,20 @@ describe("platform api app wiring", () => {
     const app = buildPlatformApiApp(createEmptyRuntime());
 
     const response = await app.request("https://marketplace.chasesets.test/.well-known/oauth-protected-resource");
+    const authorizationServer = await app.request(
+      "https://marketplace.chasesets.test/.well-known/oauth-authorization-server",
+    );
+    const { issuer } = (await authorizationServer.json()) as { issuer: string };
 
     expect(response.status).toBe(200);
+    expect(issuer).toBe("https://marketplace.chasesets.test");
     await expect(response.json()).resolves.toEqual({
       resource: "https://marketplace.chasesets.test/mcp",
-      authorization_servers: ["https://marketplace.chasesets.test/.well-known/oauth-authorization-server"],
+      authorization_servers: [issuer],
       scopes_supported: expect.arrayContaining([
         "catalog:read",
-        "checkout:read",
-        "checkout:write",
-        "order:read",
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read",
         "listings:write",
         "payouts:request",
         "account:read",
@@ -521,6 +534,157 @@ describe("platform api app wiring", () => {
       registration_endpoint: "https://marketplace.chasesets.test/ucp/oauth/register",
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
+    });
+  });
+
+  it("names the same authorization-server issuer through the trusted public-origin resolver", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime());
+    const forwarded = {
+      headers: { "x-forwarded-host": "marketplace.chasesets.test", "x-forwarded-proto": "https" },
+    };
+
+    try {
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
+      const resourceMetadata = await app.request(
+        "http://platform-api.internal:8080/.well-known/oauth-protected-resource",
+        forwarded,
+      );
+      const authorizationServer = await app.request(
+        "http://platform-api.internal:8080/.well-known/oauth-authorization-server",
+        forwarded,
+      );
+      const { issuer } = (await authorizationServer.json()) as { issuer: string };
+
+      expect(issuer).toBe("https://marketplace.chasesets.test");
+      await expect(resourceMetadata.json()).resolves.toMatchObject({
+        resource: "https://marketplace.chasesets.test/mcp",
+        authorization_servers: [issuer],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("OAuth authorize requires interactive consent on the mounted platform API", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => ({
+        rows: sql.includes("FROM identity_ucp_oauth_clients")
+          ? [
+              {
+                client_id: "synthetic-client",
+                client_name: "Synthetic Agent",
+                platform_profile_url: "https://agent.example",
+                redirect_uris: ["https://agent.example/callback"],
+                scopes: ["payouts:request"],
+                grant_types: ["authorization_code"],
+                response_types: ["code"],
+                token_endpoint_auth_method: "none",
+              },
+            ]
+          : [],
+        rowCount: 1,
+      })),
+    };
+    const resolveActor = vi.fn(async () => ({ ...platformActor([]), sessionId: "synthetic-session" }));
+    const app = buildPlatformApiApp(
+      createEmptyRuntime({
+        auth: {
+          db,
+          auth: {
+            issueOpaqueToken: () => "ucp_consent_synthetic",
+            hashSecret: () => "synthetic-hash",
+          },
+        },
+        identity: { linkedPlatformAuthorizations: {} },
+      }),
+      { resolveActor },
+    );
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: "synthetic-client",
+      redirect_uri: "https://agent.example/callback",
+      scope: "payouts:request",
+      code_challenge: "a".repeat(43),
+      code_challenge_method: "S256",
+    });
+    const response = await app.request(`https://marketplace.chasesets.test/ucp/oauth/authorize?${query}`, {
+      headers: { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate" },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/account/agents/consent?consent_token=ucp_consent_synthetic");
+    expect(db.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO identity_ucp_oauth_consent_requests"))).toBe(
+      true,
+    );
+    expect(
+      db.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO identity_ucp_oauth_authorization_codes")),
+    ).toBe(false);
+  });
+
+  it("stock-client discovery chain registers", async () => {
+    const authDb = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) };
+    const app = buildPlatformApiApp(createEmptyRuntime({ auth: { db: authDb } }));
+    // The configured MCP server URL is the only input; every later URL comes from a discovery document.
+    const mcpServerUrl = "https://marketplace.chasesets.test/mcp";
+
+    const challenge = await app.request(mcpServerUrl, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "call_1",
+        method: "tools/call",
+        params: { name: "inventory.list-import-sources", arguments: { accountId: "acc_1" } },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(challenge.status).toBe(401);
+    const resourceMetadataUrl =
+      /resource_metadata="([^"]+)"/.exec(challenge.headers.get("WWW-Authenticate") ?? "")?.[1] ?? "";
+
+    const resourceMetadataResponse = await app.request(resourceMetadataUrl);
+    expect(resourceMetadataResponse.status).toBe(200);
+    const resourceMetadata = (await resourceMetadataResponse.json()) as {
+      resource: string;
+      authorization_servers: readonly string[];
+      scopes_supported: readonly string[];
+    };
+    expect(resourceMetadata.resource).toBe(mcpServerUrl);
+    expect(resourceMetadata.scopes_supported).toHaveLength(17);
+    const [authorizationServerIssuer = ""] = resourceMetadata.authorization_servers;
+
+    const authorizationServerResponse = await app.request(
+      `${authorizationServerIssuer}/.well-known/oauth-authorization-server`,
+    );
+    expect(authorizationServerResponse.status).toBe(200);
+    const authorizationServer = (await authorizationServerResponse.json()) as {
+      issuer: string;
+      registration_endpoint: string;
+    };
+    expect(authorizationServer.issuer).toBe(authorizationServerIssuer);
+
+    // Synthetic replay of the Claude Code 2.1.296 registration body shape captured by #9232: every advertised
+    // scope (18 at capture), a client_name, a loopback redirect, and neither client_uri nor platform_profile_url.
+    // The port and server label are synthetic.
+    const registration = await app.request(authorizationServer.registration_endpoint, {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: "Claude Code (synthetic-server)",
+        redirect_uris: ["http://localhost:49160/callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+        application_type: "native",
+        scope: resourceMetadata.scopes_supported.join(" "),
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(registration.status).toBe(201);
+    await expect(registration.json()).resolves.toMatchObject({
+      client_name: "Claude Code (synthetic-server)",
+      platform_profile_url: "http://localhost:49160",
+      redirect_uris: ["http://localhost:49160/callback"],
+      scope: [...resourceMetadata.scopes_supported].sort().join(" "),
+      token_endpoint_auth_method: "none",
     });
   });
 
@@ -1517,9 +1681,28 @@ describe("platform api app wiring", () => {
   });
 
   it("wires Checkout-owned UCP checkout handlers with platform actor context", async () => {
-    const createBuyNow = vi.fn(async () => ({ sessionId: "chk_1" as never }));
+    // Brief create DTO replaces source inputs and verifies the Discovery/Ordering host ports.
+    const getPublicListingById = vi.fn(async () => ({
+      listing_id: "lst_1",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "cat_1::form:raw",
+      item_title: "Charizard",
+      item_subtitle: null,
+      product_summary: null,
+      selected_options: [],
+      visible_quantity: 3,
+    }));
+    const getPurchase = vi.fn(async () => ({
+      order_id: "ord_1",
+      status: "pending-payment",
+      ready_for_fulfillment_at: null,
+      display_reference: "TEST-1",
+    }));
+    let orders: string[] = [];
+    const checkoutSessionId = "chk_0123456789abcdefghijklmnop";
+    const createBuyNow = vi.fn(async () => ({ sessionId: checkoutSessionId as never }));
     const getSession = vi.fn(async () => ({
-      session_id: "chk_1",
+      session_id: checkoutSessionId,
       buyer_account_id: "acc_buyer",
       source_type: "buy-now",
       optimization_goal: "lowest-total",
@@ -1527,7 +1710,7 @@ describe("platform api app wiring", () => {
       shipping_option: "standard",
       shipping_address: null,
       lines: [],
-      order_ids: [],
+      order_ids: orders,
       payment_id: null,
       submitted_offer_id: null,
       created_at: "2026-05-16T00:00:00.000Z",
@@ -1535,6 +1718,8 @@ describe("platform api app wiring", () => {
     }));
     const app = buildPlatformApiApp(
       createEmptyRuntime({
+        discovery: { items: { market: { getPublicListingById } } },
+        ordering: { orders: { getPurchase } },
         checkout: {
           sessions: {
             commandHandler: vi.fn(),
@@ -1561,36 +1746,67 @@ describe("platform api app wiring", () => {
           accountId: "acc_buyer",
           roleKey: "buyer",
         })),
+        ucp: {
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
+            },
+          }),
+        },
       },
     );
-    const body = JSON.stringify({
-      source: {
-        type: "buy-now",
-        listing_id: "lst_1",
-        catalog_item_id: "cat_1",
-        product_id: "cat_1::form:raw",
-        title: "Charizard",
-        quantity: 1,
-      },
-    });
-
-    const response = await app.request("/ucp/v1/checkout-sessions", {
-      method: "POST",
-      body,
-      headers: signedUcpHeaders(body),
-    });
-
-    expect(response.status).toBe(200);
-    expect(createBuyNow).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "acc_buyer" }),
-      expect.objectContaining({
-        audit: expect.objectContaining({ forAccountId: "acc_buyer" }),
+    const body = JSON.stringify({ line_items: [{ item: { id: "lst_1" }, quantity: 1 }] });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      Response.json({
+        revision: "server_revision",
+        readyLineKeys: ["lst_1"],
+        unavailableLines: [],
+        unavailableLineKeys: [],
+        materialChangeReasons: [],
+        sellerGroups: [],
+        totals: {
+          itemSubtotalAmount: "20.00",
+          shippingAmount: "0.00",
+          salesTaxAmount: "0.00",
+          totalAmount: "20.00",
+          packageCount: 1,
+        },
       }),
     );
-    await expect(response.json()).resolves.toMatchObject({
-      ucp: { status: "ok" },
-      checkout: { id: "chk_1" },
-    });
+
+    try {
+      const response = await app.request("/ucp/v1/checkout-sessions", {
+        method: "POST",
+        body,
+        headers: signedUcpHeaders(body),
+      });
+
+      expect(response.status).toBe(200);
+      expect(getPublicListingById).toHaveBeenCalledExactlyOnceWith("lst_1");
+      expect(createBuyNow).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: "acc_buyer" }),
+        expect.objectContaining({
+          audit: expect.objectContaining({ forAccountId: "acc_buyer" }),
+        }),
+      );
+      await expect(response.json()).resolves.toMatchObject({
+        ucp: { status: "ok" },
+        checkout: { id: checkoutSessionId },
+      });
+      orders = ["ord_1"];
+      await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop", {
+        headers: { "UCP-Agent": 'profile="https://agent.example/.well-known/ucp"' },
+      });
+      expect(getPurchase).toHaveBeenCalledExactlyOnceWith("ord_1", "acc_buyer");
+    } finally {
+      fetch.mockRestore();
+    }
   });
 
   it("exercises UCP MCP discovery, tool calls, resources, and idempotency through the composed platform API", async () => {
@@ -1667,6 +1883,17 @@ describe("platform api app wiring", () => {
       }),
       {
         ucp: {
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
+            },
+          }),
           mcpToolHandlers: {
             complete_checkout: completeCheckout,
           },
@@ -1807,7 +2034,7 @@ describe("platform api app wiring", () => {
           messages: [{ code: "authentication_required" }],
         },
         _meta: {
-          "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="checkout:read"',
+          "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="dev.ucp.shopping.checkout:manage"',
         },
       },
     });
@@ -2183,6 +2410,48 @@ const PRODUCTION_HOST_FILES = [
   "scripts/replay-projection.ts",
 ];
 
+it("supplies capability administration authority in every production platform API host", () => {
+  const root = repositoryRootFromTests();
+  for (const file of PRODUCTION_HOST_FILES) {
+    const source = readFileSync(join(root, file), "utf8");
+    const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+    const hostPorts: ts.ObjectLiteralExpression[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isCallExpression(node) && node.expression.getText(tree) === "createPlatformApiHost") {
+        const options = node.arguments[0];
+        expect(options && ts.isObjectLiteralExpression(options), file).toBe(true);
+        if (options && ts.isObjectLiteralExpression(options)) {
+          const ports = options.properties.find(
+            (property) => ts.isPropertyAssignment(property) && property.name.getText(tree) === "hostPorts",
+          );
+          expect(ports && ts.isPropertyAssignment(ports) && ts.isObjectLiteralExpression(ports.initializer), file).toBe(
+            true,
+          );
+          if (ports && ts.isPropertyAssignment(ports) && ts.isObjectLiteralExpression(ports.initializer)) {
+            hostPorts.push(ports.initializer);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
+    expect(hostPorts, file).toHaveLength(1);
+    for (const ports of hostPorts) {
+      expect(
+        ports.properties.some(
+          (property) =>
+            (ts.isPropertyAssignment(property) &&
+              property.name.getText(tree) === "capabilityAdministrationAuthority") ||
+            (file.endsWith("/main.ts") &&
+              ts.isSpreadAssignment(property) &&
+              property.expression.getText(tree) === "capabilityAdministrationPorts"),
+        ),
+        `${file} must supply capabilityAdministrationAuthority`,
+      ).toBe(true);
+    }
+  }
+});
+
 function verifyHostConstructionCensus(root: string, files = collectRepositorySourceFiles(root)) {
   const callSites = countConstructionCallSites(
     files,
@@ -2530,7 +2799,10 @@ describe("platform API payment provider mode observation", () => {
     ).map((entry) => entry.file);
     expect(paymentsServiceCallSites.sort()).toEqual([
       "bounded-contexts/payments/features/payments/api/evidence-window-disposition.test.ts",
+      "bounded-contexts/payments/features/payments/api/saved-instrument-attempt.db.test.ts",
       "bounded-contexts/payments/features/payments/api/webhook-inbox.db.test.ts",
+      "bounded-contexts/payments/features/wallet-funding/api/capture.db.test.ts",
+      "bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts",
       "bounded-contexts/payments/index.ts",
       "bounded-contexts/payments/support/runtime-support/seed.ts",
       "bounded-contexts/payments/tests/provider-journal.db.test.ts",

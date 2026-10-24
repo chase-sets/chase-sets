@@ -11,6 +11,7 @@ import {
   MCP_PROTOCOL_VERSION_HEADER,
 } from "@chase-sets/platform-runtime/mcp-protocol";
 import type { McpAuditSink, McpToolHandler } from "@chase-sets/platform-runtime/mcp";
+import { UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as orderingModule } from "@chase-sets/ordering";
@@ -54,6 +55,9 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
         ...memory,
         readStreamInTransaction: (_client, input) => memory.readStream(input),
         appendToStreamInTransaction: (_client, input) => memory.appendToStream(input),
+        appendToStreamsInTransaction: async () => {
+          throw new Error("Synthetic checkout composition does not use transaction-local multi-stream appends.");
+        },
       };
     },
   };
@@ -169,6 +173,21 @@ function fixture(checkoutServices?: ReturnType<typeof checkoutModule.createServi
     subscriptionRunners: [],
   };
   const options: BuildPlatformApiOptions = {
+    ucp: {
+      profileResolver: async () => ({
+        ok: true,
+        profile: {
+          ucp: {
+            version: UCP_VERSION,
+            services: {},
+            payment_handlers: {},
+            capabilities: Object.fromEntries(
+              UCP_MCP_TOOLS.map((tool) => [tool.capability, [{ version: UCP_VERSION }]]),
+            ),
+          },
+        },
+      }),
+    },
     resolveActor: async (request): Promise<ResolvedActor | null> => {
       const roleKey = request.headers.get("x-test-role") ?? "owner";
       if (roleKey === "anonymous") return null;
@@ -270,6 +289,20 @@ function retainedCartLine(lineId: string): CartLine {
     updated_at: "2026-09-22T00:00:00.000Z",
   };
 }
+/** One synthetic locked-listing cart line, added through a Cart attempt. */
+const syntheticCartLine = {
+  catalogItemId: "cat_synthetic",
+  productId: "cat_synthetic::",
+  itemTitle: "Synthetic item",
+  itemSubtitle: null,
+  itemImageUrl: null,
+  productSummary: null,
+  quantity: 1,
+  selectedOptions: [],
+  fulfillmentMode: "locked-listing",
+  lockedListingId: "lst_synthetic",
+} as const;
+
 const closedRoutes = [
   "/account/checkout-sessions",
   ...[
@@ -287,7 +320,7 @@ const closedRoutes = [
 ].map((path) => `POST /api/marketplace${path}`);
 const preservedRoutes = [
   ...["account", "guest"].flatMap((actor) => [
-    ...["", "/readiness", "/bulk", "/:lineId/quantity", "/:lineId/fulfillment", "/:lineId/remove"].map(
+    ...["", "/readiness", "/bulk", "/commands", "/:lineId/quantity", "/:lineId/fulfillment", "/:lineId/remove"].map(
       (suffix) => `POST /api/marketplace/${actor}/cart${suffix}`,
     ),
     ...["", "/readiness", "/:lineId/remove"].map((suffix) => `POST /api/marketplace/${actor}/sell-list${suffix}`),
@@ -304,6 +337,8 @@ const preservedRoutes = [
     ":instrumentId/remove",
     "reconcile",
   ].map((suffix) => `POST /api/marketplace/account/payment-methods/${suffix}`),
+  "POST /api/marketplace/account/wallet-fundings",
+  "POST /api/marketplace/account/wallet-fundings/:fundingId/refunds",
   ...["", "/preview", "/:id/activate", "/:id/clone", "/:id/retire"].map(
     (suffix) => `POST /api/marketplace/admin/postage-policies${suffix}`,
   ),
@@ -810,23 +845,18 @@ describe("checkout-closed-session-lifecycle", () => {
       return paymentRow;
     });
     cartLineId = (
-      await checkoutServices.cart.addLine(
+      await checkoutServices.cart.executeCartAttempt(
         {
-          accountId: "acc_synthetic",
-          catalogItemId: "cat_synthetic",
-          productId: "cat_synthetic::",
-          itemTitle: "Synthetic item",
-          itemSubtitle: null,
-          itemImageUrl: null,
-          productSummary: null,
-          quantity: 1,
-          selectedOptions: [],
-          fulfillmentMode: "locked-listing",
-          lockedListingId: "lst_synthetic",
+          ownerKey: "acc_synthetic",
+          attemptId: "matrix-synthetic-cart-add-open",
+          kind: "cart.add-line",
+          target: "cart",
+          requestHash: "a".repeat(64),
+          commands: [{ type: "add", ...syntheticCartLine }],
         },
         context,
       )
-    ).lineId;
+    ).result.vector![0]!.lineId!;
     const readiness = await checkoutServices.cart.createReadinessSnapshot({ accountId: "acc_synthetic" });
     expect(readiness.status, JSON.stringify(readiness)).toBe("ready");
     stubOrderingTransport().preview.mockResolvedValue({ ...supplyPreview, readyLineKeys: [cartLineId] });
@@ -991,23 +1021,18 @@ describe("checkout-closed-session-lifecycle", () => {
     const sessions = checkoutServices.sessions;
     const f = fixture(checkoutServices);
     retainedLineId = (
-      await f.checkout.cart.addLine(
+      await f.checkout.cart.executeCartAttempt(
         {
-          accountId: "acc_synthetic",
-          catalogItemId: "cat_synthetic",
-          productId: "cat_synthetic::",
-          itemTitle: "Synthetic item",
-          itemSubtitle: null,
-          itemImageUrl: null,
-          productSummary: null,
-          quantity: 1,
-          selectedOptions: [],
-          fulfillmentMode: "locked-listing",
-          lockedListingId: "lst_synthetic",
+          ownerKey: "acc_synthetic",
+          attemptId: "matrix-synthetic-cart-add-retained",
+          kind: "cart.add-line",
+          target: "cart",
+          requestHash: "b".repeat(64),
+          commands: [{ type: "add", ...syntheticCartLine }],
         },
         { tenantId: "tnt_synthetic", audit: { performedByUserId: "usr_synthetic", forAccountId: "acc_synthetic" } },
       )
-    ).lineId;
+    ).result.vector![0]!.lineId!;
     const orderingTransport = stubOrderingTransport();
     const source = {
       type: "buy-now",

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { ReviewDetailPage } from "./review-detail-page";
 import type { ReviewDetail } from "./contracts";
+import { authoredTextRecoveryMessage } from "./authored-text-recovery";
 
 const review = {
   review_id: "rev_1",
@@ -60,6 +61,110 @@ function expectTintedCard(root: Element | null) {
 }
 
 describe("review detail page", () => {
+  it.each([
+    { rating: null, held: false },
+    { rating: 4, held: false },
+    { rating: null, held: true },
+    { rating: 4, held: true },
+  ])("redacts an operator-withdrawn review before rating=$rating and held=$held branches", ({ rating, held }) => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        viewerAccountId={review.subject_account_id}
+        review={{
+          ...review,
+          status: "withdrawn",
+          rating,
+          held,
+          withdrawn_by_actor_type: "operator",
+          reply_status: "active",
+          reply_feedback: "Private response sentinel",
+        }}
+      />,
+    );
+    expect(markup).toContain("Review withdrawn");
+    expect(markup).toContain("Withdrawn by an operator");
+    for (const hidden of [
+      "Prompt payment and clear communication.",
+      "Private response sentinel",
+      "Account response",
+      "A review is pending",
+      "Pending reveal",
+      "Review paused",
+      "Report review",
+      "Respond to this review",
+      "Review author:",
+      'aria-label="4 rating"',
+    ])
+      expect(markup).not.toContain(hidden);
+  });
+
+  it("redacts a server-shaped received held-plus-revealed review with a response", () => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        viewerAccountId={review.subject_account_id}
+        review={{
+          ...review,
+          held: true,
+          rating: null,
+          feedback: null,
+          reply_status: "active",
+          reply_feedback: "Private response sentinel",
+        }}
+      />,
+    );
+    expect(markup).toContain("Review paused");
+    for (const hidden of [
+      "Prompt payment and clear communication.",
+      "Private response sentinel",
+      "Account response",
+      "Report review",
+      "Respond to this review",
+      'aria-label="4 rating"',
+    ])
+      expect(markup).not.toContain(hidden);
+  });
+
+  it.each([null, review.revealed_at])(
+    "preserves the author's own held preview with revealed_at=%s without exposing a response",
+    (revealed_at) => {
+      const markup = renderToString(
+        <ReviewDetailPage
+          backHref="/account/reviews/written"
+          viewerAccountId={review.author_account_id}
+          review={{
+            ...review,
+            held: true,
+            revealed_at,
+            reply_status: "active",
+            reply_feedback: "Private response sentinel",
+          }}
+        />,
+      );
+      expect(markup).toContain("Prompt payment and clear communication.");
+      expect(markup).toContain('aria-label="4 rating"');
+      expect(markup).toContain("Review paused");
+      expect(markup.includes("Pending reveal")).toBe(revealed_at === null);
+      for (const hidden of ["Private response sentinel", "Account response", "Report review", "Respond to this review"])
+        expect(markup).not.toContain(hidden);
+    },
+  );
+
+  it("keeps the author's pending preview but hides any private response", () => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/written"
+        viewerAccountId={review.author_account_id}
+        review={{ ...review, revealed_at: null, reply_status: "active", reply_feedback: "Private response sentinel" }}
+      />,
+    );
+    expect(markup).toContain("Prompt payment and clear communication.");
+    expect(markup).toContain("Pending reveal");
+    expect(markup).not.toContain("Private response sentinel");
+    expect(markup).not.toContain("Report review");
+  });
+
   it("renders account-to-account review labels", () => {
     const markup = renderToString(<ReviewDetailPage backHref="/account/reviews/received" review={review} />);
 
@@ -93,6 +198,9 @@ describe("review detail page", () => {
 
     expect(markup).not.toContain("Prompt payment and clear communication.");
     expect(markup).not.toContain("Review author:");
+    expect(markup).toContain("A review is pending");
+    expect(markup).not.toContain("Report review");
+    expect(markup).not.toContain("Account response");
   });
 
   it("shows the pending-reveal badge for the author's own pending review", () => {
@@ -303,5 +411,50 @@ describe("review detail page", () => {
       expect(markup).toContain("A reply already exists for this review.");
       expect(markup).toContain("My draft response.");
     });
+  });
+});
+
+describe("issue-5258-marketplace-ac4 Review Response standards and recovery", () => {
+  it("links the canonical community guidelines and support before posting a response", () => {
+    render(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        review={review}
+        viewerAccountId={review.subject_account_id}
+      />,
+    );
+
+    const submit = screen.getByRole("button", { name: "Post response" });
+    const guidelines = screen.getByRole("link", { name: "Community guidelines" });
+    const support = screen.getByRole("link", { name: "Contact support" });
+    expect(guidelines.getAttribute("href")).toBe("/help/buying/community-guidelines-and-enforcement");
+    expect(support.getAttribute("href")).toBe("/contact");
+    expect(guidelines.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(support.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps the response draft and links the field from an accessible summary on a closed rejection", () => {
+    const message = authoredTextRecoveryMessage("text_direction_override")!;
+    render(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        review={review}
+        viewerAccountId={review.subject_account_id}
+        replyErrorMessage={message}
+        replyRecovery={{ code: "text_direction_override", message, fieldLevel: true }}
+        defaultReplyFeedback="Thanks for the order"
+      />,
+    );
+
+    const summary = screen.getByRole("alert");
+    expect(summary.textContent).toContain("Your text was not posted");
+    const fieldLink = within(summary).getByRole("link", { name: `Your response: ${message}` });
+    const response = screen.getByRole("textbox", { name: "Your response" }) as HTMLTextAreaElement;
+    expect(fieldLink.getAttribute("href")).toBe(`#${response.id}`);
+    expect(response.value).toBe("Thanks for the order");
+    expect(response.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.keyDown(fieldLink, { key: "Enter" });
+    expect(document.activeElement).toBe(response);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 });

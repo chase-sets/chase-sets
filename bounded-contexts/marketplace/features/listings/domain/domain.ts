@@ -1,9 +1,27 @@
 import { MarketplaceListingDomainError } from "./listing-error";
-import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { assertSafeAuthoredText } from "../../reviews/domain/authored-text-safeguard";
+import {
+  parseMarketplaceListingAutoUnlistedPayload,
+  parseMarketplaceListingCreatedPayload,
+  parseMarketplaceListingEnforcementData,
+  parseMarketplaceListingOperatorUnlistedPayload,
+  type AggregateDecider,
+  type AggregateEvolver,
+  type DomainEvent,
+  type MarketplaceListingAutoUnlistedPayload,
+  type MarketplaceListingEnforcementData,
+  type MarketplaceListingOperatorUnlistedPayload,
+} from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { centsToMoneyAmount, moneyToCents, roundRational, tryMoneyToCents } from "@chase-sets/primitives/money";
-import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
+import type {
+  AccountId,
+  CatalogItemId,
+  ListingEnforcementActionId,
+  ListingId,
+  ReportedContentActionId,
+} from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import {
@@ -320,6 +338,9 @@ const gradeLabelAliases = new Map(
 );
 
 export type MarketplaceListingState = Readonly<{
+  publicationScope: "native" | "channel-only";
+  nativeVisibility: "enabled" | "disabled";
+  nativeFeeState: "enrolled" | "not-enrolled";
   listingId: ListingId | null;
   accountId: AccountId | null;
   inventoryItemId: string | null;
@@ -351,9 +372,21 @@ export type MarketplaceListingState = Readonly<{
   evidence: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
   pauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark" | null;
+  /** The latest Listing Enforcement Action, retained across republish and pause. */
+  listingEnforcement: MarketplaceListingEnforcementData | null;
+  /** Every applied removal source and its identity, replay-derived and JSON-native for snapshots. */
+  appliedListingEnforcements: readonly AppliedListingEnforcement[];
+}>;
+
+export type AppliedListingEnforcement = Readonly<{
+  sourceActionId: string;
+  listingEnforcementActionId: ListingEnforcementActionId;
 }>;
 
 export const initialMarketplaceListingState: MarketplaceListingState = {
+  publicationScope: "native",
+  nativeVisibility: "enabled",
+  nativeFeeState: "not-enrolled",
   listingId: null,
   accountId: null,
   inventoryItemId: null,
@@ -389,10 +422,13 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   evidence: [],
   status: "draft",
   pauseReason: null,
+  listingEnforcement: null,
+  appliedListingEnforcements: [],
 };
 
 export type CreateListingCommand = Readonly<{
   type: "CreateListing";
+  publicationScope?: "native" | "channel-only";
   listingId: ListingId;
   accountId: AccountId;
   inventoryItemId: string;
@@ -410,10 +446,10 @@ export type CreateListingCommand = Readonly<{
   shipFromAddress: AddressSnapshot;
   priceAmount: string;
   priceCurrencyCode: string;
-  feeLock: MarketplaceListingFeeLock;
+  feeLock: MarketplaceListingFeeLock | null;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-  evidenceRequirements: ListingEvidenceRequirementSnapshot;
+  evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   evidence?: readonly MarketplaceListingPhotoDraft[] | null;
 }>;
 
@@ -487,12 +523,21 @@ export type PauseListingCommand = Readonly<{
   type: "PauseListing";
   reason?: "seller" | "policy-input-missing" | "channel-inbound-dark";
 }>;
+/** The dispatcher mints `listingEnforcementActionId` once; the report is the removal source. */
 export type AutoUnlistListingCommand = Readonly<{
   type: "AutoUnlistListing";
   reportId: string;
   reportCount: number;
   threshold: number;
   autoUnlistedAt: string;
+  listingEnforcementActionId: ListingEnforcementActionId;
+}>;
+/** Removal decided by one Reported Content action; its `recordedAt` is the removal time. */
+export type OperatorUnlistListingCommand = Readonly<{
+  type: "OperatorUnlistListing";
+  reportedContentActionId: ReportedContentActionId;
+  listingEnforcementActionId: ListingEnforcementActionId;
+  recordedAt: string;
 }>;
 export type WithdrawListingCommand = Readonly<{ type: "WithdrawListing" }>;
 
@@ -510,11 +555,38 @@ export type MarketplaceListingCommand =
   | PublishListingCommand
   | PauseListingCommand
   | AutoUnlistListingCommand
+  | OperatorUnlistListingCommand
   | WithdrawListingCommand;
+
+export const marketplaceListingCommandTypes = Object.keys({
+  CreateListing: true,
+  UpdateListingPrice: true,
+  UpdateListingQuantityCap: true,
+  UpdateListingPurchaseLimits: true,
+  AddListingPhotos: true,
+  ClassifyListingPhoto: true,
+  ReplaceListingPhoto: true,
+  RemoveListingPhoto: true,
+  ReorderListingPhotos: true,
+  RefreshListingEvidenceRequirements: true,
+  PublishListing: true,
+  PauseListing: true,
+  AutoUnlistListing: true,
+  OperatorUnlistListing: true,
+  WithdrawListing: true,
+} satisfies Record<MarketplaceListingCommand["type"], true>) as MarketplaceListingCommand["type"][];
+
+export function assertNativeListingCommand(state: MarketplaceListingState): void {
+  assert(state.publicationScope !== "channel-only", "Native commands are not allowed for a channel-only Listing.");
+}
 
 export type ListingCreatedEvent = DomainEvent<
   "marketplace.listing.created",
   Readonly<{
+    schemaVersion?: 2;
+    publicationScope?: "native" | "channel-only";
+    nativeVisibility?: "enabled" | "disabled";
+    nativeFeeState?: "enrolled" | "not-enrolled";
     listingId: ListingId;
     accountId: AccountId;
     inventoryItemId: string;
@@ -533,18 +605,18 @@ export type ListingCreatedEvent = DomainEvent<
     priceAmount: string;
     /** Missing only on historical amount-only events. */
     priceCurrencyCode?: string | null;
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string | null;
+    sellerNetUnitAmount: string | null;
     shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
+    feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
     changeSource?: "repricing-engine";
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
-    evidenceRequirements: ListingEvidenceRequirementSnapshot;
+    evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
     evidence: MarketplaceListingPhoto[];
   }>
 >;
@@ -636,12 +708,11 @@ export type ListingPausedEvent = DomainEvent<
 >;
 export type ListingAutoUnlistedEvent = DomainEvent<
   "marketplace.listing.auto-unlisted",
-  Readonly<{
-    reportId: string;
-    reportCount: number;
-    threshold: number;
-    autoUnlistedAt: string;
-  }>
+  MarketplaceListingAutoUnlistedPayload
+>;
+export type ListingOperatorUnlistedEvent = DomainEvent<
+  "marketplace.listing.operator-unlisted",
+  MarketplaceListingOperatorUnlistedPayload
 >;
 export type ListingWithdrawnEvent = DomainEvent<"marketplace.listing.withdrawn", Readonly<Record<string, never>>>;
 export type ListingOfferCommitmentRecordedEvent = DomainEvent<
@@ -668,6 +739,7 @@ export type MarketplaceListingEvent =
   | ListingPublishedEvent
   | ListingPausedEvent
   | ListingAutoUnlistedEvent
+  | ListingOperatorUnlistedEvent
   | ListingWithdrawnEvent
   | ListingOfferCommitmentRecordedEvent;
 
@@ -676,6 +748,14 @@ export const decideMarketplaceListing: AggregateDecider<
   MarketplaceListingCommand,
   MarketplaceListingEvent
 > = (state, command) => {
+  if (
+    state.publicationScope === "channel-only" &&
+    ["PublishListing", "UpdateListingPrice", "UpdateListingQuantityCap", "UpdateListingPurchaseLimits"].includes(
+      command.type,
+    )
+  ) {
+    assertNativeListingCommand(state);
+  }
   switch (command.type) {
     case "CreateListing": {
       assert(state.listingId === null, "Listing has already been created.");
@@ -683,40 +763,77 @@ export const decideMarketplaceListing: AggregateDecider<
         command.quantityCap,
         "Listing quantity cap must be a positive whole number.",
       );
-      const feeLock = normalizeMarketplaceListingFeeLock(command.feeLock);
-      assert(feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
-      return [
-        {
-          type: "marketplace.listing.created",
-          data: {
-            listingId: command.listingId,
-            accountId: command.accountId,
-            inventoryItemId: command.inventoryItemId.trim(),
-            catalogItemId: command.catalogItemId.trim() as CatalogItemId,
-            productId: command.productId,
-            itemLanguageCode: command.itemLanguageCode?.trim() || null,
-            itemTitle: command.itemTitle?.trim() ?? null,
-            itemSubtitle: command.itemSubtitle?.trim() ?? null,
-            selectedOptions: command.selectedOptions.map((selection) => ({
-              dimensionId: selection.dimensionId.trim(),
-              optionId: selection.optionId.trim(),
-            })),
-            productSummary: command.productSummary?.trim() ?? null,
-            productMeasureSnapshot: command.productMeasureSnapshot ?? null,
-            gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
-            storageLocationName: command.storageLocationName?.trim() ?? null,
-            shipFromCode: command.shipFromCode?.trim() ?? null,
-            shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
-            priceAmount: normalizeMoneyAmount(command.priceAmount),
-            priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
-            ...feeLockProjectionFields([feeLock]),
-            quantityCap,
-            purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
-            evidenceRequirements: command.evidenceRequirements,
-            evidence: normalizeListingPhotos(command.evidence ?? []),
-          },
+      const publicationScope = command.publicationScope ?? "native";
+      assert(
+        publicationScope === "native" || publicationScope === "channel-only",
+        "Listing publication scope is invalid.",
+      );
+      const feeLock = command.feeLock === null ? null : normalizeMarketplaceListingFeeLock(command.feeLock);
+      if (publicationScope === "native") {
+        assert(feeLock && feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
+        assert(command.evidenceRequirements, "Native listing evidence requirements are unavailable.");
+      } else {
+        assert(feeLock === null, "Channel-only listings cannot enroll native fee terms.");
+        assert(
+          Intl.supportedValuesOf("currency").includes(normalizeListingPriceCurrencyCode(command.priceCurrencyCode)),
+          "Channel-only reference currency must be an ISO-4217 currency.",
+        );
+        assert(
+          command.evidenceRequirements === null,
+          "Channel-only listings cannot carry native evidence requirements.",
+        );
+      }
+      const event: ListingCreatedEvent = {
+        type: "marketplace.listing.created",
+        data: {
+          ...(publicationScope === "channel-only"
+            ? {
+                schemaVersion: 2 as const,
+                publicationScope,
+                nativeVisibility: "disabled" as const,
+                nativeFeeState: "not-enrolled" as const,
+              }
+            : {}),
+          listingId: command.listingId,
+          accountId: command.accountId,
+          inventoryItemId: command.inventoryItemId.trim(),
+          catalogItemId: command.catalogItemId.trim() as CatalogItemId,
+          productId: command.productId,
+          itemLanguageCode: command.itemLanguageCode?.trim() || null,
+          itemTitle: command.itemTitle?.trim() ?? null,
+          itemSubtitle: command.itemSubtitle?.trim() ?? null,
+          selectedOptions: command.selectedOptions.map((selection) => ({
+            dimensionId: selection.dimensionId.trim(),
+            optionId: selection.optionId.trim(),
+          })),
+          productSummary: command.productSummary?.trim() ?? null,
+          productMeasureSnapshot: command.productMeasureSnapshot ?? null,
+          gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
+          storageLocationName: command.storageLocationName?.trim() ?? null,
+          shipFromCode: command.shipFromCode?.trim() ?? null,
+          shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
+          priceAmount: normalizeMoneyAmount(command.priceAmount),
+          priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
+          ...(feeLock
+            ? feeLockProjectionFields([feeLock])
+            : {
+                marketplaceSalesFeeUnitAmount: null,
+                sellerNetUnitAmount: null,
+                shippingAllowancePercentageBps: 0,
+                termsScheduleId: null,
+                termsAgreementId: null,
+                termsResolvedAt: null,
+                feeQuoteFingerprint: null,
+                feeLocks: [],
+              }),
+          quantityCap,
+          purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
+          evidenceRequirements: command.evidenceRequirements,
+          evidence: assertSafeNewPhotoAltTexts(normalizeListingPhotos(command.evidence ?? [])),
         },
-      ];
+      };
+      parseMarketplaceListingCreatedPayload(event.data);
+      return [event];
     }
     case "UpdateListingPrice": {
       assert(state.listingId !== null, "Listing must be created first.");
@@ -789,7 +906,10 @@ export const decideMarketplaceListing: AggregateDecider<
         {
           type: "marketplace.listing.photos-added",
           data: {
-            evidence: mergeListingPhotos(state.evidence, normalizeListingPhotos(command.photos)),
+            evidence: mergeListingPhotos(
+              state.evidence,
+              assertSafeNewPhotoAltTexts(normalizeListingPhotos(command.photos)),
+            ),
           },
         },
       ];
@@ -800,6 +920,8 @@ export const decideMarketplaceListing: AggregateDecider<
       assert(target, "Listing evidence entry was not found.");
       const slotId = normalizeSlotToken(command.slotId, "Listing evidence slot");
       const viewKind = normalizeSlotToken(command.viewKind, "Listing evidence view kind");
+      const altText = command.altText === undefined ? target.altText : normalizeOptionalText(command.altText);
+      assertSafeAuthoredText("listing-evidence-alt-text", altText, target.altText);
       return [
         {
           type: "marketplace.listing.photo-classified",
@@ -807,7 +929,7 @@ export const decideMarketplaceListing: AggregateDecider<
             photoId: target.photoId,
             slotId,
             viewKind,
-            altText: command.altText === undefined ? target.altText : normalizeOptionalText(command.altText),
+            altText,
             capturedAt:
               command.capturedAt === undefined ? target.capturedAt : normalizeOptionalText(command.capturedAt),
           },
@@ -832,6 +954,7 @@ export const decideMarketplaceListing: AggregateDecider<
         },
       ]);
       assert(replacement, "Replacement listing evidence entry is required.");
+      assertSafeAuthoredText("listing-evidence-alt-text", replacement.altText, target.altText);
       assert(replacement.photoId !== target.photoId, "Replacement listing evidence must use a new evidence id.");
       assert(
         !state.evidence.some((photo) => photo.photoId === replacement.photoId),
@@ -906,25 +1029,45 @@ export const decideMarketplaceListing: AggregateDecider<
       }
       assert(state.status === "active", "Only active listings can be paused.");
       return [{ type: "marketplace.listing.paused", data: { reason: command.reason ?? "seller" } }];
-    case "AutoUnlistListing":
-      assert(state.listingId !== null, "Listing must be created first.");
-      if (state.status !== "active") {
+    case "AutoUnlistListing": {
+      const listingEnforcement = decideListingRemoval(state, {
+        listingEnforcementActionId: command.listingEnforcementActionId,
+        source: "automatic-report-threshold",
+        sourceActionId: command.reportId,
+        occurredAt: command.autoUnlistedAt,
+      });
+      if (!listingEnforcement) {
         return [];
       }
       assert(Number.isInteger(command.reportCount) && command.reportCount > 0, "Report count must be positive.");
       assert(Number.isInteger(command.threshold) && command.threshold > 0, "Report threshold must be positive.");
       assert(command.reportCount >= command.threshold, "Report threshold has not been reached.");
-      return [
-        {
-          type: "marketplace.listing.auto-unlisted",
-          data: {
-            reportId: normalizeRequiredText(command.reportId, "Report id is required."),
-            reportCount: command.reportCount,
-            threshold: command.threshold,
-            autoUnlistedAt: normalizeRequiredText(command.autoUnlistedAt, "Auto-unlist timestamp is required."),
-          },
-        },
-      ];
+      const data = rejectInvalidListingEnforcement(() =>
+        parseMarketplaceListingAutoUnlistedPayload({
+          reportId: command.reportId,
+          reportCount: command.reportCount,
+          threshold: command.threshold,
+          autoUnlistedAt: command.autoUnlistedAt,
+          listingEnforcement,
+        }),
+      );
+      return [{ type: "marketplace.listing.auto-unlisted", data }];
+    }
+    case "OperatorUnlistListing": {
+      const listingEnforcement = decideListingRemoval(state, {
+        listingEnforcementActionId: command.listingEnforcementActionId,
+        source: "operator-unlist",
+        sourceActionId: command.reportedContentActionId,
+        occurredAt: command.recordedAt,
+      });
+      if (!listingEnforcement) {
+        return [];
+      }
+      const data = rejectInvalidListingEnforcement(() =>
+        parseMarketplaceListingOperatorUnlistedPayload({ listingEnforcement }),
+      );
+      return [{ type: "marketplace.listing.operator-unlisted", data }];
+    }
     case "WithdrawListing":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Listing has already been withdrawn.");
@@ -940,7 +1083,11 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
 ) => {
   switch (event.type) {
     case "marketplace.listing.created":
+      parseMarketplaceListingCreatedPayload(event.data);
       return {
+        publicationScope: event.data.publicationScope ?? "native",
+        nativeVisibility: event.data.nativeVisibility ?? "enabled",
+        nativeFeeState: event.data.nativeFeeState ?? "enrolled",
         listingId: event.data.listingId,
         accountId: event.data.accountId,
         inventoryItemId: event.data.inventoryItemId,
@@ -972,6 +1119,8 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         evidence: hydrateStoredListingPhotos(event.data.evidence),
         status: "draft",
         pauseReason: null,
+        listingEnforcement: null,
+        appliedListingEnforcements: [],
       };
     case "marketplace.listing.price-updated":
       return {
@@ -1064,8 +1213,17 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       };
     case "marketplace.listing.paused":
       return { ...state, status: "paused", pauseReason: event.data.reason ?? "seller" };
-    case "marketplace.listing.auto-unlisted":
-      return { ...state, status: "paused" };
+    case "marketplace.listing.auto-unlisted": {
+      const data = parseMarketplaceListingAutoUnlistedPayload(event.data);
+      return "listingEnforcement" in data
+        ? applyListingEnforcement(state, data.listingEnforcement)
+        : { ...state, status: "paused" };
+    }
+    case "marketplace.listing.operator-unlisted":
+      return applyListingEnforcement(
+        state,
+        parseMarketplaceListingOperatorUnlistedPayload(event.data).listingEnforcement,
+      );
     case "marketplace.listing.withdrawn":
       return { ...state, status: "withdrawn" };
     case "marketplace.listing.offer-commitment-recorded":
@@ -1074,6 +1232,78 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       return assertNever(event);
   }
 };
+
+/**
+ * Shared removal preconditions in decided order: a created, owned listing and a valid
+ * identity; then source deduplication before status, so a redelivered source is inert
+ * even after republish; then identity reuse; then only active listings are removed.
+ * Returns the owner-attributed record to append, or null for a no-op.
+ */
+function decideListingRemoval(
+  state: MarketplaceListingState,
+  input: Readonly<{
+    listingEnforcementActionId: string;
+    source: MarketplaceListingEnforcementData["source"];
+    sourceActionId: string;
+    occurredAt: string;
+  }>,
+): MarketplaceListingEnforcementData | null {
+  assert(state.listingId !== null, "Listing must be created first.");
+  assert(state.accountId !== null, "Listing removal requires a listing owner.");
+  const listingEnforcement = rejectInvalidListingEnforcement(() =>
+    parseMarketplaceListingEnforcementData({ version: 1, ...input, accountId: state.accountId }),
+  );
+  if (state.appliedListingEnforcements.some(({ sourceActionId }) => sourceActionId === input.sourceActionId)) {
+    return null;
+  }
+  assert(
+    !state.appliedListingEnforcements.some(
+      ({ listingEnforcementActionId }) => listingEnforcementActionId === input.listingEnforcementActionId,
+    ),
+    "Listing enforcement action id has already been used.",
+  );
+  return state.status === "active" ? listingEnforcement : null;
+}
+
+/** Replays one identity-bearing removal, failing on any history the decider could not have produced. */
+function applyListingEnforcement(
+  state: MarketplaceListingState,
+  listingEnforcement: MarketplaceListingEnforcementData,
+): MarketplaceListingState {
+  assert(
+    state.listingId !== null && state.status === "active",
+    "Stored listing removal is invalid for the current status.",
+  );
+  assert(listingEnforcement.accountId === state.accountId, "Stored listing removal owner does not match the listing.");
+  assert(
+    !state.appliedListingEnforcements.some(
+      ({ sourceActionId, listingEnforcementActionId }) =>
+        sourceActionId === listingEnforcement.sourceActionId ||
+        listingEnforcementActionId === listingEnforcement.listingEnforcementActionId,
+    ),
+    "Stored listing removal repeats an applied source or identity.",
+  );
+  return {
+    ...state,
+    status: "paused",
+    listingEnforcement,
+    appliedListingEnforcements: [
+      ...state.appliedListingEnforcements,
+      {
+        sourceActionId: listingEnforcement.sourceActionId,
+        listingEnforcementActionId: listingEnforcement.listingEnforcementActionId,
+      },
+    ],
+  };
+}
+
+function rejectInvalidListingEnforcement<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    throw new MarketplaceListingDomainError("command-rejected", error instanceof Error ? error.message : String(error));
+  }
+}
 
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
@@ -1100,7 +1330,7 @@ function normalizePurchaseLimitValue(
   return value;
 }
 
-function normalizePurchaseLimits(
+export function normalizePurchaseLimits(
   limits: Partial<MarketplaceListingPurchaseLimits> | null | undefined,
   quantityCapInput: number,
 ): MarketplaceListingPurchaseLimits {
@@ -1189,6 +1419,14 @@ function normalizeListingPhotos(photos: readonly MarketplaceListingPhotoDraft[])
       assetSet,
     };
   });
+}
+
+/** Every description on newly uploaded evidence is new public text and must pass the safeguard. */
+function assertSafeNewPhotoAltTexts(photos: MarketplaceListingPhoto[]): MarketplaceListingPhoto[] {
+  for (const photo of photos) {
+    assertSafeAuthoredText("listing-evidence-alt-text", photo.altText);
+  }
+  return photos;
 }
 
 /**

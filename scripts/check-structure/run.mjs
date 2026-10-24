@@ -1,4 +1,7 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import ts from "@chase-sets/typescript-compiler-api";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -19,6 +22,7 @@ import {
 } from "./software-delivery-concepts.mjs";
 import { findBusinessLiteralGuardViolations, isBusinessLiteralGuardedFile } from "./business-literal-guard.mjs";
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
+import { validateLinkIntentActionProducers } from "./link-intent-action-producer-inventory.mjs";
 import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { validateIaRegistry } from "./ia-registry-guard.mjs";
@@ -34,12 +38,18 @@ import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { validatePolicyValueDiscriminantChokepoint } from "./policy-value-discriminant-chokepoint.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
+import { validateRealClockElapsedBounds } from "./real-clock-elapsed-bounds.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
+import { validatePricingRegistryConformance } from "./pricing-registry-conformance.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
+import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
+import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
-import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
+import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
+import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
+import { scanTcgplayerHostCredentialPolicy } from "./tcgplayer-host-credential-guard.mjs";
 
 const roots = workspaceRoots;
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -61,14 +71,6 @@ const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared
 const nonSupportSuffixDirectoryExceptions = new Set(["tests"]);
 const supportDirectoryNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-support$/;
 const forbiddenUmbrellaSliceNames = new Set(["authoring", "customer", "items"]);
-const retiredPanelDrawerNames = [
-  "CommerceDrawer",
-  "FilterDrawer",
-  "MarketplaceFilterDrawer",
-  "MarketplaceMobileFilterDrawer",
-  "NotificationCenterDrawer",
-];
-const retiredPanelDrawerPattern = new RegExp(`\\b(?:${retiredPanelDrawerNames.join("|")})\\b`);
 const directoryIntentAllowedFields = new Set([
   "classification",
   "crossCuttingRuntimeComposition",
@@ -91,38 +93,6 @@ const placeholderFieldTokens = new Set([
   "unknown",
 ]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["auth-support", "request-support", "seed-support"]);
-const legacyForbiddenPaths = [
-  "bounded-contexts/experience",
-  "bounded-contexts/insights",
-  "bounded-contexts/reputation",
-  "bounded-contexts/support",
-  "bounded-contexts/tax",
-  "bounded-contexts/catalog/authoring/package.json",
-  "bounded-contexts/catalog/authoring/api",
-  "contracts/notifications",
-  "contracts/dev-seeds",
-  "contracts/event-core/postgres",
-  "contracts/sellable-units",
-  "deployables/admin-support-api",
-  "deployables/admin-support-worker",
-  "deployables/catalog-admin",
-  "deployables/catalog-api",
-  "deployables/identity-admin",
-  "deployables/identity-api",
-  "deployables/inventory-api",
-  "deployables/marketplace-api",
-  "deployables/platform-ingress",
-  "scripts/deployable-api-mount-support.mjs",
-  "scripts/deployable-lifecycle-support.mjs",
-  "scripts/deployable-route-support.mjs",
-  "scripts/deployable-runtime-support.mjs",
-  "scripts/deployable-shell-support.mjs",
-  "scripts/generate-deployable-api-mounts.mjs",
-  "scripts/generate-deployable-lifecycles.mjs",
-  "scripts/generate-deployable-routes.mjs",
-  "scripts/generate-deployable-runtimes.mjs",
-  "scripts/generate-deployable-shells.mjs",
-];
 const nonPackageWorkspaceDirectoryExceptions = new Set([
   "infrastructure/digitalocean",
   "infrastructure/helm",
@@ -155,13 +125,12 @@ const knownRuntimeDeployables = new Set(["platform-worker"]);
 const knownShellDeployables = new Set(["admin-web", "marketplace-web"]);
 const knownShellDeployableSlots = new Map([
   ["admin-web", new Set(["primary-nav"])],
-  ["marketplace-web", new Set(["top-nav", "bottom-nav"])],
+  ["marketplace-web", new Set(["top-nav", "bottom-nav", "account-menu"])],
 ]);
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const domainFacingImportHeuristic =
   /(?:^|\/)(?:domain|domains|query|queries|projection|projections|read-model|read-models|projector|projectors)(?:\/|$)/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
-const retiredIntegrationSurfaceImportPattern = /["']@chase-sets\/[^/"'\s]+\/integration(?:\/[^"']*)?["']/;
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|seed-support(?:\/[^"']+)?)["']/;
 const boundedContextSurfaceFiles = new Set(["client.ts", "server.ts", "web.ts"]);
@@ -174,6 +143,7 @@ const contextRootExportContracts = new Map([
       "TCGPLAYER_CONNECTOR_EXTENSION_ID",
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
+      "buildConnectorManifest",
       "ChannelEnvironment",
       "channelExecutionModes",
       "ChannelExecutionMode",
@@ -282,12 +252,20 @@ const canonicalBoundedContextRootFiles = new Set([
   "api.ts",
   "client.ts",
   "context.json",
+  "context.source.mjs",
   "ids.ts",
   "index.ts",
   "package.json",
   "server.ts",
   "web.ts",
 ]);
+export function isCanonicalBoundedContextRootFile(fileName) {
+  return canonicalBoundedContextRootFiles.has(fileName);
+}
+
+export function isAdmittedFeatureMetadataFile(fileName) {
+  return fileName === "metadata.json";
+}
 const allowedFeatureSubdirectories = new Set(["api", "domain", "integrations", "read-model", "tests", "ui"]);
 const singleSliceSupportFileAllowlist = [
   // Temporary migration exceptions: remove entries once each file is relocated into its owning slice.
@@ -312,6 +290,8 @@ const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
 violations.push(...lostUpdateWriteGuard.violations);
 const providerScopePickerShapeGuard = await validateProviderScopePickerShapeGuard({ repoRoot });
 violations.push(...providerScopePickerShapeGuard.violations);
+const pricingRegistryConformance = await validatePricingRegistryConformance({ repoRoot });
+violations.push(...pricingRegistryConformance.violations);
 const clientSurfaceConsumers = new Map();
 const supportFileConsumers = new Map();
 const crossContextSqlReadGuards = [
@@ -598,6 +578,15 @@ function extractImportSpecifiers(content) {
   return specifiers;
 }
 
+function extractLocalizationImportSpecifiers(content) {
+  return [
+    ...new Set([
+      ...extractImportSpecifiers(content),
+      ...[...content.matchAll(/(?:^|[\s;])import\s*["']([^"']+)["']/g)].map((match) => match[1]),
+    ]),
+  ];
+}
+
 export function isApprovedCrossContextTypeContractImport(relativeFile, specifier, content) {
   const contract = approvedCrossContextTypeContracts.get(specifier);
   if (!contract || !contract.importer.test(relativeFile.replaceAll("\\", "/"))) return false;
@@ -618,19 +607,6 @@ export function isApprovedCrossContextTypeContractImport(relativeFile, specifier
       .map((member) => member.replace(/^type\s+/, "").split(/\s+as\s+/)[0]);
     return symbols.length > 0 && symbols.every((symbol) => contract.symbols.has(symbol));
   });
-}
-
-const retiredFreshnessDroppingForwardingImportMessage =
-  "retired freshness-dropping forwarding helper import; use @chase-sets/platform-runtime/http";
-
-export function retiredFreshnessDroppingForwardingImport(relativeFile, specifier) {
-  const normalizedSpecifier = specifier.replaceAll("\\", "/").replace(/\.(?:ts|tsx|js|jsx|mjs|cjs)$/, "");
-  const resolvedSpecifier = resolveRelativeSpecifier(relativeFile, normalizedSpecifier);
-
-  return (
-    normalizedSpecifier === "@chase-sets/bounded-context-runtime/http" ||
-    resolvedSpecifier === "infrastructure/bounded-context-runtime/http"
-  );
 }
 
 function stripContextManifestSurfaceExport(content) {
@@ -860,17 +836,36 @@ function isEventSubscriptionDeclaration(value) {
   return isPlainObject(value);
 }
 
-function isAllowedPublicExportName(value) {
+export function isAllowedPublicExportName(value) {
   return (
     value === "." ||
     value === "./context" ||
     value === "./client" ||
     value === "./host-config" ||
+    value === "./localization" ||
     value === "./seed-support/*" ||
+    value === "./test-support" ||
+    value === "./integration/link-intents" ||
     value === "./server" ||
     value === "./web" ||
     value === "./routes/*"
   );
+}
+
+export function singleSliceSupportSeverity({ sourceBacked, enforcementMode }) {
+  return sourceBacked || enforcementMode === "violation" ? "violation" : "warn";
+}
+
+export function findLinkIntentExportViolation(manifest, target) {
+  if (target !== "./support/runtime-support/link-intents.ts")
+    return "link-intent integration must target the generated runtime-support builder";
+  if (
+    !manifest.deployableContributions?.some((contribution) =>
+      contribution.routes?.some((route) => route.canonicalLink?.kind === "route-derived"),
+    )
+  )
+    return "link-intent integration requires owner-published canonical route metadata";
+  return null;
 }
 
 function isValidDirectoryClassification(value) {
@@ -895,6 +890,32 @@ function resolveExistingModulePath(rootDir, relativeSpecifier) {
   for (const extension of moduleFileExtensions) {
     const candidate = path.join(absoluteBase, `index${extension}`);
     if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function resolveLocalizationModulePath(rootDir, relativeSpecifier) {
+  const normalized = relativeSpecifier.replace(/^\.\//, "");
+  const absoluteBase = path.join(rootDir, normalized);
+  const isFile = (candidate) => existsSync(candidate) && statSync(candidate).isFile();
+
+  if (isFile(absoluteBase)) {
+    return absoluteBase;
+  }
+
+  for (const extension of moduleFileExtensions) {
+    const candidate = `${absoluteBase}${extension}`;
+    if (isFile(candidate)) {
+      return candidate;
+    }
+  }
+
+  for (const extension of moduleFileExtensions) {
+    const candidate = path.join(absoluteBase, `index${extension}`);
+    if (isFile(candidate)) {
       return candidate;
     }
   }
@@ -966,7 +987,7 @@ function isRequestSupportAdapter(supportFile, usageRecord, contextManifests) {
   );
 }
 
-async function walk(dir) {
+export async function walk(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
   const directories = [dir];
@@ -1016,7 +1037,21 @@ async function loadContextManifests() {
       continue;
     }
 
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const sourcePath = path.join(contextRootAbs, "context.source.mjs");
+    let manifest;
+    if (existsSync(sourcePath)) {
+      try {
+        manifest = loadContextSourceManifest(sourcePath);
+      } catch (error) {
+        addPathViolation(
+          `bounded-contexts/${entry.name}/context.source.mjs`,
+          error instanceof Error ? error.message : String(error),
+        );
+        manifest = {};
+      }
+    } else {
+      manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    }
     const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
     const relativeRoot = `bounded-contexts/${entry.name}`;
 
@@ -1128,27 +1163,6 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "seedRequirements must be an array of context names");
     }
 
-    if ("requiredPorts" in manifest) {
-      addPathViolation(
-        `${relativeRoot}/context.json`,
-        "requiredPorts is retired; model external runtime dependencies through hostPorts only",
-      );
-    }
-
-    if ("integrationCapabilities" in manifest) {
-      addPathViolation(
-        `${relativeRoot}/context.json`,
-        "integrationCapabilities is retired; use eventSubscriptions, projectionGroups, hostPorts, and ./server surfaces instead",
-      );
-    }
-
-    if ("apiRequirements" in manifest) {
-      addPathViolation(
-        `${relativeRoot}/context.json`,
-        "apiRequirements is retired; use eventSubscriptions, projectionGroups, hostPorts, and ./server surfaces instead",
-      );
-    }
-
     if (
       manifest.contextName === "payments" &&
       (!Array.isArray(manifest.eventSubscriptions) ||
@@ -1245,6 +1259,7 @@ async function loadContextManifests() {
       manifest,
       packageJson,
       packageName: manifest.packageName,
+      sourceBacked: existsSync(sourcePath),
     });
   }
 
@@ -1266,14 +1281,6 @@ export async function findWorkspaceDirectoryManifestViolations(options = {}) {
       }
 
       const relativeDirectory = `${workspaceRoot}/${entry.name}`;
-      if (legacyForbiddenPaths.includes(relativeDirectory)) {
-        diagnostics.push({
-          path: relativeDirectory,
-          message: "retired workspace directory should not exist",
-        });
-        continue;
-      }
-
       if (nonPackageWorkspaceDirectoryExceptions.has(relativeDirectory)) {
         continue;
       }
@@ -1282,7 +1289,7 @@ export async function findWorkspaceDirectoryManifestViolations(options = {}) {
       if (!existsSync(path.join(directoryPath, "package.json"))) {
         diagnostics.push({
           path: `${relativeDirectory}/package.json`,
-          message: "workspace directory must declare package.json or be added to the retired-path list",
+          message: "workspace directory must declare package.json",
         });
         continue;
       }
@@ -1326,8 +1333,62 @@ function isApiDeployableFile(relativeFile) {
   return /deployables\/(platform-api|platform-worker)\//.test(relativeFile);
 }
 
+function hasSafePathSegments(value) {
+  return value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
+export function hasValidTestSupportDeclaration(targetContext) {
+  const target = targetContext?.packageJson?.exports?.["./test-support"];
+  if (
+    typeof targetContext?.packageName !== "string" ||
+    targetContext.packageName !== targetContext.packageJson?.name ||
+    targetContext.packageName !== targetContext.manifest?.packageName ||
+    !Array.isArray(targetContext.manifest?.publicExports) ||
+    !targetContext.manifest.publicExports.includes("./test-support") ||
+    typeof targetContext.rootAbs !== "string" ||
+    !path.isAbsolute(targetContext.rootAbs) ||
+    typeof target !== "string" ||
+    !target.startsWith("./") ||
+    /[\\:*?#[\]{}]/.test(target) ||
+    !hasSafePathSegments(target.slice(2)) ||
+    !/^\.\/features\/[^/]+\/tests\/(?:[^/]+\/)*[^/]+\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(target)
+  ) {
+    return false;
+  }
+  try {
+    const root = realpathSync(targetContext.rootAbs);
+    const file = realpathSync(path.resolve(targetContext.rootAbs, target));
+    const relative = path.relative(root, file).replaceAll("\\", "/");
+    const testsRoot = target.slice(2).split("/").slice(0, 3).join("/");
+    return relative.startsWith(`${testsRoot}/`) && hasSafePathSegments(relative) && statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function findTestSupportImportViolations(relativeFile, content, contexts) {
+  const targets = [...contexts];
+  return ts.preProcessFile(content, true, true).importedFiles.flatMap(({ fileName: specifier }) => {
+    const normalized = specifier.replaceAll("\\", "/");
+    const target = targets.find(({ packageName }) => normalized.startsWith(`${packageName}/test-support`));
+    if (!target || isAllowedDeployableBoundedContextImport(relativeFile, specifier, target)) return [];
+    return [
+      `bounded-context test-support requires a declared slice-local target and a platform-api DB witness (${specifier})`,
+    ];
+  });
+}
+
 export function isAllowedDeployableBoundedContextImport(relativeFile, specifier, targetContext) {
   const normalizedFile = relativeFile.replaceAll("\\", "/");
+  if (/^@chase-sets\/[^/]+\/test-support(?:[/\\?#]|$)/.test(specifier)) {
+    return (
+      /^deployables\/platform-api\/__tests__\/(?:[^/]+\/)*[^/]+\.db\.test\.ts$/.test(normalizedFile) &&
+      !/[:?#]/.test(normalizedFile) &&
+      hasSafePathSegments(normalizedFile) &&
+      specifier === `${targetContext?.packageName}/test-support` &&
+      hasValidTestSupportDeclaration(targetContext)
+    );
+  }
   if (normalizedFile.startsWith("deployables/tcgplayer-operator-extension/")) {
     return specifier === "@chase-sets/catalog/client";
   }
@@ -1394,13 +1455,28 @@ function isAllowedContextImporter(relativeFile) {
   );
 }
 
-function isFeatureModulePath(relativeFile) {
-  return (
-    relativeFile.includes("/routes/") ||
-    relativeFile.includes("/ui/") ||
-    domainFacingImportHeuristic.test(relativeFile) ||
-    relativeFile.endsWith("/runtime.ts")
-  );
+export function findAuthOwnershipViolations(manifest) {
+  if (manifest.contextName !== "auth") return [];
+  return ["authentication", "session-journey", "account-selection"]
+    .filter((noun) => !(manifest.ownedNouns ?? []).includes(noun))
+    .map((noun) => `Auth must own ${noun}`);
+}
+
+export function findDeployableBoundaryViolation(relativeFile, content) {
+  if (!relativeFile.startsWith("deployables/")) return null;
+  if (path.posix.basename(relativeFile) === "api.server.ts") {
+    return "deployables must not define local business API helpers";
+  }
+  if (/\/src\/stack\.ts$/.test(relativeFile)) {
+    return "API deployables must not keep hand-written stack composition modules";
+  }
+  if (/\/src\/seed-stack\.ts$/.test(relativeFile)) {
+    return "API deployables must not keep hand-written seed stack composition modules";
+  }
+  if (isTestFile(relativeFile) && /@chase-sets\/[^/]+\/client/.test(content)) {
+    return "deployable tests must not depend on bounded-context client surfaces";
+  }
+  return null;
 }
 
 function isAllowedServerSurfaceConsumer(relativeFile) {
@@ -1447,6 +1523,57 @@ export function findRouteSupportPlacementViolation({ relativeFile, content, cont
   return `route loader/action modules must live under support/route-support/<route-name>/, not support/${supportDirectory}/`;
 }
 
+function hasBrowserUnsafeLocalizationSpecifier(content) {
+  const unsafePatterns = [
+    /(?:^|["'])node:[^"'\n]+/,
+    /(?:^|["'])(?:fs|path|crypto|pg|react-router\/node|\.\/server)(?:["'\/]|$)/,
+    /(?:^|["'])[^"'\n]*\/server(?:["'\/]|$)/,
+    /process\.env|globalThis\.process|window\.location\.assign/,
+  ];
+  return (
+    extractLocalizationImportSpecifiers(content).some((specifier) =>
+      unsafePatterns.some((pattern) => pattern.test(specifier)),
+    ) || /process\.env|globalThis\.process|window\.location\.assign/.test(content)
+  );
+}
+
+export function findBrowserUnsafeLocalizationExport(content) {
+  return hasBrowserUnsafeLocalizationSpecifier(content);
+}
+
+export function findBrowserUnsafeLocalizationReachability({ contextRoot, targetPath }) {
+  const rootPath = path.resolve(contextRoot);
+  const visited = new Set();
+  const pending = [path.resolve(targetPath)];
+
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    if (visited.has(currentPath)) continue;
+    visited.add(currentPath);
+    const relativeToRoot = path.relative(rootPath, currentPath);
+    if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) continue;
+    const content = readFileSync(currentPath, "utf8");
+    if (hasBrowserUnsafeLocalizationSpecifier(content)) return currentPath;
+    for (const specifier of extractLocalizationImportSpecifiers(content)) {
+      if (!specifier.startsWith(".")) continue;
+      const nextPath = resolveLocalizationModulePath(path.dirname(currentPath), specifier);
+      if (nextPath) pending.push(nextPath);
+    }
+  }
+
+  return null;
+}
+
+export function isThinRouteAdapter(content) {
+  const withoutComments = content.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const withoutImports = withoutComments.replace(/^\s*import[\s\S]*?;\s*$/gm, "");
+  const withoutExports = withoutImports
+    .replace(/^\s*export\s+(?:type\s+)?\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, "")
+    .replace(/^\s*export\s+\{[^}]*\};?\s*$/gm, "")
+    .replace(/^\s*export\s+default\s+[^;]+;?\s*$/gm, "");
+  return withoutExports.trim().length === 0;
+}
+
 const catalogAdminMarker = ["catalog", "admin"].join("-");
 
 function resolveAdminWebSection(contextName, fileExportOrKey) {
@@ -1476,17 +1603,114 @@ function buildManifestHostRouteIdentity(deployable, sourceContext, route) {
   };
 }
 
-export function validateShellContributionEntries({ manifest, root }) {
-  const diagnostics = [];
-  const routesByDeployable = new Map(
-    (manifest.deployableContributions ?? []).map((contribution) => [
-      contribution.deployable,
-      contribution.routes ?? [],
-    ]),
-  );
+function isShellObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
-  function addViolation(path, message) {
-    diagnostics.push({ path, message });
+function classifyShellManifest({ manifest, root, manifestPath = `${root}/context.json` }) {
+  const diagnostics = [];
+  const nodes = [];
+  function visit(node, nodePath, owner, inlineParent) {
+    if (!isShellObject(node)) {
+      diagnostics.push({ code: "SHELL_NODE_SHAPE", path: nodePath, message: "shell contribution must be an object" });
+      return;
+    }
+    const record = { node, path: nodePath, owner: owner ?? node, inlineParent };
+    nodes.push(record);
+    if (node.children !== undefined && !Array.isArray(node.children)) {
+      diagnostics.push({
+        code: "SHELL_CHILDREN_SHAPE",
+        path: nodePath,
+        message: "children must be an array when provided",
+      });
+    }
+    for (const [index, child] of (Array.isArray(node.children) ? node.children : []).entries()) {
+      visit(child, `${nodePath}.children[${index}]`, owner ?? node, record);
+    }
+  }
+  if (!Array.isArray(manifest.shellContributions)) {
+    diagnostics.push({
+      code: "SHELL_ARRAY_SHAPE",
+      path: `${manifestPath} shellContributions`,
+      message: "shellContributions must be an array",
+    });
+  } else {
+    manifest.shellContributions.forEach((node, index) => visit(node, `${manifestPath} shellContributions[${index}]`));
+  }
+  return { manifest, root, manifestPath, nodes, diagnostics };
+}
+
+export async function discoverShellContributionManifests({ repoRoot: rootDir = repoRoot } = {}) {
+  const files = execFileSync("git", ["ls-files", "-z", "--", "*.json"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
+    .split("\0")
+    .filter(Boolean);
+  const manifests = [];
+  const diagnostics = [];
+  let candidates = 0;
+  for (const file of files) {
+    let source;
+    try {
+      source = await readFile(path.join(rootDir, file), "utf8");
+    } catch {
+      diagnostics.push({
+        code: "SHELL_MANIFEST_READ",
+        path: file,
+        message: "tracked JSON could not be read for shell discovery",
+      });
+      continue;
+    }
+
+    const parsed = ts.parseJsonText(file, source);
+    const expression = parsed.statements[0]?.expression;
+    if (
+      !expression ||
+      !ts.isObjectLiteralExpression(expression) ||
+      !expression.properties.some((property) => property.name?.text === "shellContributions")
+    ) {
+      continue;
+    }
+
+    candidates += 1;
+    const errors = [...parsed.parseDiagnostics];
+    const manifest = errors.length === 0 ? ts.convertToObject(parsed, errors) : undefined;
+    if (errors.length > 0) {
+      diagnostics.push({
+        code: "SHELL_MANIFEST_JSON",
+        path: file,
+        message: "shell contribution manifest could not be parsed",
+      });
+      continue;
+    }
+    manifests.push(classifyShellManifest({ manifest, root: path.posix.dirname(file), manifestPath: file }));
+  }
+  return { scanned: files.length, candidates, manifests, diagnostics };
+}
+
+function isLiteralShellPath(value) {
+  return typeof value === "string" && value.startsWith("/") && !/[?#*:[\]{}()\\\s]/.test(value);
+}
+
+function normalizeShellPath(value) {
+  return `/${value.split("/").filter(Boolean).join("/")}`;
+}
+
+export function validateShellContributionEntries(context) {
+  const { manifest, nodes, diagnostics: shapeDiagnostics } = context.nodes ? context : classifyShellManifest(context);
+  const diagnostics = [...shapeDiagnostics];
+  const routesByDeployable = new Map();
+  for (const contribution of Array.isArray(manifest.deployableContributions) ? manifest.deployableContributions : []) {
+    if (!isShellObject(contribution)) continue;
+    const routes = routesByDeployable.get(contribution.deployable) ?? [];
+    routes.push(...(Array.isArray(contribution.routes) ? contribution.routes.filter(isShellObject) : []));
+    routesByDeployable.set(contribution.deployable, routes);
+  }
+
+  function addViolation(path, message, code = "SHELL_ENTRY_INVALID") {
+    diagnostics.push({ path, message, code });
   }
 
   function validateShellContributionNode(contribution, contributionLabel, deployable) {
@@ -1504,15 +1728,12 @@ export function validateShellContributionEntries({ manifest, root }) {
 
     const hasChildren = Array.isArray(contribution.children) && contribution.children.length > 0;
 
-    if (
-      contribution.href !== undefined &&
-      (typeof contribution.href !== "string" || !contribution.href.startsWith("/"))
-    ) {
+    if (contribution.href !== undefined && !isLiteralShellPath(contribution.href)) {
       addViolation(contributionLabel, "href must be an absolute path");
     }
 
-    if (typeof contribution.order !== "number") {
-      addViolation(contributionLabel, "order must be a number");
+    if (!Number.isFinite(contribution.order)) {
+      addViolation(contributionLabel, "order must be a finite number", "SHELL_ORDER_INVALID");
     }
 
     if (
@@ -1527,15 +1748,24 @@ export function validateShellContributionEntries({ manifest, root }) {
       addViolation(contributionLabel, "requiredPermissions must be an array of strings");
     }
 
-    if (contribution.children !== undefined && !Array.isArray(contribution.children)) {
-      addViolation(contributionLabel, "children must be an array when provided");
+    if (
+      contribution.requiredPermissionsMatch !== undefined &&
+      contribution.requiredPermissionsMatch !== "all" &&
+      contribution.requiredPermissionsMatch !== "any"
+    ) {
+      addViolation(contributionLabel, "requiredPermissionsMatch must be 'all' or 'any' when provided");
     }
 
-    if (contribution.href === undefined && !hasChildren) {
+    if (
+      contribution.href === undefined &&
+      !hasChildren &&
+      contribution.activation !== "action" &&
+      !Array.isArray(contribution.children)
+    ) {
       addViolation(contributionLabel, "href is required when children are not provided");
     }
 
-    const normalizedHref = contribution.href?.replace(/^\//, "");
+    const normalizedHref = typeof contribution.href === "string" ? contribution.href.replace(/^\//, "") : undefined;
     const ownedRoutes = routesByDeployable.get(deployable) ?? [];
     const hasOwnedRoute =
       normalizedHref === undefined || ownedRoutes.some((route) => route.routePath === normalizedHref);
@@ -1546,14 +1776,73 @@ export function validateShellContributionEntries({ manifest, root }) {
       );
     }
 
-    const children = Array.isArray(contribution.children) ? contribution.children : [];
-    for (const [childIndex, child] of children.entries()) {
-      validateShellContributionNode(child, `${contributionLabel}.children[${childIndex}]`, deployable);
+    if (
+      contribution.activation !== undefined &&
+      contribution.activation !== "action" &&
+      contribution.activation !== "route"
+    ) {
+      addViolation(contributionLabel, "activation must be 'route' or 'action'", "SHELL_ACTIVATION_INVALID");
+    }
+    if (
+      contribution.activation === "action" &&
+      (contribution.href !== undefined ||
+        contribution.children !== undefined ||
+        contribution.activePathPatterns !== undefined)
+    ) {
+      addViolation(
+        contributionLabel,
+        "action must not declare href, children, or activePathPatterns",
+        "SHELL_ACTION_INVALID",
+      );
+    }
+    if (
+      contribution.activation === "route" &&
+      (!isLiteralShellPath(contribution.href) || contribution.children !== undefined)
+    ) {
+      addViolation(contributionLabel, "route must be an href leaf", "SHELL_ROUTE_INVALID");
+    }
+    if (contribution.placement !== undefined && !["primary", "utility"].includes(contribution.placement)) {
+      addViolation(contributionLabel, "placement must be 'primary' or 'utility'", "SHELL_PLACEMENT_INVALID");
+    }
+    if (contribution.packingPriority !== undefined && !Number.isFinite(contribution.packingPriority)) {
+      addViolation(contributionLabel, "packingPriority must be finite", "SHELL_PRIORITY_INVALID");
+    }
+    if (contribution.excludedRoleKeys !== undefined && !isStringArray(contribution.excludedRoleKeys)) {
+      addViolation(contributionLabel, "excludedRoleKeys must be an array of strings", "SHELL_ROLES_INVALID");
+    }
+    if (
+      contribution.activePathPatterns !== undefined &&
+      (!Array.isArray(contribution.activePathPatterns) ||
+        !contribution.activePathPatterns.every(isLiteralShellPath) ||
+        hasChildren ||
+        !isLiteralShellPath(contribution.href))
+    ) {
+      addViolation(
+        contributionLabel,
+        "activePathPatterns must be literal absolute paths on an href leaf",
+        "SHELL_ACTIVE_PATH_INVALID",
+      );
+    }
+    if (
+      contribution.badge !== undefined &&
+      (!isShellObject(contribution.badge) ||
+        typeof contribution.badge.valueKey !== "string" ||
+        !contribution.badge.valueKey ||
+        !Number.isFinite(contribution.badge.max) ||
+        contribution.badge.max <= 0 ||
+        typeof contribution.badge.hideWhenEmptyForSignedOut !== "boolean")
+    ) {
+      addViolation(
+        contributionLabel,
+        "badge requires valueKey, a positive finite max, and hideWhenEmptyForSignedOut",
+        "SHELL_BADGE_INVALID",
+      );
     }
   }
 
-  for (const [index, contribution] of (manifest.shellContributions ?? []).entries()) {
-    const contributionLabel = `${root}/context.json shellContributions[${index}]`;
+  for (const { node: contribution, path: contributionLabel, owner, inlineParent } of nodes) {
+    validateShellContributionNode(contribution, contributionLabel, owner.deployable);
+    if (inlineParent) continue;
 
     if (!knownShellDeployables.has(contribution.deployable)) {
       addViolation(contributionLabel, `deployable must be one of ${[...knownShellDeployables].join(", ")}`);
@@ -1561,6 +1850,16 @@ export function validateShellContributionEntries({ manifest, root }) {
     }
 
     const allowedSlots = knownShellDeployableSlots.get(contribution.deployable) ?? new Set();
+    if (
+      contribution.deployable === "admin-web" &&
+      !["access", "catalog", "commerce", "growth", "support", "platform"].includes(contribution.section)
+    ) {
+      addViolation(
+        contributionLabel,
+        "admin-web section must be access, catalog, commerce, growth, support, or platform",
+        "SHELL_SECTION_INVALID",
+      );
+    }
     if (!allowedSlots.has(contribution.slot)) {
       addViolation(contributionLabel, `slot must be one of ${[...allowedSlots].sort().join(", ")}`);
     }
@@ -1572,16 +1871,168 @@ export function validateShellContributionEntries({ manifest, root }) {
       addViolation(contributionLabel, "placements must be a non-empty array when provided");
     }
 
-    for (const placement of contribution.placements ?? []) {
+    for (const placement of Array.isArray(contribution.placements) ? contribution.placements : []) {
       if (!allowedSlots.has(placement)) {
         addViolation(contributionLabel, `placements must only use ${[...allowedSlots].sort().join(", ")}`);
       }
     }
-
-    validateShellContributionNode(contribution, contributionLabel, contribution.deployable);
   }
 
   return diagnostics;
+}
+
+function shellAccessWidens(child, parent) {
+  if (parent.visibility !== "always" && child.visibility !== parent.visibility) return true;
+  if ((parent.excludedRoleKeys ?? []).some((role) => !(child.excludedRoleKeys ?? []).includes(role))) return true;
+  const required = parent.requiredPermissions ?? [];
+  const granted = child.requiredPermissions ?? [];
+  if (!required.length) return false;
+  if (!granted.length) return true;
+  if (parent.requiredPermissionsMatch === "any")
+    return child.requiredPermissionsMatch === "any"
+      ? granted.some((permission) => !required.includes(permission))
+      : !granted.some((permission) => required.includes(permission));
+  return child.requiredPermissionsMatch === "any"
+    ? granted.some((permission) => required.some((item) => item !== permission))
+    : required.some((permission) => !granted.includes(permission));
+}
+
+export function validateDeployableShellOwnership(contexts) {
+  const diagnostics = [];
+  const scopes = new Map();
+  for (const context of contexts.values()) {
+    const classified = context.nodes ? context : classifyShellManifest(context);
+    diagnostics.push(...classified.diagnostics);
+    for (const record of classified.nodes) {
+      const { owner, node } = record;
+      const placements = Array.isArray(owner.placements) && owner.placements.length ? owner.placements : [owner.slot];
+      for (const slot of placements) {
+        if (!knownShellDeployableSlots.get(owner.deployable)?.has(slot)) continue;
+        const scope = `${owner.deployable}:${slot}`;
+        const entries = scopes.get(scope) ?? [];
+        const prefix = owner.deployable === "admin-web" ? `/${owner.section}` : "";
+        entries.push({
+          ...record,
+          prefix,
+          href: isLiteralShellPath(node.href) ? normalizeShellPath(`${prefix}${node.href}`) : undefined,
+        });
+        scopes.set(scope, entries);
+      }
+    }
+  }
+  for (const entries of scopes.values()) {
+    const keys = new Map();
+    const hrefs = new Map();
+    const badges = new Map();
+    const activePaths = new Map();
+    const parents = new Map();
+    const add = (entry, code, message) => diagnostics.push({ code, path: entry.path, message });
+    for (const entry of entries) {
+      const { node } = entry;
+      if (keys.has(node.key))
+        add(entry, "SHELL_DUPLICATE_KEY", `shell contribution keys must be unique per slot (${node.key})`);
+      keys.set(node.key, entry);
+      if (entry.href) {
+        if (hrefs.has(entry.href))
+          add(entry, "SHELL_DUPLICATE_HREF", `shell contribution hrefs must be unique per slot (${entry.href})`);
+        hrefs.set(entry.href, entry);
+      }
+      if (isShellObject(node.badge) && typeof node.badge.valueKey === "string") {
+        if (badges.has(node.badge.valueKey))
+          add(entry, "SHELL_DUPLICATE_BADGE", `badge valueKey must have one owner per slot (${node.badge.valueKey})`);
+        badges.set(node.badge.valueKey, entry);
+      }
+      if (node.activation !== "action" && !node.children?.length && entry.href) {
+        for (const value of [
+          node.href,
+          ...(Array.isArray(node.activePathPatterns) ? node.activePathPatterns : []),
+        ].filter(isLiteralShellPath)) {
+          const activePath = normalizeShellPath(`${entry.prefix}${value}`);
+          const existing = activePaths.get(activePath);
+          if (existing && existing !== node.key)
+            add(entry, "SHELL_ACTIVE_PATH_AMBIGUOUS", `active path belongs to different keys (${activePath})`);
+          activePaths.set(activePath, node.key);
+        }
+      }
+    }
+    for (const entry of entries) {
+      const { node } = entry;
+      if (node.parentKey !== undefined && (typeof node.parentKey !== "string" || !node.parentKey)) {
+        add(entry, "SHELL_PARENT_INVALID", "parentKey must be a non-empty string");
+        continue;
+      }
+      if (node.parentKey !== undefined && entry.inlineParent) {
+        add(entry, "SHELL_PARENT_INVALID", "inline children must not also declare parentKey");
+        continue;
+      }
+      const parentKey = node.parentKey ?? entry.inlineParent?.node.key;
+      if (parentKey === undefined) continue;
+      const parent = keys.get(parentKey);
+      if (!parent) {
+        add(entry, "SHELL_PARENT_MISSING", `parentKey does not exist in this host and slot (${parentKey})`);
+        continue;
+      }
+      if (parent === entry) {
+        add(entry, "SHELL_PARENT_SELF", "parentKey must not reference itself");
+        continue;
+      }
+      if (
+        node.parentKey !== undefined &&
+        (parent.node.activation !== undefined || parent.node.href !== undefined || !Array.isArray(parent.node.children))
+      ) {
+        add(entry, "SHELL_PARENT_INVALID", "parentKey must reference a group");
+      }
+      if (parent.owner.deployable === "admin-web" && parent.owner.section !== entry.owner.section) {
+        add(entry, "SHELL_PARENT_SECTION", "parentKey must stay within the admin-web section");
+      }
+      parents.set(entry, parent);
+      // Inline children retain their legacy inherited access; attached children declare their restrictions explicitly.
+      if (
+        node.parentKey !== undefined &&
+        isStringArray(node.requiredPermissions) &&
+        isStringArray(parent.node.requiredPermissions) &&
+        (node.excludedRoleKeys === undefined || isStringArray(node.excludedRoleKeys)) &&
+        (parent.node.excludedRoleKeys === undefined || isStringArray(parent.node.excludedRoleKeys)) &&
+        shellAccessWidens(node, parent.node)
+      ) {
+        add(
+          entry,
+          "SHELL_PARENT_WIDENING",
+          "parentKey child must not widen parent visibility, permissions, or excludedRoleKeys",
+        );
+      }
+    }
+    for (const entry of entries) {
+      const visited = new Set();
+      for (let current = entry; current; current = parents.get(current)) {
+        if (visited.has(current)) {
+          add(entry, "SHELL_PARENT_CYCLE", "parentKey must not form a cycle");
+          break;
+        }
+        visited.add(current);
+      }
+    }
+  }
+  return diagnostics;
+}
+
+export async function validateDiscoveredShellContributions(options = {}) {
+  const discovered = await discoverShellContributionManifests(options);
+  const diagnostics = [
+    ...discovered.diagnostics,
+    ...discovered.manifests.flatMap(validateShellContributionEntries),
+    ...validateDeployableShellOwnership(discovered.manifests),
+  ];
+  return {
+    scanned: discovered.scanned,
+    candidates: discovered.candidates,
+    diagnostics: diagnostics.filter(
+      (item, index) =>
+        diagnostics.findIndex(
+          (other) => other.code === item.code && other.path === item.path && other.message === item.message,
+        ) === index,
+    ),
+  };
 }
 
 export async function runStructureCheck(options = {}) {
@@ -1592,6 +2043,10 @@ export async function runStructureCheck(options = {}) {
 
   const sqlExecutionSurface = runSqlExecutionSurfaceGuard({ repoRoot });
   violations.push(...sqlExecutionSurface.violations);
+  const realClockElapsedBounds = await validateRealClockElapsedBounds({ repoRoot });
+  violations.push(...realClockElapsedBounds.violations);
+  const tcgplayerHostCredentialGuard = await scanTcgplayerHostCredentialPolicy({ repoRoot });
+  violations.push(...tcgplayerHostCredentialGuard.violations);
 
   for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
     addPathViolation(violation.testPath, violation.message);
@@ -1614,6 +2069,10 @@ export async function runStructureCheck(options = {}) {
   violations.push(...jsonImportAttributesResult.violations);
   const channelConnectionContractProvenance = await validateChannelConnectionContractProvenance({ repoRoot });
   violations.push(...channelConnectionContractProvenance.violations);
+  const cancellationProducerUniqueness = validateCancellationProducerUniqueness({ repoRoot });
+  violations.push(...cancellationProducerUniqueness.violations);
+  const connectorFakeGraph = await validateConnectorFakeGraph({ repoRoot });
+  violations.push(...connectorFakeGraph.violations);
   const boundedContextPackages = [...contextManifests.values()].map(({ packageName }) => packageName);
   const contextMetricsByRoot = new Map(
     [...contextManifests.values()].map((context) => [
@@ -1737,6 +2196,16 @@ export async function runStructureCheck(options = {}) {
     const declaredPublicExports = new Set(manifest.publicExports ?? []);
     const packageExportKeys = new Set(Object.keys(packageJson.exports ?? {}).filter((key) => key !== "."));
 
+    if (
+      (declaredPublicExports.has("./test-support") || packageExportKeys.has("./test-support")) &&
+      !hasValidTestSupportDeclaration(context)
+    ) {
+      addPathViolation(
+        `${root}/package.json`,
+        "./test-support must declare an existing literal slice-local tests module",
+      );
+    }
+
     for (const exportKey of packageExportKeys) {
       if (!declaredPublicExports.has(exportKey)) {
         addPathViolation(
@@ -1756,6 +2225,11 @@ export async function runStructureCheck(options = {}) {
           ? (packageJson.exports?.["."] ?? packageJson.exports)
           : packageJson.exports?.[publicExport];
 
+      if (publicExport === "./integration/link-intents") {
+        const violation = findLinkIntentExportViolation(manifest, exportTarget);
+        if (violation) addPathViolation(`${root}/package.json`, violation);
+      }
+
       if (!exportTarget) {
         addPathViolation(`${root}/package.json`, `package exports must include ${publicExport}`);
         continue;
@@ -1773,6 +2247,13 @@ export async function runStructureCheck(options = {}) {
             `${root}/package.json`,
             `package export ${publicExport} targets a missing file (${exportTarget})`,
           );
+        } else if (publicExport === "./localization") {
+          if (findBrowserUnsafeLocalizationReachability({ contextRoot: rootAbs, targetPath: resolvedTarget })) {
+            addPathViolation(
+              `${root}/package.json`,
+              "./localization must be browser-safe and must not import server/runtime modules",
+            );
+          }
         }
       }
     }
@@ -1786,10 +2267,6 @@ export async function runStructureCheck(options = {}) {
         `${root}/context.json`,
         "contexts must not export ./integration/*; cross-context access belongs on ./server or through published events",
       );
-    }
-
-    for (const diagnostic of validateShellContributionEntries({ manifest, root })) {
-      addPathViolation(diagnostic.path, diagnostic.message);
     }
 
     for (const dependency of manifest.allowedContextDependencies ?? []) {
@@ -2155,33 +2632,8 @@ export async function runStructureCheck(options = {}) {
     const declaredDirectoryIntent = manifest.directoryIntent ?? {};
     const declaredDirectoryIntentNames = new Set(Object.keys(declaredDirectoryIntent));
 
-    if (manifest.contextName === "identity") {
-      if ((manifest.allowedSupportDirectories ?? []).includes("auth-support")) {
-        addPathViolation(
-          `${root}/context.json`,
-          "Identity must not declare auth-support after Auth ownership extraction",
-        );
-      }
-
-      if ((manifest.ownedNouns ?? []).includes("session")) {
-        addPathViolation(`${root}/context.json`, "Identity must not own session after Auth ownership extraction");
-      }
-
-      if ((manifest.slices ?? []).includes("sessions")) {
-        addPathViolation(
-          `${root}/context.json`,
-          "Identity must not declare a sessions slice after Auth ownership extraction",
-        );
-      }
-    }
-
-    if (manifest.contextName === "auth") {
-      const requiredOwnedNouns = ["authentication", "session-journey", "account-selection"];
-      for (const noun of requiredOwnedNouns) {
-        if (!(manifest.ownedNouns ?? []).includes(noun)) {
-          addPathViolation(`${root}/context.json`, `Auth must own ${noun}`);
-        }
-      }
+    for (const message of findAuthOwnershipViolations(manifest)) {
+      addPathViolation(`${root}/context.json`, message);
     }
 
     const rootEntries = await readdir(rootAbs, { withFileTypes: true });
@@ -2339,7 +2791,7 @@ export async function runStructureCheck(options = {}) {
           );
         }
 
-        if (entry.isFile()) {
+        if (entry.isFile() && !isAdmittedFeatureMetadataFile(entry.name)) {
           addPathViolation(
             `${root}/features/${featureDirectory}/${entry.name}`,
             "feature roots must not contain loose files; place code under domain, read-model, api, ui, integrations, or tests",
@@ -2360,13 +2812,6 @@ export async function runStructureCheck(options = {}) {
     for (const entry of rootEntries) {
       if (entry.isDirectory() && ignoredDirectories.has(entry.name)) {
         continue;
-      }
-
-      if (entry.isDirectory() && entry.name === "integration") {
-        addPathViolation(
-          `${root}/${entry.name}`,
-          "integration directories are retired; use ./server for request-time access and eventSubscriptions for downstream data sharing",
-        );
       }
 
       if (entry.isDirectory() && entry.name === "deployables") {
@@ -2408,7 +2853,7 @@ export async function runStructureCheck(options = {}) {
         continue;
       }
 
-      if (!canonicalBoundedContextRootFiles.has(entry.name)) {
+      if (!isCanonicalBoundedContextRootFile(entry.name)) {
         addPathViolation(
           `${root}/${entry.name}`,
           "implemented bounded-context roots must keep top-level files canonical and avoid ad hoc helper files",
@@ -2488,81 +2933,6 @@ export async function runStructureCheck(options = {}) {
             `${context.root}/context.json`,
             `${sourceConsumer.label} context ${sourceConsumer.sourceContextName} must be mounted in the same runtime deployable`,
           );
-        }
-      }
-    }
-  }
-
-  async function validateDeployableShellOwnership(contexts) {
-    const contributionsByDeployable = new Map([...knownShellDeployables].map((deployable) => [deployable, []]));
-
-    function collectPlacedShellContributionNodes(contribution) {
-      const placements =
-        Array.isArray(contribution.placements) && contribution.placements.length > 0
-          ? contribution.placements
-          : [contribution.slot];
-      const { children: rawChildren, ...contributionNode } = contribution;
-      const children = Array.isArray(rawChildren) ? rawChildren : [];
-      const ownNodes = placements.map((placement) => ({
-        ...contributionNode,
-        slot: placement,
-      }));
-      const childNodes = children.flatMap((child) =>
-        collectPlacedShellContributionNodes({
-          ...child,
-          deployable: contribution.deployable,
-          slot: contribution.slot,
-          placements,
-          sourceContext: contribution.sourceContext,
-          packageName: contribution.packageName,
-        }),
-      );
-
-      return [...ownNodes, ...childNodes];
-    }
-
-    for (const context of contexts.values()) {
-      for (const contribution of context.manifest.shellContributions ?? []) {
-        contributionsByDeployable.get(contribution.deployable)?.push({
-          ...contribution,
-          sourceContext: context.manifest.contextName,
-          packageName: context.packageName,
-        });
-      }
-    }
-
-    for (const [deployable, unsortedContributions] of contributionsByDeployable.entries()) {
-      const contributions = unsortedContributions
-        .flatMap((contribution) => collectPlacedShellContributionNodes(contribution))
-        .sort((left, right) =>
-          left.slot === right.slot
-            ? left.order === right.order
-              ? left.key.localeCompare(right.key)
-              : left.order - right.order
-            : left.slot.localeCompare(right.slot),
-        );
-      const contributionKeys = new Set();
-      const contributionHrefs = new Set();
-
-      for (const contribution of contributions) {
-        const key = `${contribution.slot}:${contribution.key}`;
-        if (contributionKeys.has(key)) {
-          addPathViolation(
-            `deployables/${deployable}/app`,
-            `shell contribution keys must be unique per slot (${contribution.slot}:${contribution.key})`,
-          );
-        }
-        contributionKeys.add(key);
-
-        if (contribution.href) {
-          const href = `${contribution.slot}:${contribution.href}`;
-          if (contributionHrefs.has(href)) {
-            addPathViolation(
-              `deployables/${deployable}/app`,
-              `shell contribution hrefs must be unique per slot (${contribution.slot}:${contribution.href})`,
-            );
-          }
-          contributionHrefs.add(href);
         }
       }
     }
@@ -2697,10 +3067,6 @@ export async function runStructureCheck(options = {}) {
     const importerContextRoot = getContextRoot(relativeFile);
     const importerContext = importerContextRoot ? contextManifests.get(importerContextRoot) : null;
 
-    if (retiredFreshnessDroppingForwardingImport(relativeFile, normalized)) {
-      addViolation(file, retiredFreshnessDroppingForwardingImportMessage);
-    }
-
     if (importerContext && resolvedSpecifier) {
       recordSupportFileConsumer(importerContext, relativeFile, resolvedSpecifier);
     }
@@ -2773,27 +3139,6 @@ export async function runStructureCheck(options = {}) {
       if (!dependency) {
         addViolation(file, `bounded contexts must not import another bounded context (${specifier})`);
       } else {
-        if (
-          normalized === "@chase-sets/catalog/integration/sellable-units" &&
-          dependency.packageName !== contextManifests.get(importerContextRoot)?.packageName
-        ) {
-          addViolation(
-            file,
-            "non-catalog code must own its catalog version-key logic locally instead of importing the catalog sellable-unit integration surface",
-          );
-        }
-
-        if (
-          normalized.startsWith(`${dependency.packageName}/integration/`) &&
-          isFeatureModulePath(relativeFile) &&
-          relativeFile !== "bounded-contexts/auth/services.ts"
-        ) {
-          addViolation(
-            file,
-            `feature modules must not import another bounded context's integration surface directly; move the adapter into local request-support or route-support (${specifier})`,
-          );
-        }
-
         const isAllowedIntegrationImport =
           normalized.startsWith(`${dependency.packageName}/integration/`) &&
           (importerContext?.manifest.allowedContextDependencies ?? []).includes(dependency.packageName);
@@ -2951,7 +3296,12 @@ export async function runStructureCheck(options = {}) {
     validateDeployableApiMountOwnership,
     validateDeployableRuntimeOwnership,
     validateDeployableLifecycleOwnership,
-    validateDeployableShellOwnership,
+    validateDeployableShellOwnership: async () => {
+      const result = await validateDiscoveredShellContributions();
+      for (const diagnostic of result.diagnostics) {
+        addPathViolation(diagnostic.path, `${diagnostic.code}: ${diagnostic.message}`);
+      }
+    },
   });
 
   const topLevelEntries = await readdir(repoRoot, { withFileTypes: true });
@@ -2962,12 +3312,6 @@ export async function runStructureCheck(options = {}) {
 
     if (!allowedTopLevelDirectories.has(entry.name)) {
       addPathViolation(entry.name, "top-level directory is not allowed");
-    }
-  }
-
-  for (const forbiddenPath of legacyForbiddenPaths) {
-    if (existsSync(path.join(repoRoot, forbiddenPath))) {
-      addPathViolation(forbiddenPath, "legacy structure artifact should not exist");
     }
   }
 
@@ -3000,10 +3344,6 @@ export async function runStructureCheck(options = {}) {
       }
 
       const normalizedFile = normalizeRelative(file);
-      if (normalizedFile.startsWith("deployables/") && path.basename(file) === "api.server.ts") {
-        addViolation(file, "deployables must not define local business API helpers");
-      }
-
       if (/bounded-contexts\/[^/]+(?:\/[^/]+)?\/shell\/nav\.ts$/.test(normalizedFile)) {
         addViolation(
           file,
@@ -3040,6 +3380,11 @@ export async function runStructureCheck(options = {}) {
       }
 
       content ??= await readFile(file, "utf8");
+
+      const deployableBoundaryViolation = findDeployableBoundaryViolation(normalizedFile, content);
+      if (deployableBoundaryViolation) {
+        addViolation(file, deployableBoundaryViolation);
+      }
 
       if (isSoftwareDeliveryConceptGuardedFile(normalizedFile, extension)) {
         for (const guard of findSoftwareDeliveryConceptViolations({
@@ -3178,13 +3523,6 @@ export async function runStructureCheck(options = {}) {
         addViolation(file, "catalog authoring durable jobs must receive worker cancellation and lease-loss context");
       }
 
-      if (normalizedFile !== "scripts/check-structure/run.mjs" && retiredPanelDrawerPattern.test(content)) {
-        addViolation(
-          file,
-          "non-navigation drawer aliases are retired; use SideSheet, BottomSheet, CommerceSheet, ResponsiveEditSheet, or NotificationCenterSheet",
-        );
-      }
-
       if (
         ((normalizedFile.startsWith("deployables/") &&
           (normalizedFile.endsWith("/src/config.ts") || isTestFile(normalizedFile))) ||
@@ -3235,6 +3573,18 @@ export async function runStructureCheck(options = {}) {
       const routeOrShellSupportClassification = classifyRouteOrShellSupportFile(normalizedFile);
       const contextRoot = getContextRoot(normalizedFile);
       const contextName = contextRoot ? (contextManifests.get(contextRoot)?.manifest.contextName ?? null) : null;
+      const context = contextRoot ? contextManifests.get(contextRoot) : null;
+      if (
+        context?.sourceBacked &&
+        normalizedFile.startsWith(`${contextRoot}/routes/`) &&
+        !isTestFile(normalizedFile) &&
+        !isThinRouteAdapter(content)
+      ) {
+        addViolation(
+          file,
+          "migrated contexts must keep routes/ modules as thin public adapters; route behavior belongs under features/<slice>",
+        );
+      }
       const routeSupportPlacementViolation = findRouteSupportPlacementViolation({
         relativeFile: normalizedFile,
         content,
@@ -3310,13 +3660,6 @@ export async function runStructureCheck(options = {}) {
         addViolation(file, "client surfaces must not export presentation-named DTO folders");
       }
 
-      if (normalizedFile.startsWith("bounded-contexts/") && path.basename(file) === "integration.ts") {
-        addViolation(
-          file,
-          "integration surfaces are retired; use ./server for request-time access and published events for downstream projections",
-        );
-      }
-
       if (/^bounded-contexts\/[^/]+\/web\.ts$/.test(normalizedFile)) {
         const webSurfaceSpecifiers = extractImportSpecifiers(content).filter((specifier) => specifier.startsWith("."));
         const invalidSpecifiers = webSurfaceSpecifiers.filter(
@@ -3366,42 +3709,13 @@ export async function runStructureCheck(options = {}) {
         addViolation(file, "web deployable auth wrappers must use the shared auth host factory");
       }
 
-      if (normalizedFile.startsWith("deployables/") && /\/src\/stack\.ts$/.test(normalizedFile)) {
-        addViolation(file, "API deployables must not keep hand-written stack composition modules");
-      }
-
-      if (normalizedFile.startsWith("deployables/") && /\/src\/seed-stack\.ts$/.test(normalizedFile)) {
-        addViolation(file, "API deployables must not keep hand-written seed stack composition modules");
-      }
-
-      if (
-        normalizedFile.startsWith("deployables/") &&
-        isApiDeployableFile(normalizedFile) &&
-        normalizedFile.includes("/src/") &&
-        retiredIntegrationSurfaceImportPattern.test(content)
-      ) {
-        addViolation(file, "API deployables must not import retired bounded-context integration surfaces");
-      }
-
-      if (normalizedFile.startsWith("bounded-contexts/") && retiredIntegrationSurfaceImportPattern.test(content)) {
-        addViolation(
-          file,
-          "bounded-context code must not import retired ./integration surfaces; use provider ./server surfaces or published events instead",
-        );
-      }
-
       if (normalizedFile.startsWith("contracts/") && /\bprocess\.env\b/.test(content)) {
         addViolation(file, "contracts must not read environment variables");
       }
 
-      if (
-        normalizedFile.startsWith("deployables/") &&
-        isTestFile(normalizedFile) &&
-        /@chase-sets\/[^/]+\/client/.test(content)
-      ) {
-        addViolation(file, "deployable tests must not depend on bounded-context client surfaces");
+      for (const violation of findTestSupportImportViolations(normalizedFile, content, contextManifests.values())) {
+        addViolation(file, violation);
       }
-
       for (const specifier of extractImportSpecifiers(content)) {
         checkImport(file, specifier, content);
       }
@@ -3484,7 +3798,12 @@ export async function runStructureCheck(options = {}) {
       const message =
         `support file in ${usageRecord.supportDirectory} is imported by only one slice (${sliceName}); ` +
         `relocate it to bounded-contexts/.../${sliceName}/`;
-      if (singleSliceSupportEnforcementMode === "warn") {
+      if (
+        singleSliceSupportSeverity({
+          sourceBacked: contextManifests.get(usageRecord.contextRoot)?.sourceBacked === true,
+          enforcementMode: singleSliceSupportEnforcementMode,
+        }) === "warn"
+      ) {
         addPathWarning(supportFile, message);
       } else {
         addPathViolation(supportFile, message);
@@ -3561,6 +3880,7 @@ export async function runStructureCheck(options = {}) {
     );
   }
 
+  validateLinkIntentActionProducers({ addPathViolation });
   const readAfterWriteInventoryResult = await validateReadAfterWriteRouteInventory({
     repoRoot,
     contextManifests,
@@ -3631,6 +3951,7 @@ export async function runStructureCheck(options = {}) {
 
   const doksIngressChartVersionResult = await validateDoksIngressChartVersion({ repoRoot });
   violations.push(...doksIngressChartVersionResult.violations);
+  violations.push(...checkDbDurationBaseline({ repoRoot }).map(({ file, message }) => `${file}: ${message}`));
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
   violations.push(...retentionSweepCoverageResult.violations);

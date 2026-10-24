@@ -3,20 +3,31 @@ import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
-import { createCatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
-import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
+import {
+  CatalogIntegrationRolloutControlError,
+  createCatalogIntegrationRolloutControlPolicy,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
+import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "./provider-integration-profiles";
 import { createSourceObservationRuntime } from "./runtime";
+import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
+import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
+import { listCatalogProviderIntegrationOptionsFromProfiles } from "./providers/provider-option-query-resolver";
+import * as providerOptionQueries from "./providers/provider-option-queries";
 import {
   context,
   createActiveTcgplayerProfileVersions,
   createIntegrationJobClaimHandoffHarness,
   createIntegrationJobDedupeHarness,
   createMutableProfileVersionReader,
-  createTcgplayerImportHarness,
   currentTcgdexProfileVersion,
   integrationJobRow,
   tcgdexProfileSnapshot,
   tcgdexProfileVersion,
+  withoutRolloutUnitKey,
 } from "./seeding/runtime-test-harness";
 
 const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
@@ -168,7 +179,7 @@ describe("source observation runtime: provider integration jobs", () => {
         },
         context,
       }),
-    ).rejects.toThrow("Provider 'tcgplayer' does not support background import.");
+    ).rejects.toThrow("TCGplayer server transport is retired; use the browser handoff.");
     expect(harness.insertedJobs).toEqual([]);
   });
 
@@ -395,73 +406,6 @@ describe("source observation runtime: provider integration jobs", () => {
     });
   });
 
-  it("enqueues targeted TCGplayer Pokemon set-name Catalog sync runs from accepted scope mappings", async () => {
-    const harness = createIntegrationJobDedupeHarness({
-      acceptedScopeMappings: [
-        acceptedScopeMappingRow({
-          providerKey: "tcgplayer",
-          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-          productLineId: "3",
-          setName: "Base Set",
-        }),
-      ],
-    });
-    const profileVersions = createActiveTcgplayerProfileVersions();
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-      createMutableProfileVersionReader(await profileVersions.listProfileVersions("tcgplayer")),
-    );
-
-    const run = await services.enqueueCatalogSyncRun({
-      scope: {
-        scopeVersion: "catalog-sync-scope-v2",
-        productDomain: "pokemon",
-        productForm: "single-card",
-        languageCode: "en",
-        reference: { kind: "set", scopeRecordId: BASE_SET_SCOPE_RECORD_ID },
-        providerParticipation: {
-          selectedUnitKeys: ["tcgplayer:pokemon:single-card:source-observation-import"],
-        },
-      },
-      context,
-    });
-
-    expect(run).toMatchObject({
-      status: "queued",
-      progress: {
-        childJobs: {
-          total: 1,
-          queued: 1,
-        },
-      },
-      selectedUnits: [
-        expect.objectContaining({
-          providerKey: "tcgplayer",
-          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-          profileKey: "pokemon-single-card-product-sku",
-          profileVersion: "2026.06.05",
-          childExecutionScope: expect.objectContaining({
-            provider: "tcgplayer",
-            profileKey: "pokemon-single-card-product-sku",
-            ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-            language: "en",
-            productLineId: "3",
-            setName: "Base Set",
-          }),
-        }),
-      ],
-      childJobs: [
-        expect.objectContaining({
-          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-          syncRunLinkState: "attached-to-child-payload",
-          status: "queued",
-        }),
-      ],
-    });
-  });
-
   it("snapshots reapply profile mode on integration jobs and work units", async () => {
     const harness = createIntegrationJobDedupeHarness({
       reapplyObservationIds: ["obs_promoted_1", "obs_promoted_2"],
@@ -653,90 +597,9 @@ describe("source observation runtime: provider integration jobs", () => {
         }),
       }),
       expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer Pokemon Sealed Products",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer One Piece Sealed Products",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer Lorcana Single Cards",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer Lorcana Sealed Products",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer One Piece Single Cards",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer Yu-Gi-Oh Single Cards",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer Magic Single Cards",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer Magic Sealed Products",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer Pokemon Single Cards",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
-      expect.objectContaining({
         providerKey: "ygojson",
         value: "ygojson",
-        label: "YGOJSON Sealed Products",
+        label: "YGOJSON",
         metadata: expect.objectContaining({
           status: "active",
           connectorKind: "ygojson-json",
@@ -745,7 +608,7 @@ describe("source observation runtime: provider integration jobs", () => {
       expect.objectContaining({
         providerKey: "ygojson",
         value: "ygojson",
-        label: "YGOJSON",
+        label: "YGOJSON Sealed Products",
         metadata: expect.objectContaining({
           status: "active",
           connectorKind: "ygojson-json",
@@ -809,105 +672,7 @@ describe("source observation runtime: provider integration jobs", () => {
         providerKey: "tcgplayer",
         queryKind: "languages",
       }),
-    ).rejects.toThrow("Unsupported Catalog integration query 'languages' for provider 'tcgplayer'.");
-  });
-
-  it("lists TCGplayer product-line and set-name options through the automation client", async () => {
-    const harness = createTcgplayerImportHarness();
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-      createActiveTcgplayerProfileVersions(),
-    );
-
-    const productLines = await services.listIntegrationOptions({
-      providerKey: "tcgplayer",
-      queryKind: "product-lines",
-    });
-    const setNames = await services.listIntegrationOptions({
-      providerKey: "tcgplayer",
-      queryKind: "set-names",
-      parentValue: "3",
-    });
-
-    expect(productLines).toEqual([
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        queryKind: "product-lines",
-        value: "3",
-        label: "Pokemon",
-        metadata: expect.objectContaining({
-          productLineId: 3,
-          productLineUrlName: "pokemon",
-        }),
-      }),
-    ]);
-    expect(setNames).toEqual([
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        queryKind: "set-names",
-        value: "Prismatic Evolutions",
-        label: "Prismatic Evolutions",
-        parentValue: "3",
-        metadata: expect.objectContaining({
-          productLineId: 3,
-          setNameId: 7001,
-          cleanSetName: "Prismatic Evolutions",
-        }),
-      }),
-    ]);
-  });
-
-  it("lists TCGplayer One Piece product-line and set-name options through the selected production profile unit", async () => {
-    const harness = createTcgplayerImportHarness({ productDomain: "one-piece" });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-      createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
-    );
-
-    const productLines = await services.listIntegrationOptions({
-      providerKey: "tcgplayer",
-      profileKey: "one-piece-single-card-product-sku",
-      ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
-      queryKind: "product-lines",
-    });
-    const setNames = await services.listIntegrationOptions({
-      providerKey: "tcgplayer",
-      profileKey: "one-piece-single-card-product-sku",
-      ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
-      queryKind: "set-names",
-      parentValue: "68",
-    });
-
-    expect(productLines).toEqual([
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        queryKind: "product-lines",
-        value: "68",
-        label: "One Piece Card Game",
-        metadata: expect.objectContaining({
-          productLineId: 68,
-          productLineUrlName: "one-piece-card-game",
-        }),
-      }),
-    ]);
-    expect(setNames).toEqual([
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        queryKind: "set-names",
-        value: "Romance Dawn",
-        label: "Romance Dawn",
-        parentValue: "68",
-        metadata: expect.objectContaining({
-          productLineId: 68,
-          setNameId: 12001,
-          cleanSetName: "Romance Dawn",
-        }),
-      }),
-    ]);
+    ).rejects.toThrow("Unsupported Catalog integration provider: tcgplayer.");
   });
 
   it("lists MTGJSON set and card options through the public JSON adapter", async () => {
@@ -1130,472 +895,137 @@ describe("source observation runtime: provider integration jobs", () => {
     });
   });
 
-  it("processes queued TCGplayer imports through the durable integration worker", async () => {
-    const tcgplayerHarness = createTcgplayerImportHarness();
-    const harness = createIntegrationJobClaimHandoffHarness({
-      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
-      renewSucceeds: true,
-      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
+  it("enumerates unscoped TCGdex expansion import targets from the provider expansion list", async () => {
+    const originalFetch = globalThis.fetch;
+    let seriesId = "synthetic-series";
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "https://api.tcgdex.net/v2/en/series/synthetic-series") {
+        throw new Error(`Unexpected synthetic TCGdex request: ${String(input)}`);
+      }
+      return jsonResponse({
+        id: seriesId,
+        name: "Synthetic Series",
+        sets: [
+          { id: "synthetic-set-a", name: "Synthetic Expansion A" },
+          { id: "synthetic-set-b", name: "Synthetic Expansion B" },
+        ],
+      });
     });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-      createActiveTcgplayerProfileVersions(),
-    );
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+    try {
+      const harness = createIntegrationJobClaimHandoffHarness();
+      const profileVersions = createActiveTcgplayerProfileVersions();
+      const items = {} as CatalogItemServices;
+      const services = createSourceObservationRuntime(harness.deps, items, harness.referenceData, profileVersions);
+      const scope = { provider: "tcgdex", language: "en", seriesId: "synthetic-series" } as const;
+      const preview = await services.previewIntegrationImport({ scope, context });
+      expect(preview.targetCount).toBe(2);
+      expect(preview.targets.map(({ targetId, name, languageCode }) => ({ targetId, name, languageCode }))).toEqual([
+        { targetId: "synthetic-set-a", name: "Synthetic Expansion A", languageCode: "en" },
+        { targetId: "synthetic-set-b", name: "Synthetic Expansion B", languageCode: "en" },
+      ]);
+      expect(fetch).toHaveBeenCalledTimes(1);
 
-    await expect(
-      services.processNextIntegrationJob({
-        claimOwnerId: "worker-1",
-        claimTtlMs: 120_000,
-      }),
-    ).resolves.toBe(1);
+      const providerImport = createSourceObservationProviderImportRuntime({
+        deps: harness.deps,
+        items,
+        referenceData: harness.referenceData,
+        aliasCandidateSink: vi.fn(async () => undefined),
+        commandHandler: services.commandHandler,
+        providerAdapterRegistry: services.providerAdapterRegistry,
+        mergeCandidates: createSourceObservationMergeCandidateRuntime({ deps: harness.deps, profileVersions }),
+      });
+      const profileVersion = currentTcgdexProfileVersion();
+      const targets = await providerImport.resolveProviderAdapterImportTargets(scope, profileVersion);
+      expect(targets.map((target) => target.values)).toEqual([
+        { languageCode: "en", setId: "synthetic-set-a", expansionId: "synthetic-set-a", seriesId: "synthetic-series" },
+        { languageCode: "en", setId: "synthetic-set-b", expansionId: "synthetic-set-b", seriesId: "synthetic-series" },
+      ]);
+      seriesId = "synthetic-wrong-series";
+      const wrongParentTargets = await providerImport.resolveProviderAdapterImportTargets(scope, profileVersion);
+      expect(wrongParentTargets.map((target) => target.values.seriesId)).toEqual([
+        "synthetic-wrong-series",
+        "synthetic-wrong-series",
+      ]);
+      expect(wrongParentTargets.map((target) => target.values)).not.toEqual(targets.map((target) => target.values));
 
-    expect(harness.job.status).toBe("completed");
-    expect(harness.job.progress).toMatchObject({
-      phase: "completed",
-      completed: 1,
-      total: 1,
-    });
-    expect(harness.job.result).toMatchObject({
-      requested: 1,
-      imported: 1,
-      observed: 2,
-      failed: 0,
-    });
-    expect(harness.appendedSourceEvents).toHaveLength(2);
-  });
-
-  it("settles a mixed TCGplayer set after detail assigns generic candidates to another unit", async () => {
-    const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "one-piece" });
-    const client = {
-      ...tcgplayerHarness.client,
-      listAllProducts: async (input: Parameters<typeof tcgplayerHarness.client.listAllProducts>[0]) =>
-        (await tcgplayerHarness.client.listAllProducts(input)).map((product) =>
-          product.productId === 987660 ? { ...product, productTypeName: "Products", sealed: false } : product,
-        ),
-    };
-    const harness = createIntegrationJobClaimHandoffHarness({
-      scope: {
-        provider: "tcgplayer",
-        profileKey: "one-piece-single-card-product-sku",
-        ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
-        productLineId: "68",
-        setName: "Romance Dawn",
-      },
-      renewSucceeds: true,
-      tcgplayerAutomationCatalogClient: client,
-    });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-      createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
-    );
-
-    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
-      1,
-    );
-
-    await expect(services.getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
-      status: "completed",
-      operatorStatus: "completed",
-      result: { requested: 1, imported: 1, observed: 1, failed: 0 },
-    });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-  });
-
-  it("keeps genuine TCGplayer detail failures visibly partial", async () => {
-    const tcgplayerHarness = createTcgplayerImportHarness({ failProductIds: new Set([610002]) });
-    const harness = createIntegrationJobClaimHandoffHarness({
-      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
-      renewSucceeds: true,
-      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
-    });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-      createActiveTcgplayerProfileVersions(),
-    );
-
-    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
-      1,
-    );
-
-    expect(harness.job.status).toBe("completed");
-    expect(harness.job.result).toMatchObject({
-      requested: 1,
-      imported: 0,
-      observed: 1,
-      failed: 1,
-      outcomes: [
-        expect.objectContaining({
-          status: "failed",
-          observed: 1,
-          reason: expect.stringContaining("Product 610002 unavailable."),
+      fetch.mockClear();
+      const scopedPreview = await services.previewIntegrationImport({
+        scope: { ...scope, setId: "synthetic-set-a" },
+        context,
+      });
+      expect(scopedPreview.targetCount).toBe(1);
+      expect(scopedPreview.targets[0]?.targetId).toBe("synthetic-set-a");
+      expect(fetch).not.toHaveBeenCalled();
+      expect(
+        await listCatalogProviderIntegrationOptionsFromProfiles({
+          profiles: [profileVersion.profile],
+          providerKey: "tcgdex",
+          defaultProviderKey: "tcgdex",
+          queryKind: "expansions",
+          languageCode: "en",
+          parentValue: "synthetic-series",
+          transports: {
+            listTcgdexExpansions: async () => [{ expansionId: "synthetic-missing-name", seriesId: "synthetic-series" }],
+          },
         }),
-      ],
-    });
-    await expect(services.getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
-      status: "completed",
-      operatorStatus: "partial",
-      result: { observed: 1, failed: 1 },
-    });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-  });
+      ).toEqual([]);
 
-  it("imports TCGplayer set scopes as provider-product source observations", async () => {
-    const tcgplayerHarness = createTcgplayerImportHarness();
-    const harness = createIntegrationJobClaimHandoffHarness({
-      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
-      renewSucceeds: true,
-      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
-    });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-      createActiveTcgplayerProfileVersions(),
-    );
-
-    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
-      1,
-    );
-
-    expect(harness.job.status).toBe("completed");
-    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 2, failed: 0 });
-    expect(harness.appendedSourceEvents).toHaveLength(2);
-    expect(harness.appendedSourceEvents[0]).toMatchObject({
-      eventType: "catalog.source-observation.recorded",
-      payload: expect.objectContaining({
-        observationId: "tcgplayer_en_product_610001",
-        providerKey: "tcgplayer",
-        externalKey: "product:610001",
-        normalized: expect.objectContaining({
-          kind: "provider-product",
-          mergeIdentity: expect.objectContaining({
-            productLineName: "Pokemon",
-            setName: "Prismatic Evolutions",
-            collectorNumber: "131",
-          }),
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
-          externalProductReferences: [],
-          skuReferences: [
-            expect.objectContaining({
-              providerKey: "tcgplayer",
-              externalKey: "sku:987654",
-              reviewEvidence: expect.objectContaining({
-                condition: "Near Mint",
-                printing: "Normal",
-                language: "English",
-                productForm: "single",
-              }),
-            }),
-          ],
-        }),
-      }),
-    });
-  });
-
-  it("imports TCGplayer Magic single-card set scopes through the selected production profile unit", async () => {
-    const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "mtg" });
-    const harness = createIntegrationJobClaimHandoffHarness({
-      scope: {
-        provider: "tcgplayer",
-        profileKey: "mtg-single-card-product-sku",
-        ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
-        productLineId: "1",
-        setName: "Time Spiral",
-      },
-      renewSucceeds: true,
-      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
-    });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-      createActiveTcgplayerProfileVersions({ profileKey: "mtg-single-card-product-sku" }),
-    );
-
-    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
-      1,
-    );
-
-    expect(harness.job.status).toBe("completed");
-    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-    expect(harness.appendedSourceEvents[0]).toMatchObject({
-      eventType: "catalog.source-observation.recorded",
-      payload: expect.objectContaining({
-        observationId: "tcgplayer_en_product_14240",
-        providerKey: "tcgplayer",
-        externalKey: "product:14240",
-        sourceProfileKey: "mtg-single-card-product-sku",
-        sourceProfileVersion: "2026.06.19",
-        normalized: expect.objectContaining({
-          kind: "provider-product",
-          tcg: "magic",
-          providerProductName: "Fury Sliver",
-          productLineName: "Magic",
-          productCategoryName: "Cards",
-          productForm: "single",
-          mergeIdentity: expect.objectContaining({
-            tcg: "magic",
-            productLineName: "Magic",
-            setName: "Time Spiral",
-            collectorNumber: "157",
-            productForm: "single",
-          }),
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
-          skuReferences: [
-            expect.objectContaining({
-              providerKey: "tcgplayer",
-              externalKey: "sku:50014240",
-              reviewEvidence: expect.objectContaining({
-                condition: "Near Mint",
-                printing: "Normal",
-                language: "English",
-                productForm: "single",
-              }),
-            }),
-          ],
-        }),
-      }),
-    });
-  });
-
-  it("imports TCGplayer One Piece single-card set scopes through the selected production profile unit", async () => {
-    const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "one-piece" });
-    const harness = createIntegrationJobClaimHandoffHarness({
-      scope: {
-        provider: "tcgplayer",
-        profileKey: "one-piece-single-card-product-sku",
-        ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
-        productLineId: "68",
-        setName: "Romance Dawn",
-      },
-      renewSucceeds: true,
-      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
-    });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-      createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
-    );
-
-    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
-      1,
-    );
-
-    expect(harness.job.status).toBe("completed");
-    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-    expect(harness.appendedSourceEvents[0]).toMatchObject({
-      eventType: "catalog.source-observation.recorded",
-      payload: expect.objectContaining({
-        observationId: "tcgplayer_en_product_987650",
-        providerKey: "tcgplayer",
-        externalKey: "product:987650",
-        sourceProfileKey: "one-piece-single-card-product-sku",
-        sourceProfileVersion: "2026.06.22",
-        normalized: expect.objectContaining({
-          kind: "provider-product",
-          tcg: "one-piece",
-          name: "Monkey.D.Luffy",
-          providerProductName: "Monkey.D.Luffy",
-          productLineName: "One Piece Card Game",
-          productCategoryName: "Cards",
-          productForm: "single",
-          mergeIdentity: expect.objectContaining({
-            tcg: "one piece card game",
-            productLineName: "One Piece Card Game",
-            setName: "Romance Dawn",
-            collectorNumber: "OP01-001",
-            productForm: "single",
-          }),
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:987650" }],
-          skuReferences: [
-            expect.objectContaining({
-              providerKey: "tcgplayer",
-              externalKey: "sku:900987650",
-              reviewEvidence: expect.objectContaining({
-                condition: "Near Mint",
-                printing: "Normal",
-                language: "English",
-                productForm: "single",
-              }),
-            }),
-          ],
-        }),
-      }),
-    });
-  });
-
-  it("imports TCGplayer Magic sealed-product set scopes through the selected production profile unit", async () => {
-    const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "mtg" });
-    const harness = createIntegrationJobClaimHandoffHarness({
-      scope: {
-        provider: "tcgplayer",
-        profileKey: "mtg-sealed-product-sku",
-        ingestionUnitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
-        productLineId: "1",
-        setName: "Time Spiral",
-      },
-      renewSucceeds: true,
-      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
-    });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-      createActiveTcgplayerProfileVersions({ profileKey: "mtg-sealed-product-sku" }),
-    );
-
-    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
-      1,
-    );
-
-    expect(harness.job.status).toBe("completed");
-    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-    expect(harness.appendedSourceEvents[0]).toMatchObject({
-      eventType: "catalog.source-observation.recorded",
-      payload: expect.objectContaining({
-        observationId: "tcgplayer_en_product_96601",
-        providerKey: "tcgplayer",
-        externalKey: "product:96601",
-        sourceProfileKey: "mtg-sealed-product-sku",
-        sourceProfileVersion: "2026.06.19",
-        normalized: expect.objectContaining({
-          kind: "magic-sealed-product",
-          tcg: "magic",
-          name: "Time Spiral Booster Pack",
-          setCode: "tsp",
-          setName: "Time Spiral",
-          sealedProductForm: "booster-pack",
-          packCount: 1,
-          productLineName: "Magic: The Gathering",
-          barcode: "0653569123456",
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
-        }),
-      }),
-    });
+      const normalizedRefeed = vi
+        .spyOn(providerOptionQueries, "tcgdexExpansionOptionRecord")
+        .mockImplementation((item) => ({
+          value: item.value,
+          label: item.label,
+          parentValue: item.parentValue ?? "synthetic-series",
+          aliases: providerOptionQueries.providerOptionAliasesToJson(item.aliases),
+          ...item.metadata,
+        }));
+      try {
+        const mutantPreview = await services.previewIntegrationImport({ scope, context });
+        expect(normalizedRefeed).toHaveBeenCalledTimes(2);
+        expect(mutantPreview.targetCount).toBe(0);
+        expect(mutantPreview.targetCount).not.toBe(preview.targetCount);
+      } finally {
+        normalizedRefeed.mockRestore();
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("generates merge candidates from successful catalog-sync child imports without waiting for projection catch-up", async () => {
-    const tcgplayerHarness = createTcgplayerImportHarness();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mtgjsonFetch() as typeof globalThis.fetch;
     const harness = createIntegrationJobClaimHandoffHarness({
-      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
-      syncRunId: "job_sync_tcgplayer",
-      acceptedScopeRecordId: "scope_prismatic_evolutions",
-      acceptedUnitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scope: {
+        provider: "mtgjson",
+        profileKey: "mtg-set-reference-data",
+        ingestionUnitKey: "mtgjson:mtg:set:reference-data",
+        setId: "TSP",
+      },
+      syncRunId: "job_sync_mtgjson",
+      acceptedScopeRecordId: "scope_time_spiral",
+      acceptedUnitKey: "mtgjson:mtg:set:reference-data",
       renewSucceeds: true,
-      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
     });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-      createActiveTcgplayerProfileVersions(),
-    );
-
-    await expect(
-      services.processNextIntegrationJob({
-        claimOwnerId: "worker-1",
-        claimTtlMs: 120_000,
-      }),
-    ).resolves.toBe(1);
-
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+    try {
+      await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+        1,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
     expect(harness.job.status).toBe("completed");
-    expect(
-      harness.appendedSourceEvents.filter((event) => event.eventType === "catalog.source-observation.recorded"),
-    ).toHaveLength(2);
-    const candidateEvents = harness.appendedSourceEvents.filter(
-      (event) => event.eventType === "catalog.merge-candidate.created",
-    );
-    expect(candidateEvents.length).toBeGreaterThan(0);
-    expect(candidateEvents).toEqual(
+    expect(harness.appendedSourceEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          payload: expect.objectContaining({
-            snapshot: expect.objectContaining({
-              identity: expect.objectContaining({ scopeRecordId: "scope_prismatic_evolutions" }),
-              syncRunIds: ["job_sync_tcgplayer"],
-              membership: expect.arrayContaining([
-                expect.objectContaining({
-                  providerKey: "tcgplayer",
-                  sourceProfileKey: "pokemon-single-card-product-sku",
-                  sourceProfileVersion: "2026.06.05",
-                }),
-              ]),
-            }),
-          }),
+          eventType: "catalog.source-observation.recorded",
+          payload: expect.objectContaining({ providerKey: "mtgjson", syncRunId: "job_sync_mtgjson" }),
         }),
       ]),
     );
   });
-
-  it.each([
-    {
-      profileKey: "mtg-card-reference-data",
-      ingestionUnitKey: "mtgjson:mtg:single-card:reference-data",
-      observationId: "mtgjson_card_en_13fd9d47-9aa7-5f7c-8f47-fury-sliver",
-      externalKey: "card:13fd9d47-9aa7-5f7c-8f47-fury-sliver",
-      normalizedKind: "magic-card-print",
-    },
-    {
-      profileKey: "mtg-set-reference-data",
-      ingestionUnitKey: "mtgjson:mtg:set:reference-data",
-      observationId: "mtgjson_set_en_TSP",
-      externalKey: "set:TSP",
-      normalizedKind: "magic-set-reference",
-    },
-  ])(
-    "processes queued MTGJSON $profileKey imports through the durable integration worker",
-    async ({ profileKey, ingestionUnitKey, observationId, externalKey, normalizedKind }) => {
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = mtgjsonFetch() as typeof globalThis.fetch;
-      const harness = createIntegrationJobClaimHandoffHarness({
-        scope: { provider: "mtgjson", profileKey, ingestionUnitKey, setId: "TSP" },
-        renewSucceeds: true,
-      });
-      const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
-
-      try {
-        await expect(
-          services.processNextIntegrationJob({
-            claimOwnerId: "worker-1",
-            claimTtlMs: 120_000,
-          }),
-        ).resolves.toBe(1);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
-
-      expect(harness.job.status).toBe("completed");
-      expect(harness.job.result).toMatchObject({
-        requested: 1,
-        imported: 1,
-        observed: 1,
-        failed: 0,
-      });
-      expect(harness.appendedSourceEvents).toHaveLength(1);
-      expect(harness.appendedSourceEvents[0]?.payload).toMatchObject({
-        observationId,
-        providerKey: "mtgjson",
-        externalKey,
-        sourceProfileKey: profileKey,
-        sourceProfileVersion: "2026.06.19",
-        normalized: expect.objectContaining({
-          kind: normalizedKind,
-          setCode: "tsp",
-          setName: "Time Spiral",
-        }),
-      });
-    },
-  );
 
   it("imports an MTGJSON set document larger than 64 KiB as bounded Source Observation events", async () => {
     const originalFetch = globalThis.fetch;
@@ -1893,7 +1323,7 @@ describe("source observation runtime: provider integration jobs", () => {
             estimateState: "estimate-unavailable",
             estimatedRequestCount: null,
             estimateReason:
-              "Card page count requires a fresh completed exact-query Scrydex count observation; set imports use q=printings:<set> to include reprints.",
+              "Card page count requires fresh exact-query Scrydex count evidence; set imports use q=printings:<set> to include reprints.",
             actualRequestCount: 1,
             pageCount: 1,
             cacheHitCount: null,
@@ -2302,8 +1732,8 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
       observationFacts: 1,
       credentialReadiness: "blocked",
-      credentialReadinessState: "missing",
-      credentialDiagnosticCode: "credential-missing",
+      credentialReadinessState: "unknown",
+      credentialDiagnosticCode: "provider-retired",
       transportReadiness: "blocked",
     });
     expect(unitsByKey["tcgplayer:mtg:sealed-product:source-observation-import"]).toMatchObject({
@@ -2312,8 +1742,8 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
       observationFacts: 1,
       credentialReadiness: "blocked",
-      credentialReadinessState: "missing",
-      credentialDiagnosticCode: "credential-missing",
+      credentialReadinessState: "unknown",
+      credentialDiagnosticCode: "provider-retired",
       transportReadiness: "blocked",
     });
     expect(unitsByKey["tcgplayer:pokemon:single-card:source-observation-import"]).toMatchObject({
@@ -2322,8 +1752,8 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
       observationFacts: 1,
       credentialReadiness: "blocked",
-      credentialReadinessState: "missing",
-      credentialDiagnosticCode: "credential-missing",
+      credentialReadinessState: "unknown",
+      credentialDiagnosticCode: "provider-retired",
       transportReadiness: "blocked",
     });
     expect(unitsByKey["tcgplayer:lorcana:single-card:source-observation-import"]).toMatchObject({
@@ -2332,8 +1762,8 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
       observationFacts: 1,
       credentialReadiness: "blocked",
-      credentialReadinessState: "missing",
-      credentialDiagnosticCode: "credential-missing",
+      credentialReadinessState: "unknown",
+      credentialDiagnosticCode: "provider-retired",
       transportReadiness: "blocked",
     });
     expect(unitsByKey["tcgplayer:lorcana:sealed-product:source-observation-import"]).toMatchObject({
@@ -2342,8 +1772,8 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
       observationFacts: 1,
       credentialReadiness: "blocked",
-      credentialReadinessState: "missing",
-      credentialDiagnosticCode: "credential-missing",
+      credentialReadinessState: "unknown",
+      credentialDiagnosticCode: "provider-retired",
       transportReadiness: "blocked",
     });
     expect(unitsByKey["tcgplayer:one-piece:single-card:source-observation-import"]).toMatchObject({
@@ -2352,8 +1782,8 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
       observationFacts: 1,
       credentialReadiness: "blocked",
-      credentialReadinessState: "missing",
-      credentialDiagnosticCode: "credential-missing",
+      credentialReadinessState: "unknown",
+      credentialDiagnosticCode: "provider-retired",
       transportReadiness: "blocked",
     });
     expect(unitsByKey["tcgplayer:one-piece:sealed-product:source-observation-import"]).toMatchObject({
@@ -2362,8 +1792,8 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
       observationFacts: 1,
       credentialReadiness: "blocked",
-      credentialReadinessState: "missing",
-      credentialDiagnosticCode: "credential-missing",
+      credentialReadinessState: "unknown",
+      credentialDiagnosticCode: "provider-retired",
       transportReadiness: "blocked",
     });
     expect(unitsByKey["scrydex:one-piece:single-card:source-observation-import"]).toMatchObject({
@@ -2591,12 +2021,16 @@ function scrydexOnePieceFetch(): typeof globalThis.fetch {
   return (async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
     if (url.includes("/account/v1/usage")) {
+      // Synthetic values in the real Scrydex usage envelope; the period covers the read.
       return jsonResponse({
-        total_credits: 1000,
-        remaining_credits: 900,
-        used_credits: 100,
-        overage_credit_rate: "0.01",
-        updated_at: "2026-06-22T00:00:00.000Z",
+        data: {
+          total_credits_consumed: 100,
+          overage_credits_consumed: 0,
+          credits_remaining: 900,
+          period_start: new Date(Date.now() - 86_400_000).toISOString(),
+          period_end: new Date(Date.now() + 29 * 86_400_000).toISOString(),
+          daily_usage: [{ date: "2026-06-21", credits_consumed: 100 }],
+        },
       });
     }
 
@@ -2644,6 +2078,45 @@ function scrydexOnePieceFetch(): typeof globalThis.fetch {
       });
     }
 
+    if (url.includes("/lorcana/v1/expansions/1/cards")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "tfc-041",
+            name: "Elsa - Snow Queen",
+            number: "41",
+            printed_number: "41/204",
+            rarity: "Super Rare",
+            rarity_code: "SR",
+            type: "Character",
+            ink: "Amethyst",
+            language_code: "en",
+            expansion: { id: "1", name: "The First Chapter", code: "TFC", total: 204, release_date: "2023-08-18" },
+            printings: ["TFC"],
+            variants: [{ name: "standard", printings: ["TFC"] }],
+            tcgplayer_id: "1005010",
+          },
+        ],
+        total_pages: 1,
+      });
+    }
+
+    if (url.includes("/lorcana/v1/expansions")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "1",
+            name: "The First Chapter",
+            code: "TFC",
+            total: 204,
+            release_date: "2023-08-18",
+            language_code: "en",
+          },
+        ],
+        total_pages: 1,
+      });
+    }
+
     return new Response(null, { status: 404 });
   }) as typeof globalThis.fetch;
 }
@@ -2662,3 +2135,313 @@ function restoreEnvValue(key: string, value: string | undefined): void {
   }
   process.env[key] = value;
 }
+
+function expectUnitRolloutDenial(error: unknown, controlId: string, unitKey: string) {
+  expect(error).toBeInstanceOf(CatalogIntegrationRolloutControlError);
+  expect((error as CatalogIntegrationRolloutControlError).decision.controls).toEqual([
+    expect.objectContaining({ controlId, status: "blocked", unitKeys: expect.arrayContaining([unitKey]) }),
+  ]);
+}
+
+const SCRYDEX_ONE_PIECE_PROFILE_KEY = "one-piece-card-print-source-observation";
+const SCRYDEX_ONE_PIECE_SET_PROFILE_KEY = "one-piece-set-reference-data";
+const SCRYDEX_LORCANA_PROFILE_KEY = "lorcana-card-print-source-observation";
+const SCRYDEX_ONE_PIECE_SCOPE = {
+  provider: "scrydex",
+  profileKey: SCRYDEX_ONE_PIECE_PROFILE_KEY,
+  language: "en",
+  setId: "op-01",
+};
+const SCRYDEX_ONE_PIECE_SET_SCOPE = {
+  provider: "scrydex",
+  profileKey: SCRYDEX_ONE_PIECE_SET_PROFILE_KEY,
+  language: "en",
+  setId: "op-01",
+};
+const SCRYDEX_LORCANA_SCOPE = {
+  provider: "scrydex",
+  profileKey: SCRYDEX_LORCANA_PROFILE_KEY,
+  language: "en",
+  setId: "1",
+};
+
+function sharedScrydexProfileVersions() {
+  return createMutableProfileVersionReader(
+    catalogProviderIntegrationProfileVersions.filter(
+      (version) =>
+        version.providerKey === "scrydex" &&
+        [SCRYDEX_ONE_PIECE_PROFILE_KEY, SCRYDEX_ONE_PIECE_SET_PROFILE_KEY, SCRYDEX_LORCANA_PROFILE_KEY].includes(
+          version.profileKey,
+        ),
+    ),
+  );
+}
+
+async function resolvedScrydexUnitKey(profileKey: string): Promise<string> {
+  const version = await sharedScrydexProfileVersions().getActiveProfileVersion("scrydex", { profileKey });
+  if (!version) throw new Error(`Expected an active Scrydex profile for ${profileKey}.`);
+  return catalogProviderProfileVersionIngestionUnitKey(version);
+}
+
+async function runQueuedScrydexImport(input: {
+  policy: CatalogIntegrationRolloutControlPolicy;
+  scope: Record<string, unknown>;
+  profileSnapshot?: Record<string, unknown> | null;
+  profileVersions?: ReturnType<typeof sharedScrydexProfileVersions>;
+}) {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.SCRYDEX_API_KEY;
+  const originalTeamId = process.env.SCRYDEX_TEAM_ID;
+  process.env.SCRYDEX_API_KEY = "test-key";
+  process.env.SCRYDEX_TEAM_ID = "main";
+  const fetch = vi.fn(scrydexOnePieceFetch());
+  globalThis.fetch = fetch as typeof globalThis.fetch;
+  const harness = createIntegrationJobClaimHandoffHarness({
+    scope: input.scope,
+    profileSnapshot: input.profileSnapshot ?? null,
+    renewSucceeds: true,
+  });
+  try {
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      input.profileVersions ?? sharedScrydexProfileVersions(),
+      input.policy,
+    );
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+  } finally {
+    restoreEnvValue("SCRYDEX_API_KEY", originalApiKey);
+    restoreEnvValue("SCRYDEX_TEAM_ID", originalTeamId);
+    globalThis.fetch = originalFetch;
+  }
+  return { harness, transportCalls: fetch.mock.calls };
+}
+
+describe("source observation runtime: resolved-unit import rollout enforcement", () => {
+  it("denies import preview and start for a stopped resolved unit while a sibling Scrydex unit proceeds", async () => {
+    const stoppedUnitKey = await resolvedScrydexUnitKey(SCRYDEX_ONE_PIECE_PROFILE_KEY);
+    const policy = createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] });
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.SCRYDEX_API_KEY;
+    const originalTeamId = process.env.SCRYDEX_TEAM_ID;
+    process.env.SCRYDEX_API_KEY = "test-key";
+    process.env.SCRYDEX_TEAM_ID = "main";
+    const fetch = vi.fn(scrydexOnePieceFetch());
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+    try {
+      const previewServices = createSourceObservationRuntime(
+        { db: {} } as CatalogRuntimeDeps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        sharedScrydexProfileVersions(),
+        policy,
+      );
+      const previewError = await previewServices
+        .previewIntegrationImport({ scope: SCRYDEX_ONE_PIECE_SCOPE, context })
+        .catch((error: unknown) => error);
+      expectUnitRolloutDenial(previewError, "imports-disabled", stoppedUnitKey);
+      expect(fetch).not.toHaveBeenCalled();
+
+      await expect(
+        previewServices.previewIntegrationImport({ scope: SCRYDEX_LORCANA_SCOPE, context }),
+      ).resolves.toMatchObject({
+        profileSnapshot: {
+          providerKey: "scrydex",
+          ingestionUnitKey: await resolvedScrydexUnitKey(SCRYDEX_LORCANA_PROFILE_KEY),
+        },
+      });
+
+      const startHarness = createIntegrationJobDedupeHarness();
+      const startServices = createSourceObservationRuntime(
+        startHarness.deps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        sharedScrydexProfileVersions(),
+        policy,
+      );
+      const startError = await startServices
+        .enqueueIntegrationJob({ action: "import", scope: SCRYDEX_ONE_PIECE_SCOPE, context })
+        .catch((error: unknown) => error);
+      expectUnitRolloutDenial(startError, "imports-disabled", stoppedUnitKey);
+      expect(startHarness.insertedJobs).toEqual([]);
+      await expect(
+        startServices.enqueueIntegrationJob({ action: "import", scope: SCRYDEX_LORCANA_SCOPE, context }),
+      ).resolves.toMatchObject({ status: "queued" });
+      expect(startHarness.insertedJobs).toHaveLength(1);
+    } finally {
+      restoreEnvValue("SCRYDEX_API_KEY", originalApiKey);
+      restoreEnvValue("SCRYDEX_TEAM_ID", originalTeamId);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("denies queued import execution when a unit stop is introduced after enqueue", async () => {
+    const stoppedUnitKey = await resolvedScrydexUnitKey(SCRYDEX_ONE_PIECE_PROFILE_KEY);
+    const enqueueHarness = createIntegrationJobDedupeHarness();
+    await createSourceObservationRuntime(
+      enqueueHarness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      sharedScrydexProfileVersions(),
+      createCatalogIntegrationRolloutControlPolicy(),
+    ).enqueueIntegrationJob({ action: "import", scope: SCRYDEX_ONE_PIECE_SCOPE, context });
+    const enqueuedPayload = enqueueHarness.insertedJobs[0]?.payload as {
+      scope: Record<string, unknown>;
+      profileSnapshot: Record<string, unknown>;
+    };
+    expect(enqueuedPayload.profileSnapshot).toMatchObject({ ingestionUnitKey: stoppedUnitKey });
+    const denied = await runQueuedScrydexImport({
+      policy: createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] }),
+      scope: enqueuedPayload.scope,
+      profileSnapshot: enqueuedPayload.profileSnapshot,
+      profileVersions: sharedScrydexProfileVersions(),
+    });
+    expect(denied.harness.job.status).toBe("failed");
+    expect(denied.harness.job.error_message).toBe(
+      "Catalog integration imports are disabled for the configured ingestion-unit scope.",
+    );
+    expect(denied.transportCalls).toEqual([]);
+    expect(denied.harness.appendedSourceEvents).toEqual([]);
+    const sibling = await runQueuedScrydexImport({
+      policy: createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] }),
+      scope: SCRYDEX_ONE_PIECE_SET_SCOPE,
+    });
+    expect(sibling.harness.job.status).toBe("completed");
+    expect(sibling.harness.appendedSourceEvents.length).toBeGreaterThan(0);
+  });
+
+  it("enforces the existing One Piece signoff per resolved unit without gating another game on the shared Scrydex provider", async () => {
+    const onePieceUnitKey = await resolvedScrydexUnitKey(SCRYDEX_ONE_PIECE_PROFILE_KEY);
+    const unsignedPolicy = createCatalogIntegrationRolloutControlPolicy({ onePieceProductionSignoffReference: null });
+    const unsigned = await runQueuedScrydexImport({ policy: unsignedPolicy, scope: SCRYDEX_ONE_PIECE_SCOPE });
+    expect(unsigned.harness.job.status).toBe("failed");
+    expect(unsigned.harness.job.error_message).toContain(
+      "One Piece production sync requires recorded provider-data signoff",
+    );
+    expect(unsigned.transportCalls).toEqual([]);
+    expect(unsigned.harness.appendedSourceEvents).toEqual([]);
+    const unsignedStartError = await createSourceObservationRuntime(
+      createIntegrationJobDedupeHarness().deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      sharedScrydexProfileVersions(),
+      unsignedPolicy,
+    )
+      .enqueueIntegrationJob({ action: "import", scope: SCRYDEX_ONE_PIECE_SCOPE, context })
+      .catch((error: unknown) => error);
+    expectUnitRolloutDenial(unsignedStartError, "one-piece-production-signoff-required", onePieceUnitKey);
+    const otherGame = await runQueuedScrydexImport({ policy: unsignedPolicy, scope: SCRYDEX_LORCANA_SCOPE });
+    expect(otherGame.harness.job.status).toBe("completed");
+    const signed = await runQueuedScrydexImport({
+      policy: createCatalogIntegrationRolloutControlPolicy({
+        onePieceProductionSignoffReference: "#2285 UI-only staging UAT evidence",
+      }),
+      scope: SCRYDEX_ONE_PIECE_SCOPE,
+    });
+    expect(signed.harness.job.status).toBe("completed");
+    expect(signed.harness.appendedSourceEvents.length).toBeGreaterThan(0);
+  });
+
+  it("keeps global, provider and unit emergency denials effective at queued import execution", async () => {
+    const unitKey = await resolvedScrydexUnitKey(SCRYDEX_ONE_PIECE_PROFILE_KEY);
+    const denials = [
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ controlPlaneMode: "dry-run-only" }),
+        message: "Catalog Integration Control Plane dry-run-only mode is active.",
+      },
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ providerApiEmergencyStop: ["scrydex"] }),
+        message: "Provider API emergency stop is active for the configured provider scope.",
+      },
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ providerApiEmergencyStopUnits: [unitKey] }),
+        message: "Provider API emergency stop is active for the configured ingestion-unit scope.",
+      },
+    ];
+    for (const denial of denials) {
+      const result = await runQueuedScrydexImport({ policy: denial.policy, scope: SCRYDEX_ONE_PIECE_SCOPE });
+      expect(result.harness.job.status).toBe("failed");
+      expect(result.harness.job.error_message).toBe(denial.message);
+      expect(result.transportCalls).toEqual([]);
+    }
+  });
+});
+
+describe("source observation runtime: resolved-unit import rollout enforcement", () => {
+  it("denies starting a current-active reapply for the resolved stopped unit and defers original-source reapply to per-unit execution", async () => {
+    const tcgdexUnitKey = catalogProviderProfileVersionIngestionUnitKey(currentTcgdexProfileVersion());
+    const policy = createCatalogIntegrationRolloutControlPolicy({ disabledReapplyUnits: [tcgdexUnitKey] });
+    const reapplyScope = { provider: "tcgdex", language: "en", setId: "base1" };
+    const runtimeWith = (rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy) => {
+      const harness = createIntegrationJobDedupeHarness({ reapplyObservationIds: ["obs_promoted_1"] });
+      const services = createSourceObservationRuntime(
+        harness.deps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        createMutableProfileVersionReader([currentTcgdexProfileVersion()]),
+        rolloutControlPolicy,
+      );
+      return { harness, services };
+    };
+
+    const denied = runtimeWith(policy);
+    const error = await denied.services
+      .enqueueIntegrationJob({ action: "reapply", scope: reapplyScope, context })
+      .catch((caught: unknown) => caught);
+    expectUnitRolloutDenial(error, "reapply-disabled", tcgdexUnitKey);
+    expect(denied.harness.insertedJobs).toEqual([]);
+
+    const unscoped = runtimeWith(withoutRolloutUnitKey(policy));
+    await expect(
+      unscoped.services.enqueueIntegrationJob({ action: "reapply", scope: reapplyScope, context }),
+    ).resolves.toMatchObject({ operatorStatus: "queued" });
+
+    // Original-source reapply carries no job-wide profile; each work unit enforces its recorded unit.
+    const originalSource = runtimeWith(policy);
+    await expect(
+      originalSource.services.enqueueIntegrationJob({
+        action: "reapply",
+        scope: reapplyScope,
+        reapplyProfileMode: "original-source-profile",
+        context,
+      }),
+    ).resolves.toMatchObject({ operatorStatus: "queued", profileSnapshot: null });
+  });
+
+  it("denies starting a filter-scoped bulk reapply for the resolved stopped unit", async () => {
+    const tcgdexUnitKey = catalogProviderProfileVersionIngestionUnitKey(currentTcgdexProfileVersion());
+    const policy = createCatalogIntegrationRolloutControlPolicy({ disabledReapplyUnits: [tcgdexUnitKey] });
+    const insertedSql: string[] = [];
+    const runtimeWith = (rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy) =>
+      createSourceObservationRuntime(
+        {
+          db: {
+            query: async <T>(sql: string) => {
+              if (sql.includes("INSERT INTO")) {
+                insertedSql.push(sql);
+              }
+              return { rowCount: 0, rows: [] as T[] };
+            },
+          },
+        } as unknown as CatalogRuntimeDeps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        createMutableProfileVersionReader([currentTcgdexProfileVersion()]),
+        rolloutControlPolicy,
+      );
+
+    const error = await runtimeWith(policy)
+      .enqueueBulkReviewJob({ action: "reapply", scope: { provider: "tcgdex" }, context })
+      .catch((caught: unknown) => caught);
+    expectUnitRolloutDenial(error, "reapply-disabled", tcgdexUnitKey);
+    expect(insertedSql).toEqual([]);
+
+    const unscopedError = await runtimeWith(withoutRolloutUnitKey(policy))
+      .enqueueBulkReviewJob({ action: "reapply", scope: { provider: "tcgdex" }, context })
+      .catch((caught: unknown) => caught);
+    expect(unscopedError).not.toBeInstanceOf(CatalogIntegrationRolloutControlError);
+  });
+});

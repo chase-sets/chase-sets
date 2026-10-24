@@ -1,9 +1,21 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
 import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" &&
+      subscription.projectionName === "ordering-marketplace-supply-input-projection",
+  )!,
+);
 
 type AcceptedOfferParams = Readonly<{
   offerId: string;
@@ -100,37 +112,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
 ): ProjectorHandlerMap {
   return defineProjectorHandlers<OrderingMarketplaceSupplyProjectionEventPayloads>({
     "marketplace.listing.created": async (event) => {
-      const data = event.data as {
-        listingId: string;
-        accountId: string;
-        inventoryItemId: string;
-        catalogItemId: string;
-        productId: string;
-        itemTitle: string | null;
-        itemSubtitle: string | null;
-        selectedOptions: unknown;
-        productSummary: string | null;
-        productMeasureSnapshot?: unknown;
-        gradedCard?: unknown;
-        storageLocationName: string | null;
-        shipFromCode: string | null;
-        shipFromAddress: unknown;
-        priceAmount: string;
-        priceCurrencyCode?: string | null;
-        marketplaceSalesFeeUnitAmount: string;
-        sellerNetUnitAmount: string;
-        shippingAllowancePercentageBps?: number;
-        termsScheduleId: string | null;
-        termsAgreementId: string | null;
-        termsResolvedAt: string | null;
-        feeLocks?: unknown;
-        quantityCap: number;
-        purchaseLimits?: {
-          maxUnitsPerOrder: number | null;
-          maxUnitsPerDay: number | null;
-          maxUnitsPerCustomerAccount: number | null;
-        };
-      };
+      const data = event.data;
 
       await db.query(
         `INSERT INTO ordering_market_listing_inputs (
@@ -235,10 +217,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         ],
       );
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
-      const data = event.data;
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data as CatalogProductMeasuresResolvedProjectionPayload;
 
-      await db.query(
+      await projectionDb.query(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -258,7 +241,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           event.timing.recordedAt,
         ],
       );
-    },
+    }),
     "marketplace.listing.price-updated": async (event) => {
       const data = event.data as {
         priceAmount: string;

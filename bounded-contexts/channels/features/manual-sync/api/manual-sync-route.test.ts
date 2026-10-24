@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
@@ -5,10 +6,33 @@ import { createChannelsServicesForTest } from "../../../tests/channels-services-
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
 import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
+import { createTcgplayerCsvRuntime } from "../../tcgplayer-csv/api/runtime";
+import { tcgplayerLiveExportHeader } from "../../tcgplayer-csv/domain/profile";
 import { ManualSyncError } from "../domain/contracts";
-import type { ManualSyncServices } from "./runtime";
+import { createManualSyncRuntime, type ManualSyncServices } from "./runtime";
 
 describe("manual-sync-panel-round-trip @marketplace-account", () => {
+  it("channel-order-observation-callers: refuses fulfillment at the closed manual CSV surface", async () => {
+    const services = manualServices();
+    const response = await app(services, ["channels.manage"]).request(
+      "http://local/api/channels/connections/owned/manual-sync/ingest?surface=channel-order-fulfillment-observation%2Fv1",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(response.status).toBe(400);
+    expect(services.ingest).not.toHaveBeenCalled();
+  });
+  it("returns a bounded unavailable state when authority cannot be read", async () => {
+    const services = manualServices();
+    services.readPanel.mockRejectedValue(new ManualSyncError("manual-sync-unavailable", "synthetic-secret-sentinel"));
+    const response = await app(services, ["channels.view"]).request(
+      "http://local/api/channels/connections/owned/manual-sync",
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: { code: "manual-sync-unavailable", message: "manual-sync-unavailable" },
+    });
+  });
+
   it("authorizes before reads and makes missing and foreign connection responses identical", async () => {
     const services = manualServices();
     const forbidden = app(services, []);
@@ -157,6 +181,71 @@ describe("manual-sync-panel-round-trip @marketplace-account", () => {
   });
 
   it.each([
+    ["live", liveCsv("987650")],
+    ["staged", `${stagedHeader.join(",")}\n987650,0,0,1.00\n`],
+  ] as const)("ingest-bounded-receipt: the %s ingest returns only the receipt", async (surface, csv) => {
+    const db = recordingDb();
+    const form = new FormData();
+    form.set("export", new File([csv], `${surface}.csv`, { type: "text/csv" }));
+    const response = await app(ingestRuntime(db), ["channels.manage"]).request(
+      new Request(`http://local/api/channels/connections/owned/manual-sync/ingest?surface=${surface}`, {
+        method: "POST",
+        body: form,
+      }),
+    );
+    const text = await response.text();
+    expect(response.status).toBe(200);
+    expect(JSON.parse(text)).toStrictEqual({
+      surface,
+      probe: {
+        fileName: `${surface}.csv`,
+        byteSize: new TextEncoder().encode(csv).byteLength,
+        logicalRows: 1,
+        headerSha256: createHash("sha256").update(csv.split("\n")[0]!, "utf8").digest("hex"),
+        observedAt: "2026-10-11T12:00:00.000Z",
+      },
+      outcome: {
+        kind: "ingested",
+        snapshotId: expect.stringMatching(/^cis/),
+        snapshotGeneration: 4,
+        parsedRowCount: 1,
+      },
+    });
+    expect(text).not.toContain("987650");
+    expect(text).not.toContain("TCG Marketplace Price");
+    expect(text).not.toContain('"rows"');
+    expect(text).not.toContain('"header"');
+    expect(db.statements.some((sql) => sql.includes("INSERT INTO channel_inventory_snapshots"))).toBe(true);
+  });
+
+  it.each(["live", "staged"] as const)(
+    "ingest-bounded-receipt: a refused %s parse returns the refused outcome and persists nothing",
+    async (surface) => {
+      const db = recordingDb();
+      const csv = "TCGplayer Id,Unexpected\n987650,1\n";
+      const response = await app(ingestRuntime(db), ["channels.manage"]).request(
+        `http://local/api/channels/connections/owned/manual-sync/ingest?surface=${surface}`,
+        {
+          method: "POST",
+          headers: { "content-type": "text/csv", "x-channel-export-file-name": `${surface}.csv` },
+          body: csv,
+        },
+      );
+      const text = await response.text();
+      expect(response.status).toBe(200);
+      expect(JSON.parse(text)).toStrictEqual({
+        surface,
+        probe: expect.objectContaining({ fileName: `${surface}.csv`, logicalRows: 1 }),
+        outcome: { kind: "refused", reason: "header-missing-required-column" },
+      });
+      expect(text).not.toContain("987650");
+      expect(text).not.toContain("Unexpected");
+      expect(db.connect).not.toHaveBeenCalled();
+      expect(db.statements.filter((sql) => !/^\s*SELECT/i.test(sql))).toEqual([]);
+    },
+  );
+
+  it.each([
     ["retry-clamp", "retryClamp"],
     ["release", "release"],
     ["validation-cancelled", "recordValidationCancellation"],
@@ -186,7 +275,7 @@ describe("manual-sync-panel-round-trip @marketplace-account", () => {
   );
 });
 
-function app(manualSync: ReturnType<typeof manualServices>, permissions: readonly string[]) {
+function app(manualSync: ManualSyncServices, permissions: readonly string[]) {
   const root = new Hono<ChannelsApiEnv>();
   root.use("*", async (c, next) => {
     c.set("actor", { accountId: "account-owner", permissions });
@@ -240,7 +329,9 @@ function manualServices() {
   };
 }
 
-function connections(): ChannelConnectionServices {
+function connections(
+  getConnection: ChannelConnectionServices["getConnection"] = async () => null,
+): ChannelConnectionServices {
   const unavailable = async (): Promise<never> => Promise.reject(new Error("not reached"));
   return {
     connectChannel: unavailable,
@@ -248,8 +339,54 @@ function connections(): ChannelConnectionServices {
     pauseChannelConnection: unavailable,
     resumeChannelConnection: unavailable,
     disconnectChannelConnection: unavailable,
-    getConnection: async () => null,
+    getConnection,
     listConnections: unavailable,
     projectors: [],
   };
+}
+
+const stagedHeader = ["TCGplayer Id", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"];
+
+function liveCsv(externalKey: string) {
+  const values: Record<string, string> = {
+    "TCGplayer Id": externalKey,
+    "Total Quantity": "2",
+    "Add to Quantity": "0",
+    "TCG Marketplace Price": "1.00",
+    Condition: "Near Mint",
+  };
+  return `${tcgplayerLiveExportHeader.join(",")}\n${tcgplayerLiveExportHeader.map((key) => values[key] ?? "").join(",")}\n`;
+}
+
+function recordingDb() {
+  const statements: string[] = [];
+  const query = vi.fn(async (sql: string) => {
+    statements.push(sql);
+    return sql.includes("next_generation")
+      ? { rows: [{ next_generation: 4 }], rowCount: 1 }
+      : { rows: [], rowCount: 0 };
+  });
+  return { statements, query, connect: vi.fn(async () => ({ query, release: () => undefined })) };
+}
+
+function ingestRuntime(db: ReturnType<typeof recordingDb>) {
+  return createManualSyncRuntime({
+    db: db as never,
+    connections: connections(async (input) =>
+      input.accountId === "account-owner" && input.connectionId === "owned"
+        ? {
+            connectionId: "owned",
+            providerKey: "tcgplayer",
+            environment: "production",
+            status: "active",
+            createdAt: "2026-10-11T11:00:00.000Z",
+          }
+        : null,
+    ),
+    tcgplayerCsv: createTcgplayerCsvRuntime({ db: db as never } as never),
+    connectorFeed: { readAuthority: vi.fn() },
+    policies: { resolvePolicy: vi.fn() },
+    marketplaceClamp: { kind: "not-mounted" },
+    now: () => "2026-10-11T12:00:00.000Z",
+  });
 }

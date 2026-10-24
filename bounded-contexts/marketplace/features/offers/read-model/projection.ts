@@ -91,8 +91,52 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   );
 }
 
+/** Reconcile Match rows after a buyer account lifecycle change, in pages of 100. */
+export async function emitBuyerAccountOfferMatchPatches(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  buyerAccountId: string,
+) {
+  let cursor = "";
+  for (;;) {
+    const result = await db.query<{ offer_id: string }>(
+      `SELECT offer_id
+       FROM marketplace_offer_pages
+       WHERE buyer_account_id = $1
+         AND status = 'submitted'
+         AND offer_id > $2
+       ORDER BY offer_id ASC
+       LIMIT 100`,
+      [buyerAccountId, cursor],
+    );
+    if (result.rows.length === 0) return;
+    for (const row of result.rows) await emitOfferPatch(db, event, row.offer_id);
+    cursor = result.rows[result.rows.length - 1]!.offer_id;
+    if (result.rows.length < 100) return;
+  }
+}
+
 export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const projectOfferStatus =
+    (status: "submitted" | "paused" | "withdrawn"): ProjectorHandlerMap[string] =>
+    async (event) => {
+      const data = event.data as { offerId: string };
+      await db.query(
+        `UPDATE marketplace_offer_pages
+         SET status = $2,
+             last_stream_version = $3,
+             updated_at = $4
+         WHERE offer_id = $1
+           AND last_stream_version < $3`,
+        [data.offerId, status, event.streamVersion, event.timing.recordedAt],
+      );
+      await emitOfferPatch(db, event, data.offerId);
+    };
+
   return {
+    "marketplace.offer.paused": projectOfferStatus("paused"),
+    "marketplace.offer.resumed": projectOfferStatus("submitted"),
+    "marketplace.offer.withdrawn": projectOfferStatus("withdrawn"),
     "marketplace.offer.managed-evaluated": async (event) => {
       await db.query(
         `UPDATE marketplace_offer_pages SET last_stream_version = $2 WHERE offer_id = $1 AND last_stream_version < $2`,

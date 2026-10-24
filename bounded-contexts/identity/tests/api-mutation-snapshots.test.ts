@@ -9,6 +9,7 @@ import type { SignedRegistrationConsentResolution } from "../features/consents/d
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
+import { registrationConsentBundlesFixture } from "./consent-activation-authority-fixtures";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -50,9 +51,11 @@ function buildApp(services: IdentityServices, requestActor: ResolvedActor = acto
 
 function createServices(
   overrides: Partial<Pick<IdentityServices, "apiKeys" | "invitations" | "memberships" | "users">> = {},
+  eventStore = createInMemoryEventStore(),
 ) {
   return {
-    eventStore: createInMemoryEventStore(),
+    eventStore,
+    registrationConsentBundles: registrationConsentBundlesFixture(),
     db: {
       query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
         if (sql.includes("identity_account_display_name_reservations")) {
@@ -241,6 +244,34 @@ async function requestJson(app: Hono<IdentityApiEnv>, path: string, init: Reques
 }
 
 describe("Identity API mutation snapshots", () => {
+  it("keeps guest and invitation onboarding successful when outcome publication fails", async () => {
+    const inner = createInMemoryEventStore();
+    const eventStore = {
+      ...inner,
+      appendToStream: vi.fn(async (input: Parameters<typeof inner.appendToStream>[0]) => {
+        if (input.streamId.startsWith("identity.onboarding-")) throw new Error("synthetic projection failure");
+        return inner.appendToStream(input);
+      }),
+    };
+    const services = createServices({}, eventStore);
+    const app = buildApp(services);
+
+    const guest = await requestJson(app, "/internal/auth/guest-accounts/acc_guest/claim", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_1", roleKey: "owner" }),
+    });
+    expect(guest.response.status).toBe(201);
+
+    const invitation = await requestJson(app, "/internal/auth/invitations/ivt_existing/accept", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_2", acceptanceTokenHash: "hashed:invite_token" }),
+    });
+    expect(invitation.response.status).toBe(200);
+    expect(eventStore.appendToStream).toHaveBeenCalledWith(
+      expect.objectContaining({ streamId: expect.stringMatching(/^identity\.onboarding-/) }),
+    );
+  });
+
   it("keeps internal account enforcement columns out of list and get query shapes", async () => {
     const rawRow = {
       account_id: "acc_1",
@@ -328,6 +359,15 @@ describe("Identity API mutation snapshots", () => {
         snapshots: [expect.objectContaining({ aggregate: "membership", version: 31, status: "active" })],
       }),
     );
+    const lifecycleEvents = await (services.eventStore as InMemoryEventStore).readAll();
+    expect(lifecycleEvents.find((event) => event.eventType === "identity.onboarding.completed")).toMatchObject({
+      eventType: "identity.onboarding.completed",
+      payload: { accountId: "acc_guest", userId: "usr_1", onboardingPath: "guest-account" },
+      streamId: expect.stringMatching(/^identity\.onboarding-/),
+      tenantId: "tnt_identity",
+      performedByUserId: "usr_1",
+      forAccountId: "acc_1",
+    });
 
     const registrationConsent = await requestJson(app, "/internal/auth/registration-consent");
     expect(registrationConsent.response.status).toBe(200);
@@ -361,6 +401,18 @@ describe("Identity API mutation snapshots", () => {
       expect.arrayContaining([expect.objectContaining({ aggregate: "consent" })]),
     );
     expect((services.eventStore as InMemoryEventStore).streamIdsWithPrefix("identity.consent-")).toEqual([]);
+    expect(
+      (await (services.eventStore as InMemoryEventStore).readAll()).find(
+        (event) => event.eventType === "identity.registration.completed",
+      ),
+    ).toMatchObject({
+      eventType: "identity.registration.completed",
+      payload: { accountId: expect.stringMatching(/^acc_/), userId: expect.stringMatching(/^usr_/) },
+      streamId: expect.stringMatching(/^identity\.registration-/),
+      tenantId: "tnt_identity",
+      performedByUserId: "usr_1",
+      forAccountId: "acc_1",
+    });
 
     for (const path of [
       "/internal/auth/users/usr_1/sms-code",
@@ -968,6 +1020,7 @@ describe("Identity API mutation snapshots", () => {
       userId: actor.userId as never,
       name: "Automation",
       keyPrefix: "key_secret_1",
+      verifierHash: null,
       status,
       lastUsedAt: null,
     });

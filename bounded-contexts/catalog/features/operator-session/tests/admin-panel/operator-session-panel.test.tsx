@@ -4,7 +4,17 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CatalogProviderDetailRoute, { loader } from "../../../../routes/admin/catalog-provider-detail";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../../source-observations/ui/primary-workbench-read-model";
+import { operatorExtensionId } from "../../domain/extension/protocol";
+import type { OperatorExtensionHandoffResult } from "../../ui/admin-panel/operator-extension-handoff";
 import { OperatorSessionPanel } from "../../ui/admin-panel/operator-session-panel";
+import {
+  deferred,
+  flushUntil,
+  receivingEndDoesNotExist,
+  stubSendMessage,
+  watchDomForSecret,
+  type Deferred,
+} from "./controlled-extension";
 import {
   absentMetadata,
   activeGrant,
@@ -21,6 +31,7 @@ import {
   stepUpRequired,
   storedMetadata,
   syntheticGrant,
+  syntheticGrantB,
   type ControlledHttp,
 } from "./controlled-http";
 
@@ -62,6 +73,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  // A failed fake-timer window must not leave the next test on fake time.
+  vi.useRealTimers();
   try {
     await cleanupRenderedUi();
   } finally {
@@ -179,93 +192,25 @@ function normalizedMarkup(element: HTMLElement) {
 }
 
 describe("AC1 operator session metadata states", () => {
-  it("shows absent custody at revision 0 with pairing and no Disconnect", async () => {
-    const panel = await renderPanelWith(absentMetadata());
+  it("shows only grant status and pairing controls; custody instants never render", async () => {
+    const panel = await renderPanelWith(storedMetadata(1, { grant: activeGrant }));
 
-    expect(within(panel).getByText("No stored session")).toBeTruthy();
-    expect(within(panel).queryByText("Stored session cleared")).toBeNull();
-    expect(within(panel).getByText("Revision").nextElementSibling?.textContent).toBe("0");
-    expect(within(panel).getByText("Custody available").nextElementSibling?.textContent).toBe("Yes");
-    expect(within(panel).getByText("No grant")).toBeTruthy();
-    expect(within(panel).queryByText("Stored at")).toBeNull();
-    expect(within(panel).getByRole("button", { name: "Pair extension" })).toBeTruthy();
-    expect(within(panel).queryByRole("button", { name: "Disconnect" })).toBeNull();
-  });
-
-  it("shows stored custody at revision 1 with its own instants and break-glass Disconnect", async () => {
-    const panel = await renderPanelWith(storedMetadata(1));
-
+    expect(within(panel).getByText("Operator session unavailable")).toBeTruthy();
     expect(within(panel).getByText("Revision").nextElementSibling?.textContent).toBe("1");
-    expect(within(panel).getByText("Stored at").nextElementSibling?.textContent).toBe("Sep 30, 2026, 12:00 PM UTC");
-    expect(within(panel).getByText("Browser expiry").nextElementSibling?.textContent).toBe(
-      "Dec 30, 2026, 12:00 PM UTC",
-    );
-    expect(within(panel).queryByText("No stored session")).toBeNull();
-    expect(within(panel).queryByText(/cannot be read with the current key/)).toBeNull();
+    expect(within(panel).getByText("Active")).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: "Pair extension" })).toBeTruthy();
     expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+    expect(panel.textContent).not.toMatch(
+      /No stored session|Stored session cleared|Stored at|Browser expiry|Custody available/,
+    );
   });
 
-  it("keeps cleared custody at its retained revision across a reload, never resetting to absent", async () => {
-    const panel = await renderPanelWith(clearedMetadata(2));
-    expect(within(panel).getByText("Stored session cleared")).toBeTruthy();
-    expect(within(panel).getByText(/record is kept at revision 2\./)).toBeTruthy();
-    expect(within(panel).getByText("Revision").nextElementSibling?.textContent).toBe("2");
-    expect(within(panel).queryByText("No stored session")).toBeNull();
+  it("does not expose Disconnect when metadata has no active grant", async () => {
+    const panel = await renderPanelWith(absentMetadata({ revision: 2 }));
+    expect(within(panel).getByText("No grant")).toBeTruthy();
     expect(within(panel).queryByRole("button", { name: "Disconnect" })).toBeNull();
-    cleanup();
-
-    const reloaded = await renderPanelWith(clearedMetadata(2));
-    expect(within(reloaded).getByText("Stored session cleared")).toBeTruthy();
-    expect(within(reloaded).getByText("Revision").nextElementSibling?.textContent).toBe("2");
-    expect(within(reloaded).queryByText("No stored session")).toBeNull();
-    expect(http.requests).toEqual([`GET ${metadataPath}`, `GET ${metadataPath}`]);
+    expect(within(panel).getByRole("button", { name: "Pair extension" })).toBeTruthy();
   });
-
-  it.each([
-    ["null", null, "None"],
-    ["past", "2026-01-01T00:00:00.000Z", "Jan 1, 2026, 12:00 AM UTC"],
-  ])(
-    "renders a %s browser expiry as the instant only, without inferring provider validity",
-    async (_label, expiry, text) => {
-      const panel = await renderPanelWith(storedMetadata(1, { browserExpiresAt: expiry }));
-
-      expect(within(panel).getByText("Browser expiry").nextElementSibling?.textContent).toBe(text);
-      expect(panel.textContent).not.toMatch(/expired|valid|healthy/i);
-    },
-  );
-
-  it("renders unreadable stored custody identically for the env-configured and env-absent scenario labels", async () => {
-    // Synthetic scenario labels only: the closed DTO carries no environment
-    // field, so both scenarios serve the identical response.
-    const unreadable = storedMetadata(3, { custodyAvailable: false, grant: activeGrant });
-    const markup: string[] = [];
-    for (const scenario of ["environment session configured", "no environment session configured"]) {
-      const panel = await renderPanelWith(unreadable);
-      expect(within(panel).getByText("Revision").nextElementSibling?.textContent).toBe("3");
-      expect(within(panel).getByText("Stored at").nextElementSibling?.textContent).toBe("Sep 30, 2026, 12:00 PM UTC");
-      expect(within(panel).getByText("Custody available").nextElementSibling?.textContent).toBe("No");
-      expect(within(panel).getByText(/cannot be read with the current key/)).toBeTruthy();
-      expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
-      expect(panel.textContent, scenario).not.toMatch(/fallback (is )?(active|in use)|using the environment/i);
-      markup.push(normalizedMarkup(panel));
-      cleanup();
-    }
-    expect(markup[0]).toBe(markup[1]);
-  });
-
-  it.each([
-    ["absent", absentMetadata({ custodyAvailable: false }), "No stored session"],
-    ["cleared", clearedMetadata(2, { custodyAvailable: false }), "Stored session cleared"],
-  ])(
-    "shows %s custody without a write key as unavailable custody, not unreadable custody",
-    async (_label, body, title) => {
-      const panel = await renderPanelWith(body);
-
-      expect(within(panel).getByText(title)).toBeTruthy();
-      expect(within(panel).getByText("Custody available").nextElementSibling?.textContent).toBe("No");
-      expect(within(panel).queryByText(/cannot be read with the current key/)).toBeNull();
-    },
-  );
 
   it("shows grant none, active and inactive metadata without inferring revoked or expired", async () => {
     const none = await renderPanelWith(storedMetadata(1));
@@ -300,8 +245,6 @@ describe("AC1 operator session metadata states", () => {
     ["unsafe revision", 200, storedMetadata(2 ** 53)],
     ["negative revision", 200, clearedMetadata(-1)],
     ["string revision", 200, { ...absentMetadata(), revision: "0" }],
-    ["stored instants at revision 0", 200, storedMetadata(0)],
-    ["expiry without stored session", 200, clearedMetadata(2, { browserExpiresAt })],
     ["array body", 200, [absentMetadata()]],
   ])("treats %s as unavailable, never empty", async (_label, status, body) => {
     const panel = await renderPanelWith(body, status);
@@ -327,7 +270,7 @@ describe("AC1 operator session metadata states", () => {
 
 describe("AC2 gating through the provider-detail route", () => {
   it("settles the initial loader and metadata before route interactions", async () => {
-    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
     const router = await renderProviderRoute();
 
     expect(router.state.initialized).toBe(true);
@@ -430,8 +373,8 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
   });
 
   it.each([
-    ["cleared", storedMetadata(1), "Stored session cleared. The record is now revision 2."],
-    ["unchanged", clearedMetadata(2, { grant: activeGrant }), /revision 2 is unchanged/],
+    ["cleared", absentMetadata({ grant: activeGrant }), "Extension grant revoked. The record is now revision 2."],
+    ["unchanged", absentMetadata({ grant: activeGrant }), /revision 2/],
   ] as const)("reports a %s Disconnect with the returned revision", async (outcome, before, message) => {
     http.reply("GET", metadataPath, 200, before);
     await renderProviderRoute();
@@ -443,33 +386,10 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     await confirmDisconnect(panel);
 
     expect(await within(panel).findByText(message)).toBeTruthy();
-    await waitFor(() => expect(within(panel).getByText("Stored session cleared")).toBeTruthy());
+    if (outcome === "cleared") {
+      await waitFor(() => expect(within(panel).getByText(/Extension grant revoked/)).toBeTruthy());
+    }
     expect(within(panel).getByText("Revision").nextElementSibling?.textContent).toBe("2");
-  });
-
-  it("shows a 409 conflict with the newer stored session and requires a fresh confirmation", async () => {
-    http.reply("GET", metadataPath, 200, storedMetadata(3));
-    await renderProviderRoute();
-    const panel = await findPanel();
-    await within(panel).findByRole("button", { name: "Disconnect" });
-
-    http.reply("DELETE", metadataPath, 409, { outcome: "stale-revision", revision: 4 });
-    http.reply("GET", metadataPath, 200, storedMetadata(4, { storedAt: "2026-10-01T09:30:00.000Z" }));
-    await confirmDisconnect(panel);
-
-    expect(await within(panel).findByText(/it is now revision 4\. Review the refreshed status/)).toBeTruthy();
-    await waitFor(() =>
-      expect(within(panel).getByText("Stored at").nextElementSibling?.textContent).toBe("Oct 1, 2026, 9:30 AM UTC"),
-    );
-    expect(within(panel).queryByText(/Stored session cleared/)).toBeNull();
-    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
-    expect(http.requests.filter((request) => request.startsWith("DELETE"))).toHaveLength(1);
-
-    http.reply("DELETE", metadataPath, 200, { outcome: "cleared", revision: 5 });
-    http.reply("GET", metadataPath, 200, clearedMetadata(5));
-    await confirmDisconnect(panel);
-    expect(await within(panel).findByText("Stored session cleared. The record is now revision 5.")).toBeTruthy();
-    expect(http.requests.filter((request) => request.startsWith("DELETE"))).toHaveLength(2);
   });
 
   it.each([
@@ -498,45 +418,22 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     expect(http.requests.filter((request) => request.startsWith("DELETE"))).toHaveLength(1);
   });
 
-  it("names the revision limit when Disconnect stops after revocation", async () => {
-    http.reply("GET", metadataPath, 200, storedMetadata(1));
-    await renderProviderRoute();
-    const panel = await findPanel();
-    await within(panel).findByRole("button", { name: "Disconnect" });
-
-    http.reply("DELETE", metadataPath, 503, { code: "revision-exhausted" });
-    http.reply("GET", metadataPath, 200, storedMetadata(1, { grant: inactiveGrant }));
-    await confirmDisconnect(panel);
-
-    expect(await within(panel).findByText(/Disconnect did not finish/)).toBeTruthy();
-    expect(within(panel).getByText(/reached its revision limit/)).toBeTruthy();
-    await waitFor(() => expect(within(panel).getByText("Inactive")).toBeTruthy());
-  });
-
-  it("keeps break-glass Disconnect available after key loss", async () => {
-    http.reply("GET", metadataPath, 200, storedMetadata(1, { custodyAvailable: false }));
-    await renderProviderRoute();
-    const panel = await findPanel();
-
-    expect(await within(panel).findByText(/cannot be read with the current key/)).toBeTruthy();
-    http.reply("DELETE", metadataPath, 200, { outcome: "cleared", revision: 2 });
-    http.reply("GET", metadataPath, 200, clearedMetadata(2, { custodyAvailable: false }));
-    await confirmDisconnect(panel);
-
-    expect(await within(panel).findByText("Stored session cleared. The record is now revision 2.")).toBeTruthy();
-  });
-
   describe.each([
     ["Pair", "POST", grantPath],
     ["Disconnect", "DELETE", metadataPath],
   ] as const)("%s refusal envelopes", (action, method, path) => {
     async function attempt(status: number, body: unknown) {
-      http.reply("GET", metadataPath, 200, storedMetadata(1));
+      http.reply(
+        "GET",
+        metadataPath,
+        200,
+        action === "Pair" ? absentMetadata() : absentMetadata({ grant: activeGrant }),
+      );
       await renderProviderRoute();
       const panel = await findPanel();
-      await within(panel).findByRole("button", { name: "Disconnect" });
+      if (action === "Disconnect") await within(panel).findByRole("button", { name: "Disconnect" });
       http.reply(method, path, status, body);
-      http.reply("GET", metadataPath, 200, storedMetadata(1));
+      http.reply("GET", metadataPath, 200, absentMetadata());
       if (action === "Pair") fireEvent.click(within(panel).getByRole("button", { name: "Pair extension" }));
       else await confirmDisconnect(panel);
       await within(panel).findByRole("alert");
@@ -617,7 +514,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
   });
 
   it("blocks Disconnect while a mint is in flight", async () => {
-    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
     await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
@@ -629,14 +526,14 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     fireEvent.click(disconnect);
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
 
-    http.reply("GET", metadataPath, 200, storedMetadata(1, { grant: activeGrant }));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
     await act(async () => mint.reply(200, { grant: syntheticGrant, idleExpiresAt: activeGrant.idleExpiresAt }));
     await waitFor(() => expect(within(panel).getByText("Active")).toBeTruthy());
     expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`, `GET ${metadataPath}`]);
   });
 
   it("discards a metadata read that completes after a newer Disconnect", async () => {
-    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
     await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
@@ -647,12 +544,12 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     await waitFor(() => expect(http.requests).toHaveLength(3));
 
     http.reply("DELETE", metadataPath, 200, { outcome: "cleared", revision: 2 });
-    http.reply("GET", metadataPath, 200, clearedMetadata(2, { grant: inactiveGrant }));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: inactiveGrant }));
     await confirmDisconnect(panel);
     await waitFor(() => expect(within(panel).getByText("Inactive")).toBeTruthy());
 
     await act(async () => staleRead.reply(200, storedMetadata(1, { grant: activeGrant })));
-    expect(within(panel).getByText("Stored session cleared")).toBeTruthy();
+    expect(within(panel).getByText("Inactive")).toBeTruthy();
     expect(within(panel).queryByText("Active")).toBeNull();
     expect(document.body.innerHTML).not.toContain(syntheticGrant);
   });
@@ -721,158 +618,9 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
   });
 });
 
-// Disconnect eligibility is what the panel knows remains to revoke or clear,
-// not whether the latest metadata read succeeded.
-describe("AC3 break-glass eligibility through the mounted provider-detail route", () => {
-  // The post-mint read is scripted only after the initial read has consumed
-  // its reply, so both GETs stay in order.
-  async function pairFromAbsent<T>(arrangeRefresh: () => T) {
-    http.reply("GET", metadataPath, 200, absentMetadata());
-    const router = await renderProviderRoute();
-    const panel = await findPanel();
-    await within(panel).findByRole("button", { name: "Pair extension" });
-    expect(within(panel).queryByRole("button", { name: "Disconnect" })).toBeNull();
-
-    http.reply("POST", grantPath, 200, { grant: syntheticGrant, idleExpiresAt: activeGrant.idleExpiresAt });
-    const refresh = arrangeRefresh();
-    fireEvent.click(within(panel).getByRole("button", { name: "Pair extension" }));
-    const grantRegion = await findGrantRegion(panel);
-    await waitFor(() =>
-      expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`, `GET ${metadataPath}`]),
-    );
-    return { router, panel, grantRegion, refresh };
-  }
-
-  function expectNoRevisionFact(panel: HTMLElement) {
-    expect(within(panel).getByText("Operator session unavailable")).toBeTruthy();
-    expect(within(panel).queryByText("Revision")).toBeNull();
-  }
-
-  it.each(["validated", "pending", "unavailable"] as const)(
-    "keeps Disconnect for a minted grant whose metadata refresh is %s, including after dismissal",
-    async (refresh) => {
-      const { router, panel, grantRegion } = await pairFromAbsent(() => {
-        if (refresh === "validated") http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
-        if (refresh === "pending") http.defer("GET", metadataPath);
-        if (refresh === "unavailable") http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
-      });
-      if (refresh === "validated") await waitFor(() => expect(within(panel).getByText("Active")).toBeTruthy());
-      if (refresh === "pending") expect(within(panel).getByText("No stored session")).toBeTruthy();
-      if (refresh === "unavailable") {
-        await within(panel).findByText("Operator session unavailable");
-        expectNoRevisionFact(panel);
-      }
-      expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
-
-      fireEvent.click(within(grantRegion).getByRole("button", { name: "Dismiss grant" }));
-      expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
-      expect(document.body.innerHTML).not.toContain(syntheticGrant);
-      expect(JSON.stringify(router.state)).not.toContain(syntheticGrant);
-      expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
-      if (refresh === "unavailable") expectNoRevisionFact(panel);
-    },
-  );
-
-  it.each([
-    ["pending", "succeeds", 200, { outcome: "unchanged", revision: 0 }],
-    ["unavailable", "stops after revocation", 503, { code: "custody-unavailable" }],
-  ] as const)(
-    "a confirmed Disconnect while the post-mint refresh is %s drops the grant once and %s",
-    async (refresh, _result, status, body) => {
-      const { panel, refresh: postMintRead } = await pairFromAbsent(() => {
-        if (refresh === "pending") return http.defer("GET", metadataPath);
-        http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
-        return null;
-      });
-      const deleted = http.defer("DELETE", metadataPath);
-
-      await confirmDisconnect(panel);
-      expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
-      expect(within(panel).queryByRole("button", { name: "Copy" })).toBeNull();
-      expect(document.body.innerHTML).not.toContain(syntheticGrant);
-
-      http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
-      await act(async () => deleted.reply(status, body));
-      await within(panel).findByText("Operator session unavailable");
-      expect(http.requests).toEqual([
-        `GET ${metadataPath}`,
-        `POST ${grantPath}`,
-        `GET ${metadataPath}`,
-        `DELETE ${metadataPath}`,
-        `GET ${metadataPath}`,
-      ]);
-      expectNoRevisionFact(panel);
-      if (status === 200) {
-        // A confirmed revoke-all and clear leaves nothing known to Disconnect.
-        expect(within(panel).getByText(/revision 0 is unchanged/)).toBeTruthy();
-        expect(within(panel).queryByRole("button", { name: "Disconnect" })).toBeNull();
-      } else {
-        // An incomplete Disconnect is not completion, so break-glass remains.
-        expect(within(panel).getByText(/Disconnect did not finish/)).toBeTruthy();
-        expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
-      }
-
-      if (postMintRead) {
-        await act(async () => postMintRead.reply(200, absentMetadata({ grant: activeGrant })));
-        expect(within(panel).queryByText("Active")).toBeNull();
-        expectNoRevisionFact(panel);
-      }
-    },
-  );
-
-  it("retains last-known stored custody after a refused Pair and a failed refresh", async () => {
-    http.reply("GET", metadataPath, 200, storedMetadata(1, { custodyAvailable: false }));
-    await renderProviderRoute();
-    const panel = await findPanel();
-    await within(panel).findByRole("button", { name: "Disconnect" });
-
-    http.reply("POST", grantPath, 403, flatForbidden);
-    http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
-    fireEvent.click(within(panel).getByRole("button", { name: "Pair extension" }));
-    await within(panel).findByText("Operator session unavailable");
-    expect(within(panel).getByRole("alert").textContent).toBe("This action is not permitted for your current access.");
-    expectNoRevisionFact(panel);
-    expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
-
-    http.reply("DELETE", metadataPath, 200, { outcome: "cleared", revision: 2 });
-    http.reply("GET", metadataPath, 200, clearedMetadata(2, { custodyAvailable: false }));
-    await confirmDisconnect(panel);
-    expect(await within(panel).findByText("Stored session cleared. The record is now revision 2.")).toBeTruthy();
-    expect(http.requests.filter((request) => request.startsWith("DELETE"))).toHaveLength(1);
-  });
-
-  it.each([
-    [
-      "cleared",
-      200,
-      { outcome: "cleared", revision: 2 },
-      "Stored session cleared. The record is now revision 2.",
-      false,
-    ],
-    ["stale-revision", 409, { outcome: "stale-revision", revision: 2 }, /it is now revision 2\./, true],
-  ] as const)(
-    "reconciles Disconnect from a confirmed %s outcome when the next refresh fails",
-    async (_outcome, status, body, message, retained) => {
-      http.reply("GET", metadataPath, 200, storedMetadata(1));
-      await renderProviderRoute();
-      const panel = await findPanel();
-      await within(panel).findByRole("button", { name: "Disconnect" });
-
-      http.reply("DELETE", metadataPath, status, body);
-      http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
-      await confirmDisconnect(panel);
-
-      expect(await within(panel).findByText(message)).toBeTruthy();
-      await within(panel).findByText("Operator session unavailable");
-      expect(within(panel).queryByRole("button", { name: "Disconnect" }) !== null).toBe(retained);
-      expect(http.requests.filter((request) => request.startsWith("DELETE"))).toHaveLength(1);
-    },
-  );
-});
-
 describe("AC5 accessibility", () => {
   it("releases an open dialog's scroll lock and focus before mounting the next provider route", async () => {
-    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
     await renderProviderRoute();
     const panel = await findPanel();
     const disconnect = await within(panel).findByRole("button", { name: "Disconnect" });
@@ -887,7 +635,7 @@ describe("AC5 accessibility", () => {
     expect(document.querySelector("[data-base-ui-portal]")).toBeNull();
     expect(document.activeElement).toBe(document.body);
 
-    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
     await renderProviderRoute();
     const nextPanel = await findPanel();
     const nextDisconnect = await within(nextPanel).findByRole("button", { name: "Disconnect" });
@@ -934,5 +682,379 @@ describe("AC5 accessibility", () => {
     expect(within(grantRegion).getByRole("heading", { name: "New extension grant" })).toBeTruthy();
     expect(within(grantRegion).getByRole("button", { name: "Copy" })).toBeTruthy();
     expect(within(grantRegion).getByRole("button", { name: "Dismiss grant" })).toBeTruthy();
+  });
+});
+
+const pairedAnnouncement = "Paired with extension.";
+const notConfirmedNotice = "Automatic pairing was not confirmed. You can paste this grant into the extension.";
+const handoffMessage = (grant: string) => [operatorExtensionId, { action: "pair-handoff", grant }];
+const mintedBody = (grant: string) => ({ grant, idleExpiresAt: activeGrant.idleExpiresAt });
+
+function spyConsole() {
+  return [vi.spyOn(console, "error"), vi.spyOn(console, "warn"), vi.spyOn(console, "log")];
+}
+
+// Every sink outside the rendered grant display: loader/router state, storage,
+// cookies, the URL and the console.
+function expectGrantAbsentFromSinks(
+  router: ReturnType<typeof createMemoryRouter>,
+  consoleCalls: ReturnType<typeof spyConsole>,
+  grant: string,
+) {
+  const sinks = [
+    JSON.stringify(router.state),
+    JSON.stringify({ ...localStorage }),
+    JSON.stringify({ ...sessionStorage }),
+    document.cookie,
+    window.location.href,
+    JSON.stringify(consoleCalls.map((spy) => spy.mock.calls)),
+  ];
+  for (const sink of sinks) expect(sink).not.toContain(grant);
+}
+
+describe("#9574 AC1 Admin pair handoff after a successful mint", () => {
+  it("sends the minted grant once and drops it unrendered on a timely paired reply", async () => {
+    const consoleCalls = spyConsole();
+    const exposures = watchDomForSecret(syntheticGrant);
+    const reply = deferred<unknown>();
+    const sendMessage = stubSendMessage(() => reply.promise);
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    const router = await renderProviderRoute();
+    const panel = await findPanel();
+    const mint = http.defer("POST", grantPath);
+
+    fireEvent.click(await within(panel).findByRole("button", { name: "Pair extension" }));
+    expect(sendMessage).not.toHaveBeenCalled();
+    await act(async () => mint.reply(200, mintedBody(syntheticGrant)));
+    await flushUntil(() => sendMessage.mock.calls.length > 0, "the handoff send");
+
+    // Awaiting the acknowledgement: still pairing, grant unrendered, no refresh yet.
+    expect(sendMessage.mock.calls).toEqual([handoffMessage(syntheticGrant)]);
+    expect(within(panel).getByRole("button", { name: "Pairing the operator extension" })).toBeTruthy();
+    expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+    expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`]);
+
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
+    await act(async () => reply.resolve({ outcome: "paired" }));
+
+    const announcement = await within(panel).findByText(pairedAnnouncement);
+    expect(announcement.getAttribute("role")).toBe("status");
+    await waitFor(() => expect(within(panel).getByText("Active")).toBeTruthy());
+    expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`, `GET ${metadataPath}`]);
+    expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Copy" })).toBeNull();
+    expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+    expect(panel.textContent).not.toContain(notConfirmedNotice);
+    expect(writeText).not.toHaveBeenCalled();
+    expect(exposures()).toEqual([]);
+    expect(document.documentElement.outerHTML).not.toContain(syntheticGrant);
+    expectGrantAbsentFromSinks(router, consoleCalls, syntheticGrant);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["a 403 refusal", (h: ControlledHttp) => h.reply("POST", grantPath, 403, flatForbidden)],
+    ["a step-up refusal", (h: ControlledHttp) => h.reply("POST", grantPath, 400, stepUpRequired)],
+    ["a malformed grant", (h: ControlledHttp) => h.reply("POST", grantPath, 200, mintedBody(`${hostileMarker}!`))],
+    ["a network failure", (h: ControlledHttp) => h.networkFailure("POST", grantPath)],
+  ])("sends nothing when the mint fails with %s", async (_label, arrange) => {
+    const sendMessage = stubSendMessage(async () => ({ outcome: "paired" }));
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    await renderProviderRoute();
+    const panel = await findPanel();
+
+    arrange(http);
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    fireEvent.click(await within(panel).findByRole("button", { name: "Pair extension" }));
+    await within(panel).findByRole("alert");
+    await waitFor(() => expect(http.requests).toHaveLength(3));
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(panel.textContent).not.toContain(pairedAnnouncement);
+    expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+  });
+
+  it("sends nothing for a mint that completes after a reused-route remount", async () => {
+    const sendMessage = stubSendMessage(async () => ({ outcome: "paired" }));
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    const router = await renderProviderRoute();
+    const panel = await findPanel();
+    const mint = http.defer("POST", grantPath);
+    fireEvent.click(await within(panel).findByRole("button", { name: "Pair extension" }));
+
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    await act(() => router.navigate("/catalog/providers/tcgplayer?profileVersion=2026.06.04"));
+    await within(await findPanel()).findByRole("button", { name: "Pair extension" });
+    await act(async () => mint.reply(200, mintedBody(syntheticGrant)));
+    await flushUntil(() => http.requests.length === 3, "the remounted read");
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(document.body.innerHTML).not.toContain(syntheticGrant);
+    expect((await findPanel()).textContent).not.toContain(pairedAnnouncement);
+  });
+});
+
+describe("#9574 AC2 not-confirmed fallback to the once-shown grant", () => {
+  // Each arrangement returns the sendMessage spy, or null when no runtime exists.
+  const runtimeless = (chrome: object | null) => () => {
+    if (chrome) vi.stubGlobal("chrome", chrome);
+    return null;
+  };
+  it.each<[string, () => ReturnType<typeof stubSendMessage> | null]>([
+    ["no chrome global", runtimeless(null)],
+    ["chrome without runtime", runtimeless({})],
+    ["a runtime without sendMessage", runtimeless({ runtime: {} })],
+    [
+      "a receiving-end-does-not-exist rejection",
+      () => stubSendMessage(async () => Promise.reject(new Error(receivingEndDoesNotExist))),
+    ],
+    [
+      "a synchronous throw",
+      () =>
+        stubSendMessage(() => {
+          throw new TypeError(hostileMarker);
+        }),
+    ],
+    ["a callback-only runtime", () => stubSendMessage(() => undefined)],
+    ["a refused reply", () => stubSendMessage(async () => ({ outcome: "refused" }))],
+    ["an undefined reply", () => stubSendMessage(async () => undefined)],
+    [
+      "a paired reply with an extra field",
+      () => stubSendMessage(async () => ({ outcome: "paired", status: hostileMarker })),
+    ],
+    ["an unknown outcome", () => stubSendMessage(async () => ({ outcome: "Paired" }))],
+    ["a bare paired string", () => stubSendMessage(async () => "paired")],
+    ["an array reply", () => stubSendMessage(async () => [{ outcome: "paired" }])],
+  ])(
+    "shows the grant, Dismiss and the not-confirmed notice after %s, with no retry or re-mint",
+    async (_label, arrange) => {
+      const consoleCalls = spyConsole();
+      const sendMessage = arrange();
+      http.reply("GET", metadataPath, 200, absentMetadata());
+      const router = await renderProviderRoute();
+      const panel = await findPanel();
+
+      http.reply("POST", grantPath, 200, mintedBody(syntheticGrant));
+      http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
+      fireEvent.click(await within(panel).findByRole("button", { name: "Pair extension" }));
+      const grantRegion = await findGrantRegion(panel);
+
+      expect(within(grantRegion).getByText(syntheticGrant)).toBeTruthy();
+      expect(within(grantRegion).getByText(notConfirmedNotice)).toBeTruthy();
+      expect(within(grantRegion).getByRole("button", { name: "Copy" })).toBeTruthy();
+      expect(within(grantRegion).getByRole("button", { name: "Dismiss grant" })).toBeTruthy();
+      await waitFor(() =>
+        expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`, `GET ${metadataPath}`]),
+      );
+      expect(panel.textContent).not.toMatch(/not received|Paired with extension/i);
+      expect(document.body.innerHTML).not.toContain(hostileMarker);
+      if (sendMessage) expect(sendMessage.mock.calls).toEqual([handoffMessage(syntheticGrant)]);
+      expectGrantAbsentFromSinks(router, consoleCalls, syntheticGrant);
+      expect(JSON.stringify(consoleCalls.map((spy) => spy.mock.calls))).not.toContain(hostileMarker);
+    },
+  );
+
+  it("keeps the grant unrendered for 15 seconds, then falls back and discards the late paired reply", async () => {
+    const exposures = watchDomForSecret(syntheticGrant);
+    const reply = deferred<unknown>();
+    const sendMessage = stubSendMessage(() => reply.promise);
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    await renderProviderRoute();
+    const panel = await findPanel();
+    await within(panel).findByRole("button", { name: "Pair extension" });
+
+    http.reply("POST", grantPath, 200, mintedBody(syntheticGrant));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.click(within(panel).getByRole("button", { name: "Pair extension" }));
+    await flushUntil(() => sendMessage.mock.calls.length > 0, "the handoff send");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14_999);
+    });
+    expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+    expect(within(panel).getByRole("button", { name: "Pairing the operator extension" })).toBeTruthy();
+    expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`]);
+    expect(exposures()).toEqual([]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    vi.useRealTimers();
+    const grantRegion = await findGrantRegion(panel);
+    expect(within(grantRegion).getByText(notConfirmedNotice)).toBeTruthy();
+    await waitFor(() => expect(http.requests).toHaveLength(3));
+
+    await act(async () => reply.resolve({ outcome: "paired" }));
+    expect(panel.querySelector("[data-operator-session-grant]")).toBe(grantRegion);
+    expect(within(grantRegion).getByText(syntheticGrant)).toBeTruthy();
+    expect(panel.textContent).not.toContain(pairedAnnouncement);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`, `GET ${metadataPath}`]);
+  });
+
+  it("discards a paired reply that arrives after the panel remounts on navigation", async () => {
+    const reply = deferred<unknown>();
+    const sendMessage = stubSendMessage(() => reply.promise);
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    const router = await renderProviderRoute();
+    const panel = await findPanel();
+    http.reply("POST", grantPath, 200, mintedBody(syntheticGrant));
+    fireEvent.click(await within(panel).findByRole("button", { name: "Pair extension" }));
+    await flushUntil(() => sendMessage.mock.calls.length > 0, "the handoff send");
+
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    await act(() => router.navigate("/catalog/providers/tcgplayer?profileVersion=2026.06.04"));
+    const remounted = await findPanel();
+    await within(remounted).findByRole("button", { name: "Pair extension" });
+    await act(async () => reply.resolve({ outcome: "paired" }));
+
+    expect(remounted.textContent).not.toContain(pairedAnnouncement);
+    expect(remounted.querySelector("[data-operator-session-grant]")).toBeNull();
+    expect(document.body.innerHTML).not.toContain(syntheticGrant);
+    expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`, `GET ${metadataPath}`]);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The injected adapter isolates the panel's own 15-second bound and its
+// invalidation from the Chrome runtime shapes covered above.
+describe("#9574 AC2 late handoff replies after fallback or invalidation", () => {
+  type PendingHandoff = Readonly<{ grant: string; reply: Deferred<OperatorExtensionHandoffResult> }>;
+
+  async function renderWithPendingHandoffs() {
+    const handoffs: PendingHandoff[] = [];
+    const extensionHandoff = vi.fn((grant: string) => {
+      const reply = deferred<OperatorExtensionHandoffResult>();
+      handoffs.push({ grant, reply });
+      return reply.promise;
+    });
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    const view = render(<OperatorSessionPanel extensionHandoff={extensionHandoff} />);
+    const panel = await findPanel();
+    await within(panel).findByRole("button", { name: "Pair extension" });
+    return { view, panel, handoffs, extensionHandoff };
+  }
+
+  async function pair(panel: HTMLElement, handoffs: PendingHandoff[], grant: string) {
+    const sent = handoffs.length + 1;
+    http.reply("POST", grantPath, 200, mintedBody(grant));
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Pair extension" }));
+    await flushUntil(() => handoffs.length === sent, "the handoff send");
+  }
+
+  async function pairUntilTimeout(panel: HTMLElement, handoffs: PendingHandoff[], grant: string) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await pair(panel, handoffs, grant);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    vi.useRealTimers();
+    return findGrantRegion(panel);
+  }
+
+  it("keeps a fallen-back grant displayed when its late paired reply arrives", async () => {
+    const { panel, handoffs, extensionHandoff } = await renderWithPendingHandoffs();
+    const grantRegion = await pairUntilTimeout(panel, handoffs, syntheticGrant);
+
+    await act(async () => handoffs[0]!.reply.resolve("paired"));
+    expect(within(grantRegion).getByText(syntheticGrant)).toBeTruthy();
+    expect(within(grantRegion).getByText(notConfirmedNotice)).toBeTruthy();
+    expect(panel.textContent).not.toContain(pairedAnnouncement);
+    expect(extensionHandoff.mock.calls).toEqual([[syntheticGrant]]);
+    expect(http.requests.filter((request) => request.startsWith("POST"))).toHaveLength(1);
+  });
+
+  it("never resurrects a dismissed grant on a late reply", async () => {
+    const { panel, handoffs } = await renderWithPendingHandoffs();
+    const grantRegion = await pairUntilTimeout(panel, handoffs, syntheticGrant);
+    fireEvent.click(within(grantRegion).getByRole("button", { name: "Dismiss grant" }));
+    await waitFor(() => expect(http.requests).toHaveLength(3));
+
+    await act(async () => handoffs[0]!.reply.resolve("paired"));
+    expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+    expect(document.body.innerHTML).not.toContain(syntheticGrant);
+    expect(panel.textContent).not.toContain(pairedAnnouncement);
+    expect(http.requests).toHaveLength(3);
+  });
+
+  it("never resurrects the grant or claims pairing on a late reply after Disconnect", async () => {
+    const { panel, handoffs } = await renderWithPendingHandoffs();
+    await pairUntilTimeout(panel, handoffs, syntheticGrant);
+    await waitFor(() => expect(http.requests).toHaveLength(3));
+    http.reply("DELETE", metadataPath, 200, { outcome: "cleared", revision: 1 });
+    http.reply("GET", metadataPath, 200, clearedMetadata(1, { grant: inactiveGrant }));
+    await confirmDisconnect(panel);
+    expect(await within(panel).findByText("Extension grant revoked. The record is now revision 1.")).toBeTruthy();
+
+    await act(async () => handoffs[0]!.reply.resolve("paired"));
+    expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+    expect(document.body.innerHTML).not.toContain(syntheticGrant);
+    expect(panel.textContent).not.toContain(pairedAnnouncement);
+    expect(within(panel).getByText("Extension grant revoked. The record is now revision 1.")).toBeTruthy();
+  });
+
+  it("never drops or claims a newer mutation's grant on an older late reply", async () => {
+    const { panel, handoffs, extensionHandoff } = await renderWithPendingHandoffs();
+    await pairUntilTimeout(panel, handoffs, syntheticGrant);
+    await waitFor(() => expect(http.requests).toHaveLength(3));
+
+    // The newer handoff is still pending when the older paired reply lands.
+    await pair(panel, handoffs, syntheticGrantB);
+    expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+    await act(async () => handoffs[0]!.reply.resolve("paired"));
+    expect(within(panel).getByRole("button", { name: "Pairing the operator extension" })).toBeTruthy();
+    expect(panel.textContent).not.toContain(pairedAnnouncement);
+
+    await act(async () => handoffs[1]!.reply.resolve("not-confirmed"));
+    const grantRegion = await findGrantRegion(panel);
+    expect(within(grantRegion).getByText(syntheticGrantB)).toBeTruthy();
+    expect(within(grantRegion).getByText(notConfirmedNotice)).toBeTruthy();
+    expect(document.body.innerHTML).not.toContain(syntheticGrant);
+    expect(extensionHandoff.mock.calls).toEqual([[syntheticGrant], [syntheticGrantB]]);
+    expect(http.requests.filter((request) => request.startsWith("POST"))).toHaveLength(2);
+  });
+
+  it("never hides a newer fallback grant on an older late reply", async () => {
+    const { panel, handoffs } = await renderWithPendingHandoffs();
+    await pairUntilTimeout(panel, handoffs, syntheticGrant);
+    await waitFor(() => expect(http.requests).toHaveLength(3));
+    await pair(panel, handoffs, syntheticGrantB);
+    await act(async () => handoffs[1]!.reply.resolve("not-confirmed"));
+    const grantRegion = await findGrantRegion(panel);
+
+    await act(async () => handoffs[0]!.reply.resolve("paired"));
+    expect(panel.querySelector("[data-operator-session-grant]")).toBe(grantRegion);
+    expect(within(grantRegion).getByText(syntheticGrantB)).toBeTruthy();
+    expect(panel.textContent).not.toContain(pairedAnnouncement);
+  });
+
+  it.each([
+    ["while awaiting the reply", false],
+    ["after the fallback", true],
+  ])("changes nothing when the reply lands after unmount %s", async (_label, fallBack) => {
+    const consoleCalls = spyConsole();
+    const { view, panel, handoffs } = await renderWithPendingHandoffs();
+    if (fallBack) await pairUntilTimeout(panel, handoffs, syntheticGrant);
+    else await pair(panel, handoffs, syntheticGrant);
+    view.unmount();
+
+    await act(async () => handoffs[0]!.reply.resolve("paired"));
+    expect(document.body.innerHTML).not.toContain(syntheticGrant);
+    expect(document.body.textContent).not.toContain(pairedAnnouncement);
+    expect(consoleCalls.flatMap((spy) => spy.mock.calls)).toEqual([]);
+    expect(http.requests.filter((request) => request.startsWith("POST"))).toHaveLength(1);
+  });
+
+  it("falls back when the injected adapter rejects, without surfacing the rejection", async () => {
+    const consoleCalls = spyConsole();
+    const { panel, handoffs } = await renderWithPendingHandoffs();
+    await pair(panel, handoffs, syntheticGrant);
+
+    await act(async () => handoffs[0]!.reply.reject(new Error(`${hostileMarker} ${syntheticGrant}`)));
+    const grantRegion = await findGrantRegion(panel);
+    expect(within(grantRegion).getByText(notConfirmedNotice)).toBeTruthy();
+    expect(document.body.innerHTML).not.toContain(hostileMarker);
+    expect(JSON.stringify(consoleCalls.map((spy) => spy.mock.calls))).not.toContain(syntheticGrant);
   });
 });

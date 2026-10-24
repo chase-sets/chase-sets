@@ -42,7 +42,7 @@ import type {
   ProviderAdapterImportProgress,
   SourceObservationCommandServices,
 } from "./source-observation-runtime-contracts";
-import { providerOptionAliasesToJson } from "./providers/provider-option-queries";
+import { tcgdexExpansionOptionRecord, tcgplayerSetNameOptionRecord } from "./providers/provider-option-queries";
 import {
   SourceObservationJobCancelledError,
   integrationImportPreviewTargetFromPlan,
@@ -292,14 +292,6 @@ export function createSourceObservationProviderImportRuntime({
       },
     });
 
-    const records = result.items.map((item) => ({
-      value: item.value,
-      label: item.label,
-      parentValue: item.parentValue ?? input.parentValue ?? null,
-      aliases: providerOptionAliasesToJson(item.aliases),
-      ...item.metadata,
-    }));
-
     return listCatalogProviderIntegrationOptionsFromProfiles({
       profiles: [input.providerProfileVersion.profile],
       providerKey: input.providerProfileVersion.providerKey,
@@ -308,8 +300,8 @@ export function createSourceObservationProviderImportRuntime({
       parentValue: input.parentValue,
       defaultProviderKey: input.providerProfileVersion.providerKey,
       transports: {
-        listTcgdexExpansions: async () => records,
-        listTcgplayerSetNames: async () => records,
+        listTcgdexExpansions: async () => result.items.map(tcgdexExpansionOptionRecord),
+        listTcgplayerSetNames: async () => result.items.map(tcgplayerSetNameOptionRecord),
       },
     });
   }
@@ -517,11 +509,10 @@ export function createSourceObservationProviderImportRuntime({
       return bindProviderAdapter(createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profileVersion }));
     }
 
-    if (profileVersion.profile.connector.kind === "tcgplayer-automation-client") {
+    if (profileVersion.providerKey === "tcgplayer") {
       return bindProviderAdapter(
         createTcgplayerProviderAdapter({
           loadProfileVersions: async () => [profileVersion],
-          client: deps.tcgplayerAutomationCatalogClient,
         }),
       );
     }

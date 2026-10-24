@@ -15,7 +15,7 @@ export function createCatalogProviderConnectionsReadSource(
     if (!freshness) throw new Error("Catalog provider connections contract unavailable");
     return {
       complete: true,
-      rows: buildProviderReadiness(readiness.units).map((provider) => ({
+      rows: buildProviderReadiness(readiness).map((provider) => ({
         id: provider.providerKey,
         provider: provider.providerKey,
         capability: "catalog-integration" as const,

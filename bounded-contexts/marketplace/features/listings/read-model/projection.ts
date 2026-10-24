@@ -1,8 +1,20 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createMarketplaceListingPatch } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" && subscription.projectionName === "marketplace-listing-projection",
+  )!,
+);
 
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   const result = await db.query<{
@@ -24,13 +36,13 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     price_amount: string;
     price_currency_code: string | null;
     listing_stream_version: number | null;
-    marketplace_sales_fee_unit_amount: string;
-    seller_net_unit_amount: string;
+    marketplace_sales_fee_unit_amount: string | null;
+    seller_net_unit_amount: string | null;
     shipping_allowance_percentage_bps: number;
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
     terms_resolved_at: string | null;
-    fee_quote_fingerprint: string;
+    fee_quote_fingerprint: string | null;
     fee_locks: unknown;
     quantity_cap: number;
     max_units_per_order: number | null;
@@ -122,43 +134,21 @@ async function transformListingPhotos(
 }
 
 export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const pauseListing: ProjectorHandlerMap[string] = async (event) => {
+    const listingId = event.streamId.replace("marketplace.listing-", "");
+    const result = await db.query(
+      `UPDATE marketplace_listing_pages
+       SET status = 'paused',
+           updated_at = $2
+       WHERE listing_id = $1`,
+      [listingId, event.timing.recordedAt],
+    );
+    assertUpdatedListingRow(result, event.type, listingId);
+    await emitListingPatch(db, event, listingId);
+  };
   return {
     "marketplace.listing.created": async (event) => {
-      const data = event.data as {
-        listingId: string;
-        accountId: string;
-        inventoryItemId: string;
-        catalogItemId: string;
-        productId: string;
-        itemTitle: string | null;
-        itemSubtitle: string | null;
-        itemLanguageCode?: string | null;
-        selectedOptions: unknown;
-        productSummary: string | null;
-        productMeasureSnapshot?: unknown;
-        gradedCard: unknown;
-        storageLocationName: string | null;
-        shipFromCode: string | null;
-        shipFromAddress: unknown;
-        priceAmount: string;
-        priceCurrencyCode?: string | null;
-        marketplaceSalesFeeUnitAmount: string;
-        sellerNetUnitAmount: string;
-        shippingAllowancePercentageBps?: number;
-        termsScheduleId: string | null;
-        termsAgreementId: string | null;
-        termsResolvedAt: string | null;
-        feeQuoteFingerprint: string;
-        feeLocks: unknown;
-        quantityCap: number;
-        purchaseLimits?: {
-          maxUnitsPerOrder: number | null;
-          maxUnitsPerDay: number | null;
-          maxUnitsPerCustomerAccount: number | null;
-        };
-        evidenceRequirements?: unknown;
-        evidence?: unknown;
-      };
+      const data = event.data as ChaseSetsEventPayloads["marketplace.listing.created"];
 
       await db.query(
         `INSERT INTO marketplace_listing_pages (
@@ -262,7 +252,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
-          data.feeQuoteFingerprint,
+          data.feeQuoteFingerprint ?? null,
           JSON.stringify(Array.isArray(data.feeLocks) ? data.feeLocks : []),
           data.quantityCap,
           data.purchaseLimits?.maxUnitsPerOrder ?? null,
@@ -277,13 +267,14 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       );
       await emitListingPatch(db, event, data.listingId);
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
 
-      const updated = await db.query<{ listing_id: string }>(
+      const updated = await projectionDb.query<{ listing_id: string }>(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -306,9 +297,9 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       );
 
       for (const row of updated.rows) {
-        await emitListingPatch(db, event, row.listing_id);
+        await emitListingPatch(projectionDb, event, row.listing_id);
       }
-    },
+    }),
     "marketplace.listing.photos-added": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const { evidence } = event.data as { evidence: unknown };
@@ -565,32 +556,9 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
-    "marketplace.listing.paused": async (event) => {
-      const listingId = event.streamId.replace("marketplace.listing-", "");
-
-      const result = await db.query(
-        `UPDATE marketplace_listing_pages
-         SET status = 'paused',
-             updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
-      assertUpdatedListingRow(result, event.type, listingId);
-      await emitListingPatch(db, event, listingId);
-    },
-    "marketplace.listing.auto-unlisted": async (event) => {
-      const listingId = event.streamId.replace("marketplace.listing-", "");
-
-      const result = await db.query(
-        `UPDATE marketplace_listing_pages
-         SET status = 'paused',
-             updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
-      assertUpdatedListingRow(result, event.type, listingId);
-      await emitListingPatch(db, event, listingId);
-    },
+    "marketplace.listing.paused": pauseListing,
+    "marketplace.listing.auto-unlisted": pauseListing,
+    "marketplace.listing.operator-unlisted": pauseListing,
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
 

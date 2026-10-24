@@ -47,6 +47,7 @@ export function listingInput(overrides: Partial<ChannelListingCompositionInput> 
       listingId: "listing-synthetic",
       listingRevision: 7,
       listingStatus: "active",
+      pauseReason: null,
       sellerAvailabilityStatus: "available",
       identity: {
         catalogItemId: "catalog-synthetic",
@@ -78,6 +79,7 @@ export function listingInput(overrides: Partial<ChannelListingCompositionInput> 
         categoryAllowlist: ["cards"],
         excludedListingIds: [],
         publishQuantityCap: null,
+        lowStockWithholdUnits: null,
       },
     },
     link: { kind: "none" },

@@ -18,7 +18,7 @@ export class ProviderAdapterError extends Error {
   }
 }
 
-export type ProviderWebhookEndpoint = "payments" | "settlement";
+export type ProviderWebhookEndpoint = "payments" | "settlement" | "channels-ebay-account-deletion";
 
 export type ProviderWebhookFailureClass =
   | "signature-invalid"
@@ -36,7 +36,11 @@ export type ProviderWebhookTelemetryEvent = Readonly<{
   providerEventId?: string | null;
   eventKind?: string | null;
   invariantCode?: ProviderWebhookInvariantCode;
+  tokenMint?: ProviderKeyAuthorityOutcome;
+  keyFetch?: ProviderKeyAuthorityOutcome;
 }>;
+
+export type ProviderKeyAuthorityOutcome = "not-attempted" | "succeeded" | "refused" | "unavailable";
 
 export type ProviderWebhookInvariantCommand =
   | "RecordPaymentAuthorization"

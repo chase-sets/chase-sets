@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
-import { context, fixture, preview, privateLimitTerms, seedOffer, terms } from "../tests/fixtures";
+import { activate, context, fixture, preview, privateLimitTerms, seedOffer, terms } from "../tests/fixtures";
 import { createBuyerOfferPolicyRoutes } from "./route";
 import type { BuyerOfferPolicyServices } from "./runtime";
 
@@ -35,6 +35,144 @@ const post = (body: unknown): RequestInit => ({
 });
 
 describe("Buyer Offer Policy real account routes", () => {
+  it("reads a recorded historical authorized and consumed stream without retired keys", async () => {
+    const { runtime, store } = await fixture();
+    const created = (await store.readStream({ streamId: "marketplace.offer-policy-bop_one" }))[0]!;
+    const audit = created.payload;
+    await store.appendToStream({
+      streamId: created.streamId,
+      expectedVersion: 1,
+      context,
+      events: [
+        {
+          eventType: "marketplace.offer-policy.authorized",
+          payload: {
+            ...audit,
+            operationId: "historical_authorize",
+            previewId: "a".repeat(64),
+            policyVersion: 1,
+            terms: { ...terms, itemCommitmentAllowance: "10.00" },
+            revision: 1,
+            consentedAt: audit.recordedAt,
+          },
+        },
+        {
+          eventType: "marketplace.offer-policy.commitment-consumed",
+          payload: {
+            ...audit,
+            operationId: "historical_accept",
+            offerId: "off_historical",
+            offerVersion: 2,
+            revision: 1,
+            currency: "USD",
+            unitItemAmount: "9.00",
+            quantity: 1,
+            itemAmount: "9.00",
+            consumedItemAmount: "9.00",
+            evaluationEvidence: {},
+          },
+        },
+      ],
+    });
+    const response = await app(runtime).request("/policies/bop_one");
+    expect(response.status).toBe(200);
+    const owner = await response.json();
+    expect(owner).toMatchObject({ status: "active", version: 3, authority: terms });
+    for (const field of ["itemCommitmentAllowance", "consumedItemAmount", "remainingItemAllowance"])
+      expect(JSON.stringify(owner)).not.toContain(`"${field}"`);
+  });
+  it("previews and authorizes without an allowance, rejecting the retired field on both commands", async () => {
+    const { runtime, store } = await fixture();
+    const cleanTerms = { currency: "USD", adjustmentBps: 0, offers: terms.offers };
+    const previewCommand = {
+      type: "PreviewBuyerOfferPolicy",
+      expectedVersion: 1,
+      operationId: "clean_preview",
+      terms: cleanTerms,
+    };
+    const before = await store.readAll();
+    const rejected = await app(runtime).request(
+      "/policies/bop_one/commands",
+      post({ ...previewCommand, terms: { ...cleanTerms, itemCommitmentAllowance: "10.00" } }),
+    );
+    expect(rejected.status).toBe(400);
+    expect(await store.readAll()).toEqual(before);
+    const response = await app(runtime).request("/policies/bop_one/commands", post(previewCommand));
+    expect(response.status).toBe(200);
+    const p = await response.json();
+    const authorize = {
+      type: "AuthorizeBuyerOfferPolicy",
+      expectedVersion: p.version,
+      operationId: "clean_authorize",
+      previewId: p.preview.previewId,
+      consent: true,
+    };
+    expect(
+      (
+        await app(runtime).request(
+          "/policies/bop_one/commands",
+          post({ ...authorize, itemCommitmentAllowance: "10.00" }),
+        )
+      ).status,
+    ).toBe(400);
+    const active = await app(runtime).request("/policies/bop_one/commands", post(authorize));
+    expect(active.status).toBe(200);
+    expect(await active.json()).toMatchObject({ status: "active", authority: cleanTerms });
+  });
+  it("exposes fresh versions only to the owner and rejects stale resume Preview with its actual 409 code", async () => {
+    const { runtime, store } = await fixture();
+    const active = await activate(runtime);
+    const paused = await runtime.execute(
+      "bop_one",
+      {
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: active.version,
+        operationId: "pause_route",
+      },
+      context,
+    );
+    const owner = await app(runtime).request("/policies?offerId=off_one");
+    expect(await owner.json()).toMatchObject({
+      offerVersions: { off_one: 2 },
+      items: [{ status: "paused", version: paused.version, offerVersions: { off_one: 2 } }],
+    });
+    const foreign = await app(runtime, "acc_other").request("/policies?offerId=off_one");
+    expect(await foreign.json()).toEqual({ items: [], offerVersions: {}, nextCursor: null });
+    const before = await store.readAll();
+    const response = await app(runtime).request(
+      "/policies/bop_one/commands",
+      post({
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: paused.version,
+        operationId: "stale_resume",
+        terms,
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: { code: "stale_preview" } });
+    expect(await store.readAll()).toEqual(before);
+  });
+  it("returns per-selection held Preview evidence on the actual command response", async () => {
+    const { runtime } = await fixture();
+    const response = await app(runtime).request(
+      "/policies/bop_one/commands",
+      post({ type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview_evidence", terms }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "draft",
+      preview: {
+        terms,
+        outcomes: [
+          {
+            offerId: "off_one",
+            currentUnitItemAmount: "10.00",
+            result: { status: "held", reason: "market-price-unavailable", evidence: { marketPrice: null } },
+          },
+        ],
+      },
+    });
+  });
   it("retains private-limit sentinels only in owner reads throughout the lifecycle", async () => {
     const { runtime } = await fixture();
     const p = await preview(runtime, privateLimitTerms);
@@ -67,8 +205,8 @@ describe("Buyer Offer Policy real account routes", () => {
       const owner = await response.json();
       expect(owner.status).toBe(status);
       expect(status === "draft" ? owner.preview.terms : owner.authority).toEqual(privateLimitTerms);
-      expect(owner.consumedItemAmount).toBe("0.00");
-      expect(owner.remainingItemAllowance).toBe(status === "draft" ? null : "98765.43");
+      expect(owner).not.toHaveProperty("consumedItemAmount");
+      expect(owner).not.toHaveProperty("remainingItemAllowance");
       const foreign = await app(runtime, "acc_other").request("/policies/bop_one");
       expect(foreign.status).toBe(404);
       expect(await foreign.json()).toEqual({ error: { code: "not_found" } });

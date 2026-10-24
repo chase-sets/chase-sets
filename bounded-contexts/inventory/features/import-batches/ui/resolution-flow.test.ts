@@ -59,7 +59,6 @@ function detail(
     adapter_version: 1,
     quantity_mode: "add",
     default_storage_location_id: null,
-    source_filename: null,
     total_count: rows.length,
     accepted_count: rows.filter((candidate) => candidate.status === "accepted").length,
     rejected_count: rows.filter((candidate) => candidate.status === "rejected").length,
@@ -72,6 +71,27 @@ function detail(
 }
 
 describe("rowNeedsResolution", () => {
+  it.each([
+    "native-csv",
+    "saved-list",
+    "tcgplayer-csv",
+    "ebay-csv",
+    "shopify-csv",
+    "whatnot-csv",
+    "cardtrader-csv",
+  ] as const)(
+    "AC-07 %s includes incomplete Product and excludes unrelated rejection/acceptance/commit",
+    (sourceKey) => {
+      expect(rowNeedsResolution(row({ resolution_status: "native", product_id: null }), sourceKey)).toBe(true);
+      expect(rowNeedsResolution(row({ resolution_status: "unresolved", product_id: "stale" }), sourceKey)).toBe(true);
+      expect(rowNeedsResolution(row({ resolution_status: "resolved", product_id: "valid" }), sourceKey)).toBe(
+        sourceKey === "saved-list",
+      );
+      expect(rowNeedsResolution(row({ status: "accepted" }), sourceKey)).toBe(false);
+      expect(rowNeedsResolution(row({ status: "committed" }), sourceKey)).toBe(false);
+      expect(rowNeedsResolution(row({ committed_at: timestamp }), sourceKey)).toBe(false);
+    },
+  );
   it("flags unresolved native-csv rejections", () => {
     expect(rowNeedsResolution(row(), "native-csv")).toBe(true);
   });
@@ -82,7 +102,7 @@ describe("rowNeedsResolution", () => {
 
   it("does not flag accepted, committed, or already-resolved rows", () => {
     expect(rowNeedsResolution(row({ status: "accepted" }), "native-csv")).toBe(false);
-    expect(rowNeedsResolution(row({ resolution_status: "resolved" }), "native-csv")).toBe(false);
+    expect(rowNeedsResolution(row({ resolution_status: "resolved", product_id: "cat::" }), "native-csv")).toBe(false);
     expect(rowNeedsResolution(row({ committed_at: timestamp }), "native-csv")).toBe(false);
   });
 });

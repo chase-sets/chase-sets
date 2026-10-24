@@ -1,18 +1,22 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import {
+  parsePlatformOperationsListingRemovalDirectedPayload,
+  parsePlatformOperationsReportedContentActionRecordedPayload,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
-  REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE,
-  REPORTED_CONTENT_ACTIONS_REQUIRING_NOTE,
+  parseReportedContentModerationCommand,
+  ReportedContentActionRejectedError,
   type ReportedContentModerationAction,
-  type ReportedContentTargetType,
 } from "./contracts";
 import { buildReportedContentProjectionHandlers } from "../read-model/projection";
 import {
   getReportedContentQueueItem,
   getReportedContentQueueMetrics,
+  isReportedContentTargetQueued,
   listReportedContentQueue,
 } from "../read-model/queries";
 
@@ -27,6 +31,7 @@ export type ReportedContentServices = Readonly<{
   ) => ReturnType<typeof listReportedContentQueue>;
   getReportedContentQueueItem: (targetType: string, targetId: string) => ReturnType<typeof getReportedContentQueueItem>;
   getReportedContentQueueMetrics: () => ReturnType<typeof getReportedContentQueueMetrics>;
+  /** Rejects with a `ReportedContentActionRejectedError` before appending anything. */
   recordModerationAction: (
     params: Readonly<{
       targetType: string;
@@ -46,35 +51,47 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
     getReportedContentQueueItem: (targetType, targetId) => getReportedContentQueueItem(deps.db, targetType, targetId),
     getReportedContentQueueMetrics: () => getReportedContentQueueMetrics(deps.db),
     recordModerationAction: async (params, context) => {
-      const targetType = params.targetType as ReportedContentTargetType;
-      const allowedActions = REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE[targetType];
-      if (!allowedActions || !allowedActions.includes(params.action)) {
-        throw new Error(`Action '${params.action}' is not valid for target type '${params.targetType}'.`);
-      }
-      if (REPORTED_CONTENT_ACTIONS_REQUIRING_NOTE.includes(params.action) && !params.note?.trim()) {
-        // Every moderation action is an event with actor/reason (m108):
-        // review-scoped actions require the operator to state why.
-        throw new Error(`Action '${params.action}' requires a note.`);
+      const command = parseReportedContentModerationCommand(params);
+      if (!(await isReportedContentTargetQueued(deps.db, command.targetType, command.targetId))) {
+        throw new ReportedContentActionRejectedError("target-not-queued");
       }
 
       const actionId = createId("rca");
       const recordedAt = new Date().toISOString();
+      const audit = parsePlatformOperationsReportedContentActionRecordedPayload({
+        actionId,
+        targetType: command.targetType,
+        targetId: command.targetId,
+        action: command.action,
+        note: command.note,
+        operatorUserId: params.operatorUserId,
+        recordedAt,
+      });
+      const directive =
+        audit.targetType === "listing" && audit.action === "unlist"
+          ? parseListingRemovalDirective({
+              actionId,
+              listingId: audit.targetId,
+              operatorUserId: audit.operatorUserId,
+              directedAt: recordedAt,
+            })
+          : null;
       await deps.eventStore.appendToStream({
-        streamId: `platform-operations.reported-content-${params.targetType}-${params.targetId}` as never,
+        streamId: `platform-operations.reported-content-${audit.targetType}-${audit.targetId}` as never,
         expectedVersion: "any",
         events: [
           {
             eventType: "platform-operations.reported-content.action-recorded",
-            payload: {
-              actionId,
-              targetType: params.targetType,
-              targetId: params.targetId,
-              action: params.action,
-              note: params.note,
-              operatorUserId: params.operatorUserId,
-              recordedAt,
-            },
+            payload: audit,
           },
+          ...(directive
+            ? [
+                {
+                  eventType: "platform-operations.reported-content.listing-removal-directed",
+                  payload: directive,
+                },
+              ]
+            : []),
         ],
         context,
       });
@@ -88,4 +105,12 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
       }),
     ],
   };
+}
+
+function parseListingRemovalDirective(value: unknown) {
+  try {
+    return parsePlatformOperationsListingRemovalDirectedPayload(value);
+  } catch {
+    throw new ReportedContentActionRejectedError("invalid-listing-removal-directive");
+  }
 }

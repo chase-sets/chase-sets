@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { describe, expect, it, vi } from "vitest";
@@ -8,8 +8,9 @@ import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as settlementModule } from "@chase-sets/settlement";
 import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
-import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import { buildPlatformApiApp } from "../src/app";
 
 /**
@@ -474,13 +475,13 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     expect(settlementServices.payouts.requestPayout).toHaveBeenCalledTimes(1);
   });
 
-  it("asserts native MCP agent grant rate-limit and checkout spend-cap guardrail rejections", async () => {
+  it("asserts native MCP rate-limit rejection and read-only UCP payment handoff", async () => {
     type CheckoutSession = Awaited<
       ReturnType<Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]>
     >["session"];
 
     const buyNowSession: CheckoutSession = {
-      session_id: "chk_1",
+      session_id: "chk_0123456789abcdefghijklmnop",
       buyer_account_id: "acc_1",
       source_type: "buy-now",
       optimization_goal: "lowest-total",
@@ -516,6 +517,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       payment_id: null,
       submitted_offer_id: null,
       cancelled_at: null,
+      handoff_expires_at: null,
       created_at: "2026-07-08T00:00:00.000Z",
       updated_at: "2026-07-08T00:00:00.000Z",
     };
@@ -555,6 +557,11 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         capCents: 100,
       })),
     };
+    const grantOwner = {
+      isActiveGrant: vi.fn<AgentGrantRevocations["isActiveGrant"]>(
+        async (accountId, grantId) => accountId === "acc_1" && grantId === "grant_full_journey",
+      ),
+    } satisfies Pick<AgentGrantRevocations, "isActiveGrant">;
     const paymentServices = {
       publicConfig: {
         processorName: "stripe",
@@ -567,7 +574,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
             id: "stripe-shared-payment-token",
             provider: "stripe",
             type: "shared_payment_token",
-            requiresAp2Mandate: true,
             confirmationExperience: "server-confirmed-payment-intent",
           },
         ],
@@ -598,7 +604,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         unavailable_reason_details: [],
       })),
     };
-    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
     const app = buildPlatformApiApp(
       createRuntime(
         {
@@ -609,6 +614,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
             offers: guardedOffers,
             reviews: {},
           },
+          identity: { agentGrantRevocations: grantOwner },
         },
         [
           {
@@ -632,21 +638,18 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         resolveActor: vi.fn(async () => agentActor(["offers.manage", "orders.view", "orders.manage"])),
         mcp: { agentGrantRateLimiter: rateLimiter },
         agentGrantSpendPolicy: spendPolicy,
-        ucpAp2MandateVerifier: {
-          verify: vi.fn(async () => ({
-            ok: true as const,
-            mode: "human-present" as const,
-            evidence: { verifier: "uat" },
-          })),
-        },
         ucp: {
-          businessSigningKeys: {
-            current: {
-              kid: "merchant-uat",
-              alg: "ES256",
-              privateJwk: privateKey.export({ format: "jwk" }),
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
             },
-          },
+          }),
           allowInMemoryIdempotencyStoreForTests: true,
         },
       },
@@ -702,18 +705,16 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       createUcpEnvelope("ok", {
         marketplace_checkout_fee_quote_fingerprint: "quote_1",
         total_amount: "10.00",
-        ap2: {
-          checkout_mandate: "checkout_mandate",
-        },
         payment_data: {
           provider: "stripe",
-          token: "spt_123",
+          saved_checkout_instrument_id: "sci_journey_1",
         },
       }),
     );
     const paymentsFetch = stubPaymentsCheckoutStatusFetch(paymentServices.getCheckoutStatus);
     try {
-      const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_1/complete", {
+      // Brief M1 complete replaces the retired stored-PM spend path with a read-only handoff.
+      const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop/complete", {
         method: "POST",
         body: checkoutBody,
         headers: signedUcpHeaders(checkoutBody),
@@ -724,25 +725,17 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         ucp: {
           status: "requires_action",
         },
-        messages: [
-          {
-            code: "agent_grant_spending_mandate_blocked",
-            message: "This agent grant exceeded its platform spend cap.",
-          },
-        ],
+        checkout: {
+          status: "requires_escalation",
+          messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+        },
       });
-      expect(paymentsFetch).toHaveBeenCalledTimes(1);
-      expect(paymentServices.getCheckoutStatus).toHaveBeenCalledWith(
-        expect.objectContaining({
-          orderIds: ["order_1"],
-        }),
-      );
-      expect(spendPolicy.authorize).toHaveBeenCalledWith(
-        expect.objectContaining({
-          operation: "complete_checkout",
-          amountCents: 2_605,
-        }),
-      );
+      expect(paymentsFetch).not.toHaveBeenCalled();
+      // The synthetic legacy actor has no agentGrant; no spend reservation is requested.
+      expect(grantOwner.isActiveGrant).not.toHaveBeenCalled();
+      expect(paymentServices.getCheckoutStatus).not.toHaveBeenCalled();
+      expect(spendPolicy.authorize).not.toHaveBeenCalled();
+      expect(checkoutSessions.resumeOrderCartCleanup).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }

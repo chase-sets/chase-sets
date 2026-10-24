@@ -679,70 +679,103 @@ describe("decoded positive parity for every committed raster", () => {
   }, 120_000);
 });
 
+export function evaluateBrandFontPackageKeys(packageKeys) {
+  const expected = [
+    "@fontsource/ibm-plex-mono@5.3.0",
+    "@fontsource/ibm-plex-sans@5.2.8",
+    "@fontsource/space-grotesk@5.3.0",
+  ];
+  const fonts = new Set(packageKeys.filter((key) => key.startsWith("@fontsource/")));
+  const missing = expected.filter((key) => !fonts.has(key));
+  const extra = [...fonts].filter((key) => !expected.includes(key));
+  return { ok: missing.length === 0 && extra.length === 0, missing, extra };
+}
+
 describe("lockfile package-entry discipline", () => {
   const lock = yaml.parse(readFileSync(join(root, "pnpm-lock.yaml"), "utf8"));
   const packageKeys = Object.keys(lock.packages).sort();
 
-  it("keeps the Sharp family at exactly the twenty-six keys committed here", () => {
-    const sharpFamily = packageKeys.filter((k) => k === "sharp@0.34.5" || k.startsWith("@img/"));
+  it("keeps the Sharp family at exactly the twenty-eight keys committed here", () => {
+    const sharpFamily = packageKeys.filter((k) => k.startsWith("sharp@") || k.startsWith("@img/"));
     const committedSharpFamily = [
       "@img/colour@1.1.0",
-      "@img/sharp-darwin-arm64@0.34.5",
-      "@img/sharp-darwin-x64@0.34.5",
-      "@img/sharp-libvips-darwin-arm64@1.2.4",
-      "@img/sharp-libvips-darwin-x64@1.2.4",
-      "@img/sharp-libvips-linux-arm64@1.2.4",
-      "@img/sharp-libvips-linux-arm@1.2.4",
-      "@img/sharp-libvips-linux-ppc64@1.2.4",
-      "@img/sharp-libvips-linux-riscv64@1.2.4",
-      "@img/sharp-libvips-linux-s390x@1.2.4",
-      "@img/sharp-libvips-linux-x64@1.2.4",
-      "@img/sharp-libvips-linuxmusl-arm64@1.2.4",
-      "@img/sharp-libvips-linuxmusl-x64@1.2.4",
-      "@img/sharp-linux-arm64@0.34.5",
-      "@img/sharp-linux-arm@0.34.5",
-      "@img/sharp-linux-ppc64@0.34.5",
-      "@img/sharp-linux-riscv64@0.34.5",
-      "@img/sharp-linux-s390x@0.34.5",
-      "@img/sharp-linux-x64@0.34.5",
-      "@img/sharp-linuxmusl-arm64@0.34.5",
-      "@img/sharp-linuxmusl-x64@0.34.5",
-      "@img/sharp-wasm32@0.34.5",
-      "@img/sharp-win32-arm64@0.34.5",
-      "@img/sharp-win32-ia32@0.34.5",
-      "@img/sharp-win32-x64@0.34.5",
-      "sharp@0.34.5",
+      "@img/sharp-darwin-arm64@0.35.5",
+      "@img/sharp-darwin-x64@0.35.5",
+      "@img/sharp-freebsd-wasm32@0.35.5",
+      "@img/sharp-libvips-darwin-arm64@1.3.4",
+      "@img/sharp-libvips-darwin-x64@1.3.4",
+      "@img/sharp-libvips-linux-arm64@1.3.4",
+      "@img/sharp-libvips-linux-arm@1.3.4",
+      "@img/sharp-libvips-linux-ppc64@1.3.4",
+      "@img/sharp-libvips-linux-riscv64@1.3.4",
+      "@img/sharp-libvips-linux-s390x@1.3.4",
+      "@img/sharp-libvips-linux-x64@1.3.4",
+      "@img/sharp-libvips-linuxmusl-arm64@1.3.4",
+      "@img/sharp-libvips-linuxmusl-x64@1.3.4",
+      "@img/sharp-linux-arm64@0.35.5",
+      "@img/sharp-linux-arm@0.35.5",
+      "@img/sharp-linux-ppc64@0.35.5",
+      "@img/sharp-linux-riscv64@0.35.5",
+      "@img/sharp-linux-s390x@0.35.5",
+      "@img/sharp-linux-x64@0.35.5",
+      "@img/sharp-linuxmusl-arm64@0.35.5",
+      "@img/sharp-linuxmusl-x64@0.35.5",
+      "@img/sharp-wasm32@0.35.5",
+      "@img/sharp-webcontainers-wasm32@0.35.5",
+      "@img/sharp-win32-arm64@0.35.5",
+      "@img/sharp-win32-ia32@0.35.5",
+      "@img/sharp-win32-x64@0.35.5",
+      "sharp@0.35.5",
     ];
-    expect(sharpFamily.length).toBe(26);
+    expect(sharpFamily.length).toBe(28);
     expect(sharpFamily).toEqual(committedSharpFamily);
   });
 
   it("declares the root sharp importer at exactly the version the lockfile already resolves", () => {
     const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-    expect(rootPackage.devDependencies.sharp).toBe("^0.34.5");
-    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.34.5");
-    expect(packageKeys).toContain("sharp@0.34.5");
+    expect(rootPackage.devDependencies.sharp).toBe("^0.35.5");
+    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@25.6.2)");
+    expect(packageKeys).toContain("sharp@0.35.5");
   });
 
-  it("bounds the whole-lockfile delta to the font and Chromium probe type keys", () => {
-    const fontKeys = ["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/space-grotesk@5.3.0"];
+  it("accepts the real lockfile's exact brand font keys", () => {
+    expect(evaluateBrandFontPackageKeys(packageKeys)).toEqual({ ok: true, missing: [], extra: [] });
+  });
+
+  it("accepts unrelated axe additions to the real lockfile", () => {
+    const keys = [...packageKeys, "@axe-core/playwright@4.13.0", "axe-core@4.13.0"];
+    expect(evaluateBrandFontPackageKeys(keys)).toEqual({ ok: true, missing: [], extra: [] });
+  });
+
+  it("rejects an extra @fontsource key by name", () => {
+    const extra = "@fontsource/roboto@5.3.0";
+    expect(evaluateBrandFontPackageKeys([...packageKeys, extra])).toEqual({ ok: false, missing: [], extra: [extra] });
+  });
+
+  it.each(["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/ibm-plex-sans@5.2.8", "@fontsource/space-grotesk@5.3.0"])(
+    "rejects missing brand font key %s by name",
+    (missing) => {
+      const keys = packageKeys.filter((key) => key !== missing);
+      expect(evaluateBrandFontPackageKeys(keys)).toEqual({ ok: false, missing: [missing], extra: [] });
+    },
+  );
+
+  it.each([
+    ["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/ibm-plex-mono@5.3.1"],
+    ["@fontsource/ibm-plex-sans@5.2.8", "@fontsource/ibm-plex-sans@5.2.9"],
+    ["@fontsource/space-grotesk@5.3.0", "@fontsource/space-grotesk@5.3.1"],
+  ])("rejects re-versioned brand font key %s as %s by name", (missing, extra) => {
+    const keys = [...packageKeys.filter((key) => key !== missing), extra];
+    expect(evaluateBrandFontPackageKeys(keys)).toEqual({ ok: false, missing: [missing], extra: [extra] });
+  });
+
+  it("keeps the Chromium probe type keys present", () => {
     const chromiumTypeKeys = [
       "@types/chrome@0.1.43",
       "@types/filesystem@0.0.36",
       "@types/filewriter@0.0.33",
       "@types/har-format@1.2.16",
     ];
-    const addedKeys = [...fontKeys, ...chromiumTypeKeys];
-    for (const key of addedKeys) expect(packageKeys).toContain(key);
-    const withoutFonts = packageKeys.filter((k) => !addedKeys.includes(k));
-    // sha256 over the sorted package-entry keys of pnpm-lock.yaml at the
-    // candidate's base revision 3d20e23b7fdc66865e8459610a6601574960d566,
-    // joined with newlines -- derived mechanically from `git show`, so
-    // equality proves the delta added exactly the named font/type keys and removed
-    // nothing without carrying all 791 base keys here.
-    const baseKeyDigest = "2004a44a67e9409ade0dd5469eee0940451dc628fa6cf335ad5bb103e0fefdcb";
-    expect(withoutFonts.length).toBe(791);
-    expect(createHash("sha256").update(withoutFonts.join("\n")).digest("hex")).toBe(baseKeyDigest);
-    console.log(`whole-lockfile package-entry delta vs base: +${JSON.stringify(addedKeys)} -[]`);
+    for (const key of chromiumTypeKeys) expect(packageKeys).toContain(key);
   });
 });

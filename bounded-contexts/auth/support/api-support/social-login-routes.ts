@@ -25,6 +25,7 @@ import {
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
+import type { SocialLoginErrorCode } from "../route-support/social-login-errors";
 
 const SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH = "/sign-in";
 const SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH = "/register";
@@ -128,9 +129,9 @@ function getAccountSelectionPath(journey: SocialLoginJourney) {
   return SOCIAL_LOGIN_ACCOUNT_SELECTION_PATH;
 }
 
-function redirectToFallback(message: string, journey: SocialLoginJourney = "sign-in", returnTo?: string) {
+function redirectToFallback(code: SocialLoginErrorCode, journey: SocialLoginJourney = "sign-in", returnTo?: string) {
   const url = new URL(getFallbackPath(journey), "https://chase-sets.local");
-  url.searchParams.set("socialLoginError", message);
+  url.searchParams.set("socialLoginError", code);
   if (returnTo) {
     url.searchParams.set("returnTo", returnTo);
   }
@@ -267,7 +268,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     const requestedJourney = requestUrl.searchParams.get("journey") ?? "sign-in";
     const journey = isSocialLoginJourney(requestedJourney) ? requestedJourney : "sign-in";
     if (journey === "link" && !c.var.actor) {
-      return redirectToFallback(t("auth.support.apiSupport.support.authentication.required"));
+      return redirectToFallback("authentication_required");
     }
     if (isAdminSocialLoginJourney(journey) && providerName !== "google") {
       return c.json({ error: t("auth.support.apiSupport.socialLoginRoutes.unsupported.admin.provider") }, 404);
@@ -295,12 +296,12 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
   app.get("/social/:provider/callback", async (c) => {
     const providerName = c.req.param("provider");
     if (!isSocialLoginProviderName(providerName)) {
-      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.unsupported.provider"));
+      return redirectToFallback("unsupported_provider");
     }
 
     const provider = getSocialLoginProvider(services, providerName);
     if (!provider) {
-      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.provider.not.configured"));
+      return redirectToFallback("provider_not_configured");
     }
 
     const requestUrl = new URL(c.req.url);
@@ -311,7 +312,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       providerName,
     });
     if (!stateRecord || !code) {
-      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.state.invalid"));
+      return redirectToFallback("invalid_state");
     }
 
     const journey = isSocialLoginJourney(stateRecord.journey) ? stateRecord.journey : "sign-in";
@@ -322,14 +323,11 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
         redirectUri: buildSocialRedirectUri(c.req.raw, providerName),
       });
     } catch {
-      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.provider.failed"), journey);
+      return redirectToFallback("provider_failed", journey);
     }
 
     if (!requireAllowedAdminWorkspaceDomain(services, journey, profile.hostedDomain)) {
-      return redirectToFallback(
-        t("auth.support.apiSupport.socialLoginRoutes.admin.workspace.domain.required"),
-        journey,
-      );
+      return redirectToFallback("workspace_domain_required", journey);
     }
 
     const linkedUser = await services.identity.getUserBySocialLogin({
@@ -339,13 +337,13 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     const linkActor = journey === "link" ? c.var.actor : null;
     if (journey === "link" && !linkActor) {
       return redirectToFallback(
-        t("auth.support.apiSupport.support.authentication.required"),
+        "authentication_required",
         "sign-in",
         buildSocialLoginLinkStartPath(providerName, stateRecord.return_to),
       );
     }
     if (linkActor && linkedUser && linkedUser.user_id !== linkActor.userId) {
-      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.provider.already.linked"));
+      return redirectToFallback("provider_already_linked");
     }
 
     const identityMutations = createIdentityMutations(c);
@@ -356,17 +354,17 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     if (!user) {
       if (linkActor) {
         if (!profile.email) {
-          return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"));
+          return redirectToFallback("verified_email_required");
         }
         user = await services.identity.getUser(linkActor.userId);
         emailForNewLink = services.identity.normalizeEmail(profile.email);
       } else {
         if (!profile.email) {
-          return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"), journey);
+          return redirectToFallback("verified_email_required", journey);
         }
         if (!profile.emailVerified) {
           return redirectToFallback(
-            t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"),
+            "verified_email_required",
             "sign-in",
             buildSocialLoginLinkStartPath(providerName, stateRecord.return_to),
           );
@@ -378,12 +376,12 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
 
         if (isAdminSocialLoginJourney(journey)) {
           if (!user) {
-            return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.admin.user.required"), journey);
+            return redirectToFallback("admin_user_required", journey);
           }
         } else if (!user) {
           const admission = await requireRegistrationAdmission(services, email);
           if (!admission.ok) {
-            return redirectToFallback(admission.failure.body.error.message, journey);
+            return redirectToFallback(admission.failure.body.error.code, journey);
           }
 
           let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
@@ -399,15 +397,12 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
           } catch (error) {
             const consentRejection = readRegistrationConsentRejection(error);
             if (consentRejection) {
-              return redirectToFallback(
-                t("auth.support.apiSupport.socialLoginRoutes.registration.consent.unavailable"),
-                journey,
-              );
+              return redirectToFallback("registration_consent_unavailable", journey);
             }
 
             const conflict = readIdentityMutationConflict(error);
             if (conflict) {
-              return redirectToFallback(t("identity.api.display.name.already.taken"), journey);
+              return redirectToFallback("identity_conflict", journey);
             }
 
             throw error;
@@ -419,7 +414,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     }
 
     if (!user || user.status !== "active") {
-      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.user.unavailable"), journey);
+      return redirectToFallback("user_unavailable", journey);
     }
 
     if (emailForNewLink) {
@@ -437,11 +432,8 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
           });
         }
       } catch (error) {
-        const message =
-          getErrorStatus(error) === 409
-            ? t("auth.support.apiSupport.socialLoginRoutes.provider.already.linked")
-            : t("auth.support.apiSupport.socialLoginRoutes.provider.failed");
-        return redirectToFallback(message, journey);
+        const code = getErrorStatus(error) === 409 ? "provider_already_linked" : "provider_failed";
+        return redirectToFallback(code, journey);
       }
     }
 
@@ -451,7 +443,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
         )
       : undefined;
     if (isAdminSocialLoginJourney(journey) && membershipsOverride?.length === 0) {
-      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.admin.permission.required"), journey);
+      return redirectToFallback("admin_permission_required", journey);
     }
 
     const authResult = await startInteractiveAuth(services, {
@@ -460,7 +452,6 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       authenticationMethod: providerName as AuthMethod,
       context: getBootstrapContext(c),
       membershipsOverride,
-      publishAuthenticationOutcome: true,
     });
 
     return completeSocialLoginAuthentication(c.req.raw, authResult, stateRecord.return_to, journey);

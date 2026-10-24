@@ -1,6 +1,6 @@
 import { PostageLabelProviderError, type PostageAddress, type PostageLabelProvider } from "@chase-sets/postage-labels";
 import type { AddressVerificationSnapshot } from "@chase-sets/primitives/address-snapshot";
-import { IdentityDomainError } from "../../../support/runtime-support/common";
+import { ShippingAddressUndeliverableError } from "../domain/errors";
 import type { ShippingAddressSnapshot } from "../domain/domain";
 
 export type AddressVerificationDecision = "accept-suggested" | "keep-original" | null;
@@ -58,9 +58,7 @@ export async function verifyShippingAddressSnapshot(
   }
 
   if (result.status === "undeliverable") {
-    throw new IdentityDomainError(
-      "We could not verify this as a deliverable address. Use a deliverable shipping address before saving.",
-    );
+    throw new ShippingAddressUndeliverableError();
   }
 
   const suggestedAddress = result.suggestedAddress ? fromPostageAddress(address, result.suggestedAddress) : null;

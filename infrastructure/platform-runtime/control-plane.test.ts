@@ -4,8 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
+  platformControlPlaneSchemaMigrationSql,
+  platformControlPlaneSchemaMigrations,
   platformControlPlaneSchemaSql,
+  readWorkerQuiesceCohort,
+  recordWorkerQuiesce,
 } from "./control-plane";
+import { EVIDENCE_WINDOW_JOURNAL_PRINCIPAL_PATTERN } from "./evidence-window-journal-principal";
 import { createRuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 describe("platform control plane", () => {
@@ -39,6 +44,7 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");
     expect(statements[0]).toContain("CREATE INDEX IF NOT EXISTS platform_worker_heartbeats_heartbeat_at_worker_id_idx");
     expect(statements[0]).toContain("ON platform_worker_heartbeats (heartbeat_at, worker_id)");
+    expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_worker_quiesces");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS evidence_window");
     expect(statements[0]).toContain("CREATE UNIQUE INDEX IF NOT EXISTS evidence_window_single_open_idx");
 
@@ -50,6 +56,49 @@ describe("platform control plane", () => {
     expect(reapStatement).toContain("state IN ('running', 'cancel_requested')");
     expect(reapStatement).toContain("claimed_until IS NULL");
     expect(reapStatement).toContain("FOR UPDATE SKIP LOCKED");
+  });
+
+  it("records the journal-principal write refusal as a ledgered migration, never boot SQL", async () => {
+    const statements: string[] = [];
+    await bootstrapPlatformControlPlane({
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+    });
+
+    expect(platformControlPlaneSchemaSql).not.toContain("evidence_window_refuse_journal_principal_write");
+    expect(platformControlPlaneSchemaMigrations.map(({ migrationId }) => migrationId)).toEqual([
+      "20261020_evidence_window_journal_principal_write_refusal",
+    ]);
+    const [migration] = platformControlPlaneSchemaMigrations;
+    expect(statements[1]).toBe(platformControlPlaneSchemaMigrationSql(migration!));
+    expect(statements[1]).toContain("pg_advisory_xact_lock(hashtextextended('platform-control-schema-migrations', 0))");
+    expect(statements[1]).toContain(
+      "IF NOT EXISTS (SELECT 1 FROM bounded_context_schema_migrations WHERE migration_id = '20261020_evidence_window_journal_principal_write_refusal')",
+    );
+    expect(statements[1]).toContain(
+      "INSERT INTO bounded_context_schema_migrations (migration_id, description, applied_at)",
+    );
+    expect(statements[1]).toContain(`current_user ~ '${EVIDENCE_WINDOW_JOURNAL_PRINCIPAL_PATTERN}'`);
+    expect(statements[1]).toContain("BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON evidence_window");
+    expect(statements[1]).toContain(
+      "FOR EACH STATEMENT EXECUTE FUNCTION evidence_window_refuse_journal_principal_write()",
+    );
+    expect(statements[1]).toContain("USING ERRCODE = '42501'");
+  });
+
+  it("refuses a migration id or statement it cannot quote", () => {
+    expect(() =>
+      platformControlPlaneSchemaMigrationSql({ migrationId: "bad id", description: "x", statements: [] }),
+    ).toThrow("is invalid");
+    expect(() =>
+      platformControlPlaneSchemaMigrationSql({
+        migrationId: "20261020_x",
+        description: "x",
+        statements: ["SELECT $statement$"],
+      }),
+    ).toThrow("unquotable");
   });
 
   it("defines the evidence-window registration as one constrained table with database-enforced single-open admission", () => {
@@ -296,6 +345,49 @@ describe("platform control plane", () => {
     expect(calls[0].sql).toContain("jsonb_agg");
     expect(calls[0].sql).toContain("AS expired_total_count");
     expect(calls[0].params).toEqual([10 * 60_000, 7 * 24 * 60 * 60_000, 100]);
+  });
+
+  it("records the latest worker quiesce and reads every heartbeat of the kind with every unexpired lease owner", async () => {
+    const queries: Array<{ sql: string; params: readonly unknown[] }> = [];
+    let lease_owner_ids: unknown = '["wrk_new","wrk_old"]';
+    const db = {
+      query: async (sql: string, params: readonly unknown[] = []) => {
+        queries.push({ sql, params });
+        return {
+          rows: [
+            {
+              snapshot_at: new Date("2026-10-14T12:00:00.000Z"),
+              quiesced_at: new Date("2026-10-14T11:00:00.000Z"),
+              workers: [{ worker_id: "wrk_new", started_at: "2026-10-14T11:05:00+00:00" }],
+              lease_owner_ids,
+            },
+          ],
+          rowCount: 1,
+        };
+      },
+    };
+
+    await recordWorkerQuiesce(db, "platform-worker");
+    expect(queries[0]?.sql).toContain("INSERT INTO platform_worker_quiesces (worker_kind, quiesced_at)");
+    expect(queries[0]?.sql).toContain("DO UPDATE SET quiesced_at = EXCLUDED.quiesced_at");
+    expect(queries[0]?.params).toEqual(["platform-worker"]);
+
+    await expect(readWorkerQuiesceCohort(db, "platform-worker")).resolves.toEqual({
+      snapshotAt: "2026-10-14T12:00:00.000Z",
+      quiescedAt: "2026-10-14T11:00:00.000Z",
+      workers: [{ worker_id: "wrk_new", started_at: "2026-10-14T11:05:00+00:00" }],
+      leaseOwnerIds: ["wrk_new", "wrk_old"],
+    });
+    const cohortSql = queries[1]?.sql ?? "";
+    expect(queries[1]?.params).toEqual(["platform-worker"]);
+    expect(cohortSql).toContain("FROM platform_worker_quiesces WHERE worker_kind = $1");
+    expect(cohortSql).toContain("WHERE heartbeat.worker_kind = $1");
+    expect(cohortSql).toContain("WHERE lease.expires_at > now()");
+    // Neither heartbeat age nor the bounded diagnostic history limits the workers it returns.
+    expect(cohortSql).not.toMatch(/heartbeat_at\s*[<>]|LIMIT/);
+
+    lease_owner_ids = { unexpected: true };
+    await expect(readWorkerQuiesceCohort(db, "platform-worker")).rejects.toThrow("unreadable lease owners");
   });
 
   it("persists projection wake relay cursors with active lease fencing", async () => {

@@ -10,18 +10,28 @@ import { founderExportIngestProbe, inspectTcgplayerExportBytes } from "./ingest"
 import { decodeTcgplayerManualClaimLeasePolicyValue, freezeManualClaimLeasePolicySnapshot } from "./policy";
 
 describe("manual-sync-panel-state-action-matrix", () => {
+  const noRun = ["ingest-live", "ingest-staged", "compose"];
+  const terminalStates = [
+    "applied",
+    "validation-rejected",
+    "application-unknown",
+    "superseded",
+    "stale-basis",
+    "abandoned",
+  ] as const satisfies readonly ChannelSyncRunState[];
+
   it("exposes only the registered manual actions in every run state", () => {
-    expect(resolveManualSyncActions(null)).toEqual(["ingest-live", "ingest-staged", "compose"]);
+    expect(resolveManualSyncActions(null)).toEqual(noRun);
     const expected: Record<ChannelSyncRunState, readonly string[]> = {
       composed: ["download"],
       claimed: ["record-upload-attempt", "record-validation-cancellation", "release"],
       "awaiting-verification": ["ingest-staged", "verify"],
-      applied: [],
-      "validation-rejected": [],
-      "application-unknown": [],
-      superseded: [],
-      "stale-basis": [],
-      abandoned: [],
+      applied: noRun,
+      "validation-rejected": noRun,
+      "application-unknown": noRun,
+      superseded: noRun,
+      "stale-basis": noRun,
+      abandoned: noRun,
     };
     for (const [state, actions] of Object.entries(expected)) {
       expect(resolveManualSyncActions(run(state as ChannelSyncRunState))).toEqual(actions);
@@ -31,6 +41,26 @@ describe("manual-sync-panel-state-action-matrix", () => {
     ).toEqual([]);
     expect(resolveManualSyncActions(run("composed"), "recovery")).toEqual(["retry-clamp"]);
     expect(resolveManualSyncActions(run("claimed"), "recovery")).toEqual([]);
+  });
+
+  it.each(terminalStates)(
+    "offers the no-run actions after terminal %s for manual and connector claimants and under recovery",
+    (state) => {
+      const connector = { ...run(state), claimant: { claimantKind: "connector" as const, claimantId: "worker" } };
+      for (const attention of [null, "ready", "unknown", "recovery"] as const) {
+        expect(resolveManualSyncActions(run(state), attention)).toEqual(noRun);
+        expect(resolveManualSyncActions(connector, attention)).toEqual(noRun);
+      }
+    },
+  );
+
+  it("keeps every non-terminal row unchanged for connector claimants and recovery attention", () => {
+    for (const state of ["composed", "claimed", "awaiting-verification"] as const) {
+      const connector = { ...run(state), claimant: { claimantKind: "connector" as const, claimantId: "worker" } };
+      expect(resolveManualSyncActions(connector)).toEqual([]);
+      expect(resolveManualSyncActions(connector, "recovery")).toEqual([]);
+    }
+    expect(resolveManualSyncActions(run("awaiting-verification"), "recovery")).toEqual([]);
   });
 });
 

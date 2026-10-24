@@ -1,4 +1,7 @@
 import { t } from "@chase-sets/localization";
+import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/inventory/web";
+import { EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
+import { MutationFormProvider } from "../support/ui-support/mutation-form";
 import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -146,16 +149,31 @@ export default function DiscoveryItemDetailRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;
   const actionData = useActionData<DiscoveryItemDetailActionData>();
 
-  return (
-    <DiscoveryItemDetailRealtimeView
-      key={[
-        data.item?.catalog_item_id ?? "empty",
-        data.item?.market_listings.map((listing) => listing.listing_id).join("|") ?? "",
-        data.item?.offer_demand_matches.map((offer) => offer.offer_id).join("|") ?? "",
-      ].join("\n")}
-      data={data}
-      actionData={actionData}
-    />
+  const view = (
+    <EntryAttemptKeyScope
+      key={data.item?.catalog_item_id ?? "empty"}
+      loaderKey={"entryAttemptKey" in data ? data.entryAttemptKey : null}
+      actionKey={actionData && "entryAttemptKey" in actionData ? actionData.entryAttemptKey : null}
+      actionDraft={actionData && "buyDraft" in actionData ? actionData.buyDraft : null}
+    >
+      <DiscoveryItemDetailRealtimeView
+        key={[
+          data.item?.catalog_item_id ?? "empty",
+          data.item?.market_listings.map((listing) => listing.listing_id).join("|") ?? "",
+          data.item?.offer_demand_matches.map((offer) => offer.offer_id).join("|") ?? "",
+        ].join("\n")}
+        data={data}
+        actionData={actionData}
+      />
+    </EntryAttemptKeyScope>
+  );
+  const authority = "recoveryAuthority" in data ? data.recoveryAuthority : null;
+  return authority ? (
+    <InventoryMutationProvider authority={authority} key={`${authority.accountId}/${authority.actorUserId}`}>
+      <MutationFormProvider value={InventoryMutationForm}>{view}</MutationFormProvider>
+    </InventoryMutationProvider>
+  ) : (
+    view
   );
 }
 

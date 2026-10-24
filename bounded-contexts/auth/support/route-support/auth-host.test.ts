@@ -25,6 +25,127 @@ afterEach(() => {
 });
 
 describe("auth host", () => {
+  it.each([
+    "registration_consent_not_server_minted",
+    "registration_consent_expired",
+    "registration_consent_affirmation_required",
+  ])("maps recognized %s consent rejections to the localized form contract", async (code) => {
+    const sourceMessage = "secret Identity source message";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            error: {
+              code,
+              reason: code === "registration_consent_expired" ? "superseded" : "absent",
+              message: sourceMessage,
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const result = await host.createSignInAction()(createActionArgs(createPasswordSignInRequest()));
+
+    expect(result).toMatchObject({
+      error: "Account creation is unavailable right now. Try again in a moment.",
+      classification: "FORM",
+      intent: "password",
+      errors: {
+        fieldErrors: {},
+        formErrors: ["Account creation is unavailable right now. Try again in a moment."],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(sourceMessage);
+  });
+
+  it("partitions real routed failures", async () => {
+    const detail = { field: "phone", code: "phone_required", message: "Bearer synthetic-secret" };
+    const cases = [
+      {
+        status: 400,
+        body: { error: { code: "validation_failed", message: "secret", details: [detail] } },
+        intent: "phone-code-request",
+        classification: "FIELD",
+      },
+      ...[
+        undefined,
+        [],
+        [{ ...detail, field: "password" }],
+        [{ ...detail, code: "unknown" }],
+        [{ ...detail, nested: { token: "secret" } }],
+        [{ ...detail, message: "x".repeat(1025) }],
+        [detail, detail],
+        { phone: detail },
+      ].map((details) => ({
+        status: 400,
+        body: { error: { code: "validation_failed", message: "secret", details } },
+        intent: "phone-code-request",
+        classification: "INDETERMINATE",
+      })),
+      { status: 401, body: { error: "secret" }, intent: "password", classification: "FORM" },
+      {
+        status: 400,
+        body: { error: { code: "validation_failed", details: [detail] } },
+        intent: "password",
+        classification: "INDETERMINATE",
+      },
+      ...["password", "magic-link-request"].map((intent) => ({
+        status: 400,
+        body: { error: { code: "validation_failed", message: "secret", details: [detail] } },
+        intent,
+        classification: "INDETERMINATE",
+      })),
+      {
+        status: 422,
+        body: { error: { code: "validation_failed", message: "secret", details: [detail] } },
+        intent: "phone-code-request",
+        classification: "INDETERMINATE",
+      },
+      {
+        status: 403,
+        body: { error: { code: "registration_admission_required", message: "secret" } },
+        intent: "phone-code-request",
+        classification: "FORM",
+      },
+    ];
+    for (const row of cases) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(row.body, { status: row.status })));
+      const result = await host.createSignInAction()(
+        createActionArgs(
+          new Request("https://marketplace.test/sign-in", {
+            method: "POST",
+            body: new URLSearchParams({ intent: row.intent }),
+          }),
+        ),
+      );
+      expect(result).toMatchObject({
+        classification: row.classification,
+        intent: row.intent,
+        errors: {
+          fieldErrors: row.classification === "FIELD" ? { phone: ["Phone is required."] } : {},
+          formErrors: row.classification === "FIELD" ? [] : [expect.any(String)],
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain("secret");
+    }
+  });
+
+  it("rejects raw message and token markers", async () => {
+    const marker = "Bearer synthetic-token-marker";
+    const logs = [vi.spyOn(console, "error"), vi.spyOn(console, "warn")];
+    for (const body of [{ error: marker }, { error: { code: "unknown", message: marker, token: marker } }]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body, { status: 401 })));
+      const result = await host.createSignInAction()(createActionArgs(createPasswordSignInRequest()));
+      expect(JSON.stringify(result)).not.toContain(marker);
+      expect(result).toMatchObject({ errors: { fieldErrors: {} } });
+    }
+    expect(JSON.stringify(logs.map((log) => log.mock.calls))).not.toContain(marker);
+    logs.forEach((log) => log.mockRestore());
+  });
+
   const identitySource = {
     sourceContextName: "identity",
     maxGlobalPosition: "51",
@@ -222,7 +343,7 @@ describe("auth host", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("returns the attempted identifier and method after a password sign-in error", async () => {
+  it("returns safe method metadata without the submitted identifier after a password sign-in error", async () => {
     vi.stubGlobal(
       "fetch",
       vi
@@ -234,8 +355,10 @@ describe("auth host", () => {
 
     expect(result).toEqual({
       error: "Invalid email or password.",
-      identifier: "seller@example.test",
       method: "password",
+      intent: "password",
+      classification: "FORM",
+      errors: { fieldErrors: {}, formErrors: ["Invalid email or password."] },
     });
   });
 
@@ -285,6 +408,7 @@ describe("auth host", () => {
   });
 
   it("keeps repeated internal auth connection failures on the sign-in form", async () => {
+    const timer = vi.spyOn(globalThis, "setTimeout");
     const fetch = vi.fn<typeof globalThis.fetch>().mockRejectedValue(createTransientAuthFetchError());
     vi.stubGlobal("fetch", fetch);
 
@@ -292,10 +416,14 @@ describe("auth host", () => {
 
     expect(result).toEqual({
       error: "Sign-in is temporarily unavailable. Try again in a few seconds.",
-      identifier: "seller@example.test",
       method: "password",
+      intent: "password",
+      classification: "FORM",
+      errors: { fieldErrors: {}, formErrors: ["Sign-in is temporarily unavailable. Try again in a few seconds."] },
     });
     expect(fetch).toHaveBeenCalledTimes(3);
+    expect(timer.mock.calls.map((call) => call[1])).toEqual([100, 250]);
+    timer.mockRestore();
   });
 
   it("adds the identity fresh-write receipt to password registration account redirects", async () => {

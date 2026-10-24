@@ -39,6 +39,7 @@ function fixture({
       return {
         generatedAt: old,
         rolloutControls: { generatedAt: old, controls: [] },
+        providerUsage: [],
         units: emptyCatalog
           ? []
           : [

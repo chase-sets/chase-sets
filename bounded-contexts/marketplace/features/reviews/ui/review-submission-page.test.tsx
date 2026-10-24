@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { ReviewSubmissionPage } from "./review-submission-page";
 import { REVIEW_RESOLUTION_ANALYTICS_EVENT } from "./review-resolution";
+import { authoredTextRecoveryMessage } from "./authored-text-recovery";
 
 const opportunity = {
   order_id: "ord_1",
@@ -12,6 +13,7 @@ const opportunity = {
   author_role: "seller",
   eligible_at: "2026-04-02T00:00:00.000Z",
   active_review_id: null,
+  active_review_revealed_at: null,
   window_expired: false,
   window_expires_at: "2026-06-01T00:00:00.000Z",
   submission_state: "allowed" as const,
@@ -252,5 +254,73 @@ describe("seller order-help action", () => {
         "Open an order issue so we can review what happened. Eligible payments stay protected while the issue is open.",
       ),
     ).toBeNull();
+  });
+});
+
+describe("issue-5258-marketplace-ac4 Review submission standards and recovery", () => {
+  function expectStandardsLinksBefore(control: HTMLElement) {
+    const guidelines = screen.getByRole("link", { name: "Community guidelines" });
+    const support = screen.getByRole("link", { name: "Contact support" });
+    expect(guidelines.getAttribute("href")).toBe("/help/buying/community-guidelines-and-enforcement");
+    expect(support.getAttribute("href")).toBe("/contact");
+    for (const link of [guidelines, support]) {
+      expect(link.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  }
+
+  it("links the canonical community guidelines and support before submission", () => {
+    render(<ReviewSubmissionPage backHref="/account/sales/ord_1" opportunity={opportunity} />);
+
+    expectStandardsLinksBefore(screen.getByRole("button", { name: "Submit account review" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the draft and links the Feedback field from an accessible summary on a closed rejection", () => {
+    const message = authoredTextRecoveryMessage("text_unsafe_link")!;
+    render(
+      <ReviewSubmissionPage
+        backHref="/account/sales/ord_1"
+        opportunity={opportunity}
+        defaultRating={2}
+        defaultFeedback="Draft javascript:alert(1)"
+        errorMessage={message}
+        feedbackRecovery={{ code: "text_unsafe_link", message, fieldLevel: true }}
+      />,
+    );
+
+    const summary = screen.getByRole("alert");
+    expect(summary.textContent).toContain("Your text was not posted");
+    expect(summary.textContent).toContain("Your text is still here");
+    const fieldLink = within(summary).getByRole("link", { name: `Feedback: ${message}` });
+    expect(fieldLink.getAttribute("href")).toBe("#review-feedback");
+    const feedback = screen.getByRole("textbox", { name: "Feedback" }) as HTMLTextAreaElement;
+    expect(feedback.value).toBe("Draft javascript:alert(1)");
+    expect(feedback.getAttribute("aria-invalid")).toBe("true");
+    const describedBy = feedback.getAttribute("aria-describedby")?.split(" ") ?? [];
+    expect(describedBy.map((id) => document.getElementById(id)?.textContent).join(" ")).toContain(message);
+    fireEvent.keyDown(fieldLink, { key: "Enter" });
+    expect(document.activeElement).toBe(feedback);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expectStandardsLinksBefore(screen.getByRole("button", { name: "Submit account review" }));
+  });
+
+  it("keeps the draft without marking the text invalid when authoring is rate limited", () => {
+    const message = authoredTextRecoveryMessage("rate_limited")!;
+    render(
+      <ReviewSubmissionPage
+        backHref="/account/sales/ord_1"
+        opportunity={opportunity}
+        defaultFeedback="Kept draft"
+        errorMessage={message}
+        feedbackRecovery={{ code: "rate_limited", message, fieldLevel: false }}
+      />,
+    );
+
+    const summary = screen.getByRole("alert");
+    expect(summary.textContent).toContain(message);
+    expect(within(summary).queryByRole("link")).toBeNull();
+    const feedback = screen.getByRole("textbox", { name: "Feedback" }) as HTMLTextAreaElement;
+    expect(feedback.value).toBe("Kept draft");
+    expect(feedback.getAttribute("aria-invalid")).toBeNull();
   });
 });

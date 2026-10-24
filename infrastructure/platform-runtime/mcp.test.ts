@@ -3,9 +3,17 @@ import { Hono } from "hono";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
+  AGENT_OAUTH_COMMERCE_SCOPES,
+  isAgentOAuthOperatorScope,
+  type AgentOAuthScope,
+  type OperatorAuthority,
+  type OperatorAuthorityDecision,
+} from "@chase-sets/auth-context";
+import {
   buildMcpHandlersFromModules,
   createMcpOAuthProtectedResourceMetadataRoutes,
   createMcpRoutes,
+  MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED,
   MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH,
   validateMcpModuleRegistrations,
   type McpAuditRecord,
@@ -15,6 +23,9 @@ import {
 import {
   MCP_EXTENSION_TASKS,
   MCP_EXTENSION_UI,
+  MCP_CLIENT_CAPABILITIES_HEADER,
+  MCP_CLIENT_NAME_HEADER,
+  MCP_CLIENT_VERSION_HEADER,
   MCP_META_CLIENT_CAPABILITIES_KEY,
   MCP_META_CLIENT_INFO_KEY,
   MCP_META_PROTOCOL_VERSION_KEY,
@@ -28,7 +39,13 @@ import {
   SUPPORTED_MCP_PROTOCOL_VERSIONS,
 } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
-import { flattenAvailableMcpTools, type McpServiceDescriptor } from "./mcp-contracts";
+import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "./http";
+import {
+  flattenAvailableMcpResources,
+  flattenAvailableMcpTools,
+  validateMcpServiceCatalog,
+  type McpServiceDescriptor,
+} from "./mcp-contracts";
 
 const actor: ResolvedActor = {
   sessionId: "sess_1",
@@ -191,6 +208,195 @@ const availableModuleGuardServices: readonly McpServiceDescriptor[] = [
 ];
 
 describe("MCP runtime routes", () => {
+  describe("native MCP protocol equivalence", () => {
+    const meta = statelessMcpMeta();
+    const modernHeaders = statelessHeaders("tools/list");
+    const error = (code: number, message: string, data?: unknown) => ({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: { code, message, ...(data === undefined ? {} : { data }) },
+    });
+    const emptyTools = { jsonrpc: "2.0", id: "request_1", result: { tools: [] } };
+    const mismatch = (message: string) => error(-32001, message);
+    const invalid = (message: string) => error(-32602, message);
+    const cases: readonly {
+      name: string;
+      method?: string;
+      headers: Readonly<Record<string, string>>;
+      params: unknown;
+      status: number;
+      body: unknown;
+    }[] = [
+      { name: "no header", headers: {}, params: {}, status: 200, body: emptyTools },
+      ...[MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_2025_11_25].map((version) => ({
+        name: `legacy ${version}`,
+        headers: { [MCP_PROTOCOL_VERSION_HEADER]: version },
+        params: {},
+        status: 200,
+        body: emptyTools,
+      })),
+      { name: "full modern", headers: modernHeaders, params: { _meta: meta }, status: 200, body: emptyTools },
+      {
+        name: "header/meta mismatch",
+        headers: modernHeaders,
+        params: { _meta: { ...meta, [MCP_META_PROTOCOL_VERSION_KEY]: MCP_PROTOCOL_VERSION } },
+        status: 400,
+        body: mismatch(`${MCP_PROTOCOL_VERSION_HEADER} must match params._meta.${MCP_META_PROTOCOL_VERSION_KEY}.`),
+      },
+      {
+        name: "missing stateless header",
+        headers: {},
+        params: { _meta: meta },
+        status: 400,
+        body: mismatch(`${MCP_PROTOCOL_VERSION_HEADER} is required for MCP protocol version 2026-07-28.`),
+      },
+      {
+        name: "missing version metadata",
+        headers: modernHeaders,
+        params: {},
+        status: 400,
+        body: invalid(`MCP protocol version 2026-07-28 requires params._meta.${MCP_META_PROTOCOL_VERSION_KEY}.`),
+      },
+      {
+        name: "missing client info",
+        headers: modernHeaders,
+        params: { _meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28", [MCP_META_CLIENT_CAPABILITIES_KEY]: {} } },
+        status: 400,
+        body: invalid(
+          `MCP protocol version 2026-07-28 requires client info in params._meta.${MCP_META_CLIENT_INFO_KEY} or ${MCP_CLIENT_NAME_HEADER}/${MCP_CLIENT_VERSION_HEADER}.`,
+        ),
+      },
+      {
+        name: "missing capabilities",
+        headers: modernHeaders,
+        params: {
+          _meta: {
+            [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28",
+            [MCP_META_CLIENT_INFO_KEY]: meta[MCP_META_CLIENT_INFO_KEY],
+          },
+        },
+        status: 400,
+        body: invalid(
+          `MCP protocol version 2026-07-28 requires client capabilities in params._meta.${MCP_META_CLIENT_CAPABILITIES_KEY} or ${MCP_CLIENT_CAPABILITIES_HEADER}.`,
+        ),
+      },
+      {
+        name: "client header fallback",
+        headers: {
+          ...modernHeaders,
+          [MCP_CLIENT_NAME_HEADER]: "header-client",
+          [MCP_CLIENT_VERSION_HEADER]: "1",
+          [MCP_CLIENT_CAPABILITIES_HEADER]: "{}",
+        },
+        params: { _meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28" } },
+        status: 200,
+        body: emptyTools,
+      },
+      {
+        name: "unsupported header",
+        headers: { [MCP_PROTOCOL_VERSION_HEADER]: "1900-01-01" },
+        params: {},
+        status: 400,
+        body: error(-32004, "Unsupported MCP protocol version '1900-01-01'.", {
+          requestedVersion: "1900-01-01",
+          supportedVersions: ["2025-06-18", "2025-11-25", "2026-07-28"],
+        }),
+      },
+      {
+        name: "unsupported metadata",
+        headers: {},
+        params: { _meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "1900-01-01" } },
+        status: 400,
+        body: error(-32004, "Unsupported MCP protocol version '1900-01-01'.", {
+          requestedVersion: "1900-01-01",
+          supportedVersions: ["2025-06-18", "2025-11-25", "2026-07-28"],
+        }),
+      },
+      {
+        name: "missing method header",
+        headers: { [MCP_PROTOCOL_VERSION_HEADER]: "2026-07-28" },
+        params: { _meta: meta },
+        status: 400,
+        body: mismatch("Mcp-Method is required for this MCP request."),
+      },
+      {
+        name: "mismatched method header",
+        headers: statelessHeaders("resources/list"),
+        params: { _meta: meta },
+        status: 400,
+        body: mismatch("Mcp-Method must match the JSON-RPC method."),
+      },
+      {
+        name: "legacy routing mismatch",
+        headers: { [MCP_METHOD_HEADER]: "resources/list" },
+        params: {},
+        status: 400,
+        body: mismatch("Mcp-Method must match the JSON-RPC method."),
+      },
+      ...[
+        {
+          name: "missing name",
+          headers: statelessHeaders("tools/call"),
+          message: "Mcp-Name is required for tools/call.",
+        },
+        {
+          name: "mismatched name",
+          headers: statelessHeaders("tools/call", "other"),
+          message: "Mcp-Name must match the MCP request target.",
+        },
+        {
+          name: "encoded name stays raw",
+          headers: statelessHeaders("tools/call", "=?base64?dGFyZ2V0?="),
+          message: "Mcp-Name must match the MCP request target.",
+        },
+      ].map((row) => ({
+        ...row,
+        method: "tools/call",
+        params: { name: "target", _meta: meta },
+        status: 400,
+        body: mismatch(row.message),
+      })),
+      {
+        name: "initialize naming modern",
+        method: "initialize",
+        headers: {},
+        params: { protocolVersion: "2026-07-28" },
+        status: 200,
+        body: error(
+          -32601,
+          "initialize is not supported for MCP protocol version 2026-07-28. Use server/discover and per-request metadata.",
+        ),
+      },
+      {
+        name: "native discover shape",
+        method: "server/discover",
+        headers: statelessHeaders("server/discover"),
+        params: { _meta: meta },
+        status: 200,
+        body: {
+          jsonrpc: "2.0",
+          id: "request_1",
+          result: {
+            protocolVersions: ["2025-06-18", "2025-11-25", "2026-07-28"],
+            serverInfo: { name: "chase-sets-platform", version: "0.1.0" },
+            capabilities: { tools: {}, resources: {}, extensions: {} },
+          },
+        },
+      },
+    ];
+
+    it.each(cases)("$name", async (row) => {
+      const app = createMcpRoutes({ services: [] });
+      const response = await app.request("/", {
+        method: "POST",
+        headers: row.headers,
+        body: JSON.stringify(createRequest(row.method ?? "tools/list", row.params)),
+      });
+      expect(response.status).toBe(row.status);
+      expect(await response.text()).toBe(JSON.stringify(row.body));
+    });
+  });
+
   it("requires a durable idempotency store outside the test runtime", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VITEST", "false");
@@ -210,20 +416,50 @@ describe("MCP runtime routes", () => {
     const response = await app.request("https://marketplace.example/oauth-protected-resource");
 
     expect(response.status).toBe(200);
+    const metadata = await response.clone().json();
+    expect(metadata.scopes_supported).toHaveLength(17);
+    expect(metadata.scopes_supported.filter((scope: string) => /checkout|order/.test(scope))).toEqual([
+      "dev.ucp.shopping.checkout:manage",
+      "dev.ucp.shopping.order:read",
+    ]);
     await expect(response.json()).resolves.toMatchObject({
       resource: "https://marketplace.example/mcp",
-      authorization_servers: ["https://marketplace.example/.well-known/oauth-authorization-server"],
+      authorization_servers: ["https://marketplace.example"],
       scopes_supported: expect.arrayContaining([
         "catalog:read",
-        "checkout:read",
-        "checkout:write",
-        "order:read",
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read",
         "listings:write",
         "payouts:request",
         "account:read",
       ]),
       bearer_methods_supported: ["header"],
     });
+  });
+
+  it("names the public request origin as the authorization server only through trusted forwarded headers", async () => {
+    const app = createMcpOAuthProtectedResourceMetadataRoutes();
+    const forwarded = {
+      headers: { "x-forwarded-host": "marketplace.chasesets.test", "x-forwarded-proto": "https" },
+    };
+
+    try {
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "false");
+      const untrusted = await app.request("http://platform-api.internal:8080/oauth-protected-resource", forwarded);
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
+      const trusted = await app.request("http://platform-api.internal:8080/oauth-protected-resource", forwarded);
+
+      await expect(untrusted.json()).resolves.toMatchObject({
+        resource: "https://platform-api.internal:8080/mcp",
+        authorization_servers: ["https://platform-api.internal:8080"],
+      });
+      await expect(trusted.json()).resolves.toMatchObject({
+        resource: "https://marketplace.chasesets.test/mcp",
+        authorization_servers: ["https://marketplace.chasesets.test"],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("challenges anonymous protected tool calls with protected-resource metadata", async () => {
@@ -321,6 +557,7 @@ describe("MCP runtime routes", () => {
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
       "inventory.get-import-batch",
+      "inventory.get-mutation-attempt",
       "inventory.list-import-sources",
       "inventory.list-items",
       "marketplace.accept-offer",
@@ -344,7 +581,6 @@ describe("MCP runtime routes", () => {
       "payments.get-payment",
       "payments.get-refund-status",
       "payments.start-payment-method-setup",
-      "platform-operations.get-offer-economics-summary",
       "platform-operations.get-seller-insight-summary",
       "platform-operations.get-support-request",
       "platform-operations.list-support-requests",
@@ -413,6 +649,7 @@ describe("MCP runtime routes", () => {
       permissions: ["listings.view"],
       agentGrant: {
         grantId: "grant_partial_seller",
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
         scopes: ["listings:read"],
         rolePermissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
       },
@@ -422,6 +659,7 @@ describe("MCP runtime routes", () => {
       permissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
       agentGrant: {
         grantId: "grant_full_seller",
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
         scopes: ["inventory:read", "listings:read", "offers:read", "fulfillment:read", "payouts:read"],
         rolePermissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
       },
@@ -434,9 +672,29 @@ describe("MCP runtime routes", () => {
     expect(full.tools.map((tool) => tool.name)).toContain("marketplace.get-seller-attention-queue");
   });
 
-  it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
-    const app = createActorApp(actor);
-    const response = await app.request("/", {
+  // Operator tools/list visibility depends only on the operator authority's role permissions, so a grant equal to
+  // the union every available operator capability requires lists every available tool without hand-listing them.
+  const operatorCapabilityPermissions = [
+    ...new Set(
+      [...flattenAvailableMcpTools(), ...flattenAvailableMcpResources()]
+        .filter((capability) => capability.permissionBoundary.scope === "operator")
+        .flatMap((capability) => capability.permissionBoundary.requiredPermissions),
+    ),
+  ].sort();
+
+  function listToolsWithOperatorRolePermissions(rolePermissions: readonly string[]) {
+    const app = createActorApp(
+      { ...actor, roleKey: "platform-admin" },
+      {
+        operatorAuthority: async () => ({
+          kind: "granted",
+          membershipId: actor.membershipId,
+          roleKey: "platform-admin",
+          rolePermissions,
+        }),
+      },
+    );
+    return app.request("/", {
       method: "POST",
       body: JSON.stringify(createRequest("tools/list")),
       headers: {
@@ -444,6 +702,10 @@ describe("MCP runtime routes", () => {
         [MCP_PROTOCOL_VERSION_HEADER]: MCP_PROTOCOL_VERSION_2025_11_25,
       },
     });
+  }
+
+  it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
+    const response = await listToolsWithOperatorRolePermissions(operatorCapabilityPermissions);
     const body = (await response.json()) as {
       result: {
         tools: Array<{
@@ -473,6 +735,33 @@ describe("MCP runtime routes", () => {
       if (descriptor.risk !== "read" && descriptor.guardrails.idempotencyKey === "required") {
         expect(tool.annotations.idempotentHint).toBe(true);
       }
+    }
+  });
+
+  it("drops exactly the operator tools whose permission the derived operator grant lacks", async () => {
+    const availableTools = flattenAvailableMcpTools();
+    const operatorTools = availableTools.filter((tool) => tool.permissionBoundary.scope === "operator");
+    const operatorToolPermissions = [
+      ...new Set(operatorTools.flatMap((tool) => tool.permissionBoundary.requiredPermissions)),
+    ].sort();
+    expect(operatorToolPermissions.length).toBeGreaterThan(0);
+
+    for (const withheldPermission of operatorToolPermissions) {
+      const response = await listToolsWithOperatorRolePermissions(
+        operatorCapabilityPermissions.filter((permission) => permission !== withheldPermission),
+      );
+      const body = (await response.json()) as { result: { tools: Array<{ name: string }> } };
+      const droppedToolNames = operatorTools
+        .filter((tool) => tool.permissionBoundary.requiredPermissions.includes(withheldPermission))
+        .map((tool) => tool.name);
+
+      expect(response.status).toBe(200);
+      expect(body.result.tools.map((tool) => tool.name).sort()).toEqual(
+        availableTools
+          .map((tool) => tool.name)
+          .filter((name) => !droppedToolNames.includes(name))
+          .sort(),
+      );
     }
   });
 
@@ -649,13 +938,6 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["support.view"],
-          }),
-        }),
-        expect.objectContaining({
-          uriTemplate: "chase-sets://platform-operations/offer-economics/summary",
-          annotations: expect.objectContaining({
-            availability: "available",
-            requiredPermissions: ["insights-dashboards.view"],
           }),
         }),
       ],
@@ -1524,6 +1806,69 @@ describe("MCP runtime routes", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("publishes payment-method setup dryRun as an unsupported closed boolean and validates it before handlers", async () => {
+    const handler = vi.fn(async () => ({ accepted: true }));
+    const app = createActorApp(
+      { ...actor, permissions: [...actor.permissions, "orders.manage"] },
+      { toolHandlers: { "payments.start-payment-method-setup": handler } },
+    );
+    const callSetup = async (extraArguments: Readonly<Record<string, unknown>>) => {
+      const response = await app.request("/", {
+        method: "POST",
+        body: JSON.stringify(
+          createRequest("tools/call", {
+            name: "payments.start-payment-method-setup",
+            arguments: {
+              accountId: "account_1",
+              returnUrl: "https://app.chasesets.test/account/payment-methods",
+              idempotencyKey: "3f2b8c1e-6a4d-4e9b-b7c2-1d0e5f6a7b81",
+              confirmationText: "Start Payment Method Setup.",
+              ...extraArguments,
+            },
+            confirmation: { confirmed: true, text: "Start Payment Method Setup." },
+          }),
+        ),
+      });
+      return response.json();
+    };
+
+    const listResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+    });
+    const listed = (
+      (await listResponse.json()) as {
+        result: {
+          tools: Array<{
+            name: string;
+            inputSchema: { additionalProperties?: boolean; properties: Record<string, { type?: unknown }> };
+            annotations: { dryRunSupported?: boolean };
+          }>;
+        };
+      }
+    ).result.tools.find((tool) => tool.name === "payments.start-payment-method-setup");
+    expect(listed?.annotations.dryRunSupported).toBe(false);
+    expect(listed?.inputSchema.additionalProperties).toBe(false);
+    expect(listed?.inputSchema.properties.dryRun?.type).toBe("boolean");
+
+    await expect(callSetup({ dryRun: "true" })).resolves.toEqual(
+      toolErrorResponse(
+        "request_1",
+        "Invalid MCP tool arguments. dryRun: Expected boolean. Expected boolean. Actual string.",
+      ),
+    );
+    await expect(callSetup({ unexpectedField: true })).resolves.toEqual(
+      toolErrorResponse("request_1", "Invalid MCP tool arguments. unexpectedField: Unexpected field."),
+    );
+    expect(handler).not.toHaveBeenCalled();
+
+    await expect(callSetup({ dryRun: false })).resolves.toEqual(toolSuccessResponse("request_1", { accepted: true }));
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ arguments: expect.objectContaining({ dryRun: false }) }),
+    );
+  });
+
   it("rejects tools without the required permission and records audit", async () => {
     const audit = vi.fn();
     const app = createActorApp(
@@ -1577,6 +1922,7 @@ describe("MCP runtime routes", () => {
         permissions: ["listings.manage"],
         agentGrant: {
           grantId: "lpa_listings",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
           scopes: ["listings:write"],
           rolePermissions: ["listings.manage", "payouts.request"],
         },
@@ -1634,6 +1980,7 @@ describe("MCP runtime routes", () => {
         permissions: ["listings.manage"],
         agentGrant: {
           grantId: "lpa_listings",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
           scopes: ["listings:write"],
           rolePermissions: ["listings.manage", "payouts.request"],
         },
@@ -1701,6 +2048,7 @@ describe("MCP runtime routes", () => {
         permissions: [],
         agentGrant: {
           grantId: "lpa_viewer",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
           scopes: ["payouts:request"],
           rolePermissions: ["payouts.view"],
         },
@@ -2285,5 +2633,524 @@ describe("MCP runtime routes", () => {
         reason: "Import batch read failed.",
       }),
     );
+  });
+});
+
+const OPERATOR_DENIAL = "This MCP capability is not available to the authenticated actor.";
+
+const grantedPlatformAdmin = {
+  kind: "granted",
+  membershipId: "mem_op",
+  roleKey: "platform-admin",
+  rolePermissions: ["catalog.manage", "catalog.view", "insights-dashboards.view", "listings.view"],
+} as const satisfies OperatorAuthorityDecision;
+
+const operatorMatrixServices: readonly McpServiceDescriptor[] = [
+  {
+    serviceId: "platform-operations",
+    serviceName: "Platform Operations",
+    kind: "bounded-context",
+    owner: "bounded-contexts/platform-operations",
+    serviceBoundary: "Synthetic operator and commerce capabilities for the operator predicate matrix.",
+    tools: [
+      {
+        name: "platform-operations.inspect-catalog-plan",
+        title: "Inspect Catalog Plan",
+        description: "Read-risk operator tool gated on a manage permission.",
+        availability: "available",
+        serviceId: "platform-operations",
+        risk: "read",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+        permissionBoundary: {
+          scope: "operator",
+          requiredPermissions: ["catalog.manage"],
+          requiredScopes: [],
+          accountScoped: false,
+          auditPrincipal: "actor",
+        },
+        guardrails: {
+          confirmation: { required: false },
+          idempotencyKey: "not-applicable",
+          dryRunSupported: false,
+          notes: [],
+        },
+        audit: {
+          eventName: "mcp.platform-operations.inspect-catalog-plan",
+          targetType: "catalog-plan",
+          sensitiveInputFields: [],
+        },
+        expectedUsage: ["Synthetic operator read."],
+      },
+      {
+        name: "platform-operations.apply-catalog-plan",
+        title: "Apply Catalog Plan",
+        description: "Write-risk operator tool bound to its plan fingerprint input.",
+        availability: "available",
+        serviceId: "platform-operations",
+        risk: "sensitive",
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["planFingerprint", "idempotencyKey"],
+          properties: {
+            planFingerprint: { type: "string", description: "Reviewed plan fingerprint." },
+            idempotencyKey: { type: "string", description: "Idempotency key." },
+          },
+        },
+        permissionBoundary: {
+          scope: "operator",
+          requiredPermissions: ["catalog.manage"],
+          requiredScopes: [],
+          accountScoped: false,
+          auditPrincipal: "actor",
+        },
+        guardrails: {
+          confirmation: { required: true, prompt: "Confirm the plan fingerprint.", matchInputValue: "planFingerprint" },
+          idempotencyKey: "required",
+          idempotencyAuthority: "platform",
+          dryRunSupported: false,
+          notes: [],
+        },
+        audit: {
+          eventName: "mcp.platform-operations.apply-catalog-plan",
+          targetType: "catalog-plan",
+          sensitiveInputFields: [],
+        },
+        expectedUsage: ["Synthetic operator write."],
+      },
+      {
+        name: "platform-operations.list-own-listings",
+        title: "List Own Listings",
+        description: "Commerce read tool gated on a commerce scope.",
+        availability: "available",
+        serviceId: "platform-operations",
+        risk: "read",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+        permissionBoundary: {
+          scope: "account",
+          requiredPermissions: ["listings.view"],
+          requiredScopes: ["listings:read"],
+          accountScoped: true,
+          auditPrincipal: "actor",
+        },
+        guardrails: {
+          confirmation: { required: false },
+          idempotencyKey: "not-applicable",
+          dryRunSupported: false,
+          notes: [],
+        },
+        audit: {
+          eventName: "mcp.platform-operations.list-own-listings",
+          targetType: "listing",
+          sensitiveInputFields: [],
+        },
+        expectedUsage: ["Synthetic commerce read."],
+      },
+    ],
+    resources: [
+      {
+        uriTemplate: "chase-sets://platform-operations/catalog-plans/summary",
+        title: "Catalog Plan Summary",
+        description: "Operator resource.",
+        availability: "available",
+        serviceId: "platform-operations",
+        permissionBoundary: {
+          scope: "operator",
+          requiredPermissions: ["insights-dashboards.view"],
+          requiredScopes: [],
+          accountScoped: false,
+          auditPrincipal: "actor",
+        },
+        expectedUsage: ["Synthetic operator resource."],
+      },
+    ],
+  },
+];
+
+function operatorGrant(scopes: readonly AgentOAuthScope[]) {
+  return {
+    grantId: "lpa_operator",
+    platformProfileUrl: "https://agent.example/.well-known/ucp",
+    scopes,
+    rolePermissions: [...grantedPlatformAdmin.rolePermissions],
+  };
+}
+
+type OperatorMatrixRow = Readonly<{
+  label: string;
+  actor: ResolvedActor;
+  authority: OperatorAuthorityDecision;
+  operatorRead: boolean;
+  operatorWrite: boolean;
+  commerce: boolean;
+}>;
+
+const platformAdminSession: ResolvedActor = {
+  ...actor,
+  userId: "usr_op",
+  accountId: "acc_op",
+  membershipId: "mem_op",
+  roleKey: "platform-admin",
+  permissions: ["listings.view"],
+};
+// Every self-registered owner holds catalog.manage: the predicate must not read actor.permissions.
+const ownerSession: ResolvedActor = {
+  ...platformAdminSession,
+  roleKey: "owner",
+  permissions: ["catalog.manage", "catalog.view", "insights-dashboards.view", "listings.view"],
+};
+const grantActor = (scopes: readonly AgentOAuthScope[], permissions: readonly string[] = []): ResolvedActor => ({
+  ...platformAdminSession,
+  sessionId: "ucp:lpa_operator",
+  permissions,
+  agentGrant: operatorGrant(scopes),
+});
+const demoted = { kind: "denied", reason: "not-platform-admin" } as const satisfies OperatorAuthorityDecision;
+
+const operatorMatrix: readonly OperatorMatrixRow[] = [
+  {
+    label: "session, platform-admin",
+    actor: platformAdminSession,
+    authority: grantedPlatformAdmin,
+    operatorRead: true,
+    operatorWrite: true,
+    commerce: true,
+  },
+  {
+    label: "session, owner holding catalog.manage",
+    actor: ownerSession,
+    authority: demoted,
+    operatorRead: false,
+    operatorWrite: false,
+    commerce: true,
+  },
+  {
+    label: "grant with every commerce scope and no operations scope, platform-admin",
+    actor: grantActor(["catalog:read", "listings:read", "listings:write"], ["catalog.view", "listings.view"]),
+    authority: grantedPlatformAdmin,
+    operatorRead: false,
+    operatorWrite: false,
+    commerce: true,
+  },
+  {
+    label: "grant operations:read, platform-admin",
+    actor: grantActor(["operations:read"]),
+    authority: grantedPlatformAdmin,
+    operatorRead: true,
+    operatorWrite: false,
+    commerce: false,
+  },
+  {
+    label: "grant operations:write, platform-admin",
+    actor: grantActor(["operations:write"]),
+    authority: grantedPlatformAdmin,
+    operatorRead: true,
+    operatorWrite: true,
+    commerce: false,
+  },
+  {
+    label: "mixed commerce and operations:write grant, platform-admin",
+    actor: grantActor(["listings:read", "operations:write"], ["listings.view"]),
+    authority: grantedPlatformAdmin,
+    operatorRead: true,
+    operatorWrite: true,
+    commerce: true,
+  },
+  {
+    label: "grant operations:write, role no longer platform-admin",
+    actor: grantActor(["listings:read", "operations:write"], ["listings.view"]),
+    authority: demoted,
+    operatorRead: false,
+    operatorWrite: false,
+    commerce: true,
+  },
+];
+
+async function postMcp(app: Hono<{ Variables: { actor: ResolvedActor } }>, method: string, params?: unknown) {
+  const response = await app.request("/", { method: "POST", body: JSON.stringify(createRequest(method, params)) });
+  const text = await response.text();
+  return { response, text, body: JSON.parse(text) as Record<string, unknown> };
+}
+
+describe("operator predicate matrix", () => {
+  it.each(operatorMatrix)("$label", async (row) => {
+    const authority = vi.fn(async () => row.authority);
+    const toolHandler = vi.fn(async () => ({ ok: true }));
+    const resourceHandler = vi.fn(async () => ({ ok: true }));
+    const audit = vi.fn();
+    const reserve = vi.fn(async () => ({ outcome: "reserved" as const, record: { key: "k", requestHash: "h" } }));
+    const app = createActorApp(row.actor, {
+      services: operatorMatrixServices,
+      operatorAuthority: authority,
+      audit,
+      idempotencyStore: {
+        reserve,
+        complete: vi.fn(async () => undefined),
+        abandon: vi.fn(async () => undefined),
+      } as never,
+      toolHandlers: {
+        "platform-operations.inspect-catalog-plan": toolHandler,
+        "platform-operations.apply-catalog-plan": toolHandler,
+        "platform-operations.list-own-listings": toolHandler,
+      },
+      resourceHandlers: { "chase-sets://platform-operations/catalog-plans/summary": resourceHandler },
+    });
+
+    const tools = await postMcp(app, "tools/list");
+    const listedTools = (tools.body.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name);
+    expect(authority.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(listedTools.includes("platform-operations.inspect-catalog-plan")).toBe(row.operatorRead);
+    expect(listedTools.includes("platform-operations.apply-catalog-plan")).toBe(row.operatorWrite);
+    expect(listedTools.includes("platform-operations.list-own-listings")).toBe(row.commerce);
+
+    const resources = await postMcp(app, "resources/list");
+    const listedResources = (resources.body.result as { resources: Array<{ uriTemplate: string }> }).resources.map(
+      (resource) => resource.uriTemplate,
+    );
+    expect(listedResources.includes("chase-sets://platform-operations/catalog-plans/summary")).toBe(row.operatorRead);
+
+    const read = await postMcp(app, "tools/call", { name: "platform-operations.inspect-catalog-plan", arguments: {} });
+    const write = await postMcp(app, "tools/call", {
+      name: "platform-operations.apply-catalog-plan",
+      arguments: { planFingerprint: "plan-7f3a", idempotencyKey: "idem_matrix" },
+      confirmation: { confirmed: true, text: "plan-7f3a" },
+    });
+    const resource = await postMcp(app, "resources/read", {
+      uri: "chase-sets://platform-operations/catalog-plans/summary",
+    });
+
+    for (const [result, admitted] of [
+      [read, row.operatorRead],
+      [write, row.operatorWrite],
+      [resource, row.operatorRead],
+    ] as const) {
+      // Rule 2b: a refusal is a plain JSON-RPC denial, never an OAuth scope challenge naming operator scopes.
+      expect(result.response.status).toBe(200);
+      expect(result.response.headers.get("WWW-Authenticate")).toBeNull();
+      expect(result.text).not.toContain("operations:");
+      expect(result.text.includes(OPERATOR_DENIAL)).toBe(!admitted);
+    }
+    expect(toolHandler).toHaveBeenCalledTimes(Number(row.operatorRead) + Number(row.operatorWrite));
+    expect(resourceHandler).toHaveBeenCalledTimes(Number(row.operatorRead));
+    expect(reserve).toHaveBeenCalledTimes(Number(row.operatorWrite));
+    const deniedOperatorAudits = audit.mock.calls.filter(
+      ([record]) => (record as McpAuditRecord).outcome === "denied",
+    ).length;
+    expect(deniedOperatorAudits).toBe(Number(!row.operatorRead) * 2 + Number(!row.operatorWrite));
+  });
+
+  it("rule 2a: the registry rejects an operator capability that declares required scopes", () => {
+    const [service] = operatorMatrixServices;
+    const scoped = {
+      ...service!,
+      tools: service!.tools.map((tool) =>
+        tool.permissionBoundary.scope === "operator"
+          ? { ...tool, permissionBoundary: { ...tool.permissionBoundary, requiredScopes: ["catalog:read" as const] } }
+          : tool,
+      ),
+    };
+    expect(validateMcpServiceCatalog([scoped], ["platform-operations"])).toEqual([
+      "platform-operations.inspect-catalog-plan is an operator capability and must declare requiredScopes: [].",
+      "platform-operations.apply-catalog-plan is an operator capability and must declare requiredScopes: [].",
+    ]);
+  });
+
+  it("hides operator capabilities from every actor when no operator authority is composed", async () => {
+    const app = createActorApp(platformAdminSession, { services: operatorMatrixServices });
+    const tools = await postMcp(app, "tools/list");
+    expect((tools.body.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name)).toEqual([
+      "platform-operations.list-own-listings",
+    ]);
+  });
+
+  it("filters operator capabilities on the GET discovery routes with the same predicate", async () => {
+    const authority = vi.fn(async () => demoted);
+    const app = createActorApp(ownerSession, { services: operatorMatrixServices, operatorAuthority: authority });
+    const tools = (await (await app.request("/tools")).json()) as { tools: Array<{ name: string }> };
+    const resources = (await (await app.request("/resources")).json()) as { resources: unknown[] };
+    const services = (await (await app.request("/services")).json()) as { services: McpServiceDescriptor[] };
+    expect(tools.tools.map((tool) => tool.name)).toEqual(["platform-operations.list-own-listings"]);
+    expect(resources.resources).toEqual([]);
+    expect(JSON.stringify(services.services)).not.toContain("catalog-plan");
+  });
+});
+
+describe("operator invocation context", () => {
+  const offerEconomicsTool = "platform-operations.get-offer-economics-summary";
+  const offerEconomicsResource = "chase-sets://platform-operations/offer-economics/summary";
+  const operatorWriteGrant = grantActor(["operations:write"]);
+
+  it("runs the offer-economics tool and resource for an operations:write grant with Identity role permissions", async () => {
+    const seen: ResolvedActor[] = [];
+    const app = createActorApp(operatorWriteGrant, {
+      operatorAuthority: async () => grantedPlatformAdmin,
+      toolHandlers: {
+        [offerEconomicsTool]: vi.fn(async ({ actor: handlerActor }) => {
+          seen.push(handlerActor!);
+          return { snapshot: {} };
+        }),
+      },
+      resourceHandlers: {
+        [offerEconomicsResource]: vi.fn(async ({ actor: handlerActor }) => {
+          seen.push(handlerActor!);
+          return { snapshot: {} };
+        }),
+      },
+    });
+
+    const tool = await postMcp(app, "tools/call", { name: offerEconomicsTool, arguments: {} });
+    const resource = await postMcp(app, "resources/read", { uri: offerEconomicsResource });
+
+    expect(tool.body).toEqual(toolSuccessResponse("request_1", { snapshot: {} }));
+    expect(resource.body).toMatchObject({ result: { contents: [{ uri: offerEconomicsResource }] } });
+    expect(seen).toHaveLength(2);
+    for (const handlerActor of seen) {
+      expect(handlerActor).toEqual({
+        ...operatorWriteGrant,
+        roleKey: "platform-admin",
+        permissions: grantedPlatformAdmin.rolePermissions,
+      });
+      expect(handlerActor.agentGrant).toEqual(operatorWriteGrant.agentGrant);
+    }
+    // The widened actor is per call: the request actor itself is never mutated or reused.
+    expect(operatorWriteGrant.permissions).toEqual([]);
+    expect(seen[0]).not.toBe(seen[1]);
+  });
+
+  it("refuses the next call after demotion even though the first call succeeded", async () => {
+    const decisions: OperatorAuthorityDecision[] = [grantedPlatformAdmin, demoted];
+    const handler = vi.fn(async () => ({ snapshot: {} }));
+    const app = createActorApp(operatorWriteGrant, {
+      operatorAuthority: async () => decisions.shift()!,
+      toolHandlers: { [offerEconomicsTool]: handler },
+    });
+
+    expect((await postMcp(app, "tools/call", { name: offerEconomicsTool, arguments: {} })).text).not.toContain(
+      OPERATOR_DENIAL,
+    );
+    expect((await postMcp(app, "tools/call", { name: offerEconomicsTool, arguments: {} })).text).toContain(
+      OPERATOR_DENIAL,
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { label: "demotion", authority: async () => demoted, reason: "operator-authority-not-platform-admin" },
+    {
+      label: "revocation",
+      authority: async () => ({ kind: "denied", reason: "inactive" }) as const,
+      reason: "operator-authority-inactive",
+    },
+    {
+      label: "a mismatched membership",
+      authority: async () => ({ kind: "denied", reason: "membership-mismatch" }) as const,
+      reason: "operator-authority-membership-mismatch",
+    },
+    {
+      label: "a throwing authority",
+      authority: async () => {
+        throw new Error("event store unavailable");
+      },
+      reason: "operator-authority-authority-unavailable",
+    },
+    { label: "a missing port", authority: undefined, reason: "operator-authority-authority-unavailable" },
+  ])("$label blocks before idempotency and the handler with an awaited denied audit", async ({ authority, reason }) => {
+    const auditDone = createDeferred();
+    const auditRecords: McpAuditRecord[] = [];
+    const reserve = vi.fn();
+    const handler = vi.fn();
+    const app = createActorApp(operatorWriteGrant, {
+      services: operatorMatrixServices,
+      operatorAuthority: authority as OperatorAuthority | undefined,
+      idempotencyStore: { reserve, complete: vi.fn(), abandon: vi.fn() } as never,
+      toolHandlers: { "platform-operations.apply-catalog-plan": handler },
+      resourceHandlers: { "chase-sets://platform-operations/catalog-plans/summary": handler },
+      audit: async (record) => {
+        auditRecords.push(record);
+        await auditDone.promise;
+      },
+    });
+
+    let settled = false;
+    const pending = postMcp(app, "tools/call", {
+      name: "platform-operations.apply-catalog-plan",
+      arguments: { planFingerprint: "plan-7f3a", idempotencyKey: "idem_denied" },
+      confirmation: { confirmed: true, text: "plan-7f3a" },
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.waitFor(() => expect(auditRecords).toHaveLength(1));
+    expect(settled).toBe(false);
+    auditDone.resolve();
+    const result = await pending;
+
+    expect(result.body).toEqual(toolErrorResponse("request_1", OPERATOR_DENIAL));
+    expect(reserve).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(auditRecords).toEqual([
+      expect.objectContaining({
+        outcome: "denied",
+        method: "tools/call",
+        toolName: "platform-operations.apply-catalog-plan",
+        actorId: "usr_op",
+        agentGrantId: "lpa_operator",
+        reason,
+      }),
+    ]);
+
+    const resource = await postMcp(app, "resources/read", {
+      uri: "chase-sets://platform-operations/catalog-plans/summary",
+    });
+    expect(resource.body).toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: { code: -32001, message: OPERATOR_DENIAL },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(auditRecords.at(-1)).toMatchObject({ outcome: "denied", method: "resources/read", reason });
+  });
+
+  it("evaluates the operator authority at most once per request", async () => {
+    const authority = vi.fn(async () => grantedPlatformAdmin);
+    const app = createActorApp(platformAdminSession, {
+      services: operatorMatrixServices,
+      operatorAuthority: authority,
+    });
+    await postMcp(app, "tools/list");
+    expect(authority).toHaveBeenCalledTimes(1);
+    await postMcp(app, "resources/list");
+    expect(authority).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses an input-bound operator write whose confirmation text differs from the bound input", async () => {
+    const handler = vi.fn();
+    const app = createActorApp(platformAdminSession, {
+      services: operatorMatrixServices,
+      operatorAuthority: async () => grantedPlatformAdmin,
+      toolHandlers: { "platform-operations.apply-catalog-plan": handler },
+    });
+    const result = await postMcp(app, "tools/call", {
+      name: "platform-operations.apply-catalog-plan",
+      arguments: { planFingerprint: "plan-7f3a", idempotencyKey: "idem_mismatch" },
+      confirmation: { confirmed: true, text: "Apply Catalog Plan." },
+    });
+    expect(result.body).toEqual(
+      toolErrorResponse("request_1", "Confirmation text must exactly match the 'planFingerprint' input value."),
+    );
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe("operator scopes are never advertised", () => {
+  it("keeps operations:* out of protected-resource metadata and the default scope list", async () => {
+    const app = new Hono().route("/.well-known", createMcpOAuthProtectedResourceMetadataRoutes());
+    const metadata = (await (await app.request(MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH)).json()) as {
+      scopes_supported: string[];
+    };
+    expect(metadata.scopes_supported).toHaveLength(17);
+    expect(JSON.stringify(metadata)).not.toContain("operations:");
+    expect(MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED).toEqual(AGENT_OAUTH_COMMERCE_SCOPES);
+    expect(MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED.some(isAgentOAuthOperatorScope)).toBe(false);
   });
 });

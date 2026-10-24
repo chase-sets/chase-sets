@@ -198,11 +198,11 @@ function review(overrides = {}) {
     checkoutLaunchFreshStateCleanupReviewed: true,
     checkoutLaunchNoLegacyCompatibilityPaths: true,
     rollbackOwnerAssigned: true,
-    ucpAp2Owner: "Checkout and Payments",
+    ucpAgentCommerceOwner: "Checkout and Payments",
     publicLaunchClaimsEnabled: false,
     certificationApproved: false,
     certificationReference: "",
-    ucpAp2ClaimsReviewReference: "UCP-AP2-CLAIMS-REVIEW-2026-09-05",
+    ucpAgentCommerceClaimsReviewReference: "UCP-AGENT-COMMERCE-CLAIMS-REVIEW-2026-09-05",
     uncertifiedClaimsAbsent: true,
     ...overrides,
   };
@@ -544,12 +544,12 @@ describe("marketplace promotion evidence: authoritative launch consumption", () 
         futureOnlyLaunchCopyRemoved: true,
         policyPagesReviewed: true,
       },
-      ucpAp2Marketing: {
+      ucpAgentCommerceMarketing: {
         owner: "Checkout and Payments",
         publicLaunchClaimsEnabled: false,
         certificationApproved: false,
         certificationReference: "",
-        claimsReviewReference: "UCP-AP2-CLAIMS-REVIEW-2026-09-05",
+        claimsReviewReference: "UCP-AGENT-COMMERCE-CLAIMS-REVIEW-2026-09-05",
         uncertifiedClaimsAbsent: true,
       },
     });
@@ -650,7 +650,7 @@ describe("marketplace promotion evidence: caller-grafted authority is rejected",
     const evidence = buildPromotionEvidence(input({ review: v1Review }));
     expect(evidence.schemaVersion).toBe(MARKETPLACE_PROMOTION_EVIDENCE_VERSION);
     expect(evidence.passesPromotionGate).toBe(false);
-    expect(evidence.errors.join(" ")).toContain("marketplace-promotion-evidence/v3 derives every copy-audit");
+    expect(evidence.errors.join(" ")).toContain(`${MARKETPLACE_PROMOTION_EVIDENCE_VERSION} derives every copy-audit`);
   });
 });
 
@@ -794,26 +794,66 @@ describe("marketplace promotion evidence: audit input authority", () => {
     );
   });
 
-  it("keeps the retained UCP/AP2 certification contract", () => {
-    const missingCertification = buildPromotionEvidence(
-      input({
-        review: review({ publicLaunchClaimsEnabled: true, certificationApproved: false, certificationReference: "" }),
-      }),
-    );
-    expect(missingCertification.passesPromotionGate).toBe(false);
-    expect(missingCertification.errors).toContain("UCP/AP2 public launch claims require certificationApproved=true.");
-    expect(missingCertification.errors).toContain("UCP/AP2 public launch claims require a certificationReference.");
-
-    const certified = buildPromotionEvidence(
+  it("builds the UCP agent-commerce marketing record", () => {
+    const evidence = buildPromotionEvidence(
       input({
         review: review({
-          publicLaunchClaimsEnabled: true,
-          certificationApproved: true,
-          certificationReference: "UCP-AP2-CERTIFICATION-2026-09-05",
+          ucpAgentCommerceOwner: "Checkout",
+          ucpAgentCommerceClaimsReviewReference: "UCP-AGENT-COMMERCE-CLAIMS-REVIEW-2026-09-06",
         }),
       }),
     );
+
+    expect(evidence.schemaVersion).toBe("marketplace-promotion-evidence/v4");
+    expect(evidence.passesPromotionGate).toBe(true);
+    expect(evidence.ucpAgentCommerceMarketing).toEqual({
+      owner: "Checkout",
+      publicLaunchClaimsEnabled: false,
+      certificationApproved: false,
+      certificationReference: "",
+      claimsReviewReference: "UCP-AGENT-COMMERCE-CLAIMS-REVIEW-2026-09-06",
+      uncertifiedClaimsAbsent: true,
+    });
+
+    const { ucpAgentCommerceClaimsReviewReference: _claimsReview, ...withoutClaimsReview } = review();
+    const missingClaimsReview = buildPromotionEvidence(input({ review: withoutClaimsReview }));
+    expect(missingClaimsReview.passesPromotionGate).toBe(false);
+    expect(missingClaimsReview.errors).toEqual([
+      "Marketplace promotion ucpAgentCommerceClaimsReviewReference must be a non-empty string.",
+      "UCP agent-commerce claimsReviewReference is required.",
+    ]);
+  });
+
+  it("keeps the UCP agent-commerce certification contract", () => {
+    const certifiedReview = {
+      publicLaunchClaimsEnabled: true,
+      certificationApproved: true,
+      certificationReference: "UCP-AGENT-COMMERCE-CERTIFICATION-2026-09-05",
+    };
+    const certified = buildPromotionEvidence(input({ review: review(certifiedReview) }));
     expect(certified.passesPromotionGate).toBe(true);
+
+    // Each restraint case changes only its governing field from an otherwise valid record.
+    const unapproved = buildPromotionEvidence(
+      input({ review: review({ ...certifiedReview, certificationApproved: false }) }),
+    );
+    expect(unapproved.passesPromotionGate).toBe(false);
+    expect(unapproved.errors).toEqual(["UCP agent-commerce public launch claims require certificationApproved=true."]);
+
+    const unreferenced = buildPromotionEvidence(
+      input({ review: review({ ...certifiedReview, certificationReference: "" }) }),
+    );
+    expect(unreferenced.passesPromotionGate).toBe(false);
+    expect(unreferenced.errors).toEqual(["UCP agent-commerce public launch claims require a certificationReference."]);
+
+    expect(buildPromotionEvidence(input()).passesPromotionGate).toBe(true);
+    const uncertifiedClaimsPresent = buildPromotionEvidence(
+      input({ review: review({ uncertifiedClaimsAbsent: false }) }),
+    );
+    expect(uncertifiedClaimsPresent.passesPromotionGate).toBe(false);
+    expect(uncertifiedClaimsPresent.errors).toEqual([
+      "UCP agent-commerce launch restraint requires uncertifiedClaimsAbsent=true when public claims are disabled.",
+    ]);
   });
 
   it("parses the audit-record option from flags and environment", () => {

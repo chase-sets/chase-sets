@@ -37,6 +37,58 @@ const NOW = new Date("2026-06-10T12:00:05.000Z");
 const CREATED_AT = new Date("2026-06-10T12:00:00.000Z");
 
 describe("projection wake scheduler", () => {
+  it.each(["api-wait", "relay", "reconciliation", "operator"] as const)(
+    "idle-tail-wake-safety: %s settles idle checkpoints inside the leased run",
+    async (origin) => {
+      const contexts: Array<ProjectionRunContext | undefined> = [];
+      const projection = checkoutProjection({
+        position: 9n,
+        headPosition: 10n,
+        onRunContext: (context) => contexts.push(context),
+      });
+      const store = recordingSchedulerStore([{ ...claimedIntent({ requiredPosition: 10n }), origin }]);
+      const [runner] = createProjectionWakeSchedulerRunners({
+        workerId: "worker-a",
+        controlPlane: recordingControlPlane().controlPlane,
+        workSignalStore: store.store,
+        projectionGroups: [projection.group],
+        lanes: [{ lane: "hot", runnerCount: 1 }],
+      });
+
+      await runner.runOnce();
+
+      expect(contexts).toHaveLength(1);
+      expect(contexts[0]).toMatchObject({ settleIdleCheckpoints: true, fencingToken: "1" });
+      expect(contexts[0]?.throwIfLeaseLost).toBeTypeOf("function");
+      expect(store.completions).toHaveLength(1);
+    },
+  );
+
+  it("idle-tail-wake-safety: a failed idle checkpoint save cannot publish readiness or completion", async () => {
+    const projection = checkoutProjection({
+      position: 9n,
+      headPosition: 10n,
+      onRun: (context) => {
+        if (context?.settleIdleCheckpoints) throw new Error("idle checkpoint save failed");
+      },
+    });
+    const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 10n })]);
+    const [runner] = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: recordingControlPlane().controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [projection.group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+    });
+
+    await runner.runOnce();
+
+    expect(store.completions).toEqual([]);
+    expect(store.readiness).toEqual([]);
+    expect(store.failures).toHaveLength(1);
+    expect(store.failures[0].error).toMatchObject({ message: "idle checkpoint save failed" });
+  });
+
   it("nudges a 60s-poll wake loop when a matching wake-intent notification arrives", async () => {
     const calls: string[] = [];
     const waiter = controllableWorkSignalWaiter();

@@ -52,18 +52,34 @@ Set the outcome metadata and issue Dispatch rank, record material placement
 reasons on the roadmap, and preserve current steering until achieved or
 superseded. Never ask Todd which milestone to use, make him supply routine
 ranks, or turn missing priority evidence into a Decision. Send Todd only a
-product priority or scope change, or an operator action no lane can perform
-([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838628573)).
+product priority or scope change, or an operator action no lane can perform.
 Other unresolved product, legal and provider-authority choices inside accepted
 scope go to the orchestrator as host. The host decides same-attempt, in-scope
 repairs itself and records its reasoning. An independent decision lane is
-required only for a change to accepted scope or acceptance criteria, an attempt
-ceiling, ownership or authority, or a cross-lineage question; its verdict is
-final. A decision lane may not return `TODD_RULING_NEEDED`; if it believes Todd
-must decide, the host resolves that finding with a second independent lane.
+required only for a change to accepted scope or acceptance criteria, ownership
+or authority, or a cross-lineage question; its verdict is final. A decision
+lane may not return `TODD_RULING_NEEDED`; if it believes Todd must decide, the
+host resolves that finding with a second independent lane.
 Do not use candidate placement to hide stopped implementation or active lanes.
 Planning recovery queries `status:needs-replan` across all milestones, including
 candidates; candidate status only excludes ordinary implementation dispatch.
+
+Apply the [delivery operator boundary](../delivery/SKILL.md#operator-boundary)
+when forecasting human dependencies. Agents own probe preparation, execution,
+monitoring, evidence, cleanup, and reporting, including permitted sandbox/test
+credential entry through supported computer use. Reserve for Todd only production
+credential or real-money authorization/supervision, private entry for credentials
+agents may not hold, protected Windows permission prompts, or an actual
+policy/external-authority step agents cannot lawfully perform; do not assign him
+routine sign-ins or watch windows. Live credentials or real charges do not become
+autonomous sandbox work because the task is called a test. Missing tooling,
+including sandbox/test safe-entry gaps, is agent repair. Preserve actual tool
+policy, secret safety, provider restrictions (including no automated TCGplayer
+login), external approvals at their ruled
+lifecycle, and unrelated reserved authority. This grants no provider or
+production authorization. Explicit performer-specific acceptance needs
+prospective repair through the decision route and independent validation before
+agent execution, never relabeled human evidence.
 
 ## Bounded brief contract
 
@@ -93,11 +109,18 @@ solely to adopt it.
 
 Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milestone: all.
 
-1. **Intake.** Outcome statement, why-now, constraints, and (milestone tier)
-   track placement plus entry/exit gates against other milestones.
+1. **Intake.** Outcome statement, why-now, constraints, the repository each
+   issue's change merges into (`docs/contributing/backlog-model.md`,
+   Repository routing), and (milestone tier) track placement plus entry/exit
+   gates against other milestones.
 2. **Discovery.** Repo evidence sweep: owning contexts' README/GLOSSARY, prior
    art, and an explicit **don't-rebuild check** — shipped surfaces get pointers,
-   never reimplementation. Check glossary conformance of every term the plan
+   never reimplementation. Run a **supersession check**: inventory every existing
+   path the planned change replaces or makes redundant, including code, docs,
+   flags, and workflows. Stage 2-light for Issues still requires this check.
+   The supersession inventory covers existing paths, including open issues
+   found by searching the planned outcome terms and predicted footprint paths.
+   Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
 
@@ -112,7 +135,11 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
 3. **Decomposition.** Vertical slices, one behavior owner each. **Footprint
    analysis drives topology:** slices sharing files form declared serial chains;
    disjoint slices form parallel waves. Declare the chain DAG explicitly — this
-   is what lets the orchestrator parallelize lanes safely.
+   is what lets the orchestrator parallelize lanes safely. Place each superseded
+   path's removal in the replacing slice or in a removal slice natively dependent
+   on the switchover, in the same committed outcome, never candidate, parked or
+   unfiled work. Each removal has an owning acceptance criterion and named
+   evidence method.
 4. **Decision extraction.** Enumerate every decision the work will hit. Resolve
    what repo evidence can; everything else goes to the decision queue NOW, each
    with a recommendation — never leave a known decision to surface mid-lane.
@@ -127,10 +154,16 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    (`references/issue-standard.md` item 8).
 5. **Drafting.** Author artifacts per the reference standards. Every path
    terminates in issues meeting `references/issue-standard.md`, whatever the tier.
+   For Issues tier, Stage 5 performs the removal placement specified in
+   Decomposition; tier shortcuts never skip the supersession check or placement.
 6. **Pressure test.** Adversarial pass in a FRESH context (independent agent)
    per `references/pressure-test.md`. Repair findings before registration.
-7. **Registration.** Create on GitHub (issue forms under `.github/ISSUE_TEMPLATE/`)
-   and wire the structure natively — prose is not structure:
+7. **Registration.** Register each issue in the repository its change merges
+   into. A `chase-sets/chase-sets-controller` issue uses the same brief
+   standard and pressure test. Its milestone and release follow that
+   repository's controller-orchestrator skill. Create on GitHub (issue forms
+   under `.github/ISSUE_TEMPLATE/`) and wire the structure natively — prose is
+   not structure:
    - every child **attached as a sub-issue** of its epic (one parent per slice);
    - every chain link recorded as a **GitHub issue dependency**, not only as a
      `Blocked by #N` line;
@@ -143,6 +176,39 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      attached successor carries that parentage, detach the predecessor from the
      parent in the same registration pass. If no successor is attached to the
      parent, keep the predecessor's parent link;
+   - judge coverage over the whole successor set: `full` carries every
+     accepted acceptance criterion, `partial` replaces named criteria only,
+     and `adjacent` shares a theme but triggers no action;
+   - for `full`, in the same registration pass close the predecessor as
+     `duplicate` when scope is identical or `not planned` otherwise, with one
+     comment naming the successor set; every successor names the predecessor in
+     its `### Supersedes` section, and the planner never waits for a successor
+     to land;
+   - for `partial`, in the same registration pass remove only the dropped
+     criteria in place, then post one comment naming those criteria and the
+     successor set, and never add `status:needs-replan`; the edited body takes
+     the ordinary readiness check on its new revision before any further
+     dispatch. If the remainder is not a coherent slice, close the
+     predecessor as `not planned` and file one fixed-scope issue with the
+     remainder, naming the old issue `full` in its `### Supersedes` section;
+   - if either class would drop accepted product scope, leave the predecessor
+     unchanged and route one product question to Todd;
+   - the `planning-repair/v1` boundary is unchanged: its input is a closed PR,
+     and it is not the supersession route. When the predecessor is already in
+     a planning-repair round, the supersession comment is input to that round,
+     and a `REPLACED` original remains open as `status:tracking-only` until its
+     replacements land. The `full`, `partial` and product-question rules above
+     never apply to an issue's own repair replacements;
+   - a closed `not planned` or `duplicate` predecessor is orphaned when at
+     least one issue names it `full` and every such successor is itself closed
+     `not planned`; reopen it or file a new issue naming it `full` when the last
+     successor closes that way;
+   - every new non-Epic, including host and review follow-ups, gets a home
+     after a duplicate search: a committed milestone, Candidate capabilities,
+     or Operations for machine-generated incidents;
+   - use `Deferred / Incubation` only on Todd's explicit deferral;
+     Epics stay unmilestoned and write-once; superseding an Epic takes a
+     superseding comment, plus closure when it is `full`;
    - every open slice classified (`refined ≡ classified`) with a wave milestone
      + `priority:*` + `area:*` + `kind:*`, excluding Epics,
      `status:tracking-only`, candidate outcomes, `Deferred / Incubation`, and `Operations` (the
@@ -151,8 +217,6 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    - parent attachment is reported, not gating: attach a slice to the Epic that
      owns its acceptance when one exists. A future parent-or-standalone gate
      and any `status:standalone` label require a new fixed-scope change;
-     [#6174](https://github.com/chase-sets/chase-sets/issues/6174) records that
-     this is not current behavior;
    - the delivery board's **Status** is derived, never hand-written: a native
      **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
      projects to `Tracking`. Create the authoritative type or label and let
@@ -235,6 +299,7 @@ highest-traffic first.
 
 Calibration, decomposition, decision extraction, and synthesis are frontier-
 judgment work (model-routing row 8). Discovery sweeps and drafting mechanics go
-to cheap workers. The pressure test runs on an independent capable model, never
-the one that wrote the plan. Always route by exact model version; a successor is
-a new model with new evidence, and predecessor vetoes or scores never transfer.
+to cheap workers. The pressure test runs in a fresh session (new agent, no planning
+context) on the row-8 routing pick, which may be the model that wrote the plan.
+Always route by exact model version; a successor is a new model with new
+evidence, and predecessor vetoes or scores never transfer.

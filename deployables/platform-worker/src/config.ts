@@ -1,6 +1,7 @@
 import { getWorkerHostContextNames, type WorkerHostContextName } from "@chase-sets/platform-runtime/worker";
 import {
   getBooleanEnv,
+  getBoundedDurationEnv,
   getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
   getContextWaiterDatabaseEnvName as getSharedContextWaiterDatabaseEnvName,
   getOptionalEnv,
@@ -8,11 +9,11 @@ import {
   getPositiveNumberEnv,
   loadDeploymentEnvironment,
   loadCatalogAssetStorageConfig,
+  loadStorageConfig,
   loadPlatformDatabaseConfig,
   loadPoolConfig,
   loadPostageConfig,
   loadStripeProviderConfig,
-  loadTcgplayerAutomationConfig,
   resolveEnumEnv,
   resolveMobileMessagingProvider,
   type DeploymentEnvironment,
@@ -22,7 +23,6 @@ import {
   type PlatformPoolConfig,
   type PlatformPostageConfig,
   type PlatformStripeEffectiveMode,
-  type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
   isPlatformWorkerRuntimeProfile,
@@ -30,7 +30,10 @@ import {
 } from "@chase-sets/platform-runtime/runtime-profiles";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
-import { parseSecretEnvelopeKeyring, type SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
+import {
+  parseSupportEvidenceCleanupBinding,
+  type SupportEvidenceCleanupBinding,
+} from "@chase-sets/platform-operations/server";
 
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
 
@@ -38,7 +41,6 @@ export type PlatformWorkerPoolConfig = PlatformPoolConfig;
 
 export type PlatformWorkerConfig = Readonly<{
   channelCredentialKeyring: ChannelCredentialKeyring | null;
-  catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
   runtimeProfile: PlatformWorkerRuntimeProfile;
   deploymentEnvironment: DeploymentEnvironment;
   sharedDatabaseUrl: string | null;
@@ -48,6 +50,9 @@ export type PlatformWorkerConfig = Readonly<{
   contextWaiterDatabaseUrls?: Readonly<Partial<Record<PlatformWorkerContextName, string>>>;
   pool: PlatformWorkerPoolConfig;
   catalogAssetStorage: PlatformWorkerCatalogAssetStorageConfig;
+  /** The platform-api's effective Support evidence store selection, so cleanup reaches the bytes uploads wrote. */
+  supportEvidenceStorage: PlatformCatalogAssetStorageConfig;
+  supportEvidenceCleanupBinding: SupportEvidenceCleanupBinding;
   port: number;
   evidenceWindowAdmissionSecret?: string;
   stripeEffectiveMode: PlatformStripeEffectiveMode;
@@ -92,7 +97,9 @@ export type PlatformWorkerConfig = Readonly<{
   projectionWakeDisabledProjections: readonly string[];
   paymentReconciliationIntervalMs: number | null;
   paymentDeadlineSweepIntervalMs: number | null;
+  channelsConnectorLivenessSweepIntervalMs: number | null;
   supportRequestDeadlineSweepIntervalMs: number | null;
+  supportEvidenceCleanupIntervalMs: number | null;
   customerFeedbackAttentionDigestIntervalMs: number | null;
   customerFeedbackAttentionTeamRecipientUserIds: readonly string[];
   reviewWindowSweepIntervalMs: number | null;
@@ -127,12 +134,12 @@ export type PlatformWorkerConfig = Readonly<{
     hybridValue: string | null;
     queryCacheMaxEntries: number;
     queryCacheTtlMs: number;
+    queryTimeoutMs: number;
   }>;
   paymentProcessor: PlatformWorkerPaymentProcessorConfig;
   moneyMovement: PlatformWorkerMoneyMovementConfig;
   mobileMessaging: PlatformWorkerMobileMessagingConfig;
   postage: PlatformWorkerPostageConfig;
-  tcgplayerAutomation: PlatformWorkerTcgplayerAutomationConfig | null;
   googleMerchant: PlatformWorkerGoogleMerchantConfig;
   notificationEmail: PlatformWorkerNotificationEmailConfig;
 }>;
@@ -176,13 +183,44 @@ export type PlatformWorkerProjectionWakeRelayConfig = Readonly<{
 
 export type PlatformWorkerCatalogAssetStorageConfig = PlatformCatalogAssetStorageConfig;
 
+/**
+ * Mirrors platform-api's listing-photo store selection, from which it derives the private Support evidence
+ * store: the explicit MARKETPLACE_LISTING_PHOTO_* settings, else production's Catalog asset store.
+ */
+function loadSupportEvidenceStorageConfig(
+  port: number,
+  productionLike: boolean,
+  catalogAssetStorage: PlatformCatalogAssetStorageConfig,
+): PlatformCatalogAssetStorageConfig {
+  if (!getOptionalEnv("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND") && productionLike) return catalogAssetStorage;
+  return loadStorageConfig({
+    kindEnvName: "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND",
+    localRootEnvName: "MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT",
+    publicBaseUrlEnvName: "MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL",
+    s3BucketEnvName: "MARKETPLACE_LISTING_PHOTO_S3_BUCKET",
+    s3RegionEnvName: "MARKETPLACE_LISTING_PHOTO_S3_REGION",
+    s3EndpointEnvName: "MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT",
+    s3AccessKeyIdEnvName: "MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID",
+    s3SecretAccessKeyEnvName: "MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY",
+    s3ForcePathStyleEnvName: "MARKETPLACE_LISTING_PHOTO_S3_FORCE_PATH_STYLE",
+    defaultLocalRoot: "artifacts/marketplace-listing-photos",
+    defaultPublicBaseUrl: `http://localhost:${port}/marketplace-listing-photos`,
+    productionLike,
+    productionFilesystemError:
+      "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND=s3 is required for Marketplace listing photo storage in production.",
+    invalidKindError: "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND must be filesystem or s3.",
+    missingS3ConfigError:
+      "MARKETPLACE_LISTING_PHOTO_S3_BUCKET, MARKETPLACE_LISTING_PHOTO_S3_REGION, and MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL are required when MARKETPLACE_LISTING_PHOTO_STORAGE_KIND=s3.",
+    mismatchedS3CredentialsError:
+      "MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID and MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY must be configured together.",
+  });
+}
+
 export type PlatformWorkerPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 
 export type PlatformWorkerMoneyMovementConfig = PlatformMoneyMovementConfig;
 
 export type PlatformWorkerPostageConfig = PlatformPostageConfig<false>;
-
-export type PlatformWorkerTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
 
 export type PlatformWorkerGoogleMerchantConfig =
   | Readonly<{
@@ -246,7 +284,6 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 }
 
 export function loadConfig(): PlatformWorkerConfig {
-  const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
   loadCatalogProviderSendWindowEnabled(process.env);
   const runtimeProfile = loadRuntimeProfile();
   const deploymentEnvironment = loadDeploymentEnvironment();
@@ -319,20 +356,31 @@ export function loadConfig(): PlatformWorkerConfig {
   }
 
   const maxConcurrentRunners = getPositiveNumberEnv("WORKER_MAX_CONCURRENT_RUNNERS", 4);
+  const catalogAssetStorage = loadCatalogAssetStorageConfig({
+    port,
+    productionLike,
+    defaultPublicBaseUrl: `${(getOptionalEnv("PLATFORM_API_URL") ?? `http://localhost:${port}`).replace(
+      /\/$/,
+      "",
+    )}/catalog-assets`,
+  });
 
   return {
     runtimeProfile,
     deploymentEnvironment,
     ...databaseConfig,
     pool: loadPoolConfig(),
-    catalogAssetStorage: loadCatalogAssetStorageConfig({
-      port,
-      productionLike,
-      defaultPublicBaseUrl: `${(getOptionalEnv("PLATFORM_API_URL") ?? `http://localhost:${port}`).replace(
-        /\/$/,
-        "",
-      )}/catalog-assets`,
-    }),
+    catalogAssetStorage,
+    supportEvidenceStorage: loadSupportEvidenceStorageConfig(port, productionLike, catalogAssetStorage),
+    // The same trusted release tuple and environment scope S-A2's administration authority uses.
+    supportEvidenceCleanupBinding: parseSupportEvidenceCleanupBinding(
+      process.env.SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON,
+      {
+        environment: deploymentEnvironment,
+        deploymentInstance: process.env.CHASE_SETS_DEPLOYMENT_INSTANCE,
+        implementationSha: process.env.CHASE_SETS_IMPLEMENTATION_SHA,
+      },
+    ),
     port,
     evidenceWindowAdmissionSecret: getOptionalEnv("EVIDENCE_WINDOW_ADMISSION_SECRET") ?? undefined,
     workerId: getOptionalEnv("WORKER_ID") ?? `platform-worker-${process.pid}-${Date.now().toString(36)}`,
@@ -468,10 +516,15 @@ export function loadConfig(): PlatformWorkerConfig {
     projectionWakeDisabledProjections: getProjectionKeyListEnv("WORKER_WAKE_DISABLED_PROJECTIONS"),
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
     paymentDeadlineSweepIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_DEADLINE_SWEEP_INTERVAL_MS", 60_000),
+    channelsConnectorLivenessSweepIntervalMs: getOptionalPositiveNumberEnv(
+      "CHANNELS_CONNECTOR_LIVENESS_SWEEP_INTERVAL_MS",
+      60_000,
+    ),
     supportRequestDeadlineSweepIntervalMs: getOptionalPositiveNumberEnv(
       "SUPPORT_REQUEST_DEADLINE_SWEEP_INTERVAL_MS",
       300_000,
     ),
+    supportEvidenceCleanupIntervalMs: getOptionalPositiveNumberEnv("SUPPORT_EVIDENCE_CLEANUP_INTERVAL_MS", 300_000),
     customerFeedbackAttentionDigestIntervalMs: getOptionalPositiveNumberEnv(
       "CUSTOMER_FEEDBACK_ATTENTION_DIGEST_INTERVAL_MS",
       900_000,
@@ -573,6 +626,10 @@ export function loadConfig(): PlatformWorkerConfig {
       hybridValue: getOptionalEnv("DISCOVERY_SEARCH_HYBRID"),
       queryCacheMaxEntries: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", 1_000),
       queryCacheTtlMs: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS", 900_000),
+      queryTimeoutMs: getBoundedDurationEnv("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS", 800, {
+        minMs: 1,
+        maxMs: 2_147_483_647,
+      }),
     },
     paymentProcessor: stripeProvider.paymentProcessor,
     moneyMovement: stripeProvider.moneyMovement,
@@ -594,9 +651,7 @@ export function loadConfig(): PlatformWorkerConfig {
         "EASYPOST_API_KEY is required for platform worker postage label work in production.",
       includeWebhookSecret: false,
     }),
-    tcgplayerAutomation: loadTcgplayerAutomationConfig(catalogOperatorSessionKeyring !== null),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
-    catalogOperatorSessionKeyring,
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,

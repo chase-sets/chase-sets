@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,7 +12,6 @@ import {
   browserE2ePlatformWorkerCiCommand,
   browserE2ePlatformWorkerEnv,
   browserE2eProductionBuilds,
-  browserE2eProductionCommands,
   browserE2eProductionIngressEnv,
   browserE2eProductionTarget,
   browserE2eRateLimitEnv,
@@ -20,11 +19,82 @@ import {
   buildPlatformChildEnvironment,
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
+  createMarketplaceDevProcessDefinition,
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
 } from "./dev-system-config.mjs";
 
 const temporaryDirectories = [];
+
+const marketplaceSandbox = {
+  urls: { platformApi: "http://localhost:6412", marketplaceWeb: "http://localhost:6403" },
+  ports: { marketplaceWeb: 6403 },
+};
+
+function expectMarketplaceCliBinding(source) {
+  expect(source).toContain("createMarketplaceDevProcessDefinition,");
+  expect(source).toContain("createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),");
+  expect(source).toContain('"browser-e2e": ["platform-api", "platform-worker", "admin-web", "marketplace"]');
+  expect(source).toContain('marketplace: ["marketplace"]');
+  expect(source).toContain("all: processes.map(({ name }) => name)");
+  expect(source).toContain("applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName))");
+  expect(source).toContain("env: buildPlatformChildEnvironment(process.env, definition.env)");
+}
+
+function expectMarketplaceOrigin(environment) {
+  expect(environment.CHASE_SETS_INTERNAL_API_ORIGIN).toBe(marketplaceSandbox.urls.platformApi);
+}
+
+describe("marketplace dev sandbox origin", () => {
+  it("binds the shared definition into the CLI process table and all three targets", () => {
+    const source = readFileSync(new URL("./dev-system.mjs", import.meta.url), "utf8");
+    expectMarketplaceCliBinding(source);
+    expect(() =>
+      expectMarketplaceCliBinding(source.replace("createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),", "")),
+    ).toThrow();
+  });
+
+  it.each(["browser-e2e", "marketplace", "all"])(
+    "resolves the sandbox API origin in the sanitized %s child",
+    (target) => {
+      const definition = createMarketplaceDevProcessDefinition(marketplaceSandbox, {
+        CHASE_SETS_SANDBOX_ID: "synthetic-marketplace-test",
+        CHASE_SETS_INTERNAL_API_ORIGIN: "https://synthetic-inherited-api.invalid",
+      });
+      const [resolved] = applyDevTargetEnvOverrides(target, [definition]);
+      const environment = buildPlatformChildEnvironment(
+        {
+          PATH: "C:\\tools",
+          CHASE_SETS_INTERNAL_API_ORIGIN: "https://synthetic-ambient-api.invalid",
+          PGHOSTADDR: "203.0.113.42",
+          SEED_PACKS_SPACES_SECRET_KEY: "synthetic-secret",
+        },
+        resolved.env,
+      );
+      expectMarketplaceOrigin(environment);
+      expect(resolved).toMatchObject({
+        name: "marketplace",
+        workspace: "@chase-sets/app-marketplace-web",
+        port: marketplaceSandbox.ports.marketplaceWeb,
+        env: {
+          CHASE_SETS_SANDBOX_ID: "synthetic-marketplace-test",
+          PLATFORM_API_URL: marketplaceSandbox.urls.platformApi,
+          VITE_PLATFORM_API_URL: marketplaceSandbox.urls.platformApi,
+          PORT: String(marketplaceSandbox.ports.marketplaceWeb),
+        },
+      });
+      expect(environment).toMatchObject(resolved.env);
+      expect(environment).not.toHaveProperty("PGHOSTADDR");
+      expect(environment).not.toHaveProperty("SEED_PACKS_SPACES_SECRET_KEY");
+      const missing = { ...environment };
+      delete missing.CHASE_SETS_INTERNAL_API_ORIGIN;
+      expect(() => expectMarketplaceOrigin(missing)).toThrow();
+      for (const origin of [marketplaceSandbox.urls.marketplaceWeb, "https://synthetic-wrong-origin.invalid"]) {
+        expect(() => expectMarketplaceOrigin({ ...environment, CHASE_SETS_INTERNAL_API_ORIGIN: origin })).toThrow();
+      }
+    },
+  );
+});
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -79,9 +149,19 @@ describe("dev system target env overrides", () => {
   });
 
   it("starts the CI worker through its declared non-watch script", () => {
-    expect(browserE2ePlatformWorkerCiCommand).toMatchObject({
-      args: ["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"],
-    });
+    const definition = { name: "platform-worker", workspace: "@chase-sets/app-platform-worker", env: {} };
+    for (const platform of ["win32", "linux", "darwin"]) {
+      const [selected] = applyDevTargetEnvOverrides("browser-e2e", [definition], {
+        ci: true,
+        platform,
+        environment: {},
+      });
+      expect(selected).toMatchObject(
+        platform === "win32"
+          ? { command: undefined, args: undefined, script: "dev:ci" }
+          : { command: "pnpm", args: ["--filter", definition.workspace, "run", "dev:ci"] },
+      );
+    }
   });
 
   it("keeps the watch-based worker loop for local browser development", () => {
@@ -188,14 +268,33 @@ describe("dev system target env overrides", () => {
       },
     ];
 
-    const productionProcesses = applyDevTargetEnvOverrides(browserE2eProductionTarget, processes, { ci: true });
+    const productionProcesses = applyDevTargetEnvOverrides(browserE2eProductionTarget, processes, {
+      ci: true,
+      platform: "linux",
+    });
+    const windowsProcesses = applyDevTargetEnvOverrides(browserE2eProductionTarget, processes, {
+      ci: true,
+      platform: "win32",
+    });
+    const workspaces = [
+      "@chase-sets/app-platform-api",
+      "@chase-sets/app-platform-worker",
+      "@chase-sets/app-admin-web",
+      "@chase-sets/app-marketplace-web",
+    ];
 
-    for (const processDefinition of productionProcesses) {
+    productionProcesses.forEach((processDefinition, index) => {
       expect(processDefinition).toMatchObject({
-        ...browserE2eProductionCommands[processDefinition.name],
+        command: "pnpm",
+        args: ["--filter", workspaces[index], "run", "start"],
       });
+      expect(processDefinition).not.toHaveProperty("script");
       expect(processDefinition.env).not.toHaveProperty("NODE_ENV");
       expect(processDefinition.args.join(" ")).not.toContain("watch");
+    });
+    for (const processDefinition of windowsProcesses) {
+      expect(processDefinition).toMatchObject({ command: undefined, args: undefined, script: "start" });
+      expect(processDefinition.env).not.toHaveProperty("NODE_ENV");
     }
     expect(productionProcesses[0].env).toMatchObject(browserE2eProductionIngressEnv);
     expect(productionProcesses[0]).not.toHaveProperty("publicPort");

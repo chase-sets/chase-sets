@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
+import { signInWithPassword } from "./support/auth";
 
 // Seller Desk acceptance gate — the web transport half. The MCP transport half is
 // deployables/platform-api/__tests__/seller-desk-journey.e2e.test.ts and runs today;
@@ -22,7 +22,6 @@ import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/
 const runSellerDeskUat = process.env.SELLER_DESK_UAT === "true";
 const sellerEmail = process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "";
 const sellerPassword = process.env.MARKETPLACE_E2E_PASSWORD?.trim() ?? "";
-const sellerDisplayName = process.env.MARKETPLACE_E2E_DISPLAY_NAME?.trim() || "Seller Desk UAT";
 
 // The Seller Desk blueprint routes — mirrored from contracts/seller-desk (its
 // index.test.ts is the source-of-truth guard). Page surfaces are absolute under
@@ -70,12 +69,7 @@ const MIN_TOUCH_TARGET_PX = 44;
 async function signInAsSeller(page: Page) {
   await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk", { waitUntil: "domcontentloaded" });
   const origin = new URL(page.url()).origin;
-  const account = { email: sellerEmail, password: sellerPassword, displayName: sellerDisplayName };
-  if (account.displayName) {
-    await registerOrSignInSyntheticAccount(page, origin, account);
-  } else {
-    await signInWithPassword(page, origin, account);
-  }
+  await signInWithPassword(page, origin, { email: sellerEmail, password: sellerPassword });
 }
 
 async function assertMinTouchTarget(page: Page, name: string | RegExp) {

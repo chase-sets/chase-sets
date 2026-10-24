@@ -7,21 +7,105 @@ import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from ".
 import { evaluateCanonicalClaimConsistency, projectCanonicalClaimReviewCorpus } from "./canonical-claim-guard";
 import type { PublicPolicyRegistryEntry } from "./policy-registry";
 import { publicPolicyRegistry } from "./policy-registry";
+import { paymentsTermsPolicyArtifact } from "./payments-terms";
 import { readCitedSourceSlice } from "../integrations/privacy-product-truth-inventory.mjs";
 
 const domainDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(domainDirectory, "../../../../..");
 
+describe("ordinary interest versus the ruled Prepaid Balance term", () => {
+  const prepaid = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "prepaid-balance")!;
+  const ordinaryAssertions = [
+    "Chase Sets does not pay you interest on funds connected to your Marketplace payment activity, including amounts pending payout.",
+    "Chase Sets does not pay interest on funds connected to your Marketplace payment activity.",
+    "Chase Sets does not pay you interest on Wallet balances.",
+    "Chase Sets does not pay interest on Wallet balances.",
+    "Chase Sets does not pay you interest on ordinary payment activity.",
+    "Chase Sets does not pay interest on ordinary payment activity.",
+    "Chase Sets does not pay you interest on amounts pending payout.",
+    "Chase Sets does not pay interest on amounts pending payout.",
+    "Chase Sets also does not pay interest on your Wallet balance.",
+    "Chase Sets does not pay interest on any Wallet balance or amount pending payout.",
+    ...[
+      "your Wallet balance",
+      "any Wallet balance",
+      "the Wallet balance",
+      "a Wallet balance",
+      "funds in your Wallet",
+      "funds in any Wallet",
+      "funds in the Wallet",
+      "funds in a Wallet",
+      "your Marketplace payment activity",
+      "any Marketplace payment activity",
+      "the Marketplace payment activity",
+      "your ordinary payment activity",
+      "any ordinary payment activity",
+      "the ordinary payment activity",
+      "an ordinary Wallet balance",
+      "pending payouts",
+      "your pending payouts",
+      "any pending payout",
+      "the pending payout",
+      "any amount pending payout",
+      "any amounts pending payout",
+      "your amount pending payout",
+      "your amounts pending payout",
+      "the amount pending payout",
+      "the amounts pending payout",
+    ].flatMap((subject) => [
+      `Chase Sets does not pay interest on ${subject}.`,
+      `Chase Sets does not pay you interest on ${subject}.`,
+    ]),
+  ];
+
+  describe.each([
+    ["standalone", ""],
+    ["appended to the ruled prepaid draft", `${prepaid.draftText} `],
+  ])("%s", (_context, prefix) => {
+    it.each(ordinaryAssertions)("rejects undeclared ordinary assertions under arbitrary ids: %s", (draftText) => {
+      const result = evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus("synthetic-unrelated-8667", `${prefix}${draftText}`),
+        repoRoot,
+      );
+      expect(result).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ claimId: "wallet-no-interest", sectionId: "synthetic-unrelated-8667" }),
+        ]),
+      );
+    });
+  });
+
+  it("accepts the ruled prepaid sentence without section exemptions and retains every prior forbidden phrase", () => {
+    expect(
+      evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus("synthetic-unrelated-8667", prepaid.draftText),
+        repoRoot,
+      ),
+    ).toEqual([]);
+    expect(canonicalClaimRegistry["wallet-no-interest"].forbiddenAssertionPhrases).toEqual(
+      expect.arrayContaining([
+        "do not earn interest",
+        "does not earn interest",
+        "will not earn interest",
+        "no interest is paid",
+      ]),
+    );
+    expect(canonicalClaimRegistry["wallet-no-interest"].forbiddenAssertionPhrases).not.toContain(
+      "does not pay interest",
+    );
+  });
+});
+
 // Claim-specific source-role probes, not a semantic extension of the generic guard.
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1954-1974",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2429-2449",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1616-1670",
+    ref: "infrastructure/stripe-payments/index.ts:1669-1723",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -31,7 +115,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1672-1761",
+    ref: "infrastructure/stripe-payments/index.ts:1725-1814",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -41,12 +125,12 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2082-2089",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2557-2564",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
     role: "session outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:920-1002",
+    ref: "infrastructure/stripe-payments/index.ts:930-1012",
     markers: [
       'case "checkout.session.completed"',
       'paymentObject.mode === "setup"',
@@ -58,7 +142,7 @@ const chargeSourceRoles = [
   },
   {
     role: "intent outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:1047-1073",
+    ref: "infrastructure/stripe-payments/index.ts:1057-1083",
     markers: [
       'case "payment_intent.processing"',
       'case "payment_intent.amount_capturable_updated"',
@@ -69,7 +153,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2527-2568",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3005-3046",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -80,7 +164,7 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:401-476",
+    ref: "infrastructure/stripe-payments/index.ts:411-486",
     markers: [
       'processorStatus === "succeeded"',
       'processorStatus === "requires_capture"',
@@ -91,12 +175,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:265-295",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:270-300",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1227-1269",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1559-1601",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -106,7 +190,7 @@ const chargeSourceRoles = [
   },
   {
     role: "capture fact",
-    ref: "bounded-contexts/payments/features/payments/domain/domain.ts:968-1005",
+    ref: "bounded-contexts/payments/features/payments/domain/domain.ts:957-994",
     markers: ['case "RecordPaymentCapture"', 'type: "payments.payment-captured"', "capturedAt,"],
   },
 ] as const;
@@ -618,7 +702,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C8",
-    ref: `${termsAcceptanceSourcePath}:12-13`,
+    ref: `${termsAcceptanceSourcePath}:39-40`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "active Terms of Service version",
@@ -628,7 +712,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C9",
-    ref: `${termsAcceptanceSourcePath}:26-28`,
+    ref: `${termsAcceptanceSourcePath}:53-55`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "exact active version string",
@@ -638,7 +722,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C10",
-    ref: `${termsAcceptanceSourcePath}:19-30`,
+    ref: `${termsAcceptanceSourcePath}:46-57`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "A thin fail-closed wrapper",
@@ -691,17 +775,17 @@ const expectedTermsAcceptanceCitationOccurrences: readonly TermsAcceptanceCitati
   {
     sectionId: "effective-date-notice-and-acceptance",
     fieldPath: "reviewManifest.productTruthRefs[1]",
-    ref: `${termsAcceptanceSourcePath}:12-13`,
+    ref: `${termsAcceptanceSourcePath}:39-40`,
   },
   {
     sectionId: "changes-notice-and-acceptance",
     fieldPath: "reviewManifest.productTruthRefs[2]",
-    ref: `${termsAcceptanceSourcePath}:26-28`,
+    ref: `${termsAcceptanceSourcePath}:53-55`,
   },
   {
     sectionId: "changes-notice-and-acceptance",
     fieldPath: "reviewManifest.assumptions[0].evidenceRef",
-    ref: `${termsAcceptanceSourcePath}:19-30`,
+    ref: `${termsAcceptanceSourcePath}:46-57`,
   },
 ];
 
@@ -745,11 +829,15 @@ const citationFencePaths = {
 } as const;
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
-  [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
-  // Refreshed for the authorized charge-authority draft correction; only C1-C7 digits remain normalized.
-  [citationFencePaths.privacyPolicy]: "ce7135c9b63f41417e5dad54a32ada1d6a01afe9cb9631e3ad972df2e590c04a",
-  [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
-  [citationFencePaths.staticSurfaces]: "008c7a9dfe4475ca97613eece7b4f337be854de440e11ceb24d5b2684677b901",
+  [citationFencePaths.authenticityTerms]: "87965e016a67474e187a17a6f1698f332d964314453ff0946926906388057de9",
+  // Includes #7422 revocation, #9499 Inventory recovery storage, the #9106 Search Interpretation marker in
+  // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
+  // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "591d12627c7c74e539d502b8fc36d79bd276c8adf90ea690645e583c2538d27a",
+  [citationFencePaths.authenticityTest]: "373914b5510020641186b833c170ccd3e9ed072d541573ade9306e1216124873",
+  // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
+  // evidence-citation update and #9878 TCGplayer guard surface.
+  [citationFencePaths.staticSurfaces]: "1f9f136b4c8dc0ee9903e8883b983b67d52f891a268addebf4c5ff55d217af61",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {
@@ -876,7 +964,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2038-2049"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2513-2524"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
@@ -964,7 +1052,7 @@ describe("canonical claim consistency guard", () => {
     const registry = withPaymentsTermsCanonicalClaims("charge-timing-and-statement-descriptor", [
       {
         claimId: "payment-charge-timing-and-capture",
-        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:491-509"],
+        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:493-511"],
       },
     ]);
 
@@ -1127,7 +1215,7 @@ describe("canonical claim consistency guard", () => {
     // Privacy keeps the same settled claim but swaps one canonical citation for
     // an adjacent range that still resolves and still contains a required
     // keyword, so only the provenance-identity rule can catch it.
-    const adjacentRef = "infrastructure/stripe-payments/index.ts:1603-1660";
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1602-1659";
     expect(canonicalRefs).not.toContain(adjacentRef);
     const drifted = publicPolicyRegistry.map((entry) =>
       entry.artifact.metadata.policyKey === "privacy-policy"
@@ -1691,7 +1779,7 @@ describe("line-keyed policy citation authority", () => {
       expect(validateCitationAuthority(row), row.id).toEqual([]);
       if (row.minimalEdges !== undefined) {
         const identity = row.spanOf(row.identity);
-        expect(identity, `${row.id} identity`).toEqual({ start: 11, end: 41 });
+        expect(identity, `${row.id} identity`).toEqual({ start: 38, end: 68 });
         const slice = readCitedSourceSlice(repoRoot, row.ref);
         if (slice.error !== undefined) {
           throw new Error(`${row.id}: ${slice.error}`);
@@ -1767,7 +1855,7 @@ describe("line-keyed policy citation authority", () => {
         registry: withTermsOfServiceSectionOverride(conduct.id, {
           reviewManifest: {
             ...conduct.reviewManifest,
-            productTruthRefs: [...conduct.reviewManifest.productTruthRefs, `${termsAcceptanceSourcePath}:12-13`],
+            productTruthRefs: [...conduct.reviewManifest.productTruthRefs, `${termsAcceptanceSourcePath}:39-40`],
           },
         }),
       },
@@ -1777,7 +1865,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...effective.reviewManifest,
             productTruthRefs: effective.reviewManifest.productTruthRefs.filter(
-              (ref) => ref !== `${termsAcceptanceSourcePath}:12-13`,
+              (ref) => ref !== `${termsAcceptanceSourcePath}:39-40`,
             ),
           },
         }),
@@ -1788,7 +1876,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...changes.reviewManifest,
             productTruthRefs: changes.reviewManifest.productTruthRefs.map((ref) =>
-              ref === `${termsAcceptanceSourcePath}:26-28`
+              ref === `${termsAcceptanceSourcePath}:53-55`
                 ? "bounded-contexts/identity/features/consents/api/terms-route.ts:31-90"
                 : ref,
             ),
@@ -1801,7 +1889,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...effective.reviewManifest,
             productTruthRefs: effective.reviewManifest.productTruthRefs.map((ref) =>
-              ref === `${termsAcceptanceSourcePath}:12-13` ? `${termsAcceptanceSourcePath}:6-7` : ref,
+              ref === `${termsAcceptanceSourcePath}:39-40` ? `${termsAcceptanceSourcePath}:6-7` : ref,
             ),
           },
         }),
@@ -1925,8 +2013,14 @@ describe("occurrence-scoped citation byte fence", () => {
       {
         name: "openQuestions edited",
         file: citationFencePaths.privacyPolicy,
-        before: "Launch jurisdiction scope is undecided",
-        after: "Launch region scope is undecided",
+        before: "Initial rollout jurisdictions are ratified",
+        after: "Initial rollout regions are ratified",
+      },
+      {
+        name: "revocation storage disclosure edited",
+        file: citationFencePaths.privacyPolicy,
+        before: "The stored value contains only that identifier, not a revocation receipt or credentials.",
+        after: "The stored value contains the revocation receipt and credentials.",
       },
       {
         name: "provenance key edited",
@@ -1951,8 +2045,9 @@ describe("occurrence-scoped citation byte fence", () => {
       {
         name: "static include edited",
         file: citationFencePaths.staticSurfaces,
-        before: 'include: [{ kind: "any" }],',
-        after: 'include: [{ kind: "prefix", value: "bounded-contexts" }],',
+        before: 'evidence: ["scripts/format-check.mjs:121-138,219-257"],\n    include: [{ kind: "any" }],',
+        after:
+          'evidence: ["scripts/format-check.mjs:121-138,219-257"],\n    include: [{ kind: "prefix", value: "bounded-contexts" }],',
       },
       {
         name: "static comment edited",

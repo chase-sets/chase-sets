@@ -9,7 +9,10 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPaymentRuntime } from "../../features/payments/api/runtime";
-import { createPaymentWebhookRunner } from "../../features/payments/api/webhook-transaction";
+import {
+  createPaymentTransactionRunner,
+  createPaymentWebhookRunner,
+} from "../../features/payments/api/webhook-transaction";
 import { createCardDeclineStore } from "../../features/payments/api/card-decline-store";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
@@ -18,11 +21,21 @@ import type { CheckoutProcessingFeePolicyResolver } from "../../features/payment
 import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
 import type { ProviderModeObservation } from "../../features/payments/api/contracts";
 import {
+  createWalletFundingRuntime,
+  type WalletFundingEligibilityResolver,
+  type WalletFundingServices,
+} from "../../features/wallet-funding/api/runtime";
+import type { PrepaidRefundAuthority } from "../../features/wallet-funding/api/prepaid-refund-authority";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { walletFundingLimitsPolicy } from "../../features/wallet-funding/api/limits-policy";
+import {
   createEvidenceWindowDisposition,
   type EvidenceWindowDispositionOptions,
 } from "../../features/payments/api/evidence-window-disposition";
 
 export type PaymentsServiceOptions = Readonly<{
+  prepaidRefundAuthority?: PrepaidRefundAuthority;
+  walletFundingEligibilityResolver?: WalletFundingEligibilityResolver;
   evidenceWindowDisposition?: Pick<
     EvidenceWindowDispositionOptions,
     "authority" | "requestCapturedRemedy" | "crossCheck"
@@ -38,6 +51,8 @@ export type PaymentsServiceOptions = Readonly<{
 }>;
 
 export type PaymentsServices = Readonly<{
+  policies: ReturnType<typeof createPolicyRuntime>;
+  walletFunding: WalletFundingServices;
   disposeEvidenceWindow: ReturnType<typeof createEvidenceWindowDisposition>;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   payments: ReturnType<typeof createPaymentRuntime>;
@@ -89,6 +104,16 @@ export function createPaymentsServices(
   const db = pool as PgQueryable;
   const processorGateway = options.processorGateway ?? createMissingProcessorGateway();
   const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
+  const policies = createPolicyRuntime({ eventStore, db });
+  const walletFunding = createWalletFundingRuntime({
+    eventStore,
+    pool,
+    processorGateway,
+    prepaidRefundAuthority: options.prepaidRefundAuthority,
+    walletFundingEligibilityResolver: options.walletFundingEligibilityResolver,
+    checkoutProcessingFeePolicyResolver: options.checkoutProcessingFeePolicyResolver,
+    resolveLimits: async () => (await policies.resolvePolicy(walletFundingLimitsPolicy)).value,
+  });
 
   const refunds = createRefundRuntime({
     eventStore,
@@ -100,6 +125,8 @@ export function createPaymentsServices(
   const payments = createPaymentRuntime({
     cardDeclineStore: createCardDeclineStore(pool),
     runWebhookTransaction: createPaymentWebhookRunner(pool, eventStore),
+    runPaymentTransaction: createPaymentTransactionRunner(pool, eventStore),
+    walletFunding,
     evidenceWindowCorrelation: options.evidenceWindowCorrelation,
     evidenceWindowProviderWrite: options.evidenceWindowProviderWrite,
     eventStore,
@@ -113,6 +140,8 @@ export function createPaymentsServices(
   });
 
   return {
+    policies,
+    walletFunding,
     disposeEvidenceWindow: createEvidenceWindowDisposition({
       ...options.evidenceWindowDisposition,
       processorGateway,
@@ -122,8 +151,8 @@ export function createPaymentsServices(
     payments,
     refunds,
     publicConfig: processorGateway.getPublicConfiguration(),
+    projectors: [...payments.projectors, ...refunds.projectors, ...walletFunding.projectors, ...policies.projectors],
     evidenceWindowCorrelation: options.evidenceWindowCorrelation,
-    projectors: [...payments.projectors, ...refunds.projectors],
     pool,
     db,
     ...(options.providerModeObservation ? { providerModeObservation: options.providerModeObservation } : {}),

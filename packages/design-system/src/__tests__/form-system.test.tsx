@@ -1,9 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { fireEvent, isInaccessible, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState, type FormEvent } from "react";
+import { createRef, Profiler, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { RouterForm } from "../components/forms/router-form";
+import { FormProvider } from "../components/forms/form";
 import {
   Autocomplete,
   Button,
@@ -11,14 +14,23 @@ import {
   CheckboxGroup,
   Combobox,
   CurrencyInput,
+  DateInput,
+  DatePicker,
+  Field,
+  FileDropzone,
   Form,
+  NativeSelect,
   NumberField,
+  PasswordInput,
+  QuantityStepper,
   RadioGroup,
   Select,
+  SearchInput,
   Slider,
   Switch,
   TagInput,
   TextInput,
+  Textarea,
   ValidationSummary,
   normalizeFormErrors,
   useFormContext,
@@ -29,6 +41,14 @@ type DeferredValidation = {
   values: { code: string };
   resolve: (value: { code?: string } | null) => void;
 };
+
+function deferred<T = unknown>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
 
 function FormContextProbe() {
   const form = useFormContext();
@@ -107,6 +127,265 @@ function AsyncValidationHarness({
 }
 
 describe("form system", () => {
+  it("announcement policy defaults preserve standalone, explicit inline and independent provider alerts", () => {
+    const { container } = render(
+      <>
+        <TextInput label="Standalone" error="Standalone error" />
+        <Form>
+          <TextInput label="Default" error="Default error" />
+        </Form>
+        <Form errorAnnouncement="inline">
+          <TextInput label="Inline" error="Inline error" />
+        </Form>
+        <FormProvider errorAnnouncement="summary">
+          <TextInput label="Owned" error="Owned error" />
+          <FormProvider>
+            <TextInput label="Independent" error="Independent error" />
+          </FormProvider>
+          <Form>
+            <TextInput label="New form" error="New form error" />
+          </Form>
+        </FormProvider>
+      </>,
+    );
+    expect(screen.getAllByRole("alert").map((node) => node.textContent)).toEqual([
+      "Standalone error",
+      "Default error",
+      "Inline error",
+      "Independent error",
+      "New form error",
+    ]);
+    expect(screen.getByText("Owned error").getAttribute("role")).toBeNull();
+    expect(container.querySelector("[errorAnnouncement]")).toBeNull();
+  });
+
+  it("announcement scope preserves a trailing standalone alert after a summary-owned form", () => {
+    render(
+      <>
+        <Form errorAnnouncement="summary">
+          <TextInput label="Trailing owned" error="Trailing owned error" />
+        </Form>
+        <TextInput label="Trailing standalone" error="Trailing standalone error" />
+      </>,
+    );
+    expect(screen.getByText("Trailing owned error").getAttribute("role")).toBeNull();
+    expect(screen.getAllByRole("alert").map((node) => node.textContent)).toEqual(["Trailing standalone error"]);
+  });
+
+  it("summary owns inline error announcements without changing canonical error styling", () => {
+    render(
+      <>
+        <Form>
+          <TextInput label="Default styled" error="Default styled error" />
+        </Form>
+        <Form errorAnnouncement="summary">
+          <TextInput label="Owned styled" error="Owned styled error" />
+        </Form>
+      </>,
+    );
+    expect(screen.getByText("Owned styled error").className).toBe(screen.getByText("Default styled error").className);
+  });
+
+  it.each([undefined, "inline", "summary"] as const)(
+    "announcement policy defaults reach RouterForm (%s) without DOM leakage",
+    (policy) => {
+      const router = createMemoryRouter([
+        {
+          path: "/",
+          element: (
+            <FormProvider errorAnnouncement="summary">
+              <RouterForm errorAnnouncement={policy}>
+                <TextInput label="Routed" error="Routed error" />
+              </RouterForm>
+            </FormProvider>
+          ),
+        },
+      ]);
+      const { container } = render(<RouterProvider router={router} />);
+      expect(screen.getByText("Routed error").getAttribute("role")).toBe(policy === "summary" ? null : "alert");
+      expect(container.querySelector("form")?.hasAttribute("errorAnnouncement")).toBe(false);
+      router.dispose();
+    },
+  );
+
+  it("summary owns inline error announcements with visible descriptions and natural pointer/Enter focus", async () => {
+    const user = userEvent.setup();
+    const ref = createRef<HTMLElement>();
+    const { container } = render(
+      <Form errorAnnouncement="summary" validationSummaryId="owned-errors">
+        <ValidationSummary
+          ref={ref}
+          id="owned-errors"
+          errors={[
+            { fieldId: "owned-email", message: "Fix email." },
+            { fieldId: "owned-password", message: "Fix password." },
+            { fieldId: "owned-condition", message: "Fix condition." },
+          ]}
+        />
+        <TextInput id="owned-email" label="Email" description="Email help" error="Fix email." />
+        <PasswordInput id="owned-password" label="Password" description="Password help" error="Fix password." />
+        <NativeSelect
+          id="owned-condition"
+          label="Condition"
+          description="Condition help"
+          error="Fix condition."
+          items={[{ value: "new", label: "New" }]}
+        />
+      </Form>,
+    );
+    expect(screen.getAllByRole("alert")).toEqual([ref.current]);
+    expect(container.querySelectorAll('[role="alert"], [role="status"], [aria-live]')).toHaveLength(1);
+    expect(ref.current?.getAttribute("aria-live")).toBe("assertive");
+    expect(document.activeElement).not.toBe(ref.current);
+    for (const label of ["Email", "Password", "Condition"]) {
+      const control = screen.getByLabelText(label, { exact: true });
+      const error = document.getElementById(`${control.id}-error`)!;
+      expect(isInaccessible(error)).toBe(false);
+      expect(error.getAttribute("role")).toBeNull();
+      expect(error.getAttribute("aria-live")).toBeNull();
+      expect(control.getAttribute("aria-invalid")).toBe("true");
+      expect(control.getAttribute("aria-describedby")).toBe(`${control.id}-description ${control.id}-error`);
+      const link = screen.getByRole("link", { name: `Fix ${label.toLowerCase()}.` });
+      expect(link.getAttribute("href")).toBe(`#${control.id}`);
+      await user.click(link);
+      expect(document.activeElement).toBe(control);
+      link.focus();
+      await user.keyboard("{Enter}");
+      expect(document.activeElement).toBe(control);
+    }
+    ref.current?.focus();
+    expect(document.activeElement).toBe(ref.current);
+  });
+
+  it("announcement scope and lifecycle preserve sibling, ID-only, nested and portal ownership without render focus", () => {
+    const portal = document.createElement("div");
+    document.body.append(portal);
+    const ref = createRef<HTMLElement>();
+    const view = (message?: string, status: "idle" | "error" | "success" = "idle") => (
+      <>
+        <Button>Keep editing</Button>
+        <Form errorAnnouncement={message ? "summary" : "inline"} status={status}>
+          <ValidationSummary ref={ref} errors={message ? [{ message }] : []} />
+          <TextInput id="lifecycle" label="Lifecycle" error={message} />
+          {createPortal(<TextInput id="portal" label="Portal" error={message} />, portal)}
+          <FormProvider>
+            <TextInput label="Nested" error="Nested error" />
+          </FormProvider>
+        </Form>
+        <Form status="error">
+          <TextInput label="Sibling" error="Sibling error" />
+        </Form>
+        <Form validationSummaryId="static-help">
+          <TextInput label="ID only" error="ID-only error" />
+          <p id="static-help">Help</p>
+        </Form>
+        <Form>
+          <ValidationSummary errors={[{ message: "Default summary" }]} />
+          <TextInput label="Unadopted" error="Unadopted error" />
+        </Form>
+      </>
+    );
+    const { rerender, unmount } = render(view());
+    try {
+      const keepEditing = screen.getByRole("button", { name: "Keep editing" });
+      keepEditing.focus();
+      expect(ref.current).toBeNull();
+      for (const message of ["First failure", "Replacement failure"]) {
+        rerender(view(message, "error"));
+        expect(document.activeElement).toBe(keepEditing);
+        expect(ref.current).toBe(screen.getAllByRole("alert")[0]);
+        for (const id of ["lifecycle", "portal"]) {
+          const error = document.getElementById(`${id}-error`)!;
+          expect(error.textContent).toBe(message);
+          expect(isInaccessible(error)).toBe(false);
+          expect(error.closest('[role="alert"], [role="status"], [aria-live]')).toBeNull();
+        }
+        expect(within(portal).queryByRole("alert")).toBeNull();
+        expect(screen.getAllByRole("alert").map((node) => node.textContent)).toEqual([
+          expect.stringContaining(message),
+          "Nested error",
+          "Sibling error",
+          "ID-only error",
+          expect.stringContaining("Default summary"),
+          "Unadopted error",
+        ]);
+      }
+      expect(screen.queryByText("First failure")).toBeNull();
+      for (const status of ["idle", "success"] as const) {
+        rerender(view(undefined, status));
+        expect(ref.current).toBeNull();
+        expect(screen.queryByText("Replacement failure")).toBeNull();
+        for (const id of ["lifecycle", "portal"]) {
+          expect(document.getElementById(`${id}-error`)).toBeNull();
+          expect(document.getElementById(id)?.getAttribute("aria-invalid")).toBeNull();
+          expect(document.getElementById(id)?.getAttribute("aria-describedby")).toBeNull();
+        }
+        expect(document.activeElement).toBe(keepEditing);
+      }
+    } finally {
+      unmount();
+      portal.remove();
+    }
+  });
+
+  describe.each([undefined, "summary"] as const)("field chrome announcement matrix (%s)", (policy) => {
+    const props = { id: "matrix", label: "Matrix", description: "Help", error: "Actual error" };
+    const items = [{ value: "one", label: "One" }];
+    it.each([
+      ["Autocomplete", <Autocomplete {...props} items={items} />],
+      ["Checkbox", <Checkbox {...props} />],
+      ["CheckboxGroup", <CheckboxGroup {...props} items={items} values={[]} />],
+      ["Combobox", <Combobox {...props} items={items} />],
+      ["DateInput", <DateInput {...props} />],
+      ["DatePicker", <DatePicker {...props} />],
+      [
+        "Field",
+        <Field {...props} id={undefined} htmlFor="matrix">
+          {/* Field owns the frame anatomy; its caller owns the control's ARIA wiring. */}
+          <input id="matrix" aria-invalid="true" aria-describedby="matrix-description matrix-error" />
+        </Field>,
+      ],
+      ["FileDropzone", <FileDropzone {...props} />],
+      ["NumberField", <NumberField {...props} />],
+      ["CurrencyInput", <CurrencyInput {...props} currencyCode="USD" />],
+      ["PasswordInput", <PasswordInput {...props} />],
+      ["QuantityStepper", <QuantityStepper {...props} />],
+      ["RadioGroup", <RadioGroup {...props} items={items} />],
+      ["NativeSelect", <NativeSelect {...props} items={items} />],
+      ["Select", <Select {...props} items={items} />],
+      ["Slider", <Slider {...props} />],
+      ["Switch", <Switch {...props} />],
+      ["TagInput", <TagInput {...props} values={[]} />],
+      ["TextInput", <TextInput {...props} />],
+      ["SearchInput", <SearchInput {...props} />],
+      ["Textarea", <Textarea {...props} />],
+    ])("%s preserves error anatomy", (name, control) => {
+      render(<Form errorAnnouncement={policy}>{control}</Form>);
+      const error = screen.getByText("Actual error");
+      expect(isInaccessible(error)).toBe(false);
+      expect(error.id).toBe("matrix-error");
+      expect(error.getAttribute("role")).toBe(policy === "summary" ? null : "alert");
+      expect(error.getAttribute("aria-live")).toBeNull();
+      const target = name === "RadioGroup" ? screen.getByRole("radiogroup") : document.getElementById("matrix");
+      expect(target?.getAttribute("aria-invalid")).toBe("true");
+      expect(target?.getAttribute("aria-describedby")).toBe("matrix-description matrix-error");
+      expect(document.getElementById("matrix-description")?.textContent).toContain("Help");
+    });
+  });
+
+  it("canonical announcement documentation opts in only with populated summary errors", () => {
+    const readme = readFileSync(`${__dirname}/../../README.md`, "utf8");
+    const contact = readme.slice(
+      readme.indexOf("export function ContactForm()"),
+      readme.indexOf("Field controls should"),
+    );
+    expect(contact).toContain('errorAnnouncement={errors.length > 0 ? "summary" : "inline"}');
+    expect(contact).toContain('validationSummaryId={errors.length > 0 ? "contact-errors" : undefined}');
+    expect(contact).toContain('<ValidationSummary id="contact-errors" errors={errors} />');
+    expect(readme).toContain('`errorAnnouncement="inline"` (the default)');
+    expect(readme).toContain("not inferred from `validationSummaryId`");
+  });
+
   it("renders a native form with route-compatible submission attributes", () => {
     const handleSubmit = vi.fn((event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -517,6 +796,23 @@ describe("form system", () => {
     expect(new FormData(form).get("listing_name")).toBe("Blastoise");
   });
 
+  it("preserves the contents layout class on a disabled RouterForm fieldset", () => {
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        element: (
+          <RouterForm submitting>
+            <TextInput label="Listing name" name="listing_name" defaultValue="Blastoise" />
+          </RouterForm>
+        ),
+      },
+    ]);
+
+    const { container } = render(<RouterProvider router={router} />);
+
+    expect(container.querySelector("fieldset")?.className).toContain("contents");
+  });
+
   it("associates helper text and errors with stable field ids at the same time", () => {
     render(
       <TextInput
@@ -574,6 +870,205 @@ describe("form system", () => {
     );
     expect(screen.getByText("Separate tags with commas.").getAttribute("id")).toBe("listing-tags-description");
     expect(screen.getByText("Used for account notices.").getAttribute("id")).toBe("marketing-opt-in-description");
+  });
+
+  it("lets a consuming ref focus the natural summary root after commit without stealing focus on rerender", async () => {
+    const user = userEvent.setup();
+    const ref = createRef<HTMLElement>();
+    const view = (message?: string) => (
+      <>
+        <Button type="button">Keep focus</Button>
+        <ValidationSummary
+          ref={ref}
+          id="caller-errors"
+          errors={message ? [{ fieldId: "caller-email", message }] : []}
+        />
+        <TextInput id="caller-email" label="Email" />
+      </>
+    );
+    const { rerender, unmount } = render(view());
+    expect(ref.current).toBeNull();
+    const button = screen.getByRole("button", { name: "Keep focus" });
+    button.focus();
+
+    rerender(view("Enter an email."));
+    const summary = screen.getByRole("alert");
+    expect(ref.current).toBe(summary);
+    expect(summary.tagName).toBe("SECTION");
+    expect(summary.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(button);
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("link"));
+
+    ref.current?.focus();
+    expect(document.activeElement).toBe(summary);
+    button.focus();
+    rerender(view("Use a valid email."));
+    expect(ref.current).toBe(summary);
+    expect(document.activeElement).toBe(button);
+    ref.current?.focus();
+    expect(document.activeElement).toBe(summary);
+
+    rerender(view());
+    expect(ref.current).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    rerender(view("Try again."));
+    unmount();
+    expect(ref.current).toBeNull();
+  });
+
+  it("summary links focus natural TextInput, PasswordInput and NativeSelect controls by pointer and Enter", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <TextInput id="summary-email" label="Email" />
+        <PasswordInput id="summary-password" label="Password" />
+        <NativeSelect id="summary-condition" label="Condition" items={[{ value: "new", label: "New" }]} />
+        <ValidationSummary
+          errors={[
+            { fieldId: "summary-email", message: "Fix email." },
+            { fieldId: "summary-password", message: "Fix password." },
+            { fieldId: "summary-condition", message: "Fix condition." },
+            { fieldId: "absent-field", message: "Missing target." },
+          ]}
+        />
+      </>,
+    );
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert").getAttribute("aria-live")).toBe("assertive");
+    expect(screen.getByRole("alert").getAttribute("tabindex")).toBe("-1");
+    for (const [message, label] of [
+      ["Fix email.", "Email"],
+      ["Fix password.", "Password"],
+      ["Fix condition.", "Condition"],
+    ]) {
+      const link = screen.getByRole("link", { name: message });
+      const control = screen.getByLabelText(label, { exact: true });
+      expect(link.getAttribute("href")).toBe(`#${control.id}`);
+      await user.click(link);
+      expect(document.activeElement).toBe(control);
+      link.focus();
+      await user.keyboard("{Enter}");
+      expect(document.activeElement).toBe(control);
+    }
+    const missingLink = screen.getByRole("link", { name: "Missing target." });
+    missingLink.focus();
+    fireEvent.click(missingLink);
+    expect(document.activeElement).toBe(missingLink);
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(missingLink);
+  });
+
+  it("cancels a summary link Enter keydown only when it focuses the target", () => {
+    render(
+      <>
+        <TextInput id="cancel-email" label="Email" />
+        <input id="cancel-disabled" aria-label="Disabled" disabled />
+        <ValidationSummary
+          errors={[
+            { fieldId: "cancel-email", message: "Fix email." },
+            { fieldId: "cancel-disabled", message: "Fix disabled." },
+            { fieldId: "cancel-absent", message: "Missing target." },
+          ]}
+        />
+      </>,
+    );
+    const email = screen.getByLabelText("Email", { exact: true });
+    const emailLink = screen.getByRole("link", { name: "Fix email." });
+
+    emailLink.focus();
+    expect(fireEvent.keyDown(emailLink, { key: "a" })).toBe(true);
+    expect(document.activeElement).toBe(emailLink);
+    expect(fireEvent.keyDown(emailLink, { key: "Enter" })).toBe(false);
+    expect(document.activeElement).toBe(email);
+    emailLink.focus();
+    expect(fireEvent.keyDown(emailLink, { key: "Enter", shiftKey: true })).toBe(false);
+    expect(document.activeElement).toBe(email);
+
+    for (const message of ["Fix disabled.", "Missing target."]) {
+      const link = screen.getByRole("link", { name: message });
+      link.focus();
+      expect(fireEvent.keyDown(link, { key: "Enter" })).toBe(true);
+      expect(document.activeElement).toBe(link);
+    }
+  });
+
+  it("summary link Enter inside a form focuses the field without submitting", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault());
+    const keyDowns: { target: EventTarget; key: string; defaultPrevented: boolean }[] = [];
+    render(
+      <form
+        aria-label="Shipping address"
+        onSubmit={onSubmit}
+        onKeyDown={(event) =>
+          keyDowns.push({ target: event.target, key: event.key, defaultPrevented: event.nativeEvent.defaultPrevented })
+        }
+      >
+        <ValidationSummary
+          errors={[
+            { fieldId: "form-street", message: "Enter a street." },
+            { fieldId: "form-absent", message: "Missing target." },
+          ]}
+        />
+        <TextInput id="form-street" label="Street" />
+        <button type="submit">Save address</button>
+      </form>,
+    );
+    const street = screen.getByLabelText("Street", { exact: true });
+    const streetLink = screen.getByRole("link", { name: "Enter a street." });
+
+    streetLink.focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(street);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(keyDowns).toEqual([{ target: streetLink, key: "Enter", defaultPrevented: true }]);
+
+    const missingLink = screen.getByRole("link", { name: "Missing target." });
+    missingLink.focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(missingLink);
+    expect(keyDowns.at(-1)).toEqual({ target: missingLink, key: "Enter", defaultPrevented: false });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    street.focus();
+    await user.keyboard("{Enter}");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves summary consumer behavior without a ref across error and empty rerenders", () => {
+    const view = (errors: { message: string }[]) => (
+      <>
+        <TextInput label="Continue editing" />
+        <ValidationSummary
+          id="legacy-errors"
+          title="Existing title"
+          description="Existing description"
+          errors={errors}
+        />
+      </>
+    );
+    const { rerender } = render(view([]));
+    const input = screen.getByLabelText("Continue editing");
+    input.focus();
+    expect(screen.queryByRole("alert")).toBeNull();
+    rerender(view([{ message: "Existing message." }]));
+    const summary = screen.getByRole("alert");
+    expect(summary.getAttribute("id")).toBe("legacy-errors");
+    expect(summary.getAttribute("aria-live")).toBe("assertive");
+    expect(summary.getAttribute("tabindex")).toBe("-1");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Existing title" })).toBeTruthy();
+    expect(screen.getByText("Existing description")).toBeTruthy();
+    expect(screen.getByText("Existing message.")).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(document.activeElement).toBe(input);
+    rerender(view([{ message: "Updated message." }]));
+    expect(screen.getByRole("alert")).toBe(summary);
+    expect(document.activeElement).toBe(input);
+    rerender(view([]));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.activeElement).toBe(input);
   });
 
   it("renders validation summaries that link to invalid fields", () => {
@@ -694,6 +1189,95 @@ describe("form system", () => {
     expect(emittedValues.every((value) => value === null || /^-?\d+\.\d{2}$/.test(value))).toBe(true);
   });
 
+  describe.each(["NumberField", "CurrencyInput"] as const)("%s behavior", (kind) => {
+    function renderField(options: { disabled?: boolean; error?: string } = {}) {
+      const onValueChange = vi.fn();
+      const shared = {
+        label: "Value",
+        decrementLabel: "Decrease value",
+        incrementLabel: "Increase value",
+        onValueChange,
+        ...options,
+      };
+      render(
+        kind === "NumberField" ? (
+          <NumberField {...shared} defaultValue={2} min={1} max={3} />
+        ) : (
+          <CurrencyInput {...shared} currencyCode="USD" defaultValue="2.00" min="1.00" max="3.00" step="1.00" />
+        ),
+      );
+      return {
+        input: screen.getByRole("spinbutton", { name: "Value" }),
+        decrement: screen.getByRole("button", { name: "Decrease value" }),
+        increment: screen.getByRole("button", { name: "Increase value" }),
+        onValueChange,
+      };
+    }
+
+    const value = (number: number) => (kind === "NumberField" ? number : number.toFixed(2));
+
+    it("commits typed values and null on clearing", async () => {
+      const user = userEvent.setup();
+      const { input, onValueChange } = renderField();
+      await user.clear(input);
+      await user.type(input, "3");
+      await user.tab();
+      expect(onValueChange).toHaveBeenLastCalledWith(value(3));
+      await user.clear(input);
+      await user.tab();
+      expect(onValueChange).toHaveBeenLastCalledWith(null);
+    });
+
+    it("steps with buttons and keyboard without exceeding either bound", async () => {
+      const user = userEvent.setup();
+      const { input, decrement, increment, onValueChange } = renderField();
+      await user.click(increment);
+      expect(onValueChange).toHaveBeenLastCalledWith(value(3));
+      expect(increment.hasAttribute("disabled")).toBe(true);
+      await user.click(input);
+      await user.keyboard("{ArrowUp}");
+      expect(onValueChange).toHaveBeenLastCalledWith(value(3));
+      await user.click(decrement);
+      expect(onValueChange).toHaveBeenLastCalledWith(value(2));
+      await user.click(input);
+      await user.keyboard("{ArrowDown}");
+      expect(onValueChange).toHaveBeenLastCalledWith(value(1));
+      expect(decrement.hasAttribute("disabled")).toBe(true);
+      await user.keyboard("{ArrowDown}");
+      expect(onValueChange).toHaveBeenLastCalledWith(value(1));
+      await user.keyboard("{ArrowUp}");
+      expect(onValueChange).toHaveBeenLastCalledWith(value(2));
+      expect(onValueChange.mock.calls.every(([next]) => Number(next) >= 1 && Number(next) <= 3)).toBe(true);
+    });
+
+    it("keeps disabled input and steppers inert", async () => {
+      const user = userEvent.setup();
+      const { input, decrement, increment, onValueChange } = renderField({ disabled: true });
+      expect(input.hasAttribute("disabled")).toBe(true);
+      expect(decrement.hasAttribute("disabled")).toBe(true);
+      expect(increment.hasAttribute("disabled")).toBe(true);
+      await user.type(input, "3{ArrowUp}{ArrowDown}");
+      await user.click(decrement);
+      await user.click(increment);
+      expect(onValueChange).not.toHaveBeenCalled();
+      expect(Number((input as HTMLInputElement).value)).toBe(2);
+    });
+
+    it("retains its error association while allowing ordinary editing", async () => {
+      const user = userEvent.setup();
+      const { input, onValueChange } = renderField({ error: "Enter a valid value." });
+      const error = screen.getByText("Enter a valid value.");
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
+      await user.clear(input);
+      await user.type(input, "3");
+      await user.tab();
+      expect(onValueChange).toHaveBeenLastCalledWith(value(3));
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
+    });
+  });
+
   it("normalizes server errors and drives controlled form state", () => {
     expect(
       normalizeFormErrors({
@@ -765,5 +1349,335 @@ describe("form system", () => {
 
     await waitFor(() => expect(screen.getByText("ready").getAttribute("data-valid")).toBe("true"));
     expect(validate).toHaveBeenCalledTimes(2);
+  });
+
+  it("siblings and rows busy only themselves and preserve submitter serialization", async () => {
+    const gate = deferred();
+    const received: FormData[] = [];
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: ({ request }) =>
+          request.formData().then((data) => {
+            received.push(data);
+            return gate.promise;
+          }),
+        element: (
+          <>
+            <RouterForm method="post" data-testid="row-a">
+              <input type="hidden" name="row" value="a" />
+              <Button type="submit" name="intent" value="save">
+                Save A
+              </Button>
+            </RouterForm>
+            <RouterForm method="post" data-testid="row-b">
+              <input type="hidden" name="row" value="b" />
+              <Button type="submit" name="intent" value="save">
+                Save B
+              </Button>
+            </RouterForm>
+          </>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save A" }));
+    await waitFor(() => expect(screen.getByTestId("row-a").getAttribute("data-submitting")).toBe("true"));
+    expect(screen.getByTestId("row-b").getAttribute("data-submitting")).toBeNull();
+    expect([...received[0]!.entries()]).toEqual([
+      ["row", "a"],
+      ["intent", "save"],
+    ]);
+    gate.resolve(null);
+  });
+
+  it("byte-identical twin supersession clears the earlier form", async () => {
+    const gate = deferred();
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => gate.promise,
+        element: (
+          <>
+            <RouterForm method="post" data-testid="twin-a">
+              <Button type="submit">A</Button>
+            </RouterForm>
+            <RouterForm method="post" data-testid="twin-b">
+              <Button type="submit">B</Button>
+            </RouterForm>
+          </>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "A" }));
+    await waitFor(() => expect(screen.getByTestId("twin-a").getAttribute("data-submitting")).toBe("true"));
+    await user.click(screen.getByRole("button", { name: "B" }));
+    await waitFor(() => expect(screen.getByTestId("twin-b").getAttribute("data-submitting")).toBe("true"));
+    expect(screen.getByTestId("twin-a").getAttribute("data-submitting")).not.toBe("true");
+    gate.resolve(null);
+  });
+
+  it("two submitters busy only the selected one", async () => {
+    const gate = deferred();
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => gate.promise,
+        element: (
+          <RouterForm method="post" data-testid="multi">
+            <Button type="submit" name="intent" value="first">
+              First
+            </Button>
+            <Button type="submit" name="intent" value="second">
+              Second
+            </Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Second" }));
+    const first = screen.getByRole("button", { name: "First" });
+    const second = screen.getByRole("button", { name: "Second" });
+    await waitFor(() => expect(second.getAttribute("aria-busy")).toBe("true"));
+    expect(first.getAttribute("aria-busy")).toBeNull();
+    expect(first.querySelector(".animate-spin")).toBeNull();
+    expect(second.querySelector(".animate-spin")).not.toBeNull();
+    expect(second.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(second);
+    gate.resolve(null);
+    await waitFor(() => expect(second.getAttribute("aria-busy")).toBeNull());
+    expect(second.querySelector(".animate-spin")).toBeNull();
+    expect(second.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(second);
+  });
+
+  it("records its committed node without a mount-time state rerender", () => {
+    let buttonNode: HTMLButtonElement | null = null;
+    const objectRef = createRef<HTMLButtonElement>();
+    const renderPhases: string[] = [];
+    const recordNode = (node: HTMLButtonElement | null) => {
+      buttonNode = node;
+    };
+
+    const view = (pendingSubmitter: HTMLButtonElement | null) => (
+      <FormProvider pendingSubmitter={pendingSubmitter}>
+        <Profiler id="button" onRender={(_, phase) => renderPhases.push(phase)}>
+          <Button ref={recordNode} type="submit">
+            Save
+          </Button>
+        </Profiler>
+        <Button ref={objectRef} type="submit">
+          Other
+        </Button>
+      </FormProvider>
+    );
+
+    const { rerender, unmount } = render(view(null));
+
+    expect(renderPhases).toEqual(["mount"]);
+    expect(buttonNode).not.toBeNull();
+
+    rerender(view(buttonNode));
+
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBe("true");
+
+    expect(objectRef.current).toBe(screen.getByRole("button", { name: "Other" }));
+    expect(objectRef.current?.getAttribute("aria-busy")).toBeNull();
+
+    rerender(view(objectRef.current));
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBeNull();
+    expect(objectRef.current?.getAttribute("aria-busy")).toBe("true");
+
+    rerender(view(document.createElement("button")));
+    expect(objectRef.current?.getAttribute("aria-busy")).toBeNull();
+
+    unmount();
+    expect(buttonNode).toBeNull();
+    expect(objectRef.current).toBeNull();
+  });
+
+  it("caller-written field keeps pending and reaches the action", async () => {
+    const gate = deferred();
+    let received = "";
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: async ({ request }) => {
+          received = String((await request.formData()).get("attempt"));
+          return gate.promise;
+        },
+        element: (
+          <RouterForm
+            method="post"
+            data-testid="written"
+            onSubmit={(event) => {
+              const input = document.createElement("input");
+              input.name = "attempt";
+              input.value = "written";
+              event.currentTarget.append(input);
+            }}
+          >
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByTestId("written").getAttribute("data-submitting")).toBe("true"));
+    expect(received).toBe("written");
+    gate.resolve(null);
+  });
+
+  it("holds through loading and returns idle at a terminal", async () => {
+    const gate = deferred();
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => gate.promise,
+        element: (
+          <RouterForm method="post" data-testid="terminal">
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByTestId("terminal").getAttribute("data-submitting")).toBe("true"));
+    gate.resolve(null);
+    await waitFor(() => expect(screen.getByTestId("terminal").getAttribute("data-submitting")).toBeNull());
+  });
+
+  it("ignores fetcher and GET transports", async () => {
+    let count = 0;
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => {
+          count += 1;
+          return null;
+        },
+        element: (
+          <>
+            <RouterForm method="post" navigate={false} fetcherKey="f" data-testid="fetcher">
+              <Button type="submit">Fetcher</Button>
+            </RouterForm>
+            <RouterForm method="get" data-testid="getter">
+              <Button type="submit">Get</Button>
+            </RouterForm>
+          </>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Fetcher" }));
+    await waitFor(() => expect(count).toBe(1));
+    expect(screen.getByTestId("fetcher").getAttribute("data-submitting")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Get" }));
+    expect(screen.getByTestId("getter").getAttribute("data-submitting")).toBeNull();
+  });
+
+  it("suppresses pointer and Enter re-submits", async () => {
+    const gate = deferred();
+    let count = 0;
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => {
+          count += 1;
+          return gate.promise;
+        },
+        element: (
+          <RouterForm method="post" data-testid="repeat">
+            <input aria-label="Name" />
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByTestId("repeat").getAttribute("data-submitting")).toBe("true"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByLabelText("Name"));
+    await user.keyboard("{Enter}");
+    expect(count).toBe(1);
+    gate.resolve(null);
+  });
+
+  it("caller-cancelled then requestSubmit records a null submitter", async () => {
+    const gate = deferred();
+    let count = 0;
+    let cancelled = false;
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => {
+          count += 1;
+          return gate.promise;
+        },
+        element: (
+          <RouterForm
+            method="post"
+            data-testid="request"
+            onSubmit={(event) => {
+              if (!cancelled) {
+                cancelled = true;
+                event.preventDefault();
+                const form = event.currentTarget;
+                queueMicrotask(() => form.requestSubmit());
+              }
+            }}
+          >
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(count).toBe(1));
+    expect(screen.getByTestId("request").getAttribute("data-submitting")).toBe("true");
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBeNull();
+    gate.resolve(null);
+  });
+
+  it("announces caller text only while derived pending and preserves busy name", async () => {
+    const gate = deferred();
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        action: () => gate.promise,
+        element: (
+          <RouterForm method="post" pendingAnnouncement="Saving" data-testid="announce">
+            <Button type="submit">Save</Button>
+          </RouterForm>
+        ),
+      },
+    ]);
+    render(<RouterProvider router={router} />);
+    expect(screen.getByRole("status").textContent).toBe("");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Saving"));
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-busy")).toBe("true");
+    gate.resolve(null);
+  });
+
+  it("keeps explicit submitting caller-owned and reloadDocument out of props", () => {
+    const { container } = render(
+      <RouterForm submitting data-testid="explicit">
+        <Button type="submit">Save</Button>
+      </RouterForm>,
+    );
+    expect(container.querySelector("fieldset[disabled]")).not.toBeNull();
+    // @ts-expect-error reloadDocument is intentionally excluded from RouterFormProps
+    const invalid = <RouterForm reloadDocument />;
+    expect(invalid).toBeTruthy();
   });
 });

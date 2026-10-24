@@ -106,3 +106,9 @@ export function staleReviewPlanError(itemTitle: string) {
     t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle }),
   );
 }
+
+export function staleManagedOfferReviewError(itemTitle: string) {
+  return new SellListReviewPlanStaleError(
+    t("checkout.routes.accountSellList.managed.offer.refresh.detail", { itemTitle }),
+  );
+}

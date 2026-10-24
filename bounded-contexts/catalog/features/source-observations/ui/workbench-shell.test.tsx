@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -1402,14 +1402,18 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
 
   it("submits streamed TCGplayer Yu-Gi-Oh parent refreshes without stale Pokemon scope", async () => {
     const { shellReadModel, streamedSourceOptions } = dailyTcgplayerYugiohModelsAfterStalePokemonScope();
+    const deferredSourceOptions = Promise.resolve(streamedSourceOptions);
     const { container } = render(
       <CatalogIntegrationsSurfacePage
         surface="daily"
         readModel={shellReadModel}
-        deferredSourceOptions={Promise.resolve(streamedSourceOptions)}
+        deferredSourceOptions={deferredSourceOptions}
       />,
     );
     expandImportContextBar();
+    await act(async () => {
+      await deferredSourceOptions;
+    });
 
     await waitFor(() => {
       expect(

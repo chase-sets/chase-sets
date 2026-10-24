@@ -60,10 +60,10 @@ describe("raw Playwright artifact upload fence (#6895)", () => {
     expect(result.status).toBe("pass");
     expect(result.findings).toEqual([]);
     expect(result.discovery).toMatchObject({
-      trackedFiles: 60,
-      parsedFiles: 60,
-      workflowFiles: 57,
-      compositeActionFiles: 3,
+      trackedFiles: 81,
+      parsedFiles: 81,
+      workflowFiles: 76,
+      compositeActionFiles: 5,
     });
     expect(result.discovery.uploadSteps).toBeGreaterThan(0);
     expect(result.discovery.evaluatedUploadPaths).toBeGreaterThan(result.discovery.uploadSteps);
@@ -198,6 +198,24 @@ runs:
 
     expect(result.status).toBe("pass");
     expect(result.findings).toEqual([]);
+  });
+
+  it("publishes only the exact whole-game rehearsal receipt from the Catalog staging provider UAT (#9220)", () => {
+    const result = scanPlaywrightArtifactUploads();
+    const uploads = result.uploads.filter(({ file }) => file === ".github/workflows/catalog-staging-provider-uat.yml");
+
+    expect(result.findings.filter(({ file }) => file === ".github/workflows/catalog-staging-provider-uat.yml")).toEqual(
+      [],
+    );
+    expect(uploads.map(({ paths }) => paths)).toEqual([
+      ["artifacts/catalog-scale-probe/preview.json"],
+      ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
+      ["artifacts/catalog-count-lifecycle/receipt.json"],
+      ["artifacts/catalog-scrydex-cache-capture/capture.json"],
+      ["artifacts/catalog-scrydex-cache-capture/capture.json"],
+      ["artifacts/catalog-scrydex-option-refresh/receipt.json"],
+      ["artifacts/catalog-scrydex-option-refresh-diagnostic/receipt.json"],
+    ]);
   });
 
   it("rejects a safe-summary upload that retains a raw Playwright sibling", () => {

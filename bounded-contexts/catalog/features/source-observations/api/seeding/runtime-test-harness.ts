@@ -4,6 +4,10 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../../catalog-items/api/runtime";
+import { initialCatalogItemState, type CatalogItemState } from "../../../catalog-items/domain/domain";
+import type { BlueprintId, CatalogItemId, CategoryId } from "../../../../ids";
+import { asArray } from "../../../../support/projection-support/read-model-support";
+import type { PromotionTargetExclusion } from "../promotion/promotion-target-exclusion";
 import type { ReferenceDataServices } from "../../../reference-data/api/runtime";
 import { createReferenceDataRuntime } from "../../../reference-data/api/runtime";
 import type { ReferenceRecordCommand } from "../../../reference-data/domain/domain";
@@ -27,10 +31,7 @@ import {
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderProfileVersionSelector,
 } from "../provider-integration-profiles";
-import type {
-  TcgplayerAutomationCatalogClient,
-  TcgplayerAutomationProductDetail,
-} from "../providers/tcgplayer-automation-catalog-client";
+import type { CatalogIntegrationRolloutControlPolicy } from "../governance/catalog-integration-rollout-controls";
 import {
   createSyntheticDisplayIdentityQueryable,
   syntheticCurrentCatalogItem,
@@ -57,27 +58,49 @@ export type ReferenceRecordRow = {
   attributes: Readonly<Record<string, JsonValue>>;
 };
 
-export function createActiveTcgplayerProfileVersions(input: { profileKey?: string } = {}): {
+/**
+ * Negative control for unit-scoped rollout regressions: the same policy with
+ * every execution unit key removed, reproducing the provider-only call shape.
+ */
+export function withoutRolloutUnitKey(
+  policy: CatalogIntegrationRolloutControlPolicy,
+): CatalogIntegrationRolloutControlPolicy {
+  return {
+    snapshot: policy.snapshot,
+    decide: (input) => policy.decide({ ...input, unitKey: undefined }),
+    assertAllowed: (input) => policy.assertAllowed({ ...input, unitKey: undefined }),
+  };
+}
+
+export function createActiveTcgplayerProfileVersions(
+  input: { profileKey?: string; additionalActiveProfileKeys?: readonly string[] } = {},
+): {
   listProfileVersions: (
     providerKey?: string | null,
   ) => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
-  getActiveProfileVersion: (providerKey: string) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
+  getActiveProfileVersion: (
+    providerKey: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
+  ) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
 } {
-  const activeProfileKey = input.profileKey ?? "pokemon-single-card-product-sku";
+  const activeProfileKeys = new Set([
+    input.profileKey ?? "pokemon-single-card-product-sku",
+    ...(input.additionalActiveProfileKeys ?? []),
+  ]);
   const versions = catalogProviderIntegrationProfileVersions.map((version) =>
     version.providerKey === "tcgplayer"
       ? {
           ...version,
-          lifecycle: version.profileKey === activeProfileKey ? ("active" as const) : ("test" as const),
-          active: version.profileKey === activeProfileKey,
+          lifecycle: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("test" as const),
+          active: activeProfileKeys.has(version.profileKey),
           profile: {
             ...version.profile,
-            status: version.profileKey === activeProfileKey ? ("active" as const) : ("planned" as const),
+            status: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("planned" as const),
           },
           executableMappingContract: version.executableMappingContract
             ? {
                 ...version.executableMappingContract,
-                lifecycle: version.profileKey === activeProfileKey ? ("active" as const) : ("test" as const),
+                lifecycle: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("test" as const),
               }
             : undefined,
         }
@@ -586,414 +609,6 @@ export function sourceObservationDetailRow(overrides: Record<string, unknown> = 
   };
 }
 
-export function createTcgplayerImportHarness(
-  input: { failProductIds?: ReadonlySet<number>; productDomain?: "pokemon" | "mtg" | "one-piece" } = {},
-) {
-  const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
-  const productDomain = input.productDomain ?? "pokemon";
-  const productDetails = new Map<number, TcgplayerAutomationProductDetail>(
-    productDomain === "mtg"
-      ? [
-          [
-            14240,
-            tcgplayerMagicProductDetail({ productId: 14240, productName: "Fury Sliver", number: "157", sku: 50014240 }),
-          ],
-          [
-            96601,
-            tcgplayerMagicProductDetail({
-              productId: 96601,
-              productName: "Time Spiral Booster Pack",
-              number: "PACK",
-              sku: 50096601,
-              sealed: true,
-              productTypeName: "Sealed Products",
-            }),
-          ],
-        ]
-      : productDomain === "one-piece"
-        ? [
-            [
-              987650,
-              tcgplayerOnePieceProductDetail({
-                productId: 987650,
-                productName: "Monkey.D.Luffy",
-                number: "OP01-001",
-                sku: 900987650,
-              }),
-            ],
-            [
-              987660,
-              tcgplayerOnePieceProductDetail({
-                productId: 987660,
-                productName: "Romance Dawn Booster Box",
-                number: "BOX",
-                sku: 900987660,
-                sealed: true,
-                productTypeName: "Sealed Products",
-              }),
-            ],
-          ]
-        : [
-            [
-              610001,
-              tcgplayerProductDetail({ productId: 610001, productName: "Eevee ex", number: "131", sku: 987654 }),
-            ],
-            [
-              610002,
-              tcgplayerProductDetail({ productId: 610002, productName: "Umbreon ex", number: "161", sku: 987655 }),
-            ],
-          ],
-  );
-  const client: TcgplayerAutomationCatalogClient = {
-    listProductLines: async () => [
-      {
-        productLineId: 3,
-        productLineName: "Pokemon",
-        productLineUrlName: "pokemon",
-        isDirect: true,
-      },
-      {
-        productLineId: 1,
-        productLineName: "Magic",
-        productLineUrlName: "magic",
-        isDirect: true,
-      },
-      {
-        productLineId: 68,
-        productLineName: "One Piece Card Game",
-        productLineUrlName: "one-piece-card-game",
-        isDirect: true,
-      },
-    ],
-    listCatalogSetNames: async ({ categoryId }) => {
-      if (categoryId === 1) {
-        return {
-          errors: [],
-          results: [
-            {
-              setNameId: 1001,
-              categoryId: 1,
-              name: "Time Spiral",
-              cleanSetName: "Time Spiral",
-              urlName: "time-spiral",
-              abbreviation: "TSP",
-              releaseDate: "2006-10-06",
-              isSupplemental: false,
-              active: true,
-            },
-          ],
-        };
-      }
-      if (categoryId === 68) {
-        return {
-          errors: [],
-          results: [
-            {
-              setNameId: 12001,
-              categoryId: 68,
-              name: "Romance Dawn",
-              cleanSetName: "Romance Dawn",
-              urlName: "romance-dawn",
-              abbreviation: "OP-01",
-              releaseDate: "2022-12-02",
-              isSupplemental: false,
-              active: true,
-            },
-          ],
-        };
-      }
-      return {
-        errors: [],
-        results: [
-          {
-            setNameId: 7001,
-            categoryId: 3,
-            name: "Prismatic Evolutions",
-            cleanSetName: "Prismatic Evolutions",
-            urlName: "prismatic-evolutions",
-            abbreviation: "PRE",
-            releaseDate: "2025-01-17",
-            isSupplemental: false,
-            active: true,
-          },
-        ],
-      };
-    },
-    searchProducts: async () => ({
-      errors: [],
-      results: [],
-    }),
-    listAllProducts: async () => {
-      if (productDomain === "mtg") {
-        return [
-          {
-            productId: 14240,
-            productName: "Fury Sliver",
-            productLineId: 1,
-            productLineName: "Magic",
-            productTypeName: "Cards",
-            setId: 1001,
-            setName: "Time Spiral",
-            setUrlName: "time-spiral",
-            rarityName: "Uncommon",
-            sealed: false,
-            productStatusId: 1,
-            customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
-          },
-          {
-            productId: 96601,
-            productName: "Time Spiral Booster Pack",
-            productLineId: 1,
-            productLineName: "Magic",
-            productTypeName: "Sealed Products",
-            setId: 1001,
-            setName: "Time Spiral",
-            setUrlName: "time-spiral",
-            rarityName: "Sealed",
-            sealed: true,
-            productStatusId: 1,
-            customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
-          },
-        ];
-      }
-      if (productDomain === "one-piece") {
-        return [
-          {
-            productId: 987650,
-            productName: "Monkey.D.Luffy",
-            productLineId: 68,
-            productLineName: "One Piece Card Game",
-            productTypeName: "Cards",
-            setId: 12001,
-            setName: "Romance Dawn",
-            setUrlName: "romance-dawn",
-            rarityName: "Leader",
-            sealed: false,
-            productStatusId: 1,
-            customAttributes: { number: "OP01-001", releaseDate: "2022-12-02", cardType: ["Leader"] },
-          },
-          {
-            productId: 987660,
-            productName: "Romance Dawn Booster Box",
-            productLineId: 68,
-            productLineName: "One Piece Card Game",
-            productTypeName: "Sealed Products",
-            setId: 12001,
-            setName: "Romance Dawn",
-            setUrlName: "romance-dawn",
-            rarityName: "Sealed",
-            sealed: true,
-            productStatusId: 1,
-            customAttributes: { number: "BOX", releaseDate: "2022-12-02", cardType: ["Sealed"] },
-          },
-        ];
-      }
-      return [
-        {
-          productId: 610001,
-          productName: "Eevee ex",
-          productLineId: 3,
-          productLineName: "Pokemon",
-          productTypeName: "Cards",
-          setId: 7001,
-          setName: "Prismatic Evolutions",
-          setUrlName: "prismatic-evolutions",
-          rarityName: "Special Illustration Rare",
-          sealed: false,
-          productStatusId: 1,
-          customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-        },
-        {
-          productId: 610002,
-          productName: "Umbreon ex",
-          productLineId: 3,
-          productLineName: "Pokemon",
-          productTypeName: "Cards",
-          setId: 7001,
-          setName: "Prismatic Evolutions",
-          setUrlName: "prismatic-evolutions",
-          rarityName: "Special Illustration Rare",
-          sealed: false,
-          productStatusId: 1,
-          customAttributes: { number: "161", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-        },
-      ];
-    },
-    getProductDetail: async ({ productId }) => {
-      if (input.failProductIds?.has(productId)) {
-        throw new Error(`Product ${productId} unavailable.`);
-      }
-      const detail = productDetails.get(productId);
-      if (!detail) {
-        throw new Error(`Product ${productId} not found.`);
-      }
-      return detail;
-    },
-  };
-  const deps = {
-    db: {
-      query: async <T>() => ({ rowCount: 0, rows: [] as T[] }),
-    },
-    eventStore: {
-      readStream: async () => [],
-      appendToStream: async (eventInput: {
-        streamId: string;
-        events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
-      }) => {
-        appendedSourceEvents.push(...eventInput.events);
-        return eventInput.events.map((event, index) =>
-          storedEvent(index + 1, eventInput.streamId, event.eventType, event.payload),
-        );
-      },
-      readAll: async () => [],
-    },
-    checkpointStore: {
-      loadCheckpoint: async () => "0",
-      saveCheckpoint: async () => undefined,
-    },
-    tcgplayerAutomationCatalogClient: client,
-  } as object as CatalogRuntimeDeps;
-
-  return {
-    deps,
-    client,
-    appendedSourceEvents,
-  };
-}
-
-export function tcgplayerProductDetail(input: {
-  productId: number;
-  productName: string;
-  number: string;
-  sku: number;
-}): TcgplayerAutomationProductDetail {
-  return {
-    productTypeName: "Cards",
-    rarityName: "Special Illustration Rare",
-    sealed: false,
-    productName: input.productName,
-    setId: 7001,
-    setCode: "PRE",
-    productId: input.productId,
-    setName: "Prismatic Evolutions",
-    productLineId: 3,
-    productStatusId: 1,
-    productLineName: "Pokemon",
-    customAttributes: {
-      number: input.number,
-      releaseDate: "2025-01-17",
-      cardType: ["Pokemon"],
-    },
-    formattedAttributes: {
-      Artist: "Catalog Artist",
-    },
-    skus: [
-      {
-        sku: input.sku,
-        condition: "Near Mint",
-        variant: "Normal",
-        language: "English",
-      },
-    ],
-    marketPrice: 12.34,
-    lowestPrice: 10.01,
-    lowestPriceWithShipping: 11.23,
-    medianPrice: 12.5,
-    listings: 25,
-  };
-}
-
-export function tcgplayerMagicProductDetail(input: {
-  productId: number;
-  productName: string;
-  number: string;
-  sku: number;
-  sealed?: boolean;
-  productTypeName?: string;
-}): TcgplayerAutomationProductDetail {
-  const sealed = input.sealed ?? false;
-  return {
-    productTypeName: input.productTypeName ?? "Cards",
-    rarityName: sealed ? "Sealed" : "Uncommon",
-    sealed,
-    productName: input.productName,
-    setId: 1001,
-    setCode: "TSP",
-    productId: input.productId,
-    setName: "Time Spiral",
-    productLineId: 1,
-    productStatusId: 1,
-    productLineName: "Magic",
-    customAttributes: {
-      number: input.number,
-      releaseDate: "2006-10-06",
-      cardType: sealed ? ["Sealed"] : ["Creature"],
-      barcode: sealed ? "0653569123456" : undefined,
-    },
-    formattedAttributes: {
-      Artist: "Paolo Parente",
-    },
-    skus: [
-      {
-        sku: input.sku,
-        condition: sealed ? "Sealed" : "Near Mint",
-        variant: sealed ? "Sealed" : "Normal",
-        language: "English",
-      },
-    ],
-    marketPrice: 1.23,
-    lowestPrice: 1.01,
-    lowestPriceWithShipping: 1.23,
-    medianPrice: 1.5,
-    listings: 25,
-  };
-}
-
-export function tcgplayerOnePieceProductDetail(input: {
-  productId: number;
-  productName: string;
-  number: string;
-  sku: number;
-  sealed?: boolean;
-  productTypeName?: string;
-}): TcgplayerAutomationProductDetail {
-  const sealed = input.sealed ?? false;
-  return {
-    productTypeName: input.productTypeName ?? "Cards",
-    rarityName: sealed ? "Sealed" : "Leader",
-    sealed,
-    productName: input.productName,
-    setId: 12001,
-    setCode: "OP-01",
-    productId: input.productId,
-    setName: "Romance Dawn",
-    productLineId: 68,
-    productStatusId: 1,
-    productLineName: "One Piece Card Game",
-    customAttributes: {
-      number: input.number,
-      releaseDate: "2022-12-02",
-      cardType: sealed ? ["Sealed"] : ["Leader"],
-    },
-    formattedAttributes: {
-      Artist: "Eiichiro Oda",
-    },
-    skus: [
-      {
-        sku: input.sku,
-        condition: sealed ? "Sealed" : "Near Mint",
-        variant: sealed ? "Sealed" : "Normal",
-        language: "English",
-      },
-    ],
-    marketPrice: sealed ? 99.99 : 4.25,
-    lowestPrice: sealed ? 89.99 : 3.75,
-    lowestPriceWithShipping: sealed ? 99.99 : 4.99,
-    medianPrice: sealed ? 109.99 : 4.5,
-    listings: sealed ? 12 : 25,
-  };
-}
-
 export function createIntegrationJobDedupeHarness(
   input: {
     existingJob?: Record<string, unknown>;
@@ -1264,7 +879,6 @@ export function createIntegrationJobClaimHandoffHarness(
     acceptedScopeRecordId?: string;
     acceptedUnitKey?: string;
     renewSucceeds?: boolean;
-    tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   } = {},
 ) {
   const referenceHistories = new Map<string, ReturnType<typeof storedEvent>[]>();
@@ -1454,7 +1068,6 @@ export function createIntegrationJobClaimHandoffHarness(
       loadCheckpoint: async () => "0",
       saveCheckpoint: async () => undefined,
     },
-    tcgplayerAutomationCatalogClient: input.tcgplayerAutomationCatalogClient,
   } as object as CatalogRuntimeDeps;
 
   const referenceData = {
@@ -1593,6 +1206,8 @@ export function createChangedObservationRefreshHarness(
     deterministicCatalogItemIds?: readonly string[];
     partialCatalogItemId?: string | null;
     promotionCommandAlreadyApplied?: { catalogItemId: string };
+    referenceRecordRows?: readonly { referenceRecordId: string; typeKey: string; key: string }[];
+    persistReferenceDataEvents?: boolean;
     assetStorage?: CatalogRuntimeDeps["assetStorage"];
     /** SYNTHETIC display identity data the validated planner resolves against.
      * Defaults to a resolving global title template plus a draft current item
@@ -1601,6 +1216,16 @@ export function createChangedObservationRefreshHarness(
     /** SYNTHETIC poison: every discovered Reference Record history carries a
      * second contiguous published event, a transition the decider never emits. */
     referenceHistoryPoison?: "repeated-publish";
+    /** Extra observation rows served by observation id, for mixed-batch runs. */
+    siblingObservations?: readonly Readonly<{
+      observationId: string;
+      providerKey: string;
+      externalKey: string;
+      sourceProfileKey: string;
+      sourceProfileVersion: string;
+      normalized: SourceObservationNormalized;
+      status?: string;
+    }>[];
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -1613,6 +1238,7 @@ export function createChangedObservationRefreshHarness(
       expansionName: "Ascended Heroes Updated",
       seriesName: "Mega Evolution",
     });
+  const persistReferenceDataEvents = input.persistReferenceDataEvents === true;
   const observationRow = {
     observation_id: "obs_changed",
     sync_run_id: "job_sync_changed",
@@ -1630,12 +1256,34 @@ export function createChangedObservationRefreshHarness(
     source_payload: { id: "me02.5-136" },
     status: input.status ?? "changed",
     status_reason: null,
-    promoted_catalog_item_id: input.promotedCatalogItemId === undefined ? "cat_existing" : input.promotedCatalogItemId,
+    promoted_catalog_item_id:
+      input.promotedCatalogItemId === undefined
+        ? input.status === "observed"
+          ? null
+          : "cat_existing"
+        : input.promotedCatalogItemId,
     promoted_reference_record_id:
       input.promotedReferenceRecordId === undefined ? null : input.promotedReferenceRecordId,
     promoted_at: "2026-05-19T00:00:00.000Z",
     updated_at: "2026-05-20T00:00:00.000Z",
   };
+  const siblingObservationRows = new Map(
+    (input.siblingObservations ?? []).map((sibling) => [
+      sibling.observationId,
+      {
+        ...observationRow,
+        observation_id: sibling.observationId,
+        provider_key: sibling.providerKey,
+        external_key: sibling.externalKey,
+        source_profile_key: sibling.sourceProfileKey,
+        source_profile_version: sibling.sourceProfileVersion,
+        normalized: sibling.normalized,
+        status: sibling.status ?? "observed",
+        promoted_catalog_item_id: null,
+        promoted_reference_record_id: null,
+      },
+    ]),
+  );
   const streamId = "catalog.source-observation-obs_changed";
   const observationStatus = input.status ?? "changed";
   const promotionCommandAlreadyApplied = input.promotionCommandAlreadyApplied;
@@ -1698,12 +1346,27 @@ export function createChangedObservationRefreshHarness(
   ];
 
   const referenceHistories = new Map<string, ReturnType<typeof storedEvent>[]>();
+  for (const row of input.referenceRecordRows ?? []) {
+    const streamId = `catalog.reference-record-${row.referenceRecordId}`;
+    referenceHistories.set(streamId, [
+      storedEvent(1, streamId, "catalog.reference-record.created", {
+        referenceRecordId: row.referenceRecordId,
+        typeKey: row.typeKey,
+        key: row.key,
+        name: { defaultLocale: "en", values: { en: row.key } },
+        description: { defaultLocale: "en", values: { en: row.key } },
+        attributes: {},
+        relationships: [],
+      }),
+      storedEvent(2, streamId, "catalog.reference-record.published", {}),
+    ]);
+  }
   const harnessDb = {
     query: async <T>(sql: string, values: readonly unknown[] = []) => {
       if (sql.includes("FROM catalog_source_observations")) {
         return {
           rowCount: 1,
-          rows: [observationRow] as T[],
+          rows: [siblingObservationRows.get(String(values[0])) ?? observationRow] as T[],
         };
       }
 
@@ -1762,6 +1425,13 @@ export function createChangedObservationRefreshHarness(
       if (sql.includes("FROM catalog_reference_records")) {
         const typeKey = String(values[0]);
         const key = String(values[1] ?? "existing");
+        const seeded = (input.referenceRecordRows ?? []).find((row) => row.typeKey === typeKey && row.key === key);
+        if (seeded) {
+          return { rowCount: 1, rows: [{ reference_record_id: seeded.referenceRecordId }] as T[] };
+        }
+        if (input.referenceRecordRows) {
+          return { rowCount: 0, rows: [] as T[] };
+        }
         const id = `ref_${key}`;
         const referenceStream = `catalog.reference-record-${id}`;
         referenceHistories.set(referenceStream, [
@@ -1821,6 +1491,44 @@ export function createChangedObservationRefreshHarness(
   });
   const deps = {
     db: displayIdentityDb,
+    // Orchestration double only; the real boundary is covered by the DB suite.
+    promotionTargetExclusion: {
+      acquire: async (request) => {
+        const targetId = request.additionalTargetIds.at(-1)!;
+        const current =
+          input.displayIdentity?.currentItems?.find((item) => item.catalog_item_id === targetId) ??
+          syntheticCurrentCatalogItem({ catalog_item_id: targetId });
+        const state: CatalogItemState = {
+          ...initialCatalogItemState,
+          id: knownCatalogItemIds.includes(targetId) ? (targetId as CatalogItemId) : null,
+          languageCode: current.language_code,
+          status: current.status === "active" ? ("active" as const) : ("draft" as const),
+          title: { defaultLocale: "en", values: { en: current.title, [current.language_code]: current.title } },
+          subtitle: current.subtitle
+            ? { defaultLocale: "en", values: { en: current.subtitle, [current.language_code]: current.subtitle } }
+            : null,
+          blueprintId: current.blueprint_id as BlueprintId | null,
+          fieldValues: asArray<CatalogItemState["fieldValues"][number]>(current.field_values),
+          categoryIds: asArray<CategoryId>(current.category_ids),
+        };
+        return {
+          targetId,
+          evidence: {
+            items: new Map([[targetId, state]]),
+            histories: new Map(),
+            sources: new Map(),
+            keys: new Map(),
+            bindings: new Map(),
+          },
+          commandHandler: items.commandHandler,
+          preparePlan: async () => 0,
+          guard: () => undefined,
+          append: async () => {
+            throw new Error("Synthetic orchestration port only accepts commands");
+          },
+        };
+      },
+    } satisfies PromotionTargetExclusion,
     eventStore: {
       readStream: async ({ streamId: requestedStream }: { streamId: string }) =>
         requestedStream === streamId ? sourceEvents : (referenceHistories.get(requestedStream) ?? []),
@@ -1865,9 +1573,33 @@ export function createChangedObservationRefreshHarness(
   const referenceRecordCreateCommands: Extract<ReferenceRecordCommand, { type: "CreateReferenceRecord" }>[] = [];
   const referenceData = {
     referenceTypeCommandHandler: async () => ({ version: 1, state: {} }),
-    referenceRecordCommandHandler: async (input: { command: ReferenceRecordCommand }) => {
+    referenceRecordCommandHandler: async (input: { streamId: string; command: ReferenceRecordCommand }) => {
       if (input.command.type === "CreateReferenceRecord") {
         referenceRecordCreateCommands.push(input.command);
+        if (persistReferenceDataEvents) {
+          const streamId = `catalog.reference-record-${input.command.referenceRecordId}`;
+          referenceHistories.set(streamId, [
+            ...(referenceHistories.get(streamId) ?? []),
+            storedEvent(
+              (referenceHistories.get(streamId)?.length ?? 0) + 1,
+              streamId,
+              "catalog.reference-record.created",
+              {
+                referenceRecordId: input.command.referenceRecordId,
+                typeKey: input.command.typeKey,
+                key: input.command.key,
+                name: input.command.name,
+                description: input.command.description,
+                attributes: input.command.attributes ?? {},
+                relationships: input.command.relationships ?? [],
+              },
+            ),
+          ]);
+        }
+      } else if (input.command.type === "PublishReferenceRecord" && persistReferenceDataEvents) {
+        const streamId = input.streamId;
+        const history = referenceHistories.get(streamId);
+        if (history) history.push(storedEvent(history.length + 1, streamId, "catalog.reference-record.published", {}));
       }
       return { version: 1, state: {} };
     },
@@ -1899,8 +1631,10 @@ export function createBulkReviewJobHarness(
     progressTotal?: number;
     carriedOutcomes?: ReadonlyArray<{ observationId: string; status: "rejected"; reason?: string | null }>;
     terminalWorkUnits?: boolean;
+    action?: "reject" | "promote";
   } = {},
 ) {
+  const action = options.action ?? "reject";
   const observationIds = Array.from({ length: count }, (_, index) => `obs_${index + 1}`);
   const observations = new Map(
     observationIds.map((observationId, index) => [
@@ -1935,9 +1669,9 @@ export function createBulkReviewJobHarness(
   );
   const job = {
     job_id: "job_bulk_review",
-    job_kind: "reject",
+    job_kind: action,
     payload: {
-      action: "reject",
+      action,
       selectionMode: "ids",
       observationIds,
       scope: {},

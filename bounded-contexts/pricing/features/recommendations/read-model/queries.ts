@@ -1,4 +1,43 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { CatalogProductLineReference } from "@chase-sets/catalog-product-line";
+
+export type PricingCatalogItemProductLineInput = Readonly<{
+  catalogItemId: string;
+  productLine: CatalogProductLineReference | null;
+}>;
+
+type ProductLineInputRow = Readonly<{
+  catalog_item_id: string;
+}> &
+  (
+    | Readonly<{ product_line_reference_id: null; product_line_name: null; product_line_version: number | null }>
+    | Readonly<{ product_line_reference_id: string; product_line_name: string; product_line_version: number }>
+  );
+
+export async function readCatalogItemProductLineInputs(
+  db: PgQueryable,
+  catalogItemIds: readonly string[],
+): Promise<readonly PricingCatalogItemProductLineInput[]> {
+  if (catalogItemIds.length === 0) return [];
+  const result = await db.query<ProductLineInputRow>(
+    `SELECT catalog_item_id, product_line_reference_id, product_line_name, product_line_version
+     FROM pricing_catalog_item_inputs
+     WHERE catalog_item_id = ANY($1::text[])
+     ORDER BY catalog_item_id`,
+    [catalogItemIds],
+  );
+  return result.rows.map((row) => ({
+    catalogItemId: row.catalog_item_id,
+    productLine:
+      row.product_line_reference_id === null
+        ? null
+        : {
+            referenceId: row.product_line_reference_id,
+            name: row.product_line_name,
+            version: row.product_line_version,
+          },
+  }));
+}
 
 export type AccountRecommendationListItem = Readonly<{
   recommendation_id: string;
@@ -36,6 +75,34 @@ export type AccountRecommendationListItem = Readonly<{
   updated_at: string;
 }>;
 
+type AccountRecommendationRow = Omit<
+  AccountRecommendationListItem,
+  | "market_price_amount"
+  | "current_price_amount"
+  | "recommended_list_amount"
+  | "lowest_listing_price_amount"
+  | "highest_offer_price_amount"
+> &
+  Readonly<{
+    market_price_amount: string;
+    current_price_amount: string | null;
+    recommended_list_amount: string | null;
+    lowest_listing_price_amount: string | null;
+    highest_offer_price_amount: string | null;
+  }>;
+
+function mapAccountRecommendation(row: AccountRecommendationRow): AccountRecommendationListItem {
+  return {
+    ...row,
+    market_price_amount: Number(row.market_price_amount),
+    current_price_amount: row.current_price_amount === null ? null : Number(row.current_price_amount),
+    recommended_list_amount: row.recommended_list_amount === null ? null : Number(row.recommended_list_amount),
+    lowest_listing_price_amount:
+      row.lowest_listing_price_amount === null ? null : Number(row.lowest_listing_price_amount),
+    highest_offer_price_amount: row.highest_offer_price_amount === null ? null : Number(row.highest_offer_price_amount),
+  };
+}
+
 export async function listAccountRecommendations(
   db: PgQueryable,
   params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
@@ -50,7 +117,7 @@ export async function listAccountRecommendations(
        WHERE seller_account_id = $1`,
       [params.accountId],
     ),
-    db.query<AccountRecommendationListItem>(
+    db.query<AccountRecommendationRow>(
       `SELECT
          recommendation_id,
          catalog_catalog_item_id,
@@ -94,7 +161,7 @@ export async function listAccountRecommendations(
   ]);
 
   return {
-    items: itemResult.rows,
+    items: itemResult.rows.map(mapAccountRecommendation),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -104,7 +171,7 @@ export async function getAccountRecommendation(
   recommendationId: string,
   accountId: string,
 ): Promise<AccountRecommendationListItem | null> {
-  const result = await db.query<AccountRecommendationListItem>(
+  const result = await db.query<AccountRecommendationRow>(
     `SELECT
        recommendation_id,
        catalog_catalog_item_id,
@@ -145,7 +212,7 @@ export async function getAccountRecommendation(
     [recommendationId, accountId],
   );
 
-  return result.rows[0] ?? null;
+  return result.rows[0] ? mapAccountRecommendation(result.rows[0]) : null;
 }
 
 export async function listAccountRecommendationsByIds(
@@ -156,7 +223,7 @@ export async function listAccountRecommendationsByIds(
     return [];
   }
 
-  const result = await db.query<AccountRecommendationListItem>(
+  const result = await db.query<AccountRecommendationRow>(
     `SELECT
        recommendation_id,
        catalog_catalog_item_id,
@@ -198,7 +265,7 @@ export async function listAccountRecommendationsByIds(
     [params.accountId, params.recommendationIds],
   );
 
-  return result.rows;
+  return result.rows.map(mapAccountRecommendation);
 }
 
 export type AccountRecommendationSignalExplanation = Readonly<{

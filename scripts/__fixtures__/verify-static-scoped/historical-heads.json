@@ -1,0 +1,77 @@
+[
+  {
+    "head": "5e20d072a29c54ca8d5168e01fefb371468261d9",
+    "mergeBase": "268a0899e8463007bb41a641ebe1b8153ecae70d",
+    "failingTest": "scripts/check-structure/sql-execution-surface.test.mjs",
+    "changedFiles": [
+      "bounded-contexts/identity/features/consents/api/consent-recording-authorization.db.test.ts",
+      "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
+      "bounded-contexts/identity/support/runtime-support/seed.ts",
+      "bounded-contexts/identity/tests/admin-qa-actor-fixtures.test.ts",
+      "deployables/platform-api/__tests__/admin-qa-actor-fixtures.test.ts",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-reconciliation.db.test.ts",
+      "deployables/platform-api/__tests__/authoritative-seed-resume-test-support.ts",
+      "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+      "deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts",
+      "docs/runbooks/admin-workflows-staging-qa.md",
+      "scripts/check-structure/consent-authorization-mutation-evidence.mjs",
+      "scripts/check-structure/consent-authorization-site-registry.json",
+      "scripts/check-structure/consent-authorization-site-registry.schema.json",
+      "scripts/check-structure/consent-authorization-sites.mjs",
+      "scripts/check-structure/consent-authorization-sites.test.mjs",
+      "scripts/check-structure/consent-recording-admission-census.test.mjs",
+      "scripts/check-structure/fixtures/consent-authorization-sites/admin-qa-actor-fixtures.ts",
+      "scripts/check-structure/fixtures/consent-authorization-sites/consent-authorization-mutation-v1.schema.json",
+      "scripts/check-structure/fixtures/consent-authorization-sites/seed.ts",
+      "scripts/check-structure/identity-creation-path-registry.json",
+      "scripts/check-structure/identity-creation-path-registry.test.mjs",
+      "scripts/identity-creation-positions.json"
+    ]
+  },
+  {
+    "head": "6071d148892d92f53411cf46317b6444bcfd9d2b",
+    "mergeBase": "f823c3244847310bee06991be4d83916475b8103",
+    "failingTest": "scripts/check-structure/brand-mark-representations.test.mjs",
+    "changedFiles": [
+      "bounded-contexts/discovery/features/search/ui/search-page.test.tsx",
+      "bounded-contexts/discovery/features/search/ui/search-page.tsx",
+      "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "deployables/marketplace/e2e/item-detail.spec.ts",
+      "infrastructure/playwright-evidence/index.ts",
+      "infrastructure/playwright-evidence/package.json",
+      "packages/design-system/src/__tests__/design-system-components.test.tsx",
+      "packages/design-system/src/components/feedback/accordion.tsx",
+      "packages/design-system/src/components/feedback/disclosure.tsx",
+      "packages/design-system/src/components/forms/number-field.tsx",
+      "pnpm-lock.yaml",
+      "scripts/check-structure/typescript-owner-contexts.json"
+    ]
+  },
+  {
+    "head": "e195295809b97a9bc021563b6c5e041968fe1aa7",
+    "mergeBase": "0ceb4d3b3b3d92e8e1f202be759e6c2fa0f1dee0",
+    "failingTest": "scripts/check-structure/deployed-browser-e2e-profile.test.mjs",
+    "changedFiles": [
+      "bounded-contexts/checkout/features/sell-list/read-model/queries.ts",
+      "bounded-contexts/checkout/support/request-support/marketplace-listing-evidence.server.ts",
+      "bounded-contexts/checkout/support/request-support/marketplace-listing-evidence.test.ts",
+      "bounded-contexts/checkout/support/request-support/marketplace-listing-evidence.ts",
+      "deployables/marketplace/e2e/browser-route-modules.spec.ts"
+    ]
+  },
+  {
+    "head": "130cb11e66466cc8174c76693a509cad1d3d9769",
+    "mergeBase": "9f8cda509fc269dcec4b1715f59e26b6cf9afd0d",
+    "failingTest": "scripts/ci-gate-plan.test.mjs",
+    "changedFiles": [
+      "bounded-contexts/auth/features/sessions/ui/session-list-page.test.tsx",
+      "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts",
+      "bounded-contexts/auth/routes/access-admin/sessions.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.db.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.ts",
+      "scripts/e2e-suites.mjs",
+      "scripts/fixtures/ci-e2e-selection.json",
+      "scripts/run-e2e-suite.test.mjs"
+    ]
+  }
+]

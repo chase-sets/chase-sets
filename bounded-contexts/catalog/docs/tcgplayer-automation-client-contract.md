@@ -1,13 +1,12 @@
-# TCGplayer Automation Client Contract
+# TCGplayer Automation Client Contract (Retired)
 
-Catalog TCGplayer ingestion uses the client behavior from
-`todd-skelton/tcgplayer-automation-app` at commit `bf42aa8` as its provider
-contract. The official TCGplayer API documentation is not the source of truth
-for this integration workstream.
+The former server-side TCGplayer client contract is retired. Chase Sets never
+contacts TCGplayer servers and never stores or uses TCGplayer cookies or
+credentials. Browser extensions relay provider data to and from Chase Sets;
+server jobs fail closed with an explicit retired-provider outcome.
 
-This contract exists so Catalog, Inventory, Pricing, and Operations can reuse
-the same provider language without turning TCGplayer transport details into
-deployable-local behavior.
+This document remains only as historical vocabulary for retained provider
+references and does not authorize a transport, credential, or custody path.
 
 ## Source Application Evidence
 
@@ -28,8 +27,8 @@ provider concepts that Chase Sets maps into bounded-context-owned facts.
 
 ## Provider Domains
 
-The automation client uses one configured user agent and a
-`TCGAuthTicket_Production` cookie across provider-domain clients.
+There are no server provider domains, clients, user agents, cookies, or
+credentials. The host names below are historical source evidence only.
 
 | Domain key | Host | Primary use |
 | --- | --- | --- |
@@ -44,14 +43,9 @@ Catalog import should start with the first four domains. Order and message
 domains are operations/fulfillment evidence for future workflows and must not be
 pulled into Catalog.
 
-## Authentication And Throttling
+## Authentication And Throttling (Retired)
 
-The automation client sends:
-
-- `User-Agent` from provider HTTP configuration.
-- `Cookie: TCGAuthTicket_Production=<cookie>;` when a cookie is configured.
-- `Cache-Control: no-cache`.
-- `Content-Type: application/json`.
+No server request is sent and no provider credential is accepted.
 
 Requests use domain-scoped throttling:
 
@@ -63,9 +57,9 @@ Requests use domain-scoped throttling:
 - adaptive delay decrease after a success streak;
 - learned minimum delay that ratchets upward after rate limits.
 
-Chase Sets must keep the cookie out of event payloads, logs, Source
-Observations, and committed config. Operational state such as learned delays can
-be persisted in a provider operations store, but secret material cannot.
+The Operator Extension retains only the pairing grant needed to relay browser
+data. It does not read or push provider cookies, and pairing is not provider
+success proof.
 
 ## Catalog Sync Flow
 

@@ -17,6 +17,7 @@ import {
   initialEconomicsOverridesState,
 } from "./overrides";
 import { ECONOMICS_LAUNCH_POLICY_VALUE } from "./policy";
+import { toEconomicsForPricingGoal } from "./resolution";
 
 const policyRevision = "sha256:synthetic-policy-revision";
 const commercialSource = {
@@ -426,5 +427,42 @@ describe("Economics overrides and revision", () => {
         request({ scope: { kind: "channel-connection", connectionId: "synthetic-connection-2" } }),
       ).revision,
     ).not.toBe(baseline.revision);
+  });
+
+  it("copies the six overridden effective overhead values, never source values, to a Pricing Goal", () => {
+    let state = initialEconomicsOverridesState({
+      accountId: "synthetic-owner-account",
+      scopeKey: "channel-connection:synthetic-connection-1",
+      currency: "usd",
+    });
+    for (const [factName, value] of [
+      ["platformFeeRelativeBps", 1_000],
+      ["platformFeeCapPerUnitAmount", null],
+      ["sellerHandlingFixedPerUnitAmount", money("0.45")],
+    ] as const) {
+      const [set] = decideEconomicsOverride(state, {
+        type: "SetEconomicsFactOverride",
+        expectedVersion: state.version,
+        factName,
+        value,
+        setAt: "2026-09-07T06:01:00Z",
+      });
+      state = evolveEconomicsOverrides(state, set!);
+    }
+    const economics = build(healthyFacts(), state);
+
+    expect(toEconomicsForPricingGoal({ kind: "resolved", economics })).toEqual({
+      availability: "resolved",
+      reason: null,
+      currency: "usd",
+      effectiveAt: economics.effectiveAt,
+      dailyReturnHurdle: economics.facts.dailyReturnHurdle,
+      platformFeeRelativeBps: 1_000,
+      platformFeeFixedPerUnitAmount: money("0.00"),
+      platformFeeCapPerUnitAmount: null,
+      sellerHandlingRelativeBps: 0,
+      sellerHandlingFixedPerUnitAmount: money("0.45"),
+      sellerHandlingCapPerUnitAmount: null,
+    });
   });
 });

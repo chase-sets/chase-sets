@@ -55,12 +55,13 @@ Session/token security lifetimes -- values, env vars, bounds, and the env-tier-b
 ## Incoming Dependencies
 
 - Identity for user, account, membership, and invitation facts, projected into auth-owned tables for local reads (`auth-identity-account-projection`, `auth-identity-user-projection`, `auth-identity-membership-projection`, `auth-identity-invitation-projection`).
+- Customer Feedback consumes `auth.session.started` through its `customer-feedback-csat-outcome-fact-projection` subscription.
 - Identity's `@chase-sets/identity/server` for the narrow synchronous identity mutations that still belong to Identity.
 - Ordering, Fulfillment, and Payments order/shipment/refund facts, consumed only by the optional agent-webhook projection once all three source contexts are mounted.
 
 ## Outgoing Integration Events
 
-- None. `auth.session.started`, `auth.session.account-switched`, `auth.session.revoked`, and `auth.session.expired` are consumed only by Auth's own session projection today.
+- None. `auth.session.started`, `auth.session.account-switched`, `auth.session.revoked`, and `auth.session.expired` are consumed by Auth's own session projection; `auth.session.started` is also consumed by Customer Feedback's `customer-feedback-csat-outcome-fact-projection`.
 
 ## Invariants
 
@@ -71,6 +72,7 @@ Session/token security lifetimes -- values, env vars, bounds, and the env-tier-b
 5. Social Login may auto-link by email only when the provider proves email ownership; otherwise linking requires an authenticated existing-user continuation.
 6. Dynamic Client Registration accepts only public OAuth clients; Auth does not issue, store, or echo client secrets.
 7. Invitation acceptance requires the emailed bearer token, consumes it through Identity exactly once, and starts the resulting session in the invited account with the invited role.
+8. Connector clients use a separate `channel-connector` scope family, PKCE codes, and rotating tokens. Connector credentials never resolve an agent grant or seller actor. Channels owns pairing and orchestrates grant revocation before lifecycle closure; Auth owns credential issuance, rotation, expiry, and revocation using the existing validated OAuth security lifetimes.
 
 ## Tests
 

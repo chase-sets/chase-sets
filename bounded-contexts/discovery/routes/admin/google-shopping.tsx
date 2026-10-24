@@ -40,6 +40,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
         refreshCutoff: new Date().toISOString(),
         summary: {
           totalRows: 0,
+          attentionRows: 0,
           eligibleRows: 0,
           excludedRows: 0,
           failedRows: 0,

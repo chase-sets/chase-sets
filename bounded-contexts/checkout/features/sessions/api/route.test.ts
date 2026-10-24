@@ -1,7 +1,8 @@
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION, type AppendToStreamInput, type GlobalPosition } from "@chase-sets/event-core/storage";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
+import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
 import { CHECKOUT_ANONYMOUS_CART_COOKIE_NAME } from "../../../support/request-support/guest-checkout";
@@ -202,6 +203,7 @@ function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSes
     order_write_commit_positions: [],
     payment_id: null,
     submitted_offer_id: null,
+    handoff_expires_at: null,
     created_at: "2026-04-29T00:00:00.000Z",
     updated_at: "2026-04-29T00:00:00.000Z",
     ...overrides,
@@ -275,6 +277,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     cancelSession: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     getSession: vi.fn(async () => createSession()),
+    getLastRecordedQuote: vi.fn(async () => null),
     getPaymentSummary: vi.fn(async () => null),
     getPaymentConfirmation: vi.fn(async () => null),
     listSavedPaymentInstruments: vi.fn(async () => []),
@@ -1535,6 +1538,151 @@ describe("checkout session routes", () => {
       },
       expect.any(Object),
     );
+  });
+
+  describe("reviewed fulfillment preview revision", () => {
+    const reviewedShippingAddress = {
+      name: "Buyer",
+      line1: "123 Test Street",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+    };
+    const callerSnapshot = {
+      ...readyBuyNowSupplyPreview(),
+      optimizationGoal: "lowest-total",
+      revision: "caller_snapshot_rev",
+    };
+
+    function postFulfillmentPreview(services: CheckoutSessionServices, body: Record<string, unknown>) {
+      return buildApp(services).fetch(
+        new Request("http://checkout.test/account/checkout-sessions/chk_1/fulfillment-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    }
+
+    it.each([
+      { revisionInput: "omitted", body: {} },
+      { revisionInput: "blank", body: { fulfillmentPreviewRevision: "   " } },
+    ])(
+      "records the calculated Ordering revision when review input has an $revisionInput revision",
+      async ({ body }) => {
+        const calculatedPreview = { ...readyBuyNowSupplyPreview(), revision: "ordering_rev_calculated" };
+        mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+        const services = createServices();
+
+        const response = await postFulfillmentPreview(services, {
+          ...body,
+          shippingOption: "expedited",
+          shippingAddress: reviewedShippingAddress,
+        });
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({
+          session_id: "chk_1",
+          status: "fulfillment-preview-recorded",
+        });
+        expect(mockPreviewCheckoutFulfillmentThroughOrdering).toHaveBeenCalledWith(
+          expect.any(Request),
+          expect.objectContaining({ session_id: "chk_1" }),
+          expect.objectContaining({
+            shippingOption: "expedited",
+            shippingAddress: expect.objectContaining({ line1: "123 Test Street" }),
+          }),
+        );
+        expect(services.recordFulfillmentPreview).toHaveBeenCalledWith(
+          {
+            sessionId: "chk_1",
+            accountId: "acc_buyer",
+            fulfillmentPreviewRevision: "ordering_rev_calculated",
+            fulfillmentPreviewSnapshot: calculatedPreview,
+          },
+          expect.any(Object),
+        );
+      },
+    );
+
+    it("keeps a non-blank caller revision ahead of the calculated revision", async () => {
+      const calculatedPreview = { ...readyBuyNowSupplyPreview(), revision: "ordering_rev_calculated" };
+      mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+      const services = createServices();
+
+      const response = await postFulfillmentPreview(services, {
+        fulfillmentPreviewRevision: "caller_rev",
+        shippingOption: "standard",
+      });
+
+      expect(response.status).toBe(200);
+      expect(services.recordFulfillmentPreview).toHaveBeenCalledWith(
+        {
+          sessionId: "chk_1",
+          accountId: "acc_buyer",
+          fulfillmentPreviewRevision: "caller_rev",
+          fulfillmentPreviewSnapshot: calculatedPreview,
+        },
+        expect.any(Object),
+      );
+    });
+
+    it.each([
+      {
+        rejection: "a null Ordering preview",
+        calculatedPreview: null,
+        body: { shippingOption: "standard" },
+      },
+      {
+        rejection: "a blank calculated revision",
+        calculatedPreview: { ...readyBuyNowSupplyPreview(), revision: "  " },
+        body: { shippingOption: "standard" },
+      },
+      {
+        rejection: "no review input or revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: {},
+      },
+      {
+        rejection: "a blank revision without review input",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewRevision: "   " },
+      },
+      {
+        rejection: "a supplied snapshot without a revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewSnapshot: callerSnapshot },
+      },
+      {
+        rejection: "a supplied snapshot with review input and no revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewSnapshot: callerSnapshot, shippingOption: "standard" },
+      },
+    ])("rejects $rejection without recording a preview", async ({ calculatedPreview, body }) => {
+      mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+      const services = createServices();
+
+      const response = await postFulfillmentPreview(services, body);
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "fulfillment_preview_required",
+          message: "Fulfillment preview must include a revision.",
+        },
+      });
+      expect(services.recordFulfillmentPreview).not.toHaveBeenCalled();
+    });
+
+    it("does not calculate a preview from stored session inputs when no review input or revision is posted", async () => {
+      const services = createServices();
+
+      await postFulfillmentPreview(services, {});
+
+      expect(mockPreviewCheckoutFulfillmentThroughOrdering).not.toHaveBeenCalled();
+    });
   });
 
   it("confirms a new checkout session by recording orders and payment", async () => {
@@ -3362,7 +3510,7 @@ async function unionCleanupHarness() {
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
   let listingSequence = 0;
   const add = async (owner: string) =>
-    cart.addLine(
+    cartAttemptDriver(cart).addLine(
       {
         accountId: owner as never,
         catalogItemId: "cat_1",
@@ -3536,30 +3684,40 @@ describe("HTTP union cleanup caller closure", () => {
         });
         mockCreateCheckoutInventoryReservations.mockClear();
         const original = h.eventStore.appendToStream.bind(h.eventStore);
+        const originalBatch = h.eventStore.appendToStreams!.bind(h.eventStore);
         let removals = 0;
-        const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
-          const type = input.events[0]?.eventType;
-          const at =
-            type === "checkout.session.orders-created"
-              ? "orders"
-              : type === "checkout.cart.line-removed"
-                ? `remove-${++removals}`
-                : type === "checkout.session.cart-cleanup-completed"
-                  ? "complete"
-                  : "other";
+        // Session events append one stream at a time; a cart removal commits with
+        // its attempt record in one atomic batch, so each batch is one boundary.
+        const crashAt = async <T>(inputs: readonly AppendToStreamInput[], append: () => Promise<T>) => {
+          const types = inputs.flatMap((input) => input.events.map((event) => event.eventType));
+          const at = types.includes("checkout.session.orders-created")
+            ? "orders"
+            : types.includes("checkout.cart.line-removed")
+              ? `remove-${++removals}`
+              : types.includes("checkout.session.cart-cleanup-completed")
+                ? "complete"
+                : "other";
           if (at === boundary || (boundary === "complete-ack" && at === "complete")) {
-            if (boundary !== "complete") await original(input);
+            if (boundary !== "complete") await append();
             throw new CheckoutDomainError(`stream ${h.anonymous} unavailable`);
           }
-          return original(input);
-        });
+          return append();
+        };
+        const faults = [
+          vi
+            .spyOn(h.eventStore, "appendToStream")
+            .mockImplementation((input) => crashAt([input], () => original(input))),
+          vi
+            .spyOn(h.eventStore, "appendToStreams")
+            .mockImplementation((inputs) => crashAt(inputs, () => originalBatch(inputs))),
+        ];
         const failed = await buildApp(h.runtime()).fetch(requestFor(h.params.sessionId));
         const failedBody = await failed.json();
         expect(failed.status, boundary).toBe(400);
         expect(failedBody.error.message).toBe("Cart cleanup could not finish. Retry checkout.");
         expect(JSON.stringify(failedBody)).not.toContain(h.anonymous);
         expect(failedBody.commitPositions).toContainEqual(h.record.orderWriteCommitPositions[0]);
-        fault.mockRestore();
+        for (const fault of faults) fault.mockRestore();
         h.setProjected(
           projection === "absent"
             ? null
@@ -3598,7 +3756,7 @@ describe("HTTP union cleanup caller closure", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const fault = vi.spyOn(h.realCart, "removeLine").mockRejectedValue(new Error(`store ${h.anonymous}`));
+      const fault = vi.spyOn(h.realCart, "executeCartAttempt").mockRejectedValue(new Error(`store ${h.anonymous}`));
       const denied = await buildApp(h.runtime(), createBuyerActor({ accountId: "acc_foreign" as never })).fetch(
         requestFor(h.params.sessionId),
       );

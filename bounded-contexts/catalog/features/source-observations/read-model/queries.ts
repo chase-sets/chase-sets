@@ -337,6 +337,28 @@ export async function listCatalogMergeCandidates(
   ]);
 }
 
+/**
+ * Every Catalog Merge Candidate id in one scope whose projected status is one of
+ * `statuses`, in candidate-id order. Bulk review jobs enumerate their work units
+ * from this once at job start and re-check each candidate's aggregate state when
+ * the unit runs, so a lagging projection never widens what a unit acts on.
+ */
+export async function listCatalogMergeCandidateIdsForScope(
+  db: PgQueryable,
+  params: Readonly<{ scopeRecordId: string; statuses: readonly CatalogMergeCandidateListRow["status"][] }>,
+): Promise<string[]> {
+  const result = await db.query<{ candidate_id: string }>(
+    `SELECT candidate_id
+     FROM catalog_merge_candidates
+     WHERE scope_record_id = $1
+       AND status = ANY($2::text[])
+     ORDER BY candidate_id ASC`,
+    [params.scopeRecordId, [...params.statuses]],
+  );
+
+  return result.rows.map((row) => row.candidate_id);
+}
+
 export async function listSourceObservationsForCandidateMatching(
   db: PgQueryable,
   params: SourceObservationFilterScope = {},
@@ -1033,13 +1055,19 @@ function buildSourceObservationFilter(
 
   if (scope.expansionId) {
     values.push(scope.expansionId);
+    const coordinate = `$${values.length}`;
     conditions.push(
-      `((normalized->>'setId') = $${values.length} OR (normalized->>'expansionId') = $${values.length} OR (normalized->>'setName') = $${values.length})`,
+      scope.provider === "tcgdex"
+        ? `(${["setId", "expansionId", "setName", "expansionName"].map((key) => `LOWER(normalized->>'${key}') = LOWER(${coordinate})`).join(" OR ")})`
+        : `((normalized->>'setId') = ${coordinate} OR (normalized->>'expansionId') = ${coordinate} OR (normalized->>'setName') = ${coordinate})`,
     );
   }
 
   if (options.statuses && options.statuses.length > 0) {
     values.push(options.statuses);
+    conditions.push(`status = ANY($${values.length}::text[])`);
+  } else if (options.includeListFilters && scope.status === "eligible") {
+    values.push(["observed", "changed"]);
     conditions.push(`status = ANY($${values.length}::text[])`);
   } else if (options.includeListFilters && scope.status) {
     values.push(scope.status);
@@ -1152,7 +1180,7 @@ function buildCatalogMergeCandidateFilter(params: CatalogMergeCandidateFilterSco
 }
 
 function reviewableStatusesForScope(scope: SourceObservationFilterScope): readonly string[] {
-  if (!scope.status) {
+  if (!scope.status || scope.status === "eligible") {
     return ["observed", "changed"];
   }
 

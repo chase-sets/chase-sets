@@ -9,10 +9,13 @@
 // Membership is guarded by `../public-event-payloads.test.ts`: a module in this
 // directory that is not re-exported below fails the partition test.
 import type { AuthEventPayloads } from "./auth";
+import type { ChannelsEventPayloads } from "./channels";
 import type { CheckoutEventPayloads } from "./checkout";
+import type { CollectionsEventPayloads } from "./collections";
 import type { FulfillmentEventPayloads } from "./fulfillment";
 import type { IdentityEventPayloads } from "./identity";
 import type { InventoryEventPayloads } from "./inventory";
+import type { DiscoveryEventPayloads } from "./discovery";
 import type { MarketplaceEventPayloads } from "./marketplace";
 import type { OrderingEventPayloads } from "./ordering";
 import type { PaymentsEventPayloads } from "./payments";
@@ -25,11 +28,14 @@ import type { SettlementEventPayloads } from "./settlement";
 
 export * from "./event-core";
 export * from "./auth";
+export * from "./channels";
 export * from "./identity";
 export * from "./inventory";
+export * from "./discovery";
 export * from "./ordering";
 export * from "./marketplace";
 export * from "./checkout";
+export * from "./collections";
 export * from "./fulfillment";
 export * from "./payments";
 export * from "./settlement";
@@ -38,10 +44,13 @@ export * from "./public-presence";
 export type { OrderGroupEventPayloads } from "../../order-groups/index";
 
 export type ChaseSetsEventPayloads = AuthEventPayloads &
+  ChannelsEventPayloads &
   IdentityEventPayloads &
   CheckoutEventPayloads &
+  CollectionsEventPayloads &
   FulfillmentEventPayloads &
   InventoryEventPayloads &
+  DiscoveryEventPayloads &
   OrderingEventPayloads &
   MarketplaceEventPayloads &
   PaymentsEventPayloads &

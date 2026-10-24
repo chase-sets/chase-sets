@@ -263,12 +263,58 @@ describe("platform ephemeral verification workflow", () => {
       "UCP_BUSINESS_SIGNING_ALG",
       "UCP_BUSINESS_SIGNING_PRIVATE_JWK",
       "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS",
-      "UCP_AP2_VERIFIER_URL",
-      "UCP_AP2_VERIFIER_AUTH_TOKEN",
-      "UCP_AP2_VERIFIER_TIMEOUT_MS",
     ]) {
       expect(runtimeSecrets).toContain(`${environmentName}:`);
     }
+  });
+
+  it("threads every required preview provider secret into the runtime apply step", () => {
+    const runtimeSecrets = step(verification, "Apply verification Kubernetes runtime secrets");
+    for (const environmentName of [
+      "SCRYDEX_API_KEY",
+      "SCRYDEX_TEAM_ID",
+      "SES_AWS_ACCESS_KEY_ID",
+      "SES_AWS_SECRET_ACCESS_KEY",
+      "SES_SOURCE_ARN",
+    ]) {
+      expect(runtimeSecrets).toContain(`${environmentName}: \${{ secrets.${environmentName} || '' }}`);
+      expect(runtimeSecrets).toContain(`export ${environmentName}="\${${environmentName}:-}"`);
+    }
+  });
+
+  it("passes an inert historical keyring and keeps the five existing provider secret names", () => {
+    const runtimeSecrets = step(verification, "Apply verification Kubernetes runtime secrets");
+    expect(runtimeSecrets).toContain('CATALOG_OPERATOR_SESSION_KEYRING_JSON: ""');
+    expect(runtimeSecrets).not.toContain("CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.");
+    for (const environmentName of [
+      "SCRYDEX_API_KEY",
+      "SCRYDEX_TEAM_ID",
+      "SES_AWS_ACCESS_KEY_ID",
+      "SES_AWS_SECRET_ACCESS_KEY",
+      "SES_SOURCE_ARN",
+    ]) {
+      expect(runtimeSecrets).toContain(`${environmentName}: \${{ secrets.${environmentName} || '' }}`);
+    }
+  });
+
+  it("holds only manual verification runs for the bounded census window", () => {
+    const hold = step(verification, "Hold for preview census");
+    expect(hold).toContain("id: census_hold");
+    expect(hold).toContain("if: success() && inputs.dispatch_source == 'manual'");
+    expect(hold).toContain("timeout-minutes: 70");
+    expect(hold).toContain("hold_start");
+    expect(hold).toContain("idle_end");
+    expect(hold).toContain("hold_end");
+    expect(hold).toContain("sleep 3900");
+    expectStepBefore(verification, "Delete verification provider webhooks", "Hold for preview census");
+    expectStepBefore(verification, "Hold for preview census", "Delete verification Kubernetes namespace");
+    expect(verification).toContain("timeout-minutes: 150");
+    const evidence = step(verification, "Write ephemeral verification evidence");
+    expect(evidence).toContain("CENSUS_HOLD_OUTCOME");
+    expect(evidence).toContain('["census-hold", process.env.CENSUS_HOLD_OUTCOME]');
+    expect(evidence.indexOf('["census-hold", process.env.CENSUS_HOLD_OUTCOME]')).toBeLessThan(
+      evidence.indexOf('["namespace-teardown", process.env.NAMESPACE_TEARDOWN_OUTCOME]'),
+    );
   });
 
   it("backstops verification namespaces and provider webhooks through independent authorities", () => {

@@ -7,9 +7,9 @@ export const chaseSetsLogoSvg = `<?xml version="1.0" encoding="UTF-8"?>
        carried by --chase-logo-start/mid/end. Distinct from "holofoil", the
        catalog finish option key owned by bounded-contexts/catalog/GLOSSARY.md. */
     :root {
-      --chase-logo-start: #8a682a;
-      --chase-logo-mid: #c9a44e;
-      --chase-logo-end: #a87e2f;
+      --chase-logo-start: #806127;
+      --chase-logo-mid: #a38132;
+      --chase-logo-end: #9a742b;
     }
 
     @media (prefers-color-scheme: dark) {
@@ -59,9 +59,9 @@ export function ChaseSetsLogo({
   const gradientId = `chase-sets-logo-${useId().replaceAll(":", "")}`;
   const accessibleTitle = decorative ? undefined : title;
   const lightPalette = {
-    start: "#8a682a",
-    mid: "#c9a44e",
-    end: "#a87e2f",
+    start: "#806127",
+    mid: "#a38132",
+    end: "#9a742b",
   };
   const darkPalette = {
     start: "#b9863b",
@@ -91,10 +91,10 @@ export function ChaseSetsLogo({
         <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1="248" y1="420" x2="1012" y2="842">
           <stop
             offset="0"
-            stopColor={colorMode === "auto" ? "var(--chase-logo-start, #8a682a)" : forcedPalette.start}
+            stopColor={colorMode === "auto" ? "var(--chase-logo-start, #806127)" : forcedPalette.start}
           />
-          <stop offset="0.52" stopColor={colorMode === "auto" ? "var(--chase-logo-mid, #c9a44e)" : forcedPalette.mid} />
-          <stop offset="1" stopColor={colorMode === "auto" ? "var(--chase-logo-end, #a87e2f)" : forcedPalette.end} />
+          <stop offset="0.52" stopColor={colorMode === "auto" ? "var(--chase-logo-mid, #a38132)" : forcedPalette.mid} />
+          <stop offset="1" stopColor={colorMode === "auto" ? "var(--chase-logo-end, #9a742b)" : forcedPalette.end} />
         </linearGradient>
       </defs>
       <g fill={`url(#${gradientId})`}>

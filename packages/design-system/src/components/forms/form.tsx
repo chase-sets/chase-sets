@@ -4,17 +4,21 @@ import { cx } from "../../utils/cx";
 export type FormStatus = "idle" | "submitting" | "success" | "error";
 
 export interface FormContextValue {
+  errorAnnouncement: "inline" | "summary";
   disabled: boolean;
   submitting: boolean;
+  pendingSubmitter: HTMLButtonElement | HTMLInputElement | null;
   status: FormStatus;
   formId?: string;
   validationSummaryId?: string;
 }
 
 const defaultFormContext: FormContextValue = {
+  errorAnnouncement: "inline",
   disabled: false,
   submitting: false,
   status: "idle",
+  pendingSubmitter: null,
 };
 
 const FormContext = createContext<FormContextValue>(defaultFormContext);
@@ -29,15 +33,19 @@ export interface FormProviderProps extends Partial<FormContextValue> {
 
 export function FormProvider({
   children,
+  errorAnnouncement = "inline",
   disabled = false,
   submitting = false,
+  pendingSubmitter = null,
   status = submitting ? "submitting" : "idle",
   formId,
   validationSummaryId,
 }: FormProviderProps) {
   const contextValue: FormContextValue = {
+    errorAnnouncement,
     disabled,
     submitting,
+    pendingSubmitter,
     status,
     formId,
     validationSummaryId,
@@ -48,6 +56,7 @@ export function FormProvider({
 
 export interface FormProps extends Omit<FormHTMLAttributes<HTMLFormElement>, "style"> {
   children?: ReactNode;
+  errorAnnouncement?: FormContextValue["errorAnnouncement"];
   disabled?: boolean;
   submitting?: boolean;
   status?: FormStatus;
@@ -65,6 +74,7 @@ const spacingClasses = {
 export const Form = forwardRef<HTMLFormElement, FormProps>(function Form(
   {
     children,
+    errorAnnouncement,
     disabled = false,
     submitting = false,
     status = submitting ? "submitting" : "idle",
@@ -81,6 +91,7 @@ export const Form = forwardRef<HTMLFormElement, FormProps>(function Form(
   const describedBy = [ariaDescribedBy, validationSummaryId].filter(Boolean).join(" ") || undefined;
   return (
     <FormProvider
+      errorAnnouncement={errorAnnouncement}
       disabled={disabled}
       submitting={submitting}
       status={status}

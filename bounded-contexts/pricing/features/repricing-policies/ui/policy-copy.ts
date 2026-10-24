@@ -110,6 +110,24 @@ function conditionLabel(condition: RepricingRuleCondition): string {
   }
 }
 
+export function repricingGoalLabel(anchor: Extract<RepricingAnchor, { source: "curve-objective" }>): string {
+  const prefix = "pricing.features.repricingPolicies.ui.goal.";
+  switch (anchor.goalId) {
+    case "fixed-percentile":
+      return t(`${prefix}fixedPercentile`, { percentile: anchor.parameters.percentile! });
+    case "target-horizon":
+      return t(`${prefix}targetHorizon`, { days: anchor.parameters.horizonDays! });
+    case "profit-per-day":
+      return t(`${prefix}profitPerDay`);
+    case "hold-value":
+      return t(`${prefix}holdValue`);
+    case "cash-target":
+      return t(`${prefix}cashTarget`, { amount: anchor.parameters.amount!, days: anchor.parameters.days! });
+    default:
+      return anchor.goalId;
+  }
+}
+
 function anchorLabel(anchor: RepricingAnchor): string {
   switch (anchor.source) {
     case "market-estimate":
@@ -126,6 +144,10 @@ function anchorLabel(anchor: RepricingAnchor): string {
       });
     case "last-sold":
       return t("pricing.features.repricingPolicies.ui.policyBody.anchor.lastSold");
+    case "curve-objective":
+      return t("pricing.features.repricingPolicies.ui.policyBody.anchor.curveObjective", {
+        goal: repricingGoalLabel(anchor),
+      });
   }
 }
 

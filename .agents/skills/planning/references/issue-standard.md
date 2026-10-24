@@ -11,6 +11,11 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   codebase is the main token sink and the main source of wrong-guess rework.
 - **Scope fence.** What is in; what is explicitly out. Non-goals prevent scope
   creep and anti-ratchet violations.
+- **Supersedes (optional).** When this issue replaces an open predecessor,
+  declare one predecessor per item using exactly `- #<n> full` or
+  `- #<n> partial: <dropped criteria>`. `full` means the successor set carries
+  every accepted criterion; `partial` names the criteria removed from the old
+  issue. An absent section means that no predecessor is superseded.
 - **Decisions already made.** Settled rulings with links (ADR, epic comment,
   decision issue). A worker never re-litigates a settled decision; a worker who
   hits an UNsettled one stops and escalates (see the delivery skill).
@@ -35,10 +40,8 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
 - **Verification plan.** The scoped commands that prove the change
   (`pnpm --filter <workspace> run test`, guards, e2e batch if UI). For database
   changes, name the normal final-head hosted `DB Profile Tests` job as the DB
-  proof. While [#8159](https://github.com/chase-sets/chase-sets/issues/8159) is
-  open, never make a full local `verify:test-db` a prerequisite. Hosted CI on
-  the pushed head is the proof for every product attempt
-  ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)): never make local E2E or another local full or
+  proof. Hosted CI on the pushed head is the proof for every product attempt:
+  never make local E2E or another local full or
   harness run a gate, a prerequisite, or a PARK or stop condition.
 - **Review packet seed (full path).** Name the invariants and likely failure
   modes the independent reviewer must attack, plus the evidence artifact that
@@ -52,7 +55,7 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   collision checks.
   A probe, diagnostic or test-infrastructure issue is never a blocking
   dependency of a product issue unless the product change cannot be written
-  without its output ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)); run it in parallel instead.
+  without its output; run it in parallel instead.
   When the change adds validation or invariants to a handler that seed,
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top
@@ -60,11 +63,18 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   A zero-consumer surface freeze records its consuming issue as a native
   **Blocks** dependency, or is parked with a stated un-park condition; "no
   production consumer" alone is not a freeze rationale.
-- **Operator actions.** Enumerate credentials, sign-ins, approvals, and live
-  watch windows, or state `none`. An
-  operator dependency discovered mid-lane stalls delivery on human latency;
-  enumerated actions let the orchestrator batch a single operator session and
-  dispatch operator-dependent work only into a signaled window.
+- **Operator actions.** Enumerate only residual human steps under the
+  [delivery operator boundary](../../delivery/SKILL.md#operator-boundary), or
+  state `none`. Name the environment, why the step needs a human, the exact
+  production-credential or real-money authorization/supervision, private entry
+  for credentials agents may not hold, protected permission prompt, or actual
+  policy/external-authority step agents cannot lawfully perform, and the agent
+  resumption point. Agents own preparation, execution, monitoring,
+  evidence, cleanup, and reporting; missing tooling is agent repair. Batch
+  genuine human steps into a signaled window without blocking preparation.
+  Preserve external approvals at their ruled lifecycle. Performer-specific
+  acceptance requires prospective repair and independent validation before an
+  agent executes the replacement route, not relabeled human evidence.
 - **Glossary impact.** Name changed terms and the owning `GLOSSARY.md`, or
   state `none — no new or renamed public names.`. The receipt proves that the declaration exists; the planning
   pressure test still judges whether the terms actually conform.
@@ -76,6 +86,16 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   records `not applicable — fast path`.
 - **Tier + routing hint.** Fast or full path (blast radius), and
   presentation-vs-system for lane assignment.
+
+The optional declaration is a `### Supersedes` section containing one item per
+predecessor:
+
+```markdown
+### Supersedes
+
+- #1234 full
+- #5678 partial: dropped acceptance criteria
+```
 
 ## Quality-surface declarations
 
@@ -107,11 +127,18 @@ quality-v2 below. Shape is mechanical; the pressure test judges truth.
 6. **Contract compatibility.** `Contract compatibility` contains either the
    exact line `none — no schema, event, or contract changes.` or a Markdown
    table with exact ordered columns `Changed contract`, `Compatibility posture`,
-   and `Removed path`, plus a fully populated row for every changed contract.
+   plus a fully populated row for every changed contract.
 7. **Glossary impact.** `Glossary impact` contains either the exact line
    `none — no new or renamed public names.` or a Markdown table with exactly
    `Public term | Owning glossary or contract` and a fully populated row for
    every new or renamed public name.
+8. **Superseded paths.** `Superseded paths` contains either the exact line
+   `none — no existing path is replaced or made redundant.` or a Markdown table
+   with exactly `Superseded path | Replacement | Removal` and a fully populated
+   row for every existing path this change replaces or makes redundant. Removal
+   is `this issue` or the native successor `#N`, identifying the owning slice.
+   Each declared removal must be an explicit acceptance criterion with a named
+   evidence method in its owning slice.
 
 Declaration headings may use ATX, setext, or standalone-label Markdown beneath
 any valid parent. Each heading and `QUALITY_PROFILE` appears exactly once. A
@@ -156,8 +183,7 @@ Stable rule IDs map to the checklist:
    reported, not gating: when a capability owns the slice's acceptance, attach
    it as that Epic's native sub-issue. A future parent-or-standalone gate
    (including any `status:standalone` label) would require a new fixed-scope
-   change; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
-   records that it is not current controller behavior. The delivery board's
+   change. The delivery board's
    Status is derived from these same facts, never hand-written: a native
    **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
    projects to `Tracking`, both non-executable
@@ -175,9 +201,9 @@ Stable rule IDs map to the checklist:
    scoped commands as commands, not commands hidden in narrative prose.
 5. **`ready-05-footprint-operators`:** footprint predicted — including every
    caller of any touched shared
-   handler; chain links wired if any; operator actions (credentials, sign-ins,
-   approvals, live watch windows) enumerated — explicitly `none` when there
-   are none.
+   handler; chain links wired if any; residual human steps enumerated under
+   Operator actions — explicitly `none` when there are none. Agent-owned
+   sign-ins, probe execution, and watch windows are not human dependencies.
 6. **`ready-06-decisions-resolved`:** no unresolved full-path decision — or
    the issue is explicitly linked
    `Blocked by` the decision issue.

@@ -101,11 +101,18 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- $componentEnvOverrides := default dict .component.envOverrides -}}
 {{- range .component.env }}
 - name: {{ .name | quote }}
-  {{- if .secret }}
+  {{- if eq .name "CHASE_SETS_DEPLOYMENT_INSTANCE" }}
+  value: {{ list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson | quote }}
+  {{- else if eq .name "CHASE_SETS_IMPLEMENTATION_SHA" }}
+  value: {{ $root.Values.global.image.tag | quote }}
+  {{- else if .secret }}
   valueFrom:
     secretKeyRef:
       name: {{ default $root.Values.global.existingSecretName .secretName | quote }}
       key: {{ default .name .secretKey | quote }}
+      {{- if .optional }}
+      optional: true
+      {{- end }}
   {{- else if hasKey $componentEnvOverrides .name }}
   value: {{ index $componentEnvOverrides .name | quote }}
   {{- else if hasKey $envOverrides .name }}
@@ -170,6 +177,42 @@ topologySpreadConstraints:
 {{- end }}
 {{- end -}}
 
+{{- define "chase-sets-platform.previewStackAffinity" -}}
+{{- if .Values.global.previewStackIsolation }}
+{{- if not (empty .Values.global.affinity) }}
+{{- fail "global.affinity cannot be set when global.previewStackIsolation is enabled" }}
+{{- end }}
+affinity:
+  podAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - {{ include "chase-sets-platform.name" . | quote }}
+            - key: app.kubernetes.io/instance
+              operator: In
+              values:
+                - {{ .Release.Name | quote }}
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        namespaceSelector: {}
+        labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - {{ include "chase-sets-platform.name" . | quote }}
+            - key: app.kubernetes.io/instance
+              operator: NotIn
+              values:
+                - {{ .Release.Name | quote }}
+{{- end }}
+{{- end -}}
+
 {{- define "chase-sets-platform.podSpec" -}}
 {{- $root := .root -}}
 {{- $component := .component -}}
@@ -185,9 +228,13 @@ serviceAccountName: {{ include "chase-sets-platform.serviceAccountName" $root }}
 nodeSelector:
 {{ toYaml . | nindent 2 }}
 {{- end }}
+{{- if $root.Values.global.previewStackIsolation }}
+{{ include "chase-sets-platform.previewStackAffinity" $root }}
+{{- else }}
 {{- with $root.Values.global.affinity }}
 affinity:
 {{ toYaml . | nindent 2 }}
+{{- end }}
 {{- end }}
 {{- with $root.Values.global.tolerations }}
 tolerations:

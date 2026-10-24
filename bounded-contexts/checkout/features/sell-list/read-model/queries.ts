@@ -4,11 +4,18 @@ import {
   evaluateEvidenceCoverage,
   type MarketplaceListingEvidenceCoverage,
   type ResolvedListingEvidenceRequirements,
-} from "../../../support/request-support/marketplace-listing-evidence";
+} from "../../../support/request-support/marketplace-listing-evidence.server";
 import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 import type { SellListLineEvidenceReadiness, SellListReadinessLine } from "../domain/readiness";
 
 type CheckoutCommercialAccountType = "personal" | "business" | "enterprise";
+
+function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: string): string {
+  return `${offerAlias}.status = 'submitted'
+    AND ${offerAlias}.price_currency_code IS NOT NULL
+    AND ${offerAlias}.last_stream_version > 0
+    AND ${accountAlias}.status = 'active'`;
+}
 
 export type CheckoutCommercialTermsResolver = Readonly<{
   resolveListingTerms: (
@@ -854,7 +861,7 @@ export async function getCheckoutSellOfferMatch(
      LEFT JOIN checkout_seller_accounts AS buyer
        ON buyer.account_id = offer.buyer_account_id
      WHERE offer.offer_id = $2
-       AND offer.status = 'submitted'
+       AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}
        AND EXISTS (
          SELECT 1
          FROM checkout_marketplace_seller_options AS option
@@ -872,7 +879,7 @@ export async function getCheckoutSellOfferMatch(
   return row ? mapOfferMatch(row) : null;
 }
 
-async function listCheckoutSellOfferMatches(
+export async function listCheckoutSellOfferMatches(
   db: PgQueryable,
   params: Readonly<{
     sellerAccountId: string;
@@ -893,7 +900,7 @@ async function listCheckoutSellOfferMatches(
      ${offerMatchListingJoinSql("$1")}
      LEFT JOIN checkout_seller_accounts AS buyer
        ON buyer.account_id = offer.buyer_account_id
-     WHERE offer.status = 'submitted'
+     WHERE ${buyerVisibleOfferPredicateSql("offer", "buyer")}
        AND offer.product_id = ANY($2::text[])
        AND NOT (offer.offer_id = ANY($3::text[]))
        AND matched_listing.listing_visible_quantity >= offer.quantity_requested

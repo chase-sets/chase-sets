@@ -9,13 +9,19 @@ import {
   authRetentionSweeps,
 } from "./support/runtime-support/retention-policy";
 import { buildAuthApi } from "./api";
+import { createAuthSessionMcpHandlers } from "./features/sessions/api/mcp";
+import { invitationAttemptSchemaMigrations } from "./features/invitation-acceptance/read-model/schema";
 import {
+  buildAuthIdentityAccountCapabilityProjectionHandlers,
   buildAuthIdentityAccountProjectionHandlers,
   buildAuthIdentityInvitationProjectionHandlers,
   buildAuthIdentityMembershipProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
 } from "./support/auth-support/identity-projection";
 import { authSchemaSql } from "./support/runtime-support/schema";
+import { connectorOAuthSchemaMigrations } from "./support/ucp-support/connector-oauth-schema";
+import { authUcpOAuthConsentSchemaMigrations } from "./support/ucp-support/oauth";
+import { agentWebhookGrantFenceSchemaMigrations } from "./support/ucp-support/agent-webhooks/agent-webhook-outbox";
 import { authUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectAuthSeedState, seedAuthDatabase } from "./support/runtime-support/seed";
 import type { AuthHostPorts, AuthServices } from "./support/runtime-support/services";
@@ -30,9 +36,17 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
   schemaSql: authSchemaSql,
   retentionSweeps: authRetentionSweeps,
   retentionExemptions: authRetentionExemptions,
-  schemaMigrations: [...authUnloggedProjectionSchemaMigrations, ...authRetentionSchemaMigrations],
+  schemaMigrations: [
+    ...invitationAttemptSchemaMigrations,
+    ...authUnloggedProjectionSchemaMigrations,
+    ...authRetentionSchemaMigrations,
+    ...connectorOAuthSchemaMigrations,
+    ...authUcpOAuthConsentSchemaMigrations,
+    ...agentWebhookGrantFenceSchemaMigrations,
+  ],
   createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [{ mountPath: "/api/auth", contextMountOrdinal: 1, router: buildAuthApi(services) }],
+  buildMcpHandlers: (services) => createAuthSessionMcpHandlers(services.sessions),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
@@ -48,6 +62,8 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
           buildAuthIdentityMembershipProjectionHandlers(services.db),
         "identity.auth-identity-invitation-projection": () =>
           buildAuthIdentityInvitationProjectionHandlers(services.db),
+        "identity.auth-identity-account-capability-projection": () =>
+          buildAuthIdentityAccountCapabilityProjectionHandlers(services.db),
       },
     }),
   seed: seedAuthDatabase,

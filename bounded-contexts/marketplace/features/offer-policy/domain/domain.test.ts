@@ -9,6 +9,7 @@ import {
 import { buyerOfferPolicyCodec } from "./codec";
 import {
   assertBuyerOfferPolicyAdmission,
+  assertBuyerOfferPolicySelection,
   decideBuyerOfferPolicy,
   evolveBuyerOfferPolicy,
   initialBuyerOfferPolicyState,
@@ -43,6 +44,77 @@ const commands: Record<string, BuyerOfferPolicyCommand> = {
   stop: { type: "StopBuyerOfferPolicy", audit },
 };
 describe("Buyer Offer Policy lifecycle", () => {
+  it("loads historical authority and ignores historical consumption without changing the preview", () => {
+    const historicalTerms = { ...terms, itemCommitmentAllowance: "10.00" };
+    const recorded = [
+      { eventType: "marketplace.offer-policy.created", payload: audit },
+      {
+        eventType: "marketplace.offer-policy.authorized",
+        payload: { ...audit, ...pending, terms: historicalTerms, revision: 1, consentedAt: audit.recordedAt },
+      },
+      { eventType: "marketplace.offer-policy.previewed", payload: { ...audit, ...pending, terms: historicalTerms } },
+      {
+        eventType: "marketplace.offer-policy.commitment-consumed",
+        payload: {
+          ...audit,
+          offerId: "off_one",
+          offerVersion: 2,
+          revision: 1,
+          currency: "USD",
+          unitItemAmount: "9.00",
+          quantity: 1,
+          itemAmount: "9.00",
+          consumedItemAmount: "9.00",
+          evaluationEvidence: {},
+        },
+      },
+    ];
+    const decoded = recorded.map(buyerOfferPolicyCodec.decode);
+    const before = decoded.slice(0, 3).reduce(evolveBuyerOfferPolicy, initialBuyerOfferPolicyState);
+    const state = decoded.reduce(evolveBuyerOfferPolicy, initialBuyerOfferPolicyState);
+    expect(state).toEqual(before);
+    expect(state.status).toBe("active");
+    expect(state.authority).not.toHaveProperty("itemCommitmentAllowance");
+    expect(state.preview!.terms).not.toHaveProperty("itemCommitmentAllowance");
+    expect(state).not.toHaveProperty("consumedItemAmount");
+    expect(() =>
+      validateBuyerOfferPolicyTerms(state, { currency: "USD", adjustmentBps: 0, offers: terms.offers }),
+    ).not.toThrow();
+  });
+  it("compares option tuples independent of persisted object key order without relaxing selection", async () => {
+    const { store } = await fixture();
+    const state = (await store.readStream({ streamId: "marketplace.offer-off_one" }))
+      .map(createPassthroughDomainEventCodec<MarketplaceOfferEvent>().decode)
+      .reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
+    const selectedOptions = [
+      { dimensionId: "dim_condition", optionId: "opt_excellent" },
+      { dimensionId: "dim_form", optionId: "opt_regular" },
+    ];
+    const storedOptions = selectedOptions.map(({ dimensionId, optionId }) => ({ optionId, dimensionId }));
+    const selection = { ...terms, offers: [{ ...terms.offers[0]!, selectedOptions }] };
+    const offers = [{ state: { ...state, selectedOptions: storedOptions }, version: 1 }];
+    const check = (options: typeof selectedOptions) =>
+      assertBuyerOfferPolicySelection(
+        "bop_one",
+        "acc_buyer",
+        {
+          ...selection,
+          offers: [{ ...selection.offers[0]!, selectedOptions: options }],
+        },
+        offers,
+      );
+
+    expect(() => check(selectedOptions)).not.toThrow();
+    for (const options of [
+      [{ ...selectedOptions[0]!, optionId: "opt_other" }, selectedOptions[1]!],
+      [{ ...selectedOptions[0]!, dimensionId: "dim_other" }, selectedOptions[1]!],
+      [selectedOptions[0]!],
+      [...selectedOptions, { dimensionId: "dim_extra", optionId: "opt_extra" }],
+    ]) {
+      expect(() => check(options)).toThrow("Offer options must match exactly.");
+      expect(() => check(options)).toThrow(expect.objectContaining({ code: "invalid_authority" }));
+    }
+  });
   const transitions = {
     draft: { create: "reject", preview: "draft", authorize: "active", pause: "reject", stop: "stopped" },
     active: { create: "reject", preview: "active", authorize: "active", pause: "paused", stop: "stopped" },
@@ -51,7 +123,7 @@ describe("Buyer Offer Policy lifecycle", () => {
   } as const;
   for (const [status, row] of Object.entries(transitions)) {
     for (const [command, outcome] of Object.entries(row)) {
-      it(`${status} + ${command} -> ${outcome}; consumption never resets`, () => {
+      it(`${status} + ${command} -> ${outcome}`, () => {
         const state = {
           ...initialBuyerOfferPolicyState,
           policyId: "bop_one",
@@ -59,7 +131,6 @@ describe("Buyer Offer Policy lifecycle", () => {
           status: status as BuyerOfferPolicyStatus,
           currency: status === "draft" ? null : "USD",
           revision: 1,
-          consumedItemAmount: "25.00",
           authority: terms,
           preview: pending,
         };
@@ -69,24 +140,20 @@ describe("Buyer Offer Policy lifecycle", () => {
           const events = run();
           const next = events.reduce(evolveBuyerOfferPolicy, state);
           expect(next.status).toBe(outcome);
-          expect(next.consumedItemAmount).toBe("25.00");
+          expect(next.revision).toBe(command === "authorize" ? 2 : 1);
           if ((command === "stop" && status === "stopped") || (command === "pause" && status === "paused"))
             expect(events).toEqual([]);
         }
       });
     }
   }
-  it("requires fresh consent for every revision and preserves immutable currency and consumption", () => {
+  it("requires fresh consent for every revision and preserves immutable currency", () => {
     const state = {
       ...initialBuyerOfferPolicyState,
       policyId: "bop_one",
       buyerAccountId: "acc_buyer",
       currency: "USD",
-      consumedItemAmount: "25.00",
     };
-    expect(() => validateBuyerOfferPolicyTerms(state, { ...terms, itemCommitmentAllowance: "24.99" })).toThrow(
-      "below consumed",
-    );
     expect(() => validateBuyerOfferPolicyTerms(state, { ...terms, currency: "EUR" })).toThrow("currency");
     expect(() => decideBuyerOfferPolicy(state, commands.authorize!)).toThrow("fresh");
   });
@@ -98,7 +165,7 @@ describe("Buyer Offer Policy lifecycle", () => {
     const state = decoded.reduce(evolveBuyerOfferPolicy, initialBuyerOfferPolicyState);
     expect(state.authority).toEqual(result.authority);
     expect(state.revision).toBe(1);
-    expect(state.consumedItemAmount).toBe("0.00");
+    expect(state).not.toHaveProperty("consumedItemAmount");
     for (const event of decoded)
       expect(buyerOfferPolicyCodec.decode(buyerOfferPolicyCodec.encode(event))).toEqual(event);
     expect(() =>

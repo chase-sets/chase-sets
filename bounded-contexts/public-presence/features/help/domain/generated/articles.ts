@@ -3143,7 +3143,7 @@ export const helpArticles = [
       "How Chase Sets handles copyright and other intellectual-property complaints, how to send a DMCA notice or counter-notice, where to send it, and how repeat infringement affects an account.",
     audience: "seller",
     category: "selling",
-    reviewedAt: "2026-08-02",
+    reviewedAt: "2026-10-21",
     citedPolicies: [],
     relatedFlows: [],
     claimCategories: [],
@@ -3346,7 +3346,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              ", a notification of claimed infringement must include, in substance (reviewed against the U.S. Copyright Office's Section 512 materials on August 2, 2026):",
+              ", a notification of claimed infringement must include, in substance (reviewed against the U.S. Copyright Office's Section 512 materials on October 21, 2026):",
           },
         ],
       },
@@ -3371,7 +3371,8 @@ export const helpArticles = [
           [
             {
               type: "text",
-              value: "your name, address, telephone number, and email address",
+              value:
+                "information reasonably sufficient for Chase Sets to contact you, such as your address, telephone number, and, if available, an email address",
             },
           ],
           [
@@ -3529,8 +3530,21 @@ export const helpArticles = [
           [
             {
               type: "text",
+              value: "your name, address, and telephone number",
+            },
+          ],
+          [
+            {
+              type: "text",
               value:
-                "your name, address, and telephone number, and consent to federal court jurisdiction as the statute describes",
+                "a statement that you consent to the jurisdiction of the federal district court for the judicial district where your address is located or, if your address is outside the United States, any judicial district in which Chase Sets may be found",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "a statement that you will accept service of process from the person who sent the infringement notice or that person's agent",
             },
           ],
         ],
@@ -6686,7 +6700,8 @@ export const helpArticles = [
         ],
       },
       {
-        claim: "The founders window applies a 0% sales-fee agreement for 60 days, capped at 500 founders.",
+        claim:
+          "Every account admitted to beta pays a 0% marketplace sales fee for 60 days from the start of its beta access. The 500 cap applies only to numbered founder badges: an account's first listing or submitted offer claims a badge while numbers remain.",
         issues: ["#4068"],
         tests: [
           "bounded-contexts/identity/features/founders-cohort/domain/domain.test.ts",
@@ -6852,7 +6867,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "The first 500 accounts to list an item or submit an offer after receiving beta access claim a founders place. A founders account pays a 0% marketplace sales fee for 60 days from the start of its beta access; listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.",
+              "Every account admitted to beta pays a 0% marketplace sales fee for 60 days from the start of its beta access. The 500 cap applies only to numbered founder badges: an account's first listing or submitted offer claims a badge while numbers remain. Listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.",
           },
         ],
       },

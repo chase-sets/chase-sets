@@ -23,6 +23,7 @@ import { collectFiles, defaultSkippedDirectories } from "./lib/files.mjs";
 import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 import {
   checkedExtensions,
+  collectClassNameObjectIdentifiers,
   isCheckedProductionFile,
   rawClassNameHostElementFinding,
   sourceKindFor,
@@ -94,10 +95,11 @@ async function collectDesignSystemLayerFiles(rootDir) {
 
 export function countRawClassNameOccurrencesInSource(filePath, sourceText) {
   const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, sourceKindFor(filePath));
+  const classNameObjectIdentifiers = collectClassNameObjectIdentifiers(sourceFile);
   let count = 0;
 
   function visit(node) {
-    if (rawClassNameHostElementFinding(sourceFile, node)) {
+    if (rawClassNameHostElementFinding(sourceFile, node, classNameObjectIdentifiers)) {
       count += 1;
     }
 

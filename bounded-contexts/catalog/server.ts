@@ -1,10 +1,4 @@
 export { createCatalogRequestApiClient } from "./support/request-support/api-client";
-export { createTcgplayerAutomationRuntime } from "./features/operator-session/api/runtime";
-export {
-  createPostgresCatalogOperatorSessionStore,
-  type CatalogOperatorSessionStore,
-  type CatalogOperatorSessionMetadata,
-} from "./features/operator-session/api/store";
 export {
   resolveCatalogProductSelection,
   type CatalogProductSelection,
@@ -26,14 +20,6 @@ export {
   catalogRealtimeTopicPolicyManifest,
   catalogRealtimeTopics,
 } from "./support/realtime-support/topics";
-export {
-  createPostgresTcgplayerAutomationHttpConfigStore,
-  createTcgplayerAutomationHttpClients,
-  type TcgplayerAutomationHttpConfig,
-} from "./features/source-observations/api/tcgplayer-automation-client";
-export { readTcgplayerAutomationRateLimitState } from "./features/source-observations/api/providers/tcgplayer-automation-client";
-export type { TcgplayerAutomationDomainRateLimitState } from "./features/source-observations/api/providers/tcgplayer-automation-client";
-export { createTcgplayerAutomationCatalogClient } from "./features/source-observations/api/tcgplayer-automation-catalog-client";
 export {
   OBSERVATION_PACK_DECISION_LINK,
   buildObservationPack,
@@ -67,6 +53,7 @@ export type { CatalogIntegrationUnitKey } from "./features/source-observations/a
 export { sourceObservationLinkExternalKey } from "./features/source-observations/domain/domain";
 export type { SourceObservationNormalized } from "./features/source-observations/domain/domain";
 export type { CatalogItemId, ReferenceRecordId } from "./ids";
+export { createOperatorTransport } from "./features/operator-session/domain/extension/transport";
 export type {
   BulkSourceObservationPromotionResult,
   BulkSourceObservationReapplyResult,
@@ -76,4 +63,32 @@ export type { CatalogBulkReviewJob } from "./support/shell-support/api/client";
 export type { CatalogItemDetail } from "./features/catalog-items/ui/contracts";
 export { createCatalogProviderConnectionsReadSource } from "./features/source-observations/api/admin/provider-connections-read-source";
 export type { CatalogServices } from "./support/authoring-support/services";
-export { createOperatorTransport } from "./features/operator-session/domain/extension/transport";
+export {
+  buildScopeSyncBatchPreviewProbeReceipt,
+  classifyScopeSyncBatchPreviewProbeRefresh,
+  classifyScopeSyncBatchPreviewProbeRequest,
+  deriveScopeSyncBatchPreviewProbeRoster,
+  readScopeSyncBatchPreviewProbeDeployedRoster,
+  scopeSyncBatchPreviewProbeArtifactPath,
+  scopeSyncBatchPreviewProbeCredentialGate,
+  scopeSyncBatchPreviewProbeFormIntent,
+  scopeSyncBatchPreviewProbeJourneyScope,
+  scopeSyncBatchPreviewProbeOriginGate,
+  scopeSyncBatchPreviewProbeRows,
+  summarizeScopeSyncBatchPreviewProbeInbox,
+  summarizeScopeSyncBatchPreviewProbePreview,
+  supportSafeText as scopeSyncBatchPreviewProbeSupportSafeText,
+  validateScopeSyncBatchPreviewProbeReceipt,
+} from "./features/scope-sync-batches/domain/preview-probe-receipt";
+export type {
+  ScopeSyncBatchPreviewProbeIdentity,
+  ScopeSyncBatchPreviewProbeInboxObservation,
+  ScopeSyncBatchPreviewProbeReceipt,
+  ScopeSyncBatchPreviewProbeRefreshResult,
+  ScopeSyncBatchPreviewProbeRoster,
+  ScopeSyncBatchPreviewProbeRowCapture,
+  ScopeSyncBatchPreviewProbeRowDefinition,
+  ScopeSyncBatchPreviewProbeScheduleState,
+} from "./features/scope-sync-batches/domain/preview-probe-receipt";
+export type { ScopeSyncBatchPreview } from "./features/scope-sync-batches/domain/batch";
+export { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./features/source-observations/ui/primary-workbench-read-model";

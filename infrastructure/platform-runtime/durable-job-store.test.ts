@@ -17,6 +17,27 @@ import {
 import { attachRuntimeLifecycleRegistry, createRuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 describe("durable job store", () => {
+  it.each([{ retentionExemptJobKinds: [] }, { retentionExemptJobKinds: ["maintenance"] }])(
+    "pairs retention SQL parameters with exemptions $retentionExemptJobKinds",
+    async ({ retentionExemptJobKinds }) => {
+      const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+      const query = async (sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        return { rows: [], rowCount: 0 };
+      };
+      const store = createPostgresDurableJobStore(
+        { query },
+        {
+          jobsTable: "test_jobs",
+          eventsTable: "test_events",
+          retentionExemptJobKinds,
+        },
+      );
+      await store.pruneTerminalJobs({ completedBefore: "2026-10-01T00:00:00Z" });
+      const { sql, values } = calls[0];
+      expect(values).toHaveLength(Math.max(...[...sql.matchAll(/\$(\d+)/g)].map((match) => Number(match[1]))));
+    },
+  );
   afterEach(() => {
     vi.useRealTimers();
   });

@@ -11,6 +11,13 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "Authentication was rejected without retained rate-budget evidence.",
   "catalog.features.sourceObservations.api.route.source.observation.not.found": "Source observation not found.",
   "catalog.features.sourceObservations.api.route.bulk.job.not.found": "Bulk job was not found.",
+  "catalog.features.sourceObservations.api.route.bulk.job.invalid.filter":
+    "Use a supported candidate job kind and scope record ID. Only completed jobs accept a status filter or page cursor.",
+  "catalog.features.sourceObservations.api.route.bulk.job.invalid.cursor": "The completed-job page cursor is invalid.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.invalid":
+    "Submit a JSON object with a supported candidate job kind and a scope record ID.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.failed.scope.required":
+    "A scope record ID is required to list failed candidate jobs.",
   "catalog.features.sourceObservations.api.route.catalog.sync.run.not.found": "Catalog sync run was not found.",
   "catalog.features.sourceObservations.api.route.integration.job.invalid.action": "Unknown integration job action.",
   "catalog.features.sourceObservations.api.route.integration.job.lifecycle.unsupported":
@@ -42,8 +49,6 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "{unitKey} was required for this Catalog scope but no provider profile unit is available.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.providerAdapterMissing":
     "No provider adapter is registered for {providerKey}.",
-  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.importPlanningUnavailable":
-    "{providerKey} does not expose import planning for this unit.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.credentialReadinessUnavailable":
     "Provider credential readiness could not be verified.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.transportDiagnosticsUnavailable":

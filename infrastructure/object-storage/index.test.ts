@@ -1,11 +1,13 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { DeleteObjectsCommand, GetObjectCommand, NoSuchKey, S3Client } from "@aws-sdk/client-s3";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createFilesystemObjectFileStorage,
   createFilesystemObjectStorage,
   createS3ObjectStorage,
+  createS3PrivateObjectStoreFromOptions,
   readFilesystemObject,
 } from "./index";
 
@@ -154,5 +156,72 @@ describe("object storage adapters", () => {
       },
     });
     expect((sent[0] as { input: Record<string, unknown> }).input).not.toHaveProperty("ACL");
+  });
+});
+
+describe("createS3PrivateObjectStoreFromOptions", () => {
+  // Synthetic identities only: no real bucket, endpoint, credential or provider traffic.
+  const options = {
+    bucket: "synthetic-private-evidence",
+    region: "synthetic-region-1",
+    endpoint: "https://objects.synthetic.invalid",
+    publicBaseUrl: "https://cdn.synthetic.invalid",
+    accessKeyId: "SYNTHETIC_ACCESS_KEY",
+    secretAccessKey: "synthetic-secret",
+    forcePathStyle: true,
+  } as const;
+
+  it("deletes and confirms absence through the injected client and the selected bucket", async () => {
+    const sent: unknown[] = [];
+    const store = createS3PrivateObjectStoreFromOptions({
+      ...options,
+      client: {
+        send: async (command: unknown) => {
+          sent.push(command);
+          if (command instanceof DeleteObjectsCommand)
+            return { $metadata: { httpStatusCode: 200 }, Deleted: [{ Key: "support-evidence/a.png" }] };
+          throw new NoSuchKey({ $metadata: { httpStatusCode: 404 }, message: "synthetic absent" });
+        },
+      } as Pick<S3Client, "send">,
+    });
+
+    await expect(store.deleteKeys(["support-evidence/a.png"])).resolves.toEqual([
+      { key: "support-evidence/a.png", status: "deleted" },
+    ]);
+    await expect(
+      store.verifyPrivate("support-evidence/a.png", {
+        sha256: "a".repeat(64),
+        byteSize: 1,
+        contentType: "image/png",
+        deadlineMs: 5_000,
+      }),
+    ).resolves.toEqual({ status: "absent" });
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toBeInstanceOf(DeleteObjectsCommand);
+    expect(sent[1]).toBeInstanceOf(GetObjectCommand);
+    for (const command of sent)
+      expect((command as { input: { Bucket?: string } }).input.Bucket).toBe("synthetic-private-evidence");
+  });
+
+  it("builds its own client from the shared connection options when none is injected", async () => {
+    const send = vi.spyOn(S3Client.prototype, "send").mockImplementation(async () => ({
+      $metadata: { httpStatusCode: 200 },
+      Deleted: [{ Key: "support-evidence/a.png" }],
+    }));
+    try {
+      await createS3PrivateObjectStoreFromOptions(options).deleteKeys(["support-evidence/a.png"]);
+      expect(send).toHaveBeenCalledTimes(1);
+      const client = send.mock.contexts[0] as S3Client;
+      expect((send.mock.calls[0]![0] as DeleteObjectsCommand).input.Bucket).toBe("synthetic-private-evidence");
+      await expect(client.config.region()).resolves.toBe("synthetic-region-1");
+      expect(client.config.forcePathStyle).toBe(true);
+      await expect(client.config.credentials()).resolves.toMatchObject({
+        accessKeyId: "SYNTHETIC_ACCESS_KEY",
+        secretAccessKey: "synthetic-secret",
+      });
+      expect((await client.config.endpoint!()).hostname).toBe("objects.synthetic.invalid");
+    } finally {
+      send.mockRestore();
+    }
   });
 });

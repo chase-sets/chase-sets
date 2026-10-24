@@ -65,6 +65,73 @@ describeDb("Channels reconciliation real scheduled runner", () => {
   afterAll(async () => closeMultiContextTestPools(pools));
   afterEach(() => expect(providerWrite).not.toHaveBeenCalled());
 
+  it("ticks the composed live-export consumer through the real scheduled runner", async () => {
+    const services = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory),
+    });
+    const consume = vi.spyOn(services.liveExportSnapshots, "consumeDueConnections");
+    const controlPlane = createPostgresPlatformControlPlane(pools.control);
+    const claim = vi.spyOn(controlPlane, "claimScheduledRunner");
+    const runnerName = "channels-live-export-snapshots";
+    const runner = createChannelsReconciliationRunners({ services, controlPlane }).find(
+      (candidate) => candidate.name === runnerName,
+    )!;
+    expect(runner).toBeDefined();
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0 });
+    expect(consume).toHaveBeenCalledTimes(1);
+    expect(claim).toHaveBeenCalledWith({ runnerName, intervalMs: 60_000 });
+    await runner.runOnce();
+    expect(consume).toHaveBeenCalledTimes(1);
+    await pools.control.query(
+      "UPDATE platform_scheduled_runners SET next_run_at=now()-interval '1 minute' WHERE runner_name=$1",
+      [runnerName],
+    );
+    await runner.runOnce();
+    expect(consume).toHaveBeenCalledTimes(2);
+    expect((await pools.channels.query("SELECT * FROM channel_live_export_consumer")).rows).toEqual([]);
+  });
+
+  it.each(["tcgplayerOrders", "fulfillmentObservations"] as const)(
+    "registers and executes %s on the real 60-second scheduler",
+    async (serviceName) => {
+      const runnerName =
+        serviceName === "tcgplayerOrders" ? "channels-tcgplayer-orders" : "channels-order-fulfillment-observations";
+      const services = channelsModule.createServices(pools.channels, {
+        channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory),
+      });
+      const interpret = vi.spyOn(services[serviceName], "interpretDueConnections");
+      const controlPlane = createPostgresPlatformControlPlane(pools.control);
+      const claim = vi.spyOn(controlPlane, "claimScheduledRunner");
+      const runner = createChannelsReconciliationRunners({
+        services,
+        controlPlane,
+        registry: syntheticRegistry(),
+      }).find((candidate) => candidate.name === runnerName);
+      expect(runner).toBeDefined();
+      await expect(runner!.runOnce()).resolves.toMatchObject({ processed: 0 });
+      expect(interpret).toHaveBeenCalledTimes(1);
+      expect(claim).toHaveBeenCalledWith({ runnerName, intervalMs: 60_000 });
+      expect(
+        (
+          await pools.control.query(
+            `SELECT runner_name FROM platform_scheduled_runners
+        WHERE runner_name=$1 AND last_completed_at IS NOT NULL`,
+            [runnerName],
+          )
+        ).rows,
+      ).toEqual([{ runner_name: runnerName }]);
+      await expect(runner!.runOnce()).resolves.toMatchObject({ processed: 0 });
+      expect(interpret).toHaveBeenCalledTimes(1);
+      await pools.control.query(
+        `UPDATE platform_scheduled_runners SET next_run_at=now()-interval '1 minute'
+      WHERE runner_name=$1`,
+        [runnerName],
+      );
+      await runner!.runOnce();
+      expect(interpret).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("channel-seeded-drift-drill uses the real scheduler, composition, queue, and account-scoped Inventory authority", async () => {
     await seedInventoryItem(pools.inventory);
     await seedChannelDrift(pools.channels);
@@ -514,7 +581,7 @@ describeDb("Channels reconciliation real scheduled runner", () => {
       accountId: "account-1",
       now: new Date().toISOString(),
     });
-    expect(reads).toBe(4);
+    expect(reads).toBe(6);
     expect(result).toMatchObject({
       degraded: true,
       items: [],

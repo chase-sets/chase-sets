@@ -1,9 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createScrydexOnePieceProviderAdapter } from "./scrydex/adapter";
+import { ProviderAdapterRegistry } from "../provider-adapters/registry";
+import {
+  queryProviderIntegrationOptions,
+  listScrydexLorcanaSealedProductOptionRecordsThroughAdapter,
+} from "./provider-option-queries";
+import {
+  queryCatalogProviderIntegrationOptionsWithCache,
+  type CatalogProviderOptionQueryCacheRecord,
+} from "./provider-option-query-cache";
 import {
   lorcanajsonLorcanaCardReferenceProviderProfile,
   lorcastLorcanaCardReferenceProviderProfile,
   mtgjsonMtgCardReferenceProviderProfile,
   scrydexOnePieceConnectorProfile,
+  scrydexOnePieceCardPrintProviderProfile,
+  catalogProviderIntegrationProfileVersions,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfile,
@@ -12,6 +24,116 @@ import {
   CatalogProviderOptionQueryInvalidRequestError,
   listCatalogProviderIntegrationOptionsFromProfiles,
 } from "./provider-option-query-resolver";
+
+describe("#9424 sealed option bridges and completed cache", () => {
+  it.each(["one-piece", "lorcana"] as const)("AC2 %s bridge preserves only all-page count metadata", async (domain) => {
+    for (const mode of ["snake", "camel", "zero", "no metadata", "mismatch"] as const) {
+      const writes: unknown[][] = [];
+      let lorcanaObservation: CatalogProviderOptionQueryCacheRecord | null = null;
+      const query = async <Row extends Record<string, unknown>>(
+        sql: string,
+        values?: readonly unknown[],
+      ): Promise<{ rows: Row[] }> => {
+        if (sql.includes("INSERT INTO catalog_provider_option_query_cache")) writes.push([...(values ?? [])]);
+        return { rows: [] };
+      };
+      const adapterWrite = vi.fn();
+      const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+        expect(writes).toHaveLength(0);
+        expect(lorcanaObservation).toBeNull();
+        expect(adapterWrite).not.toHaveBeenCalled();
+        const page = Number(new URL(String(input)).searchParams.get("page"));
+        const total = mode === "zero" ? 0 : 3;
+        const data = Array.from({ length: Math.min(2, Math.max(0, total - (page - 1) * 2)) }, (_, i) => ({
+          id: `synthetic-sealed-${page}-${i}`,
+          name: `Synthetic sealed ${page}-${i}`,
+          expansion: { id: "OP01" },
+        }));
+        return Response.json({
+          data,
+          ...(mode === "no metadata"
+            ? {}
+            : {
+                page,
+                count: mode === "mismatch" && page === 2 ? 0 : data.length,
+                ...(mode === "camel" ? { totalCount: total, pageSize: 2 } : { total_count: total, page_size: 2 }),
+              }),
+        });
+      });
+      const subject = createScrydexOnePieceProviderAdapter({
+        fetch,
+        credentials: { apiKey: "synthetic", teamId: "synthetic" },
+        baseUrl: "https://synthetic.fixture.local/onepiece/v1",
+        lorcanaBaseUrl: "https://synthetic.fixture.local/lorcana/v1",
+        cacheStore: { read: async () => null, write: adapterWrite },
+      });
+      const request = {
+        providerKey: "scrydex",
+        profileKey: `${domain}-sealed-product-source-observation`,
+        profileVersion: domain === "one-piece" ? "2026.06.22" : "2026.06.23",
+        ingestionUnitKey: `scrydex:${domain}:sealed-product:source-observation-import`,
+        queryKind: "sealed-products",
+        languageCode: "en",
+        parentValue: "OP01",
+        forceRefresh: true,
+      };
+      const run = async () => {
+        const registry = new ProviderAdapterRegistry([subject]);
+        if (domain === "one-piece")
+          return queryProviderIntegrationOptions(request, { query }, null, undefined, registry);
+        // Lorcana's sealed unit stays inactive. Exercise its bridge without enabling it.
+        let pagination: { totalCount: number; pageSize: number } | null = null;
+        const version = catalogProviderIntegrationProfileVersions.find(
+          (entry) => entry.profileKey === request.profileKey,
+        )!;
+        expect(version.active).toBe(false);
+        return queryCatalogProviderIntegrationOptionsWithCache({
+          request,
+          cacheStore: {
+            read: async () => null,
+            write: async (record) => {
+              lorcanaObservation = record;
+            },
+          },
+          validatedPagination: () => pagination,
+          loadLive: () =>
+            listCatalogProviderIntegrationOptionsFromProfiles({
+              profiles: [version.profile],
+              providerKey: "scrydex",
+              defaultProviderKey: "scrydex",
+              queryKind: "sealed-products",
+              parentValue: "OP01",
+              transports: {
+                listScrydexLorcanaSealedProducts: () =>
+                  listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(registry, {
+                    setId: "OP01",
+                    onValidatedPagination: (value) => {
+                      pagination = value ?? null;
+                    },
+                  }),
+              },
+            }),
+        });
+      };
+      if (mode === "mismatch") {
+        await expect(run()).rejects.toThrow("pagination metadata");
+        expect(writes).toHaveLength(0);
+      } else {
+        const result = await run();
+        expect(result.items).toHaveLength(mode === "zero" ? 0 : mode === "no metadata" ? 2 : 3);
+        const expected = mode === "no metadata" ? [null, null] : [mode === "zero" ? 0 : 3, 2];
+        if (domain === "one-piece") {
+          expect(writes).toHaveLength(1);
+          expect(writes[0]?.slice(15, 17)).toEqual(expected);
+        } else {
+          expect(lorcanaObservation).toMatchObject({ totalCount: expected[0], pageSize: expected[1] });
+          expect(writes).toHaveLength(0);
+        }
+      }
+      expect(adapterWrite).not.toHaveBeenCalled();
+    }
+  });
+});
 
 describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
   it("maps provider list options from profile config", async () => {
@@ -156,7 +278,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
     expect(option.metadata.aliases).toBeUndefined();
   });
 
-  it("maps TCGplayer product-line and set-name options through profile selectors", async () => {
+  it("refuses TCGplayer runtime option queries after server-side custody retirement", async () => {
     const transports = {
       listTcgplayerProductLines: async () => [
         { productLineId: 3, productLineName: "Pokemon", productLineUrlName: "pokemon", isDirect: true },
@@ -195,14 +317,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        queryKind: "product-lines",
-        value: "3",
-        label: "Pokemon",
-        metadata: expect.objectContaining({ productLineId: 3 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -213,15 +328,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        queryKind: "set-names",
-        value: "Prismatic Evolutions",
-        description: "PRE - 2025-01-17",
-        parentValue: "3",
-        metadata: expect.objectContaining({ productLineId: 3, setNameId: 7001 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -232,14 +339,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        queryKind: "products",
-        value: "610001",
-        label: "Eevee ex",
-        metadata: expect.objectContaining({ productId: 610001 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -250,14 +350,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        queryKind: "skus",
-        value: "7001001",
-        label: "7001001",
-        metadata: expect.objectContaining({ sku: 7001001 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
   });
 
   it("maps MTGJSON set and card options through profile selectors", async () => {
@@ -478,7 +571,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
     ]);
   });
 
-  it("generates unsupported query and parent validation errors from profile data", async () => {
+  it("refuses unsupported TCGplayer option queries from profile data", async () => {
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
         profiles: [tcgplayerAutomationClientProviderProfile],
@@ -487,27 +580,34 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports: {},
       }),
-    ).rejects.toThrow(
-      "Unsupported Catalog integration query 'unknown' for provider 'tcgplayer'. Supported queries: product-lines, set-names, products, skus.",
-    );
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
+  });
 
-    let parentValidationError: unknown;
-    try {
-      await listCatalogProviderIntegrationOptionsFromProfiles({
-        profiles: [tcgplayerAutomationClientProviderProfile],
-        providerKey: "tcgplayer",
-        queryKind: "set-names",
+  it("generates unsupported query and parent validation errors from retained Scrydex profile data", async () => {
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [scrydexOnePieceCardPrintProviderProfile],
+        providerKey: "scrydex",
+        queryKind: "unknown",
         defaultProviderKey: "tcgdex",
         transports: {},
-      });
-    } catch (error) {
-      parentValidationError = error;
-    }
-    expect(parentValidationError).toBeInstanceOf(CatalogProviderOptionQueryInvalidRequestError);
-    expect(parentValidationError).toMatchObject({
+      }),
+    ).rejects.toThrow(
+      "Unsupported Catalog integration query 'unknown' for provider 'scrydex'. Supported queries: sets, cards.",
+    );
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [scrydexOnePieceCardPrintProviderProfile],
+        providerKey: "scrydex",
+        queryKind: "cards",
+        defaultProviderKey: "tcgdex",
+        transports: {},
+      }),
+    ).rejects.toMatchObject({
       name: "CatalogProviderOptionQueryInvalidRequestError",
       code: "catalog_provider_option_query_parent_required",
-      message: "TCGplayer set-name option queries require a productLineId/categoryId parent value.",
+      message: "Scrydex One Piece card option queries require a selected set.",
     });
   });
 
@@ -702,7 +802,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
     expect(seenParents).toEqual(["op-01", "op-01"]);
   });
 
-  it("resolves TCGplayer One Piece options through the existing product-line scoped operations", async () => {
+  it("refuses TCGplayer One Piece runtime option queries", async () => {
     const transports = {
       listTcgplayerProductLines: async () => [
         { productLineId: 68, productLineName: "One Piece Card Game", productLineUrlName: "one-piece-card-game" },
@@ -733,13 +833,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        value: "68",
-        label: "One Piece Card Game",
-        metadata: expect.objectContaining({ productLineId: 68 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -750,14 +844,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        value: "Romance Dawn",
-        label: "Romance Dawn",
-        parentValue: "68",
-        metadata: expect.objectContaining({ productLineId: 68, setNameId: 68001 }),
-      }),
-    ]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -768,7 +855,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([expect.objectContaining({ value: "900001", label: "Monkey.D.Luffy - Romance Dawn" })]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
 
     await expect(
       listCatalogProviderIntegrationOptionsFromProfiles({
@@ -779,7 +866,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         defaultProviderKey: "tcgdex",
         transports,
       }),
-    ).resolves.toEqual([expect.objectContaining({ value: "90000101", label: "90000101" })]);
+    ).rejects.toThrow("Catalog integration provider 'tcgplayer' does not support runtime option queries.");
   });
 
   it("maps Yu-Gi-Oh provider set and card selectors through the same option-query path", async () => {

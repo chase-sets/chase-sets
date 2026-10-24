@@ -7,9 +7,12 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   CATALOG_PRODUCTION_COMPLETION_REPORT_VERSION,
+  buildCatalogCompletionDatabaseRecord,
   buildCatalogCompletionRecord,
+  catalogCompletionDatabaseConfig,
   catalogCompletionExitCode,
   parseCatalogCompletionArgs,
+  runCatalogCompletionDatabaseVerifier,
 } from "./catalog-production-completion-report.ts";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
@@ -106,6 +109,193 @@ describe("catalog completion verifier core", () => {
   });
 });
 
+// SYNTHETIC deployed-database coordinates: no password, reserved .invalid host.
+const remoteCatalogUrl = "postgresql://report_reader@catalog-db.example.invalid:25060/catalog?sslmode=verify-full";
+
+function databaseFacts(overrides = {}) {
+  return {
+    manifest: completeManifest(),
+    unknownFacts: [],
+    reportedFacts: {
+      externalReferenceDuplicates: 0,
+      legacyProfileMarkerCount: 0,
+      nonTerminalIntegrationJobCount: 0,
+      publicationCountsByStatus: { active: 10 },
+    },
+    completionProof: false,
+    ...overrides,
+  };
+}
+
+describe("catalog completion verifier database mode", () => {
+  it("parses database facts options and the exported Catalog URL", () => {
+    const options = parseCatalogCompletionArgs(["--facts", "database", "--batch-id", "batch-1"], {
+      DATABASE_URL_CATALOG: remoteCatalogUrl,
+    });
+    expect(options).toMatchObject({ facts: "database", batchId: "batch-1", catalogDatabaseUrl: remoteCatalogUrl });
+    expect(parseCatalogCompletionArgs([], {}).facts).toBe("file");
+    expect(() => parseCatalogCompletionArgs(["--facts", "api"], {})).toThrow("[facts-source-invalid]");
+  });
+
+  it("fails by name when the Catalog credential or managed CA is withheld", () => {
+    expect(() => catalogCompletionDatabaseConfig(null)).toThrow("[catalog-database-url-missing]");
+    expect(() => catalogCompletionDatabaseConfig(remoteCatalogUrl)).toThrow("[managed-postgres-ca-missing]");
+    const unreadable = () => {
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    };
+    expect(() =>
+      catalogCompletionDatabaseConfig(`${remoteCatalogUrl}&sslrootcert=/missing/ca.pem`, unreadable),
+    ).toThrow("[managed-postgres-ca-missing]");
+    const config = catalogCompletionDatabaseConfig(`${remoteCatalogUrl}&sslrootcert=/ca.pem`, () => "SYNTHETIC CA");
+    expect(config.ssl).toEqual({ rejectUnauthorized: true, ca: "SYNTHETIC CA" });
+  });
+
+  it("never opens a pool when the CA is withheld", async () => {
+    let pools = 0;
+    const options = parseCatalogCompletionArgs(["--facts", "database", "--batch-id", "batch-1"], {
+      DATABASE_URL_CATALOG: remoteCatalogUrl,
+    });
+    await expect(
+      runCatalogCompletionDatabaseVerifier(options, () => {
+        pools += 1;
+        throw new Error("pool must not be created");
+      }),
+    ).rejects.toThrow("[managed-postgres-ca-missing]");
+    expect(pools).toBe(0);
+  });
+
+  it("marks unknown facts evidence-incomplete with exit code 2 and keeps the record parseable", () => {
+    const { record, report, repeatRun, unknownFacts } = buildCatalogCompletionDatabaseRecord({
+      facts: databaseFacts({ unknownFacts: ["provider-usage-check-state:scrydex"] }),
+      environment: "staging",
+      checkedAt: "2026-08-03T00:00:00.000Z",
+    });
+    expect(report.result).toBe("complete");
+    expect(record).toMatchObject({
+      factsSource: "database",
+      result: "evidence-incomplete",
+      completionProof: false,
+      unknownFacts: ["provider-usage-check-state:scrydex"],
+    });
+    expect(catalogCompletionExitCode({ report, repeatRun, unknownFacts })).toBe(2);
+  });
+
+  it("reports a complete observed state with exit code 0 but no completion proof", () => {
+    const { record, report, repeatRun, unknownFacts } = buildCatalogCompletionDatabaseRecord({
+      facts: databaseFacts(),
+      environment: "staging",
+      checkedAt: "2026-08-03T00:00:00.000Z",
+    });
+    expect(record).toMatchObject({ result: "complete", completionProof: false, unknownFacts: [] });
+    expect(record.reportedFacts.publicationCountsByStatus).toEqual({ active: 10 });
+    expect(catalogCompletionExitCode({ report, repeatRun, unknownFacts })).toBe(0);
+  });
+
+  it("parses a seeded audit sample only together with its seed and database facts", () => {
+    const options = parseCatalogCompletionArgs(
+      [
+        "--facts",
+        "database",
+        "--batch-id",
+        "batch-1",
+        "--sample",
+        "magic=40/10,pokemon:ja=20/5",
+        "--sample-seed",
+        "s1",
+      ],
+      {},
+    );
+    expect(options.sample).toEqual({
+      seed: "s1",
+      strata: [
+        { productDomain: "magic", languageCode: null, singles: 40, sealed: 10 },
+        { productDomain: "pokemon", languageCode: "ja", singles: 20, sealed: 5 },
+      ],
+    });
+    expect(parseCatalogCompletionArgs(["--facts", "database"], {}).sample).toBeNull();
+    expect(() => parseCatalogCompletionArgs(["--facts", "database", "--sample", "magic=1/1"], {})).toThrow(
+      "[sample-invalid]",
+    );
+    expect(() => parseCatalogCompletionArgs(["--facts", "database", "--sample-seed", "s1"], {})).toThrow(
+      "[sample-invalid]",
+    );
+    expect(() => parseCatalogCompletionArgs(["--sample", "magic=1/1", "--sample-seed", "s1"], {})).toThrow(
+      "[sample-invalid]",
+    );
+    expect(() =>
+      parseCatalogCompletionArgs(["--facts", "database", "--sample", "magic=1", "--sample-seed", "s1"], {}),
+    ).toThrow("[sample-invalid]");
+    // The 275-item audit envelope is refused at argument parsing, before any read.
+    expect(() =>
+      parseCatalogCompletionArgs(["--facts", "database", "--sample", "magic=200/76", "--sample-seed", "s1"], {}),
+    ).toThrow(/\[sample-invalid\].*at most 275/);
+  });
+
+  it("adds the sample to the database record only when requested and keeps it support-safe", () => {
+    const sample = {
+      seed: "s1",
+      strata: [
+        {
+          productDomain: "magic",
+          languageCode: null,
+          productForm: "singles",
+          allocated: 1,
+          available: 1,
+          sampled: 1,
+          shortfall: 0,
+        },
+      ],
+      unclassifiedItemCount: 0,
+      items: [
+        {
+          catalogItemId: "cat_1",
+          productDomain: "magic",
+          languageCode: "en",
+          productForm: "singles",
+          publicPath: "/items/cat_1",
+        },
+      ],
+    };
+    const sampled = buildCatalogCompletionDatabaseRecord({
+      facts: databaseFacts({ sample }),
+      environment: "staging",
+      checkedAt: "2026-08-03T00:00:00.000Z",
+    });
+    expect(sampled.record.sample).toEqual(sample);
+    const unsampled = buildCatalogCompletionDatabaseRecord({
+      facts: databaseFacts({ sample: null }),
+      environment: "staging",
+      checkedAt: "2026-08-03T00:00:00.000Z",
+    });
+    expect("sample" in unsampled.record).toBe(false);
+    // The support-safety scanner covers the sample like every other field.
+    const leaking = { ...sample, items: [{ ...sample.items[0], publicPath: "https://example.invalid/items/cat_1" }] };
+    expect(() =>
+      buildCatalogCompletionDatabaseRecord({
+        facts: databaseFacts({ sample: leaking }),
+        environment: "staging",
+        checkedAt: "2026-08-03T00:00:00.000Z",
+      }),
+    ).toThrow("sample.items[0].publicPath [full-url]");
+  });
+
+  it("leaves the file-mode record shape unchanged", () => {
+    const { record } = buildCatalogCompletionRecord({
+      manifest: completeManifest(),
+      environment: "test",
+      checkedAt: "2026-08-03T00:00:00.000Z",
+    });
+    expect(Object.keys(record)).toEqual([
+      "schemaVersion",
+      "environment",
+      "checkedAt",
+      "result",
+      "convergent",
+      "report",
+    ]);
+  });
+});
+
 describe("catalog completion verifier process behavior", () => {
   let dir;
 
@@ -135,6 +325,29 @@ describe("catalog completion verifier process behavior", () => {
     const result = runVerifier({ ...completeManifest(), observedUnits: [] });
     expect(result.status).toBe(2);
     expect(result.stdout).toContain("never-synced-unit");
+  });
+
+  // The child inherits no Catalog credential: database mode must refuse by name.
+  function runDatabaseVerifier(env) {
+    const scrubbed = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/DATABASE_URL|^PG/.test(name)));
+    return spawnSync(
+      process.execPath,
+      [runnerPath, "--facts", "database", "--batch-id", "batch-1", "--environment", "test"],
+      { encoding: "utf8", env: { ...scrubbed, ...env } },
+    );
+  }
+
+  it("exits 1 naming the withheld Catalog credential", () => {
+    const result = runDatabaseVerifier({});
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("[catalog-database-url-missing]");
+  });
+
+  it("exits 1 naming the withheld managed CA", () => {
+    const result = runDatabaseVerifier({ DATABASE_URL_CATALOG: remoteCatalogUrl });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("[managed-postgres-ca-missing]");
+    expect(result.stderr).not.toContain("catalog-db.example.invalid");
   });
 
   it("exits 1 when no manifest path is given", () => {

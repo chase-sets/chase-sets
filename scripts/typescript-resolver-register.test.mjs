@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = path.resolve(".");
@@ -12,6 +13,7 @@ const wrapperPath = path.join(repositoryRoot, "infrastructure/platform-runtime/t
 const expectedRegistrationFiles = Object.freeze([
   "infrastructure/platform-runtime/typescript-resolver-register.mjs",
   "scripts/discovery-search-embedding-backfill.mjs",
+  "scripts/discovery-search-identity-terms-populate.mjs",
   "scripts/discovery-search-relevance-embeddings.mjs",
   "scripts/discovery-search-relevance.mjs",
   "scripts/generate-agent-connector-packaging.mjs",
@@ -51,10 +53,10 @@ describe("TypeScript resolver register wrapper", () => {
     }
   });
 
-  it("derives exactly eleven registration lines in eleven sorted files", async () => {
+  it("derives exactly twelve registration lines in twelve sorted files", async () => {
     const sources = await trackedMjsSources();
     const inventory = registrationInventory(sources);
-    expect(inventory).toHaveLength(11);
+    expect(inventory).toHaveLength(12);
     expect(inventory.map(({ file }) => file)).toEqual(expectedRegistrationFiles);
 
     const omitted = new Map(sources);
@@ -62,7 +64,7 @@ describe("TypeScript resolver register wrapper", () => {
       expectedRegistrationFiles[1],
       omitted.get(expectedRegistrationFiles[1]).replace("typescript-resolver.mjs", "typescript-resolver-omitted.mjs"),
     );
-    expect(registrationInventory(omitted)).toHaveLength(10);
+    expect(registrationInventory(omitted)).toHaveLength(11);
     expect(registrationInventory(omitted).map(({ file }) => file)).not.toContain(expectedRegistrationFiles[1]);
 
     const extra = new Map(sources);
@@ -70,7 +72,7 @@ describe("TypeScript resolver register wrapper", () => {
       "scripts/synthetic-extra.mjs",
       ["reg", 'ister("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);\n'].join(""),
     );
-    expect(registrationInventory(extra)).toHaveLength(12);
+    expect(registrationInventory(extra)).toHaveLength(13);
 
     extra.set(
       "scripts/synthetic-extra.mjs",
@@ -78,7 +80,7 @@ describe("TypeScript resolver register wrapper", () => {
         "",
       ),
     );
-    expect(registrationInventory(extra)).toHaveLength(12);
+    expect(registrationInventory(extra)).toHaveLength(13);
   });
 
   it.each([
@@ -160,7 +162,11 @@ console.log(readFileSync(${JSON.stringify(harness.counterPath)}, "utf8").trim().
 }
 
 async function trackedMjsSources() {
-  const files = execFileSync("git", ["ls-files", "*.mjs"], { cwd: repositoryRoot, encoding: "utf8" })
+  const files = execFileSync("git", ["ls-files", "*.mjs"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
     .split(/\r?\n/u)
     .filter(Boolean);
   return new Map(

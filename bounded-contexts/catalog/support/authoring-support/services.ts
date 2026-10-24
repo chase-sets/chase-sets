@@ -1,4 +1,5 @@
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresPromotionTargetExclusion } from "../../features/source-observations/api/promotion/promotion-target-exclusion";
 import { createCatalogProviderSendRuntime } from "../../features/source-observations/api/providers/provider-send-runtime";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
@@ -23,19 +24,28 @@ import { createCatalogScopeRegistryRuntime } from "../../features/scope-registry
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../features/source-observations/api/provider-integration-profile-store";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import { createScopeSyncBatchRuntime } from "../../features/scope-sync-batches/api/runtime";
+import { createScopeSyncCountRuntime } from "../../features/scope-sync-batches/api/count-runtime";
+import { createCountStore, countAccountSlot } from "../../features/scope-sync-batches/read-model/count-store";
+import {
+  createCountCaptureStore,
+  readCountCaptureEffects,
+} from "../../features/scope-sync-batches/read-model/count-capture-store";
+import {
+  createCountCaptureLifecycle,
+  observeDeployedScrydexUsage,
+  readCountCaptureRoster,
+  readCountCaptureEvidence,
+  type CountCaptureLifecycle,
+} from "../../features/scope-sync-batches/api/count-capture-lifecycle";
+import { createPgCatalogProviderOptionQueryCacheStore } from "../../features/source-observations/api/providers/provider-option-query-cache";
+import { scrydexOnePieceCredentialsFromEnv } from "../../features/source-observations/api/providers/provider-option-queries";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
-import type { TcgplayerAutomationCatalogClient } from "../../features/source-observations/api/tcgplayer-automation-catalog-client";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
-import {
-  createOperatorSessionGrants,
-  type OperatorSessionConfiguration,
-} from "../../features/operator-session/api/grants";
+import { createOperatorSessionGrants } from "../../features/operator-session/api/grants";
 
 export type CatalogHostPorts = Readonly<{
-  catalogOperatorSessionConfiguration?: OperatorSessionConfiguration;
   catalogAssetStorage?: CatalogAssetStorage;
-  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   sourceObservationTelemetry?: SourceObservationTelemetry;
 }>;
 
@@ -57,6 +67,8 @@ export type CatalogServices = Readonly<{
   providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
   scopeSyncBatches: ReturnType<typeof createScopeSyncBatchRuntime>;
+  // Dormant staging count capture; no other environment composes a capture store.
+  countCapture: CountCaptureLifecycle | null;
   catalogAliases: ReturnType<typeof createCatalogAliasRuntime>;
   attentionQueue: ReturnType<typeof createCatalogAttentionQueueRuntime>;
   authoringBulkJobs: ReturnType<typeof createCatalogAuthoringBulkJobServices>;
@@ -76,14 +88,18 @@ export function createCatalogServices(
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const countEnvironment = process.env.DEPLOYMENT_ENVIRONMENT?.trim() || process.env.NODE_ENV?.trim() || "runtime";
+  const countAccountRevision = "runtime";
+  const countStore = createCountStore(pool, countAccountSlot(countEnvironment, countAccountRevision));
   const deps = {
+    scopeSyncCountState: { store: countStore, environment: countEnvironment, accountRevision: countAccountRevision },
     providerSendRuntime: createCatalogProviderSendRuntime(pool),
     eventStore,
+    promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore }),
     checkpointStore,
     db,
     notificationWaiterPool: options.notificationWaiterPool,
     assetStorage: ports.catalogAssetStorage,
-    tcgplayerAutomationCatalogClient: ports.tcgplayerAutomationCatalogClient,
     sourceObservationTelemetry: ports.sourceObservationTelemetry,
   } as const;
 
@@ -116,6 +132,20 @@ export function createCatalogServices(
   );
   const scopeSyncBatches = createScopeSyncBatchRuntime({
     db,
+    counts: createScopeSyncCountRuntime({
+      pool,
+      store: countStore,
+      environment: countEnvironment,
+      accountRevision: countAccountRevision,
+      profiles: providerIntegrationProfiles,
+      providerSendRuntime: deps.providerSendRuntime,
+      adapterOptions: {
+        credentials: scrydexOnePieceCredentialsFromEnv(),
+        profileVersions: providerIntegrationProfiles,
+        cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
+        countReader: countStore,
+      },
+    }),
     previewCatalogSyncScope: sourceObservationRuntime.previewCatalogSyncScope,
     enqueueCatalogSyncRun: sourceObservationRuntime.enqueueCatalogSyncRun,
     getCatalogSyncRun: sourceObservationRuntime.getCatalogSyncRun,
@@ -143,7 +173,7 @@ export function createCatalogServices(
   });
 
   return {
-    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorSessionConfiguration),
+    operatorSession: createOperatorSessionGrants(pool),
     dimensions,
     displayTemplates,
     fields,
@@ -160,6 +190,23 @@ export function createCatalogServices(
     providerIntegrationProfiles,
     sourceObservations,
     scopeSyncBatches,
+    countCapture:
+      countEnvironment === "staging"
+        ? createCountCaptureLifecycle({
+            environment: countEnvironment,
+            accountRevision: countAccountRevision,
+            store: createCountCaptureStore(pool),
+            readRoster: (scopeRecordId) => readCountCaptureRoster(db, providerIntegrationProfiles, scopeRecordId),
+            readEffects: (at) => readCountCaptureEffects(db, at),
+            countAuthority: () => countStore.authority(),
+            observeUsage: observeDeployedScrydexUsage(
+              sourceObservations.providerAdapterRegistry,
+              deps.providerSendRuntime,
+            ),
+            counts: scopeSyncBatches,
+            readCountEvidence: (quote) => readCountCaptureEvidence(db, countStore.slot, quote),
+          })
+        : null,
     catalogAliases,
     attentionQueue,
     authoringBulkJobs,

@@ -6,6 +6,17 @@ const root = path.resolve(import.meta.dirname, "../../../../..");
 const source = (relativePath: string) => readFileSync(path.join(root, relativePath), "utf8");
 
 describe("channel-reconciliation-real-composition-contract", () => {
+  it("claimed-reconcile-production-day-after installs the owned persisted reader in every real service caller", () => {
+    const index = source("bounded-contexts/channels/index.ts");
+    const reader = source("bounded-contexts/channels/features/reconciliation/read-model/claimed.ts");
+    expect(index).toContain("readClaimedChannelState: (input) => readPersistedClaimedState(pool, input)");
+    expect(reader).toContain("readAppliedListingMembership(db");
+    expect(reader).toContain("readSnapshotRowsById(db");
+    expect(source("deployables/platform-worker/src/channels-reconciliation-runners.ts")).toContain(
+      "ReturnType<typeof channelsModule.createServices>",
+    );
+    expect(source("deployables/platform-api/src/app.ts")).toContain("channelSaleRecorder");
+  });
   it("mounts the real drift routes and requires every detail service at composition", () => {
     const api = source("bounded-contexts/channels/api.ts");
     const runtime = source("bounded-contexts/channels/features/reconciliation/api/runtime.ts");

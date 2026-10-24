@@ -1,23 +1,91 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AccountChannelsConnectionRoute, { action, loader, readActionError } from "./account-channels-connection";
 import { action as downloadAction } from "./account-channel-connection-manual-sync-download";
+import { ChannelsConnectionsApiError } from "../../support/request-support/api-client";
 
 describe("Channels account connection route contribution", () => {
+  it.each(["live", "dark", "error"] as const)(
+    "manual-sync-coverage-route-states: pending read resolves to %s",
+    async (state) => {
+      let complete!: (response: Response) => void;
+      const pending = new Promise<Response>((resolve) => {
+        complete = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        auxiliaryFetch({ operation: () => Response.json(operationLogBody()), manualSync: () => pending }),
+      );
+      const router = renderRoute();
+      expect(screen.queryByText("Inbound sales visibility is live")).toBeNull();
+      expect(screen.queryByText("Inbound sales visibility is dark")).toBeNull();
+      complete(
+        state === "error"
+          ? new Response(null, { status: 503 })
+          : Response.json({
+              ...manualSyncPanel(),
+              inboundCoverage:
+                state === "live" ? { state: "live", reason: null } : { state: "dark", reason: "no-inbound-authority" },
+            }),
+      );
+      await settleRouter(router);
+      expect(
+        screen.getByText(
+          state === "error" ? "Manual TCGplayer sync is unavailable" : `Inbound sales visibility is ${state}`,
+        ),
+      ).toBeTruthy();
+      if (state !== "live") expect(screen.queryByText("Inbound sales visibility is live")).toBeNull();
+      if (state !== "dark") expect(screen.queryByText("Inbound sales visibility is dark")).toBeNull();
+    },
+  );
+
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    ["HTML", "<!DOCTYPE html><html></html>"],
+    ["null", "null"],
+    ["array", "[]"],
+  ])("rejects a successful %s connection body before any auxiliary read", async (_name, body) => {
+    vi.stubEnv("CHASE_SETS_INTERNAL_API_ORIGIN", "http://localhost:6412");
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: actor() }))
+      .mockResolvedValueOnce(new Response(body, { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    const result = loader(loaderArgs(routeRequest()));
+    await expect(result).rejects.toBeInstanceOf(ChannelsConnectionsApiError);
+    await expect(result).rejects.toMatchObject({ status: 200 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]![0]).toBe("http://localhost:6412/api/channels/connections/connection-a");
+  });
+
+  it("preserves a missing connection as not-found without auxiliary reads", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: actor() }))
+      .mockResolvedValueOnce(Response.json({ error: "Not found" }, { status: 404 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(loader(loaderArgs(routeRequest()))).resolves.toEqual({ kind: "not-found" });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("declares the canonical authenticated account contribution and separate download resource", () => {
     const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
-    expect(manifest.deployableContributions).toEqual([
+    expect(
+      manifest.deployableContributions.filter(
+        (contribution: { deployable: string }) => contribution.deployable === "marketplace-web",
+      ),
+    ).toEqual([
       expect.objectContaining({
         deployable: "marketplace-web",
         routes: expect.arrayContaining([
@@ -36,6 +104,29 @@ describe("Channels account connection route contribution", () => {
           }),
         ]),
       }),
+    ]);
+  });
+
+  it("declares the separate admin support lookup contribution", () => {
+    const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
+    expect(
+      manifest.deployableContributions.filter(
+        (contribution: { deployable: string }) => contribution.deployable === "admin-web",
+      ),
+    ).toEqual([
+      {
+        deployable: "admin-web",
+        routes: [
+          {
+            routeId: "ebay-account-deletion-lookup",
+            routePath: "ebay-account-deletion",
+            fileExport: "./routes/admin/ebay-account-deletion",
+            routeType: "route",
+            sourceContext: "channels",
+            section: "support",
+          },
+        ],
+      },
     ]);
   });
 
@@ -59,7 +150,7 @@ describe("Channels account connection route contribution", () => {
       operationLog: { kind: "read-error" },
       drift: { kind: "not-yet-observed" },
     });
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(7);
   });
 
   it("renders the valid Manual Sync panel with the named operation-log error", async () => {
@@ -71,10 +162,10 @@ describe("Channels account connection route contribution", () => {
       }),
     );
 
-    renderRoute();
+    await settleRouter(renderRoute());
 
-    expect(await screen.findByRole("button", { name: "Compose Staged batch" })).toBeTruthy();
-    expect(await screen.findByText("Publication activity is unavailable")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Compose Staged batch" })).toBeTruthy();
+    expect(screen.getByText("Publication activity is unavailable")).toBeTruthy();
   });
 
   it("renders exactly one Manual TCGplayer sync panel heading", async () => {
@@ -85,8 +176,8 @@ describe("Channels account connection route contribution", () => {
         manualSync: () => Response.json(manualSyncPanel()),
       }),
     );
-    renderRoute();
-    expect(await screen.findAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
+    await settleRouter(renderRoute());
+    expect(screen.getAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
   });
 
   it("preserves a loaded operation log when Manual Sync returns 503", async () => {
@@ -102,7 +193,7 @@ describe("Channels account connection route contribution", () => {
       operationLog: { kind: "loaded", log: { items: [] } },
       drift: { kind: "not-yet-observed" },
     });
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(7);
   });
 
   it("renders the named Manual Sync error with the valid operation log", async () => {
@@ -114,10 +205,10 @@ describe("Channels account connection route contribution", () => {
       }),
     );
 
-    renderRoute();
+    await settleRouter(renderRoute());
 
-    expect(await screen.findByText("Manual TCGplayer sync is unavailable")).toBeTruthy();
-    expect(await screen.findByText("No publication activity")).toBeTruthy();
+    expect(screen.getByText("Manual TCGplayer sync is unavailable")).toBeTruthy();
+    expect(screen.getByText("No publication activity")).toBeTruthy();
   });
 
   it("preserves manual, operation-log and attention children when drift alone fails", async () => {
@@ -146,10 +237,10 @@ describe("Channels account connection route contribution", () => {
         attention: () => new Response(null, { status: 503 }),
       }),
     );
-    renderRoute();
-    expect(await screen.findByText("Channel health and attention is unavailable")).toBeTruthy();
-    expect(await screen.findByText("No publication activity")).toBeTruthy();
-    expect(await screen.findAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
+    await settleRouter(renderRoute());
+    expect(screen.getByText("Channel health and attention is unavailable")).toBeTruthy();
+    expect(screen.getByText("No publication activity")).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
   });
 
   it("contains auxiliary status and JSON decoding failures without losing the successful sibling", async () => {
@@ -298,6 +389,110 @@ describe("Channels account connection route contribution", () => {
     expect(readActionError("TCGplayer Id,Add to Quantity,TCG Marketplace Price\n")).toBeNull();
     expect(readActionError(new Response("csv"))).toBeNull();
   });
+
+  it("connector-pairing-surface: generates a validated code through the existing authenticated action", async () => {
+    const generated = { pairingId: "pair_test", revision: 1, code: "a".repeat(43), expiresAt: "2026-09-14T12:10:00Z" };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: { ...actor(), permissions: ["channels.manage"] } }))
+      .mockResolvedValueOnce(Response.json(generated));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request(routeRequest(), {
+      method: "POST",
+      body: new URLSearchParams({ intent: "connector-code" }),
+    });
+    expect(await action(loaderArgs(request))).toEqual({ kind: "pairing-code", generated });
+    expect(fetch.mock.calls[1]?.[0]).toBe(
+      "http://localhost/api/channels/connections/connection-a/connector-pairing/code",
+    );
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST", body: "{}" });
+  });
+
+  it.each(["transport", "refusal", "malformed"])(
+    "connector-pairing-surface: %s returns a safe retry, not generated success",
+    async (failure) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ actor: { ...actor(), permissions: ["channels.manage"] } }));
+      if (failure === "transport") fetch.mockRejectedValueOnce(new Error("connector-secret-sentinel-network"));
+      else
+        fetch.mockResolvedValueOnce(
+          failure === "refusal"
+            ? new Response("connector-secret-sentinel-refusal", { status: 503 })
+            : Response.json({ pairingId: "x", expiresAt: "2026-09-14", code: "sentinel", revision: 1 }),
+        );
+      vi.stubGlobal("fetch", fetch);
+      const request = new Request(routeRequest(), {
+        method: "POST",
+        body: new URLSearchParams({ intent: "connector-code" }),
+      });
+      const result = await action(loaderArgs(request));
+      expect(result).toEqual({ kind: "pairing-error", error: "Reload this connection and try again." });
+      expect(JSON.stringify(result)).not.toContain("sentinel");
+    },
+  );
+
+  it("connector-pairing-surface: unpairs the exact revision and redirects for a fresh detail read", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: { ...actor(), permissions: ["channels.manage"] } }))
+      .mockResolvedValueOnce(Response.json({ state: "unpaired" }));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request(routeRequest(), {
+      method: "POST",
+      body: new URLSearchParams({ intent: "connector-unpair", pairingId: "pair_test", revision: "2" }),
+    });
+    expect(await action(loaderArgs(request))).toMatchObject({ status: 302 });
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ body: JSON.stringify({ pairingId: "pair_test", revision: 2 }) });
+  });
+
+  it("connector-pairing-surface: a refused form shows a connector error, not a manual-sync error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      connectorPairingFetch(() => new Response(null, { status: 503 })),
+    );
+    const router = renderRoute();
+    await settleRouter(router);
+    const actionNavigation = waitForActionNavigation(router);
+    fireEvent.click(screen.getByRole("button", { name: "Generate pairing code" }));
+    await act(async () => {
+      await actionNavigation;
+    });
+    expect(screen.getByText("Connector pairing unavailable")).toBeTruthy();
+    expect(screen.queryByText("Manual sync action failed")).toBeNull();
+  });
+
+  it("connector-pairing-surface: refused-form error waits for the held pairing action past any async-util budget", async () => {
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      connectorPairingFetch(() => held),
+    );
+    const router = renderRoute();
+    await settleRouter(router);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    try {
+      let settled = false;
+      const actionNavigation = waitForActionNavigation(router).then(() => {
+        settled = true;
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Generate pairing code" }));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(false);
+      expect(screen.queryByText("Connector pairing unavailable")).toBeNull();
+      release(new Response(null, { status: 503 }));
+      await act(async () => {
+        await actionNavigation;
+      });
+      expect(screen.getByText("Connector pairing unavailable")).toBeTruthy();
+      expect(screen.queryByText("Manual sync action failed")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 function actor() {
@@ -373,12 +568,35 @@ function auxiliaryFetch(
     .mockImplementationOnce(responses.drift ?? (() => Response.json({ kind: "not-yet-observed" })));
 }
 
+function connectorPairingFetch(code: () => Response | Promise<Response>) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.endsWith("/connector-pairing/code")) return code();
+    if (url.endsWith("/connector-pairing"))
+      return Response.json({
+        state: "unpaired",
+        pairingId: null,
+        revision: null,
+        codeExpiresAt: null,
+        lastSeenAt: null,
+      });
+    if (url.includes("/outbound-operations")) return Response.json(operationLogBody());
+    if (url.endsWith("/manual-sync")) return Response.json(manualSyncPanel());
+    if (url.endsWith("/attention"))
+      return Response.json({ connectionId: "connection-a", healthState: "healthy", health: [], manual: null });
+    if (url.endsWith("/drift")) return Response.json({ kind: "not-yet-observed" });
+    if (url.endsWith("/connections/connection-a")) return Response.json(actorConnection());
+    return Response.json({ actor: { ...actor(), permissions: ["channels.view", "channels.manage"] } });
+  });
+}
+
 function renderRoute() {
   const router = createMemoryRouter(
     [
       {
         path: "/account/channels/:connectionId",
         loader,
+        action,
         Component: AccountChannelsConnectionRoute,
       },
     ],
@@ -389,6 +607,34 @@ function renderRoute() {
       <RouterProvider router={router} />
     </ChaseRoot>,
   );
+  return router;
+}
+
+async function settleRouter(router: ReturnType<typeof createMemoryRouter>) {
+  await act(async () => {
+    if (router.state.initialized && router.state.navigation.state === "idle") return;
+    await new Promise<void>((resolve) => {
+      const unsubscribe = router.subscribe((state) => {
+        if (state.initialized && state.navigation.state === "idle") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  });
+}
+
+function waitForActionNavigation(router: ReturnType<typeof createMemoryRouter>) {
+  return new Promise<void>((resolve) => {
+    let started = false;
+    const unsubscribe = router.subscribe((state) => {
+      if (state.navigation.state !== "idle") started = true;
+      else if (started) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
 }
 
 function routeRequest() {

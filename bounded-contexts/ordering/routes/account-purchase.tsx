@@ -5,7 +5,7 @@ import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chas
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { createOrderingRequestApiClient, type PurchaseDetail } from "../support/request-support/api-client";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
-import { OrderOutcomePanel, type OrderReviewOpportunity } from "../features/orders/ui/order-review-opportunity-callout";
+import { OrderOutcomePanel } from "../features/orders/ui/order-review-opportunity-callout";
 import contextManifest from "../context.json";
 import { orderingApiErrorAdapter } from "../support/request-support/route-api-error";
 
@@ -19,10 +19,7 @@ export const loader = defineResourceRoute({
   load: ({ request, params }) => createOrderingRequestApiClient(request).getPurchase(params.purchaseId!),
   map: (purchase) => ({
     purchase,
-    reviewOutcome: {
-      status: "ready" as const,
-      opportunity: purchase.reviewOpportunity ?? null,
-    },
+    reviewOutcome: purchase.reviewOutcome ?? { status: "unavailable" as const, opportunity: null },
   }),
   messages: {
     pending: "We are preparing your purchase. Refresh in a moment and it should appear.",
@@ -76,7 +73,7 @@ export default function OrderingAccountPurchaseRoute() {
       supplementarySection={
         <OrderOutcomePanel
           orderStatus={data.purchase.status}
-          opportunity={data.reviewOutcome.opportunity as OrderReviewOpportunity | null}
+          opportunity={data.reviewOutcome.opportunity}
           reviewReadStatus={data.reviewOutcome.status}
           reviewHref={`/account/purchases/${data.purchase.order_id}/review`}
           supportHref={`/account/support?orderId=${encodeURIComponent(data.purchase.order_id)}&role=buyer`}

@@ -27,7 +27,9 @@ export async function compileDeveloperArticleCorpus(sources) {
 }
 
 export function compileMcpToolCatalog() {
+  // Operator tools are reached only by platform-admin operators and are never published.
   return flattenMcpTools()
+    .filter((tool) => tool.permissionBoundary.scope !== "operator")
     .map((tool) => ({
       name: tool.name,
       title: tool.title,

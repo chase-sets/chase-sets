@@ -2,6 +2,97 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError, CatalogItemPublicationApiError, createCatalogApiClient } from "./client";
 
 describe("catalog API durable job client", () => {
+  it.each(["merge-candidate-promote", "merge-candidate-defer"] as const)(
+    "posts %s with the scope, headers and configured credentials",
+    async (kind) => {
+      const response = { jobId: "job_synthetic", status: "queued" };
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(response, { status: 202 }));
+      const client = createCatalogApiClient({
+        baseUrl: "https://catalog.test/api/catalog/",
+        fetch,
+        headers: { "x-test": "synthetic" },
+        credentials: "same-origin",
+      });
+      await expect(
+        client.enqueueCatalogMergeCandidateBulkJob(kind, "scope / synthetic", "Review later."),
+      ).resolves.toEqual(response);
+      expect(fetch).toHaveBeenCalledWith(
+        "https://catalog.test/api/catalog/source-observations/merge-candidate-bulk-jobs",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-test": "synthetic" },
+          credentials: "same-origin",
+          body: JSON.stringify({ kind, scopeRecordId: "scope / synthetic", reason: "Review later." }),
+        },
+      );
+    },
+  );
+
+  it("retains active observation compatibility and encodes active/completed candidate filters", async () => {
+    const page = { items: [{ jobId: "job_synthetic" }], cursor: "next_synthetic" };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json(page));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog/", fetch, headers: { "x-test": "synthetic" } });
+    await expect(client.listActiveSourceObservationBulkJobs()).resolves.toEqual(page);
+    await expect(
+      client.listCatalogMergeCandidateBulkJobs({ scopeRecordId: "scope / synthetic", status: "active" }),
+    ).resolves.toEqual(page);
+    await expect(
+      client.listCatalogMergeCandidateBulkJobs({
+        scopeRecordId: "scope / synthetic",
+        status: "completed",
+        cursor: "cursor+/= &?",
+      }),
+    ).resolves.toEqual(page);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "/api/catalog/source-observations/bulk-jobs/active",
+      "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scope+%2F+synthetic",
+      "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scope+%2F+synthetic&status=completed&cursor=cursor%2B%2F%3D+%26%3F",
+    ]);
+    for (const [, init] of fetch.mock.calls) {
+      expect(init).toEqual({ method: "GET", headers: { "x-test": "synthetic" }, credentials: "include" });
+    }
+  });
+
+  it("reads failed candidate jobs from a separate scope-filtered surface", async () => {
+    const page = { items: [{ jobId: "job_failed", status: "failed", errorMessage: "Missing units." }], count: 1 };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(page));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+    await expect(client.listFailedCatalogMergeCandidateBulkJobs("scope / synthetic")).resolves.toEqual(page);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/catalog/source-observations/merge-candidate-bulk-jobs/failed?scopeRecordId=scope+%2F+synthetic",
+      {
+        method: "GET",
+        headers: {},
+        credentials: "include",
+      },
+    );
+  });
+
+  it.each(["promote", "defer", "active", "completed", "failed"] as const)(
+    "preserves API errors for candidate %s requests",
+    async (operation) => {
+      const fetch = vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValue(Response.json({ error: "Synthetic rejection." }, { status: 400 }));
+      const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+      const request =
+        operation === "promote" || operation === "defer"
+          ? client.enqueueCatalogMergeCandidateBulkJob(
+              operation === "promote" ? "merge-candidate-promote" : "merge-candidate-defer",
+              "scope_synthetic",
+              null,
+            )
+          : operation === "failed"
+            ? client.listFailedCatalogMergeCandidateBulkJobs("scope_synthetic")
+            : client.listCatalogMergeCandidateBulkJobs({
+                scopeRecordId: "scope_synthetic",
+                status: operation,
+                ...(operation === "completed" ? { cursor: "synthetic_cursor" } : {}),
+              });
+      await expect(request).rejects.toMatchObject({ status: 400, message: "Synthetic rejection." });
+    },
+  );
+
   it("preserves nested API error messages", () => {
     const error = new ApiError(400, {
       error: {
@@ -140,6 +231,116 @@ data: ${JSON.stringify({ kind: "sync.required", snapshot: jobSnapshot({ status: 
     );
   });
 
+  it("sends each count-capture step with the explicit marker, and only those steps", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ ok: true }));
+    const client = createCatalogApiClient({
+      baseUrl: "/api/catalog",
+      fetch,
+      headers: { origin: "https://admin.example" },
+    });
+    const input = { scopeRecordId: "scope-synthetic-op01", authority: { dispatchId: "synthetic-dispatch" } };
+    await client.captureScopeSyncCountBaseline(input);
+    await client.captureScopeSyncCountInitialNotice();
+    await client.captureScopeSyncCountUsage();
+    await client.quoteScopeSyncCounts({ selection: { mode: "ids", scopeRecordIds: ["scope-synthetic-op01"] } });
+    const sent = fetch.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      method: init?.method,
+      body: init?.body,
+      marker: new Headers(init?.headers).get("x-catalog-count-capture"),
+      origin: new Headers(init?.headers).get("origin"),
+    }));
+    expect(sent).toEqual([
+      {
+        url: "/api/catalog/scope-sync-batches/count-capture/baseline",
+        method: "POST",
+        body: JSON.stringify(input),
+        marker: "1",
+        origin: "https://admin.example",
+      },
+      {
+        url: "/api/catalog/scope-sync-batches/count-capture/initial-notice",
+        method: "POST",
+        body: "{}",
+        marker: "1",
+        origin: "https://admin.example",
+      },
+      {
+        url: "/api/catalog/scope-sync-batches/count-capture/usage",
+        method: "POST",
+        body: "{}",
+        marker: "1",
+        origin: "https://admin.example",
+      },
+      {
+        url: "/api/catalog/scope-sync-batches/counts/quote",
+        method: "POST",
+        body: JSON.stringify({ selection: { mode: "ids", scopeRecordIds: ["scope-synthetic-op01"] } }),
+        marker: null,
+        origin: "https://admin.example",
+      },
+    ]);
+  });
+  it("marks every capture spend/read/seal/complete call without marking ordinary preview or confirm", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ retained: true }));
+    const client = createCatalogApiClient({
+      baseUrl: "/api/catalog",
+      fetch,
+      headers: { origin: "https://admin.staging.chasesets.com" },
+    });
+    const planner = {
+      selection: { mode: "ids" as const, scopeRecordIds: ["scope-synthetic-op01"] },
+      budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+    };
+    const acquisition = { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
+    const preConfirm = { ...planner, planFingerprint: "b".repeat(64) };
+    const freeze = { dispatchId: "synthetic-dispatch", runnerRunId: "300", runnerRunAttempt: 1 };
+    const complete = {
+      ...freeze,
+      runId: "00000000-0000-4000-8000-0000000000aa",
+      collection: {
+        collectedAt: "2026-10-13T08:06:00.000Z",
+        outcome: "unknown" as const,
+        reason: "inventory-truncated" as const,
+        binding: null,
+        createdFrom: "2026-09-08T07:40:00.000Z",
+        runCount: 0,
+        attemptCount: 0,
+        jobCount: 0,
+        pageCount: 1,
+        definitionCount: 0,
+        nonMutatingJobCount: 0,
+      },
+    };
+    await client.quoteScopeSyncCaptureCounts(planner);
+    await client.readBackScopeSyncCaptureQuote();
+    await client.recordScopeSyncCaptureFinalNotice();
+    await client.acquireScopeSyncCaptureCounts(acquisition);
+    await client.previewScopeSyncCountCapture(planner);
+    await client.preConfirmScopeSyncCountCapture(preConfirm);
+    await client.freezeScopeSyncCountCapture(freeze);
+    await client.completeScopeSyncCountCapture(complete);
+    await client.previewScopeSyncBatch(planner);
+    await client.confirmScopeSyncBatch(preConfirm);
+    expect(
+      fetch.mock.calls.map(([url, init]) => ({
+        path: String(url).replace("/api/catalog/scope-sync-batches", ""),
+        marker: new Headers(init?.headers).get("x-catalog-count-capture"),
+        body: JSON.parse(String(init?.body)),
+      })),
+    ).toEqual([
+      { path: "/counts/quote", marker: "1", body: planner },
+      { path: "/count-capture/quote-readback", marker: "1", body: {} },
+      { path: "/count-capture/final-notice", marker: "1", body: {} },
+      { path: "/counts/acquire", marker: "1", body: acquisition },
+      { path: "/preview", marker: "1", body: planner },
+      { path: "/count-capture/pre-confirm", marker: "1", body: preConfirm },
+      { path: "/count-capture/freeze", marker: "1", body: freeze },
+      { path: "/count-capture/complete", marker: "1", body: complete },
+      { path: "/preview", marker: null, body: planner },
+      { path: "/confirm", marker: null, body: preConfirm },
+    ]);
+  });
   it("previews source observation integration imports without enqueueing a job", async () => {
     const preview = {
       action: "import",

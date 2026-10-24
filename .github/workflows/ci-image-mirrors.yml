@@ -1,0 +1,72 @@
+name: CI Image Mirrors
+
+# Copies the digest-pinned upstream images required CI pulls
+# (scripts/ci-image-sources.json) byte-for-byte to public GHCR, then proves
+# anonymous cold pulls on a fresh runner with Docker Hub unreachable (#9230).
+# Manual and default-branch only: no inputs and no pull request trigger, and
+# packages: write exists only on the publish job. A dispatch from any other
+# branch or a tag skips the publish job before checkout, and every job checks
+# out the default branch, so no dispatched branch's code runs beside the token.
+# The packages start private; an operator makes them public, then re-runs the
+# failed probe job.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-image-mirrors
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish CI image mirrors
+    if: github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ format('refs/heads/{0}', github.event.repository.default_branch) }}
+          persist-credentials: false
+
+      - name: Copy pinned sources to GHCR
+        env:
+          CI_IMAGE_MIRROR_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GHCR_PUBLISH_USER: ${{ github.actor }}
+          GHCR_PUBLISH_TOKEN: ${{ github.token }}
+        run: node ./scripts/ci-image-sources.mjs publish --receipt "${RUNNER_TEMP}/ci-image-mirrors/publish-receipt.json"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-image-mirrors-publish-receipt
+          path: ${{ runner.temp }}/ci-image-mirrors/publish-receipt.json
+          if-no-files-found: error
+
+  anonymous-probe:
+    name: Anonymous cold mirror probe
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ format('refs/heads/{0}', github.event.repository.default_branch) }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/block-docker-hub
+
+      - name: Pull every pinned mirror anonymously
+        run: node ./scripts/ci-image-sources.mjs probe --receipt "${RUNNER_TEMP}/ci-image-mirrors/probe-receipt.json"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-image-mirrors-probe-receipt
+          path: ${{ runner.temp }}/ci-image-mirrors/probe-receipt.json
+          if-no-files-found: error

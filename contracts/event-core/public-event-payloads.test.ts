@@ -5,15 +5,27 @@ import { orderGroupFactRegistry, type OrderGroupEventPayloads, type OrderGroupFa
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,
+  collectionsSavedListReportReasons,
   inventoryHoldPurposes,
   inventoryHoldReleaseReasons,
   inventoryOfflineSaleChannels,
   inventoryRestockDecisionOutcomes,
+  marketplaceListingEnforcementSources,
+  parseMarketplaceListingAutoUnlistedPayload,
+  parseMarketplaceListingCreatedPayload,
+  parseMarketplaceListingOperatorUnlistedPayload,
+  parseCollectionsSavedListReportSubmittedPayload,
+  parsePlatformOperationsListingRemovalDirectedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
+  ChannelOrderFulfillmentAcceptedPayload,
+  ChannelOrderFulfillmentStatusChangedPayload,
+  ChannelsEventPayloads,
   AuthSessionStartedPayload,
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
+  CollectionsEventPayloads,
+  CollectionsSavedListReportSubmittedPayload,
   EmptyEventPayload,
   FulfillmentShipmentCancelledPayload,
   FulfillmentShipmentCreatedPayload,
@@ -32,8 +44,15 @@ import type {
   InventoryExternalChannelSaleRecordedPayload,
   InventoryItemCreatedPayload,
   InventoryItemOfflineSaleRecordedPayload,
+  MarketplaceAutomaticListingEnforcementData,
+  MarketplaceListingAutoUnlistedEnforcedPayload,
+  MarketplaceListingAutoUnlistedLegacyPayload,
+  MarketplaceListingAutoUnlistedPayload,
   MarketplaceListingCreatedPayload,
+  MarketplaceListingOperatorUnlistedPayload,
   MarketplaceListingPriceUpdatedPayload,
+  MarketplaceOfferLifecyclePayload,
+  MarketplaceOperatorListingEnforcementData,
   MarketplaceSalesFeeLineSnapshotPayload,
   OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
@@ -51,20 +70,192 @@ import type {
   WaitlistReferralCodeReservedPayload,
   WaitlistReferralLinkProvisionedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
+import type { CollectionsEventPayloads as DeepCollectionsEventPayloads } from "./public-event-payloads/collections";
 import type { AuthEventPayloads } from "./public-event-payloads/auth";
 import type { CheckoutEventPayloads } from "./public-event-payloads/checkout";
 import type { FulfillmentEventPayloads } from "./public-event-payloads/fulfillment";
 import type { IdentityEventPayloads } from "./public-event-payloads/identity";
+import type { DiscoveryEventPayloads } from "./public-event-payloads/discovery";
 import type { InventoryEventPayloads } from "./public-event-payloads/inventory";
 import type { MarketplaceEventPayloads } from "./public-event-payloads/marketplace";
 import type { OrderingEventPayloads } from "./public-event-payloads/ordering";
 import type { PaymentsEventPayloads } from "./public-event-payloads/payments";
 import type {
   PlatformOperationsEventPayloads,
+  PlatformOperationsListingRemovalDirectedPayload,
   SupportRequestPlatformCoverageEventPayloads,
 } from "./public-event-payloads/platform-operations";
 import type { PublicPresenceEventPayloads } from "./public-event-payloads/public-presence";
 import type { SettlementEventPayloads } from "./public-event-payloads/settlement";
+
+describe("versioned channel-only Listing creation payload", () => {
+  const payload = {
+    schemaVersion: 2,
+    publicationScope: "channel-only",
+    nativeVisibility: "disabled",
+    nativeFeeState: "not-enrolled",
+    listingId: "lst_channel",
+    accountId: "acc_seller",
+    inventoryItemId: "inv_card",
+    catalogItemId: "cat_card",
+    productId: "cat_card::",
+    itemLanguageCode: null,
+    itemTitle: "Card",
+    itemSubtitle: null,
+    selectedOptions: [],
+    productSummary: null,
+    productMeasureSnapshot: null,
+    gradedCard: null,
+    storageLocationName: null,
+    shipFromCode: "US",
+    shipFromAddress: {
+      name: "Seller",
+      company: null,
+      line1: "1 Main",
+      line2: null,
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      country: "US",
+      phone: null,
+      email: null,
+    },
+    priceAmount: "10.00",
+    priceCurrencyCode: "USD",
+    marketplaceSalesFeeUnitAmount: null,
+    sellerNetUnitAmount: null,
+    shippingAllowancePercentageBps: 0,
+    termsScheduleId: null,
+    termsAgreementId: null,
+    termsResolvedAt: null,
+    feeQuoteFingerprint: null,
+    feeLocks: [],
+    quantityCap: 3,
+    purchaseLimits: { maxUnitsPerOrder: null, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+    evidenceRequirements: null,
+    evidence: [],
+  };
+  it("reads schema 2 before a writer needs it", () =>
+    expect(parseMarketplaceListingCreatedPayload(payload)).toBe(payload));
+  it("reads closed nested shipping measures, graded details, address verification and evidence", () => {
+    const asset = {
+      role: "source",
+      width: 600,
+      height: 840,
+      density: null,
+      mediaType: "image/webp",
+      storageKey: "listing/source.webp",
+      publicUrl: "https://assets.test/source.webp",
+      byteSize: 1234,
+      generatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const nested = {
+      ...payload,
+      shipFromAddress: {
+        ...payload.shipFromAddress,
+        verification: {
+          status: "verified",
+          source: "test",
+          checkedAt: "2026-01-01T00:00:00.000Z",
+          suggestedAddress: payload.shipFromAddress,
+          messages: ["Verified"],
+        },
+      },
+      productMeasureSnapshot: {
+        catalogItemId: "cat_card",
+        productId: "cat_card::",
+        selectedOptions: [],
+        measureVersion: "pm_1",
+        unitLengthInches: 3.5,
+        unitWidthInches: 2.5,
+        unitHeightInches: 0.01,
+        unitWeightOunces: 0.1,
+        physicalFlags: ["raw-card"],
+        stackBehavior: "stackable-thickness",
+        source: "profile",
+        confidence: "measured",
+      },
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: null,
+        population: { populationAtGrade: 1, populationHigher: 0, source: null, asOf: null },
+        conditionDescriptors: [],
+      },
+      evidence: [
+        {
+          photoId: "lpho_1",
+          originalFilename: null,
+          altText: "Front",
+          slotId: null,
+          viewKind: null,
+          status: "active",
+          sortOrder: 0,
+          capturedAt: null,
+          uploadedAt: asset.generatedAt,
+          assetRevision: "rev_1",
+          replacesPhotoId: null,
+          assetSet: { kind: "listing-photo", sourceHash: "hash_1", source: asset, variants: [] },
+        },
+      ],
+    };
+    expect(parseMarketplaceListingCreatedPayload(nested)).toBe(nested);
+    for (const poison of [
+      { ...nested, productMeasureSnapshot: { ...nested.productMeasureSnapshot, guessed: true } },
+      { ...nested, productMeasureSnapshot: { ...nested.productMeasureSnapshot, unitWeightOunces: NaN } },
+      {
+        ...nested,
+        gradedCard: { ...nested.gradedCard, population: { ...nested.gradedCard.population, guessed: true } },
+      },
+      {
+        ...nested,
+        shipFromAddress: {
+          ...nested.shipFromAddress,
+          verification: { ...nested.shipFromAddress.verification, status: { guessed: true } },
+        },
+      },
+      {
+        ...nested,
+        evidence: [
+          { ...nested.evidence[0], assetSet: { ...nested.evidence[0]!.assetSet, source: { ...asset, guessed: true } } },
+        ],
+      },
+    ])
+      expect(() => parseMarketplaceListingCreatedPayload(poison)).toThrow();
+  });
+  it("leaves prior-schema events byte-identical", () => {
+    const {
+      schemaVersion: _version,
+      publicationScope: _scope,
+      nativeVisibility: _visibility,
+      nativeFeeState: _fees,
+      ...legacy
+    } = payload;
+    expect(parseMarketplaceListingCreatedPayload(legacy)).toBe(legacy);
+    expect(JSON.stringify(parseMarketplaceListingCreatedPayload(legacy))).toBe(JSON.stringify(legacy));
+  });
+  it.each([
+    { ...payload, schemaVersion: 3 },
+    { ...payload, nativeVisibility: "enabled" },
+    { ...payload, publicationScope: undefined },
+    { ...payload, termsAgreementId: "native-terms" },
+    { ...payload, feeLocks: [{}] },
+    { ...payload, guessed: true },
+    { ...payload, priceCurrencyCode: "ZZZ" },
+    { ...payload, priceAmount: "10" },
+    { ...payload, priceAmount: 10 },
+    { ...payload, priceCurrencyCode: undefined },
+    { ...payload, quantityCap: Number.MAX_SAFE_INTEGER + 1 },
+    { ...payload, quantityCap: Infinity },
+    { ...payload, purchaseLimits: { ...payload.purchaseLimits, guessed: 1 } },
+    { ...payload, purchaseLimits: { ...payload.purchaseLimits, maxUnitsPerOrder: NaN } },
+    { ...payload, shipFromAddress: { ...payload.shipFromAddress, guessed: true } },
+    { ...payload, selectedOptions: [{ dimensionId: "form", optionId: "raw", guessed: true }] },
+    { ...payload, productMeasureSnapshot: { unitWeightOunces: Infinity } },
+  ])("refuses partial, poisoned, recursively open or unsafe schema 2 facts: %j", (poisoned) => {
+    expect(() => parseMarketplaceListingCreatedPayload(poisoned)).toThrow();
+  });
+});
 
 const modernSuspendedPayload: IdentityAccountSuspendedPayload = {
   enforcement: {
@@ -100,8 +291,180 @@ const missingClosedVersion: IdentityAccountClosedPayload = {
   },
 };
 
+const enforcedAutoUnlistedPayload: MarketplaceListingAutoUnlistedEnforcedPayload = {
+  reportId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  reportCount: 3,
+  threshold: 3,
+  autoUnlistedAt: "2026-10-06T12:00:00.000Z",
+  listingEnforcement: {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "automatic-report-threshold",
+    sourceActionId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T12:00:00.000Z",
+  },
+};
+const legacyAutoUnlistedPayload: MarketplaceListingAutoUnlistedPayload = {
+  reportId: "rpt_legacy",
+  reportCount: 3,
+  threshold: 3,
+  autoUnlistedAt: "2026-07-01T00:00:00.000Z",
+};
+const operatorUnlistedPayload: MarketplaceListingOperatorUnlistedPayload = {
+  listingEnforcement: {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAW",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "operator-unlist",
+    sourceActionId: "rca_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T07:30:00.000-05:00",
+  },
+};
+const missingOperatorVersion: MarketplaceListingOperatorUnlistedPayload = {
+  // @ts-expect-error a partial listing enforcement record is corrupt.
+  listingEnforcement: {
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAW",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "operator-unlist",
+    sourceActionId: "rca_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T07:30:00.000-05:00",
+  },
+};
+
 const shardDirectory = path.join(import.meta.dirname, "public-event-payloads");
 const aggregateFileName = "index.ts";
+
+const validCollectionsSavedListReport = {
+  reportId: "report_opaque",
+  targetType: "saved-list",
+  targetId: "saved-list_opaque",
+  targetOwnerAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  reporterKind: "account",
+  reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+  reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+  reason: "spam",
+  submittedAt: "2026-10-06T07:30:00.123456789-05:00",
+} as const satisfies CollectionsSavedListReportSubmittedPayload;
+
+const validVisitorCollectionsSavedListReport = {
+  ...validCollectionsSavedListReport,
+  reporterKind: "visitor",
+  reporterKey: "A23456789012345678901234567890123456789012_",
+  reporterAccountId: null,
+} as const satisfies CollectionsSavedListReportSubmittedPayload;
+
+// @ts-expect-error visitor reports never carry an account identity.
+const invalidVisitorReporterArm: CollectionsSavedListReportSubmittedPayload = {
+  ...validVisitorCollectionsSavedListReport,
+  reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW",
+};
+void invalidVisitorReporterArm;
+
+// @ts-expect-error account reports must use an account reporter key.
+const invalidAccountReporterKey: CollectionsSavedListReportSubmittedPayload = {
+  ...validCollectionsSavedListReport,
+  reporterKey: validVisitorCollectionsSavedListReport.reporterKey,
+};
+void invalidAccountReporterKey;
+
+// @ts-expect-error account reports must carry an account identity.
+const invalidAccountReporterId: CollectionsSavedListReportSubmittedPayload = {
+  ...validCollectionsSavedListReport,
+  reporterAccountId: null,
+};
+void invalidAccountReporterId;
+
+describe("Collections Saved List report-submitted payload", () => {
+  it("publishes one exact payload identity through the aggregate and deep specifier", () => {
+    expect(collectionsSavedListReportReasons).toEqual(["spam", "prohibited-content", "harassment", "other"]);
+    expectTypeOf<
+      CollectionsEventPayloads["collections.saved-list.report-submitted"]
+    >().toEqualTypeOf<CollectionsSavedListReportSubmittedPayload>();
+    expectTypeOf<DeepCollectionsEventPayloads>().toEqualTypeOf<CollectionsEventPayloads>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["collections.saved-list.report-submitted"]
+    >().toEqualTypeOf<CollectionsSavedListReportSubmittedPayload>();
+  });
+
+  it("accepts account and visitor rows and preserves no input values in errors", () => {
+    const withSecret = { ...validVisitorCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" };
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(withSecret)).toThrowError(
+      expect.not.objectContaining({ message: expect.stringContaining("SECRET_SENTINEL") }),
+    );
+    const badDigest = { ...validVisitorCollectionsSavedListReport, reporterKey: "DIGEST_SENTINEL" };
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(badDigest)).toThrowError(
+      expect.not.objectContaining({ message: expect.stringContaining("DIGEST_SENTINEL") }),
+    );
+  });
+
+  it.each(
+    collectionsSavedListReportReasons.flatMap((reason) => [
+      { ...validCollectionsSavedListReport, reason },
+      { ...validVisitorCollectionsSavedListReport, reason },
+    ]),
+  )("accepts every valid %s row", (row) => {
+    expect(parseCollectionsSavedListReportSubmittedPayload(row)).toEqual(row);
+  });
+
+  it.each<readonly [string, unknown, string]>([
+    ["null", null, "must be an object"],
+    ["array", [validCollectionsSavedListReport], "must be an object"],
+    ["missing key", Object.fromEntries(Object.entries(validCollectionsSavedListReport).slice(1)), "missing key"],
+    ["unknown key", { ...validCollectionsSavedListReport, capabilitySecret: "SECRET_SENTINEL" }, "unknown key"],
+    ["padded id", { ...validCollectionsSavedListReport, targetId: " saved-list_opaque" }, "IDs must be"],
+    ["wrong target", { ...validCollectionsSavedListReport, targetType: "list" }, "targetType must be"],
+    ["wrong reason", { ...validCollectionsSavedListReport, reason: "other-reason" }, "reason is invalid"],
+    [
+      "wrong reporter kind",
+      { ...validVisitorCollectionsSavedListReport, reporterKind: "admin" },
+      "reporterKind must be",
+    ],
+    [
+      "timezone-free",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00" },
+      "submittedAt must be",
+    ],
+    ["non-string reportId", { ...validCollectionsSavedListReport, reportId: 123 }, "IDs must be"],
+    ["non-string targetId", { ...validCollectionsSavedListReport, targetId: ["saved-list_opaque"] }, "IDs must be"],
+    [
+      "account mismatch",
+      { ...validCollectionsSavedListReport, reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV" },
+      "account reporter must match",
+    ],
+    [
+      "visitor account",
+      { ...validVisitorCollectionsSavedListReport, reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW" },
+      "visitor reporter must use",
+    ],
+    [
+      "visitor digest",
+      { ...validVisitorCollectionsSavedListReport, reporterKey: "short" },
+      "visitor reporter must use",
+    ],
+    ["lowercase t", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06t07:30:00Z" }, "submittedAt must be"],
+    [
+      "space separator",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06 07:30:00Z" },
+      "submittedAt must be",
+    ],
+    ["leap second", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:60Z" }, "submittedAt must be"],
+    [
+      "too many fraction digits",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00.1234567890Z" },
+      "submittedAt must be",
+    ],
+    [
+      "impossible calendar",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-02-30T07:30:00Z" },
+      "submittedAt must be",
+    ],
+  ])("rejects %s", (_label, value, message) => {
+    expect(() => parseCollectionsSavedListReportSubmittedPayload(value)).toThrowError(
+      expect.objectContaining({ message: expect.stringContaining(message) }),
+    );
+  });
+});
 
 describe("Order Group post-Fulfillment-shard registration", () => {
   it("registers each exact payload type in the owning shard and aggregate", () => {
@@ -195,6 +558,110 @@ describe("Order Group post-Fulfillment-shard registration", () => {
   });
 });
 
+describe("marketplace listing enforcement payloads", () => {
+  const automatic = enforcedAutoUnlistedPayload.listingEnforcement;
+  const operator = operatorUnlistedPayload.listingEnforcement;
+  const auto = (overrides: Readonly<Record<string, unknown>>) => ({ ...enforcedAutoUnlistedPayload, ...overrides });
+  const autoEnforcement = (overrides: Readonly<Record<string, unknown>>) =>
+    auto({ listingEnforcement: { ...automatic, ...overrides } });
+  const operatorEnforcement = (overrides: Readonly<Record<string, unknown>>) => ({
+    listingEnforcement: { ...operator, ...overrides },
+  });
+  const without = (value: Readonly<Record<string, unknown>>, key: string) =>
+    Object.fromEntries(Object.entries(value).filter(([candidate]) => candidate !== key));
+
+  it("types each source with its own typed ULID and keeps the operator payload closed", () => {
+    expectTypeOf<MarketplaceAutomaticListingEnforcementData["sourceActionId"]>().toEqualTypeOf<`rpt_${string}`>();
+    expectTypeOf<MarketplaceOperatorListingEnforcementData["sourceActionId"]>().toEqualTypeOf<`rca_${string}`>();
+    expectTypeOf<
+      MarketplaceOperatorListingEnforcementData["listingEnforcementActionId"]
+    >().toEqualTypeOf<`lea_${string}`>();
+    expectTypeOf(
+      parseMarketplaceListingAutoUnlistedPayload,
+    ).returns.toEqualTypeOf<MarketplaceListingAutoUnlistedPayload>();
+    expect(missingOperatorVersion).toHaveProperty("listingEnforcement");
+  });
+
+  it("round-trips modern payloads and returns historical automatic payloads unchanged", () => {
+    expect(parseMarketplaceListingAutoUnlistedPayload(enforcedAutoUnlistedPayload)).toEqual(
+      enforcedAutoUnlistedPayload,
+    );
+    expect(parseMarketplaceListingOperatorUnlistedPayload(operatorUnlistedPayload)).toEqual(operatorUnlistedPayload);
+    expect(parseMarketplaceListingAutoUnlistedPayload(legacyAutoUnlistedPayload)).toBe(legacyAutoUnlistedPayload);
+  });
+
+  it.each<readonly [string, unknown]>([
+    ...["reportId", "reportCount", "threshold", "autoUnlistedAt"].map(
+      (key) => [`missing ${key}`, without(enforcedAutoUnlistedPayload, key)] as const,
+    ),
+    ...Object.keys(automatic).map(
+      (key) => [`missing nested ${key}`, auto({ listingEnforcement: without(automatic, key) })] as const,
+    ),
+    ["an extra field", auto({ note: "free text" })],
+    ["an extra nested field", autoEnforcement({ reason: "spam" })],
+    ["null enrichment", auto({ listingEnforcement: null })],
+    ["array enrichment", auto({ listingEnforcement: [automatic] })],
+    ["an unknown version", autoEnforcement({ version: 2 })],
+    ["a string version", autoEnforcement({ version: "1" })],
+    ["the operator source", autoEnforcement({ source: "operator-unlist", sourceActionId: operator.sourceActionId })],
+    ["an unknown source", autoEnforcement({ source: "manual" })],
+    ["a source differing from the report", autoEnforcement({ sourceActionId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAW" })],
+    ["a time differing from the removal", autoEnforcement({ occurredAt: "2026-10-06T12:00:01.000Z" })],
+    [
+      "an account enforcement identity",
+      autoEnforcement({ listingEnforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV" }),
+    ],
+    ["a lowercase identity", autoEnforcement({ listingEnforcementActionId: "lea_01aryz6s41tsv4rrffq69g5fav" })],
+    ["an empty owner", autoEnforcement({ accountId: "" })],
+    ["a padded owner", autoEnforcement({ accountId: " acc_01ARYZ6S41TSV4RRFFQ69G5FAV" })],
+    [
+      "a non-canonical report",
+      auto({ reportId: "rpt_1", listingEnforcement: { ...automatic, sourceActionId: "rpt_1" } }),
+    ],
+    ["a below-threshold count", auto({ reportCount: 2 })],
+    ["a zero threshold", auto({ reportCount: 0, threshold: 0 })],
+    ["a fractional count", auto({ reportCount: 3.5 })],
+    [
+      "a date-only time",
+      auto({ autoUnlistedAt: "2026-10-06", listingEnforcement: { ...automatic, occurredAt: "2026-10-06" } }),
+    ],
+    [
+      "a zoneless time",
+      auto({
+        autoUnlistedAt: "2026-10-06T12:00:00",
+        listingEnforcement: { ...automatic, occurredAt: "2026-10-06T12:00:00" },
+      }),
+    ],
+    [
+      "an impossible calendar day",
+      auto({
+        autoUnlistedAt: "2026-02-30T12:00:00Z",
+        listingEnforcement: { ...automatic, occurredAt: "2026-02-30T12:00:00Z" },
+      }),
+    ],
+  ])("rejects an automatic payload with %s", (_case, payload) => {
+    expect(() => parseMarketplaceListingAutoUnlistedPayload(payload)).toThrow();
+  });
+
+  it.each<readonly [string, unknown]>([
+    ["an empty payload", {}],
+    ["an extra field", { ...operatorUnlistedPayload, reportId: automatic.sourceActionId }],
+    ...Object.keys(operator).map(
+      (key) => [`missing nested ${key}`, { listingEnforcement: without(operator, key) }] as const,
+    ),
+    ["an extra nested field", operatorEnforcement({ note: "free text" })],
+    ["an unknown version", operatorEnforcement({ version: 0 })],
+    ["the automatic source", { listingEnforcement: automatic }],
+    ["a report prefix under the operator source", operatorEnforcement({ sourceActionId: automatic.sourceActionId })],
+    ["an operator source id under the automatic source", operatorEnforcement({ source: "automatic-report-threshold" })],
+    ["an out-of-range hour", operatorEnforcement({ occurredAt: "2026-10-06T24:00:00Z" })],
+    ["an out-of-range offset", operatorEnforcement({ occurredAt: "2026-10-06T07:30:00+24:00" })],
+    ["a date-only time", operatorEnforcement({ occurredAt: "2026-10-06" })],
+  ])("rejects an operator payload with %s", (_case, payload) => {
+    expect(() => parseMarketplaceListingOperatorUnlistedPayload(payload)).toThrow();
+  });
+});
+
 function listShardModules(directory: string): readonly string[] {
   return readdirSync(directory)
     .filter((entry) => entry.endsWith(".ts") && entry !== aggregateFileName)
@@ -220,7 +687,69 @@ function partitionShardModules(moduleFileNames: readonly string[], reExportedFil
   };
 }
 
+describe("marketplace Offer lifecycle payloads", () => {
+  it("registers paused, resumed and withdrawn on one closed buyer lifecycle payload", () => {
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.paused"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.resumed"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.withdrawn"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<keyof MarketplaceOfferLifecyclePayload>().toEqualTypeOf<"offerId" | "buyerAccountId" | "at">();
+  });
+});
+
+describe("Listing Removal Directive contract", () => {
+  const directive = {
+    actionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    listingId: "lst_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    operatorUserId: null,
+    directedAt: "2026-10-06T09:00:00.000-05:00",
+  };
+  it("accepts exactly four fields and preserves timezone instants and a nullable actor", () => {
+    expect(parsePlatformOperationsListingRemovalDirectedPayload(directive)).toEqual(directive);
+    expect(
+      parsePlatformOperationsListingRemovalDirectedPayload({
+        ...directive,
+        operatorUserId: "usr_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        directedAt: "2026-10-06T14:00:00.000Z",
+      }),
+    ).toMatchObject({ operatorUserId: "usr_01ARZ3NDEKTSV4RRFFQ69G5FAV", directedAt: "2026-10-06T14:00:00.000Z" });
+  });
+  it.each([
+    null,
+    [],
+    {},
+    { ...directive, actionId: "rca_1" },
+    { ...directive, listingId: "rev_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+    { ...directive, operatorUserId: "usr_1" },
+    { ...directive, operatorUserId: undefined },
+    { ...directive, extra: true },
+    { ...directive, directedAt: "2026-02-30T12:00:00Z" },
+    { ...directive, directedAt: "2026-10-06" },
+    { ...directive, directedAt: "2026-10-06T12:00:00" },
+    { ...directive, directedAt: "2026-10-06T24:00:00Z" },
+    { ...directive, directedAt: "2026-10-06T12:00:00+00:60" },
+  ])("rejects malformed or open payload %j", (value) => {
+    expect(() => parsePlatformOperationsListingRemovalDirectedPayload(value)).toThrow();
+  });
+});
+
 describe("public event payload shard partition", () => {
+  it("channel-order-observation-callers: registers accepted and PII-free status facts in the Channels shard", () => {
+    expectTypeOf<
+      ChaseSetsEventPayloads["channels.order-fulfillment-observation.accepted"]
+    >().toEqualTypeOf<ChannelOrderFulfillmentAcceptedPayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["channels.order-fulfillment-observation.status-changed"]
+    >().toEqualTypeOf<ChannelOrderFulfillmentStatusChangedPayload>();
+    expectTypeOf<
+      Extract<keyof ChannelOrderFulfillmentStatusChangedPayload, "shipTo" | "lines" | "productAmount">
+    >().toEqualTypeOf<never>();
+  });
   const moduleFileNames = listShardModules(shardDirectory);
   const reExportedFileNames = listAggregateReExports(
     readFileSync(path.join(shardDirectory, aggregateFileName), "utf8"),
@@ -278,6 +807,10 @@ describe("public event payload runtime value exports", () => {
     ]).toHaveLength(5);
   });
 
+  it("exports the closed listing enforcement source vocabulary", () => {
+    expect(marketplaceListingEnforcementSources).toEqual(["operator-unlist", "automatic-report-threshold"]);
+  });
+
   it("exports the inventory hold purposes unchanged through the aggregate", () => {
     expect(inventoryHoldPurposes).toEqual(["order", "manual", "checkout", "pos", "channel", "transfer"]);
   });
@@ -333,6 +866,14 @@ const aggregateTypeIdentity = {
   "identity.account.closed": true satisfies IsExactly<
     ChaseSetsEventPayloads["identity.account.closed"],
     IdentityAccountClosedPayload
+  >,
+  "marketplace.listing.auto-unlisted": true satisfies IsExactly<
+    ChaseSetsEventPayloads["marketplace.listing.auto-unlisted"],
+    MarketplaceListingAutoUnlistedLegacyPayload | MarketplaceListingAutoUnlistedEnforcedPayload
+  >,
+  "marketplace.listing.operator-unlisted": true satisfies IsExactly<
+    ChaseSetsEventPayloads["marketplace.listing.operator-unlisted"],
+    MarketplaceListingOperatorUnlistedPayload
   >,
   "checkout.session.cancelled": true satisfies IsExactly<
     ChaseSetsEventPayloads["checkout.session.cancelled"],
@@ -449,9 +990,12 @@ const aggregateTypeIdentity = {
 } as const;
 
 type IndependentlyComposedPublicEventKeys =
+  | keyof ChannelsEventPayloads
   | keyof AuthEventPayloads
   | keyof IdentityEventPayloads
+  | keyof DiscoveryEventPayloads
   | keyof CheckoutEventPayloads
+  | keyof CollectionsEventPayloads
   | keyof FulfillmentEventPayloads
   | keyof InventoryEventPayloads
   | keyof OrderingEventPayloads
@@ -536,6 +1080,18 @@ const publicPresenceReferralTypeIdentity = {
  * must not migrate to a `platform-operations` map.
  */
 const preservedCrossRegistration = {
+  "platform operations registers listing-removal-directed": true satisfies IsExactly<
+    PlatformOperationsEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
+  "marketplace registers listing-removal-directed": true satisfies IsExactly<
+    MarketplaceEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
+  "aggregate resolves listing-removal-directed": true satisfies IsExactly<
+    ChaseSetsEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
   "marketplace map owns reported-content.action-recorded": true satisfies IsExactly<
     MarketplaceEventPayloads["platform-operations.reported-content.action-recorded"],
     PlatformOperationsReportedContentActionRecordedPayload

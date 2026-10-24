@@ -4,7 +4,7 @@ An epic is the coordination artifact for a multi-slice feature. Its body is
 **write-once**: corrections and rulings land as superseding comments, never
 edits — the comment trail is the audit log. Use the `epic` issue form, which
 sets the native **Epic** issue type; that type is what marks the issue
-non-dispatchable, not the legacy `kind:epic` label.
+non-dispatchable.
 
 Structure contract: `docs/contributing/backlog-model.md`.
 
@@ -23,6 +23,12 @@ by design.
   - **Chain DAG / waves.** Which children are serial (shared footprints, in
     order) and which parallelize (disjoint footprints). Explicit issue-number
     chains: `#A → #B → #C; #D, #E parallel after #B`.
+    A separate removal child for a path this plan itself supersedes follows its
+    switchover through a native Blocked by dependency in the chain DAG, remains
+    in the same committed outcome, and must not be listed under Parked. Removal
+    within the replacing child needs no self-dependency. Existing epic bodies
+    remain write-once; next-round corrections use a superseding comment, not a
+    body rewrite.
   - **Gates.** What must be true before wave N (other milestones, decisions,
     infra).
   - **Parked.** Children deliberately deferred, with the un-park condition.

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 import {
   checkWorkflowCanonicalArtifacts,
@@ -16,11 +17,90 @@ const registryWorkflowFile = ".github/workflows/platform-registry-cleanup.yml";
 const registryWorkflow = readFileSync(resolve(registryWorkflowFile), "utf8");
 
 describe("workflow canonical artifact guard (#5952)", () => {
+  it("keeps the real Linux timeout verifier path-filtered, bounded and nongoverning", () => {
+    const source = readFileSync(".github/workflows/browser-boundary-timeout-verifier.yml", "utf8");
+    const workflow = parse(source);
+    expect(Object.keys(workflow.on)).toEqual(["pull_request"]);
+    expect(workflow.on.pull_request.paths).toContain("scripts/provider-browser-install-*.mjs");
+    const job = workflow.jobs.timeout;
+    expect(job["runs-on"]).toBe("ubuntu-24.04");
+    expect(job["timeout-minutes"]).toBe(15);
+    expect(job.env.INSTALLER_TIMEOUT_SECONDS).toBe("600");
+    const timeout = job.steps.find((step) => step.id === "timeout");
+    expect(timeout.run).toBe("node scripts/provider-browser-install-timeout-verifier.mjs");
+    expect(job.steps.find((step) => step.id === "controls").if).toBe("steps.timeout.outcome == 'success'");
+    const guard = job.steps.at(-1);
+    expect(guard.if).toBe("always()");
+    expect(guard.run).toContain('test "$TIMEOUT_PROVEN" = true');
+    expect(guard.run).toContain('test "$CONTROLS_OUTCOME" = skipped');
+    expect(checkWorkflowCanonicalArtifacts(source).violations).toEqual([]);
+  });
+
   it("parses both supported CLI output forms used by executable producers", () => {
     expect(
       literalOutPaths(`node ./producer.mjs --out evidence/split.json
 node ./producer.mjs --out=evidence/equals.json`),
     ).toEqual(["evidence/equals.json", "evidence/split.json"]);
+  });
+
+  it("normalizes a quoted $GITHUB_WORKSPACE output to the workspace-relative upload path (#8026)", () => {
+    expect(
+      literalOutPaths(`node ./producer.mjs --out "$GITHUB_WORKSPACE/evidence/split.json"
+node ./producer.mjs --out="\${GITHUB_WORKSPACE}/evidence/equals.json"`),
+    ).toEqual(["evidence/equals.json", "evidence/split.json"]);
+    for (const nonLiteral of [
+      'node ./producer.mjs --out "$OTHER/evidence/x.json"',
+      'node ./producer.mjs --out "$GITHUB_WORKSPACE_EVIL/evidence/x.json"',
+      'node ./producer.mjs --out "${GITHUB_WORKSPACE_EVIL}/evidence/x.json"',
+      "node ./producer.mjs --out '$GITHUB_WORKSPACE/evidence/x.json'",
+      "node ./producer.mjs --out $GITHUB_WORKSPACE/evidence/x.json",
+      'node ./producer.mjs --out "$GITHUB_WORKSPACE/$RUN/x.json"',
+    ]) {
+      expect(literalOutPaths(nonLiteral), nonLiteral).toEqual([]);
+    }
+  });
+
+  it("resolves relative producer output against the step working directory (#8026)", () => {
+    const workflow = (out, uploadPath = "artifacts/required.json") => `jobs:
+  evidence:
+    steps:
+      - name: Produce from a trusted checkout
+        working-directory: trusted
+        run: node ./producer.mjs --out ${out}
+      - name: Upload
+        uses: actions/upload-artifact@0000000000000000000000000000000000000000
+        with:
+          path: ${uploadPath}
+          if-no-files-found: error
+`;
+    const surfaces = (source) =>
+      checkWorkflowCanonicalArtifacts(source).surfaces.map(({ outPath, uploadPath }) => ({ outPath, uploadPath }));
+
+    expect(surfaces(workflow('"$GITHUB_WORKSPACE/artifacts/required.json"'))).toEqual([
+      { outPath: "artifacts/required.json", uploadPath: "artifacts/required.json" },
+    ]);
+    // A relative payload lands inside the working directory, so the workspace upload never sees it.
+    expect(surfaces(workflow("artifacts/required.json"))).toEqual([]);
+    expect(surfaces(workflow("./artifacts/required.json", "trusted/artifacts/required.json"))).toEqual([
+      { outPath: "trusted/artifacts/required.json", uploadPath: "trusted/artifacts/required.json" },
+    ]);
+  });
+
+  it("pairs the trusted-checkout merge qualification candidate with its exact fail-closed upload (#8026)", () => {
+    const file = ".github/workflows/platform-pr.yml";
+    const workflow = readFileSync(resolve(file), "utf8");
+    const outPath = "artifacts/merge-qualification-candidate/candidate.json";
+    const candidate = (source) =>
+      checkWorkflowCanonicalArtifacts(source, { workflowFile: file }).surfaces.filter(
+        (surface) => surface.outPath === outPath,
+      );
+
+    expect(candidate(workflow)).toEqual([
+      expect.objectContaining({ outPath, uploadPath: outPath, missingFileBehavior: "error" }),
+    ]);
+    const relativeOut = workflow.replace(`--out "$GITHUB_WORKSPACE/${outPath}"`, `--out "${outPath}"`);
+    expect(relativeOut).not.toBe(workflow);
+    expect(candidate(relativeOut)).toEqual([]);
   });
 
   it("guards the historical registry path as one exact validated canonical payload", () => {
@@ -63,6 +143,45 @@ node ./producer.mjs --out=evidence/equals.json`),
       ]);
     },
   );
+
+  it("guards the nongoverning browser-boundary diagnostic summary as one exact fail-closed payload (#9259)", () => {
+    const file = ".github/workflows/browser-boundary-diagnostics.yml";
+    const workflow = readFileSync(resolve(file), "utf8");
+    const outPath = "artifacts/browser-boundary-diagnostics/summary.json";
+
+    const result = checkWorkflowCanonicalArtifacts(workflow, { workflowFile: file });
+    expect(result.violations).toEqual([]);
+    expect(result.surfaces).toEqual([
+      expect.objectContaining({
+        outPath,
+        uploadPath: outPath,
+        missingFileBehavior: "error",
+        explicitlyValidated: true,
+      }),
+    ]);
+
+    // Missing or partial evidence cannot hide behind a directory or a lenient upload.
+    for (const [mutant, expected] of [
+      [workflow.replace("if-no-files-found: error", "if-no-files-found: warn"), ["if-no-files-found=warn"]],
+      [
+        workflow
+          .replace(`path: ${outPath}`, "path: artifacts/browser-boundary-diagnostics")
+          .replace(`test -s ${outPath}`, "true"),
+        ["can be nonempty while canonical payload"],
+      ],
+      [
+        workflow
+          .replace(`path: ${outPath}`, "path: artifacts/browser-boundary-diagnostics")
+          .replace(`test -s ${outPath}`, "true")
+          .replace("if-no-files-found: error", "if-no-files-found: ignore"),
+        ["if-no-files-found=ignore", "can be nonempty while canonical payload"],
+      ],
+    ]) {
+      const broken = checkWorkflowCanonicalArtifacts(mutant, { workflowFile: file });
+      expect(broken.passed).toBe(false);
+      expect(broken.violations).toEqual(expected.map((text) => expect.stringContaining(text)));
+    }
+  });
 
   it("arbitrary-path negative runs through real discovery and reports the scanned/total surface", () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-artifact-guard-"));
@@ -112,14 +231,60 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 60, scannedSurfaces: 25, totalSurfaces: 25 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 81, scannedSurfaces: 45, totalSurfaces: 45 });
     expect(current.findings).toHaveLength(21);
+    expect(
+      current.findings.filter((finding) => /platform-merge-qualification(?:-observer)?\.yml/.test(finding.message)),
+    ).toEqual([]);
+    const idleDraftRecord = {
+      workflowFile: ".github/workflows/platform-preview-cleanup.yml",
+      outPath: "artifacts/release-health/platform-preview-idle-drafts.json",
+      uploadPath: "artifacts/release-health/platform-preview-idle-drafts.json",
+      missingFileBehavior: "error",
+    };
+    // The re-check in the dispatched run and the scheduled retirement job each upload their own record.
+    expect(current.surfaces.filter(({ outPath }) => outPath === idleDraftRecord.outPath)).toEqual([
+      expect.objectContaining(idleDraftRecord),
+      expect.objectContaining(idleDraftRecord),
+    ]);
     expect(current.surfaces).toEqual(
       expect.arrayContaining([
+        ...["metadata", "report"].map((name) =>
+          expect.objectContaining({
+            workflowFile: ".github/workflows/platform-credential-health.yml",
+            outPath: `artifacts/credential-health/${name}.json`,
+            uploadPath: `artifacts/credential-health/${name}.json`,
+            missingFileBehavior: "error",
+          }),
+        ),
+        expect.objectContaining({
+          workflowFile: ".github/workflows/browser-boundary-diagnostics.yml",
+          outPath: "artifacts/browser-boundary-diagnostics/summary.json",
+          missingFileBehavior: "error",
+          explicitlyValidated: true,
+        }),
         expect.objectContaining({
           workflowFile: ".github/workflows/platform-production.yml",
           outPath: "artifacts/release-health/production-kubernetes-deployment-transition.json",
         }),
+        expect.objectContaining({
+          workflowFile: ".github/workflows/platform-pr.yml",
+          outPath: "artifacts/merge-qualification-candidate/candidate.json",
+          uploadPath: "artifacts/merge-qualification-candidate/candidate.json",
+          missingFileBehavior: "error",
+        }),
+        // Each environment's activation and in-run replay are validated before the status directory upload.
+        ...["staging", "production"].flatMap((environment) =>
+          ["activation", "replay"].map((name) =>
+            expect.objectContaining({
+              workflowFile: ".github/workflows/platform-production.yml",
+              outPath: `artifacts/agent-grant-revocation/${environment}/${name}.json`,
+              uploadPath: `artifacts/agent-grant-revocation/${environment}`,
+              missingFileBehavior: "error",
+              explicitlyValidated: true,
+            }),
+          ),
+        ),
         expect.objectContaining({
           workflowFile: ".github/workflows/backlog-roadmap-status.yml",
           outPath: "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json",

@@ -10,6 +10,23 @@ function resolveSellListSellerAccountId(event: { streamId: string }, data: { sel
   return event.streamId.startsWith(streamPrefix) ? event.streamId.slice(streamPrefix.length) : null;
 }
 
+async function projectSellOfferStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "submitted" | "paused" | "withdrawn",
+) {
+  const data = event.data as { offerId: string };
+  await db.query(
+    `UPDATE checkout_sell_offer_pages
+     SET status = $2,
+         last_stream_version = $3,
+         updated_at = $4
+     WHERE offer_id = $1
+       AND last_stream_version < $3`,
+    [data.offerId, status, event.streamVersion, event.timing.recordedAt],
+  );
+}
+
 export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "checkout.sell-list.line-added": async (event) => {
@@ -402,6 +419,9 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         ],
       );
     },
+    "marketplace.offer.paused": (event) => projectSellOfferStatus(db, event, "paused"),
+    "marketplace.offer.resumed": (event) => projectSellOfferStatus(db, event, "submitted"),
+    "marketplace.offer.withdrawn": (event) => projectSellOfferStatus(db, event, "withdrawn"),
     "marketplace.offer.price-updated": async (event) => {
       const data = event.data as { offerId: string; priceAmount: string; priceCurrencyCode: string };
       await db.query(

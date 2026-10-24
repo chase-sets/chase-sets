@@ -140,6 +140,9 @@ export function SellerDeskHomePage({ queue, kpis }: SellerDeskHomePageProps) {
           <LinkButton href="/account/offers/matches" tone="secondary">
             {t("marketplace.features.sellerDesk.surfaces.offers")}
           </LinkButton>
+          <LinkButton href="/account/sales" tone="secondary">
+            {t("marketplace.features.sellerDesk.surfaces.sales")}
+          </LinkButton>
           <LinkButton href="/account/sales/shipments" tone="secondary">
             {t("marketplace.features.sellerDesk.surfaces.shipments")}
           </LinkButton>

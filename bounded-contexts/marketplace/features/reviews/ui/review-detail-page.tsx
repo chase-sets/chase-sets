@@ -17,15 +17,13 @@ import {
   HiddenInput,
 } from "@chase-sets/design-system";
 import type { ReviewDetail } from "./contracts";
+import { AuthoredTextGuidance, AuthoredTextRecoverySummary } from "./authored-text-guidance";
+import type { AuthoredTextRecovery } from "./authored-text-recovery";
 import { ReviewReportAction, type ReviewReportResult } from "./review-report-action";
 import { ReviewScoringContext } from "./review-scoring-context";
 
-function statusTone(status: string) {
-  return status === "withdrawn" ? "danger" : "success";
-}
+const REPLY_FEEDBACK_FIELD_ID = "review-response-feedback";
 
-// Double-blind reveal (m108): rating === null means this row was
-// redacted for the subject's own view of a not-yet-revealed review.
 function isPending(review: ReviewDetail) {
   return review.status !== "withdrawn" && review.revealed_at === null;
 }
@@ -61,6 +59,7 @@ export function ReviewDetailPage({
   review,
   viewerAccountId,
   replyErrorMessage,
+  replyRecovery,
   isSubmittingReply = false,
   defaultReplyFeedback = "",
   reportResult,
@@ -72,6 +71,8 @@ export function ReviewDetailPage({
   review: ReviewDetail;
   viewerAccountId?: string | null;
   replyErrorMessage?: string | null;
+  /** A closed Review Response rejection; replaces the generic error notice. */
+  replyRecovery?: AuthoredTextRecovery | null;
   isSubmittingReply?: boolean;
   defaultReplyFeedback?: string;
   reportResult?: ReviewReportResult | null;
@@ -106,7 +107,17 @@ export function ReviewDetailPage({
       />
 
       <PageSection title={t("reputation.features.reviews.ui.reviewDetailPage.summary")}>
-        {review.held && review.rating === null ? (
+        {review.status === "withdrawn" ? (
+          <Stack gap={2}>
+            <MarketplaceEmptyState
+              title={t("reputation.features.reviews.ui.reviewDetailPage.review.withdrawn.title")}
+              description={t("reputation.features.reviews.ui.reviewDetailPage.review.withdrawn.description")}
+            />
+            {review.withdrawn_by_actor_type === "operator" ? (
+              <Badge tone="danger">{t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}</Badge>
+            ) : null}
+          </Stack>
+        ) : review.held && review.rating === null ? (
           <MarketplaceEmptyState
             title={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.title")}
             description={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.description")}
@@ -131,7 +142,7 @@ export function ReviewDetailPage({
                   {t("reputation.features.reviews.ui.reviewDetailPage.reviewed.account")}
                   {review.subject_display_name ?? review.subject_account_id}
                 </Text>
-                <Badge tone={statusTone(review.status)}>{review.status}</Badge>
+                <Badge tone="success">{review.status}</Badge>
                 {pending ? (
                   <Badge tone="warning">{t("reputation.features.reviews.ui.reviewDetailPage.pending.reveal")}</Badge>
                 ) : null}
@@ -143,18 +154,21 @@ export function ReviewDetailPage({
                 {review.scoring_disposition === "context-only" ? (
                   <Badge tone="neutral">{t("reputation.features.reviews.ui.context.only.rating.explanation")}</Badge>
                 ) : null}
-                {review.withdrawn_by_actor_type === "operator" ? (
-                  <Badge tone="danger">
-                    {t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}
-                  </Badge>
-                ) : null}
                 {review.feedback_redacted_at !== null ? (
                   <Badge tone="danger">{t("reputation.features.reviews.ui.reviewDetailPage.moderated.redacted")}</Badge>
                 ) : null}
               </Stack>
             }
             verified
-            response={review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined}
+            response={
+              review.status === "active" &&
+              !review.held &&
+              review.revealed_at !== null &&
+              review.reply_status === "active" &&
+              review.reply_feedback
+                ? review.reply_feedback
+                : undefined
+            }
             responseLabel={t("reputation.features.reviews.ui.reviewDetailPage.reply.label")}
             context={<ReviewScoringContext review={review} />}
             actions={
@@ -177,17 +191,24 @@ export function ReviewDetailPage({
               <Text size="sm" tone="secondary">
                 {t("reputation.features.reviews.ui.reviewDetailPage.reply.description")}
               </Text>
-              {replyErrorMessage ? (
+              {replyRecovery ? (
+                <AuthoredTextRecoverySummary
+                  recovery={replyRecovery}
+                  fieldId={REPLY_FEEDBACK_FIELD_ID}
+                  fieldName={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback")}
+                />
+              ) : replyErrorMessage ? (
                 <MarketplaceNotice
                   tone="danger"
                   title={t("reputation.features.reviews.ui.reviewDetailPage.reply.title")}
                   description={replyErrorMessage}
                 />
               ) : null}
-              <Form spacing="none" method="post">
+              <Form spacing="none" method="post" errorAnnouncement="summary">
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="intent" value="reply" readOnly />
                   <Textarea
+                    id={REPLY_FEEDBACK_FIELD_ID}
                     name="feedback"
                     label={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback")}
                     defaultValue={defaultReplyFeedback}
@@ -195,7 +216,9 @@ export function ReviewDetailPage({
                     required
                     maxLength={1000}
                     description={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback.description")}
+                    error={replyRecovery?.fieldLevel ? replyRecovery.message : undefined}
                   />
+                  <AuthoredTextGuidance />
                   <Button type="submit">
                     {isSubmittingReply
                       ? t("reputation.features.reviews.ui.reviewDetailPage.reply.submitting")

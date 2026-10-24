@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   price_amount numeric(12, 2) NOT NULL,
   price_currency_code text NULL,
   listing_stream_version integer NOT NULL DEFAULT 0,
-  marketplace_sales_fee_unit_amount numeric(12, 2) NOT NULL,
-  seller_net_unit_amount numeric(12, 2) NOT NULL,
+  marketplace_sales_fee_unit_amount numeric(12, 2) NULL,
+  seller_net_unit_amount numeric(12, 2) NULL,
   shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
@@ -181,6 +181,15 @@ CREATE TABLE IF NOT EXISTS ordering_payment_deadline_inputs (
 `;
 
 export const orderingSupplySourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261023_ordering_marketplace_channel_only_nullable_fees",
+    description: "Allow Ordering supply inputs to retain absent native fee state for channel-only Listings.",
+    statements: [
+      `ALTER TABLE ordering_market_listing_inputs
+  ALTER COLUMN marketplace_sales_fee_unit_amount DROP NOT NULL,
+  ALTER COLUMN seller_net_unit_amount DROP NOT NULL`,
+    ],
+  },
   {
     migrationId: "20260907_ordering_marketplace_price_currency",
     description: "Carry versioned Marketplace Listing and accepted Offer price pairs into Ordering.",

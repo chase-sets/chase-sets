@@ -19,5 +19,13 @@ export function runWorkspaceScripts(
     loadEnvironment?: (options: Readonly<{ includeTestDatabaseUrl: boolean }>) => void;
     appendSummary?: (path: string, contents: string, encoding: "utf8") => void;
     listWorkspaces?: () => readonly Workspace[];
+    durationHintRegistry?: Readonly<{
+      schemaVersion: "workspace-test-duration-hints/v1";
+      entries: readonly Readonly<{
+        workspace: string;
+        script: string;
+        estimatedDurationSeconds: number;
+      }>[];
+    }>;
   }>,
 ): Promise<void>;

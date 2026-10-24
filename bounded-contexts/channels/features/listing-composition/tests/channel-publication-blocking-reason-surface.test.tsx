@@ -16,6 +16,12 @@ const blockedListing: ChannelPublicationBlockedListing = {
 };
 
 describe("channel-publication-blocking-reason-surface", () => {
+  it("renders low-stock-withheld separately from sold-out", () => {
+    const markup = renderDetail(detail([{ ...blockedListing, blockingReasonCodes: ["low-stock-withheld"] }], 1));
+    expect(markup).toContain("low-stock-withheld");
+    expect(markup).not.toContain("sold-out");
+  });
+
   it("reads the reason codes a blocked channel listing link recorded", async () => {
     const calls: { sql: string; values: readonly unknown[] }[] = [];
     const db = rowsDb(calls, [
@@ -95,6 +101,7 @@ function detail(items: readonly ChannelPublicationBlockedListing[], total: numbe
       categoryAllowlist: ["cards"],
       excludedListingIds: [],
       publishQuantityCap: null,
+      lowStockWithholdUnits: null,
     },
     mappingReview: { items: [], nextCursor: null, completeness: { kind: "complete", total: 0 } },
     blockedListings: { items, total },

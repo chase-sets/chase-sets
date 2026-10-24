@@ -5,6 +5,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { repoRoot } from "./repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./git-listing.mjs";
 
 const checkoutRoot = path.resolve(repoRoot);
 const isWindows = process.platform === "win32";
@@ -24,6 +25,7 @@ function trackedPath(target) {
   const listed = execFileSync("git", ["ls-files", "-z", "--", relative || "."], {
     cwd: checkoutRoot,
     encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
   });
   return listed.length > 0 ? relative || "." : undefined;
 }

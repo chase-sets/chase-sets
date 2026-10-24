@@ -10,13 +10,27 @@ import {
   seedApiHostIfEmpty,
   type ApiContextRegistry,
 } from "./api";
-import type { BcMarketplaceRouteModule, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+import type {
+  BcMarketplaceRouteModule,
+  BcShellContribution,
+  BcShellContributionSlot,
+  EnvironmentDataProfile,
+} from "@chase-sets/bounded-context-module";
 import { createWorkerHost, createWorkerRunnerLoop, type WorkerContextRegistry, type WorkerRunner } from "./worker";
-import { getWebHostSections, resolveWebHostNavItems, resolveWebHostRouteRecords, type WebContextRegistry } from "./web";
+import {
+  getWebHostSections,
+  resolveWebHostActiveKey,
+  resolveWebHostActiveKeyAcrossSlots,
+  resolveWebHostNavItems,
+  resolveWebHostRouteRecords,
+  type WebContextRegistry,
+  type WebHostNavOptions,
+} from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
 
 type FakeQueryResult = Readonly<{
   rows: readonly Readonly<Record<string, unknown>>[];
+  rowCount?: number;
 }>;
 
 type FakePool = Readonly<{
@@ -35,7 +49,20 @@ function createPool(): FakePool {
       ? [{ acquired: true }]
       : sql.includes("COUNT(*) AS count")
         ? [{ count: "0" }]
-        : [],
+        : sql.includes("FROM (VALUES") && sql.includes("generation_active_generation")
+          ? [
+              {
+                projection_revision: null,
+                generation_active_generation: null,
+                generation_rebuilding_generation: null,
+                generation_state: null,
+              },
+            ]
+          : [],
+    rowCount:
+      sql.includes("INSERT INTO event_projection_group_generations") || sql.includes("WITH saved_checkpoint AS")
+        ? 1
+        : undefined,
   });
   return {
     query,
@@ -374,6 +401,706 @@ const webRegistry = [
     },
   },
 ] as const satisfies WebContextRegistry;
+
+describe("shell legacy compatibility", () => {
+  // Literal outputs checked against web.ts at main 77c7e42a67f01aeafdfa212e12cb98bebb61f896.
+  // Do not derive these expectations from the resolver under test.
+  it.each([
+    [null, [{ key: "sign-in", label: "Sign in", icon: "user", href: "/sign-in" }]],
+    [{ permissions: [] }, []],
+    [
+      { permissions: ["inventory.view"] },
+      [{ key: "inventory", label: "Inventory", icon: "package", href: "/account/inventory" }],
+    ],
+  ] as const)("preserves Marketplace baseline for actor %j", (actor, expected) => {
+    expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", actor)).toEqual(expected);
+    expect(resolveWebHostNavItems(webRegistry, "public-web", "top-nav", actor)).toEqual([]);
+  });
+
+  it("preserves Admin prefixes and section filtering", () => {
+    expect(
+      resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", { permissions: ["commercial-terms.view"] }),
+    ).toEqual([
+      { key: "dimensions", label: "Dimensions", icon: "box", href: "/catalog/dimensions" },
+      { key: "commercial-terms", label: "Commercial Terms", icon: "settings", href: "/commerce/terms/schedules" },
+    ]);
+    expect(resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", null, { section: "commerce" })).toEqual([]);
+  });
+
+  it("preserves legacy empty children on an href leaf", () => {
+    const registry = [
+      {
+        contextName: "legacy",
+        packageName: "@test/legacy",
+        manifest: {
+          contextName: "legacy",
+          shellContributions: [
+            {
+              deployable: "marketplace-web",
+              slot: "top-nav",
+              key: "empty",
+              label: "Empty",
+              icon: "box",
+              href: "/empty",
+              children: [],
+              order: 1,
+              visibility: "always",
+              requiredPermissions: [],
+            },
+          ],
+        },
+      },
+    ] as const satisfies WebContextRegistry;
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "top-nav", null)).toEqual([
+      { key: "empty", label: "Empty", icon: "box", href: "/empty" },
+    ]);
+  });
+
+  it("preserves placements, nested access, href groups and legacy label ties", () => {
+    const base = {
+      deployable: "marketplace-web",
+      slot: "top-nav",
+      placements: ["top-nav", "bottom-nav"],
+      icon: "box",
+      order: 1,
+      visibility: "always",
+      requiredPermissions: [],
+    } as const;
+    const registry = [
+      {
+        contextName: "legacy",
+        packageName: "@test/legacy",
+        manifest: {
+          contextName: "legacy",
+          shellContributions: [
+            { ...base, key: "a", label: "Zulu", href: "/z" },
+            { ...base, key: "z", label: "Alpha", href: "/a" },
+            {
+              ...base,
+              key: "group",
+              label: "Group",
+              href: "/group",
+              children: [{ ...base, key: "child", label: "Child", href: "/child", requiredPermissions: ["read"] }],
+            },
+          ],
+        },
+      },
+    ] as const satisfies WebContextRegistry;
+    const expected = [
+      { key: "z", label: "Alpha", icon: "box", href: "/a" },
+      {
+        key: "group",
+        label: "Group",
+        icon: "box",
+        href: "/group",
+        children: [{ key: "child", label: "Child", icon: "box", href: "/child" }],
+      },
+      { key: "a", label: "Zulu", icon: "box", href: "/z" },
+    ];
+    for (const slot of ["top-nav", "bottom-nav"] as const) {
+      expect(resolveWebHostNavItems(registry, "marketplace-web", slot, { permissions: ["read"] })).toEqual(expected);
+      expect(resolveWebHostNavItems(registry, "marketplace-web", slot, null)).toEqual([expected[0], expected[2]]);
+    }
+  });
+});
+
+function shellLeaf(key: string, overrides: Partial<BcShellContribution> = {}): BcShellContribution {
+  return {
+    deployable: "marketplace-web",
+    slot: "bottom-nav",
+    key,
+    label: key,
+    icon: "box",
+    href: `/${key}`,
+    order: 1,
+    packingPriority: 1,
+    visibility: "always",
+    requiredPermissions: [],
+    ...overrides,
+  } as BcShellContribution;
+}
+
+function shellRegistry(...items: BcShellContribution[]): WebContextRegistry {
+  return items.map((item, index) => ({
+    contextName: `context-${index}`,
+    packageName: `@test/context-${index}`,
+    manifest: { contextName: `context-${index}`, shellContributions: [item] },
+  }));
+}
+
+describe("shell resolution matrix", () => {
+  it("attaches cross-context groups after slot expansion without mutating inputs", () => {
+    const registry = shellRegistry(
+      shellLeaf("group", { href: undefined, children: [], placements: ["bottom-nav", "account-menu"] }),
+      shellLeaf("child", { parentKey: "group", placements: ["bottom-nav", "account-menu"] }),
+      shellLeaf("empty", { href: undefined, children: [] }),
+    );
+    const original = structuredClone(registry);
+    for (const slot of ["bottom-nav", "account-menu"] as const) {
+      expect(resolveWebHostNavItems(registry, "marketplace-web", slot)).toEqual([
+        {
+          key: "group",
+          label: "group",
+          icon: "box",
+          children: [{ key: "child", label: "child", icon: "box", href: "/child" }],
+        },
+      ]);
+    }
+    expect(registry).toEqual(original);
+  });
+
+  it.each([null, {}, { roleKey: null }, { roleKey: "buyer" }, { roleKey: "blocked" }])(
+    "composes roles and actor visibility for %j",
+    (actor) => {
+      const registry = shellRegistry(
+        shellLeaf("roles", { excludedRoleKeys: ["blocked"] }),
+        shellLeaf("signed-in", { visibility: "signed-in" }),
+        shellLeaf("signed-out", { visibility: "signed-out" }),
+      );
+      expect(resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", actor).map((item) => item.key)).toEqual([
+        ...(actor?.roleKey === "blocked" ? [] : ["roles"]),
+        actor ? "signed-in" : "signed-out",
+      ]);
+    },
+  );
+
+  it("emits action selection keys without route fields and removes hidden groups", () => {
+    const registry = shellRegistry(
+      shellLeaf("action", { activation: "action", href: undefined, placement: "utility" }),
+      shellLeaf("group", { href: undefined, children: [shellLeaf("hidden", { visibility: "signed-in" })] }),
+    );
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", null)).toEqual([
+      { key: "action", label: "action", icon: "box", placement: "utility" },
+    ]);
+  });
+
+  it("preserves a legacy href with an empty inline array", () => {
+    expect(
+      resolveWebHostNavItems(shellRegistry(shellLeaf("empty-leaf", { children: [] })), "marketplace-web", "bottom-nav"),
+    ).toEqual([{ key: "empty-leaf", label: "empty-leaf", icon: "box", href: "/empty-leaf" }]);
+  });
+
+  it.each([undefined, NaN, Infinity, -Infinity, -1, 0, 0.5, 1, 99, 100])(
+    "normalizes badge count %s and keeps signed-out empty hiding declaration-local",
+    (count) => {
+      const badge = { valueKey: "count", max: 99, hideWhenEmptyForSignedOut: true };
+      const registry = shellRegistry(
+        shellLeaf("cart", { badge }),
+        shellLeaf("visible", { badge: { ...badge, valueKey: "other", hideWhenEmptyForSignedOut: false } }),
+      );
+      const options = { dynamicValues: { count } };
+      const positive = count !== undefined && Number.isFinite(count) && count > 0;
+      const expectedBadge = positive ? (count > 99 ? "99+" : String(count)) : undefined;
+      expect(
+        resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", null, options).map((item) => item.key),
+      ).toEqual(positive ? ["cart", "visible"] : ["visible"]);
+      const cart = resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", {}, options)[0];
+      expect(cart.badge).toBe(expectedBadge);
+      if (!positive) expect(cart).not.toHaveProperty("badge");
+    },
+  );
+
+  it("packs top-level candidates by priority/order/key and renders trees by order/key in every permutation", () => {
+    const items = [
+      shellLeaf("a", { label: "Zulu", order: 2, packingPriority: 5 }),
+      shellLeaf("z", { label: "Alpha", order: 2, packingPriority: 5 }),
+      shellLeaf("first", { order: 1, packingPriority: 3 }),
+      shellLeaf("group", {
+        href: undefined,
+        order: 3,
+        packingPriority: 10,
+        children: [shellLeaf("y", { label: "Alpha" }), shellLeaf("b", { label: "Zulu" })],
+      }),
+    ];
+    for (const permutation of [items, [...items].reverse(), [...items.slice(2), ...items.slice(0, 2)]]) {
+      const result = resolveWebHostNavItems(shellRegistry(...permutation), "marketplace-web", "bottom-nav", null, {
+        limit: 3,
+      });
+      expect(result.map((item) => item.key)).toEqual(["a", "z", "group"]);
+      expect(result[2].children?.map((item) => item.key)).toEqual(["b", "y"]);
+    }
+    expect(resolveWebHostNavItems(shellRegistry(...items), "marketplace-web", "bottom-nav")).toHaveLength(4);
+    expect(
+      resolveWebHostNavItems(shellRegistry(...items), "marketplace-web", "bottom-nav", null, { limit: 0 }),
+    ).toEqual([]);
+  });
+
+  it.each([undefined, NaN, Infinity, -Infinity])(
+    "validates hidden child priority %s before actor and section filtering",
+    (packingPriority) => {
+      const registry = shellRegistry(
+        shellLeaf("group", {
+          href: undefined,
+          visibility: "signed-in",
+          children: [shellLeaf("child", { packingPriority })],
+        }),
+      );
+      expect(() => resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", null, { limit: 1 })).toThrow(
+        "SHELL_PRIORITY_INVALID",
+      );
+    },
+  );
+
+  it.each([NaN, Infinity, -Infinity, -1, 0.5])("rejects invalid limit %s", (limit) => {
+    expect(() => resolveWebHostNavItems([], "marketplace-web", "bottom-nav", null, { limit })).toThrow(
+      "SHELL_LIMIT_INVALID",
+    );
+  });
+
+  it.each([
+    [{ order: NaN }, "SHELL_ORDER_INVALID"],
+    [{ packingPriority: Infinity }, "SHELL_PRIORITY_INVALID"],
+    [{ badge: { valueKey: "count", max: 0, hideWhenEmptyForSignedOut: false } }, "SHELL_BADGE_INVALID"],
+    [{ badge: { valueKey: "count", max: Infinity, hideWhenEmptyForSignedOut: false } }, "SHELL_BADGE_INVALID"],
+    [{ activation: "action" }, "SHELL_ACTION_INVALID"],
+    [{ activation: "action", href: undefined, children: [] }, "SHELL_ACTION_INVALID"],
+    [{ activation: "action", href: undefined, activePathPatterns: [] }, "SHELL_ACTION_INVALID"],
+    [{ activation: "route", children: [] }, "SHELL_ROUTE_INVALID"],
+    [{ activePathPatterns: ["/a/*"] }, "SHELL_ACTIVE_PATH_INVALID"],
+  ] as const)("rejects malformed node %j", (overrides, code) => {
+    expect(() =>
+      resolveWebHostNavItems(
+        shellRegistry(shellLeaf("bad", overrides as Partial<BcShellContribution>)),
+        "marketplace-web",
+        "bottom-nav",
+      ),
+    ).toThrow(code);
+  });
+
+  it.each([
+    ["all", ["a", "b"], "all", ["a", "b", "c"], false],
+    ["all", ["a", "b"], "any", ["a", "b"], true],
+    ["any", ["a", "b"], "any", ["a"], false],
+    ["any", ["a", "b"], "all", ["b", "c"], false],
+    ["any", ["a", "b"], "any", ["a", "c"], true],
+    ["all", [], "any", [], false],
+    ["all", ["a"], "all", [], true],
+  ] as const)(
+    "checks permission implication %s %j -> %s %j",
+    (parentMatch, parentPermissions, childMatch, childPermissions, widens) => {
+      const registry = shellRegistry(
+        shellLeaf("group", {
+          href: undefined,
+          children: [],
+          requiredPermissionsMatch: parentMatch,
+          requiredPermissions: parentPermissions,
+        }),
+        shellLeaf("child", {
+          parentKey: "group",
+          requiredPermissionsMatch: childMatch,
+          requiredPermissions: childPermissions,
+        }),
+      );
+      const resolve = () =>
+        resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", { permissions: ["a", "b", "c"] });
+      if (widens) expect(resolve).toThrow("SHELL_PARENT_WIDENING");
+      else expect(resolve()[0].children?.[0].key).toBe("child");
+    },
+  );
+
+  it.each([
+    [shellRegistry(shellLeaf("child", { parentKey: "absent" })), "SHELL_PARENT_MISSING"],
+    [shellRegistry(shellLeaf("child", { parentKey: "child" })), "SHELL_PARENT_SELF"],
+    [shellRegistry(shellLeaf("parent"), shellLeaf("child", { parentKey: "parent" })), "SHELL_PARENT_INVALID"],
+    [
+      shellRegistry(
+        shellLeaf("a", { href: undefined, children: [], parentKey: "b" }),
+        shellLeaf("b", { href: undefined, children: [], parentKey: "a" }),
+      ),
+      "SHELL_PARENT_CYCLE",
+    ],
+    [
+      shellRegistry(
+        shellLeaf("a", { href: undefined, children: [], visibility: "signed-in" }),
+        shellLeaf("b", { parentKey: "a" }),
+      ),
+      "SHELL_PARENT_WIDENING",
+    ],
+    [
+      shellRegistry(
+        shellLeaf("a", { href: undefined, children: [], excludedRoleKeys: ["blocked"] }),
+        shellLeaf("b", { parentKey: "a" }),
+      ),
+      "SHELL_PARENT_WIDENING",
+    ],
+  ] as const)("rejects invalid parent graph %j", (registry, code) => {
+    expect(() => resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav")).toThrow(code);
+  });
+
+  it("rejects Admin cross-section parent attachment", () => {
+    const registry = shellRegistry(
+      shellLeaf("group", {
+        deployable: "admin-web",
+        slot: "primary-nav",
+        section: "commerce",
+        href: undefined,
+        children: [],
+      }),
+      shellLeaf("child", { deployable: "admin-web", slot: "primary-nav", section: "catalog", parentKey: "group" }),
+    );
+    expect(() => resolveWebHostNavItems(registry, "admin-web", "primary-nav")).toThrow("SHELL_PARENT_SECTION");
+  });
+});
+
+describe("resolveWebHostActiveKey matrix", () => {
+  const registry = shellRegistry(
+    shellLeaf("home"),
+    shellLeaf("account"),
+    shellLeaf("sales", {
+      href: "/account/sales",
+      visibility: "signed-in",
+      requiredPermissions: ["sales.read"],
+      activePathPatterns: ["/orders"],
+    }),
+    shellLeaf("action", { activation: "action", href: undefined }),
+  );
+  it.each([
+    ["/account", "account"],
+    ["account///?q=1#tab", "account"],
+    ["/account/settings", "account"],
+    ["/account/sales", undefined],
+    ["/account/sales/123", undefined],
+    ["/orders", undefined],
+    ["/accounting", "home"],
+    ["/outside", "home"],
+    ["/action", "home"],
+  ] as const)("matches unfiltered identity first for %s", (pathname, expected) => {
+    expect(
+      resolveWebHostActiveKey(registry, "marketplace-web", "bottom-nav", pathname, null, { defaultKey: "home" }),
+    ).toBe(expected);
+  });
+  it("selects visible aliases and never returns an unrendered fallback or packed-out match", () => {
+    expect(
+      resolveWebHostActiveKey(registry, "marketplace-web", "bottom-nav", "/orders/42?x#y", {
+        permissions: ["sales.read"],
+      }),
+    ).toBe("sales");
+    expect(
+      resolveWebHostActiveKey(registry, "marketplace-web", "bottom-nav", "/outside", null, { defaultKey: "sales" }),
+    ).toBeUndefined();
+    expect(
+      resolveWebHostActiveKey(registry, "marketplace-web", "bottom-nav", "/home", null, {
+        limit: 1,
+        defaultKey: "account",
+      }),
+    ).toBeUndefined();
+  });
+  it("allows same-key aliases but fails closed on different-key ties", () => {
+    const same = shellRegistry(shellLeaf("account", { activePathPatterns: ["/account/", "/alias", "/alias/"] }));
+    expect(resolveWebHostActiveKey(same, "marketplace-web", "bottom-nav", "/alias")).toBe("account");
+    const conflicting = [
+      ...same,
+      ...shellRegistry(shellLeaf("hidden", { activePathPatterns: ["/alias"], visibility: "signed-in" })),
+    ];
+    expect(
+      resolveWebHostActiveKey(conflicting, "marketplace-web", "bottom-nav", "/alias", null, { defaultKey: "account" }),
+    ).toBeUndefined();
+  });
+  it("matches prefixed Admin leaves but not href groups", () => {
+    const registry = shellRegistry(
+      shellLeaf("group", {
+        deployable: "admin-web",
+        slot: "primary-nav",
+        section: "catalog",
+        href: "/group",
+        children: [shellLeaf("child", { activePathPatterns: ["/alias"] })],
+      }),
+    );
+    expect(resolveWebHostActiveKey(registry, "admin-web", "primary-nav", "/catalog/alias/123")).toBe("child");
+    expect(resolveWebHostActiveKey(registry, "admin-web", "primary-nav", "/catalog/group")).toBeUndefined();
+    expect(resolveWebHostActiveKey(registry, "admin-web", "primary-nav", "/alias")).toBeUndefined();
+  });
+
+  it("does not turn a section-hidden Admin match into the default", () => {
+    const registry = shellRegistry(
+      shellLeaf("home", { deployable: "admin-web", slot: "primary-nav", section: "catalog" }),
+      shellLeaf("sales", { deployable: "admin-web", slot: "primary-nav", section: "commerce" }),
+    );
+    expect(
+      resolveWebHostActiveKey(registry, "admin-web", "primary-nav", "/commerce/sales", null, {
+        section: "catalog",
+        defaultKey: "home",
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveWebHostActiveKey(registry, "admin-web", "primary-nav", "/outside", null, {
+        section: "catalog",
+        defaultKey: "home",
+      }),
+    ).toBe("home");
+  });
+});
+
+describe("resolveWebHostActiveKeyAcrossSlots matrix", () => {
+  const slots = { "top-nav": {}, "bottom-nav": { limit: 2 }, "account-menu": {} } as const;
+  const registry = shellRegistry(
+    shellLeaf("fallback", { slot: "top-nav", href: "/fallback" }),
+    shellLeaf("top-ancestor", { slot: "top-nav", href: "/x" }),
+    shellLeaf("support", { slot: "top-nav", href: "/x/support", activePathPatterns: ["/help"] }),
+    shellLeaf("bottom-ancestor", { href: "/x", packingPriority: 10 }),
+    shellLeaf("retained", { href: "/retained", packingPriority: 9 }),
+    shellLeaf("shared", { href: "/x/shared", placements: ["bottom-nav", "account-menu"] }),
+    shellLeaf("packed", { href: "/x/packed" }),
+    shellLeaf("detail", { slot: "account-menu", href: "/x/detail" }),
+    shellLeaf("restricted", {
+      slot: "account-menu",
+      href: "/x/restricted",
+      visibility: "signed-in",
+      requiredPermissions: ["detail.read"],
+    }),
+  );
+
+  it.each([
+    ["account-menu exact beats both ancestors", "/x/detail", null, "detail"],
+    ["forbidden more-specific match suppresses ancestors and default", "/x/restricted", {}, undefined],
+    ["anonymous hidden match suppresses ancestors and default", "/x/restricted", null, undefined],
+    ["permitted more-specific match", "/x/restricted", { permissions: ["detail.read"] }, "restricted"],
+    ["top-only match beats bottom ancestor", "/x/support", null, "support"],
+    ["packed out of bottom but rendered in account-menu", "/x/shared", null, "shared"],
+    ["packed out of every slot", "/x/packed", null, undefined],
+    ["descendant", "/x/support/ticket", null, "support"],
+    ["trailing slash", "/x/support/", null, "support"],
+    ["query", "/x/support?q=1", null, "support"],
+    ["hash", "/x/support#details", null, "support"],
+    ["normalized path", "x///support/?q=1#details", null, "support"],
+    ["alias descendant", "/help/ticket?x#y", null, "support"],
+    ["true miss", "/outside", null, "fallback"],
+  ] as const)("%s", (_name, pathname, actor, expected) => {
+    expect(
+      resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, pathname, actor, {
+        defaultKey: "fallback",
+      }),
+    ).toBe(expected);
+    expect(
+      resolveWebHostActiveKeyAcrossSlots(
+        registry,
+        "marketplace-web",
+        {
+          "account-menu": slots["account-menu"],
+          "bottom-nav": slots["bottom-nav"],
+          "top-nav": slots["top-nav"],
+        },
+        pathname,
+        actor,
+        { defaultKey: "fallback" },
+      ),
+    ).toBe(expected);
+  });
+
+  it("differs from top-first and bottom-first per-slot fallback chains", () => {
+    const top = (path: string) => resolveWebHostActiveKey(registry, "marketplace-web", "top-nav", path);
+    const bottom = (path: string) =>
+      resolveWebHostActiveKey(registry, "marketplace-web", "bottom-nav", path, null, slots["bottom-nav"]);
+    expect(top("/x/detail") ?? bottom("/x/detail")).toBe("top-ancestor");
+    expect(bottom("/x/support") ?? top("/x/support")).toBe("bottom-ancestor");
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/x/detail")).toBe("detail");
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/x/support")).toBe("support");
+  });
+
+  it("does not match segment-boundary lookalikes or use unrendered defaults", () => {
+    const registry = shellRegistry(shellLeaf("support", { slot: "top-nav", href: "/x/support" }));
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/x/supportx")).toBeUndefined();
+    expect(
+      resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/outside", null, {
+        defaultKey: "missing",
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", {}, "/x/support", null, {
+        defaultKey: "support",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("fails closed on different-key cross-slot ties, including hidden candidates", () => {
+    const registry = shellRegistry(
+      shellLeaf("visible", { slot: "top-nav", href: "/tie" }),
+      shellLeaf("hidden", {
+        slot: "account-menu",
+        href: "/other",
+        activePathPatterns: ["/tie/"],
+        visibility: "signed-in",
+      }),
+    );
+    for (const actor of [null, {}]) {
+      expect(
+        resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/tie", actor, {
+          defaultKey: "visible",
+        }),
+      ).toBeUndefined();
+    }
+  });
+
+  it("deduplicates the same key across slots and aliases", () => {
+    const registry = shellRegistry(
+      shellLeaf("same", {
+        placements: ["top-nav", "bottom-nav", "account-menu"],
+        activePathPatterns: ["/same/", "/alias", "/alias/"],
+      }),
+    );
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/alias")).toBe("same");
+  });
+
+  it("matches expanded attached leaves, not actions or populated href groups", () => {
+    const registry = shellRegistry(
+      shellLeaf("group", { href: undefined, children: [], placements: ["top-nav", "account-menu"] }),
+      shellLeaf("child", { parentKey: "group", placements: ["top-nav", "account-menu"] }),
+      shellLeaf("href-group", { slot: "top-nav", children: [shellLeaf("inline")] }),
+      shellLeaf("action", { slot: "account-menu", activation: "action", href: undefined }),
+    );
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/child")).toBe("child");
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/href-group")).toBeUndefined();
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/action")).toBeUndefined();
+  });
+
+  it("applies limit only to its own slot", () => {
+    const registry = shellRegistry(
+      shellLeaf("bottom"),
+      shellLeaf("top", { slot: "top-nav", packingPriority: undefined }),
+      shellLeaf("menu", { slot: "account-menu", packingPriority: undefined }),
+    );
+    const slots = { "top-nav": {}, "bottom-nav": { limit: 0 }, "account-menu": {} } as const;
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/bottom")).toBeUndefined();
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/top")).toBe("top");
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/menu")).toBe("menu");
+  });
+
+  it("rejects missing priority in a limited slot before matching or visibility", () => {
+    const registry = shellRegistry(shellLeaf("hidden", { packingPriority: undefined, visibility: "signed-in" }));
+    expect(() => resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/outside")).toThrow(
+      "SHELL_PRIORITY_INVALID",
+    );
+  });
+
+  it.each([-1, 0.5, NaN, Infinity])("rejects invalid limit %s", (limit) => {
+    expect(() =>
+      resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", { "bottom-nav": { limit } }, "/outside"),
+    ).toThrow("SHELL_LIMIT_INVALID");
+  });
+
+  it("keeps dynamic values slot-local without mutating registry, declarations, or options", () => {
+    const declaration = shellLeaf("counter", {
+      placements: ["top-nav", "bottom-nav"],
+      badge: { valueKey: "count", max: 99, hideWhenEmptyForSignedOut: true },
+    });
+    const registry = shellRegistry(declaration);
+    const slots = {
+      "top-nav": { dynamicValues: { count: 2 } },
+      "bottom-nav": { limit: 0, dynamicValues: { count: 0 } },
+    } as const;
+    const before = structuredClone({ registry, declaration, slots });
+    expect(resolveWebHostActiveKeyAcrossSlots(registry, "marketplace-web", slots, "/counter", null)).toBe("counter");
+    expect(
+      resolveWebHostActiveKeyAcrossSlots(
+        registry,
+        "marketplace-web",
+        {
+          "top-nav": { dynamicValues: { count: 0 } },
+          "bottom-nav": { limit: 0, dynamicValues: { count: 2 } },
+        },
+        "/counter",
+        null,
+        { defaultKey: "counter" },
+      ),
+    ).toBeUndefined();
+    expect({ registry, declaration, slots }).toEqual(before);
+  });
+
+  it("keeps section filtering slot-local and suppresses defaults on section-hidden matches", () => {
+    const registry = shellRegistry(
+      shellLeaf("home", { deployable: "admin-web", slot: "primary-nav", section: "catalog" }),
+      shellLeaf("sales", { deployable: "admin-web", slot: "primary-nav", section: "commerce" }),
+    );
+    const slots = { "primary-nav": { section: "catalog" } } as const;
+    expect(
+      resolveWebHostActiveKeyAcrossSlots(registry, "admin-web", slots, "/commerce/sales", null, { defaultKey: "home" }),
+    ).toBeUndefined();
+    expect(
+      resolveWebHostActiveKeyAcrossSlots(registry, "admin-web", slots, "/outside", null, { defaultKey: "home" }),
+    ).toBe("home");
+  });
+
+  it("single-slot equivalence", () => {
+    const registry = shellRegistry(
+      shellLeaf("home"),
+      shellLeaf("account"),
+      shellLeaf("sales", {
+        href: "/account/sales",
+        visibility: "signed-in",
+        requiredPermissions: ["sales.read"],
+        activePathPatterns: ["/orders"],
+      }),
+      shellLeaf("action", { activation: "action", href: undefined }),
+    );
+    const aliases = shellRegistry(shellLeaf("account", { activePathPatterns: ["/account/", "/alias", "/alias/"] }));
+    const conflict = [
+      ...aliases,
+      ...shellRegistry(shellLeaf("hidden", { activePathPatterns: ["/alias"], visibility: "signed-in" })),
+    ];
+    const adminGroup = shellRegistry(
+      shellLeaf("group", {
+        deployable: "admin-web",
+        slot: "primary-nav",
+        section: "catalog",
+        href: "/group",
+        children: [shellLeaf("child", { activePathPatterns: ["/alias"] })],
+      }),
+    );
+    const adminSections = shellRegistry(
+      shellLeaf("home", { deployable: "admin-web", slot: "primary-nav", section: "catalog" }),
+      shellLeaf("sales", { deployable: "admin-web", slot: "primary-nav", section: "commerce" }),
+    );
+    const cases = [
+      {
+        registry,
+        host: "marketplace-web",
+        slot: "bottom-nav",
+        options: {},
+        paths: [
+          "/account",
+          "account///?q=1#tab",
+          "/account/settings",
+          "/account/sales",
+          "/account/sales/123",
+          "/orders",
+          "/accounting",
+          "/outside",
+          "/action",
+          "/orders/42?x#y",
+        ],
+      },
+      { registry, host: "marketplace-web", slot: "bottom-nav", options: { limit: 1 }, paths: ["/home", "/outside"] },
+      { registry: aliases, host: "marketplace-web", slot: "bottom-nav", options: {}, paths: ["/alias"] },
+      { registry: conflict, host: "marketplace-web", slot: "bottom-nav", options: {}, paths: ["/alias"] },
+      {
+        registry: adminGroup,
+        host: "admin-web",
+        slot: "primary-nav",
+        options: {},
+        paths: ["/catalog/alias/123", "/catalog/group", "/alias"],
+      },
+      {
+        registry: adminSections,
+        host: "admin-web",
+        slot: "primary-nav",
+        options: { section: "catalog" },
+        paths: ["/commerce/sales", "/outside"],
+      },
+    ] as const;
+    for (const { registry, host, slot, options, paths } of cases) {
+      for (const pathname of paths) {
+        for (const actor of [null, { permissions: ["sales.read"] }]) {
+          for (const defaultKey of [undefined, "home", "account", "sales", "missing"]) {
+            const slots: Readonly<Partial<Record<BcShellContributionSlot, WebHostNavOptions>>> = { [slot]: options };
+            expect(resolveWebHostActiveKeyAcrossSlots(registry, host, slots, pathname, actor, { defaultKey })).toBe(
+              resolveWebHostActiveKey(registry, host, slot, pathname, actor, { ...options, defaultKey }),
+            );
+          }
+        }
+      }
+    }
+  });
+});
 
 describe("platform host api registry", () => {
   it("returns active contexts for a host", () => {
@@ -1086,6 +1813,59 @@ describe("platform host web registry", () => {
     ]);
     expect(getWebHostSections("admin-web")).toEqual(["access", "catalog", "commerce", "growth", "support", "platform"]);
   });
+
+  it.each([undefined, "all", "any"] as const)(
+    "matches shell permissions using %s with empty-list and nested controls",
+    (requiredPermissionsMatch) => {
+      const contribution = {
+        deployable: "admin-web",
+        slot: "primary-nav",
+        key: "payouts",
+        label: "Payouts",
+        icon: "wallet",
+        href: "/payouts",
+        section: "commerce",
+        order: 10,
+        visibility: "signed-in",
+        requiredPermissions: ["payouts.reconcile", "payouts.platform.view"],
+        requiredPermissionsMatch,
+      } as const;
+      const registry = [
+        {
+          contextName: "settlement",
+          packageName: "@test/settlement",
+          manifest: {
+            contextName: "settlement",
+            shellContributions: [
+              contribution,
+              { ...contribution, key: "empty", href: "/empty", requiredPermissions: [] },
+              { ...contribution, key: "parent", href: "/parent", requiredPermissions: [], children: [contribution] },
+            ],
+          },
+        },
+      ] as const satisfies WebContextRegistry;
+      for (const permissions of [
+        [],
+        ["payouts.reconcile"],
+        ["payouts.platform.view"],
+        ["payouts.reconcile", "payouts.platform.view"],
+      ]) {
+        const visible = requiredPermissionsMatch === "any" ? permissions.length > 0 : permissions.length === 2;
+        const items = resolveWebHostNavItems(
+          registry,
+          "admin-web",
+          "primary-nav",
+          { permissions },
+          { section: "commerce" },
+        );
+        expect(items.filter((item) => item.href === "/commerce/payouts")).toHaveLength(visible ? 1 : 0);
+        expect(items.filter((item) => item.href === "/commerce/empty")).toHaveLength(1);
+        const parent = items.find((item) => item.key === "parent");
+        expect(parent?.children?.length ?? 0).toBe(visible ? 1 : 0);
+      }
+      expect(resolveWebHostNavItems(registry, "admin-web", "primary-nav", null, { section: "commerce" })).toEqual([]);
+    },
+  );
 
   it("resolves nested admin nav with section-prefixed child hrefs and permission filtering", () => {
     const registry = [

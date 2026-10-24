@@ -88,6 +88,31 @@ describe("operator-session-panel-no-credential-input", () => {
     expectNoCredentialEntry("dialog open");
   });
 
+  it("renders no credential entry while the extension handoff is pending or after it is paired", async () => {
+    let acknowledge: (result: "paired") => void = () => undefined;
+    const extensionHandoff = vi.fn(
+      () =>
+        new Promise<"paired">((resolve) => {
+          acknowledge = resolve;
+        }),
+    );
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    render(<OperatorSessionPanel extensionHandoff={extensionHandoff} />);
+    const panel = (await screen.findByRole("heading", { name: "Operator session" })).closest("section") as HTMLElement;
+    await waitFor(() => expect(within(panel).queryByText("Loading operator session…")).toBeNull());
+
+    http.reply("POST", grantPath, 200, { grant: syntheticGrant, idleExpiresAt: activeGrant.idleExpiresAt });
+    http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Pair extension" }));
+    await waitFor(() => expect(extensionHandoff).toHaveBeenCalledTimes(1));
+    expectNoCredentialEntry("handoff pending");
+
+    await act(async () => acknowledge("paired"));
+    expect(await within(panel).findByText("Paired with extension.")).toBeTruthy();
+    expectNoCredentialEntry("paired");
+    expect(document.body.innerHTML).not.toContain(syntheticGrant);
+  });
+
   it("renders no credential entry beside a step-up refusal", async () => {
     const panel = await mountWith(absentMetadata());
     http.reply("POST", grantPath, 400, stepUpRequired);

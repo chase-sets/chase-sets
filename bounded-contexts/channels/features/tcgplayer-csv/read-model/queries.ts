@@ -13,6 +13,72 @@ import type {
 import { tcgplayerLocalRefusalReasons, tcgplayerLocalSnapshotRowCeiling } from "../domain/contracts";
 import { digestChannelSyncRunMembers } from "../domain/digest";
 import { assertBoundedText, assertClosedRecord, assertSafeInteger } from "../domain/validation";
+import { tcgplayerExternalListingId } from "../domain/composition";
+
+export async function readAppliedListingMembership(
+  db: PgQueryable,
+  input: Readonly<{ connectionId: string; maxRows: number }>,
+): Promise<readonly Readonly<{ channelListingId: string; materialIdentity: string }>[] | null> {
+  assertClosedRecord(input, ["connectionId", "maxRows"], "applied membership input");
+  assertBoundedText(input.connectionId, "connectionId");
+  assertSafeInteger(input.maxRows, 1, tcgplayerLocalSnapshotRowCeiling, "maxRows");
+  const latest = await db.query<{ channel_listing_id: string; run_id: string }>(
+    `WITH ranked AS (
+       SELECT member.channel_listing_id,run.run_id,
+         dense_rank() OVER (PARTITION BY member.channel_listing_id ORDER BY run.sequence DESC) AS rank
+       FROM channel_sync_runs AS run JOIN channel_sync_run_rows AS member USING (run_id)
+       WHERE run.connection_id=$1 AND run.state='applied' AND member.member_kind<>'refused'
+     ) SELECT channel_listing_id,run_id FROM ranked WHERE rank=1
+       ORDER BY channel_listing_id,run_id LIMIT $2`,
+    [input.connectionId, input.maxRows + 1],
+  );
+  if (
+    latest.rows.length > input.maxRows ||
+    new Set(latest.rows.map((row) => row.channel_listing_id)).size !== latest.rows.length
+  )
+    return null;
+  const runIds = [...new Set(latest.rows.map((row) => row.run_id))];
+  if (runIds.length === 0) return [];
+  const runs = await db.query<RunRow>(
+    "SELECT * FROM channel_sync_runs WHERE connection_id=$1 AND state='applied' AND run_id=ANY($2::text[])",
+    [input.connectionId, runIds],
+  );
+  const rows = await db.query<Record<string, unknown>>(
+    "SELECT * FROM channel_sync_run_rows WHERE run_id=ANY($1::text[]) ORDER BY run_id,ordinal LIMIT $2",
+    [runIds, input.maxRows + 1],
+  );
+  if (runs.rows.length !== runIds.length || rows.rows.length > input.maxRows) return null;
+  const membership = new Map<string, ChannelSyncRunMember[]>();
+  for (const row of rows.rows) {
+    const id = text(row.run_id);
+    const members = membership.get(id) ?? [];
+    members.push(mapMember(row));
+    membership.set(id, members);
+  }
+  for (const run of runs.rows) {
+    const members = membership.get(run.run_id) ?? [];
+    if (
+      members.length !== run.member_count ||
+      digestChannelSyncRunMembers(members) !== run.member_digest ||
+      members.some((member) => member.reservationId !== run.reservation_id)
+    )
+      return null;
+  }
+  const result: Array<{ channelListingId: string; materialIdentity: string }> = [];
+  for (const selected of latest.rows) {
+    const members = membership
+      .get(selected.run_id)
+      ?.filter((member) => member.channelListingId === selected.channel_listing_id);
+    if (!members || members.length !== 1 || members[0]!.memberKind === "refused") return null;
+    const member = members[0]!;
+    if (member.externalKey === null) return null;
+    result.push({
+      channelListingId: selected.channel_listing_id,
+      materialIdentity: tcgplayerExternalListingId(member.externalKey, member.conditionText),
+    });
+  }
+  return result;
+}
 
 type RunRow = Readonly<{
   run_id: string;
@@ -89,15 +155,20 @@ export async function readLatestSnapshotRows(
 
 export async function readTcgplayerConditionMappingInputs(
   db: PgQueryable,
-  input: Readonly<{ connectionId: string; channelListingIds: readonly string[] }>,
+  input: Readonly<{
+    connectionId: string;
+    operations: readonly Readonly<{ channelListingId: string; listingId: string }>[];
+  }>,
 ): Promise<readonly TcgplayerConditionMappingRead[]> {
-  if (input.channelListingIds.length === 0) return [];
+  if (input.operations.length === 0) return [];
   const facts = await db.query<{ channel_listing_id: string; graded_card: unknown }>(
-    `SELECT link.channel_listing_id,listing.graded_card
-     FROM channels_channel_listing_links AS link
-     JOIN channels_listing_publication_facts AS listing ON listing.listing_id=link.listing_id
-     WHERE link.connection_id=$1 AND link.channel_listing_id=ANY($2::text[])`,
-    [input.connectionId, input.channelListingIds],
+    `SELECT operation.channel_listing_id,listing.graded_card
+     FROM unnest($1::text[],$2::text[]) AS operation(channel_listing_id,listing_id)
+     JOIN channels_listing_publication_facts AS listing ON listing.listing_id=operation.listing_id`,
+    [
+      input.operations.map((operation) => operation.channelListingId),
+      input.operations.map((operation) => operation.listingId),
+    ],
   );
   const sourceByListingId = new Map<string, string>();
   for (const fact of facts.rows) {
@@ -114,7 +185,7 @@ export async function readTcgplayerConditionMappingInputs(
     [input.connectionId, sourceKeys],
   );
   const targetsBySourceKey = new Map(mappings.rows.map((mapping) => [mapping.source_key, mapping.target_key]));
-  return input.channelListingIds.flatMap((channelListingId) => {
+  return input.operations.flatMap(({ channelListingId }) => {
     const sourceKey = sourceByListingId.get(channelListingId);
     return sourceKey
       ? [
@@ -162,7 +233,7 @@ async function readSnapshotRows(
     parsed_row_count: number;
     ingested_at: string | Date;
     captured_at: string | Date;
-    captured_at_source: "operator-declared" | "ingest";
+    captured_at_source: ChannelInventorySnapshot["capturedAtSource"];
   }>(
     `SELECT snapshot_id,snapshot_generation,connection_id,surface,parsed_row_count,ingested_at,captured_at,captured_at_source
      FROM channel_inventory_snapshots

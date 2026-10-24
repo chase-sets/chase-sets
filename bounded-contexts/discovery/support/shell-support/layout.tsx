@@ -12,9 +12,10 @@ import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { MarketplaceHeaderSearch } from "../../features/search/ui/header-search";
 
 export function DiscoveryShellLayout({
-  activeKey = "search",
+  activeKey,
   colorMode = "system",
   reducedMotion = "user",
+  routeIdentity,
   topNavItems,
   bottomNavItems,
   onNavSelect,
@@ -24,6 +25,7 @@ export function DiscoveryShellLayout({
   activeKey?: string;
   colorMode?: ColorMode;
   reducedMotion?: ChaseRootProps["reducedMotion"];
+  routeIdentity?: string;
   topNavItems: readonly NavigationItem[];
   bottomNavItems: readonly NavigationItem[];
   onNavSelect?: (key: string) => void;
@@ -40,6 +42,8 @@ export function DiscoveryShellLayout({
         onNavSelect={onNavSelect}
         search={<MarketplaceHeaderSearch />}
         actions={actions}
+        collapseSearchOnScroll
+        routeIdentity={routeIdentity}
       >
         {children}
       </MarketplaceShell>

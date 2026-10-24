@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { OperationalStatusBanner, Stack } from "@chase-sets/design-system";
+import { classifyFreshWriteReadError } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createForwardedAuthHeaders,
@@ -9,14 +10,21 @@ import {
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
-import { ChannelConnectionDetailPage, type ChannelConnectionAllowedAction } from "./connection-pages";
+import {
+  ChannelConnectionDetailPage,
+  ChannelConnectionListPage,
+  ChannelConnectionSetupSection,
+  type ConnectionSetupLocations,
+  type ChannelConnectionAllowedAction,
+} from "./connection-pages";
+import { createConnectionSetupRequestApiClient } from "./setup-api-client";
 import {
   ChannelsConnectionsApiError,
   createChannelsConnectionsRequestApiClient,
 } from "../../../support/request-support/api-client";
 import type { PublicChannelConnection } from "../domain/contracts";
-import type { ManualSyncPanel } from "../../manual-sync/domain/contracts";
-import { ManualSyncPanelView } from "../../manual-sync/ui/manual-sync-panel";
+import { decodeManualSyncIngestReceipt, type ManualSyncPanel } from "../../manual-sync/domain/contracts";
+import { ManualSyncPanelView, type ManualSyncActionOutcome } from "../../manual-sync/ui/manual-sync-panel";
 import type { OutboundOperationLogPage, OutboundOperationSummary } from "../../outbound-sync/domain/contracts";
 import {
   readOutboundOperationLogPosition,
@@ -28,16 +36,28 @@ import { ChannelConnectionHealthPanel } from "../../connection-attention/ui/heal
 import type { ChannelConnectionAttention } from "../../connection-attention/domain/contracts";
 import type { ChannelDriftDecision, ChannelDriftDetail } from "../../reconciliation/domain/contracts";
 import { ChannelDriftPanel, type DriftActionResult, type DriftSubmission } from "../../reconciliation/ui/drift-panel";
+import {
+  ConnectorPairingPanel,
+  type GeneratedPairingCode,
+  type PairingPanelState,
+} from "../../connector-feed/ui/pairing-panel";
+import { decodeConnectorPairingDetail, decodeGeneratedPairingCode } from "../../connector-feed/domain/codecs";
+
+const setupLocationsModule = import.meta.env.SSR
+  ? await import("../../../support/request-support/setup-locations").catch(() => null)
+  : null;
 
 type AuxiliaryRead<T> = Readonly<{ kind: "loaded"; data: T }> | Readonly<{ kind: "read-error" }>;
 type LoadedData = Readonly<{
   kind: "ready";
   connection: PublicChannelConnection;
+  setupLocations: ConnectionSetupLocations;
   drift: ChannelDriftDetail;
   canManageDrift: boolean;
   loadIdentity: string;
   manualSync: AuxiliaryRead<ManualSyncPanel>;
   attention: AuxiliaryRead<ChannelConnectionAttention>;
+  pairing: PairingPanelState;
   operationLog:
     | Readonly<{
         kind: "loaded";
@@ -47,7 +67,7 @@ type LoadedData = Readonly<{
       }>
     | Readonly<{ kind: "read-error" }>;
 }>;
-type RouteData = LoadedData | Readonly<{ kind: "not-found" }>;
+type RouteData = LoadedData | Readonly<{ kind: "not-found" }> | Readonly<{ kind: "loading" }>;
 type ConnectionActionData =
   | Readonly<{ kind: "applied"; connection: PublicChannelConnection }>
   | Readonly<{ kind: "command-error"; message: string }>;
@@ -59,7 +79,7 @@ function required(value: string | undefined): string {
   return value;
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs): Promise<RouteData> {
+export async function loader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">): Promise<RouteData> {
   const actor = await requireActorFromAuthApi({ request, permission: "channels.view" });
   const connectionId = required(params.connectionId);
   const connectionApi = createChannelsConnectionsRequestApiClient(request);
@@ -71,12 +91,24 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
     throw error;
   }
   const position = readOutboundOperationLogPosition(new URL(request.url).searchParams);
+  let setupLocations: ConnectionSetupLocations = { kind: "loaded", items: [] };
+  if (connection.status === "pending-setup" && actor.permissions.includes("channels.manage")) {
+    try {
+      setupLocations =
+        setupLocationsModule === null
+          ? { kind: "read-error" }
+          : { kind: "loaded", items: await setupLocationsModule.readConnectionSetupLocations(request) };
+    } catch {
+      setupLocations = { kind: "read-error" };
+    }
+  }
   const apiBaseUrl = resolveRequestApiBaseUrl(request, "/api/channels", { requireInternalApiOrigin: true });
   const query = new URLSearchParams({ limit: "50" });
   if (position.cursor !== null) query.set("cursor", position.cursor);
   const headers = createForwardedAuthHeaders(request, undefined, { readTargetContextName: "channels" });
   const driftCursor = new URL(request.url).searchParams.get("driftCursor");
-  const [operationResult, manualSync, attention, drift] = await Promise.all([
+  const orderCursor = new URL(request.url).searchParams.get("orderCursor");
+  const [operationResult, manualSync, attention, drift, pairing] = await Promise.all([
     readAuxiliary<Readonly<{ log: OutboundOperationLogPage; summary: OutboundOperationSummary }>>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/outbound-operations?${query}`, {
         credentials: "include",
@@ -88,18 +120,28 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
         credentials: "include",
         headers,
       }),
+      request,
     ),
     readAuxiliary<ChannelConnectionAttention>(
-      fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/attention`, {
-        credentials: "include",
-        headers,
-      }),
+      fetch(
+        `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/attention${orderCursor ? `?${new URLSearchParams({ orderCursor })}` : ""}`,
+        {
+          credentials: "include",
+          headers,
+        },
+      ),
     ),
     readAuxiliary<ChannelDriftDetail>(
       fetch(
         `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/drift${driftCursor ? `?${new URLSearchParams({ cursor: driftCursor })}` : ""}`,
         { credentials: "include", headers },
       ),
+    ),
+    readPairing(
+      fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/connector-pairing`, {
+        credentials: "include",
+        headers,
+      }),
     ),
   ]);
   let operationLog: LoadedData["operationLog"] = { kind: "read-error" };
@@ -113,8 +155,10 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   return {
     kind: "ready",
     connection,
+    setupLocations,
     manualSync,
     attention,
+    pairing,
     operationLog,
     drift: drift.kind === "loaded" ? drift.data : { kind: "unavailable" },
     canManageDrift: actor.permissions.includes("channels.manage"),
@@ -122,10 +166,26 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   };
 }
 
-async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryRead<T>> {
+async function readAuxiliary<T>(response: Promise<Response>, request?: Request): Promise<AuxiliaryRead<T>> {
   try {
     const resolved = await response;
-    return resolved.ok ? { kind: "loaded", data: (await resolved.json()) as T } : { kind: "read-error" };
+    const body: unknown = await resolved.json();
+    if (resolved.ok) return { kind: "loaded", data: body as T };
+    const error = new ChannelsConnectionsApiError(resolved.status, body);
+    if (request && classifyFreshWriteReadError({ request, error }).transient) throw error;
+    return { kind: "read-error" };
+  } catch (error) {
+    if (error instanceof ChannelsConnectionsApiError) throw error;
+    return { kind: "read-error" };
+  }
+}
+
+async function readPairing(response: Promise<Response>): Promise<PairingPanelState> {
+  try {
+    const resolved = await response;
+    return resolved.ok
+      ? { kind: "loaded", data: decodeConnectorPairingDetail(await resolved.json()) }
+      : { kind: "read-error" };
   } catch {
     return { kind: "read-error" };
   }
@@ -134,6 +194,13 @@ async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryR
 const connectionAction = defineFormAction({
   authorization: { permission: "channels.manage" },
   intents: {
+    activate: async ({ request, params, formData }) => ({
+      kind: "applied" as const,
+      connection: await createConnectionSetupRequestApiClient(request).activate(
+        required(params.connectionId),
+        formData.getAll("storageLocationIds").map(String),
+      ),
+    }),
     pause: async ({ request, params }) => ({
       kind: "applied" as const,
       connection: await createChannelsConnectionsRequestApiClient(request).pauseConnection(
@@ -193,10 +260,19 @@ export async function clientAction(args: ClientActionFunctionArgs) {
 
 export async function action(
   args: ActionFunctionArgs,
-): Promise<ConnectionActionData | ManualSyncActionError | AttentionActionError | DriftActionResult | Response> {
+): Promise<
+  | ConnectionActionData
+  | ManualSyncActionError
+  | ManualSyncActionOutcome
+  | AttentionActionError
+  | DriftActionResult
+  | Readonly<{ kind: "pairing-error"; error: string }>
+  | Readonly<{ kind: "pairing-code"; generated: GeneratedPairingCode }>
+  | Response
+> {
   const form = await args.request.clone().formData();
   const intent = String(form.get("intent") ?? "");
-  if (["pause", "resume", "disconnect"].includes(intent)) return connectionAction(args);
+  if (["activate", "pause", "resume", "disconnect"].includes(intent)) return connectionAction(args);
   await requireActorFromAuthApi({ request: args.request, permission: "channels.manage" });
   const connectionId = required(args.params.connectionId);
   const apiBaseUrl = resolveRequestApiBaseUrl(args.request, "/api/channels", { requireInternalApiOrigin: true });
@@ -246,10 +322,36 @@ export async function action(
       ? redirect(new URL(args.request.url).pathname)
       : { kind: "attention-error", error: t("channels.attention.failed") };
   }
+  if (intent === "connector-code" || intent === "connector-unpair") {
+    try {
+      const endpoint = intent === "connector-code" ? "code" : "unpair";
+      const response = await fetch(
+        `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/connector-pairing/${endpoint}`,
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify(
+            endpoint === "code"
+              ? {}
+              : { pairingId: String(form.get("pairingId") ?? ""), revision: Number(form.get("revision")) },
+          ),
+        },
+      );
+      if (!response.ok) return { kind: "pairing-error", error: t("channels.connector.retry") };
+      if (endpoint === "unpair") return redirect(new URL(args.request.url).pathname);
+      const generated = decodeGeneratedPairingCode(await response.json());
+      return { kind: "pairing-code", generated };
+    } catch {
+      return { kind: "pairing-error", error: t("channels.connector.retry") };
+    }
+  }
   const emptyHeaders = createForwardedAuthHeaders(args.request);
   let response: Response;
-  if (intent === "compose") response = await fetch(`${base}/compose`, { method: "POST", headers: emptyHeaders });
-  else if (intent === "retry-clamp")
+  if (intent === "compose") {
+    response = await fetch(`${base}/compose`, { method: "POST", headers: emptyHeaders });
+    if (!response.ok && stagedBasisRefusals.has((await readApiErrorCode(response)) ?? ""))
+      return { kind: "manual-sync-staged-basis-guidance" };
+  } else if (intent === "retry-clamp")
     response = await fetch(`${base}/runs/${runId}/retry-clamp?expectedRevision=${revision}`, {
       method: "POST",
       headers: emptyHeaders,
@@ -278,6 +380,10 @@ export async function action(
       headers: createForwardedAuthHeaders(args.request, { "x-channel-export-captured-at": new Date().toISOString() }),
       body: upload,
     });
+    const receipt = response.ok ? decodeManualSyncIngestReceipt(await response.json().catch(() => null)) : null;
+    return receipt
+      ? { kind: "manual-sync-ingest", receipt }
+      : { error: t("channels.manualSync.action.failed.description") };
   } else if (intent === "verify")
     response = await fetch(`${base}/runs/${runId}/verify`, {
       method: "POST",
@@ -311,6 +417,25 @@ export async function downloadAction({ request, params }: ActionFunctionArgs): P
     { method: "POST", headers: createForwardedAuthHeaders(request) },
   );
 }
+
+const stagedBasisRefusals = new Set(["staged-basis-stale", "staged-basis-unavailable"]);
+
+async function readApiErrorCode(response: Response): Promise<string | null> {
+  const body: unknown = await response.json().catch(() => null);
+  if (typeof body !== "object" || body === null || !("error" in body)) return null;
+  const error = body.error;
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
+}
+
+function readManualSyncOutcome(value: unknown): ManualSyncActionOutcome | null {
+  if (typeof value !== "object" || value === null || !("kind" in value)) return null;
+  return value.kind === "manual-sync-ingest" || value.kind === "manual-sync-staged-basis-guidance"
+    ? (value as ManualSyncActionOutcome)
+    : null;
+}
+
 export function readActionError(value: unknown): string | null {
   return typeof value === "object" && value !== null && "error" in value && typeof value.error === "string"
     ? value.error
@@ -327,16 +452,25 @@ export default function AccountChannelsConnectionRoute() {
       ? ((navigation.formData?.get("intent") as ChannelConnectionAllowedAction | null) ?? null)
       : null;
   if (data.kind === "not-found") return <ChannelConnectionDetailPage state={{ kind: "not-found" }} />;
-  if (isConnectionActionError(actionData))
-    return (
-      <ChannelConnectionDetailPage
-        state={{ kind: "command-error", message: actionData.message, connection: data.connection }}
-      />
-    );
+  if (data.kind === "loading") return <ChannelConnectionListPage state={{ kind: "loading" }} />;
   const connection = isAppliedConnectionAction(actionData) ? actionData.connection : data.connection;
   const actionError = readActionError(actionData);
   return (
-    <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent}>
+    <ChannelConnectionDetailPage
+      state={
+        isConnectionActionError(actionData)
+          ? { kind: "command-error", connection, message: actionData.message }
+          : { kind: "ready", connection }
+      }
+      pendingIntent={pendingIntent}
+    >
+      {connection.status === "pending-setup" && data.canManageDrift ? (
+        <ChannelConnectionSetupSection
+          key={connection.connectionId}
+          locations={data.setupLocations}
+          pending={navigation.state !== "idle"}
+        />
+      ) : null}
       <Stack gap={4}>
         <ChannelDriftPanel
           key={connection.connectionId}
@@ -350,18 +484,30 @@ export default function AccountChannelsConnectionRoute() {
           state={navigation.state === "loading" ? { kind: "loading" } : data.attention}
           pending={navigation.state === "submitting"}
         />
+        <ConnectorPairingPanel
+          state={data.pairing}
+          generated={
+            actionData && "kind" in actionData && actionData.kind === "pairing-code" ? actionData.generated : undefined
+          }
+          pending={navigation.state !== "idle"}
+          available={connection.status === "active" || connection.status === "paused"}
+        />
         {actionError ? (
           <OperationalStatusBanner
             tone="danger"
             title={
               actionData && "kind" in actionData && actionData.kind === "attention-error"
                 ? t("channels.attention.action.failed")
-                : t("channels.manualSync.action.failed")
+                : actionData && "kind" in actionData && actionData.kind === "pairing-error"
+                  ? t("channels.connector.error")
+                  : t("channels.manualSync.action.failed")
             }
             description={actionError}
           />
         ) : null}
-        {data.manualSync.kind === "loaded" ? <ManualSyncPanelView panel={data.manualSync.data} /> : null}
+        {data.manualSync.kind === "loaded" ? (
+          <ManualSyncPanelView panel={data.manualSync.data} outcome={readManualSyncOutcome(actionData)} />
+        ) : null}
         {data.manualSync.kind === "read-error" ? (
           <OperationalStatusBanner
             tone="danger"
@@ -385,6 +531,7 @@ export default function AccountChannelsConnectionRoute() {
     </ChannelConnectionDetailPage>
   );
 }
+
 function isConnectionActionError(value: unknown): value is Readonly<{ kind: "command-error"; message: string }> {
   return (
     typeof value === "object" &&

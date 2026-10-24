@@ -15,7 +15,7 @@
     "liability-reconciliation"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
   "seedRequirements": ["identity", "payments"],
   "eventSubscriptions": [
@@ -281,6 +281,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "deploymentEnvironment",
+      "providedBy": "platform-api",
+      "purpose": "Trusted deployment environment for the staging-only proof credit; missing binding refuses all proof writes."
+    },
+    {
       "portName": "moneyMovementGateway",
       "providedBy": "platform-api",
       "purpose": "Provider-neutral money movement adapter for payout setup, platform-balance transfers, connected-account payouts, and payout webhooks."
@@ -425,6 +430,11 @@
       }
     }
   ],
+  "agentCoverage": {
+    "settlement-money-health": { "pending": "#9238" },
+    "settlement-payout-operations": { "pending": "#9238" },
+    "settlement-wallet-workbench": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -522,8 +532,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -534,6 +543,9 @@
             "owner": "settlement",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -548,8 +560,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -560,6 +571,9 @@
             "owner": "settlement",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -652,8 +666,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -664,6 +677,9 @@
             "owner": "settlement",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         }
       ]
@@ -680,7 +696,8 @@
       "section": "commerce",
       "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.reconcile"]
+      "requiredPermissions": ["payouts.reconcile", "payouts.platform.view"],
+      "requiredPermissionsMatch": "any"
     },
     {
       "deployable": "admin-web",
@@ -692,19 +709,23 @@
       "section": "commerce",
       "order": 85,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.reconcile"]
+      "requiredPermissions": ["payouts.reconcile", "payouts.platform.view"],
+      "requiredPermissionsMatch": "any"
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "placements": ["top-nav", "bottom-nav"],
       "key": "money",
-      "label": "Money",
+      "label": "Seller money",
+      "labelKey": "settlement.shell.money.label",
       "icon": "wallet",
       "href": "/account/desk/money",
       "order": 180,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.view"]
+      "requiredPermissions": ["payouts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 500
     }
   ],
   "directoryIntent": {
@@ -767,6 +788,25 @@
     }
   },
   "mutationConsistencyInventory": [
+    {
+      "id": "settlement.staging-proof-credit-receipt",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/wallets/api/staging-proof-credit-runtime.ts:POST /wallet/staging-proof-credits"
+      ],
+      "visibleDestination": {
+        "description": "The staging operator receives the Wallet-stream proof receipt directly; no projection or UI is required."
+      },
+      "proof": {
+        "authoritativeResponse": "The runtime returns the complete atomic credit/audit receipt from committed Wallet state; replay and GET rehydrate the same stream, independent of projection lag.",
+        "tests": [
+          "bounded-contexts/settlement/features/wallets/api/staging-proof-credit-route.test.ts",
+          "bounded-contexts/settlement/features/wallets/api/staging-proof-credit.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "settlement.payout-readiness-api-session-snapshots",
       "owner": "settlement",

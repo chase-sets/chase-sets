@@ -12,6 +12,7 @@ import {
   UCP_MCP_TOOLS,
   UCP_REST_ENDPOINT_PATH,
   UCP_VERSION,
+  ucpErrorSeverity,
 } from "./ucp";
 
 describe("UCP contract profile", () => {
@@ -37,7 +38,6 @@ describe("UCP contract profile", () => {
 
     expect(Object.keys(profile.ucp.capabilities).sort()).toEqual(
       [
-        UCP_CAPABILITIES.ap2Mandate,
         UCP_CAPABILITIES.catalogLookup,
         UCP_CAPABILITIES.catalogSearch,
         UCP_CAPABILITIES.checkout,
@@ -45,31 +45,21 @@ describe("UCP contract profile", () => {
         UCP_CAPABILITIES.order,
       ].sort(),
     );
-    expect(profile.ucp.capabilities[UCP_CAPABILITIES.checkout]?.[0]?.config).toEqual({
-      completion_requires_trusted_ui_without_ap2_mandate: true,
-    });
+    expect(profile.ucp.capabilities[UCP_CAPABILITIES.checkout]?.[0]).not.toHaveProperty("config");
   });
 
-  it("advertises only verified human-present AP2 completion when every control is ready", () => {
-    const profile = buildUcpBusinessProfile("https://marketplace.example", {
-      signingKeys: [{ kty: "EC", kid: "merchant-current" }],
-      ap2Readiness: {
-        mandateVerification: "enabled",
-        sharedPaymentToken: "enabled",
-        headlessCompletionEnabled: true,
-      },
-    });
+  it("advertises no AP2 capability", () => {
+    const signingKey = { kty: "EC", crv: "P-256", kid: "merchant-current", x: "x", y: "y" };
+    const profile = buildUcpBusinessProfile("https://marketplace.example", { signingKeys: [signingKey] });
+    const serialized = JSON.stringify(profile);
 
-    expect(profile.ucp.capabilities[UCP_CAPABILITIES.ap2Mandate]?.[0]?.config).toMatchObject({
-      status: "human_present_enabled",
-      mandate_verification: "enabled",
-      business_response_signing: "enabled",
-      shared_payment_token: "enabled",
-      supported_modes: ["human-present"],
-      headless_completion_enabled: true,
-      human_present_completion_enabled: true,
-      human_not_present_completion_enabled: false,
-    });
+    expect(Object.keys(UCP_CAPABILITIES)).not.toContain("ap2Mandate");
+    expect(Object.keys(profile.ucp.capabilities)).not.toContain("dev.ucp.shopping.ap2_mandate");
+    expect(serialized).not.toContain("shopping/ap2_mandate.json");
+    expect(serialized).not.toContain("completion_requires_trusted_ui_without_ap2_mandate");
+    expect(serialized.toLowerCase()).not.toContain("ap2");
+    expect(profile.signing_keys).toEqual([signingKey]);
+    expect(profile.ucp.signing_keys).toEqual([signingKey]);
   });
 });
 
@@ -93,14 +83,16 @@ describe("UCP MCP tools", () => {
       annotations: { readOnlyHint: true },
     });
     expect(createCheckout).toMatchObject({
-      securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
+      securitySchemes: [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }],
       annotations: { readOnlyHint: false, destructiveHint: false },
     });
     expect(completeCheckout).toMatchObject({
-      trustedHandoffOnUnsignedMcp: true,
-      securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
+      securitySchemes: [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }],
       annotations: { destructiveHint: true, openWorldHint: true },
     });
+    // The retired unsigned MCP trusted-handoff bypass is intentionally absent;
+    // complete/cancel dispatch is enforced by the composed checkout handlers.
+    expect(completeCheckout).not.toHaveProperty("trustedHandoffOnUnsignedMcp");
   });
 
   it("advertises MCP Apps resources for the agent commerce journey", () => {
@@ -150,5 +142,60 @@ describe("UCP envelopes", () => {
       ucp: { version: UCP_VERSION, status: "ok" },
       products: [],
     });
+  });
+});
+
+describe("UCP error severity", () => {
+  it("covers every emitted UCP error code", () => {
+    const emittedCodes = [
+      "agent_grant_rate_limited",
+      "authentication_required",
+      "authorization_forbidden",
+      "capabilities_incompatible",
+      "checkout_closed",
+      "context_required",
+      "idempotency_key_conflict",
+      "idempotency_key_in_progress",
+      "idempotency_key_mismatch",
+      "idempotency_key_required",
+      "invalid_profile_url",
+      "not_found",
+      "operation_not_wired",
+      "payment_confirmation_required",
+      "payment_required",
+      "product_not_found",
+      "checkout_expired",
+      "item_unavailable",
+      "profile_malformed",
+      "profile_mismatch",
+      "profile_unreachable",
+      "signed_request_required",
+      "tool_call_limited",
+      "validation_failed",
+      "version_unsupported",
+    ];
+    const recoverable = new Set([
+      "agent_grant_rate_limited",
+      "authentication_required",
+      "idempotency_key_conflict",
+      "idempotency_key_in_progress",
+      "idempotency_key_mismatch",
+      "idempotency_key_required",
+      "invalid_profile_url",
+      "profile_unreachable",
+      "signed_request_required",
+      "tool_call_limited",
+      "validation_failed",
+    ]);
+
+    for (const code of emittedCodes) {
+      expect(ucpErrorSeverity(code), code).toBe(recoverable.has(code) ? "recoverable" : "unrecoverable");
+    }
+    expect(ucpErrorSeverity("quantity_unit_mismatch")).toBe("recoverable");
+    expect(ucpErrorSeverity("invalid_future_code")).toBe("recoverable");
+    expect(ucpErrorSeverity("idempotency_key_future_code")).toBe("recoverable");
+    expect(ucpErrorSeverity("custom_limited")).toBe("recoverable");
+    expect(ucpErrorSeverity("custom_limited_suffix")).toBe("unrecoverable");
+    expect(ucpErrorSeverity("requires_buyer_input")).toBe("unrecoverable");
   });
 });

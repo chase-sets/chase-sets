@@ -4,15 +4,57 @@ import {
   roundRational,
   signedMoneyToCents,
   tryMoneyToCents,
+  type MoneyAmount,
 } from "@chase-sets/primitives/money";
-import type {
-  RepricingRule,
-  RepricingRuleCondition,
-  RepricingRuleDirective,
+import type { EconomicsForPricingGoal } from "../../economics/domain/resolution";
+import type { CurvePoint } from "../../market-estimates/domain/demand-curve/curve";
+import {
+  resolvePricingGoal,
+  resolveRepricingGuardrail,
+  type RepricingAnchor,
+  type RepricingRule,
+  type RepricingRuleCondition,
+  type RepricingRuleDirective,
 } from "../../repricing-policies/domain/domain";
 import { resolveRepricingFloorAmount } from "../../repricing-policies/domain/floor-resolution";
+import {
+  netProceedsAtPrice,
+  readBackAtPrice,
+  toGoalCurveViews,
+  type GoalCurveViews,
+  type GoalForecast,
+} from "../../repricing-policies/domain/goals/curve-math";
+import type {
+  GoalCurve,
+  GoalCurveFeature,
+  PricingGoalDefinition,
+} from "../../repricing-policies/domain/goals/registry";
+import {
+  sha256,
+  type PortfolioConstraint,
+  type PortfolioListingResult,
+} from "../../repricing-policies/domain/portfolio/portfolio";
+import type {
+  GuardrailContext,
+  GuardrailCurveSummary,
+  GuardrailDefinition,
+} from "../../repricing-policies/domain/guardrails/registry";
+import { filterCompetingAskOutliers } from "./competing-ask-outliers";
 
 export type RepricingInputState = "present" | "stale" | "absent" | "currency-incomplete" | "currency-mismatch";
+
+/** The product's Demand Curve served at the capture instant, with its ordered points. */
+export type RepricingDemandCurveInput = Readonly<{
+  version: number;
+  currencyCode: string | null;
+  freshUntil: string | null;
+  points: readonly CurvePoint[];
+}>;
+
+/** Economics captured for a listing whose matched chain requires it; a listing without an inventory item is unavailable without a resolve. */
+export type RepricingListingEconomics =
+  | EconomicsForPricingGoal
+  | Readonly<{ availability: "unavailable"; reason: "inventory-item-missing" }>;
 
 export type RepricingMarketInputSnapshot = Readonly<{
   catalogItemId: string;
@@ -28,6 +70,8 @@ export type RepricingMarketInputSnapshot = Readonly<{
     currencyCode?: string | null;
     pricingMode: "hard" | "derived";
   }>[];
+  demandCurve: RepricingDemandCurveInput | null;
+  economics: RepricingListingEconomics | null;
 }>;
 
 export type RepricingListingEvaluationInput = Readonly<{
@@ -49,13 +93,32 @@ export type RepricingClampTrace = Readonly<{
   floor: boolean;
   ceiling: boolean;
   maxMove: boolean;
+  evidenceFloor?: boolean;
+}>;
+
+/** A curve-objective anchor's goal, read back at the evaluation's final price. */
+export type RepricingGoalTrace = Readonly<{
+  goalId: string;
+  goalVersion: number;
+  curveVersion: number;
+  equivalentPercentile: number;
+  forecastMedianSellDays: number | null;
+  forecastStatus: GoalForecast["status"];
+  unprofitable: boolean;
 }>;
 
 export type RepricingAnchorTrace = Readonly<{
-  source: "market-estimate" | "lowest-competing-ask" | "comp-percentile" | "last-sold";
+  source: "market-estimate" | "lowest-competing-ask" | "comp-percentile" | "last-sold" | "curve-objective";
   amount: string;
-  stratum: "market-estimate" | "hard-ask" | "any-ask" | "last-sold";
+  stratum: "market-estimate" | "hard-ask" | "any-ask" | "last-sold" | "curve-objective";
   contributingListingCount: number;
+  goal?: RepricingGoalTrace;
+}>;
+
+export type RepricingExhaustedAnchor = Readonly<{
+  source: string;
+  state: RepricingInputState;
+  reason?: "economics-unavailable" | "goal-retired" | `curve-feature-missing:${GoalCurveFeature}`;
 }>;
 
 export type RepricingListingEvaluation = Readonly<{
@@ -64,10 +127,16 @@ export type RepricingListingEvaluation = Readonly<{
   targetPriceAmount: string | null;
   ruleIndex: number;
   anchor: RepricingAnchorTrace | null;
-  exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[];
+  exhaustedAnchors: readonly RepricingExhaustedAnchor[];
   clamps: RepricingClampTrace;
   tolerance: RepricingRuleDirective["tolerance"];
-  flags: readonly ("floor-binding" | "ceiling-binding" | "max-move-binding" | "band-binding")[];
+  flags: readonly (
+    | "floor-binding"
+    | "ceiling-binding"
+    | "max-move-binding"
+    | "band-binding"
+    | "evidence-floor-binding"
+  )[];
   action: "update-price" | "hold" | "pause" | "notify-only" | "no-reprice";
   skipReason:
     | "within-tolerance"
@@ -76,19 +145,84 @@ export type RepricingListingEvaluation = Readonly<{
     | "terminal-pause"
     | "terminal-notify-only"
     | "currency-input-incomplete-or-mismatched"
+    | "hopeless-forecast-hold"
     | null;
+  /** The round's Portfolio Plan this listing belongs to, whether the plan priced or held it. */
+  portfolioPlanId?: string;
+}>;
+
+/** A listing's share of a round's Portfolio Plan: the plan, the anchor it governs, and the listing's result. */
+export type RepricingPortfolioAssignment = Readonly<{
+  planId: string;
+  anchorIndex: number;
+  result: PortfolioListingResult;
 }>;
 
 /**
  * The single evaluation path used by both live product rounds and dry-run
  * previews. It is intentionally pure: a product round captures inputs once,
  * calls this function for every assigned listing, then decides whether live
- * command emission is enabled.
+ * command emission is enabled. A round's Portfolio Plan, when the listing
+ * belongs to one, supplies the anchor at the plan's anchor index; without one
+ * a portfolio goal decides the listing as a one-listing portfolio.
  */
 export function evaluateRepricingListing(
   listing: RepricingListingEvaluationInput,
   snapshot: RepricingMarketInputSnapshot,
+  shadowAnchorIndex?: number,
+  portfolio?: RepricingPortfolioAssignment,
 ): RepricingListingEvaluation {
+  const evaluation = evaluateMatchedListing(listing, snapshot, shadowAnchorIndex, portfolio);
+  return portfolio === undefined ? evaluation : { ...evaluation, portfolioPlanId: portfolio.planId };
+}
+
+function evaluateMatchedListing(
+  listing: RepricingListingEvaluationInput,
+  snapshot: RepricingMarketInputSnapshot,
+  shadowAnchorIndex: number | undefined,
+  portfolio: RepricingPortfolioAssignment | undefined,
+): RepricingListingEvaluation {
+  const match = matchRepricingRule(listing, snapshot);
+  if (!match) {
+    return noReprice(listing, 0, listing.rules[0]?.directive);
+  }
+  const { listing: compatibleListing, ruleIndex, rule, competingHardAsks } = match;
+
+  const resolved = resolveAnchor(
+    rule.directive,
+    snapshot,
+    competingHardAsks,
+    compatibleListing,
+    shadowAnchorIndex,
+    portfolio,
+  );
+  if (resolved.exhaustedAnchors.some(isCurrencyExhaustion)) {
+    return noReprice(compatibleListing, ruleIndex, rule.directive, resolved.exhaustedAnchors);
+  }
+  if (!resolved.anchor) {
+    return evaluateTerminal(compatibleListing, ruleIndex, rule.directive, snapshot, resolved.exhaustedAnchors);
+  }
+
+  return evaluateTarget(compatibleListing, ruleIndex, rule.directive, snapshot, {
+    ...resolved,
+    baseAmount: resolved.anchor.amount,
+  });
+}
+
+/**
+ * The listing's first-match rule, or null when the listing's own currency
+ * inputs make it a named no-reprice. Pure over the same captured inputs, so
+ * the page loader reads the matched chain before the evaluation runs.
+ */
+export function matchRepricingRule(
+  listing: RepricingListingEvaluationInput,
+  snapshot: RepricingMarketInputSnapshot,
+): Readonly<{
+  listing: RepricingListingEvaluationInput & Readonly<{ currentPriceCurrencyCode: string }>;
+  ruleIndex: number;
+  rule: RepricingRule;
+  competingHardAsks: readonly RepricingMarketInputSnapshot["competingAsks"][number][];
+}> | null {
   const listingCurrencyCode = listing.currentPriceCurrencyCode?.trim().toUpperCase() ?? null;
   const costBasisCurrencyCode = listing.costBasisCurrencyCode?.trim().toUpperCase() ?? null;
   const ruleCurrencyCodes = listing.rules.map((rule) => rule.directive.currencyCode?.trim().toUpperCase() ?? null);
@@ -100,7 +234,7 @@ export function evaluateRepricingListing(
     (listing.costBasisAmount === null) !== (costBasisCurrencyCode === null) ||
     (listing.costBasisAmount !== null && costBasisCurrencyCode !== listingCurrencyCode)
   ) {
-    return noReprice(listing, 0, listing.rules[0]?.directive);
+    return null;
   }
   const compatibleListing = {
     ...listing,
@@ -114,7 +248,11 @@ export function evaluateRepricingListing(
         ask.sellerAccountId !== listing.sellerAccountId &&
         ask.currencyCode === listingCurrencyCode,
     ),
-    snapshot.marketEstimate?.currencyCode === listingCurrencyCode ? snapshot : { ...snapshot, marketEstimate: null },
+    (ask) => moneyToCents(ask.amount),
+    snapshot.marketEstimate?.currencyCode === listingCurrencyCode
+      ? tryMoneyToCents(snapshot.marketEstimate.amount)
+      : null,
+    snapshot.hardAskOutlierPriceRatio,
   );
   const ruleIndex = listing.rules.findIndex((rule) =>
     rule.conditions.every((condition) =>
@@ -126,34 +264,97 @@ export function evaluateRepricingListing(
   if (!rule) {
     throw new Error("Repricing policy must include an unconditional default rule.");
   }
+  return { listing: compatibleListing, ruleIndex: matchedRuleIndex, rule, competingHardAsks };
+}
 
-  const resolved = resolveAnchor(
-    rule.directive,
+/** Where a listing's matched chain reaches a portfolio goal, with what a round's plan needs to price it there. */
+export type RepricingPortfolioReach = Readonly<{
+  anchorIndex: number;
+  goal: PricingGoalDefinition;
+  parameters: Readonly<Record<string, number>>;
+  currencyCode: string;
+  currentPriceAmount: MoneyAmount;
+  /** The Demand Curve when its evidence is present, else null and the plan holds the listing. */
+  curve: GoalCurve | null;
+  /** Prices the listing at the anchor through every stage after it, so a plan sums the prices the round lists. */
+  constraint: PortfolioConstraint;
+}>;
+
+/**
+ * The first selectable portfolio goal anchor in the listing's matched chain,
+ * when every anchor before it is exhausted, so that a plan is what anchors the
+ * listing; null otherwise. Pure over the same captured inputs as the
+ * evaluation, and identifies the constraint by everything its stages read
+ * except the capture instant.
+ */
+export function reachPortfolioAnchor(
+  listing: RepricingListingEvaluationInput,
+  snapshot: RepricingMarketInputSnapshot,
+): RepricingPortfolioReach | null {
+  // Rules without a portfolio goal never pay for a second rule match.
+  if (!listing.rules.some((rule) => rule.directive.anchorChain.some(isPortfolioAnchor))) return null;
+  const match = matchRepricingRule(listing, snapshot);
+  if (!match) return null;
+  const { listing: compatibleListing, ruleIndex, rule, competingHardAsks } = match;
+  const { anchorChain } = rule.directive;
+  const anchorIndex = anchorChain.findIndex(isPortfolioAnchor);
+  if (anchorIndex < 0) return null;
+  const earlier = resolveAnchor(
+    { ...rule.directive, anchorChain: anchorChain.slice(0, anchorIndex) },
     snapshot,
     competingHardAsks,
-    listingCurrencyCode,
-    listing.sellerAccountId,
-  );
-  if (
-    resolved.exhaustedAnchors.some(
-      (anchor) => anchor.state === "currency-incomplete" || anchor.state === "currency-mismatch",
-    )
-  ) {
-    return noReprice(compatibleListing, matchedRuleIndex, rule.directive, resolved.exhaustedAnchors);
-  }
-  if (!resolved.anchor) {
-    return evaluateTerminal(compatibleListing, matchedRuleIndex, rule.directive, resolved.exhaustedAnchors);
-  }
-
-  return evaluateTarget(
     compatibleListing,
-    matchedRuleIndex,
-    rule.directive,
-    resolved.anchor.amount,
-    resolved.anchor,
-    resolved.exhaustedAnchors,
-    resolved.bandBinding,
   );
+  if (earlier.anchor !== null || earlier.exhaustedAnchors.some(isCurrencyExhaustion)) return null;
+  const candidate = anchorChain[anchorIndex] as Extract<RepricingAnchor, { source: "curve-objective" }>;
+  const currencyCode = compatibleListing.currentPriceCurrencyCode;
+  const currentCents = moneyToCents(compatibleListing.currentPriceAmount);
+  const currentPriceAmount = centsToMoneyAmount(currentCents);
+  const curve = snapshot.demandCurve;
+  return {
+    anchorIndex,
+    goal: resolvePricingGoal(candidate.goalId, candidate.goalVersion)!,
+    parameters: candidate.parameters,
+    currencyCode,
+    currentPriceAmount,
+    curve:
+      curve !== null && evidenceState(curve, currencyCode, snapshot.capturedAt) === "present"
+        ? { currencyCode: curve.currencyCode!, version: curve.version, points: curve.points }
+        : null,
+    constraint: {
+      identity: sha256({
+        ruleIndex,
+        directive: rule.directive,
+        currentPriceAmount,
+        costBasisAmount: compatibleListing.costBasisAmount,
+        costBasisCurrencyCode: compatibleListing.costBasisCurrencyCode,
+        guardrailEvidence: rule.directive.guardrails?.length
+          ? captureGuardrailEvidence(compatibleListing, snapshot, currentCents, candidate.source)
+          : null,
+      }),
+      apply: (amount) => {
+        const anchored = evaluateTarget(compatibleListing, ruleIndex, rule.directive, snapshot, {
+          anchor: { source: candidate.source, amount, stratum: "curve-objective", contributingListingCount: 0 },
+          exhaustedAnchors: earlier.exhaustedAnchors,
+          baseAmount: amount,
+        });
+        return anchored.action === "update-price"
+          ? centsToMoneyAmount(moneyToCents(anchored.targetPriceAmount!))
+          : currentPriceAmount;
+      },
+    },
+  };
+}
+
+/** A curve-objective anchor whose goal is selectable and resolves a Portfolio Plan. */
+function isPortfolioAnchor(anchor: RepricingAnchor): boolean {
+  if (anchor.source !== "curve-objective") return false;
+  const goal = resolvePricingGoal(anchor.goalId, anchor.goalVersion);
+  return goal?.lifecycle === "selectable" && goal.solvePortfolio !== undefined;
+}
+
+function isCurrencyExhaustion(anchor: RepricingExhaustedAnchor): boolean {
+  return anchor.state === "currency-incomplete" || anchor.state === "currency-mismatch";
 }
 
 function noReprice(
@@ -214,20 +415,37 @@ function conditionMatches(
   }
 }
 
+/** A solved curve objective, kept so the trace can read the goal back at the final price. */
+type ResolvedGoal = Readonly<{
+  goalId: string;
+  goalVersion: number;
+  curveVersion: number;
+  curve: GoalCurveViews;
+  /** Present only for a goal that requires Economics. */
+  economics: Extract<EconomicsForPricingGoal, { availability: "resolved" }> | null;
+}>;
+
+type ResolvedAnchor = Readonly<{
+  anchor: RepricingAnchorTrace | null;
+  exhaustedAnchors: readonly RepricingExhaustedAnchor[];
+  bandBinding?: boolean;
+  goal?: ResolvedGoal;
+}>;
+
+type CompatibleListing = RepricingListingEvaluationInput & Readonly<{ currentPriceCurrencyCode: string }>;
+
 function resolveAnchor(
   directive: RepricingRuleDirective,
   snapshot: RepricingMarketInputSnapshot,
   hardAsks: readonly RepricingMarketInputSnapshot["competingAsks"][number][],
-  targetCurrencyCode: string,
-  sellerAccountId: string,
-): Readonly<{
-  anchor: RepricingAnchorTrace | null;
-  exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[];
-  bandBinding?: boolean;
-}> {
-  const exhaustedAnchors: Array<{ source: string; state: RepricingInputState }> = [];
+  listing: CompatibleListing,
+  shadowAnchorIndex?: number,
+  portfolio?: RepricingPortfolioAssignment,
+): ResolvedAnchor {
+  const { currentPriceCurrencyCode: targetCurrencyCode, sellerAccountId } = listing;
+  const exhaustedAnchors: RepricingExhaustedAnchor[] = [];
 
-  for (const candidate of directive.anchorChain) {
+  for (const [anchorIndex, candidate] of directive.anchorChain.entries()) {
     switch (candidate.source) {
       case "market-estimate": {
         const estimate = snapshot.marketEstimate;
@@ -271,7 +489,9 @@ function resolveAnchor(
             snapshot.competingAsks.filter(
               (ask) => ask.sellerAccountId !== sellerAccountId && ask.currencyCode === targetCurrencyCode,
             ),
-            snapshot,
+            (ask) => moneyToCents(ask.amount),
+            groundCents,
+            snapshot.hardAskOutlierPriceRatio,
           );
           if (anyAsks.length === 0) {
             exhaustedAnchors.push({
@@ -367,10 +587,79 @@ function resolveAnchor(
         exhaustedAnchors.push({ source: candidate.source, state });
         break;
       }
+      case "curve-objective": {
+        const goal = resolvePricingGoal(candidate.goalId, candidate.goalVersion);
+        if (
+          !goal ||
+          goal.lifecycle === "retired" ||
+          (goal.lifecycle === "shadow" && anchorIndex !== shadowAnchorIndex)
+        ) {
+          exhaustedAnchors.push({ source: candidate.source, state: "absent", reason: "goal-retired" });
+          break;
+        }
+        const curve = snapshot.demandCurve;
+        const state = evidenceState(curve, targetCurrencyCode, snapshot.capturedAt);
+        if (curve === null || state !== "present") {
+          exhaustedAnchors.push({ source: candidate.source, state });
+          break;
+        }
+        const economics = snapshot.economics?.availability === "resolved" ? snapshot.economics : null;
+        const planned = portfolio?.anchorIndex === anchorIndex ? portfolio.result : null;
+        const decision =
+          planned === null
+            ? goal.solve({
+                curve: { currencyCode: curve.currencyCode!, version: curve.version, points: curve.points },
+                economics,
+                parameters: candidate.parameters,
+                currentPriceAmount: centsToMoneyAmount(moneyToCents(listing.currentPriceAmount)),
+              })
+            : (planned.decision ?? { kind: "unavailable" as const, reason: planned.heldReason! });
+        if (decision.kind === "unavailable") {
+          exhaustedAnchors.push(
+            decision.reason === "economics-currency-mismatch"
+              ? { source: candidate.source, state: "currency-mismatch" }
+              : decision.reason === "curve-empty" || decision.reason === "current-price-missing"
+                ? { source: candidate.source, state: "absent" }
+                : { source: candidate.source, state: "absent", reason: decision.reason },
+          );
+          break;
+        }
+        return {
+          anchor: {
+            source: candidate.source,
+            // The unconstrained price: the stages below constrain it, so a plan's constrained price is never constrained twice.
+            amount: decision.unconstrainedPriceAmount,
+            stratum: "curve-objective",
+            contributingListingCount: 0,
+          },
+          exhaustedAnchors,
+          goal: {
+            goalId: goal.id,
+            goalVersion: goal.version,
+            curveVersion: curve.version,
+            curve: toGoalCurveViews(curve.points)!,
+            economics: goal.requiresEconomics ? economics : null,
+          },
+        };
+      }
     }
   }
 
   return { anchor: null, exhaustedAnchors };
+}
+
+/** Currency before freshness, ISO codes compared case-insensitively; missing or unparseable freshness is stale. */
+function evidenceState(
+  evidence: Readonly<{ currencyCode?: string | null; freshUntil: string | null }> | null,
+  targetCurrencyCode: string,
+  capturedAt: string,
+): RepricingInputState {
+  if (evidence === null) return "absent";
+  if (!evidence.currencyCode) return "currency-incomplete";
+  if (evidence.currencyCode.toUpperCase() !== targetCurrencyCode) return "currency-mismatch";
+  return evidence.freshUntil !== null && Date.parse(evidence.freshUntil) >= Date.parse(capturedAt)
+    ? "present"
+    : "stale";
 }
 
 function incompatibleAskState(
@@ -388,10 +677,11 @@ function incompatibleAskState(
 }
 
 function evaluateTerminal(
-  listing: RepricingListingEvaluationInput,
+  listing: RepricingListingEvaluationInput & Readonly<{ currentPriceCurrencyCode: string }>,
   ruleIndex: number,
   directive: RepricingRuleDirective,
-  exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[],
+  snapshot: RepricingMarketInputSnapshot,
+  exhaustedAnchors: readonly RepricingExhaustedAnchor[],
 ): RepricingListingEvaluation {
   const base = {
     listingId: listing.listingId,
@@ -406,19 +696,20 @@ function evaluateTerminal(
 
   switch (directive.terminal.kind) {
     case "fallback-price":
-      return evaluateTarget(listing, ruleIndex, directive, directive.terminal.amount, null, exhaustedAnchors);
+      return evaluateTarget(listing, ruleIndex, directive, snapshot, {
+        baseAmount: directive.terminal.amount,
+        anchor: null,
+        exhaustedAnchors,
+      });
     case "price-at-floor":
-      return evaluateTarget(
-        listing,
-        ruleIndex,
-        directive,
-        resolveRepricingFloorAmount(
+      return evaluateTarget(listing, ruleIndex, directive, snapshot, {
+        baseAmount: resolveRepricingFloorAmount(
           directive.floor,
           listing.costBasisCurrencyCode === listing.currentPriceCurrencyCode ? listing.costBasisAmount : null,
         ),
-        null,
+        anchor: null,
         exhaustedAnchors,
-      );
+      });
     case "pause":
       return { ...base, targetPriceAmount: null, action: "pause", skipReason: "terminal-pause" };
     case "notify-only":
@@ -429,17 +720,39 @@ function evaluateTerminal(
 }
 
 function evaluateTarget(
-  listing: RepricingListingEvaluationInput,
+  listing: RepricingListingEvaluationInput & Readonly<{ currentPriceCurrencyCode: string }>,
   ruleIndex: number,
   directive: RepricingRuleDirective,
-  baseAmount: string,
-  anchor: RepricingAnchorTrace | null,
-  exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[],
-  bandBinding = false,
+  snapshot: RepricingMarketInputSnapshot,
+  resolved: ResolvedAnchor & Readonly<{ baseAmount: string }>,
 ): RepricingListingEvaluation {
+  const { anchor, exhaustedAnchors, bandBinding = false, goal } = resolved;
   const current = moneyToCents(listing.currentPriceAmount);
-  const anchorCents = moneyToCents(baseAmount);
-  let target = applyOffset(anchorCents, directive);
+  const anchorCents = moneyToCents(resolved.baseAmount);
+  const guardrailEvidence = directive.guardrails?.length
+    ? captureGuardrailEvidence(listing, snapshot, current, anchor?.source ?? directive.terminal.kind)
+    : null;
+  const tracedAnchor = (priceCents: bigint) =>
+    anchor && goal ? { ...anchor, goal: traceGoalAtPrice(goal, priceCents) } : anchor;
+  const hold = (reason: "hopeless-forecast-hold"): RepricingListingEvaluation => ({
+    listingId: listing.listingId,
+    currentPriceAmount: centsToMoneyAmount(current),
+    targetPriceAmount: null,
+    ruleIndex,
+    anchor: tracedAnchor(current),
+    exhaustedAnchors,
+    clamps: { floor: false, ceiling: false, maxMove: false },
+    tolerance: directive.tolerance,
+    flags: bandBinding ? ["band-binding"] : [],
+    action: "hold",
+    skipReason: reason,
+  });
+
+  const preOffset = applyGuardrails("pre-offset", directive, guardrailEvidence, anchorCents);
+  if (preOffset.outcome === "hold") {
+    return hold(preOffset.reason);
+  }
+  let target = applyOffset(preOffset.targetCents, directive);
   target = applyRounding(target, directive);
 
   const floor = moneyToCents(
@@ -449,10 +762,15 @@ function evaluateTarget(
     ),
   );
   const ceiling = resolveCeiling(anchorCents, directive);
-  const clamps = { floor: false, ceiling: false, maxMove: false };
+  const clamps: { floor: boolean; ceiling: boolean; maxMove: boolean; evidenceFloor?: boolean } = {
+    floor: false,
+    ceiling: false,
+    maxMove: false,
+  };
 
-  // The movement guard constrains the proposal first. Seller-authored
-  // floor/ceiling clamps are terminal and no later adjustment may escape.
+  // The movement guard constrains the proposal first; a post-max-move
+  // guardrail may then raise it. Seller-authored floor/ceiling clamps are
+  // terminal and no earlier stage may escape them.
   if (directive.maxMovePercent !== null) {
     const moveBps = Math.round(directive.maxMovePercent * 100);
     const maxDown = current - roundRational(current * BigInt(moveBps), 10_000n, "nearest");
@@ -462,6 +780,15 @@ function evaluateTarget(
       clamps.maxMove = true;
       target = bounded;
     }
+  }
+  const postMaxMove = applyGuardrails("post-max-move", directive, guardrailEvidence, target);
+  if (postMaxMove.outcome === "hold") {
+    return hold(postMaxMove.reason);
+  }
+  target = postMaxMove.targetCents;
+  // The Market-Evidence Floor is the only registered clamp kind.
+  if (preOffset.clamped || postMaxMove.clamped) {
+    clamps.evidenceFloor = true;
   }
   if (target < floor) {
     target = floor;
@@ -482,6 +809,7 @@ function evaluateTarget(
     ...(clamps.floor ? (["floor-binding"] as const) : []),
     ...(clamps.ceiling ? (["ceiling-binding"] as const) : []),
     ...(clamps.maxMove ? (["max-move-binding"] as const) : []),
+    ...(clamps.evidenceFloor ? (["evidence-floor-binding"] as const) : []),
   ];
 
   return {
@@ -489,7 +817,7 @@ function evaluateTarget(
     currentPriceAmount: centsToMoneyAmount(current),
     targetPriceAmount: centsToMoneyAmount(target),
     ruleIndex,
-    anchor,
+    anchor: tracedAnchor(target),
     exhaustedAnchors,
     clamps,
     tolerance: directive.tolerance,
@@ -499,35 +827,106 @@ function evaluateTarget(
   };
 }
 
+type GuardrailEvidence = Omit<GuardrailContext, "targetCents" | "parameters">;
+
+/**
+ * Runs the directive's guardrails registered at one slot, in authored order.
+ * A hold ends evaluation; a clamp only ever raises the target. Every authored
+ * kind passed registry validation, so an unregistered kind is a deploy defect
+ * and fails loudly instead of letting a target bypass it.
+ */
+function applyGuardrails(
+  slot: GuardrailDefinition["slot"],
+  directive: RepricingRuleDirective,
+  evidence: GuardrailEvidence | null,
+  targetCents: bigint,
+):
+  | Readonly<{ outcome: "hold"; reason: "hopeless-forecast-hold" }>
+  | Readonly<{ outcome: "continue"; targetCents: bigint; clamped: boolean }> {
+  let target = targetCents;
+  let clamped = false;
+  for (const { kind, ...parameters } of directive.guardrails ?? []) {
+    const definition = resolveRepricingGuardrail(kind);
+    if (!definition) throw new Error(`Repricing guardrail kind ${kind} is not registered.`);
+    if (definition.slot !== slot) continue;
+    const result = definition.apply({ ...evidence!, parameters, targetCents: target });
+    if (result.outcome === "hold") return { outcome: "hold", reason: result.reason };
+    if (result.outcome === "clamp" && result.amountCents > target) {
+      target = result.amountCents;
+      clamped = true;
+    }
+  }
+  return { outcome: "continue", targetCents: target, clamped };
+}
+
+/** Guardrail evidence in the listing currency; no guardrail derives freshness or currency itself. */
+function captureGuardrailEvidence(
+  listing: RepricingListingEvaluationInput & Readonly<{ currentPriceCurrencyCode: string }>,
+  snapshot: RepricingMarketInputSnapshot,
+  currentCents: bigint,
+  resolvedAnchorSource: string,
+): GuardrailEvidence {
+  const currencyCode = listing.currentPriceCurrencyCode;
+  const estimate = snapshot.marketEstimate;
+  const estimateState = evidenceState(estimate, currencyCode, snapshot.capturedAt);
+  const estimateCents = estimate === null ? null : tryMoneyToCents(estimate.amount);
+  // Present evidence is never null: evidenceState reports a null input as absent.
+  const curveState = evidenceState(snapshot.demandCurve, currencyCode, snapshot.capturedAt);
+  const curve: GuardrailCurveSummary =
+    curveState !== "present"
+      ? { state: curveState }
+      : {
+          state: curveState,
+          currencyCode,
+          points: snapshot.demandCurve!.points.map((point) => ({
+            amountCents: moneyToCents(point.priceAmount),
+            medianSellDays: point.medianSellDays,
+            hopeless: point.hopeless,
+          })),
+        };
+  return {
+    currencyCode,
+    sellerAccountId: listing.sellerAccountId,
+    currentCents,
+    resolvedAnchorSource,
+    marketEstimate:
+      estimateState !== "present"
+        ? { state: estimateState }
+        : estimateCents === null
+          ? { state: "absent" }
+          : { state: estimateState, currencyCode, amountCents: estimateCents },
+    otherSellerHardAsks: snapshot.competingAsks
+      .filter((ask) => ask.pricingMode === "hard" && ask.sellerAccountId !== listing.sellerAccountId)
+      .map((ask) => ({
+        sellerAccountId: ask.sellerAccountId,
+        pricingMode: ask.pricingMode,
+        currencyCode: ask.currencyCode?.toUpperCase() ?? null,
+        amountCents: moneyToCents(ask.amount),
+      })),
+    hardAskOutlierPriceRatio: snapshot.hardAskOutlierPriceRatio,
+    curve,
+  };
+}
+
+function traceGoalAtPrice(goal: ResolvedGoal, priceCents: bigint): RepricingGoalTrace {
+  const price = Number(priceCents) / 100;
+  const { equivalentPercentile, forecast } = readBackAtPrice(goal.curve, price);
+  return {
+    goalId: goal.goalId,
+    goalVersion: goal.goalVersion,
+    curveVersion: goal.curveVersion,
+    equivalentPercentile,
+    forecastMedianSellDays: forecast.medianSellDays,
+    forecastStatus: forecast.status,
+    unprofitable: goal.economics !== null && netProceedsAtPrice(price, goal.economics) <= 0,
+  };
+}
+
 function anchorBandFloor(groundCents: bigint, percent: number): bigint {
   // Validated 50-100 percentages have no exponent notation. Preserve all authored
   // decimal places and round upward so the anchor never crosses below the band.
   const [whole, fraction = ""] = percent.toString().split(".");
   return roundRational(groundCents * BigInt(whole! + fraction), 100n * 10n ** BigInt(fraction.length), "ceil");
-}
-
-function filterCompetingAskOutliers(
-  asks: readonly RepricingMarketInputSnapshot["competingAsks"][number][],
-  snapshot: RepricingMarketInputSnapshot,
-): readonly RepricingMarketInputSnapshot["competingAsks"][number][] {
-  if (asks.length < 2) {
-    return asks;
-  }
-  const ordered = asks.map((ask) => moneyToCents(ask.amount)).sort(compareBigInt);
-  const midpoint = ordered.length / 2;
-  const median =
-    ordered.length % 2 === 1
-      ? ordered[Math.floor(midpoint)]!
-      : roundRational(ordered[midpoint - 1]! + ordered[midpoint]!, 2n, "nearest");
-  const core = snapshot.marketEstimate ? (tryMoneyToCents(snapshot.marketEstimate.amount) ?? median) : median;
-  const ratioHundredths = BigInt(Math.round(snapshot.hardAskOutlierPriceRatio * 100));
-  const lower = roundRational(core * 100n, ratioHundredths, "nearest");
-  const upper = roundRational(core * ratioHundredths, 100n, "nearest");
-  const filtered = asks.filter((ask) => {
-    const amount = moneyToCents(ask.amount);
-    return amount >= lower && amount <= upper;
-  });
-  return filtered.length > 0 ? filtered : asks;
 }
 
 function applyOffset(anchor: bigint, directive: RepricingRuleDirective): bigint {

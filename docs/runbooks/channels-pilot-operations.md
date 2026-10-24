@@ -1,10 +1,9 @@
 # Channels Pilot Operations
 
-This runbook covers the TCGplayer phase-1 manual-sync pilot only. It does not
-restate #7031 acceptance criteria, and it does not document connector,
-pairing, or order-absorption procedures — those remain owned by the
-connector-client slice and reconciliation's inbound-sale work
-(`bounded-contexts/channels/README.md`).
+This runbook covers the TCGplayer phase-1 manual-sync pilot and the supported
+seller connector build/load handoff. It does not restate #7031 acceptance
+criteria or document order-absorption procedures, which remain owned by
+reconciliation's inbound-sale work (`bounded-contexts/channels/README.md`).
 
 ## Scope
 
@@ -16,6 +15,8 @@ describes the surfaces that exist at current `main`; a route or action not
 named here does not exist for this pilot.
 
 ## Evidence And Redaction Rules
+
+For production packages, use the shared [Operator-Package Target Reachability](../../.agents/skills/delivery/SKILL.md#operator-package-target-reachability) gate before package READY, at host signal and at window-open re-verification. The #7728 inventory includes Account Channels, connection and publication routes, the manual-sync download route, Admin `/catalog/catalog-items/<id>`, Seller Portal entry, all sign-in hops and tooling/API calls. Never claim a reservation or send a mutating download request to prove reachability. Preserve read-only Phase A, performer/custody and no-redelivery gates; routing evidence is neither authenticated data proof nor execution GO.
 
 Evidence for phase-1 operator actions is the `phase1WatchLog` record referenced
 in #7728 and #7729. This runbook does not define its wire format; capture the
@@ -52,6 +53,56 @@ connection ids, and state names are not seller-identifying and may be logged.
 - Operator evidence: the `phase1WatchLog` record (#7728, #7729).
 
 ## TCGplayer Phase 1
+
+### Seller Connector Build And Load
+
+Register one public client per environment. The request is an ordinary `POST`
+to the environment origin (the register mount does not require a seller actor):
+
+```http
+POST <origin>/channel-connector/oauth/register
+Content-Type: application/json
+
+{"redirect_uri":"https://ebnhngdhefamkdjajldafonajgkadfhh.chromiumapp.org/ucp/oauth/callback","scope":"channel-connector:claim channel-connector:report channel-connector:ingest","token_endpoint_auth_method":"none"}
+```
+
+Keep only the returned public `cc_client_<uuid>` identifier. Verify the
+registration before building. The authorize route requires all six query
+parameters, including a 43-character base64url challenge and state; these
+literal PowerShell probes must not follow the callback redirect:
+
+```powershell
+$origin = 'https://marketplace.staging.chasesets.com'
+$redirect = 'https://ebnhngdhefamkdjajldafonajgkadfhh.chromiumapp.org/ucp/oauth/callback'
+$challenge = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+$state = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+$registered = '<client-id>'
+$unregistered = 'cc_client_00000000-0000-4000-8000-000000000000'
+$authorize = "$origin/channel-connector/oauth/authorize?response_type=code&client_id={0}&redirect_uri={1}&code_challenge=$challenge&code_challenge_method=S256&state=$state"
+(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $registered, $redirect)).StatusCode
+# Expected: 302, with Location containing error_description=authorization_refused.
+(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $unregistered, $redirect)).StatusCode
+# Expected: 400.
+```
+
+Record the client id and the two status observations in the executing issue,
+never in a trace or connector receipt.
+
+Build a reproducible handoff from a clean worktree. Replace `<client-id>` with
+the registered public identifier:
+
+```powershell
+pnpm --filter @chase-sets/app-tcgplayer-connector-extension run build:handoff -- --target staging --client-id <client-id>
+```
+
+Inspect `artifacts/connector-extension/handoff.json`. It binds the source
+commit, target origin, public client id, pinned extension id, version, and
+every emitted-file digest, and records that both builds were identical. Load
+the retained unpacked directory at
+`artifacts/connector-extension/<target>/` in Chromium (`chrome://extensions` →
+**Load unpacked**), then reload that directory after a rebuild. Remove the unpacked
+extension when the session ends. This procedure never contacts TCGplayer; only
+the extension's separately governed browser flow can do so.
 
 ### Connect And Confirm Activation
 
@@ -246,4 +297,38 @@ Not yet written; see #7700 phase 2 and #7037.
 
 ## eBay
 
-Not yet written; see #7700 phase 2 and #7037.
+### Account-deletion receipts
+
+Weekly, and immediately before the #8618 Production Save, a staff operator with
+`support.manage` opens **eBay Deletion Lookup** in admin. Look up each exact
+operator-held eBay user ID separately. The page does not list or export subjects;
+an empty result means only that no unexpired receipt matches that identity.
+For every matching receipt, delete the corresponding tokens and usernames from
+the operator store. Record completion separately in the operator's restricted
+record, using the notification ID and completion time, not a copied subject.
+Receipt presence is not proof of erasure or of provider acceptance.
+
+Before Production Save, both displayed platform counts must be zero:
+non-disconnected Production `ebay` connections and their credential envelopes.
+A failed lookup/count is not zero. Stop Save on unavailable or nonzero counts;
+do not copy user IDs into logs, issue comments, screenshots, or verification
+artifacts. POST signature acceptance and deletion activation belong to #9296
+and #9304, not this lookup.
+
+Receipts retain encrypted subjects for 30 days from server receipt time. The
+worker starts on restart, then at fixed 1800-second intervals, draining up to
+500 rows per DELETE for at most 1800 seconds. `cleanup-incomplete` is a failure,
+not successful expiry. Inspect subject-free reason/count/timing observations
+and restore the worker/database promptly; never infer cleanup from a short
+batch. An outage or backlog outside the measured operating envelope requires
+an explicit host decision, not a retention waiver.
+
+The existing `CHANNELS_CREDENTIAL_KEYRING_JSON` must retain the immutable named
+root `ebay-subject-root-v1`, independent of `activeKeyId`. Keep its material and
+identity unchanged across seal rotations. Keep historical seal keys while
+referenced. Before installing a replacement keyring, use Channels' receipt and
+subject-binding continuity checks against receipt references and subject-binding
+references owned by #9299/#9304. Never remove referenced root or seal keys. A
+missing key makes custody unavailable; it does not authorize overwriting a
+receipt or treating a retry as a different subject. Root metadata lives in the
+fingerprint, not an additional table column or keyring.

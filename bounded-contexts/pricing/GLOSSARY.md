@@ -2,6 +2,94 @@
 
 This glossary defines the canonical terminology for the Pricing bounded context.
 
+## Demand Curve
+
+A **Demand Curve** is a Product-Key-scoped version of ordered price percentiles, buyer arrival, supply, and sell-time evidence for one currency, variant, language, and condition. Its points, version, fingerprint, and build instant are immutable. Its freshness horizon advances only when the closer verifies the same inputs for that served version. The same card-wide Condition Ladder rescales all conditions; a missing, superseded, stale, or undenominated curve is not a positive estimate. Historical versions retain null currency and freshness until replaced, never backfilled.
+
+## Buyer Arrival Interval
+
+The **Buyer Arrival Interval** is the effective decayed exposure days divided by decayed sales at or above a curve price. Its exposure starts at the history window, sales cap, or known availability, whichever is latest.
+
+## Store Win Share
+
+**Store Win Share** is `1/(competing sellers + 1)` when Pooled Supply is observed. An unavailable or truncated seller count never implies full share.
+
+## Sell-Time Forecast
+
+The **Sell-Time Forecast** is `ln(2) × Buyer Arrival Interval / Store Win Share`. A forecast beyond the policy horizon carries a hopeless marker, not a forced sale date.
+
+## Condition Ladder
+
+The **Condition Ladder** is a card-wide monotone condition-value scale. It selects a time-controlled Zipf fit when evidence supports it, otherwise sibling market ratios, otherwise neutral scaling; unknown provider conditions do not enter its ordering.
+
+## Pooled Supply
+
+**Pooled Supply** counts distinct capture-local sellers at or below the curve price only after each condition's ask is rescaled by the Condition Ladder. Its status distinguishes observed-empty, truncated, unavailable, and disabled; an ordinal is never a seller identity across captures.
+
+## Pricing Goal
+
+A **Pricing Goal** is a versioned registry entry that solves one seller objective on a Demand Curve; `fixed-percentile`, `target-horizon`, and `profit-per-day` register first, then the portfolio goals `hold-value` and `cash-target`, which resolve one Portfolio Plan across a listing set and decide a lone listing as a one-listing portfolio. It declares named numeric parameters with defaults and inclusive bounds, the curve features it requires, and whether it requires Economics. It reads Economics as facts and never derives a fee or hurdle; its explanation carries values, never copy.
+
+## Goal Lifecycle
+
+**Goal Lifecycle** is the reviewed registration state of a Pricing Goal version: `selectable` can be authored and prices listings; `shadow` is compared only in live rounds and never emits commands; `retired` cannot be authored and exhausts a recorded anchor as `absent`, with reason `goal-retired`. Version 1 starts selectable; later versions start shadow. At most one version per goal id is shadow. Promotion or retirement is a reviewed registration change, not an automatic transition; promotion above version 1 cites the adoption evidence owned by #7708. After promotion, the selected version runs as incumbent and, without a new shadow registration, no comparisons run.
+
+## Shadow Evaluation
+
+A **Shadow Evaluation** compares the whole matched directive on the incumbent round's captured inputs, independently replacing one goal anchor's version per occurrence. The optional v1 listing trace entries are ordered by zero-based `anchorIndex` and identified by `(evaluationId, listingId, anchorIndex)`. The outer goal names the substitution, while the result's anchor may name a fallback goal. Only incompatible parameters skip evaluation; unreached-anchor parity and missing-Economics fallback or terminal outcomes are evaluated results. There are at most five extra pure evaluations per listing, no new reads, and no comparisons in preview or dry runs. Only the incumbent drives commands, budgets, listing counts and Spiral Breaker direction.
+
+## Forecast Kind
+
+A **Forecast Kind** is a registered sell-time forecast model that, given one evaluated price, its goal's read-back, and the Demand Curve version and provider weeks its evaluation read, returns a median sell time and the model that produced it. Every kind's forecast is fixed when the price is evaluated and carried on the `pricing.repricing-policy.evaluated` fact. `curve` is the goal's own read-back under the curve's builder model, `buyer-choice` is the parity app's buyer-choice forecast under its calibration name, and `condition-rate` is the condition's own sale interval over the Store Win Share at the price under its method. Registering a kind is the whole contract for adding one: the ledger records it and grading scores it with no other change.
+
+## Forecast Ledger
+
+The **Forecast Ledger** is the read model of every price whose forecasts are graded, projected once from `pricing.repricing-policy.evaluated`: one incumbent entry per emitted price, or price held within tolerance, that a goal read back, and one shadow entry per priced shadow trace, which is never emitted. Each entry records the listing, price, goal id and version, curve version, the listing's quantity, and the forecasts its evaluation recorded, so a late or replayed projection records the same ones; an evaluation recorded before forecasts were fixed keeps entries with none, which are never graded. An entry is never rewritten.
+
+## Forecast Cohort
+
+A **Forecast Cohort** is the set of a goal version's listings in one role followed for one horizon from their first in-stock entry carrying the forecast under one model, within two horizons before the cohort closes at the start of a UTC day. A listing sold when the trades tape or an Own-Sale Observation records a sale within the horizon, or when it stopped being priced before the horizon less the grace and is out of stock now; one that stopped early while still in stock is censored out.
+
+## Forecast Grade
+
+A **Forecast Grade** scores one Forecast Kind and model at one horizon over its Forecast Cohort: the sold share, the share the forecasts implied, the Brier score beside the base rate's Brier, and fastest-to-slowest deciles. The grading job records each grade as a `pricing.forecast.graded` fact naming its grading rules (the grace, every horizon, and the grading implementation) and keeps it until those rules or the cohort's ledger entries, realized sales or stock change.
+
+## Adoption Gate
+
+The **Adoption Gate** decides whether a goal version above 1 may be selected: its latest closed shadow grade for the policy's adopted Forecast Kind and horizon must be at or below the Brier of its incumbent, the newest earlier version not in shadow, on the same day and model, both under the grading rules in force; until a rule change is regraded the grade is missing. A shadow version reports whether it is promotable; a version registered selectable that fails is refused in the Authoring Prerequisites with its reason. The gate never changes a Goal Lifecycle.
+
+## Goal Decision
+
+A **Goal Decision** is a Pricing Goal's answer on one curve: selected and unconstrained amounts in the curve currency, the equivalent percentile and sell-time forecast read at the selected price, whether Net Proceeds there clear overhead, and the echoed parameters. A goal that cannot solve returns a typed unavailable reason and no price.
+
+## Goal Version
+
+A **Goal Version** is one `(id, version)` registration of a Pricing Goal. Any change to its Golden Decision makes a new version, which registers as `shadow` beside the incumbent; a change that keeps every Golden Decision keeps the version.
+
+## Golden Decision
+
+A **Golden Decision** is a Goal Version's recorded decision at default parameters on each shared fixture curve, kept as reviewed data in the Conformance Kit and checked against an independent expectation when recorded. A test run never rewrites one; a changed decision is a new Goal Version with its own Golden Decision.
+
+## Conformance Kit
+
+The **Conformance Kit** (`tests/conformance/`) is the executable contract every Pricing registry entry passes: goals, guardrail kinds, curve builders and Economics providers. Each run records the production registrations through `recordRegistrations`, or reads them from the enumeration a production module exports beside its own construction of the registry, fails any registration it does not exercise and an empty registry, and is required for every registry by the `pricing-registry-conformance` structure guard. The authoring steps are in `bounded-contexts/pricing/docs/pricing-goal-authoring.md`.
+
+## Portfolio Plan
+
+A **Portfolio Plan** is a portfolio goal's one answer across an explicit listing set: a single target horizon applied to every listing its curve can model, a match status (`matched`, `boundary` or `infeasible`), the target and resolved values, the reachable range, and raised, lowered, held, sparse and capped counts. Values sum one copy per listing after each listing's constraint, so the value a plan reports is the value it lists. A listing without a modeled curve is held at its current price, never guessed; one without a current price stays out of the baseline. Its id hashes the Goal Version, parameters, solver policy and the snapshot of listing prices, constraints and curves, so equal inputs resolve the same plan whatever their order or paging. A repricing round resolves one plan per policy and portfolio goal anchor and records its id on every member listing's trace.
+
+## Horizon Value Curve
+
+The **Horizon Value Curve** is a log-logistic fit of a portfolio's one-copy value against target horizon, between the exact floor and ceiling at the ends of its observed range, with its knee, marginal value per day and gain elasticity. It is a preview-only model; no round prices from it.
+
+## Capital Cycle
+
+A **Capital Cycle** sells at a value after a horizon, pays overhead, recovers the cost basis and waits out the turnaround: signed profit, profit per day, and the daily log return over horizon plus turnaround. One shared kernel computes it for Capital Turn and for the best-cycle search over a Horizon Value Curve.
+
+## Cash Target
+
+A **Cash Target** is the `cash-target` goal's amount and window. It prices a portfolio at the longest horizon whose **Expected Realized Value**, each modeled listing's one-copy price times its chance of a sale within the window at the Sell-Time Forecast read back at that price, meets the amount; when none does, it prices at the most reachable value with a `boundary` status and the reachable range.
+
 ## Repricing Preset
 
 A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from
@@ -15,6 +103,7 @@ a multi-rule preset opens in the advanced ordered-rule editor without losing its
 of all the account's listings. `hasCostBasis` is true when at least one listing links to an inventory
 item owned by that same account with a non-null acquisition cost amount, including zero. Neither
 fact is filtered by policy scope, listing status, assignment or halt. An unavailable read is not absence.
+`goalAdoption` is the Adoption Gate over every registered goal version that is not retired.
 
 ## Economics
 
@@ -42,7 +131,11 @@ A **Fact Source** is the closed provenance vocabulary for an Economics Fact: Com
 
 ## Daily Return Hurdle
 
-The **Daily Return Hurdle** is Pricing's finite per-day return target derived from positive covered cost, positive net proceeds, Observed Hold, and Observed Turnaround. When any precondition is unavailable, a numeric policy default remains explicit in provenance.
+The **Daily Return Hurdle** is Pricing's finite per-day return target derived from positive covered cost, positive Net Proceeds, Observed Hold, and Observed Turnaround. When any precondition is unavailable, a numeric policy default remains explicit in provenance.
+
+## Net Proceeds
+
+**Net Proceeds** is a price less its unit overhead from the Economics fee terms: each term's relative part, capped, plus its fixed part. It is signed, so a loss stays visible: goal solving takes the least loss when no price clears overhead, and the Daily Return Hurdle requires it to be positive. The Economics order quote's `netProceedsAmount` is floored at zero and is not this signed value.
 
 ## Price Signal
 
@@ -92,7 +185,7 @@ An **Own-Sale Observation** is Pricing's seller-scoped record of one Inventory e
 
 ## Market-Following Offer Target
 
-A **Market-Following Offer Target** is Pricing's proposed unit item amount for a buyer Offer from the exact Product's fresh published Market Price. Pricing floors the market cents adjusted by the authorized nonpositive basis points, then clamps to the buyer's maximum unit item amount; a sub-cent result is held. Preview and attempted application use the same evaluator with their own evaluation instant and published estimate version. Quantity and the lifetime Item Commitment Allowance do not alter the unit target, and an ordinary Offer does not lapse because a target is held.
+A **Market-Following Offer Target** is Pricing's proposed unit item amount for a buyer Offer from the exact Product's fresh published Market Price. Pricing floors the market cents adjusted by the authorized nonpositive basis points, then clamps to the buyer's maximum unit item amount; a sub-cent result is held. Preview and attempted application use the same evaluator with their own evaluation instant and published estimate version. Quantity does not alter the unit target, and an ordinary Offer does not lapse because a target is held.
 
 ## Market-Value Estimate
 
@@ -161,6 +254,43 @@ aggregate, as the Desk halt switch does. Items deep-link to the Desk policy list
 A **Repricing Activity Digest** is one seller's count-only summary for a captured Digest Window.
 It is requested once after the evaluation projection has reached every member, never as a partial summary.
 
+## Pricing Health
+
+**Pricing Health** is the Seller Desk page for one explicitly selected active
+Repricing Policy (or the account's sole active policy). Its **Pricing Health
+Verdict** is the newest completed Health Summary matching that policy's current
+body hash. It keeps capture time, missing evidence and currencies explicit.
+Forecast Grades beside it describe platform-wide incumbent goal-version cohorts,
+not seller performance; numeric grade values require the Forecast Ledger policy's
+disclosure minimum (30 listings at launch).
+
+## Pricing Health Summary
+
+A **Pricing Health Summary** is the durable, capture-time seller report for a
+completed repricing dry run. It evaluates the whole candidate population using
+the run's captured prices, served Demand Curves and Economics facts, and keeps
+every money statistic partitioned by currency. Older runs have no summary and
+return `health: null`; health is never recomputed from a trace page.
+
+## Value at Risk
+
+**Value at Risk** is the effective listed value whose modeled median sell time
+is slow or hopeless under the Demand Curve policy revision that built it. A
+missing policy revision is reported as risk unknown, never classified by a
+current default.
+
+## Capital Turn
+
+**Capital Turn** is the signed daily logarithmic return over the weighted median
+wait plus Economics turnaround cycle. **Profit/day** is signed net proceeds
+less unit cost over that same cycle. Both are unavailable when their required
+population or positive cycle is absent. `no-modeled-listings` means M is empty;
+`no-economics` means E is empty. `inventory-item-missing` identifies a modeled
+listing that cannot request Economics because it has no Inventory item.
+Stored Capital Turn is a fractional daily log return; display multiplies it by
+100 for %/day. A curve stamped `fallback` has no resolvable document revision
+and remains risk unknown rather than inheriting the current launch policy.
+
 ## Digest Window
 
 A **Digest Window** is an immutable UTC-day capture of eligible evaluated events under a gap-safe
@@ -210,9 +340,35 @@ to it (`takenFrom`). It shares the candidate assignment predicate with Repricing
 ## Repricing Anchor Chain
 
 A **Repricing Anchor Chain** is the ordered list of Repricing Anchors a Repricing Rule's directive tries in
-sequence -- market-estimate, lowest-competing-ask, comp-percentile, or last-sold -- so a rule degrades
+sequence -- market-estimate, lowest-competing-ask, comp-percentile, last-sold, or curve-objective -- so a rule degrades
 gracefully when its first-choice signal is unavailable, ending in a seller-chosen terminal behavior (hold,
-pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted.
+pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted. Each exhausted
+anchor records its input state; a curve-objective member may also record why it could not solve
+(`economics-unavailable`, `goal-retired`, or `curve-feature-missing:<feature>`).
+
+## Curve-Objective Anchor
+
+A **Curve-Objective Anchor** selects a versioned Pricing Goal and its numeric parameters in a Repricing Anchor Chain. Authoring validates the goal and records filled defaults. Evaluation solves the goal on the product's Demand Curve served at the capture instant, with Economics resolved only when the goal requires it: no curve, a retired goal, or a goal that cannot solve leaves it absent, and an expired curve leaves it stale; a missing or different curve or Economics currency fails closed. Its trace names the goal, goal version and curve version, with the forecast read back at the final price.
+
+## Repricing Guardrail
+
+A **Repricing Guardrail** is an ordered, seller-authored constraint on a Repricing Rule's target. A **Guardrail Kind** registers a version, parameter validation, a pre-offset or post-max-move slot, and a pure hold, clamp, or inert result. Existing fixed floor, ceiling, tolerance, rounding, max move and terminal fields remain fixed, not registered kinds.
+
+## Market-Evidence Floor
+
+A **Market-Evidence Floor** is a post-max-move guardrail: 50 through 100 percent of the fresh, currency-equal Market-Value Estimate, rounded upward to a cent. A lower Second Ask or Curve Low releases that bound; it never lowers a target already above the bound. Unavailable estimates are inert.
+
+## Second Ask
+
+The **Second Ask** is the second-lowest outlier-filtered (through the same ask filter as the hard-ask anchor), currency-equal other-seller hard ask. One eligible ask supplies no Second Ask; the seller's own asks and derived asks are excluded.
+
+## Curve Low
+
+The **Curve Low** is the lowest price on a present, currency-equal Demand Curve. Stale, absent, currency-incomplete or currency-mismatched curves supply no Curve Low.
+
+## Hopeless-Forecast Hold
+
+A **Hopeless-Forecast Hold** is a pre-offset guardrail that keeps the current price only when a Curve-Objective Anchor resolved and the fastest forecast point on its present, currency-equal Demand Curve carries the per-point hopeless marker.
 
 ## Any-Mode Anchor
 
@@ -397,7 +553,9 @@ inside or exactly on that band is `within-tolerance`: the engine records the eva
 ### Terminal Price
 
 A **Terminal Price** is the final bounded price the repricing evaluation engine produces after applying a
-Repricing Rule's directive (Repricing Anchor Chain resolution, offset, rounding, and Repricing Guardrail clamps).
+Repricing Rule's directive in a fixed stage order: Repricing Anchor Chain resolution, pre-offset Repricing
+Guardrails, offset, rounding, max move, post-max-move Repricing Guardrails, Floor Price, then Ceiling Price.
+Guardrail kinds run in authored order within their slot; a guardrail hold ends evaluation with no Terminal Price.
 It becomes a Marketplace price-update command only when it falls outside Repricing Tolerance and the daily
 change budget admits it.
 

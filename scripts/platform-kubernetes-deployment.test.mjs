@@ -1,10 +1,15 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { YAMLParseError, parse as parseYaml, parseDocument } from "yaml";
 import { describe, expect, it, vi } from "vitest";
 import {
   PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
   abortPlatformRollouts,
+  assertExclusiveProductionHelmWriter,
   assertOciIndexPlatformManifestMembership,
   buildDeploymentEvidence,
   buildDiagnosticsCommands,
@@ -49,6 +54,15 @@ import {
   verifyKubernetesDeploymentTransition,
   verifyStalePendingRecoveryTransition,
 } from "./platform-kubernetes-deployment.mjs";
+import * as platformKubernetesDeployment from "./platform-kubernetes-deployment.mjs";
+import {
+  classifyAdmissionWebhookTransient,
+  classifyDeploymentRootCause,
+  readDeployDiagnostics,
+  redactDeployDiagnosticText,
+} from "./platform-deploy-incident.mjs";
+import { assertExclusiveMarkerWriter } from "./production-release-marker.mjs";
+import { previewPostgresDemand } from "./lib/browser-e2e-postgres-demand.mjs";
 
 const sampleValues = {
   components: {
@@ -82,6 +96,161 @@ const productionIndex = {
     },
   ],
 };
+
+describe("release-tuple support deployment instance", () => {
+  const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
+  function render(
+    release,
+    namespace,
+    extra = [],
+    chart = "infrastructure/helm/platform",
+    component = "platform-api",
+    plantApiEnv = true,
+  ) {
+    const env = ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].map((name) => ({
+      name,
+      secret: true,
+      value: "PLANTED_OVERRIDE",
+    }));
+    const args = [
+      "template",
+      release,
+      chart,
+      "--namespace",
+      namespace,
+      "--show-only",
+      "templates/deployment.yaml",
+      "--set-string",
+      "global.fullnameOverride=shared",
+      "--set-string",
+      `global.image.tag=${"a".repeat(40)}`,
+      ...(plantApiEnv ? ["--set-json", `components.platform-api.env=${JSON.stringify(env)}`] : []),
+      "--set-json",
+      'global.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
+      "--set-json",
+      'components.platform-api.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
+      "--set-json",
+      'components.platform-worker.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
+      ...extra,
+    ];
+    // Script CI has Docker but not a native Helm binary; use the chart job's pinned image.
+    const output = execFileSync(
+      nativeHelm ? "helm" : "docker",
+      nativeHelm
+        ? args
+        : [
+            "run",
+            "--rm",
+            "-v",
+            `${process.cwd()}:/repo`,
+            "-v",
+            `${tmpdir()}:${tmpdir()}`,
+            "-w",
+            "/repo",
+            "alpine/helm:3.15.4",
+            ...args,
+          ],
+      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+    );
+    const deployments = output
+      .split(/^---\s*$/m)
+      .map((part) => parseYaml(part))
+      .filter(Boolean);
+    const rendered = deployments.find((item) => item.metadata.labels["app.kubernetes.io/component"] === component);
+    return rendered.spec.template.spec.containers[0].env;
+  }
+  it("kills the fullname-derived and override/secret bypass mutants through actual Helm rendering", () => {
+    const a = render("release-a", "preview-a");
+    const instance = (env) => env.find((item) => item.name === "CHASE_SETS_DEPLOYMENT_INSTANCE");
+    expect(instance(a)).toEqual({
+      name: "CHASE_SETS_DEPLOYMENT_INSTANCE",
+      value: '["support-deployment-instance/v1","preview-a","release-a"]',
+    });
+    expect(instance(render("release-b", "preview-a"))).not.toEqual(instance(a));
+    expect(instance(render("release-a", "preview-b"))).not.toEqual(instance(a));
+    expect(instance(render("release-a", "preview-a", ["--set-string", "global.nameOverride=another"]))).toEqual(
+      instance(a),
+    );
+    const longRelease = `release-${"a".repeat(45)}`;
+    expect(instance(render(longRelease, "preview-a")).value).toBe(
+      JSON.stringify(["support-deployment-instance/v1", "preview-a", longRelease]),
+    );
+    expect(a.find((item) => item.name === "CHASE_SETS_IMPLEMENTATION_SHA")).toEqual({
+      name: "CHASE_SETS_IMPLEMENTATION_SHA",
+      value: "a".repeat(40),
+    });
+    const helper = readFileSync("infrastructure/helm/platform/templates/_helpers.tpl", "utf8");
+    expect(helper).toContain(
+      'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson',
+    );
+  });
+  it("renders the evidence-window admission key optional for api and worker and leaves other secrets required", () => {
+    const keep = (name) => ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].includes(name);
+    for (const component of ["platform-api", "platform-worker"]) {
+      const env = render("release-a", "preview-a", [], undefined, component, false).filter((item) => !keep(item.name));
+      const windowKey = env.filter((item) => item.name === "EVIDENCE_WINDOW_ADMISSION_SECRET");
+      expect(windowKey).toEqual([
+        {
+          name: "EVIDENCE_WINDOW_ADMISSION_SECRET",
+          valueFrom: {
+            secretKeyRef: {
+              name: "chase-sets-platform-runtime",
+              key: "EVIDENCE_WINDOW_ADMISSION_SECRET",
+              optional: true,
+            },
+          },
+        },
+      ]);
+      const required = env.filter((item) => item.valueFrom?.secretKeyRef && item.name !== windowKey[0].name);
+      expect(required.map((item) => item.name)).toContain("STRIPE_SECRET_KEY");
+      expect(required.filter((item) => "optional" in item.valueFrom.secretKeyRef)).toEqual([]);
+    }
+  });
+  it("scopes the worker's Support evidence cleanup binding by the same release tuple", () => {
+    const pick = (env, name) => env.find((item) => item.name === name);
+    const worker = render("release-a", "preview-a", [], undefined, "platform-worker");
+    expect(pick(worker, "CHASE_SETS_DEPLOYMENT_INSTANCE")).toEqual(
+      pick(render("release-a", "preview-a"), "CHASE_SETS_DEPLOYMENT_INSTANCE"),
+    );
+    expect(pick(worker, "CHASE_SETS_IMPLEMENTATION_SHA")).toEqual({
+      name: "CHASE_SETS_IMPLEMENTATION_SHA",
+      value: "a".repeat(40),
+    });
+    expect(pick(worker, "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON")).toEqual({
+      name: "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON",
+      value: "",
+    });
+    expect(
+      pick(render("release-b", "preview-a", [], undefined, "platform-worker"), "CHASE_SETS_DEPLOYMENT_INSTANCE"),
+    ).not.toEqual(pick(worker, "CHASE_SETS_DEPLOYMENT_INSTANCE"));
+  });
+  it("executes a fullname-derived mutant and observes the release-isolation assertion fail", () => {
+    const temp = mkdtempSync(join(tmpdir(), "support-instance-mutant-"));
+    try {
+      const chart = join(temp, "chart");
+      cpSync("infrastructure/helm/platform", chart, { recursive: true });
+      const helper = join(chart, "templates", "_helpers.tpl");
+      const original = readFileSync(helper, "utf8");
+      const canonical = 'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson';
+      expect(original).toContain(canonical);
+      writeFileSync(
+        helper,
+        original.replace(
+          canonical,
+          'list "support-deployment-instance/v1" $root.Release.Namespace (include "chase-sets-platform.fullname" $root) | toJson',
+        ),
+      );
+      const instance = (release) =>
+        render(release, "preview-a", [], chart).find((item) => item.name === "CHASE_SETS_DEPLOYMENT_INSTANCE").value;
+      const a = instance("release-a");
+      const b = instance("release-b");
+      expect(() => expect(a).not.toEqual(b)).toThrow();
+      expect(a).toEqual(b);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+});
 
 function withManagedPostgresCa(options) {
   return {
@@ -447,6 +616,11 @@ describe("platform Kubernetes deployment", () => {
         resources: ["deployments", "deployments/scale"],
         resourceNames: ["chase-sets-platform-chase-sets-platform-platform-worker"],
         verbs: ["get", "patch"],
+      },
+      {
+        apiGroups: [""],
+        resources: ["pods"],
+        verbs: ["list"],
       },
       {
         apiGroups: ["keda.sh"],
@@ -927,7 +1101,8 @@ describe("platform Kubernetes deployment", () => {
     );
   });
 
-  it("loads the environment-specific Helm overlays for staging and production", () => {
+  it("loads the environment-specific Helm overlays for preview, staging and production", () => {
+    expect(platformValuesPathForEnvironment("preview")).toBe("infrastructure/helm/platform/values.preview.yaml");
     expect(platformValuesPathForEnvironment("staging")).toBe("infrastructure/helm/platform/values.staging.yaml");
     expect(platformValuesPathForEnvironment("production")).toBe("infrastructure/helm/platform/values.production.yaml");
     expect(
@@ -1947,6 +2122,767 @@ describe("platform Kubernetes deployment", () => {
       historyHeadRevision: 701,
       terminalFailedSuffix: [history[1]],
       preDeployHistory: history,
+    });
+  });
+
+  describe("concurrency-queued production writer census", () => {
+    const deployPath = ".github/workflows/platform-production.yml";
+    const recoveryPath = ".github/workflows/platform-production-stale-helm-recovery.yml";
+    const workflowSource = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+    async function collect(overrides = {}) {
+      // Synthetic identities; reproduces #8910's run/job states, not its live evidence.
+      const current = {
+        id: 91001,
+        workflow_id: 910,
+        name: "Platform Deploy",
+        path: deployPath,
+        status: "in_progress",
+        event: "workflow_dispatch",
+        head_sha: "a".repeat(40),
+        head_branch: "main",
+        run_attempt: 1,
+        ...overrides.current,
+      };
+      const successor = {
+        ...current,
+        id: 91002,
+        head_sha: "b".repeat(40),
+        status: "pending",
+        ...overrides.successor,
+      };
+      const fetch = vi.fn(async (url) => {
+        const request = new URL(url);
+        let body;
+        if (request.pathname.endsWith("/actions/runs")) {
+          const workflow_runs = (overrides.omitCurrent ? [successor] : [current, successor]).filter(
+            (run) =>
+              (run === successor ? (overrides.listStatus ?? run.status) : run.status) ===
+              request.searchParams.get("status"),
+          );
+          body = overrides.runsBody ?? { total_count: workflow_runs.length, workflow_runs };
+        } else if (request.pathname === `/repos/synthetic/repository/actions/runs/${current.id}`) {
+          body = current;
+        } else if (request.pathname.includes("/contents/")) {
+          if (overrides.sourceFailure) return { ok: false, status: 403 };
+          const path = request.pathname.split("/contents/")[1];
+          const source =
+            request.searchParams.get("ref") === successor.head_sha
+              ? (overrides.source ?? workflowSource(path))
+              : (overrides.currentSource ?? workflowSource(path));
+          body = overrides.sourceBody ?? {
+            type: "file",
+            encoding: "base64",
+            content: Buffer.from(source).toString("base64"),
+          };
+        } else if (
+          request.pathname ===
+          `/repos/synthetic/repository/actions/runs/${successor.id}/attempts/${successor.run_attempt}/jobs`
+        ) {
+          if (overrides.jobsFailure) return { ok: false, status: 503 };
+          body = overrides.jobs ?? { total_count: 0, jobs: [] };
+        } else {
+          throw new Error(`Unexpected synthetic request: ${url}`);
+        }
+        return { ok: true, status: 200, json: async () => body };
+      });
+      const census = await readGitHubProductionWriterCensus({
+        fetch,
+        sleep: async () => {},
+        env: {
+          GITHUB_TOKEN: "synthetic-token",
+          GITHUB_REPOSITORY: "synthetic/repository",
+          GITHUB_RUN_ID: String(current.id),
+          GITHUB_RUN_ATTEMPT: String(current.run_attempt),
+          GITHUB_WORKFLOW: current.name,
+          GITHUB_API_URL: "https://api.example.invalid",
+        },
+      });
+      return { census, fetch };
+    }
+
+    it("pins the whole-workflow non-cancelling concurrency contract", () => {
+      expect(parseYaml(workflowSource(deployPath)).concurrency).toEqual({
+        group:
+          "${{ inputs.decommission_plan_only && format('platform-production-decommission-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
+        "cancel-in-progress": false,
+      });
+      expect(parseYaml(workflowSource(recoveryPath)).concurrency).toEqual({
+        group: "platform-registry-mutation",
+        "cancel-in-progress": false,
+      });
+    });
+
+    it.each(["pending", "queued"])(
+      "admits the current deploy with a %s same-workflow successor and zero jobs",
+      async (status) => {
+        const { census, fetch } = await collect({ successor: { status } });
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([91001]);
+        expect(census.runs.map(({ id }) => id)).toEqual([91001, 91002]);
+        expect(census.concurrencyQueuedRuns).toEqual([expect.objectContaining({ id: 91002 })]);
+        expect(fetch.mock.calls.map(([url]) => url)).toContain(
+          "https://api.example.invalid/repos/synthetic/repository/actions/runs/91002/attempts/1/jobs?per_page=100&page=1",
+        );
+      },
+    );
+
+    it("applies the same predicate to the stale Helm recovery caller", async () => {
+      const { census } = await collect({
+        current: { name: "Platform Production Stale Helm Recovery", path: recoveryPath },
+      });
+      expect(assertExclusiveProductionHelmWriter(census, { currentRunId: "91001" }).id).toBe(91001);
+    });
+
+    it("preserves concurrency-queued successor classification when the current rerun is absent from lists", async () => {
+      const { census } = await collect({
+        omitCurrent: true,
+        current: { run_attempt: 2 },
+        successor: { run_attempt: 1 },
+      });
+      expect(census.runs.map(({ id }) => id)).toEqual([91001, 91002]);
+      expect(census.concurrencyQueuedRuns.map(({ id }) => id)).toEqual([91002]);
+      expect(() => assertExclusiveMarkerWriter(census, "91001")).not.toThrow();
+    });
+
+    it.each([
+      [
+        "started job",
+        { jobs: { total_count: 1, jobs: [{ status: "in_progress", started_at: "2026-10-06T18:00:00Z" }] } },
+      ],
+      [
+        "completed job",
+        { jobs: { total_count: 1, jobs: [{ status: "completed", started_at: "2026-10-06T18:00:00Z" }] } },
+      ],
+      ["queued job (conservative)", { jobs: { total_count: 1, jobs: [{ status: "queued", started_at: null }] } }],
+      [
+        "other writer workflow",
+        { successor: { name: "Platform Production Stale Helm Recovery", path: recoveryPath, workflow_id: 911 } },
+      ],
+      ["environment wait", { successor: { status: "waiting" } }],
+      ["unknown status", { successor: { status: "unknown" }, listStatus: "pending" }],
+      ["requested status", { successor: { status: "requested" } }],
+      ["active peer", { successor: { status: "in_progress" } }],
+      ["missing workflow id", { successor: { workflow_id: undefined } }],
+      ["different workflow id", { successor: { workflow_id: 911 } }],
+      ["different workflow path", { successor: { path: recoveryPath } }],
+      ["missing attempt", { successor: { run_attempt: undefined } }],
+      ["rerun with prior-attempt jobs unknown", { successor: { run_attempt: 2 } }],
+      ["missing head", { successor: { head_sha: undefined } }],
+      ["non-main peer", { successor: { head_branch: "untrusted" } }],
+      ["inactive current run", { current: { status: "waiting" } }],
+      ["changed current workflow", { currentSource: "name: Platform Deploy\n" }],
+      [
+        "changed concurrency",
+        { source: workflowSource(deployPath).replace("cancel-in-progress: false", "cancel-in-progress: true") },
+      ],
+      [
+        "job-level concurrency only",
+        { source: "name: Platform Deploy\njobs:\n  deploy:\n    concurrency: platform-registry-mutation\n" },
+      ],
+    ])("retains a conflicting writer for %s", async (_label, overrides) => {
+      const { census } = await collect(overrides);
+      expect(census.writerRuns).toHaveLength(2);
+    });
+
+    it.each([
+      { jobs: [] },
+      { total_count: 0 },
+      { total_count: 0, jobs: [{ status: "in_progress" }] },
+      { total_count: 1, jobs: [] },
+      { total_count: -1, jobs: [] },
+    ])("refuses malformed or incomplete job evidence: %j", async (jobs) => {
+      await expect(collect({ jobs })).rejects.toThrow(/job census/);
+    });
+
+    it.each([
+      ["unavailable workflow", { sourceFailure: true }, /workflow source.*HTTP 403/],
+      ["unavailable jobs", { jobsFailure: true }, /job census.*HTTP 503/],
+      ["malformed workflow response", { sourceBody: { type: "file", encoding: "none" } }, /workflow source census/],
+      ["malformed runs response", { runsBody: { total_count: 0 } }, /run census.*invalid response/],
+      ["missing run identity", { successor: { id: undefined } }, /malformed run identity/],
+      ["duplicate run identity", { successor: { id: 91001 } }, /duplicate or moving run/],
+    ])("fails closed for %s", async (_label, overrides, error) => {
+      await expect(collect(overrides)).rejects.toThrow(error);
+    });
+
+    describe("successor serialization projection", () => {
+      // Fixtures revise the real checked-in definitions. Each refusal adds one change to the
+      // admitted drift control, so that change alone decides the result.
+      const deploySource = workflowSource(deployPath);
+      const recoverySource = workflowSource(recoveryPath);
+      const deployDocument = parseDocument(deploySource);
+      const recoveryDocument = parseDocument(recoverySource);
+      const deployJobIds = Object.keys(parseYaml(deploySource).jobs);
+      const recoveryJobIds = Object.keys(parseYaml(recoverySource).jobs);
+      const recovery = { name: "Platform Production Stale Helm Recovery", path: recoveryPath };
+      const decommissionInput = ["on", "workflow_dispatch", "inputs", "decommission_plan_only"];
+      const permutedKeyOrderPaths = [
+        ["concurrency"],
+        decommissionInput,
+        ["jobs", "decommission-live-plan", "steps", 2],
+      ];
+      const revise = (document, ...changes) => {
+        const revised = document.clone();
+        for (const change of changes) change(revised);
+        return String(revised);
+      };
+      // The #9367 shape: #9357 added job env and a step to Deploy Production.
+      const driftDeployProduction = (document) => {
+        document.setIn(
+          ["jobs", "deploy-production", "env", "SYNTHETIC_SUCCESSOR_REFERENCE"],
+          "${{ vars.SYNTHETIC_SUCCESSOR_REFERENCE || '' }}",
+        );
+        document.addIn(
+          ["jobs", "deploy-production", "steps"],
+          document.createNode({ name: "Synthetic successor step", run: "echo synthetic" }),
+        );
+      };
+      const driftRecovery = (document) =>
+        document.addIn(
+          ["jobs", "recover-production-stale-helm-upgrade", "steps"],
+          document.createNode({ name: "Synthetic successor step", run: "echo synthetic" }),
+        );
+      const addNonGroupInput = (document) =>
+        document.setIn(
+          ["on", "workflow_dispatch", "inputs", "synthetic_note"],
+          document.createNode({
+            description: "Synthetic non-group input.",
+            required: false,
+            default: "",
+            type: "string",
+          }),
+        );
+      const permuteProjectedKeyOrder = (document) => {
+        for (const path of permutedKeyOrderPaths) document.getIn(path).items.reverse();
+      };
+      const addWorkflowBashEnv = (document) =>
+        document.set("env", document.createNode({ BASH_ENV: "./synthetic-production-writer.sh" }));
+      const driftedDeploySource = revise(deployDocument, driftDeployProduction);
+      const queuedIds = ({ census }) => census.concurrencyQueuedRuns.map(({ id }) => id);
+      const writerIds = ({ census }) => census.writerRuns.map(({ id }) => id);
+      const preProductionJobs = {
+        total_count: 2,
+        jobs: [
+          { name: "Resolve Release", status: "completed", conclusion: "success", started_at: "2026-10-06T18:00:00Z" },
+          {
+            name: "Build Release Image",
+            status: "completed",
+            conclusion: "success",
+            started_at: "2026-10-06T18:01:00Z",
+          },
+        ],
+      };
+
+      // Frozen control shared by the refusals: drifted definition, pending, attempt 1, zero jobs.
+      let deployControl;
+      async function expectDriftControlAdmitted() {
+        deployControl ??= collect({ source: driftedDeploySource });
+        expect(queuedIds(await deployControl)).toEqual([91002]);
+      }
+
+      async function expectRetained(overrides) {
+        const result = await collect(overrides);
+        expect(queuedIds(result)).toEqual([]);
+        expect(writerIds(result)).toEqual([91001, 91002]);
+        return result.census;
+      }
+
+      const expectMarkerRefused = (census) =>
+        expect(() => assertExclusiveMarkerWriter(census, "91001")).toThrow("active or conflicting production writer");
+
+      it("permutes only nested mapping key order in the real projected members", () => {
+        const real = parseYaml(deploySource);
+        const permuted = parseYaml(revise(deployDocument, permuteProjectedKeyOrder));
+        expect(permuted).toEqual(real);
+        for (const path of permutedKeyOrderPaths) {
+          const keys = (workflow) => Object.keys(path.reduce((member, key) => member[key], workflow));
+          expect(keys(permuted)).toEqual(keys(real).reverse());
+        }
+      });
+
+      it.each([
+        ["(i) the #9367 job env and step drift", driftDeployProduction],
+        ["(ii) an added non-group input", addNonGroupInput],
+        ["(iii) only nested mapping key order permuted", permuteProjectedKeyOrder],
+      ])("admits a pending or queued successor whose whole file differs by %s", async (_label, change) => {
+        const source = revise(deployDocument, change);
+        expect(source).not.toBe(deploySource);
+        for (const status of ["pending", "queued"]) {
+          const result = await collect({ source, successor: { status } });
+          expect(queuedIds(result)).toEqual([91002]);
+          expect(writerIds(result)).toEqual([91001]);
+          expect(() => assertExclusiveMarkerWriter(result.census, "91001")).not.toThrow();
+        }
+      });
+
+      it("admits drifted successors although real jobs legitimately lack needs", async () => {
+        const withoutNeeds = (source) =>
+          Object.entries(parseYaml(source).jobs)
+            .filter(([, job]) => !Object.hasOwn(job, "needs"))
+            .map(([id]) => id);
+        expect(withoutNeeds(deploySource)).toEqual([
+          "decommission-live-plan",
+          "resolve-release",
+          "reconcile-production-marker",
+        ]);
+        expect(withoutNeeds(recoverySource)).toEqual(["refuse-unconfirmed"]);
+        await expectDriftControlAdmitted();
+        const result = await collect({ current: recovery, source: revise(recoveryDocument, driftRecovery) });
+        expect(queuedIds(result)).toEqual([91002]);
+        expect(assertExclusiveProductionHelmWriter(result.census, { currentRunId: "91001" }).id).toBe(91001);
+      });
+
+      it.each([
+        [
+          "the top-level group",
+          (document) => document.setIn(["concurrency", "group"], "platform-registry-mutation-v2"),
+        ],
+        ["cancel-in-progress", (document) => document.setIn(["concurrency", "cancel-in-progress"], true)],
+        ["the name", (document) => document.set("name", "Platform Deploy Synthetic")],
+        ["the decommission input declaration", (document) => document.setIn([...decommissionInput, "type"], "string")],
+        [
+          "a job if",
+          (document) => document.setIn(["jobs", "resolve-release", "if"], "github.event_name == 'workflow_dispatch'"),
+        ],
+        [
+          "a job needs",
+          (document) =>
+            document.setIn(["jobs", "deploy-production", "needs"], document.createNode(["resolve-release"])),
+        ],
+        [
+          "an added job",
+          (document) =>
+            document.setIn(
+              ["jobs", "synthetic-writer"],
+              document.createNode({ "runs-on": "ubuntu-latest", steps: [{ run: "echo synthetic" }] }),
+            ),
+        ],
+        ["a removed job", (document) => document.deleteIn(["jobs", "notify-production-rollback-incident"])],
+        [
+          "the decommission-live-plan body",
+          (document) =>
+            document.addIn(
+              ["jobs", "decommission-live-plan", "steps"],
+              document.createNode({ name: "Synthetic writer", run: "terraform apply -auto-approve" }),
+            ),
+        ],
+        [
+          "an added workflow-level defaults.run.shell",
+          (document) =>
+            document.set(
+              "defaults",
+              document.createNode({ run: { shell: 'bash -c "echo SYNTHETIC_UNSERIALIZED_WRITER; bash {0}"' } }),
+            ),
+        ],
+        [
+          "an added workflow-level defaults.run.working-directory",
+          (document) => document.set("defaults", document.createNode({ run: { "working-directory": "synthetic" } })),
+        ],
+        ["an added workflow-level env.BASH_ENV", addWorkflowBashEnv],
+      ])("retains a successor whose projection differs only in %s", async (_label, change) => {
+        await expectDriftControlAdmitted();
+        expectMarkerRefused(await expectRetained({ source: revise(deployDocument, driftDeployProduction, change) }));
+      });
+
+      it.each([
+        ["lacks concurrency", (document) => document.delete("concurrency")],
+        ["lacks jobs", (document) => document.delete("jobs")],
+        ["lacks the referenced input", (document) => document.deleteIn(decommissionInput)],
+        ["lacks the isolated job", (document) => document.deleteIn(["jobs", "decommission-live-plan"])],
+        ["has a non-mapping concurrency", (document) => document.set("concurrency", "platform-registry-mutation")],
+        [
+          "has a non-mapping inputs container",
+          (document) => document.setIn(["on", "workflow_dispatch", "inputs"], "decommission_plan_only"),
+        ],
+        ["has an empty jobs mapping", (document) => document.set("jobs", document.createNode({}))],
+        [
+          "has a non-mapping job",
+          (document) => document.setIn(["jobs", "close-resolved-deploy-incidents"], "ubuntu-latest"),
+        ],
+        ["has an empty referenced input", (document) => document.setIn(decommissionInput, document.createNode({}))],
+        [
+          "has an empty isolated job",
+          (document) => document.setIn(["jobs", "decommission-live-plan"], document.createNode({})),
+        ],
+        ["removes a present needs", (document) => document.deleteIn(["jobs", "deploy-production", "needs"])],
+        ["removes a present if", (document) => document.deleteIn(["jobs", "resolve-release", "if"])],
+        [
+          "adds needs where the contract has none",
+          (document) => document.setIn(["jobs", "resolve-release", "needs"], "decommission-live-plan"),
+        ],
+        [
+          "adds null needs where the contract has none",
+          (document) => document.setIn(["jobs", "resolve-release", "needs"], null),
+        ],
+      ])("retains a successor whose definition %s", async (_label, change) => {
+        await expectDriftControlAdmitted();
+        expectMarkerRefused(await expectRetained({ source: revise(deployDocument, driftDeployProduction, change) }));
+      });
+
+      it.each([
+        ["a scalar", "Platform Deploy\n"],
+        ["a sequence", "- name: Platform Deploy\n"],
+        ["null", "null\n"],
+        ["nothing", ""],
+      ])("retains a successor whose definition parses to %s", async (_label, source) => {
+        await expectDriftControlAdmitted();
+        expectMarkerRefused(await expectRetained({ source }));
+      });
+
+      it("retains the successor when the current definition lacks required structure", async () => {
+        await expectDriftControlAdmitted();
+        const currentSource = revise(deployDocument, (document) => document.delete("concurrency"));
+        expectMarkerRefused(await expectRetained({ currentSource }));
+      });
+
+      it("fails closed for an unparseable successor definition", async () => {
+        await expect(collect({ source: "name: [Platform Deploy\n" })).rejects.toThrow(YAMLParseError);
+      });
+
+      it.each([
+        ["an identical", deploySource],
+        ["a drifted", driftedDeploySource],
+      ])("retains an in_progress successor with %s definition and zero jobs", async (_label, source) => {
+        expect(queuedIds(await collect({ source }))).toEqual([91002]);
+        expectMarkerRefused(await expectRetained({ source, successor: { status: "in_progress" } }));
+      });
+
+      it.each([
+        ["an identical", deploySource],
+        ["a drifted", driftedDeploySource],
+      ])("retains an in_progress successor with %s definition and only pre-production jobs", async (_label, source) => {
+        expectMarkerRefused(
+          await expectRetained({ source, jobs: preProductionJobs, successor: { status: "in_progress" } }),
+        );
+      });
+
+      it("retains a current run whose valid workflow bytes drift outside the projection", async () => {
+        for (const currentSource of [
+          `# Synthetic comment outside the projection.\n${deploySource}`,
+          revise(deployDocument, (document) =>
+            document.setIn(
+              ["on", "workflow_dispatch", "inputs", "release_ref", "description"],
+              "Synthetic non-group input description.",
+            ),
+          ),
+          driftedDeploySource,
+        ]) {
+          expect(currentSource).not.toBe(deploySource);
+          // The same bytes as the successor's definition prove an equal, valid projection.
+          expect(queuedIds(await collect({ source: currentSource }))).toEqual([91002]);
+          expectMarkerRefused(await expectRetained({ currentSource }));
+        }
+      });
+
+      it("finds the real members the projections must contain", () => {
+        const decommissionDeclaration = decommissionInput.reduce((member, key) => member[key], parseYaml(deploySource));
+        expect(Object.keys(decommissionDeclaration)).not.toHaveLength(0);
+        expect(deployJobIds).toContain("decommission-live-plan");
+        expect(deployJobIds.length).toBeGreaterThanOrEqual(14);
+        expect(recoveryJobIds).toEqual(["refuse-unconfirmed", "recover-production-stale-helm-upgrade"]);
+      });
+
+      it.each(deployJobIds)("projects real Platform Deploy job %s", async (id) => {
+        await expectDriftControlAdmitted();
+        const source = revise(deployDocument, driftDeployProduction, (document) => document.deleteIn(["jobs", id]));
+        expectMarkerRefused(await expectRetained({ source }));
+      });
+
+      it.each([
+        ["its group", (document) => document.setIn(["concurrency", "group"], "platform-registry-mutation-v2")],
+        ...recoveryJobIds.map((id) => [`job ${id}`, (document) => document.deleteIn(["jobs", id])]),
+        ["an added workflow-level env.BASH_ENV", addWorkflowBashEnv],
+      ])(
+        "projects the real stale Helm recovery contract, retaining a successor changing %s",
+        async (_label, change) => {
+          const control = await collect({ current: recovery, source: revise(recoveryDocument, driftRecovery) });
+          expect(queuedIds(control)).toEqual([91002]);
+          const census = await expectRetained({
+            current: recovery,
+            source: revise(recoveryDocument, driftRecovery, change),
+          });
+          expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: "91001" })).toThrow(
+            /only active writer; observed 2/,
+          );
+        },
+      );
+    });
+  });
+
+  describe("current rerun production writer census", () => {
+    // Synthetic identities, not retained production authority.
+    const current = {
+      id: 98301,
+      name: "Platform Deploy",
+      workflow_id: 983,
+      path: ".github/workflows/platform-production.yml",
+      status: "in_progress",
+      event: "workflow_dispatch",
+      head_sha: "a".repeat(40),
+      head_branch: "main",
+      run_attempt: 2,
+    };
+    const env = {
+      GITHUB_TOKEN: "synthetic-token",
+      GITHUB_REPOSITORY: "synthetic/repository",
+      GITHUB_RUN_ID: String(current.id),
+      GITHUB_RUN_ATTEMPT: "2",
+      GITHUB_WORKFLOW: current.name,
+      GITHUB_API_URL: "https://api.example.invalid",
+    };
+
+    async function collect({ listed = [], direct = current, httpStatus = 200, environment = {} } = {}) {
+      const fetch = vi.fn(async (url) => {
+        const request = new URL(url);
+        if (request.pathname.endsWith("/actions/runs")) {
+          const workflow_runs = listed.filter((run) => run.status === request.searchParams.get("status"));
+          return { ok: true, json: async () => ({ total_count: workflow_runs.length, workflow_runs }) };
+        }
+        expect(request.pathname).toBe(`/repos/synthetic/repository/actions/runs/${current.id}`);
+        return { ok: httpStatus === 200, status: httpStatus, json: async () => direct };
+      });
+      const sleep = vi.fn(async () => {});
+      const census = await readGitHubProductionWriterCensus({ fetch, sleep, env: { ...env, ...environment } });
+      return { census, fetch, sleep };
+    }
+
+    it("current rerun absent from status lists is admitted from direct GET", async () => {
+      const { census, fetch, sleep } = await collect();
+      expect(census.runs).toEqual([
+        expect.objectContaining({ id: current.id, workflowId: 983, runAttempt: 2, headSha: current.head_sha }),
+      ]);
+      expect(census.writerRuns).toEqual(census.runs);
+      expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).not.toThrow();
+      expect(fetch.mock.calls.map(([url]) => new URL(url).search)).toEqual([
+        "?status=requested&per_page=100&page=1",
+        "?status=pending&per_page=100&page=1",
+        "?status=queued&per_page=100&page=1",
+        "?status=in_progress&per_page=100&page=1",
+        "?status=waiting&per_page=100&page=1",
+        "",
+      ]);
+      expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it.each(["Platform Deploy", "Platform Production Stale Helm Recovery"])(
+      "direct-GET fallback preserves a listed conflicting writer (%s)",
+      async (name) => {
+        const conflicting = { ...current, id: current.id - 1, name };
+        const { census } = await collect({ listed: [conflicting] });
+        expect(census.runs.map(({ id }) => id)).toEqual([conflicting.id, current.id]);
+        expect(census.writerRuns).toEqual(census.runs);
+        expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).toThrow(
+          "active or conflicting production writer",
+        );
+      },
+    );
+
+    it("does not direct-GET or duplicate the current run already in the stable lists", async () => {
+      const { census, fetch } = await collect({ listed: [current], direct: null });
+      expect(census.runs).toHaveLength(1);
+      expect(fetch).toHaveBeenCalledTimes(5);
+      expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).not.toThrow();
+    });
+
+    it("admits the matching stale Helm recovery workflow without granting marker authority", async () => {
+      const name = "Platform Production Stale Helm Recovery";
+      const { census } = await collect({
+        direct: { ...current, name, path: ".github/workflows/platform-production-stale-helm-recovery.yml" },
+        environment: { GITHUB_WORKFLOW: name },
+      });
+      expect(assertExclusiveProductionHelmWriter(census, { currentRunId: env.GITHUB_RUN_ID }).id).toBe(current.id);
+      expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).toThrow(
+        "active or conflicting production writer",
+      );
+    });
+
+    it.each([
+      ["null", null],
+      ["an array", []],
+      ["missing identity", {}],
+      ["a string ID", { ...current, id: String(current.id) }],
+      ["a mismatched ID", { ...current, id: current.id + 1 }],
+      ["a mismatched name", { ...current, name: "Synthetic CI" }],
+      ["a mismatched path", { ...current, path: ".github/workflows/synthetic.yml" }],
+      [
+        "another writer workflow",
+        {
+          ...current,
+          name: "Platform Production Stale Helm Recovery",
+          path: ".github/workflows/platform-production-stale-helm-recovery.yml",
+        },
+      ],
+      ["a wrong event", { ...current, event: "push" }],
+      ["a wrong branch", { ...current, head_branch: "synthetic" }],
+      ["a malformed SHA", { ...current, head_sha: "stale" }],
+      ["a non-string SHA", { ...current, head_sha: ["a".repeat(40)] }],
+      ["a missing SHA", { ...current, head_sha: undefined }],
+      ["a zero workflow ID", { ...current, workflow_id: 0 }],
+      ["a string workflow ID", { ...current, workflow_id: "983" }],
+      ["an unsafe workflow ID", { ...current, workflow_id: Number.MAX_SAFE_INTEGER + 1 }],
+      ["a missing workflow ID", { ...current, workflow_id: undefined }],
+      ["a zero attempt", { ...current, run_attempt: 0 }],
+      ["a string attempt", { ...current, run_attempt: "2" }],
+      ["a stale attempt", { ...current, run_attempt: 1 }],
+      ["a newer attempt", { ...current, run_attempt: 3 }],
+      ["a missing attempt", { ...current, run_attempt: undefined }],
+      ["a terminal run", { ...current, status: "completed" }],
+      ["a missing status", { ...current, status: undefined }],
+      ["an unknown status", { ...current, status: "synthetic" }],
+    ])("refuses a direct GET with %s", async (_label, direct) => {
+      await expect(collect({ direct })).rejects.toThrow("current run census returned an unverified run identity");
+    });
+
+    it.each(["requested", "pending", "queued", "waiting"])(
+      "retains an active %s current run without fabricating an in-progress marker writer",
+      async (status) => {
+        const { census } = await collect({ direct: { ...current, status } });
+        expect(census.writerRuns).toEqual([expect.objectContaining({ id: current.id, status })]);
+        expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).toThrow(
+          "active or conflicting production writer",
+        );
+      },
+    );
+
+    it.each([
+      { GITHUB_RUN_ATTEMPT: undefined },
+      { GITHUB_RUN_ATTEMPT: "0" },
+      { GITHUB_WORKFLOW: undefined },
+      { GITHUB_WORKFLOW: "Synthetic CI" },
+    ])("refuses absent or invalid execution identity %j", async (environment) => {
+      await expect(collect({ environment })).rejects.toThrow("current run census returned an unverified run identity");
+    });
+
+    it("fails closed when the direct GET is unavailable", async () => {
+      await expect(collect({ httpStatus: 503 })).rejects.toThrow("current run census failed with HTTP 503");
+    });
+  });
+
+  describe("moving active run census", () => {
+    // Synthetic identities; reproduces #8982's moving in_progress total, not its live evidence.
+    const deploy = { id: 98201, name: "Platform Deploy", status: "in_progress" };
+    const recovery = { id: 98202, name: "Platform Production Stale Helm Recovery", status: "in_progress" };
+    const ci = (id, status = "in_progress") => ({ id, name: "Synthetic CI", status });
+    const ciBatch = (from, count) => Array.from({ length: count }, (_, index) => ci(from + index));
+    const page = (total, runs) => ({ total_count: total, workflow_runs: runs });
+    const movingPass = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(102, [ci(150), ci(151)])] };
+    const stablePass = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [ci(200)])] };
+    const passRequests = (pass, inProgressPages = 1) => [
+      `${pass}:requested:1`,
+      `${pass}:pending:1`,
+      `${pass}:queued:1`,
+      ...Array.from({ length: inProgressPages }, (_, index) => `${pass}:in_progress:${index + 1}`),
+      `${pass}:waiting:1`,
+    ];
+
+    // Each pass is a status -> pages script; the last pass repeats once the script runs out.
+    async function readPasses(passes) {
+      let pass = 0;
+      const requests = [];
+      const fetch = vi.fn(async (url) => {
+        const request = new URL(url);
+        const status = request.searchParams.get("status");
+        const pageNumber = Number(request.searchParams.get("page"));
+        if (status === "requested" && pageNumber === 1) pass += 1;
+        requests.push(`${pass}:${status}:${pageNumber}`);
+        const body = (passes[Math.min(pass, passes.length) - 1][status] ?? [page(0, [])])[pageNumber - 1];
+        if (body?.httpStatus) return { ok: false, status: body.httpStatus };
+        return { ok: true, status: 200, json: async () => body };
+      });
+      const sleep = vi.fn(async () => {});
+      try {
+        const census = await readGitHubProductionWriterCensus({
+          fetch,
+          sleep,
+          env: {
+            GITHUB_TOKEN: "synthetic-token",
+            GITHUB_REPOSITORY: "synthetic/repository",
+            GITHUB_RUN_ID: String(deploy.id),
+            GITHUB_API_URL: "https://api.example.invalid",
+          },
+        });
+        return { census, requests, sleep };
+      } catch (error) {
+        return { error, requests, sleep };
+      }
+    }
+
+    it("discards a pass whose total moved and returns only the next complete stable pass", async () => {
+      const { census, error, requests, sleep } = await readPasses([movingPass, stablePass]);
+      expect(error).toBeUndefined();
+      expect(requests).toEqual([
+        ...passRequests(1).slice(0, 3),
+        "1:in_progress:1",
+        "1:in_progress:2",
+        ...passRequests(2, 2),
+      ]);
+      expect(sleep.mock.calls).toEqual([[1_000]]);
+      const ids = census.runs.map(({ id }) => id);
+      expect(ids).toHaveLength(101);
+      expect(ids).toContain(200);
+      expect(ids).not.toContain(150);
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+      expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+    });
+
+    it.each([
+      [
+        "a duplicate or moving run",
+        { queued: [page(1, [ci(300, "queued")])], in_progress: [page(2, [deploy, ci(300)])] },
+        { in_progress: [page(2, [deploy, ci(300)])] },
+        1,
+      ],
+      [
+        "an empty page under a stable total",
+        { in_progress: [page(102, [deploy, ...ciBatch(1, 99)]), page(102, [])] },
+        { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [ci(300)])] },
+        2,
+      ],
+    ])("re-reads the whole census after %s and trusts only the stable pass", async (_label, moving, stable, pages) => {
+      const { census, error, requests, sleep } = await readPasses([moving, stable]);
+      expect(error).toBeUndefined();
+      expect(requests.filter((request) => request.startsWith("2:"))).toEqual(passRequests(2, pages));
+      expect(sleep.mock.calls).toEqual([[1_000]]);
+      expect(census.runs.find(({ id }) => id === 300)).toMatchObject({ status: "in_progress" });
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+    });
+
+    it("keeps refusing with the original error when every bounded pass moves", async () => {
+      const { census, error, requests, sleep } = await readPasses([movingPass]);
+      expect(census).toBeUndefined();
+      expect(error.message).toBe("GitHub Actions in_progress run census total moved during pagination.");
+      expect(requests.filter((request) => request.endsWith(":requested:1"))).toHaveLength(5);
+      expect(requests.at(-1)).toBe("5:in_progress:2");
+      expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+    });
+
+    it("still refuses a conflicting writer that only the stable pass observed", async () => {
+      const conflicting = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [recovery])] };
+      const { census, error } = await readPasses([movingPass, conflicting]);
+      expect(error).toBeUndefined();
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id, recovery.id]);
+      expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).toThrow(
+        "active or conflicting production writer",
+      );
+      expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(deploy.id) })).toThrow(
+        /only active writer; observed 2/,
+      );
+    });
+
+    it.each([
+      ["a malformed run identity", [page(1, [{ id: 0, name: "Synthetic CI" }])], /malformed run identity/],
+      ["an invalid response", [{ total_count: 1 }], /in_progress run census returned an invalid response/],
+      ["an HTTP failure", [{ httpStatus: 502 }], /in_progress run census failed with HTTP 502/],
+      [
+        "an exceeded page bound",
+        Array.from({ length: 10 }, (_, index) => page(1001, ciBatch(1 + index * 100, 100))),
+        /exceeded the bounded 10-page limit/,
+      ],
+    ])("does not retry %s", async (_label, inProgress, message) => {
+      const { error, requests, sleep } = await readPasses([{ in_progress: inProgress }, stablePass]);
+      expect(error.message).toMatch(message);
+      expect(requests.every((request) => request.startsWith("1:"))).toBe(true);
+      expect(sleep).not.toHaveBeenCalled();
     });
   });
 
@@ -4182,5 +5118,1526 @@ describe("platform Kubernetes deployment", () => {
       observedDigest: rollbackDigest,
       workloadIdentities: [],
     });
+  });
+});
+
+// #9662 admission-webhook transient retry. Real fixtures come from Platform Deploy run 38672454609:
+// attempt-1 rollback target 683-692 (artifact 11945153043), attempt-2 rollback target 686-695
+// (artifact 11946120539) and attempt-2 transition 695 -> 696 (artifact 11946265479). Every one-job
+// reshape below is labelled synthetic.
+const retryRelease = "chase-sets-platform";
+const retryNamespace = "chase-sets-platform";
+const admissionNoAgentCall =
+  'cannot patch "chase-sets-platform-doks-tls" with kind Certificate: Internal error occurred: failed calling webhook "webhook.cert-manager.io": failed to call webhook: Post "https://cert-manager-webhook.cert-manager.svc:443/validate?timeout=30s": No agent available';
+const admissionTransientStderr = `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${admissionNoAgentCall}: ${admissionNoAgentCall}\n`;
+const admissionTransientLine = admissionTransientStderr.trim().slice("Error: ".length, "Error: ".length + 500);
+const admissionCode = "doks-admission-webhook-unreachable";
+// Synthetic: a webhook path long enough that the 500-character bound drops `No agent available`.
+const longAdmissionTransientStderr = admissionTransientStderr.replaceAll("/validate", `/synthetic-${"x".repeat(250)}`);
+const plantedEnvOverride = "planted-override-9662.invalid";
+const retryCapturedHistory = Array.from({ length: 10 }, (_, index) => ({
+  revision: 683 + index,
+  status: index === 9 ? "deployed" : "superseded",
+  description: "Upgrade complete",
+}));
+const retryUpgradeFailure = {
+  revision: 693,
+  status: "superseded",
+  description: `Upgrade "chase-sets-platform" failed: ${admissionNoAgentCall}`,
+};
+const retryRollbackFailure = {
+  revision: 694,
+  status: "failed",
+  description: `Rollback "chase-sets-platform" failed: ${admissionNoAgentCall}`,
+};
+// Synthetic: the in-job history between the failed atomic rollback and the restore; Helm keeps
+// ten revisions, so 693 and 694 prune 683-684 while the captured source 692 is still deployed.
+const retryAdmissionHistory = [...retryCapturedHistory.slice(2), retryUpgradeFailure, retryRollbackFailure];
+// Real: the attempt-2 rollback target history 686-695.
+const retryBaselineHistory = [
+  ...retryCapturedHistory.slice(3, 9),
+  { ...retryCapturedHistory[9], status: "superseded" },
+  retryUpgradeFailure,
+  retryRollbackFailure,
+  { revision: 695, status: "deployed", description: "Rollback to 692" },
+];
+// Real: the attempt-2 transition's observed history 687-696.
+const retryObservedHistory = [
+  ...retryBaselineHistory.slice(1, 9),
+  { ...retryBaselineHistory[9], status: "superseded" },
+  { revision: 696, status: "deployed", description: "Upgrade complete" },
+];
+// Synthetic: Helm's atomic rollback succeeded, leaving a deployed `Rollback to 692` at H+2.
+const atomicRolledBackHistory = [
+  ...retryCapturedHistory.slice(2, 9),
+  { ...retryCapturedHistory[9], status: "superseded" },
+  { ...retryUpgradeFailure, status: "failed" },
+  { revision: 694, status: "deployed", description: "Rollback to 692" },
+];
+// The attempts record's representation of a history: each exact description only as its SHA-256.
+const descriptionSha256 = (description) => `sha256:${createHash("sha256").update(description).digest("hex")}`;
+const fingerprintedHistory = (history) =>
+  history.map(({ revision, status, description }) => ({
+    revision,
+    status,
+    descriptionSha256: descriptionSha256(description),
+  }));
+// Synthetic: error text that a retained captured revision (690) and a failed intermediate (694)
+// can carry in their Helm descriptions; neither may reach the attempts record.
+const retainedHistorySentinel = "SYNTHETIC_RETAINED_HISTORY_VALUE_9662";
+const intermediateFailureSentinel = "SYNTHETIC_INTERMEDIATE_FAILURE_VALUE_9662";
+const withHistorySentinels = (history, intermediateValue = intermediateFailureSentinel) =>
+  history.map((entry) => {
+    if (entry.revision === 690) {
+      return { ...entry, description: `Synthetic retained Helm failure: TOKEN=${retainedHistorySentinel}` };
+    }
+    if (entry.revision === 694) {
+      return { ...entry, description: `${entry.description}: synthetic API_TOKEN=${intermediateValue}` };
+    }
+    return entry;
+  });
+const retryWorkloadList = rollbackWorkloadList().replaceAll('"proof', `"${retryRelease}`);
+const probeCertificate = "certificate/chase-sets-platform-doks-tls";
+
+function manualClock() {
+  const epoch = Date.parse("2026-10-15T03:00:00.000Z");
+  const timers = [];
+  let now = 0;
+  let sequence = 0;
+  return {
+    now: () => now,
+    isoNow: () => new Date(epoch + now).toISOString(),
+    setTimeout(callback, milliseconds) {
+      const timer = { at: now + Math.max(0, milliseconds), callback, sequence: sequence++ };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout(timer) {
+      const index = timers.indexOf(timer);
+      if (index !== -1) timers.splice(index, 1);
+    },
+    fireNext() {
+      timers.sort((left, right) => left.at - right.at || left.sequence - right.sequence);
+      const timer = timers.shift();
+      if (!timer) return false;
+      now = Math.max(now, timer.at);
+      timer.callback();
+      return true;
+    },
+  };
+}
+
+async function runOnClock(clock, promise) {
+  let settled = null;
+  promise.then(
+    (value) => (settled = { value }),
+    (error) => (settled = { error }),
+  );
+  for (let turn = 0; turn < 20_000 && !settled; turn += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+    if (!settled) clock.fireNext();
+  }
+  if (!settled) throw new Error("The deploy did not settle on the manual clock.");
+  if (settled.error) throw settled.error;
+  return settled.value;
+}
+
+function stderrSink() {
+  const chunks = [];
+  return { chunks, write: (chunk) => chunks.push(String(chunk)) > 0, text: () => chunks.join("") };
+}
+
+// Routes each fake child by its command so every scenario scripts only what it changes.
+function retrySpawn(calls, scenario) {
+  return (command, args, options) => {
+    const call = { command, args, options, killed: null };
+    calls.push(call);
+    let completion;
+    if (command === "helm" && args[0] === "upgrade") completion = scenario.upgrades.shift();
+    else if (command === "helm" && args[0] === "history") {
+      const history = scenario.histories.shift();
+      completion = history && { stdout: helmHistory(history) };
+    } else if (command === "helm" && args[0] === "get") completion = { stdout: JSON.stringify(rollbackValues) };
+    else if (command === "helm" && args[0] === "rollback") completion = { code: scenario.rollbackCode ?? 0 };
+    else if (command === "kubectl" && args[0] === "annotate") completion = scenario.probes.shift();
+    else if (command === "kubectl" && args[1] === "jobs,pods")
+      completion = { stdout: scenario.census ?? '{"items":[]}' };
+    else if (command === "kubectl" && args[1] === "deployments.apps,jobs.batch,rollouts.argoproj.io")
+      completion = { stdout: retryWorkloadList };
+    else completion = { code: 0 };
+    if (!completion) throw new Error(`Unscripted ${command} ${args[0]} call.`);
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { end: () => {} };
+    child.kill = (signal) => {
+      call.killed = signal;
+      return true;
+    };
+    const finish = () => {
+      if (completion.stdout) child.stdout.emit("data", Buffer.from(completion.stdout));
+      if (completion.stderr) child.stderr.emit("data", Buffer.from(completion.stderr));
+      child.emit("close", completion.code ?? 0);
+    };
+    if (completion.hang) return child;
+    if (completion.delayMs) scenario.clock.setTimeout(finish, completion.delayMs);
+    else queueMicrotask(finish);
+    return child;
+  };
+}
+
+async function retryRollbackTarget(history = retryCapturedHistory) {
+  const target = await captureKubernetesRollbackTarget({
+    values: rollbackValues,
+    release: retryRelease,
+    namespace: retryNamespace,
+    registryName: "chase-sets",
+    repository: "chase-sets-platform",
+    tag: rollbackTag,
+    digest: rollbackDigest,
+    lastKnownGoodCommit: rollbackTag,
+    releaseTag: "release-synthetic-9662",
+    checkedAt: "2026-10-15T02:55:00.000Z",
+    spawn: completedSpawn(
+      [],
+      [
+        { code: 0, stdout: helmHistory(history) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: retryWorkloadList },
+        { code: 0, stdout: helmHistory(history) },
+      ],
+    ),
+  });
+  // The workflow round-trips the record through production-rollback-target.json.
+  return JSON.parse(JSON.stringify(target));
+}
+
+function retryScenario(overrides = {}) {
+  return {
+    clock: manualClock(),
+    upgrades: [{ code: 1, stderr: admissionTransientStderr }, { code: 0 }],
+    histories: [
+      retryAdmissionHistory,
+      retryAdmissionHistory,
+      retryAdmissionHistory,
+      retryBaselineHistory,
+      retryBaselineHistory,
+      retryBaselineHistory,
+    ],
+    probes: [
+      { code: 0, delayMs: 900 },
+      { code: 0, delayMs: 900 },
+    ],
+    ...overrides,
+  };
+}
+
+function retryDeployOptions(scenario, calls, extra = {}) {
+  return {
+    values: rollbackValues,
+    release: retryRelease,
+    namespace: retryNamespace,
+    timeout: "30s",
+    image: `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
+    envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: plantedEnvOverride },
+    // A context whose own default namespace is `default`; the probe must still name the deploy namespace.
+    env: { KUBECONFIG: "/synthetic/kubeconfig-with-default-namespace" },
+    clock: scenario.clock,
+    stderrSink: stderrSink(),
+    spawn: retrySpawn(calls, scenario),
+    ...extra,
+  };
+}
+
+async function runRetryDeploy(scenario, extra = {}) {
+  const calls = [];
+  const records = [];
+  const options = retryDeployOptions(scenario, calls, {
+    admissionRetryRollbackTarget: await retryRollbackTarget(),
+    onAttempts: (record) => records.push(record),
+    ...extra,
+  });
+  let outcome;
+  try {
+    outcome = { value: await runOnClock(scenario.clock, deployPlatformToKubernetes(options)) };
+  } catch (error) {
+    outcome = { error };
+  }
+  return { ...outcome, calls, records, options };
+}
+
+const upgradeCalls = (calls) => calls.filter((call) => call.command === "helm" && call.args[0] === "upgrade");
+const rollbackCalls = (calls) => calls.filter((call) => call.command === "helm" && call.args[0] === "rollback");
+const probeCalls = (calls) => calls.filter((call) => call.command === "kubectl" && call.args[0] === "annotate");
+const probeArgs = (iso) => [
+  "annotate",
+  probeCertificate,
+  `chasesets.com/admission-probe=${iso}`,
+  "--namespace",
+  retryNamespace,
+  "--overwrite",
+  "--dry-run=server",
+  "--request-timeout=10s",
+];
+
+describe("admission transient retry", () => {
+  it("restores the captured source, probes the namespaced Certificate, and retries the failed-rollback shape once", async () => {
+    const scenario = retryScenario();
+    const { value, error, calls, records, options } = await runRetryDeploy(scenario);
+
+    expect(error).toBeUndefined();
+    expect(value).toMatchObject({ action: "deploy", result: "success", release: retryRelease });
+    const upgrades = upgradeCalls(calls);
+    expect(upgrades).toHaveLength(2);
+    expect(upgrades[1].args).toEqual(upgrades[0].args);
+    expect(upgrades[0].args).toEqual(buildHelmUpgradeArgs(options));
+    expect(upgrades[0].args).toContain("--atomic");
+    expect(upgrades.map((call) => call.options.stdio)).toEqual([
+      ["inherit", "inherit", "pipe"],
+      ["inherit", "inherit", "pipe"],
+    ]);
+    expect(rollbackCalls(calls).map((call) => call.args)).toEqual([
+      ["rollback", retryRelease, "692", "--namespace", retryNamespace, "--wait", "--timeout", "30s"],
+    ]);
+    expect(probeCalls(calls).map((call) => call.args)).toEqual([
+      probeArgs("2026-10-15T03:00:00.000Z"),
+      probeArgs("2026-10-15T03:00:10.900Z"),
+    ]);
+    expect(probeCalls(calls).every((call) => !call.args.includes("default"))).toBe(true);
+    const order = (predicate) => calls.findIndex(predicate);
+    expect(order((call) => call.args[0] === "annotate")).toBeLessThan(order((call) => call.args[0] === "rollback"));
+    expect(order((call) => call.args[0] === "rollback")).toBeLessThan(order((call) => call.args[1] === "jobs,pods"));
+    expect(order((call) => call.args[1] === "jobs,pods")).toBeLessThan(calls.indexOf(upgrades[1]));
+    expect(scenario.histories).toEqual([]);
+    expect(options.stderrSink.text()).toBe(admissionTransientStderr);
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toEqual({
+      schemaVersion: "platform-kubernetes-deploy-attempts/v1",
+      release: retryRelease,
+      namespace: retryNamespace,
+      result: "success",
+      retry: "performed",
+      refusal: null,
+      attempts: [
+        {
+          attempt: 1,
+          result: "failure",
+          admissionWebhookTransient: admissionTransientLine,
+          admissionWebhookTransientCode: admissionCode,
+        },
+        { attempt: 2, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+      probeSamples: [
+        { outcome: "success", elapsedMs: 900 },
+        { outcome: "success", elapsedMs: 11_800 },
+      ],
+      recovery: { sourceRevision: 692, resultingRevision: 695, rolledBack: true },
+      // The real 683-692 -> 686-695 trim: only the oldest unprotected prefix disappeared.
+      preRetryHistory: fingerprintedHistory(retryBaselineHistory),
+    });
+  });
+
+  it("retries the synthetic successful-atomic-rollback shape without restoring again", async () => {
+    const scenario = retryScenario({ histories: [atomicRolledBackHistory, atomicRolledBackHistory] });
+    const { error, calls, records } = await runRetryDeploy(scenario);
+
+    expect(error).toBeUndefined();
+    expect(upgradeCalls(calls)).toHaveLength(2);
+    expect(rollbackCalls(calls)).toEqual([]);
+    expect(records[0]).toMatchObject({
+      result: "success",
+      retry: "performed",
+      recovery: { sourceRevision: 692, resultingRevision: 694, rolledBack: false },
+      preRetryHistory: fingerprintedHistory(atomicRolledBackHistory),
+    });
+  });
+
+  it("retries a matched transient whose bounded line is cut before `No agent available`", async () => {
+    // Eligibility comes from the match on the complete original error, not from the bounded line.
+    const stderr = longAdmissionTransientStderr;
+    const line = classifyAdmissionWebhookTransient(stderr);
+    expect(line).toHaveLength(500);
+    expect(line).not.toContain("No agent available");
+    const { error, calls, records } = await runRetryDeploy(
+      retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }),
+    );
+
+    expect(error).toBeUndefined();
+    const upgrades = upgradeCalls(calls);
+    expect(upgrades).toHaveLength(2);
+    expect(upgrades[1].args).toEqual(upgrades[0].args);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      result: "success",
+      retry: "performed",
+      refusal: null,
+      attempts: [
+        {
+          attempt: 1,
+          result: "failure",
+          admissionWebhookTransient: line,
+          admissionWebhookTransientCode: admissionCode,
+        },
+        { attempt: 2, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+    });
+  });
+});
+
+describe("admission transient refusals", () => {
+  async function expectRefusal(scenario, refusal, extra = {}, originalStderr = admissionTransientStderr) {
+    const result = await runRetryDeploy(scenario, extra);
+    // The original upgrade error is rethrown, not a wrapper and not a later stage's error.
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error.name).toBe("ProcessExitError");
+    expect(result.error.message).toMatch(/^helm upgrade --install /);
+    expect(result.error.stderr).toBe(originalStderr);
+    expect(upgradeCalls(result.calls)).toHaveLength(1);
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({ result: "failure", retry: "refused", refusal });
+    return result;
+  }
+
+  it("rethrows a non-transient upgrade failure without reading history", async () => {
+    const stderr =
+      "Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: timed out waiting for the condition\n";
+    const { calls, records } = await expectRefusal(
+      retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }),
+      "not-transient",
+      {},
+      stderr,
+    );
+    expect(calls).toHaveLength(1);
+    expect(records[0].attempts).toEqual([
+      { attempt: 1, result: "failure", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+    ]);
+  });
+
+  it("classifies but never retries a transient failure without the retry flag", async () => {
+    const { calls, records } = await expectRefusal(retryScenario(), "retry-not-eligible", {
+      admissionRetryRollbackTarget: undefined,
+    });
+    expect(calls).toHaveLength(1);
+    expect(records[0].attempts).toEqual([
+      {
+        attempt: 1,
+        result: "failure",
+        admissionWebhookTransient: admissionTransientLine,
+        admissionWebhookTransientCode: admissionCode,
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      "a pending revision",
+      [...retryAdmissionHistory.slice(0, -1), { ...retryRollbackFailure, status: "pending-rollback" }],
+    ],
+    [
+      "an extra revision",
+      [
+        ...retryAdmissionHistory.slice(1),
+        { revision: 695, status: "failed", description: 'Upgrade "chase-sets-platform" failed: other' },
+      ],
+    ],
+    [
+      "another first revision",
+      [...retryAdmissionHistory.slice(0, -2), { ...retryUpgradeFailure, description: "Upgrade complete" }],
+    ],
+    ["a missing protected source", retryAdmissionHistory.filter((entry) => entry.revision !== 692)],
+    ["an interior gap", retryAdmissionHistory.filter((entry) => entry.revision !== 688)],
+    [
+      "an inserted old revision",
+      [{ revision: 682, status: "superseded", description: "Upgrade complete" }, ...retryAdmissionHistory.slice(1)],
+    ],
+    [
+      "a changed retained entry",
+      retryAdmissionHistory.map((entry) => (entry.revision === 690 ? { ...entry, status: "failed" } : entry)),
+    ],
+    [
+      "a changed retained description",
+      retryAdmissionHistory.map((entry) =>
+        entry.revision === 692 ? { ...entry, description: "Rollback to 690" } : entry,
+      ),
+    ],
+  ])("refuses %s before any probe or rollback", async (_name, history) => {
+    const { calls } = await expectRefusal(retryScenario({ histories: [history] }), "history-unexpected");
+    expect(probeCalls(calls)).toEqual([]);
+    expect(rollbackCalls(calls)).toEqual([]);
+  });
+
+  it("refuses a retained pending revision even when the capture already held it", async () => {
+    // Synthetic: a pending-upgrade older than the source survives capture unchanged.
+    const capturedWithPending = retryCapturedHistory.map((entry) =>
+      entry.revision === 688 ? { ...entry, status: "pending-upgrade" } : entry,
+    );
+    const admission = [...capturedWithPending.slice(2), retryUpgradeFailure, retryRollbackFailure];
+    const { calls } = await expectRefusal(retryScenario({ histories: [admission] }), "history-unexpected", {
+      admissionRetryRollbackTarget: await retryRollbackTarget(capturedWithPending),
+    });
+    expect(probeCalls(calls)).toEqual([]);
+  });
+
+  it("refuses the retry when the post-restore baseline is not the recorded chain", async () => {
+    // Still a well-formed chain, but its failed rollback is not the one admitted before the restore.
+    const movedBaseline = retryBaselineHistory.map((entry) =>
+      entry.revision === 694 ? { ...entry, description: 'Rollback "chase-sets-platform" failed: concurrent' } : entry,
+    );
+    const scenario = retryScenario({
+      histories: [...retryScenario().histories.slice(0, 5), movedBaseline],
+    });
+    const { calls, records } = await expectRefusal(scenario, "baseline-unexpected");
+    expect(rollbackCalls(calls)).toHaveLength(1);
+    expect(records[0].preRetryHistory).toBeNull();
+  });
+
+  it("kills and settles a never-closing probe child at the deadline", async () => {
+    const scenario = retryScenario({ probes: [{ hang: true }] });
+    const { calls, records } = await expectRefusal(scenario, "probe-deadline");
+    expect(probeCalls(calls)).toHaveLength(1);
+    expect(probeCalls(calls)[0].killed).toBe("SIGKILL");
+    expect(scenario.clock.now()).toBe(180_000);
+    expect(records[0].probeSamples).toEqual([{ outcome: "timeout", elapsedMs: 180_000 }]);
+    expect(rollbackCalls(calls)).toEqual([]);
+  });
+
+  it("resets the streak on an interleaved failure and starts no probe at or after expiry", async () => {
+    const probes = Array.from({ length: 25 }, (_, index) => ({ code: index % 2 }));
+    const scenario = retryScenario({ probes });
+    const { calls, records } = await expectRefusal(scenario, "probe-deadline");
+    const started = probeCalls(calls);
+    expect(started).toHaveLength(18);
+    expect(started.at(-1).args[2]).toBe("chasesets.com/admission-probe=2026-10-15T03:02:50.000Z");
+    expect(records[0].probeSamples.map((sample) => sample.outcome)).toEqual(
+      Array.from({ length: 18 }, (_, index) => (index % 2 ? "failure" : "success")),
+    );
+    expect(rollbackCalls(calls)).toEqual([]);
+  });
+
+  it("does not count a success that completes at expiry", async () => {
+    const scenario = retryScenario({ probes: [{ code: 0 }, { code: 0, delayMs: 170_000 }] });
+    const { calls, records } = await expectRefusal(scenario, "probe-deadline");
+    expect(records[0].probeSamples).toEqual([
+      { outcome: "success", elapsedMs: 0 },
+      { outcome: "timeout", elapsedMs: 180_000 },
+    ]);
+    expect(probeCalls(calls)[1].killed).toBeNull();
+    expect(rollbackCalls(calls)).toEqual([]);
+  });
+
+  it("stops after a failed restore without a second upgrade", async () => {
+    const scenario = retryScenario({
+      rollbackCode: 1,
+      histories: [retryAdmissionHistory, retryAdmissionHistory, retryAdmissionHistory],
+    });
+    const { records } = await expectRefusal(scenario, "recovery-failed");
+    expect(records[0].recovery).toEqual({ sourceRevision: 692, resultingRevision: null, rolledBack: true });
+  });
+
+  it("stops before the retry when a Helm hook operation is still active", async () => {
+    const census = JSON.stringify({
+      items: [
+        {
+          kind: "Job",
+          metadata: { name: "chase-sets-platform-bootstrap", annotations: { "helm.sh/hook": "pre-upgrade" } },
+          status: { active: 1 },
+        },
+      ],
+    });
+    await expectRefusal(retryScenario({ census }), "helm-operation-active");
+  });
+
+  it("never runs a third upgrade after a failed retry", async () => {
+    const scenario = retryScenario({
+      upgrades: [
+        { code: 1, stderr: admissionTransientStderr },
+        { code: 1, stderr: `${admissionTransientStderr}retry\n` },
+        { code: 0 },
+      ],
+    });
+    const { error, calls, records } = await runRetryDeploy(scenario);
+    expect(upgradeCalls(calls)).toHaveLength(2);
+    expect(scenario.upgrades).toEqual([{ code: 0 }]);
+    // The retry's own error is the step's terminal error.
+    expect(error.stderr).toBe(`${admissionTransientStderr}retry\n`);
+    expect(records[0]).toMatchObject({
+      result: "failure",
+      retry: "performed",
+      attempts: [1, 2].map((attempt) => ({
+        attempt,
+        result: "failure",
+        admissionWebhookTransient: admissionTransientLine,
+        admissionWebhookTransientCode: admissionCode,
+      })),
+    });
+  });
+
+  it("keeps a deploy without either flag (staging, preview) on base spawn calls and inherited stdio", async () => {
+    const scenario = retryScenario();
+    const calls = [];
+    const options = retryDeployOptions(scenario, calls);
+    await expect(runOnClock(scenario.clock, deployPlatformToKubernetes(options))).rejects.toThrow(/^helm upgrade /);
+    expect(calls.map((call) => [call.command, call.args, call.options.stdio])).toEqual([
+      ["helm", buildHelmUpgradeArgs(options), ["inherit", "inherit", "inherit"]],
+    ]);
+    expect(options.stderrSink.text()).toBe("");
+  });
+
+  it("lets the workflow rollback restore a superseded source after a failed retry", async () => {
+    // Synthetic: the second upgrade failed and Helm's atomic rollback returned to 695's content.
+    const afterFailedRetry = [
+      ...retryBaselineHistory.slice(2, 9),
+      { ...retryBaselineHistory[9], status: "superseded" },
+      { revision: 696, status: "failed", description: `Upgrade "chase-sets-platform" failed: ${admissionNoAgentCall}` },
+      { revision: 697, status: "deployed", description: "Rollback to 695" },
+    ];
+    const restored = [
+      ...afterFailedRetry.slice(1, 9),
+      { ...afterFailedRetry[9], status: "superseded" },
+      { revision: 698, status: "deployed", description: "Rollback to 692" },
+    ];
+    const calls = [];
+    const result = await rollbackPlatformOnKubernetes({
+      values: rollbackValues,
+      release: retryRelease,
+      namespace: retryNamespace,
+      timeout: "30s",
+      revision: 692,
+      releaseExists: true,
+      rollbackTarget: await retryRollbackTarget(),
+      spawn: retrySpawn(calls, {
+        clock: manualClock(),
+        upgrades: [],
+        probes: [],
+        histories: [afterFailedRetry, afterFailedRetry, restored, restored],
+      }),
+    });
+    expect(result).toMatchObject({
+      result: "success",
+      rollbackIdentity: { sourceRevision: 692, resultingRevision: 698 },
+    });
+  });
+});
+
+describe("attempts record", () => {
+  async function performedRecord() {
+    const { records } = await runRetryDeploy(retryScenario());
+    return records[0];
+  }
+
+  it("is closed and carries exactly one terminal result", async () => {
+    const record = await performedRecord();
+    expect(platformKubernetesDeployment.assertDeployAttemptsRecord(structuredClone(record))).toEqual(record);
+    for (const [name, mutate] of [
+      ["unknown field", (value) => Object.assign(value, { helmArgs: [] })],
+      ["unknown attempt field", (value) => Object.assign(value.attempts[0], { message: "helm upgrade" })],
+      ["missing field", (value) => delete value.preRetryHistory],
+      ["second terminal result", (value) => Object.assign(value, { result: "failure" })],
+      [
+        "third attempt",
+        (value) =>
+          value.attempts.push({
+            attempt: 3,
+            result: "success",
+            admissionWebhookTransient: null,
+            admissionWebhookTransientCode: null,
+          }),
+      ],
+      ["unbounded line", (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: "x".repeat(501) })],
+      ["empty line", (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: "" })],
+      ["missing code", (value) => delete value.attempts[0].admissionWebhookTransientCode],
+      ["unknown code", (value) => Object.assign(value.attempts[0], { admissionWebhookTransientCode: "unknown" })],
+      ["line without its code", (value) => Object.assign(value.attempts[0], { admissionWebhookTransientCode: null })],
+      ["code without its line", (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: null })],
+      [
+        "code on a successful attempt",
+        (value) =>
+          Object.assign(value.attempts[1], {
+            admissionWebhookTransient: admissionTransientLine,
+            admissionWebhookTransientCode: admissionCode,
+          }),
+      ],
+      [
+        "unrecognized failure refused as anything but not-transient",
+        (value) =>
+          Object.assign(value, {
+            retry: "refused",
+            refusal: "probe-deadline",
+            attempts: [
+              { attempt: 1, result: "failure", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+            ],
+            result: "failure",
+            recovery: null,
+            preRetryHistory: null,
+          }),
+      ],
+      [
+        "recognized not-transient refusal",
+        (value) =>
+          Object.assign(value, {
+            retry: "refused",
+            refusal: "not-transient",
+            attempts: value.attempts.slice(0, 1),
+            result: "failure",
+            recovery: null,
+            preRetryHistory: null,
+          }),
+      ],
+      ["retry without recovery", (value) => Object.assign(value, { recovery: null })],
+      [
+        "unknown refusal",
+        (value) =>
+          Object.assign(value, {
+            retry: "refused",
+            refusal: "other",
+            attempts: value.attempts.slice(0, 1),
+            result: "failure",
+          }),
+      ],
+      ["untyped probe sample", (value) => Object.assign(value.probeSamples[0], { outcome: "pending" })],
+      [
+        "a raw history description",
+        (value) => Object.assign(value.preRetryHistory[0], { description: retryBaselineHistory[0].description }),
+      ],
+      [
+        "a description in place of its fingerprint",
+        (value) => Object.assign(value.preRetryHistory[0], { descriptionSha256: retryBaselineHistory[0].description }),
+      ],
+      [
+        "an unprefixed fingerprint",
+        (value) => Object.assign(value.preRetryHistory[0], { descriptionSha256: "a".repeat(64) }),
+      ],
+      ["an unnormalized status", (value) => Object.assign(value.preRetryHistory[0], { status: "Superseded" })],
+    ]) {
+      const mutated = structuredClone(record);
+      mutate(mutated);
+      expect(() => platformKubernetesDeployment.assertDeployAttemptsRecord(mutated), name).toThrow(
+        "Deploy attempts record",
+      );
+    }
+  });
+
+  it("keeps a matcher line whose 500-character cut ends in a space", async () => {
+    // Synthetic: padding that puts a space at the cut, which re-matching trims.
+    const head = `UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${admissionNoAgentCall}: `;
+    const stderr = `Error: ${head}${"p".repeat(499 - head.length)} synthetic tail beyond the cut\n`;
+    const line = classifyAdmissionWebhookTransient(stderr);
+    expect(line).toHaveLength(500);
+    expect(line.endsWith(" ")).toBe(true);
+    const { error, records } = await runRetryDeploy(retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }));
+    expect(error).toBeUndefined();
+    expect(records[0]).toMatchObject({
+      retry: "performed",
+      attempts: [{ admissionWebhookTransient: line }, { result: "success" }],
+    });
+  });
+
+  it.each([
+    ["recovered", [{ code: 1, stderr: admissionTransientStderr }, { code: 0 }], 0],
+    ["refused", [{ code: 1, stderr: admissionTransientStderr }], 1],
+  ])(
+    "keeps planted override and history values out of the %s record and CLI output",
+    async (_name, upgrades, exitCode) => {
+      const directory = mkdtempSync(join(tmpdir(), "platform-deploy-attempts-"));
+      const targetPath = join(directory, "production-rollback-target.json");
+      const attemptsPath = join(directory, "production-kubernetes-deploy-attempts.json");
+      const histories = retryScenario().histories.map((history) => withHistorySentinels(history));
+      const scenario = retryScenario({
+        upgrades,
+        histories: [...histories],
+        ...(exitCode ? { probes: [{ hang: true }] } : {}),
+      });
+      const calls = [];
+      const sink = stderrSink();
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        writeFileSync(
+          targetPath,
+          JSON.stringify(await retryRollbackTarget(withHistorySentinels(retryCapturedHistory))),
+        );
+        const code = await runOnClock(
+          scenario.clock,
+          platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+            [
+              "--",
+              "deploy",
+              "--image",
+              `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
+              "--runtime-env",
+              "DEPLOYMENT_ENVIRONMENT=production",
+              "--runtime-env",
+              `ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${plantedEnvOverride}`,
+              "--managed-postgres-ca-sha256",
+              managedPostgresCaSha256,
+              "--namespace",
+              retryNamespace,
+              "--release",
+              retryRelease,
+              "--timeout",
+              "30s",
+              "--attempts-out",
+              attemptsPath,
+              "--admission-retry-rollback-target",
+              targetPath,
+            ],
+            {},
+            { values: rollbackValues, spawn: retrySpawn(calls, scenario), clock: scenario.clock, stderrSink: sink },
+          ),
+        );
+        expect(code).toBe(exitCode);
+        expect(upgradeCalls(calls)[0].args.join(" ")).toContain(plantedEnvOverride);
+        const record = readFileSync(attemptsPath, "utf8");
+        expect(JSON.parse(record)).toMatchObject({
+          result: exitCode ? "failure" : "success",
+          preRetryHistory: exitCode ? null : fingerprintedHistory(withHistorySentinels(retryBaselineHistory)),
+        });
+        // No raw description of any history the deploy read reaches the record, JSON-escaped or not.
+        for (const { description } of new Set(histories.flat())) {
+          expect(record).not.toContain(description);
+          expect(record).not.toContain(JSON.stringify(description).slice(1, -1));
+        }
+        const output = [record, sink.text(), ...log.mock.calls.flat(), ...error.mock.calls.flat()]
+          .map(String)
+          .join("\n");
+        expect(output).toContain("No agent available");
+        for (const planted of [plantedEnvOverride, retainedHistorySentinel, intermediateFailureSentinel]) {
+          expect(output).not.toContain(planted);
+        }
+        expect(output).not.toContain("--set-string");
+        if (exitCode) expect(error.mock.calls.flat()).toEqual(["helm upgrade exited with code 1."]);
+      } finally {
+        log.mockRestore();
+        error.mockRestore();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("parses the production deploy and verifier record flags without environment fallbacks", () => {
+    expect(
+      parseArgs(
+        [
+          "deploy",
+          "--attempts-out=artifacts/release-health/production-kubernetes-deploy-attempts.json",
+          "--admission-retry-rollback-target=artifacts/release-health/production-rollback-target.json",
+        ],
+        {},
+      ),
+    ).toMatchObject({
+      attemptsOutPath: "artifacts/release-health/production-kubernetes-deploy-attempts.json",
+      admissionRetryRollbackTargetPath: "artifacts/release-health/production-rollback-target.json",
+    });
+    expect(
+      parseArgs(["verify-deployment-transition", "--deploy-attempts", "attempts.json"], {}).deployAttemptsPath,
+    ).toBe("attempts.json");
+    expect(parseArgs(["deploy"], { PLATFORM_KUBERNETES_ROLLBACK_TARGET: "target.json" })).toMatchObject({
+      attemptsOutPath: undefined,
+      admissionRetryRollbackTargetPath: undefined,
+      deployAttemptsPath: undefined,
+    });
+  });
+});
+
+describe("transition with retry record", () => {
+  async function retriedChain(withHistory = (history) => history) {
+    const rollbackTarget = await retryRollbackTarget(withHistory(retryCapturedHistory));
+    const { records } = await runRetryDeploy(
+      retryScenario({ histories: retryScenario().histories.map((history) => withHistory(history)) }),
+      { admissionRetryRollbackTarget: rollbackTarget },
+    );
+    return { rollbackTarget, deployAttempts: JSON.parse(JSON.stringify(records[0])) };
+  }
+  const verify = (chain, observed, extra = {}) =>
+    verifyKubernetesDeploymentTransition({
+      release: retryRelease,
+      namespace: retryNamespace,
+      checkedAt: "2026-10-15T03:20:00.000Z",
+      ...chain,
+      spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observed) }]),
+      ...extra,
+    });
+
+  it("validates the whole chain, then emits the final hop from the recorded pre-retry baseline", async () => {
+    const transition = await verify(await retriedChain(), retryObservedHistory);
+    // The same 695 -> 696 hop the attempt-2 host rerun emitted (artifact 11946265479).
+    expect(transition).toEqual({
+      schemaVersion: "platform-kubernetes-deployment-transition/v1",
+      checkedAt: "2026-10-15T03:20:00.000Z",
+      release: retryRelease,
+      namespace: retryNamespace,
+      capturedHeadRevision: 695,
+      resultingHeadRevision: 696,
+      capturedHistory: retryBaselineHistory,
+      observedHistory: retryObservedHistory,
+    });
+  });
+
+  it.each([
+    [
+      "an altered intermediate",
+      retryObservedHistory.map((entry) => (entry.revision === 694 ? { ...entry, status: "superseded" } : entry)),
+    ],
+    ["a missing intermediate", retryObservedHistory.filter((entry) => entry.revision !== 693)],
+    ["a moved captured source", retryObservedHistory.filter((entry) => entry.revision !== 692)],
+    [
+      "a second new revision",
+      [...retryObservedHistory.slice(1), { revision: 697, status: "deployed", description: "Upgrade complete" }],
+    ],
+    [
+      "a non-deployed final hop",
+      [...retryObservedHistory.slice(0, -1), { revision: 696, status: "failed", description: "Upgrade failed" }],
+    ],
+  ])("refuses %s before emission", async (_name, observed) => {
+    await expect(verify(await retriedChain(), observed)).rejects.toThrow();
+  });
+
+  it("rebuilds recorded descriptions from observed history without the record carrying them", async () => {
+    const chain = await retriedChain(withHistorySentinels);
+    const record = JSON.stringify(chain.deployAttempts);
+    expect(record).not.toContain(retainedHistorySentinel);
+    expect(record).not.toContain(intermediateFailureSentinel);
+    // 686 was pruned before verification, so its description comes from the captured target.
+    expect(await verify(chain, withHistorySentinels(retryObservedHistory))).toMatchObject({
+      capturedHeadRevision: 695,
+      resultingHeadRevision: 696,
+      capturedHistory: withHistorySentinels(retryBaselineHistory),
+    });
+  });
+
+  it.each([690, 692, 693, 694, 695])("refuses a changed observed description at revision %i", async (revision) => {
+    const observed = retryObservedHistory.map((entry) =>
+      entry.revision === revision ? { ...entry, description: `${entry.description} (synthetic change)` } : entry,
+    );
+    await expect(verify(await retriedChain(), observed)).rejects.toThrow();
+  });
+
+  it("refuses an intermediate whose different description redacts identically", async () => {
+    const chain = await retriedChain((history) => withHistorySentinels(history, "synthetic-recorded-value"));
+    const observed = withHistorySentinels(retryObservedHistory, "synthetic-observed-value");
+    const recorded = withHistorySentinels(retryBaselineHistory, "synthetic-recorded-value").find(
+      (entry) => entry.revision === 694,
+    ).description;
+    const changed = observed.find((entry) => entry.revision === 694).description;
+    expect(changed).not.toBe(recorded);
+    expect(redactDeployDiagnosticText(changed)).toBe(redactDeployDiagnosticText(recorded));
+    await expect(verify(chain, observed)).rejects.toThrow("pre-retry revision 694 does not match");
+    expect(await verify(chain, withHistorySentinels(retryObservedHistory, "synthetic-recorded-value"))).toMatchObject({
+      resultingHeadRevision: 696,
+    });
+  });
+
+  it.each([
+    ["an unrecorded intermediate", (record) => record.preRetryHistory.splice(-2, 1)],
+    [
+      "an altered recorded intermediate",
+      (record) => Object.assign(record.preRetryHistory.at(-2), { status: "superseded" }),
+    ],
+    [
+      "a recovery that is not the recorded head",
+      (record) => Object.assign(record.recovery, { resultingRevision: 694 }),
+    ],
+    ["a recovery from another source", (record) => Object.assign(record.recovery, { sourceRevision: 691 })],
+    [
+      "a failed deploy",
+      (record) =>
+        Object.assign(record, {
+          result: "failure",
+          attempts: [record.attempts[0], { ...record.attempts[1], result: "failure" }],
+        }),
+    ],
+    ["another release", (record) => Object.assign(record, { release: "proof" })],
+    [
+      "another pruned captured description",
+      (record) => Object.assign(record.preRetryHistory[0], { descriptionSha256: descriptionSha256("Other") }),
+    ],
+    [
+      "another recorded head description",
+      (record) => Object.assign(record.preRetryHistory.at(-1), { descriptionSha256: descriptionSha256("Other") }),
+    ],
+  ])("refuses a record with %s before emission", async (_name, mutate) => {
+    const chain = await retriedChain();
+    mutate(chain.deployAttempts);
+    await expect(verify(chain, retryObservedHistory)).rejects.toThrow();
+  });
+
+  it("is unchanged without a performed retry", async () => {
+    const capturedHistory = [{ revision: 308, status: "deployed", description: "Synthetic source" }];
+    const rollbackTarget = {
+      schemaVersion: "platform-kubernetes-rollback-target/v2",
+      sourceRevision: 308,
+      sourceStatus: "deployed",
+      historyHeadRevision: 308,
+      terminalFailedSuffix: [],
+      preDeployHistory: capturedHistory,
+    };
+    const observed = [
+      { ...capturedHistory[0], status: "superseded" },
+      { revision: 309, status: "deployed", description: "Synthetic upgrade complete" },
+    ];
+    const deployAttempts = {
+      schemaVersion: "platform-kubernetes-deploy-attempts/v1",
+      release: retryRelease,
+      namespace: retryNamespace,
+      result: "success",
+      retry: "not-needed",
+      refusal: null,
+      attempts: [
+        { attempt: 1, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+      probeSamples: [],
+      recovery: null,
+      preRetryHistory: null,
+    };
+    expect(await verify({ rollbackTarget, deployAttempts }, observed)).toEqual(
+      await verify({ rollbackTarget }, observed),
+    );
+  });
+});
+
+describe("admission webhook root cause", () => {
+  // The actual producer writes the record through --attempts-out and the production classify
+  // step reads that file; only the recorded code of a failed last attempt names the cause.
+  async function classifiedDeploy(scenario, { retryFlag = true } = {}) {
+    const directory = mkdtempSync(join(tmpdir(), "platform-deploy-attempts-"));
+    const targetPath = join(directory, "production-rollback-target.json");
+    const attemptsPath = join(directory, "production-kubernetes-deploy-attempts.json");
+    const calls = [];
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      writeFileSync(targetPath, JSON.stringify(await retryRollbackTarget()));
+      const exitCode = await runOnClock(
+        scenario.clock,
+        platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+          [
+            "--",
+            "deploy",
+            "--image",
+            `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
+            "--runtime-env",
+            "DEPLOYMENT_ENVIRONMENT=production",
+            "--managed-postgres-ca-sha256",
+            managedPostgresCaSha256,
+            "--namespace",
+            retryNamespace,
+            "--release",
+            retryRelease,
+            "--timeout",
+            "30s",
+            "--attempts-out",
+            attemptsPath,
+            ...(retryFlag ? ["--admission-retry-rollback-target", targetPath] : []),
+          ],
+          {},
+          {
+            values: rollbackValues,
+            spawn: retrySpawn(calls, scenario),
+            clock: scenario.clock,
+            stderrSink: stderrSink(),
+          },
+        ),
+      );
+      const record = JSON.parse(readFileSync(attemptsPath, "utf8"));
+      const rootCause = classifyDeploymentRootCause({
+        phase: "production-deploy",
+        diagnostics: readDeployDiagnostics([attemptsPath]),
+      });
+      return { exitCode, calls, record, rootCause, errors: error.mock.calls.flat() };
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+  const longLine = classifyAdmissionWebhookTransient(longAdmissionTransientStderr);
+  const longCall = admissionNoAgentCall.replace("/validate", `/synthetic-${"x".repeat(250)}`);
+  // Synthetic long originals that are not AC1: a condition timeout and a no-agent rollback-only error.
+  const longTimeoutStderr = `Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: timed out waiting for the condition: ${"synthetic-".repeat(60)}\n`;
+  const longRollbackOnlyStderr = `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: timed out waiting for the condition: ${longCall}\n`;
+  const recognized = (attempt) => ({
+    attempt,
+    result: "failure",
+    admissionWebhookTransient: longLine,
+    admissionWebhookTransientCode: admissionCode,
+  });
+
+  it("names the cause when a long transient's retry fails the same way", async () => {
+    expect(longLine).toHaveLength(500);
+    expect(longLine).not.toContain("No agent available");
+    const scenario = retryScenario({
+      upgrades: [
+        { code: 1, stderr: longAdmissionTransientStderr },
+        { code: 1, stderr: longAdmissionTransientStderr },
+        { code: 0 },
+      ],
+    });
+    const { exitCode, calls, record, rootCause } = await classifiedDeploy(scenario);
+    expect(exitCode).toBe(1);
+    expect(upgradeCalls(calls)).toHaveLength(2);
+    expect(platformKubernetesDeployment.assertDeployAttemptsRecord(structuredClone(record))).toEqual(record);
+    expect(record).toMatchObject({ result: "failure", retry: "performed", attempts: [recognized(1), recognized(2)] });
+    expect(rootCause).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
+  });
+
+  it.each([
+    [
+      "refused for its history",
+      retryScenario({
+        upgrades: [{ code: 1, stderr: longAdmissionTransientStderr }],
+        histories: [[...retryAdmissionHistory.slice(0, -1), { ...retryRollbackFailure, status: "pending-rollback" }]],
+      }),
+      {},
+      "history-unexpected",
+    ],
+    [
+      "without the retry flag",
+      retryScenario({ upgrades: [{ code: 1, stderr: longAdmissionTransientStderr }] }),
+      { retryFlag: false },
+      "retry-not-eligible",
+    ],
+  ])("names the cause of a long transient %s", async (_name, scenario, options, refusal) => {
+    const { exitCode, calls, record, rootCause, errors } = await classifiedDeploy(scenario, options);
+    expect(exitCode).toBe(1);
+    expect(upgradeCalls(calls)).toHaveLength(1);
+    expect(errors).toEqual(["helm upgrade exited with code 1."]);
+    expect(record).toMatchObject({ result: "failure", retry: "refused", refusal, attempts: [recognized(1)] });
+    expect(rootCause).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
+  });
+
+  it.each([
+    ["condition timeout", longTimeoutStderr],
+    ["no-agent rollback-only error", longRollbackOnlyStderr],
+  ])("leaves a long %s original untagged", async (_name, stderr) => {
+    expect(stderr.length).toBeGreaterThan(500);
+    const { exitCode, calls, record, rootCause } = await classifiedDeploy(
+      retryScenario({ upgrades: [{ code: 1, stderr }] }),
+    );
+    expect(exitCode).toBe(1);
+    expect(upgradeCalls(calls)).toHaveLength(1);
+    expect(record).toMatchObject({
+      retry: "refused",
+      refusal: "not-transient",
+      attempts: [
+        { attempt: 1, result: "failure", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+    });
+    expect(rootCause.rootCauseCode).toBe("unknown");
+  });
+
+  it("reads only the last attempt after a long transient retry fails otherwise", async () => {
+    const scenario = retryScenario({
+      upgrades: [
+        { code: 1, stderr: longAdmissionTransientStderr },
+        { code: 1, stderr: longTimeoutStderr },
+        { code: 0 },
+      ],
+    });
+    const { exitCode, calls, record, rootCause } = await classifiedDeploy(scenario);
+    expect(exitCode).toBe(1);
+    expect(upgradeCalls(calls)).toHaveLength(2);
+    expect(scenario.upgrades).toEqual([{ code: 0 }]);
+    expect(record).toMatchObject({
+      result: "failure",
+      retry: "performed",
+      attempts: [
+        recognized(1),
+        { attempt: 2, result: "failure", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+    });
+    expect(rootCause.rootCauseCode).toBe("unknown");
+  });
+
+  it("names no cause after a long transient recovers", async () => {
+    const scenario = retryScenario({ upgrades: [{ code: 1, stderr: longAdmissionTransientStderr }, { code: 0 }] });
+    const { exitCode, calls, record, rootCause } = await classifiedDeploy(scenario);
+    expect(exitCode).toBe(0);
+    const upgrades = upgradeCalls(calls);
+    expect(upgrades).toHaveLength(2);
+    expect(upgrades[1].args).toEqual(upgrades[0].args);
+    expect(record).toMatchObject({
+      result: "success",
+      retry: "performed",
+      attempts: [
+        recognized(1),
+        { attempt: 2, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+    });
+    expect(rootCause.rootCauseCode).toBe("unknown");
+  });
+});
+
+describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
+  const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
+  // Script CI has Docker but not a native Helm binary; use the chart job's pinned image.
+  const helmTemplate = (args) =>
+    execFileSync(
+      nativeHelm ? "helm" : "docker",
+      nativeHelm ? args : ["run", "--rm", "-v", `${process.cwd()}:/repo`, "-w", "/repo", "alpine/helm:3.15.4", ...args],
+      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
+    );
+  // The exact deploy argv, rendered instead of installed.
+  const templateArgs = (upgradeArgs) => {
+    expect(upgradeArgs.slice(0, 2)).toEqual(["upgrade", "--install"]);
+    const rest = upgradeArgs.slice(4);
+    const timeoutIndex = rest.indexOf("--timeout");
+    return [
+      "template",
+      upgradeArgs[2],
+      upgradeArgs[3],
+      ...rest.filter(
+        (arg, index) =>
+          !["--create-namespace", "--wait", "--atomic", "--timeout"].includes(arg) && index !== timeoutIndex + 1,
+      ),
+    ];
+  };
+  const deployArgs = (environment, namespace) =>
+    buildHelmUpgradeArgs({
+      release: namespace,
+      namespace,
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: environment,
+        ...(environment === "preview" ? { PREVIEW_IDENTIFIER: "pr-123" } : {}),
+      },
+      env: { DOKS_INGRESS_TARGET: "203.0.113.10", PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20" },
+    });
+  const documents = (output) =>
+    output
+      .split(/^---\s*$/m)
+      .map((part) => parseYaml(part))
+      .filter(Boolean);
+
+  it("renders the demand-derived max_connections into every preview release", () => {
+    const { demand, settings } = previewPostgresDemand();
+    const reservations = settings.superuser_reserved_connections + settings.reserved_connections;
+    expect(settings.max_connections).toBe(50 * Math.ceil((demand + reservations + 8) / 50));
+    // PR, merge-gate and ephemeral-verification previews share buildHelmUpgradeArgs.
+    for (const namespace of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
+      const postgres = documents(helmTemplate(templateArgs(deployArgs("preview", namespace)))).find(
+        (item) =>
+          item.kind === "Deployment" && item.metadata.labels["app.kubernetes.io/component"] === "preview-postgres",
+      );
+      expect(postgres.spec.template.spec.containers[0].args).toEqual([
+        "-c",
+        `max_connections=${settings.max_connections}`,
+        "-c",
+        `reserved_connections=${settings.reserved_connections}`,
+        "-c",
+        `superuser_reserved_connections=${settings.superuser_reserved_connections}`,
+      ]);
+    }
+  });
+
+  it("reserves memory and requires single-node, cross-namespace release isolation for PR, gate and verify", () => {
+    const memoryByComponent = {
+      "public-web": "1024Mi",
+      marketplace: "1152Mi",
+      "admin-web": "832Mi",
+      "platform-api": "640Mi",
+      "platform-worker": "832Mi",
+      "platform-bootstrap": "1152Mi",
+      "preview-postgres": "448Mi",
+    };
+    for (const release of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
+      const args = deployArgs("preview", release);
+      expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.preview.yaml"]));
+      const pods = documents(helmTemplate(templateArgs(args))).filter((item) => item.spec?.template);
+      expect(pods).toHaveLength(7);
+      expect(pods.map((item) => item.metadata.labels["app.kubernetes.io/component"]).sort()).toEqual(
+        Object.keys(memoryByComponent).sort(),
+      );
+      for (const pod of pods) {
+        const component = pod.metadata.labels["app.kubernetes.io/component"];
+        const { spec, metadata } = pod.spec.template;
+        expect(spec.containers).toHaveLength(1);
+        expect(spec.containers[0].resources).toEqual({ requests: { memory: memoryByComponent[component] } });
+        const selector = (operator) => ({
+          matchExpressions: [
+            { key: "app.kubernetes.io/name", operator: "In", values: ["chase-sets-platform"] },
+            { key: "app.kubernetes.io/instance", operator, values: [release] },
+          ],
+        });
+        expect(spec.affinity).toEqual({
+          podAffinity: {
+            requiredDuringSchedulingIgnoredDuringExecution: [
+              { topologyKey: "kubernetes.io/hostname", labelSelector: selector("In") },
+            ],
+          },
+          podAntiAffinity: {
+            requiredDuringSchedulingIgnoredDuringExecution: [
+              { topologyKey: "kubernetes.io/hostname", namespaceSelector: {}, labelSelector: selector("NotIn") },
+            ],
+          },
+        });
+        for (const expression of selector("In").matchExpressions) {
+          expect(expression.values).toContain(metadata.labels[expression.key]);
+        }
+        if (component === "preview-postgres") {
+          expect(pod.kind).toBe("Deployment");
+          expect(pod.metadata.annotations["helm.sh/hook"]).toBe("pre-install,pre-upgrade");
+          expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-40");
+        } else if (component === "platform-bootstrap") {
+          expect(pod.kind).toBe("Job");
+          expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-20");
+          expect(pod.spec.activeDeadlineSeconds).toBe(890);
+        } else {
+          expect(pod.kind).toBe("Deployment");
+        }
+      }
+    }
+  });
+
+  it("refuses conflicting global affinity when preview stack isolation is enabled", () => {
+    expect(() =>
+      helmTemplate([
+        ...templateArgs(deployArgs("preview", "chase-sets-pr-123")),
+        "--set",
+        "global.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key=pool",
+      ]),
+    ).toThrow(/global.affinity cannot be set when global.previewStackIsolation is enabled/);
+  });
+
+  it("does not add pod affinity or anti-affinity to staging or production", () => {
+    for (const environment of ["staging", "production"]) {
+      const rendered = helmTemplate(templateArgs(deployArgs(environment, "chase-sets-platform")));
+      expect(rendered).not.toContain("podAffinity:");
+      expect(rendered).not.toContain("podAntiAffinity:");
+    }
+  });
+
+  it("refuses a preview render without max_connections", () => {
+    expect(() =>
+      helmTemplate([
+        ...templateArgs(deployArgs("preview", "chase-sets-pr-123")),
+        "--set",
+        "previewPostgres.settings=null",
+      ]),
+    ).toThrow(/previewPostgres\.settings\.max_connections is required/);
+  });
+
+  it("keeps staging and production renders independent of the preview connection settings", () => {
+    for (const environment of ["staging", "production"]) {
+      const args = templateArgs(deployArgs(environment, "chase-sets-platform"));
+      const rendered = helmTemplate(args);
+      expect(rendered).not.toContain("preview-postgres");
+      expect(rendered).not.toContain("max_connections");
+      expect(helmTemplate([...args, "--set", "previewPostgres.settings=null"])).toBe(rendered);
+    }
+  });
+
+  it("adds preview-postgres state, logs and the structural snapshot only to opted-in diagnostics", () => {
+    const options = { values: sampleValues, release: "chase-sets-pr-7", namespace: "chase-sets-pr-7", tailLines: 50 };
+    const base = buildDiagnosticsCommands(options);
+    const withPreview = buildDiagnosticsCommands({ ...options, previewPostgres: true });
+    const selector = "app.kubernetes.io/instance=chase-sets-pr-7,app.kubernetes.io/component=preview-postgres";
+    const deployment = "chase-sets-pr-7-chase-sets-platform-preview-postgres";
+
+    expect(JSON.stringify(base)).not.toContain("preview-postgres");
+    expect(withPreview.slice(0, base.length)).toEqual(base);
+    expect(withPreview.slice(base.length)).toEqual([
+      ["kubectl", ["get", "deployment", deployment, "--namespace", "chase-sets-pr-7", "--output", "wide"]],
+      ["kubectl", ["describe", "deployment", deployment, "--namespace", "chase-sets-pr-7"]],
+      ["kubectl", ["get", "pods", "--namespace", "chase-sets-pr-7", "--selector", selector, "--output", "wide"]],
+      ["kubectl", ["describe", "pods", "--namespace", "chase-sets-pr-7", "--selector", selector]],
+      [
+        "kubectl",
+        ["logs", "--namespace", "chase-sets-pr-7", "--selector", selector, "--all-containers", "--tail", "50"],
+        { redact: "postgres-server-log" },
+      ],
+      [
+        "kubectl",
+        [
+          "logs",
+          "--namespace",
+          "chase-sets-pr-7",
+          "--selector",
+          selector,
+          "--all-containers",
+          "--previous",
+          "--tail",
+          "50",
+        ],
+        { redact: "postgres-server-log" },
+      ],
+      ...platformKubernetesDeployment.buildPreviewPostgresConnectionSnapshotCommands(options),
+    ]);
+  });
+
+  it("prints preview-postgres server-log tails without statement text or password literals", async () => {
+    const serverLog = [
+      "2026-10-18 12:36:28.101 UTC [61] FATAL:  sorry, too many clients already",
+      '2026-10-18 12:36:28.102 UTC [62] ERROR:  role "cs_preview_auth" already exists',
+      "2026-10-18 12:36:28.102 UTC [62] STATEMENT:  create role \"cs_preview_auth\" with login password 'synthetic-password'",
+      "\tselect 1",
+      "2026-10-18 12:36:28.103 UTC [63] LOG:  checkpoint complete",
+      "",
+    ].join("\n");
+    const redacted = platformKubernetesDeployment.redactPostgresServerLog(serverLog);
+    expect(redacted).not.toContain("synthetic-password");
+    expect(redacted).not.toContain("create role");
+    expect(redacted).not.toContain("select 1");
+    expect(redacted).toContain("[62] STATEMENT:  [REDACTED]\n");
+    expect(redacted).toContain("FATAL:  sorry, too many clients already");
+    expect(redacted).toContain("LOG:  checkpoint complete");
+
+    const calls = [];
+    const printed = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => printed.push(String(chunk)));
+    try {
+      await platformKubernetesDeployment.capturePlatformKubernetesDiagnostics({
+        values: sampleValues,
+        release: "chase-sets-pr-7",
+        namespace: "chase-sets-pr-7",
+        previewPostgres: true,
+        spawn: (command, args, options) => {
+          const isServerLog = args[0] === "logs" && args.join(" ").includes("component=preview-postgres");
+          calls.push({ args, stdio: options.stdio });
+          return completedSpawn([], [{ code: 0, stdout: isServerLog ? serverLog : "" }])(command, args, options);
+        },
+      });
+    } finally {
+      write.mockRestore();
+    }
+    const serverLogCalls = calls.filter(
+      ({ args }) => args[0] === "logs" && args.join(" ").includes("component=preview-postgres"),
+    );
+    expect(serverLogCalls).toHaveLength(2);
+    expect(serverLogCalls.every(({ stdio }) => stdio[1] === "pipe")).toBe(true);
+    expect(printed.filter((chunk) => chunk.includes("UTC [62]"))).toEqual([redacted, redacted]);
+  });
+
+  it("snapshots only the connection ceiling, reservations and grouped held-connection counts", () => {
+    const [[command, args], ...rest] = platformKubernetesDeployment.buildPreviewPostgresConnectionSnapshotCommands({
+      release: "chase-sets-pr-7",
+      namespace: "chase-sets-pr-7",
+    });
+    expect(rest).toEqual([]);
+    expect(command).toBe("kubectl");
+    expect(args.slice(0, args.indexOf("--command"))).toEqual([
+      "exec",
+      "--namespace",
+      "chase-sets-pr-7",
+      "deployment/chase-sets-pr-7-chase-sets-platform-preview-postgres",
+      "--container",
+      "postgres",
+      "--",
+      "psql",
+      "--no-psqlrc",
+      "--username",
+      "postgres",
+      "--dbname",
+      "postgres",
+      "--set",
+      "ON_ERROR_STOP=1",
+      "--pset",
+      "pager=off",
+    ]);
+    const statements = args.filter((_, index) => args[index - 1] === "--command");
+    expect(statements).toEqual(platformKubernetesDeployment.previewPostgresConnectionSnapshotStatements);
+    expect(statements.slice(0, 3)).toEqual([
+      "SHOW max_connections",
+      "SHOW superuser_reserved_connections",
+      "SHOW reserved_connections",
+    ]);
+    expect(statements[3]).toMatch(/GROUP BY datname, usename, state/);
+    const sql = statements.join("\n").toLowerCase();
+    for (const forbidden of ["query", "client_addr", "client_hostname", "client_port", "application_name"]) {
+      expect(sql).not.toContain(forbidden);
+    }
+    expect(sql).not.toMatch(/select\s+\*/);
+  });
+
+  it("runs the snapshot once and reports a failed probe through its exit code", async () => {
+    expect(parseArgs(["diagnostics", "--preview-postgres", "true"], {}).previewPostgres).toBe(true);
+    expect(parseArgs(["diagnostics"], {}).previewPostgres).toBeUndefined();
+    const argv = ["preview-postgres-snapshot", "--namespace", "chase-sets-pr-7", "--release", "chase-sets-pr-7"];
+    for (const [code, expected] of [
+      [0, 0],
+      [2, 1],
+    ]) {
+      const calls = [];
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await expect(
+          platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+            argv,
+            {},
+            {
+              spawn: completedSpawn(calls, [{ code }]),
+            },
+          ),
+        ).resolves.toBe(expected);
+      } finally {
+        error.mockRestore();
+      }
+      expect(calls.map((call) => [call.command, call.args])).toEqual(
+        platformKubernetesDeployment.buildPreviewPostgresConnectionSnapshotCommands({
+          release: "chase-sets-pr-7",
+          namespace: "chase-sets-pr-7",
+        }),
+      );
+    }
+  });
+
+  it("kills a hung snapshot or diagnostics command at its own deadline and moves on", async () => {
+    const deadlineMs = platformKubernetesDeployment.diagnosticsCommandDeadlineMs;
+    const hangingSpawn = (calls, hangs) => (command, args) => {
+      const call = { command, args, killed: null };
+      calls.push(call);
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = (signal) => {
+        call.killed = signal;
+        return true;
+      };
+      if (!hangs(args, calls.length - 1)) queueMicrotask(() => child.emit("close", 0));
+      return child;
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const snapshotCalls = [];
+      const snapshotClock = manualClock();
+      await expect(
+        runOnClock(
+          snapshotClock,
+          platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+            ["preview-postgres-snapshot", "--namespace", "chase-sets-pr-7", "--release", "chase-sets-pr-7"],
+            {},
+            { spawn: hangingSpawn(snapshotCalls, () => true), clock: snapshotClock },
+          ),
+        ),
+      ).resolves.toBe(1);
+      expect(snapshotCalls.map((call) => [call.args[0], call.killed])).toEqual([["exec", "SIGKILL"]]);
+      expect(snapshotClock.now()).toBe(deadlineMs);
+
+      const options = { values: sampleValues, release: "chase-sets-pr-7", namespace: "chase-sets-pr-7" };
+      const commands = buildDiagnosticsCommands({ ...options, previewPostgres: true });
+      const hung = commands.findIndex(([, args]) => args[0] === "logs");
+      const diagnosticsCalls = [];
+      const diagnosticsClock = manualClock();
+      const diagnostics = await runOnClock(
+        diagnosticsClock,
+        platformKubernetesDeployment.capturePlatformKubernetesDiagnostics({
+          ...options,
+          previewPostgres: true,
+          captureOutput: true,
+          clock: diagnosticsClock,
+          spawn: hangingSpawn(diagnosticsCalls, (_, index) => index === hung),
+        }),
+      );
+      expect(diagnosticsCalls.map((call) => call.args)).toEqual(commands.map(([, args]) => args));
+      expect(diagnosticsCalls.map((call, index) => [index, call.killed]).filter(([, killed]) => killed)).toEqual([
+        [hung, "SIGKILL"],
+      ]);
+      expect(diagnostics.commands[hung]).toMatchObject({ code: null, stderr: "kubectl logs exceeded its deadline." });
+      expect(diagnostics.commands.filter((result) => result.code === 0)).toHaveLength(commands.length - 1);
+      expect(diagnosticsClock.now()).toBe(deadlineMs);
+    } finally {
+      error.mockRestore();
+    }
   });
 });

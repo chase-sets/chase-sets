@@ -51,6 +51,9 @@
       "@chase-sets/bounded-context-module": [
         "./contracts/bounded-context-module/index.ts"
       ],
+      "@chase-sets/bounded-context-module/link-intents": [
+        "./contracts/bounded-context-module/link-intents.ts"
+      ],
       "@chase-sets/bounded-context-runtime": [
         "./infrastructure/bounded-context-runtime/index.ts"
       ],
@@ -65,6 +68,9 @@
       ],
       "@chase-sets/catalog": [
         "./bounded-contexts/catalog/index.ts"
+      ],
+      "@chase-sets/catalog-product-line": [
+        "./contracts/catalog-product-line/index.ts"
       ],
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
@@ -101,6 +107,9 @@
       ],
       "@chase-sets/channels/server": [
         "./bounded-contexts/channels/server.ts"
+      ],
+      "@chase-sets/channels/test-support": [
+        "./bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts"
       ],
       "@chase-sets/checkout": [
         "./bounded-contexts/checkout/index.ts"
@@ -149,6 +158,9 @@
       ],
       "@chase-sets/customer-feedback/context": [
         "./bounded-contexts/customer-feedback/context.json"
+      ],
+      "@chase-sets/customer-feedback/integration/link-intents": [
+        "./bounded-contexts/customer-feedback/support/runtime-support/link-intents.ts"
       ],
       "@chase-sets/customer-feedback/routes/*": [
         "./bounded-contexts/customer-feedback/routes/*.tsx"
@@ -366,6 +378,9 @@
       "@chase-sets/discovery/context": [
         "./bounded-contexts/discovery/context.json"
       ],
+      "@chase-sets/discovery/integration/link-intents": [
+        "./bounded-contexts/discovery/support/runtime-support/link-intents.ts"
+      ],
       "@chase-sets/discovery/routes/*": [
         "./bounded-contexts/discovery/routes/*.tsx"
       ],
@@ -429,8 +444,14 @@
       "@chase-sets/event-core/public-event-payloads": [
         "./contracts/event-core/public-event-payloads/index.ts"
       ],
+      "@chase-sets/event-core/public-event-payloads/collections": [
+        "./contracts/event-core/public-event-payloads/collections.ts"
+      ],
       "@chase-sets/event-core/public-event-payloads/inventory": [
         "./contracts/event-core/public-event-payloads/inventory.ts"
+      ],
+      "@chase-sets/event-core/review-opportunity-facts": [
+        "./contracts/event-core/review-opportunity-facts.ts"
       ],
       "@chase-sets/event-core/review-scoring-facts": [
         "./contracts/event-core/review-scoring-facts.ts"
@@ -458,6 +479,9 @@
       ],
       "@chase-sets/fulfillment/context": [
         "./bounded-contexts/fulfillment/context.json"
+      ],
+      "@chase-sets/fulfillment/integration/link-intents": [
+        "./bounded-contexts/fulfillment/support/runtime-support/link-intents.ts"
       ],
       "@chase-sets/fulfillment/routes/*": [
         "./bounded-contexts/fulfillment/routes/*.tsx"
@@ -495,8 +519,14 @@
       "@chase-sets/inventory": [
         "./bounded-contexts/inventory/index.ts"
       ],
+      "@chase-sets/inventory-draft-listing": [
+        "./contracts/inventory-draft-listing/index.ts"
+      ],
       "@chase-sets/inventory/context": [
         "./bounded-contexts/inventory/context.json"
+      ],
+      "@chase-sets/inventory/integration/link-intents": [
+        "./bounded-contexts/inventory/support/runtime-support/link-intents.ts"
       ],
       "@chase-sets/inventory/routes/*": [
         "./bounded-contexts/inventory/routes/*.tsx"
@@ -506,6 +536,9 @@
       ],
       "@chase-sets/inventory/server": [
         "./bounded-contexts/inventory/server.ts"
+      ],
+      "@chase-sets/inventory/web": [
+        "./bounded-contexts/inventory/web.ts"
       ],
       "@chase-sets/local-email-capture": [
         "./infrastructure/local-email-capture/index.ts"
@@ -530,6 +563,9 @@
       ],
       "@chase-sets/marketplace/context": [
         "./bounded-contexts/marketplace/context.json"
+      ],
+      "@chase-sets/marketplace/integration/link-intents": [
+        "./bounded-contexts/marketplace/support/runtime-support/link-intents.ts"
       ],
       "@chase-sets/marketplace/routes/*": [
         "./bounded-contexts/marketplace/routes/*.tsx"
@@ -582,6 +618,9 @@
       "@chase-sets/ordering/context": [
         "./bounded-contexts/ordering/context.json"
       ],
+      "@chase-sets/ordering/integration/link-intents": [
+        "./bounded-contexts/ordering/support/runtime-support/link-intents.ts"
+      ],
       "@chase-sets/ordering/routes/*": [
         "./bounded-contexts/ordering/routes/*.tsx"
       ],
@@ -626,6 +665,9 @@
       ],
       "@chase-sets/platform-operations/context": [
         "./bounded-contexts/platform-operations/context.json"
+      ],
+      "@chase-sets/platform-operations/integration/link-intents": [
+        "./bounded-contexts/platform-operations/support/runtime-support/link-intents.ts"
       ],
       "@chase-sets/platform-operations/routes/*": [
         "./bounded-contexts/platform-operations/routes/*.tsx"
@@ -714,6 +756,9 @@
       "@chase-sets/platform-runtime/evidence-window-provider-write-executor": [
         "./infrastructure/platform-runtime/evidence-window-provider-write-executor.ts"
       ],
+      "@chase-sets/platform-runtime/feature-flags/contract": [
+        "./infrastructure/platform-runtime/feature-flags/contract.ts"
+      ],
       "@chase-sets/platform-runtime/health": [
         "./infrastructure/platform-runtime/health.ts"
       ],
@@ -722,6 +767,9 @@
       ],
       "@chase-sets/platform-runtime/internal-auth": [
         "./infrastructure/platform-runtime/internal-auth.ts"
+      ],
+      "@chase-sets/platform-runtime/link-intents": [
+        "./infrastructure/platform-runtime/link-intents.ts"
       ],
       "@chase-sets/platform-runtime/live-connection-status": [
         "./infrastructure/platform-runtime/live-connection-status.ts"
@@ -816,14 +864,26 @@
       "@chase-sets/platform-runtime/ucp": [
         "./infrastructure/platform-runtime/ucp.ts"
       ],
+      "@chase-sets/platform-runtime/ucp-schema-test-support": [
+        "./infrastructure/platform-runtime/ucp-schema-test-support.ts"
+      ],
+      "@chase-sets/platform-runtime/ucp-tool-schemas": [
+        "./infrastructure/platform-runtime/ucp-tool-schemas.ts"
+      ],
       "@chase-sets/platform-runtime/web": [
         "./infrastructure/platform-runtime/web.ts"
       ],
       "@chase-sets/platform-runtime/web-assets": [
         "./infrastructure/platform-runtime/web-assets.ts"
       ],
+      "@chase-sets/platform-runtime/web-entry-server": [
+        "./infrastructure/platform-runtime/web-entry-server.ts"
+      ],
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
+      ],
+      "@chase-sets/platform-runtime/web-server": [
+        "./infrastructure/platform-runtime/web-server.ts"
       ],
       "@chase-sets/platform-runtime/work-signal-store": [
         "./infrastructure/platform-runtime/work-signal-store.ts"
@@ -834,11 +894,17 @@
       "@chase-sets/platform-runtime/worker-capacity": [
         "./infrastructure/platform-runtime/worker-capacity.ts"
       ],
+      "@chase-sets/platform-runtime/worker-event-capability": [
+        "./infrastructure/platform-runtime/worker-event-capability.ts"
+      ],
       "@chase-sets/platform-runtime/worker-observer": [
         "./infrastructure/platform-runtime/worker-observer.ts"
       ],
       "@chase-sets/playwright-evidence": [
         "./infrastructure/playwright-evidence/index.ts"
+      ],
+      "@chase-sets/playwright-evidence/rendered-copy": [
+        "./infrastructure/playwright-evidence/rendered-copy.ts"
       ],
       "@chase-sets/postage-labels": [
         "./contracts/postage-labels/index.ts"
@@ -851,6 +917,9 @@
       ],
       "@chase-sets/pricing/context": [
         "./bounded-contexts/pricing/context.json"
+      ],
+      "@chase-sets/pricing/integration/link-intents": [
+        "./bounded-contexts/pricing/support/runtime-support/link-intents.ts"
       ],
       "@chase-sets/pricing/routes/*": [
         "./bounded-contexts/pricing/routes/*.tsx"
@@ -915,6 +984,9 @@
       "@chase-sets/settlement/context": [
         "./bounded-contexts/settlement/context.json"
       ],
+      "@chase-sets/settlement/integration/link-intents": [
+        "./bounded-contexts/settlement/support/runtime-support/link-intents.ts"
+      ],
       "@chase-sets/settlement/routes/*": [
         "./bounded-contexts/settlement/routes/*.tsx"
       ],
@@ -938,6 +1010,9 @@
       ],
       "@chase-sets/stripe-payments": [
         "./infrastructure/stripe-payments/index.ts"
+      ],
+      "@chase-sets/tcgplayer-market-observations": [
+        "./contracts/tcgplayer-market-observations/index.ts"
       ],
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"

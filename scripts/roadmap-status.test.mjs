@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { classified } from "./backlog-classify.mjs";
 import {
-  buildForecastMilestoneCatalog,
-  classifyForecastDrift,
+  BACKLOG_RELEVANCE_KEEP_OPEN_MARKER,
+  collectBacklogRelevanceDelivered,
   collectEpicChildren,
   collectRoadmapIssueFacts,
   collectRoadmapWindowAuthority,
@@ -14,18 +15,11 @@ import {
   canonicalRefinedInventoryProbeBytes,
   collectScopeGrowth,
   deriveMonthlyRefinedInventoryWindow,
-  createForecastPresentation,
-  deriveForecastInputs,
   END_MARKER,
-  evaluateForecastEstimator,
-  FORECAST_TABLE_HEADER,
-  FORECAST_TABLE_SEPARATOR,
   isEpic,
   main,
   mergeRoadmapIssueFacts,
-  normalizeForecastIssue,
   paginate,
-  readPriorForecastRecord,
   reducePriorRefinedInventoryAuthority,
   reconcileForecastIssueSources,
   reconcileEpicChildren,
@@ -37,6 +31,7 @@ import {
   selectTimelineIssues,
   spliceIntoBody,
   START_MARKER,
+  summarizeBacklogRelevance,
   summarizeWaves,
   summarizePrioritizationHygiene,
   stabilizeRoadmapWindowAuthority,
@@ -52,13 +47,24 @@ const CUTOFF = Date.parse("2026-07-21T00:00:00Z");
 const RECENT = "2026-07-26T00:00:00Z";
 const OLD = "2026-06-01T00:00:00Z";
 const STALE = "2026-07-20T23:59:59Z";
-const WAVE_1 = { number: 136, title: "Wave 1", state: "open", due_on: null };
-const WAVE_2 = { number: 137, title: "Wave 2", state: "open", due_on: null };
-const DEFERRED = { number: 146, title: "Deferred / Incubation", state: "open", due_on: null };
-const OPERATIONS = { number: 147, title: "Operations", state: "open", due_on: null };
-const CLOSED_WAVE_0 = { number: 134, title: "Wave 0", state: "closed", due_on: "2026-07-01T00:00:00Z" };
 const outcomeDescription = (track, order, status = "committed") =>
   `<!-- outcome: ${JSON.stringify({ version: 1, track, order, status })} -->`;
+const WAVE_1 = {
+  number: 136,
+  title: "Wave 1",
+  description: outcomeDescription("wave", 1),
+  state: "open",
+  due_on: null,
+};
+const WAVE_2 = {
+  number: 137,
+  title: "Wave 2",
+  description: outcomeDescription("wave", 2),
+  state: "open",
+  due_on: null,
+};
+const DEFERRED = { number: 146, title: "Deferred / Incubation", state: "open", due_on: null };
+const OPERATIONS = { number: 147, title: "Operations", state: "open", due_on: null };
 
 function slice(number, milestone, state, labels, created_at = OLD, overrides = {}) {
   return {
@@ -77,7 +83,7 @@ function slice(number, milestone, state, labels, created_at = OLD, overrides = {
 }
 
 function epic(number, total, overrides = {}) {
-  return slice(number, null, "open", ["kind:epic"], OLD, {
+  return slice(number, null, "open", [], OLD, {
     issueTypeName: "Epic",
     sub_issues_summary: { total },
     ...overrides,
@@ -187,10 +193,10 @@ function windowPage(nodes) {
 function createMainRequest({
   issues = [],
   milestones = [WAVE_1],
-  closedMilestones = [],
   roadmapBody = `${START_MARKER}\nstale\n${END_MARKER}`,
   childrenByEpic = new Map(),
   timelinesByIssue = new Map(),
+  graphqlRespond = () => null,
 } = {}) {
   const requests = [];
   const request = async (url, init = {}) => {
@@ -200,6 +206,8 @@ function createMainRequest({
 
     if (parsed.pathname === "/graphql") {
       const { query, variables } = JSON.parse(init.body);
+      const override = await graphqlRespond(query, variables, init);
+      if (override) return override;
       if (query.includes("REFINED_INVENTORY_PRS_SENTINEL")) {
         return jsonResponse({
           data: {
@@ -252,7 +260,8 @@ function createMainRequest({
       });
     }
     if (parsed.pathname === "/repos/chase-sets/chase-sets/milestones") {
-      return jsonResponse(parsed.searchParams.get("state") === "closed" ? closedMilestones : milestones);
+      if (parsed.searchParams.get("state") !== "open") throw new Error("Unexpected closed-milestone fetch");
+      return jsonResponse(milestones);
     }
     if (parsed.pathname === "/repos/chase-sets/chase-sets/issues" && parsed.searchParams.get("state") === "all") {
       return jsonResponse(issues);
@@ -282,50 +291,6 @@ function mainEnv(overrides = {}) {
     GITHUB_STEP_SUMMARY: "",
     ...overrides,
   };
-}
-
-function completionIssues(counts, startNumber = 1000, milestone = CLOSED_WAVE_0) {
-  const today = Date.UTC(2026, 6, 28);
-  const issues = [];
-  let number = startNumber;
-  for (let day = 0; day < counts.length; day += 1) {
-    const closedAt = new Date(today - (14 - day) * 86_400_000 + 12 * 60 * 60 * 1000).toISOString();
-    for (let index = 0; index < counts[day]; index += 1) {
-      issues.push(
-        slice(number, milestone, "closed", ["kind:product"], "2026-06-01T00:00:00Z", { closed_at: closedAt }),
-      );
-      number += 1;
-    }
-  }
-  return issues;
-}
-
-function openForecastIssues(count, milestone, startNumber = 10) {
-  return Array.from({ length: count }, (_, index) =>
-    slice(startNumber + index, milestone, "open", ["kind:product"], "2026-07-01T00:00:00Z"),
-  );
-}
-
-function deriveFixture({ counts = Array(14).fill(1), wave1Open = 2, wave2Open = 1, catalog } = {}) {
-  const selectedCatalog = catalog ?? buildForecastMilestoneCatalog([WAVE_1, WAVE_2], [CLOSED_WAVE_0]);
-  const issues = [
-    ...completionIssues(counts),
-    ...openForecastIssues(wave1Open, WAVE_1),
-    ...openForecastIssues(wave2Open, WAVE_2, 100),
-  ];
-  const catalogByNumber = new Map(selectedCatalog.map((milestone) => [milestone.number, milestone]));
-  const normalizedIssues = issues.map((issue) => normalizeForecastIssue(issue, catalogByNumber, NOW));
-  return {
-    catalog: selectedCatalog,
-    issues,
-    normalizedIssues,
-    current: deriveForecastInputs({ catalog: selectedCatalog, normalizedIssues, nowMs: NOW }),
-  };
-}
-
-function bodyWithRecord(record) {
-  const encoded = JSON.stringify(record).replaceAll("-->", "--\\u003e");
-  return `${START_MARKER}\n<!-- roadmap-forecast-inputs:${encoded} -->\n${END_MARKER}`;
 }
 
 async function runMainFixture(options = {}) {
@@ -534,279 +499,27 @@ describe("monthly refined-inventory cap authority", () => {
   });
 });
 
-describe("gate-stable forecast contract", () => {
-  it("migrates retained legacy forecast rows to managed-unavailable without aborting the writer", async () => {
-    const prior = deriveFixture();
-    const candidate = {
-      ...WAVE_1,
-      title: "Renamed candidate Wave 1",
-      description: outcomeDescription("commerce", 100, "candidate"),
-    };
-    const managed = {
-      number: 999,
-      title: "New arbitrary outcome",
-      description: outcomeDescription("commerce", 200),
-      state: "open",
-      due_on: null,
-    };
-    const issues = [
-      ...prior.issues.map((issue) =>
-        issue.milestone?.number === WAVE_1.number ? { ...issue, milestone: candidate } : issue,
-      ),
-      slice(5000, managed, "open", ["priority:p1", "area:ops", "kind:ops"]),
-    ];
-    const result = await runMainFixture({
-      issues,
-      milestones: [candidate, WAVE_2, managed],
-      closedMilestones: [CLOSED_WAVE_0],
-      roadmapBody: bodyWithRecord(prior.current.record),
-    });
-    expect(result.code).toBe(0);
-    expect(result.diagnostics).toEqual([]);
-    expect(result.generated[0]).toContain("Renamed candidate Wave 1 _(not executable)_");
-    expect(result.generated[0]).toContain("| New arbitrary outcome | unavailable (managed order) | — |");
-    const migrated = readPriorForecastRecord(result.generated[0], NOW);
-    expect(migrated.status).toBe("valid");
-    expect(migrated.record.milestones.map(({ number }) => number)).toEqual([CLOSED_WAVE_0.number, WAVE_2.number]);
-  });
-
-  it("derives pinned UTC forecasts and literal generated presentation from gate-stable history", () => {
-    const fixture = deriveFixture({ wave1Open: 2, wave2Open: 1 });
-    const [wave1, wave2] = fixture.current.record.milestones.filter((milestone) => milestone.state === "open");
-    expect(fixture.current.estimator).toMatchObject({
-      admissible: true,
-      closures14: 14,
-      closures7: 7,
-      activeDays: 14,
-      maxDaily: 1,
-      ratePerDay: 1,
-    });
-    expect(wave1).toMatchObject({ title: "Wave 1", cumulativeOpen: 2, forecastDays: 2 });
-    expect(wave2).toMatchObject({ title: "Wave 2", cumulativeOpen: 3, forecastDays: 3 });
-
-    const drift = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "absent", record: null },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    const summary = summarizeWaves({
-      milestones: [WAVE_1, WAVE_2],
-      issues: fixture.issues,
-      scopeGrowthByIssue: knownGrowth(fixture.issues),
-      nowMs: NOW,
-    });
-    summary.forecast = createForecastPresentation({ current: fixture.current, drift, nowMs: NOW });
-    const markdown = renderRoadmapStatus(summary);
-    expect(markdown).toContain(FORECAST_TABLE_HEADER);
-    expect(markdown).toContain(FORECAST_TABLE_SEPARATOR);
-    expect(markdown).toContain("| Wave 1 | 2026-07-30 | ? |");
-    expect(markdown).toContain("| Wave 2 | 2026-07-31 | ? |");
-    expect(markdown).toContain(
-      "Forecast estimator: 14 completed UTC days; closures14=14; closures7=7; activeDays14=14; maxDaily=1; maxSharePercent=7.1%; ratePerDay=1.00. Derived forecast, not commitment; milestone exit gates remain closure authority.",
-    );
-    expect(markdown).toContain("Drift alert (≥7d): none.");
-    expect(markdown).toContain("Drift unavailable: **2 row(s)**; **0 unobservable identity transition(s)**.");
-  });
-
-  it("normalizes the complete issue authority schema before membership", () => {
-    const catalog = buildForecastMilestoneCatalog([WAVE_1], [CLOSED_WAVE_0]);
-    const byNumber = new Map(catalog.map((milestone) => [milestone.number, milestone]));
-    const accepted = [
-      slice(1, WAVE_1, "open", [], OLD, { issueTypeName: null }),
-      slice(2, WAVE_1, "open", ["kind:product"], OLD, { issueTypeName: "FutureNativeType" }),
-      slice(3, WAVE_1, "open", ["kind:product"], OLD, { issueTypeName: "Epic" }),
-      slice(4, CLOSED_WAVE_0, "closed", ["kind:product"], OLD, { closed_at: "2026-07-27T00:00:00+00:00" }),
-      slice(5, null, "open", ["kind:product"]),
-    ].map((issue) => normalizeForecastIssue(issue, byNumber, NOW));
-    expect(accepted.map((entry) => entry.eligible)).toEqual([true, true, false, true, true]);
-    expect(Object.keys(accepted[0].issue)).toEqual([
-      "number",
-      "state",
-      "type",
-      "labels",
-      "milestone",
-      "created_at",
-      "closed_at",
-    ]);
-
-    const base = slice(20, WAVE_1, "open", ["kind:product"]);
-    const rejected = [
-      { ...base, state: "OPEN" },
-      { ...base, issueTypeName: "" },
-      { ...base, labels: [{ name: "kind:product" }, { name: "kind:product" }] },
-      { ...base, labels: [{ name: "" }] },
-      { ...base, created_at: "2026-07-01" },
-      { ...base, created_at: "2026-08-01T00:00:00Z" },
-      { ...base, closed_at: "2026-07-01T00:00:00Z" },
-      { ...base, milestone: { ...WAVE_1, title: "Wave renamed" } },
-      { ...base, milestone: { ...WAVE_1, state: "closed" } },
-    ];
-    for (const issue of rejected) {
-      expect(() => normalizeForecastIssue(issue, byNumber, NOW)).toThrowError(
-        expect.objectContaining({ code: "FORECAST_ISSUE_AUTHORITY_INVALID" }),
+describe("roadmap publication authority", () => {
+  it("ignores a legacy forecast record in the prior body", async () => {
+    const legacyMarker = "<!-- roadmap-forecast-inputs:";
+    for (const record of ['{"schemaVersion":"roadmap-forecast-inputs/v1"}', "not-json", ""]) {
+      const result = await runMainFixture({
+        roadmapBody: `intro\n${START_MARKER}\n${legacyMarker}${record} -->\n${END_MARKER}\noutro`,
+      });
+      expect(result.code).toBe(0);
+      expect(result.diagnostics).toEqual([]);
+      expect(result.generated).toHaveLength(1);
+      const block = result.generated[0];
+      expect(block).not.toContain(legacyMarker);
+      expect(block).not.toMatch(/Forecast|Drift/);
+      expect(block).toContain(
+        "| Outcome | Slices | Done | Open | Refined | Parentless _(reported)_ | Tracking | Added (7d) | Epics done |",
       );
+      expect(result.requests.filter(({ url }) => new URL(url).searchParams.get("state") === "closed")).toEqual([]);
+      const patches = result.requests.filter(({ method }) => method === "PATCH");
+      expect(patches).toHaveLength(1);
+      expect(JSON.parse(patches[0].body).body).toBe(`intro\n${block}\noutro`);
     }
-  });
-
-  it("separates gate-stable completion history from open forecast membership", () => {
-    const fixture = deriveFixture({ wave1Open: 1, wave2Open: 0 });
-    expect(fixture.current.record.closures14).toBe(14);
-    expect(fixture.current.record.milestones.find(({ title }) => title === "Wave 0")).toMatchObject({
-      state: "closed",
-      cumulativeOpen: null,
-      closedEligibleIssueNumbers: expect.arrayContaining([1000]),
-    });
-    expect(fixture.current.record.milestones.find(({ title }) => title === "Wave 1")).toMatchObject({
-      state: "open",
-      cumulativeOpen: 1,
-    });
-  });
-
-  it("fails complete but malformed issue authority before rendering or patching", async () => {
-    const base = slice(1, WAVE_1, "open", ["kind:product"]);
-    const invalidIssues = [
-      { ...base, state: "bogus" },
-      { ...base, issueTypeName: "" },
-      { ...base, labels: [{ name: "kind:product" }, { name: "kind:product" }] },
-      { ...base, labels: [{ name: "" }] },
-      { ...base, created_at: "2026-07-01" },
-      { ...base, created_at: "2026-08-01T00:00:00Z" },
-      { ...base, closed_at: "2026-07-01T00:00:00Z" },
-      { ...base, milestone: { ...WAVE_1, title: "Wave renamed" } },
-      { ...base, milestone: { ...WAVE_1, state: "closed" } },
-      { ...base, milestone: { number: 0, title: "Wave 1", state: "open" } },
-    ];
-    for (const invalid of invalidIssues) {
-      const result = await runMainFixture({ issues: [invalid] });
-      expect(result.code).toBe(1);
-      expect(result.diagnostics).toEqual([expect.stringMatching(/^FORECAST_ISSUE_AUTHORITY_INVALID:/)]);
-      expect(result.generated).toEqual([]);
-      expect(result.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
-    }
-  });
-
-  it("fails forecast estimation closed on sparse concentrated and regime-shifted completion samples", () => {
-    const distributed = evaluateForecastEstimator(
-      Array(14)
-        .fill(null)
-        .map((_, index) => ({ date: String(index), count: 1 })),
-    );
-    expect(distributed).toMatchObject({ admissible: true, diagnostics: [], closures14: 14, closures7: 7 });
-
-    const sparse = evaluateForecastEstimator([
-      ...Array(13)
-        .fill(null)
-        .map((_, index) => ({ date: String(index), count: 0 })),
-      { date: "13", count: 14 },
-    ]);
-    expect(sparse.diagnostics).toEqual([
-      "FORECAST_ACTIVE_DAYS_BELOW_7",
-      "FORECAST_DAY_SHARE_ABOVE_25_PERCENT",
-      "FORECAST_7D_14D_RATE_DISAGREEMENT_ABOVE_25_PERCENT",
-    ]);
-
-    const concentration = evaluateForecastEstimator(
-      [5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1].map((count, index) => ({ date: String(index), count })),
-    );
-    expect(concentration.diagnostics).toEqual(["FORECAST_DAY_SHARE_ABOVE_25_PERCENT"]);
-    const regime = evaluateForecastEstimator(
-      [...Array(7).fill(2), ...Array(7).fill(1)].map((count, index) => ({ date: String(index), count })),
-    );
-    expect(regime.diagnostics).toEqual(["FORECAST_7D_14D_RATE_DISAGREEMENT_ABOVE_25_PERCENT"]);
-
-    const activeOnly = evaluateForecastEstimator(
-      [4, 0, 0, 4, 0, 0, 0, 4, 0, 0, 4, 0, 0, 0].map((count, index) => ({ date: String(index), count })),
-    );
-    expect(activeOnly.diagnostics).toEqual(["FORECAST_ACTIVE_DAYS_BELOW_7"]);
-    const mutantReceipts = [
-      [activeOnly, "FORECAST_ACTIVE_DAYS_BELOW_7"],
-      [concentration, "FORECAST_DAY_SHARE_ABOVE_25_PERCENT"],
-      [regime, "FORECAST_7D_14D_RATE_DISAGREEMENT_ABOVE_25_PERCENT"],
-    ].map(([candidate, bypass]) => candidate.diagnostics.filter((diagnostic) => diagnostic !== bypass));
-    expect(mutantReceipts).toEqual([[], [], []]);
-  });
-
-  it("isolates forecast order from legacy milestone and epic order under input permutation", () => {
-    const forward = buildForecastMilestoneCatalog([WAVE_2, WAVE_1], [CLOSED_WAVE_0]);
-    const reverse = buildForecastMilestoneCatalog([WAVE_1, WAVE_2], [CLOSED_WAVE_0]);
-    expect(forward).toEqual(reverse);
-    const first = deriveFixture({ catalog: forward }).current.record.milestones;
-    const second = deriveFixture({ catalog: reverse }).current.record.milestones;
-    expect(first).toEqual(second);
-    expect([WAVE_2, WAVE_1].map(({ title }) => title)).toEqual(["Wave 2", "Wave 1"]);
-    const openCounts = new Map([
-      [WAVE_1.title, 2],
-      [WAVE_2.title, 1],
-    ]);
-    const inputOrderedMutant = (ordered) => {
-      let cumulative = 0;
-      return ordered.map(({ title }) => [title, (cumulative += openCounts.get(title))]);
-    };
-    const candidateReceipt = first
-      .filter(({ state }) => state === "open")
-      .map(({ title, cumulativeOpen }) => [title, cumulativeOpen]);
-    const mutants = {
-      rows: inputOrderedMutant([WAVE_2, WAVE_1]),
-      milestones: inputOrderedMutant([WAVE_2, WAVE_1]),
-      milestoneOrder: inputOrderedMutant([WAVE_2, WAVE_1]),
-    };
-    expect(candidateReceipt).toEqual([
-      ["Wave 1", 2],
-      ["Wave 2", 3],
-    ]);
-    for (const receipt of Object.values(mutants)) expect(receipt).not.toEqual(candidateReceipt);
-  });
-
-  it("fails every milestone catalog drift arm before rendering or patching", async () => {
-    const inversion = [
-      WAVE_1,
-      { number: 137, title: "Wave 3", state: "open", due_on: null },
-      { number: 138, title: "Wave 2", state: "open", due_on: null },
-    ];
-    const arms = [
-      { milestones: inversion },
-      { milestones: [WAVE_1], closedMilestones: [{ ...CLOSED_WAVE_0, number: WAVE_1.number }] },
-      { milestones: [WAVE_1], closedMilestones: [{ ...CLOSED_WAVE_0, number: 150, title: WAVE_1.title }] },
-      { milestones: [WAVE_1], closedMilestones: [{ number: 150, title: "Wave 9", state: "open" }] },
-    ];
-    for (const arm of arms) {
-      const result = await runMainFixture(arm);
-      expect(result.code).toBe(1);
-      expect(result.diagnostics).toEqual([expect.stringMatching(/^MILESTONE_CATALOG_DRIFT:/)]);
-      expect(result.generated).toEqual([]);
-      expect(result.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
-    }
-
-    const dueWins = await runMainFixture({
-      milestones: inversion.map((row, index) => (index === 1 ? { ...row, due_on: "2026-08-01T00:00:00Z" } : row)),
-    });
-    expect(dueWins.diagnostics).toEqual([expect.stringMatching(/^OPEN_MILESTONE_DUE_DATE_PROHIBITED:/)]);
-
-    const retained = deriveFixture();
-    const renamedWave = { ...WAVE_1, title: "Wave 1 renamed" };
-    const renamedIssues = retained.issues.map((issue) =>
-      issue.milestone?.number === WAVE_1.number ? { ...issue, milestone: renamedWave } : issue,
-    );
-    const rename = await runMainFixture({
-      issues: renamedIssues,
-      milestones: [renamedWave, WAVE_2],
-      closedMilestones: [CLOSED_WAVE_0],
-      roadmapBody: bodyWithRecord(retained.current.record),
-    });
-    expect(rename.diagnostics).toEqual([expect.stringMatching(/^MILESTONE_CATALOG_DRIFT:/)]);
-    expect(rename.generated).toEqual([]);
-    expect(rename.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
-
-    const disappearance = await runMainFixture({
-      issues: retained.issues,
-      milestones: [WAVE_1],
-      closedMilestones: [CLOSED_WAVE_0],
-      roadmapBody: bodyWithRecord(retained.current.record),
-    });
-    expect(disappearance.diagnostics).toEqual([expect.stringMatching(/^MILESTONE_CATALOG_DRIFT:/)]);
-    expect(disappearance.generated).toEqual([]);
-    expect(disappearance.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
   });
 
   it("gives malformed open Wave shape exactly one diagnostic", async () => {
@@ -816,59 +529,6 @@ describe("gate-stable forecast contract", () => {
     expect(result.diagnostics).toEqual([expect.stringMatching(/^OPEN_MILESTONE_SHAPE_INVALID:/)]);
     expect(result.generated).toEqual([]);
     expect(result.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
-  });
-
-  it("retains a known zero while separating insufficient throughput unknown from gate-bound zero-open dash", () => {
-    for (const counts of [Array(14).fill(0), [...Array(13).fill(1), 0]]) {
-      const fixture = deriveFixture({ counts, wave1Open: 0, wave2Open: 1 });
-      expect(fixture.current.estimator.diagnostics[0]).toBe("FORECAST_SAMPLE_BELOW_14");
-      const [wave1, wave2] = fixture.current.record.milestones.filter(({ state }) => state === "open");
-      expect(wave1).toMatchObject({ cumulativeOpen: 0, forecastDays: 0 });
-      expect(wave2).toMatchObject({ cumulativeOpen: 1, forecastDays: null });
-      const drift = classifyForecastDrift({
-        current: fixture.current,
-        priorAuthority: { status: "absent", record: null },
-        normalizedIssues: fixture.normalizedIssues,
-        nowMs: NOW,
-      });
-      expect(drift.rowResults.get(WAVE_1.number).driftCell).toBe("—");
-      expect(drift.unavailableRows).toBe(1);
-    }
-  });
-
-  it("preserves decisive completion history and valid retained evidence across gate close while failing catalog drift closed", () => {
-    const openCatalog = buildForecastMilestoneCatalog([WAVE_1, WAVE_2], [CLOSED_WAVE_0]);
-    const closedWave1 = { ...WAVE_1, state: "closed" };
-    const closedCatalog = buildForecastMilestoneCatalog([WAVE_2], [CLOSED_WAVE_0, closedWave1]);
-    const decisiveCompletion = slice(500, WAVE_1, "closed", ["kind:product"], OLD, {
-      closed_at: "2026-07-27T12:00:00Z",
-    });
-    const issuesOpen = [
-      ...completionIssues(Array(14).fill(1)),
-      decisiveCompletion,
-      ...openForecastIssues(1, WAVE_2, 50),
-    ];
-    const issuesClosed = issuesOpen.map((issue) =>
-      issue.number === decisiveCompletion.number ? { ...issue, milestone: closedWave1 } : issue,
-    );
-    const normalize = (issues, catalog) => {
-      const byNumber = new Map(catalog.map((milestone) => [milestone.number, milestone]));
-      return issues.map((issue) => normalizeForecastIssue(issue, byNumber, NOW));
-    };
-    const before = deriveForecastInputs({
-      catalog: openCatalog,
-      normalizedIssues: normalize(issuesOpen, openCatalog),
-      nowMs: NOW,
-    });
-    const after = deriveForecastInputs({
-      catalog: closedCatalog,
-      normalizedIssues: normalize(issuesClosed, closedCatalog),
-      nowMs: NOW,
-    });
-    expect(after.record.closureDays14).toEqual(before.record.closureDays14);
-    expect(after.record.closures7).toBe(before.record.closures7);
-    expect(after.record.milestones.map(({ title }) => title)).toEqual(["Wave 0", "Wave 1", "Wave 2"]);
-    expect(after.record.milestones.find(({ title }) => title === "Wave 1").forecastDays).toBeNull();
   });
 
   it("fails open milestone state shape before due-date prohibition", async () => {
@@ -931,346 +591,10 @@ describe("gate-stable forecast contract", () => {
     ).toBe(0);
   });
 
-  it("keeps closed milestone due dates outside the prohibition", async () => {
-    const result = await runMainFixture({ closedMilestones: [CLOSED_WAVE_0] });
-    expect(result.code).toBe(0);
-    expect(result.generated).toHaveLength(1);
-  });
-
-  it("closes every retained horizon relationship", () => {
-    const fixture = deriveFixture();
-    expect(readPriorForecastRecord(bodyWithRecord(fixture.current.record), NOW)).toMatchObject({ status: "valid" });
-    const mutations = [
-      (record) => {
-        record.extra = true;
-      },
-      (record) => {
-        record.generatedAt = "2026-07-28T01:00:00+01:00";
-      },
-      (record) => {
-        record.generatedAt = "2026-08-01T00:00:00.000Z";
-      },
-      (record) => {
-        record.closureDays14[0].date = record.closureDays14[1].date;
-      },
-      (record) => {
-        record.closureDays14[0].count += 1;
-      },
-      (record) => {
-        record.closureDays14[0] = { count: record.closureDays14[0].count, date: record.closureDays14[0].date };
-      },
-      (record) => {
-        record.closures7 += 1;
-      },
-      (record) => {
-        record.milestones[0].cumulativeOpen = 0;
-      },
-      (record) => {
-        record.milestones[1].cumulativeOpen += 1;
-      },
-      (record) => {
-        record.milestones[1].forecastDays += 1;
-      },
-      (record) => {
-        record.milestones[1].openEligibleIssueNumbers.reverse();
-      },
-      (record) => {
-        record.milestones[1].unknown = true;
-      },
-      (record) => {
-        record.milestones[1].openEligibleIssueNumbers = [Number.MAX_SAFE_INTEGER + 1];
-      },
-      (record) => {
-        record.milestones[2].openEligibleIssueNumbers.push(record.milestones[1].openEligibleIssueNumbers[0]);
-      },
-    ];
-    for (const mutate of mutations) {
-      const record = structuredClone(fixture.current.record);
-      mutate(record);
-      expect(readPriorForecastRecord(bodyWithRecord(record), NOW).status).toBe("invalid");
-    }
-    expect(
-      readPriorForecastRecord(
-        `${START_MARKER}\n<!-- roadmap-forecast-inputs:{"title":"raw --> terminator"} -->\n${END_MARKER}`,
-        NOW,
-      ).status,
-    ).toBe("invalid");
-  });
-
-  it("round-trips gate transitions and malformed variants", async () => {
-    const fixture = deriveFixture();
-    const malformed = structuredClone(fixture.current.record);
-    malformed.milestones[1].forecastDays += 1;
-    const result = await runMainFixture({
-      issues: fixture.issues,
-      milestones: [WAVE_1, WAVE_2],
-      closedMilestones: [CLOSED_WAVE_0],
-      roadmapBody: bodyWithRecord(malformed),
-    });
-    expect(result.code).toBe(0);
-    expect(result.generated[0]).toContain("Drift diagnostics: FORECAST_PRIOR_RECORD_INVALID.");
-    expect(result.requests.filter(({ method }) => method === "PATCH")).toHaveLength(1);
-    expect(readPriorForecastRecord(result.generated[0], NOW).status).toBe("valid");
-
-    const titleBeforeSchema = structuredClone(fixture.current.record);
-    titleBeforeSchema.milestones[1].title = "Wave 1 renamed";
-    titleBeforeSchema.milestones[1].unknown = true;
-    const titleResult = await runMainFixture({
-      issues: fixture.issues,
-      milestones: [WAVE_1, WAVE_2],
-      closedMilestones: [CLOSED_WAVE_0],
-      roadmapBody: bodyWithRecord(titleBeforeSchema),
-    });
-    expect(titleResult.code).toBe(0);
-    expect(titleResult.generated[0]).toContain("Drift diagnostics: FORECAST_PRIOR_RECORD_INVALID.");
-    expect(titleResult.diagnostics).toEqual([]);
-  });
-
-  it("escapes the HTML terminator while preserving provider title authority", () => {
-    const title = "Wave 1 -->";
-    const milestone = { ...WAVE_1, title };
-    const catalog = buildForecastMilestoneCatalog([milestone], [CLOSED_WAVE_0]);
-    const issues = [...completionIssues(Array(14).fill(1)), ...openForecastIssues(1, milestone)];
-    const byNumber = new Map(catalog.map((row) => [row.number, row]));
-    const normalizedIssues = issues.map((issue) => normalizeForecastIssue(issue, byNumber, NOW));
-    const current = deriveForecastInputs({ catalog, normalizedIssues, nowMs: NOW });
-    const drift = classifyForecastDrift({
-      current,
-      priorAuthority: { status: "absent" },
-      normalizedIssues,
-      nowMs: NOW,
-    });
-    const presentation = createForecastPresentation({ current, drift, nowMs: NOW });
-    expect(presentation.retainedComment).toContain("--\\u003e");
-    expect(presentation.retainedComment.slice(FORECAST_TABLE_HEADER.length)).not.toContain(title);
-    const parsed = readPriorForecastRecord(`${START_MARKER}\n${presentation.retainedComment}\n${END_MARKER}`, NOW);
-    expect(parsed.record.milestones.find(({ number }) => number === WAVE_1.number).title).toBe(title);
-  });
-
-  it("renders drift boundaries and recovers valid null horizons without fabricating diagnostics", () => {
-    const fixture = deriveFixture({ wave1Open: 20, wave2Open: 0 });
-    for (const [priorDays, expected, alerts] of [
-      [20, "0d · no-transition", 0],
-      [14, "+6d · no-transition", 0],
-      [26, "-6d · no-transition", 0],
-      [13, "+7d · no-transition", 1],
-      [27, "-7d · no-transition", 1],
-    ]) {
-      const prior = structuredClone(fixture.current.record);
-      prior.milestones.find(({ number }) => number === WAVE_1.number).forecastDays = priorDays;
-      const drift = classifyForecastDrift({
-        current: fixture.current,
-        priorAuthority: { status: "valid", record: prior },
-        normalizedIssues: fixture.normalizedIssues,
-        nowMs: NOW,
-      });
-      expect(drift.rowResults.get(WAVE_1.number).driftCell).toBe(expected);
-      expect(drift.alerts).toHaveLength(alerts);
-      expect(drift.priorDiagnostic).toBeNull();
-    }
-
-    const inadmissible = deriveFixture({
-      counts: [4, 0, 0, 4, 0, 0, 0, 4, 0, 0, 4, 0, 0, 0],
-      wave1Open: 20,
-      wave2Open: 0,
-    });
-    const secondRun = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "valid", record: inadmissible.current.record },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    expect(secondRun.rowResults.get(WAVE_1.number).driftCell).toBe("?");
-    expect(secondRun.priorDiagnostic).toBeNull();
-    const steady = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "valid", record: fixture.current.record },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    expect(steady.rowResults.get(WAVE_1.number).driftCell).toBe("0d · no-transition");
-
-    const closedWave1 = { ...WAVE_1, state: "closed" };
-    const priorCatalog = buildForecastMilestoneCatalog([WAVE_2], [CLOSED_WAVE_0, closedWave1]);
-    const currentCatalog = buildForecastMilestoneCatalog([WAVE_1, WAVE_2], [CLOSED_WAVE_0]);
-    const priorIssues = [
-      ...completionIssues(Array(14).fill(1)),
-      ...openForecastIssues(1, closedWave1),
-      ...openForecastIssues(1, WAVE_2, 100),
-    ];
-    const currentIssues = priorIssues.map((issue) =>
-      issue.milestone?.number === WAVE_1.number ? { ...issue, milestone: WAVE_1 } : issue,
-    );
-    const normalize = (issues, catalog) => {
-      const byNumber = new Map(catalog.map((milestone) => [milestone.number, milestone]));
-      return issues.map((issue) => normalizeForecastIssue(issue, byNumber, NOW));
-    };
-    const priorReopen = deriveForecastInputs({
-      catalog: priorCatalog,
-      normalizedIssues: normalize(priorIssues, priorCatalog),
-      nowMs: NOW,
-    });
-    const currentReopenNormalized = normalize(currentIssues, currentCatalog);
-    const currentReopen = deriveForecastInputs({
-      catalog: currentCatalog,
-      normalizedIssues: currentReopenNormalized,
-      nowMs: NOW,
-    });
-    const reopened = classifyForecastDrift({
-      current: currentReopen,
-      priorAuthority: { status: "valid", record: priorReopen.record },
-      normalizedIssues: currentReopenNormalized,
-      nowMs: NOW,
-    });
-    expect(reopened.rowResults.get(WAVE_1.number).driftCell).toBe("?");
-    expect(reopened.rowResults.get(WAVE_2.number)).toMatchObject({
-      driftCell: "+1d · scope",
-      transitionClass: "scope",
-    });
-    expect(reopened).toMatchObject({ unavailableRows: 1, unobservableIdentityCount: 0, priorDiagnostic: null });
-    const reopenedSteady = classifyForecastDrift({
-      current: currentReopen,
-      priorAuthority: { status: "valid", record: currentReopen.record },
-      normalizedIssues: currentReopenNormalized,
-      nowMs: NOW,
-    });
-    expect([...reopenedSteady.rowResults.values()].map(({ driftCell }) => driftCell)).toEqual([
-      "0d · no-transition",
-      "0d · no-transition",
-    ]);
-  });
-
-  it("classifies completion only from retained estimator membership", () => {
-    const fixture = deriveFixture({ wave1Open: 1, wave2Open: 1 });
-    const prior = structuredClone(fixture.current.record);
-    prior.closureDays14[0].count -= 1;
-    prior.closureDays14[1].count += 1;
-    const drift = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "valid", record: prior },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    expect([...drift.rowResults.values()].map(({ transitionClass }) => transitionClass)).toEqual([
-      "completion",
-      "completion",
-    ]);
-    const stateOnly = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "valid", record: fixture.current.record },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    expect([...stateOnly.rowResults.values()].map(({ transitionClass }) => transitionClass)).toEqual([
-      "no-transition",
-      "no-transition",
-    ]);
-  });
-
-  it("attributes scope only to reached cumulative prefixes", () => {
-    const fixture = deriveFixture({ wave1Open: 1, wave2Open: 1 });
-    const prior = structuredClone(fixture.current.record);
-    const moved = prior.milestones.find(({ number }) => number === WAVE_2.number).openEligibleIssueNumbers.pop();
-    prior.milestones.find(({ number }) => number === WAVE_1.number).openEligibleIssueNumbers.push(moved);
-    const drift = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "valid", record: prior },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    expect(drift.rowResults.get(WAVE_1.number).transitionClass).toBe("scope");
-    expect(drift.rowResults.get(WAVE_2.number).transitionClass).toBe("scope");
-
-    const latePrior = structuredClone(fixture.current.record);
-    const lateNumber = latePrior.milestones.find(({ number }) => number === WAVE_2.number).openEligibleIssueNumbers[0];
-    const currentEntry = fixture.normalizedIssues.find(({ issue }) => issue.number === lateNumber);
-    currentEntry.eligible = false;
-    const late = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "valid", record: latePrior },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    expect(late.rowResults.get(WAVE_1.number).transitionClass).toBe("no-transition");
-    expect(late.rowResults.get(WAVE_2.number).transitionClass).toBe("scope");
-  });
-
-  it("bounds mixed unknown while preserving determinate completion", () => {
-    const fixture = deriveFixture({ wave1Open: 1, wave2Open: 1 });
-    const prior = structuredClone(fixture.current.record);
-    const wave2Identity = prior.milestones.find(({ number }) => number === WAVE_2.number).openEligibleIssueNumbers[0];
-    prior.milestones.find(({ number }) => number === WAVE_2.number).openEligibleIssueNumbers = [];
-    const currentEntry = fixture.normalizedIssues.find(({ issue }) => issue.number === wave2Identity);
-    currentEntry.issue.created_at = "2026-07-01T00:00:00Z";
-    prior.closureDays14[0].count -= 1;
-    prior.closureDays14[1].count += 1;
-    const drift = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "valid", record: prior },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    expect(drift.rowResults.get(WAVE_1.number).transitionClass).toBe("completion");
-    expect(drift.rowResults.get(WAVE_2.number).driftCell).toBe("?");
-    expect(drift).toMatchObject({ unavailableRows: 1, unobservableIdentityCount: 1 });
-
-    const mobile1 = { number: 143, title: "Mobile 1", state: "open", due_on: null };
-    const catalog = buildForecastMilestoneCatalog([WAVE_1, WAVE_2, mobile1], [CLOSED_WAVE_0]);
-    const issues = [
-      ...completionIssues(Array(14).fill(1)),
-      ...openForecastIssues(1, WAVE_1, 10),
-      ...openForecastIssues(1, WAVE_2, 20),
-      ...openForecastIssues(1, mobile1, 30),
-    ];
-    const byNumber = new Map(catalog.map((milestone) => [milestone.number, milestone]));
-    const normalizedIssues = issues.map((issue) => normalizeForecastIssue(issue, byNumber, NOW));
-    const current = deriveForecastInputs({ catalog, normalizedIssues, nowMs: NOW });
-    const repeatedPrior = structuredClone(current.record);
-    repeatedPrior.milestones.find(({ number }) => number === WAVE_1.number).openEligibleIssueNumbers = [];
-    const repeated = classifyForecastDrift({
-      current,
-      priorAuthority: { status: "valid", record: repeatedPrior },
-      normalizedIssues,
-      nowMs: NOW,
-    });
-    expect([...repeated.rowResults.values()].map(({ driftCell }) => driftCell)).toEqual(["?", "?", "?"]);
-    expect(repeated).toMatchObject({ unavailableRows: 3, unobservableIdentityCount: 1 });
-  });
-
-  it("pins every generated-block production in the authoritative literal grammar", () => {
-    const fixture = deriveFixture({ wave1Open: 1, wave2Open: 0 });
-    const drift = classifyForecastDrift({
-      current: fixture.current,
-      priorAuthority: { status: "valid", record: fixture.current.record },
-      normalizedIssues: fixture.normalizedIssues,
-      nowMs: NOW,
-    });
-    const summary = summarizeWaves({
-      milestones: [WAVE_1, WAVE_2, DEFERRED, OPERATIONS],
-      issues: fixture.issues,
-      scopeGrowthByIssue: knownGrowth(fixture.issues),
-      nowMs: NOW,
-    });
-    summary.forecast = createForecastPresentation({ current: fixture.current, drift, nowMs: NOW });
-    const markdown = renderRoadmapStatus(summary);
-    expect(markdown.indexOf(FORECAST_TABLE_HEADER)).toBeLessThan(markdown.indexOf("Forecast estimator:"));
-    expect(markdown.indexOf("Forecast estimator:")).toBeLessThan(markdown.indexOf("Executable backlog:"));
-    expect(markdown).toContain("| Wave 1 | 2026-07-29 | 0d · no-transition |");
-    expect(markdown).toContain("| Wave 2 | 2026-07-29 | 0d · no-transition |");
-    expect(markdown).toContain("| Deferred / Incubation _(not executable)_ | — | — |");
-    expect(markdown).toContain("Drift alert (≥7d): none.");
-    expect(markdown).not.toContain("| Outcome | Target |");
-    const retainedIndex = markdown.indexOf("<!-- roadmap-forecast-inputs:");
-    expect(retainedIndex).toBeGreaterThan(markdown.indexOf("**Refined ≡ classified**"));
-    expect(markdown.slice(retainedIndex)).toMatch(
-      /^<!-- roadmap-forecast-inputs:\{.*\} -->\n<!-- roadmap-status:end -->$/s,
-    );
-  });
-
-  it("binds backlog-model forecast and gate literals to generator constants", () => {
-    const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8").replaceAll(
-      "\r\n",
-      "\n",
+  it("binds backlog-model outcome and scheduling contract", () => {
+    const prose = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8").replace(
+      /\s+/g,
+      " ",
     );
     for (const literal of [
       "Milestone = finite outcome membership and exit-gate closure",
@@ -1279,8 +603,13 @@ describe("gate-stable forecast contract", () => {
       "Open milestones have `due_on: null`",
       "stable GitHub milestone identity owns",
       "Malformed or duplicate metadata is an explicit error",
-      "Managed outcomes report `unavailable (managed order)`",
-      "Outcome order** is agent-owned order within a named track",
+      "A milestone without outcome metadata is not",
+      "Completion forecasting is owned by #7465.",
+      "Outcome order** is agent-owned order across all committed outcomes",
+      "Committed outcomes compare by their outcome `order` alone, across tracks, then by milestone number; track names never decide rank.",
+      "`scripts/next-work.mjs` is the computed Selection.",
+      "An evidenced p0 emergency may run ahead of its rank only with a recorded `p0-emergency` reason (#9946).",
+      "belongs to one **lane class**: `product` is `kind:product`; `ops` is `kind:ops` or a title starting `[controller]`; `other` is everything else.",
       "Blocker** is a native correctness edge, never a scheduling opinion",
       "Dispatch rank** is agent-maintained issue order inside the selected outcome",
       "p0 interrupts an active lane only",
@@ -1288,16 +617,8 @@ describe("gate-stable forecast contract", () => {
       "is ordinary work; p3 is opportunistic",
       "p3 is opportunistic",
       "drained merge queue with no sibling pull",
-      "FORECAST_SAMPLE_BELOW_14",
-      "FORECAST_ACTIVE_DAYS_BELOW_7",
-      "FORECAST_DAY_SHARE_ABOVE_25_PERCENT",
-      "FORECAST_7D_14D_RATE_DISAGREEMENT_ABOVE_25_PERCENT",
-      "derived forecast, not a commitment",
-      "Only absolute changes of at least",
-      "unavailable-row and distinct",
     ])
-      expect(docs).toContain(literal);
-    expect(FORECAST_TABLE_HEADER).toContain("Forecast | Drift");
+      expect(prose).toContain(literal);
   });
 
   it("binds Probe ladder lifecycle and authority boundaries to the documentation contract", () => {
@@ -1509,19 +830,19 @@ describe("gate-stable forecast contract", () => {
         "unknown/failure behavior",
         "post-landing evidence is not collected before the",
         "landed/deployed state it observes exists",
-        "independent operator acceptance may close a Probe without a pull request only",
-        "after that Probe's own acceptance criteria are met",
+        "independent acceptance by the authorized host/reviewer may close a Probe without",
+        "a pull request only after that Probe's own acceptance criteria are met;",
       ])
         expect(authorityClosureParagraph).toContain(literal);
 
-      expect(authorityClosureParagraph).toMatch(/operator acceptance is a\s+closure control, not evidence authority/);
+      expect(authorityClosureParagraph).toMatch(/met;\s+acceptance is a\s+closure control, not evidence authority/);
       expect(probeRow).not.toContain("what evidence a slice needs before dispatch | as surfaced");
       for (const forbiddenConflation of [
         "a generic Probe authorizes an implementation result",
         "post-landing evidence is collected before the landed/deployed state it observes exists",
       ])
         expect(authorityClosureParagraph).not.toContain(forbiddenConflation);
-      expect(authorityClosureParagraph).not.toMatch(/operator acceptance is\s+evidence authority/);
+      expect(authorityClosureParagraph).not.toMatch(/acceptance is\s+evidence authority/);
     };
 
     expectProbeContract(docs);
@@ -1622,7 +943,7 @@ describe("gate-stable forecast contract", () => {
     );
   });
 
-  it("exhausts every forecast authority before rendering or patching", async () => {
+  it("exhausts every paginated authority before rendering or patching", async () => {
     const seen = [];
     const pages = new Map([
       ["/start", { body: [1], link: '<https://api.github.com/page-2>; rel="next"' }],
@@ -1678,6 +999,67 @@ describe("gate-stable forecast contract", () => {
 });
 
 describe("roadmap status classification and preserved rollups", () => {
+  it("preserves every non-forecast cell and row order with native and closed untyped Epics", () => {
+    const first = { ...WAVE_1, description: outcomeDescription("commerce", 100) };
+    const later = { ...WAVE_2, description: outcomeDescription("commerce", 300) };
+    const candidate = {
+      ...WAVE_2,
+      number: 999,
+      title: "Candidate",
+      description: outcomeDescription("commerce", 200, "candidate"),
+    };
+    const issues = [
+      slice(1, first, "closed", ["kind:product"]),
+      slice(2, first, "open", ["priority:p1", "area:ops", "kind:ops"], RECENT),
+      slice(3, first, "open", ["kind:product"]),
+      slice(4, first, "open", ["status:tracking-only"]),
+      slice(5, candidate, "open", ["kind:product"]),
+      slice(6, later, "open", ["priority:p1", "area:ops", "kind:ops"], OLD, { hasParent: true }),
+      epic(10, 1),
+      slice(11, null, "closed", ["kind:epic"], OLD, { issueTypeName: null }),
+    ];
+    const growth = knownGrowth(issues);
+    growth.delete(6);
+    const markdown = renderRoadmapStatus(
+      summarizeWaves({
+        milestones: [later, OPERATIONS, candidate, first],
+        issues,
+        epicChildren: new Map([[10, reconciledEpicCollection([{ number: 1, state: "closed", milestone: first }])]]),
+        scopeGrowthByIssue: growth,
+        nowMs: NOW,
+      }),
+    );
+    const table = markdown
+      .split("\n")
+      .filter((line) => line.startsWith("|"))
+      .map((line) =>
+        line
+          .split("|")
+          .slice(1, -1)
+          .map((cell) => cell.trim()),
+      );
+    const retained = table[0]
+      .map((name, index) => ({ name, index }))
+      .filter(({ name }) => !["Forecast", "Drift"].includes(name));
+    expect([table[0], ...table.slice(2)].map((row) => retained.map(({ index }) => row[index]))).toEqual([
+      [
+        "Outcome",
+        "Slices",
+        "Done",
+        "Open",
+        "Refined",
+        "Parentless _(reported)_",
+        "Tracking",
+        "Added (7d)",
+        "Epics done",
+      ],
+      ["Wave 1", "3", "1 (33%)", "2", "1/2", "1", "1", "+1", "1/1"],
+      ["Candidate _(not executable)_", "1", "0 (0%)", "1", "—", "—", "0", "—", "—"],
+      ["Wave 2", "1", "0 (0%)", "1", "1/1", "0", "0", "?", "—"],
+      ["Operations _(not executable)_", "0", "0 (0%)", "0", "—", "—", "0", "—", "—"],
+    ]);
+  });
+
   it("orders managed outcomes and preserves candidate inventory without execution authority", () => {
     const first = {
       number: 900,
@@ -1731,14 +1113,13 @@ describe("roadmap status classification and preserved rollups", () => {
     });
     expect(renderRoadmapStatus(summary)).toContain(`${candidate.title} _(not executable)_`);
     expect(renderRoadmapStatus(summary)).toContain(
-      `| ${candidate.title} _(not executable)_ | unavailable (managed order) | — | 2 | 1 (50%) | 1 | — | — | 1 | — | — |`,
+      `| ${candidate.title} _(not executable)_ | 2 | 1 (50%) | 1 | — | — | 1 | — | — |`,
     );
-    expect(renderRoadmapStatus(summary)).toContain(`| ${first.title} | unavailable (managed order) | — |`);
-    expect(buildForecastMilestoneCatalog([first, later], [])).toEqual([]);
+    expect(renderRoadmapStatus(summary)).toContain(`| ${first.title} |`);
   });
 
   it("identifies epics and delegates classification to the shared predicate", () => {
-    expect(isEpic(slice(1, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: null }))).toBe(true);
+    expect(isEpic(slice(1, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: null }))).toBe(false);
     expect(isEpic(slice(2, WAVE_1, "open", ["kind:product"]))).toBe(false);
     expect(isEpic(slice(6, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: "Slice" }))).toBe(false);
 
@@ -1823,8 +1204,8 @@ describe("roadmap status classification and preserved rollups", () => {
     expect(rows.every((row) => !row.executable)).toBe(true);
     const markdown = renderRoadmapStatus({ rows, windowDays: 7 });
     expect(markdown).toContain("**0 open slices**");
-    expect(markdown).toContain("| Deferred / Incubation _(not executable)_ | — | — | 1 |");
-    expect(markdown).toContain("| Operations _(not executable)_ | — | — | 1 |");
+    expect(markdown).toContain("| Deferred / Incubation _(not executable)_ | 1 |");
+    expect(markdown).toContain("| Operations _(not executable)_ | 1 |");
     expect(markdown.match(/\| — \| — \|$/gm)).toHaveLength(2);
   });
 
@@ -1945,7 +1326,7 @@ describe("latest-entry scope growth", () => {
     });
     const markdown = renderRoadmapStatus({ rows, windowDays: 7 });
     expect(rows[0]).toMatchObject({ addedRecently: 1, growthUnknown: 0 });
-    expect(markdown).toContain("| Wave 1 | — | — | 1 | 0 (0%) | 1 | 0/1 | 0 | 0 | +1 |");
+    expect(markdown).toContain("| Wave 1 | 1 | 0 (0%) | 1 | 0/1 | 0 | 0 | +1 |");
     expect(markdown).not.toContain("Scope-growth diagnostics (bounded unknown)");
   });
 
@@ -2382,7 +1763,11 @@ describe("real main composition", () => {
     const staleP0 = slice(702, WAVE_2, "open", ["priority:p0"]);
     const staleP1 = slice(703, WAVE_2, "open", ["priority:p1"]);
     const result = await runMainFixture({
-      milestones: [WAVE_1, WAVE_2, { number: 138, title: "Mobile 1", state: "open", due_on: null }],
+      milestones: [
+        WAVE_1,
+        WAVE_2,
+        { number: 138, title: "Mobile 1", description: outcomeDescription("mobile", 1), state: "open", due_on: null },
+      ],
       issues: [wave1Runnable, staleP1, staleP0],
     });
     const patches = result.requests.filter(({ method }) => method === "PATCH");
@@ -2638,7 +2023,13 @@ describe("prioritization hygiene authority", () => {
   }
 
   function windowLoaders({ reverse = false, labelTotal = 3 } = {}) {
-    const milestone = { id: "synthetic-milestone-wave-1", number: 1, title: "Wave 1", state: "OPEN" };
+    const milestone = {
+      id: "synthetic-milestone-wave-1",
+      number: 1,
+      title: "Wave 1",
+      description: outcomeDescription("wave", 1),
+      state: "OPEN",
+    };
     const labels = [
       { id: "synthetic-label-priority", name: "priority:p1" },
       { id: "synthetic-label-area", name: "area:ops" },
@@ -2649,7 +2040,7 @@ describe("prioritization hygiene authority", () => {
       number: 1,
       state: "OPEN",
       issueType: { name: "Slice" },
-      milestone,
+      milestone: { id: milestone.id, number: milestone.number, title: milestone.title, state: milestone.state },
       issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
       labels: completePage(reverse ? labels.slice().reverse() : labels, labelTotal),
       blockedBy: completePage([]),
@@ -2663,7 +2054,13 @@ describe("prioritization hygiene authority", () => {
   }
 
   function pagedWindowLoaders({ labels, blockedBy = [], labelPages = null, blockedByPages = null } = {}) {
-    const milestone = { id: "synthetic-milestone-wave-1", number: 1, title: "Wave 1", state: "OPEN" };
+    const milestone = {
+      id: "synthetic-milestone-wave-1",
+      number: 1,
+      title: "Wave 1",
+      description: outcomeDescription("wave", 1),
+      state: "OPEN",
+    };
     const completeLabels = labels ?? [
       { id: "synthetic-label-priority", name: "priority:p1" },
       { id: "synthetic-label-area", name: "area:ops" },
@@ -2674,7 +2071,7 @@ describe("prioritization hygiene authority", () => {
       number: 1,
       state: "OPEN",
       issueType: { name: "Slice" },
-      milestone,
+      milestone: { id: milestone.id, number: milestone.number, title: milestone.title, state: milestone.state },
       issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
       labels: labelPages?.root ?? completePage(completeLabels),
       blockedBy: blockedByPages?.root ?? completePage(blockedBy),
@@ -2896,6 +2293,7 @@ describe("prioritization hygiene authority", () => {
     const backlogClassifyImport = ['from "./backlog-classify', '.mjs"'].join("");
     const dispatchWindowImport = ['from "./dispatch-window', '.mjs"'].join("");
     const milestonePolicyImport = ['from "./milestone-policy', '.mjs"'].join("");
+    const briefLintImport = ['from "./brief-lint', '.mjs"'].join("");
     const source = readFileSync(path.join(repoRoot, "scripts", "roadmap-status.mjs"), "utf8");
     expect(source).toContain(guard);
 
@@ -2927,7 +2325,8 @@ describe("prioritization hygiene authority", () => {
       .replaceAll(
         milestonePolicyImport,
         `from "${pathToFileURL(path.join(repoRoot, "scripts", "milestone-policy.mjs")).href}"`,
-      );
+      )
+      .replaceAll(briefLintImport, `from "${pathToFileURL(path.join(repoRoot, "scripts", "brief-lint.mjs")).href}"`);
     const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutantSource).toString("base64")}`);
     continuationCalls = 0;
     await expect(mutant.collectRoadmapWindowAuthority(loaders)).rejects.toThrow(
@@ -3074,9 +2473,27 @@ describe("prioritization hygiene authority", () => {
       milestones: {
         totalCount: 5,
         nodes: [
-          { id: "synthetic-wave-1", number: 1, title: "Wave 1", state: "OPEN" },
-          { id: "synthetic-wave-2", number: 2, title: "Wave 2", state: "OPEN" },
-          { id: "synthetic-mobile-1", number: 3, title: "Mobile 1", state: "OPEN" },
+          {
+            id: "synthetic-wave-1",
+            number: 1,
+            title: "Wave 1",
+            description: outcomeDescription("wave", 1),
+            state: "OPEN",
+          },
+          {
+            id: "synthetic-wave-2",
+            number: 2,
+            title: "Wave 2",
+            description: outcomeDescription("wave", 2),
+            state: "OPEN",
+          },
+          {
+            id: "synthetic-mobile-1",
+            number: 3,
+            title: "Mobile 1",
+            description: outcomeDescription("mobile", 1),
+            state: "OPEN",
+          },
           { id: "synthetic-operations", number: 4, title: "Operations", state: "OPEN" },
           { id: "synthetic-future", number: 5, title: "Future planning", state: "OPEN" },
         ],
@@ -3204,14 +2621,26 @@ describe("prioritization hygiene authority", () => {
         { number: 2, priority: "priority:p0", milestone: "Wave 2" },
         { number: 3, priority: "priority:p1", milestone: "Wave 2" },
       ],
-      noWindowFamilies: ["Mobile"],
+      noWindowFamilies: ["mobile"],
     });
     expect(hygiene.candidates).toHaveLength(2);
   });
 
   it("diagnoses a present Mobile family without coupling it to priority claims", () => {
-    const wave1 = { id: "synthetic-wave-runnable", number: 1, title: "Wave 1", state: "OPEN" };
-    const mobile1 = { id: "synthetic-mobile-present", number: 2, title: "Mobile 1", state: "OPEN" };
+    const wave1 = {
+      id: "synthetic-wave-runnable",
+      number: 1,
+      title: "Wave 1",
+      description: outcomeDescription("wave", 1),
+      state: "OPEN",
+    };
+    const mobile1 = {
+      id: "synthetic-mobile-present",
+      number: 2,
+      title: "Mobile 1",
+      description: outcomeDescription("mobile", 1),
+      state: "OPEN",
+    };
     const issue = (id, number, milestone, labels) => ({
       id,
       number,
@@ -3236,10 +2665,10 @@ describe("prioritization hygiene authority", () => {
 
     const hygiene = summarizePrioritizationHygiene(authority);
     expect(hygiene.selected).toMatchObject([{ id: wave1.id }]);
-    expect(hygiene.noWindowFamilies).toEqual(["Mobile"]);
+    expect(hygiene.noWindowFamilies).toEqual(["mobile"]);
     expect(hygiene.candidates).toEqual([]);
     expect(renderRoadmapStatus({ rows: [], windowDays: 7, prioritizationHygiene: hygiene })).toContain(
-      "Mobile: no runnable refined milestone",
+      "mobile: no runnable refined milestone",
     );
   });
 
@@ -3254,10 +2683,16 @@ describe("prioritization hygiene authority", () => {
     expect(zeroMarkdown).toContain("## Prioritization hygiene");
     expect(zeroLines[zeroLines.indexOf(zeroCountLine) + 1]).toBe("none");
 
-    const milestone = (id, number, title) => ({ id, number, title, state: "OPEN" });
-    const wave1 = milestone("synthetic-render-wave-1", 1, "Wave 1");
-    const wave2 = milestone("synthetic-render-wave-2", 2, "Wave 2");
-    const mobile1 = milestone("synthetic-render-mobile-1", 3, "Mobile 1");
+    const milestone = (id, number, title, track, order) => ({
+      id,
+      number,
+      title,
+      description: outcomeDescription(track, order),
+      state: "OPEN",
+    });
+    const wave1 = milestone("synthetic-render-wave-1", 1, "Wave 1", "wave", 1);
+    const wave2 = milestone("synthetic-render-wave-2", 2, "Wave 2", "wave", 2);
+    const mobile1 = milestone("synthetic-render-mobile-1", 3, "Mobile 1", "mobile", 1);
     const issue = (number, activeMilestone, priority, blocked = false) => ({
       id: `synthetic-render-issue-${number}`,
       number,
@@ -3310,13 +2745,17 @@ describe("prioritization hygiene authority", () => {
         "- #104 priority:p1 — Wave 2",
       ].join("\n"),
     );
-    expect(markdown).toContain("Pull-window diagnostics: Mobile: no runnable refined milestone.");
+    expect(markdown).toContain("Pull-window diagnostics: mobile: no runnable refined milestone.");
   });
 });
 
 describe("dispatch-window module boundary", () => {
   it("derives the tracked importer inventory and keeps the helper source network- and mutation-free", () => {
-    const trackedScripts = execFileSync("git", ["ls-files", "scripts"], { cwd: repoRoot, encoding: "utf8" })
+    const trackedScripts = execFileSync("git", ["ls-files", "scripts"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter((file) => file.endsWith(".mjs"));
     const importers = trackedScripts.filter((file) =>
@@ -3410,5 +2849,632 @@ describe("roadmap issue parent enumeration", () => {
         nodes: [issueNode(1, null)],
       })),
     ).rejects.toBeInstanceOf(RoadmapIssueEnumerationError);
+  });
+});
+
+describe("backlog relevance", () => {
+  const MERGE_1 = "2026-07-10T00:00:00Z";
+  const AFTER_1 = "2026-07-11T00:00:00Z";
+  const MERGE_2 = "2026-07-12T00:00:00Z";
+  const R1 = "**R1 Unhomed** — open non-Epic with no milestone";
+  const R2 = "**R2 Superseded** — open, named `full` in the `### Supersedes` of an issue not closed as not planned";
+  const R3 = "**R3 Delivered** — open with a merged closing pull request and no later keep-open marker";
+  const R4 = "**R4 Orphaned** — closed as not planned or duplicate, named `full` only by issues closed as not planned";
+
+  const supersedes = (...items) => `### Context\n\nFixture.\n\n### Supersedes\n\n${items.join("\n")}\n`;
+  const merged = (mergedAt) => ({ merged: true, mergedAt });
+  const comment = (createdAt, body = "Progress note.") => ({ createdAt, body });
+  const keepOpen = (createdAt) =>
+    comment(createdAt, `Population receipts pending. ${BACKLOG_RELEVANCE_KEEP_OPEN_MARKER}`);
+
+  function relevanceIssue(
+    number,
+    { state = "open", stateReason = null, milestone = WAVE_1, issueTypeName = "Slice", body = "" } = {},
+  ) {
+    return slice(number, milestone, state, [], OLD, { state_reason: stateReason, body, issueTypeName });
+  }
+
+  function connectionPages(nodes, size, totalCount = nodes.length) {
+    const pages = [];
+    for (let index = 0; index < Math.max(nodes.length, 1); index += size) pages.push(nodes.slice(index, index + size));
+    return (after) => {
+      const index = after == null ? 0 : Number(after.slice(1));
+      return {
+        totalCount,
+        pageInfo: { hasNextPage: index < pages.length - 1, endCursor: `c${index + 1}` },
+        nodes: pages[index],
+      };
+    };
+  }
+
+  function relevanceLoaders(issues) {
+    const references = new Map(issues.map((issue) => [issue.number, connectionPages(issue.references ?? [], 20)]));
+    const comments = new Map(issues.map((issue) => [issue.number, connectionPages(issue.comments ?? [], 100)]));
+    const issuePages = connectionPages(
+      issues.map((issue) => ({
+        number: issue.number,
+        closedByPullRequestsReferences: references.get(issue.number)(null),
+      })),
+      100,
+    );
+    const calls = { references: [], comments: [] };
+    return {
+      calls,
+      loadIssues: async (after) => issuePages(after),
+      loadReferences: async (number, after) => {
+        calls.references.push([number, after]);
+        return references.get(number)(after);
+      },
+      loadComments: async (number, after) => {
+        calls.comments.push([number, after]);
+        return comments.get(number)(after);
+      },
+    };
+  }
+
+  async function deliveredFrom(issues) {
+    return { status: "known", numbers: await collectBacklogRelevanceDelivered(relevanceLoaders(issues)) };
+  }
+
+  function relevanceSection(block) {
+    const start = block.indexOf("## Backlog relevance");
+    expect(start).toBeGreaterThan(-1);
+    return block.slice(start, block.indexOf(END_MARKER)).trimEnd();
+  }
+
+  function categoryLines(block) {
+    return relevanceSection(block)
+      .split("\n")
+      .slice(4)
+      .filter((line) => line !== "");
+  }
+
+  function renderRelevance(issues, delivered) {
+    return renderRoadmapStatus({
+      rows: [],
+      windowDays: 7,
+      backlogRelevance: summarizeBacklogRelevance({ issues, delivered }),
+    });
+  }
+
+  function categoryFixture() {
+    return [
+      relevanceIssue(101, { milestone: null }),
+      epic(102, 0),
+      relevanceIssue(201),
+      relevanceIssue(202),
+      relevanceIssue(203, { body: supersedes("- #201 full", "- #202 partial: keeps the export criterion") }),
+      relevanceIssue(204),
+      relevanceIssue(205, { body: supersedes("- #204 full") }),
+      relevanceIssue(401, { state: "closed", stateReason: "not_planned" }),
+      relevanceIssue(402, { state: "closed", stateReason: "not_planned", body: supersedes("- #401 full") }),
+      relevanceIssue(403, { state: "closed", stateReason: "not_planned" }),
+      relevanceIssue(404, { body: supersedes("- #403 full") }),
+      relevanceIssue(405, { state: "closed", stateReason: "duplicate" }),
+      relevanceIssue(406, { state: "closed", stateReason: "not_planned", body: supersedes("- #405 full") }),
+      relevanceIssue(407, { state: "closed", stateReason: "not_planned" }),
+      relevanceIssue(408, { state: "closed", stateReason: "not_planned", body: supersedes("- #407 full") }),
+    ];
+  }
+
+  const deliveredFixture = () => [
+    { number: 301, references: [merged(MERGE_1)] },
+    { number: 302, references: [merged(MERGE_1)], comments: [keepOpen(AFTER_1)] },
+    { number: 303, references: [merged(MERGE_1), merged(MERGE_2)], comments: [keepOpen(AFTER_1)] },
+    { number: 304, references: [{ merged: false, mergedAt: null }] },
+  ];
+
+  it("renders each qualifying issue once and no near miss in all four categories", async () => {
+    const block = renderRelevance(categoryFixture(), await deliveredFrom(deliveredFixture()));
+
+    expect(categoryLines(block)).toEqual([
+      `${R1}: **1**`,
+      "- #101",
+      `${R2}: **2**`,
+      "- #201 — named by #203",
+      "- #204 — named by #205",
+      `${R3}: **2**`,
+      "- #301",
+      "- #303",
+      `${R4}: **3**`,
+      "- #401 — named by #402",
+      "- #405 — named by #406",
+      "- #407 — named by #408",
+    ]);
+    // Near misses: an Epic without a milestone, a partial declaration, an R3
+    // marker after its only merge, an unmerged closing PR, and a predecessor
+    // with one open full successor.
+    for (const nearMiss of [102, 202, 302, 304, 403]) expect(block).not.toMatch(new RegExp(`#${nearMiss}\\b`));
+  });
+
+  it("drops every dispositioned row on the next run and advances the 25-row cap", async () => {
+    // #101 plus #1001-#1029: 30 qualifying R1 issues, of which the 25 shown are placed.
+    const unhomed = Array.from({ length: 29 }, (_, index) => relevanceIssue(1001 + index, { milestone: null }));
+    const first = renderRelevance([...categoryFixture(), ...unhomed], await deliveredFrom(deliveredFixture()));
+    expect(categoryLines(first).slice(0, 26)).toEqual([
+      `${R1}: **30** (first 25 shown)`,
+      "- #101",
+      ...Array.from({ length: 24 }, (_, index) => `- #${1001 + index}`),
+    ]);
+
+    const placed = new Set([101, ...Array.from({ length: 24 }, (_, index) => 1001 + index)]);
+    const dispositioned = [...categoryFixture(), ...unhomed].map((issue) => {
+      if (placed.has(issue.number)) return { ...issue, milestone: WAVE_1 };
+      if (issue.number === 201) return { ...issue, state: "closed", state_reason: "completed" };
+      if (issue.number === 205) return { ...issue, body: supersedes("- #204 partial: keeps the import criterion") };
+      if (issue.number === 401) return { ...issue, state: "open", state_reason: "reopened" };
+      return issue;
+    });
+    dispositioned.push(relevanceIssue(409, { body: supersedes("- #407 full") }));
+    const r3 = deliveredFixture().map((issue) =>
+      issue.number === 301 ? { ...issue, comments: [keepOpen(AFTER_1)] } : issue,
+    );
+    r3.find((issue) => issue.number === 303).comments.push(keepOpen("2026-07-13T00:00:00Z"));
+    const second = renderRelevance(dispositioned, await deliveredFrom(r3));
+
+    expect(categoryLines(second)).toEqual([
+      `${R1}: **5**`,
+      ...Array.from({ length: 5 }, (_, index) => `- #${1025 + index}`),
+      `${R2}: **0**`,
+      `${R3}: **0**`,
+      `${R4}: **1**`,
+      "- #405 — named by #406",
+    ]);
+  });
+
+  it("decides R3 on a newer merge at reference 21 and a marker at comment 150", async () => {
+    const twenty = Array.from({ length: 20 }, () => merged(MERGE_1));
+    const plain = Array.from({ length: 149 }, () => comment("2026-07-15T00:00:00Z"));
+    const loaders = relevanceLoaders([
+      { number: 501, references: [...twenty, merged(MERGE_2)], comments: [keepOpen(AFTER_1)] },
+      { number: 502, references: [merged(MERGE_1)], comments: [...plain, keepOpen("2026-07-16T00:00:00Z")] },
+    ]);
+
+    await expect(collectBacklogRelevanceDelivered(loaders)).resolves.toEqual([501]);
+    expect(loaders.calls.references).toEqual([[501, "c1"]]);
+    expect(loaders.calls.comments).toEqual([
+      [501, null],
+      [502, null],
+      [502, "c1"],
+    ]);
+  });
+
+  it.each([
+    ["an invalid issue page", { loadIssues: async () => null }, "ROADMAP_RELEVANCE_R3_ISSUES_PAGE_INVALID"],
+    [
+      "a malformed issue node",
+      { loadIssues: async () => windowPage([{ number: 1, closedByPullRequestsReferences: windowPage([]), extra: 1 }]) },
+      "ROADMAP_RELEVANCE_R3_ISSUES_NODE_INVALID",
+    ],
+    [
+      "a duplicate issue",
+      {
+        loadIssues: async () =>
+          windowPage([
+            { number: 1, closedByPullRequestsReferences: windowPage([]) },
+            { number: 1, closedByPullRequestsReferences: windowPage([]) },
+          ]),
+      },
+      "ROADMAP_RELEVANCE_R3_ISSUES_DUPLICATE",
+    ],
+    [
+      "a merged reference without mergedAt",
+      {
+        loadIssues: async () =>
+          windowPage([{ number: 1, closedByPullRequestsReferences: windowPage([{ merged: true, mergedAt: null }]) }]),
+      },
+      "ROADMAP_RELEVANCE_R3_REFERENCES_NODE_INVALID",
+    ],
+    [
+      "a short reference collection",
+      {
+        loadIssues: async () =>
+          windowPage([
+            {
+              number: 1,
+              closedByPullRequestsReferences: { ...windowPage([merged(MERGE_1)]), totalCount: 21 },
+            },
+          ]),
+      },
+      "ROADMAP_RELEVANCE_R3_REFERENCES_COUNT_MISMATCH",
+    ],
+    [
+      "a short comment collection",
+      {
+        loadIssues: async () =>
+          windowPage([{ number: 1, closedByPullRequestsReferences: windowPage([merged(MERGE_1)]) }]),
+        loadComments: async () => ({ ...windowPage([comment(AFTER_1)]), totalCount: 150 }),
+      },
+      "ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH",
+    ],
+    [
+      "a continuation page that makes no progress",
+      {
+        loadIssues: async () => ({
+          totalCount: 2,
+          pageInfo: { hasNextPage: true, endCursor: "c1" },
+          nodes: [],
+        }),
+      },
+      "ROADMAP_RELEVANCE_R3_ISSUES_COUNT_MISMATCH",
+    ],
+    [
+      "an open total that changes between pages",
+      {
+        loadIssues: async (after) => ({
+          totalCount: after === null ? 2 : 3,
+          pageInfo: { hasNextPage: after === null, endCursor: after === null ? "c1" : "c2" },
+          nodes: [{ number: after === null ? 1 : 2, closedByPullRequestsReferences: windowPage([]) }],
+        }),
+      },
+      "ROADMAP_RELEVANCE_R3_ISSUES_TOTAL_CHANGED",
+    ],
+  ])("refuses to decide R3 on %s", async (_name, overrides, code) => {
+    const loaders = {
+      loadReferences: async () => windowPage([]),
+      loadComments: async () => windowPage([]),
+      ...overrides,
+    };
+    await expect(collectBacklogRelevanceDelivered(loaders)).rejects.toMatchObject({ code });
+  });
+
+  it("renders R3 unknown without a count and lists an unparsed Supersedes body under R2 and R4", () => {
+    const issues = [
+      relevanceIssue(703),
+      relevanceIssue(704, { body: supersedes("- #703 full", "- #9 almost") }),
+      relevanceIssue(706, { state: "closed", stateReason: "not_planned", body: supersedes("- #707 full") }),
+      relevanceIssue(707, { state: "closed", stateReason: "duplicate" }),
+    ];
+    const block = renderRelevance(issues, {
+      status: "unknown",
+      reason: "ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH",
+    });
+
+    expect(categoryLines(block)).toEqual([
+      `${R1}: **0**`,
+      `${R2}: **1**`,
+      "- #703 — named by #704",
+      "- unparsed: #704",
+      `${R3}: unknown: ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH`,
+      `${R4}: **1**`,
+      "- #707 — named by #706",
+      "- unparsed: #704",
+    ]);
+  });
+
+  it("caps all four categories and their unparsed lists at 25 rows within a bounded section", () => {
+    const range = (start) => Array.from({ length: 30 }, (_, index) => start + index);
+    const issues = [
+      ...range(1).map((number) => relevanceIssue(number, { milestone: null })),
+      ...range(101).map((number) => relevanceIssue(number)),
+      relevanceIssue(200, { body: supersedes(...range(101).map((number) => `- #${number} full`)) }),
+      ...range(301).map((number) => relevanceIssue(number, { body: supersedes(`- #${number} almost`) })),
+      ...range(401).map((number) => relevanceIssue(number, { state: "closed", stateReason: "not_planned" })),
+      relevanceIssue(500, {
+        state: "closed",
+        stateReason: "not_planned",
+        body: supersedes(...range(401).map((number) => `- #${number} full`)),
+      }),
+    ];
+    const section = relevanceSection(renderRelevance(issues, { status: "known", numbers: range(601) }));
+    const lines = section.split("\n");
+
+    for (const label of [R1, R2, R3, R4]) expect(lines).toContain(`${label}: **30** (first 25 shown)`);
+    expect(lines.filter((line) => /^- #\d+/.test(line))).toHaveLength(100);
+    expect(lines.filter((line) => /^- unparsed: #\d+$/.test(line))).toHaveLength(50);
+    expect(lines.filter((line) => line === "- unparsed: 5 more")).toHaveLength(2);
+    expect(Buffer.byteLength(section, "utf8")).toBeLessThan(6_144);
+  });
+
+  function relevanceRequest(base, { issues = [], respond = () => null } = {}) {
+    const loaders = relevanceLoaders(issues);
+    return async (url, init = {}) => {
+      if (new URL(url).pathname === "/graphql") {
+        const { query, variables } = JSON.parse(init.body);
+        if (query.includes("BACKLOG_RELEVANCE_")) {
+          base.requests.push({ method: "POST", url, body: init.body });
+          const response = respond(query, variables);
+          if (response) return response;
+          if (query.includes("BACKLOG_RELEVANCE_ISSUES_SENTINEL")) {
+            return jsonResponse({ data: { repository: { issues: await loaders.loadIssues(variables.after) } } });
+          }
+          const connection = query.includes("BACKLOG_RELEVANCE_REFERENCES_SENTINEL")
+            ? { closedByPullRequestsReferences: await loaders.loadReferences(variables.number, variables.after) }
+            : { comments: await loaders.loadComments(variables.number, variables.after) };
+          return jsonResponse({ data: { repository: { issue: connection } } });
+        }
+      }
+      return base.request(url, init);
+    };
+  }
+
+  async function runRelevanceMain({ relevance, ...options }) {
+    const base = createMainRequest(options);
+    const generated = [];
+    const diagnostics = [];
+    const code = await runRoadmapStatus(
+      () =>
+        main({
+          env: mainEnv(),
+          request: relevanceRequest(base, relevance),
+          nowMs: NOW,
+          writeOutput: (message) => generated.push(message),
+          writeError: (message) => diagnostics.push(message),
+          appendSummary: async () => {},
+        }),
+      (message) => diagnostics.push(message),
+    );
+    return { ...base, code, generated, diagnostics, patches: base.requests.filter(({ method }) => method === "PATCH") };
+  }
+
+  const mainIssues = () => [
+    slice(701, WAVE_1, "open", ["priority:p1", "area:ops", "kind:ops"]),
+    relevanceIssue(702, { milestone: null }),
+    relevanceIssue(703),
+    relevanceIssue(704, { body: supersedes("- #703 full", "- #9 almost") }),
+    relevanceIssue(705, { state: "closed", stateReason: "not_planned" }),
+    relevanceIssue(706, { state: "closed", stateReason: "not_planned", body: supersedes("- #705 full") }),
+  ];
+  const delivered9101 = [{ number: 9101, references: [merged("2026-10-08T20:42:09Z")] }];
+
+  it.each([
+    ["issue facts", "states:[OPEN,CLOSED]"],
+    ["window milestones", "WINDOW_MILESTONES_SENTINEL"],
+    ["window issues", "WINDOW_ISSUES_SENTINEL"],
+    ["refined inventory", "REFINED_INVENTORY_PRS_SENTINEL"],
+  ])("recovers a core %s secondary-limit 403 and patches the roadmap", async (_name, sentinel) => {
+    let attempts = 0;
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      relevance: { issues: delivered9101 },
+      graphqlRespond: (query) => {
+        if (!query.includes(sentinel)) return null;
+        attempts += 1;
+        return attempts === 1
+          ? jsonResponse({ message: "You have exceeded a secondary rate limit" }, { status: 403 })
+          : null;
+      },
+    });
+
+    expect(attempts).toBeGreaterThanOrEqual(2);
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.generated[0]).toContain(`${R3}: **1**`);
+    expect(result.patches).toHaveLength(1);
+    expect(JSON.parse(result.patches[0].body).body).toBe(result.generated[0]);
+  });
+
+  it("fails a core permission 403 once without generating or splicing the roadmap", async () => {
+    let attempts = 0;
+    let body = `Before\n${START_MARKER}\nstale\n${END_MARKER}\nAfter`;
+    const original = body;
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      roadmapBody: () => body,
+      relevance: { issues: delivered9101 },
+      graphqlRespond: () => {
+        attempts += 1;
+        return jsonResponse({ message: "Resource not accessible by integration" }, { status: 403 });
+      },
+    });
+    for (const patch of result.patches) body = JSON.parse(patch.body).body;
+
+    expect(attempts).toBe(1);
+    expect(result.code).toBe(1);
+    expect(result.diagnostics).toEqual([expect.stringContaining("GitHub request failed: 403")]);
+    expect(result.generated).toEqual([]);
+    expect(result.patches).toEqual([]);
+    expect(body).toBe(original);
+  });
+
+  it.each(["alternating limits", "persistent limit at the cap"])(
+    "caps physical relevance requests at 256 with %s and still splices unknown",
+    async (mode) => {
+      let physicalRequests = 0;
+      const result = await runRelevanceMain({
+        issues: mainIssues(),
+        relevance: {
+          issues: Array.from({ length: 300 }, (_, index) => ({
+            number: 10_000 + index,
+            references: [merged(MERGE_1)],
+          })),
+          respond: () => {
+            physicalRequests += 1;
+            if (physicalRequests % 2 === 1 || (mode === "persistent limit at the cap" && physicalRequests >= 255)) {
+              return new Response(JSON.stringify({ message: "You have exceeded a secondary rate limit" }), {
+                status: 403,
+                headers: { "retry-after": "0" },
+              });
+            }
+            return null;
+          },
+        },
+      });
+
+      expect(physicalRequests).toBe(256);
+      expect(result.code).toBe(0);
+      expect(result.diagnostics).toEqual([]);
+      expect(result.generated[0]).toContain(`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_BUDGET_EXCEEDED`);
+      expect(result.patches).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ["a complete collection", {}, [`${R3}: **1**`, "- #9101"]],
+    [
+      "an R3 page error",
+      {
+        respond: (query) =>
+          query.includes("ISSUES_SENTINEL") ? jsonResponse({ message: "bad gateway" }, { status: 502 }) : null,
+      },
+      [`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_FAILED`],
+    ],
+    [
+      "a short reference collection",
+      {
+        respond: (query) =>
+          query.includes("ISSUES_SENTINEL")
+            ? jsonResponse({
+                data: {
+                  repository: {
+                    issues: windowPage([
+                      {
+                        number: 9101,
+                        closedByPullRequestsReferences: { ...windowPage([merged(MERGE_1)]), totalCount: 21 },
+                      },
+                    ]),
+                  },
+                },
+              })
+            : null,
+      },
+      [`${R3}: unknown: ROADMAP_RELEVANCE_R3_REFERENCES_COUNT_MISMATCH`],
+    ],
+    [
+      "a short comment collection",
+      {
+        respond: (query) =>
+          query.includes("COMMENTS_SENTINEL")
+            ? jsonResponse({
+                data: { repository: { issue: { comments: { ...windowPage([comment(AFTER_1)]), totalCount: 150 } } } },
+              })
+            : null,
+      },
+      [`${R3}: unknown: ROADMAP_RELEVANCE_R3_COMMENTS_COUNT_MISMATCH`],
+    ],
+  ])("publishes every other section and the splice with %s", async (_name, relevance, r3Lines) => {
+    const result = await runRelevanceMain({ issues: mainIssues(), relevance: { issues: delivered9101, ...relevance } });
+    const patchedBody = JSON.parse(result.patches[0].body).body;
+
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.patches).toHaveLength(1);
+    expect(patchedBody).toBe(result.generated[0]);
+    expect(patchedBody).toContain("## Generated status");
+    expect(patchedBody).toContain("## Prioritization hygiene");
+    expect(patchedBody).toContain("Executable backlog: **");
+    expect(patchedBody.indexOf("## Prioritization hygiene")).toBeLessThan(patchedBody.indexOf("## Backlog relevance"));
+    expect(categoryLines(patchedBody)).toEqual([
+      `${R1}: **1**`,
+      "- #702",
+      `${R2}: **1**`,
+      "- #703 — named by #704",
+      "- unparsed: #704",
+      ...r3Lines,
+      `${R4}: **1**`,
+      "- #705 — named by #706",
+      "- unparsed: #704",
+    ]);
+  });
+
+  it("retries a secondary rate limit using retry-after before deciding R3", async () => {
+    let limited = true;
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      relevance: {
+        issues: delivered9101,
+        respond: (query) => {
+          if (!query.includes("ISSUES_SENTINEL") || !limited) return null;
+          limited = false;
+          return new Response(JSON.stringify({ message: "secondary rate limit" }), {
+            status: 403,
+            headers: { "retry-after": "0" },
+          });
+        },
+      },
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.generated[0]).toContain(`${R3}: **1**`);
+  });
+
+  it("renders R3 unknown after bounded rate-limit retries without failing the splice", async () => {
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      relevance: {
+        issues: delivered9101,
+        respond: (query) =>
+          query.includes("ISSUES_SENTINEL")
+            ? new Response(JSON.stringify({ message: "secondary rate limit" }), {
+                status: 403,
+                headers: { "retry-after": "0" },
+              })
+            : null,
+      },
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.generated[0]).toContain(`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_FAILED`);
+    expect(result.patches).toHaveLength(1);
+  });
+
+  it.each([
+    [429, { "retry-after": "2" }, 2_000],
+    [429, { "retry-after": "10" }, 5_000],
+    [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(NOW / 1_000 + 3) }, 3_000],
+    [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(NOW / 1_000 - 1) }, 0],
+  ])("retries status %s with provider backoff headers %j", async (status, headers, delay) => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const delays = [];
+    const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation((callback, ms) => {
+      delays.push(ms);
+      return originalSetTimeout(callback, 0);
+    });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(NOW);
+    let attempts = 0;
+    try {
+      const result = await runRelevanceMain({
+        issues: mainIssues(),
+        relevance: {
+          issues: delivered9101,
+          respond: () => {
+            attempts += 1;
+            return attempts === 1 ? new Response("{}", { status, headers }) : null;
+          },
+        },
+      });
+
+      expect(delays).toEqual([delay]);
+      expect(result.code).toBe(0);
+      expect(result.generated[0]).toContain(`${R3}: **1**`);
+      expect(result.patches).toHaveLength(1);
+    } finally {
+      timer.mockRestore();
+      clock.mockRestore();
+    }
+  });
+
+  it("does not retry a relevance permission 403 and splices an explicit unknown", async () => {
+    let attempts = 0;
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      relevance: {
+        respond: () => {
+          attempts += 1;
+          return jsonResponse({ message: "Resource not accessible by integration" }, { status: 403 });
+        },
+      },
+    });
+
+    expect(attempts).toBe(1);
+    expect(result.code).toBe(0);
+    expect(result.generated[0]).toContain(`${R3}: unknown: ROADMAP_RELEVANCE_R3_REQUEST_FAILED`);
+    expect(result.patches).toHaveLength(1);
+  });
+
+  it("keeps a core-authority refusal byte-identical without reaching any relevance acquisition", async () => {
+    const future = capRecord(Date.parse("2026-08-28T00:00:00.000Z"));
+    const result = await runRelevanceMain({
+      issues: mainIssues(),
+      roadmapBody: `${START_MARKER}\n${renderRefinedInventoryCapMarker(future)}\n${END_MARKER}`,
+      relevance: { issues: delivered9101 },
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.diagnostics).toEqual([expect.stringMatching(/^ROADMAP_REFINED_INVENTORY_MARKER_FUTURE:/)]);
+    expect(result.patches).toEqual([]);
+    expect(result.requests.some(({ body }) => body?.includes("BACKLOG_RELEVANCE_"))).toBe(false);
   });
 });

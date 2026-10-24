@@ -17,6 +17,8 @@ import {
   type ProviderSendLedger,
 } from "../providers/provider-send-admission";
 import { SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./scrydex-one-piece";
+import { scrydexCountQuery } from "../providers/scrydex/adapter";
+import type { ScrydexCountEvidence } from "../../../scope-sync-batches/domain/count-acquisition";
 
 const now = new Date("2026-09-30T12:00:00Z");
 const request: CatalogProviderOptionQueryRequest = {
@@ -103,6 +105,58 @@ function adapter(cacheStore: CatalogProviderOptionQueryCacheStore, fetch: typeof
 }
 
 describe("Scrydex exact cached card estimate", () => {
+  it("AC5 consumes only the newest exact count source, retaining complete-cache on ties", async () => {
+    const query = scrydexCountQuery({
+      environment: "runtime",
+      accountRevision: "runtime",
+      productDomain: "lorcana",
+      profileKey: request.profileKey!,
+      profileVersion: request.profileVersion,
+      unitKey,
+      kind: "cards",
+      languageCode: "en",
+      parentValue: "TFC",
+    });
+    let evidence: ScrydexCountEvidence = {
+      query,
+      validationKind: "page-1-count",
+      sourceId: "synthetic-debit",
+      totalCount: 121,
+      pageSize: 100,
+      returnedPage: 1,
+      returnedItemCount: 100,
+      observedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 900_000).toISOString(),
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ data: {} }));
+    const subject = createScrydexOnePieceProviderAdapter({
+      cacheStore: store(),
+      countReader: { read: async () => evidence },
+      fetch,
+      credentials: { apiKey: "synthetic", teamId: "synthetic" },
+      now: () => now,
+    });
+    expect((await subject.planImport(scope)).usageEstimate).toMatchObject({
+      estimatedRequestCount: 2,
+      pageSize: 100,
+      countSource: { sourceId: "synthetic-debit", validationKind: "page-1-count", observedAt: now.toISOString() },
+    });
+    const cache = store(record());
+    const both = createScrydexOnePieceProviderAdapter({
+      cacheStore: cache,
+      countReader: { read: async () => evidence },
+      fetch,
+      credentials: { apiKey: "synthetic", teamId: "synthetic" },
+      now: () => now,
+    });
+    expect((await both.planImport(scope)).usageEstimate?.countSource?.validationKind).toBe("complete-cache");
+    cache.read.mockResolvedValue(record({ fetchedAt: new Date(now.getTime() - 1).toISOString() }));
+    expect((await both.planImport(scope)).usageEstimate?.countSource?.validationKind).toBe("page-1-count");
+    evidence = { ...evidence, query: { ...query, profileVersion: "wrong" } };
+    expect((await subject.planImport(scope)).usageEstimate?.estimatedRequestCount).toBeNull();
+    expect(fetch.mock.calls.every(([url]) => String(url).includes("/usage"))).toBe(true);
+    expect(cache.write).not.toHaveBeenCalled();
+  });
   const binding = { windowId: "synthetic-window", phase: "pass" as const, pass: 1 };
   function guarded(maximum: number | null = null) {
     const ledger: ProviderSendLedger = {
@@ -280,7 +334,6 @@ describe("Scrydex exact cached card estimate", () => {
           { ...request, forceRefresh: true },
           { query },
           null,
-          undefined,
           undefined,
           new ProviderAdapterRegistry([subject]),
         );

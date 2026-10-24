@@ -1,6 +1,9 @@
 import { expect, it } from "vitest";
 import { Hono } from "hono";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { resetMultiContextTestSchemas } from "@chase-sets/bounded-context-runtime/test-support";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
+import { module as channelsModule } from "../../../index";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { aggregateSellerAttentionQueue } from "@chase-sets/seller-attention-queue";
@@ -39,7 +42,7 @@ describeDb("channel-action canonical bounded page", () => {
     }).load({ accountId, now: "2026-09-13T01:00:00Z" });
     expect(items).toHaveLength(100);
     expect(new Set(items.map((item) => item.id)).size).toBe(100);
-    expect(count).toBe(4);
+    expect(count).toBe(6);
     return items;
   }
   it("keeps a newer critical health item ahead of 100 older manual-ready info connections", async () => {
@@ -74,6 +77,7 @@ describeDb("channel-action canonical bounded page", () => {
 
 describeDb("channel-action-source-contract", () => {
   const h = healthDatabase("attention_source");
+  const drain = healthDatabase("attention_reader_lifetime");
   const queueContext = () => ({ accountId: context.audit.forAccountId, now: new Date().toISOString() });
   async function project(id: string) {
     const handlers = buildChannelConnectionProjectionHandlers(h.db);
@@ -211,33 +215,52 @@ describeDb("channel-action-source-contract", () => {
     expect(await (await app.request(url)).json()).toMatchObject({ health: [], manual: null });
     expect(await services.connectionHealth.listOpenReasonGenerations(h.query(id))).toHaveLength(1);
   });
-  it("unions connection keys before 100 and batches with no per-item I/O", async () => {
-    // Synthetic producer projection rows exercise the real account query, not provider acceptance.
-    await h.db.query(
-      `INSERT INTO channel_connections (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,projection_updated_at,last_stream_version)
+  describeDb("isolated mixed contribution page", () => {
+    const batch = healthDatabase("attention_source_batch");
+    it("unions connection keys before 100 and batches with no per-item I/O", async () => {
+      // Synthetic producer projection rows exercise the real account query, not provider acceptance.
+      await batch.db.query(
+        `INSERT INTO channel_connections (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,projection_updated_at,last_stream_version)
       SELECT 'page-' || n,$1,'tcgplayer','sandbox','active','2026-09-01T00:00:00Z','2026-09-01T00:00:00Z','2026-09-01T00:00:00Z',1 FROM generate_series(1,101) n`,
-      [context.audit.forAccountId],
-    );
-    for (let n = 1; n <= 101; n++) await manual(`page-${n}`, "composed");
-    const healthId = await h.connection();
-    await h.services.connectionHealth.submitObservation(
-      await h.observation(healthId, "polling", { occurredAt: "2026-08-01T00:00:00Z" }),
-      context,
-    );
-    let count = 0;
-    const source = createChannelActionAttentionSourceFromReadModel({
-      query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
-        count++;
-        return h.db.query<Row>(sql, params);
-      },
+        [context.audit.forAccountId],
+      );
+      await batch.db.query(
+        `INSERT INTO channel_sync_runs
+      (run_id,revision,sequence,connection_id,provider_key,reservation_id,claimant_kind,claimant_id,lease_expires_at,
+       manual_claim_lease_policy_snapshot,state,basis_snapshot_id,basis_snapshot_generation,csv_header,member_count,member_digest,created_at,updated_at,last_stream_version)
+      SELECT 'synthetic-page-run-' || n,1,1,'page-' || n,'tcgplayer','synthetic-page-run-' || n,'manual','synthetic-manual',
+        '2027-01-01T00:00:00Z','{}','composed','synthetic-basis',1,'[]',1,$1,'2026-09-01T00:00:00Z','2026-09-01T00:00:00Z',1
+      FROM generate_series(1,101) n`,
+        ["a".repeat(64)],
+      );
+      await batch.db.query(
+        `INSERT INTO channel_order_attention
+      (account_id,connection_id,order_reference,reason,generation,affected_lines,opened_at)
+      SELECT $1,'page-' || n,'synthetic-order-' || n,'tcgplayer-order-unmapped',1,'[]','2026-09-01T00:00:00Z'
+      FROM generate_series(1,101) n`,
+        [context.audit.forAccountId],
+      );
+      const healthId = await batch.connection();
+      await batch.services.connectionHealth.submitObservation(
+        await batch.observation(healthId, "polling", { occurredAt: "2026-08-01T00:00:00Z" }),
+        context,
+      );
+      let count = 0;
+      const source = createChannelActionAttentionSourceFromReadModel({
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          count++;
+          return batch.db.query<Row>(sql, params);
+        },
+      });
+      const items = await source.load(queueContext());
+      expect(items).toHaveLength(100);
+      expect(new Set(items.map((item) => item.id)).size).toBe(100);
+      expect(count).toBe(6);
+      expect(items.some((item) => item.id === `channel-action:${healthId}`)).toBe(true);
+      expect(items.filter((item) => item.summary.params?.orderCount === 1)).toHaveLength(99);
     });
-    const items = await source.load(queueContext());
-    expect(items).toHaveLength(100);
-    expect(new Set(items.map((item) => item.id)).size).toBe(100);
-    expect(count).toBe(4);
-    expect(items.some((item) => item.id === `channel-action:${healthId}`)).toBe(true);
   });
-  it.each(["channel_sync_runs", "channel_connection_health"])(
+  it.each(["channel_sync_runs", "channel_connection_health", "channel_order_attention"])(
     "degrades only channel-action on the %s owner-read failure",
     async (table) => {
       const source = createChannelActionAttentionSourceFromReadModel({
@@ -251,4 +274,70 @@ describeDb("channel-action-source-contract", () => {
       expect(queue.items).toEqual([]);
     },
   );
+
+  it("drains a real connector SELECT before reporting a sibling source failure", async () => {
+    const connectionId = await drain.connection();
+    await drain.services.connectionHealth.submitObservation(await drain.observation(connectionId), context);
+    const gateKey = 10247n;
+    const observer = await drain.db.connect();
+    let sourceSettled = false;
+    try {
+      await observer.query("SELECT pg_advisory_lock($1::bigint)", [gateKey]);
+      const waitForConnector = async () => {
+        for (let attempt = 0; attempt < 80; attempt++) {
+          const activity = await observer.query<{
+            pid: number;
+            state: string;
+            wait_event_type: string | null;
+            query: string;
+          }>(
+            `SELECT pid,state,wait_event_type,query
+             FROM pg_stat_activity
+             WHERE datname=current_database() AND pid<>pg_backend_pid()
+               AND query LIKE '%channel_live_export_operations%'`,
+          );
+          if (activity.rows.length > 0) return activity.rows[0];
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error("connector-reader-not-observed");
+      };
+      const source = createChannelActionAttentionSourceFromReadModel({
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          if (sql.includes("channel_live_export_operations")) {
+            const gated = `WITH reader_gate AS MATERIALIZED (
+              SELECT pg_advisory_xact_lock($3::bigint) AS locked
+            ), result AS MATERIALIZED (${sql})
+            SELECT result.* FROM reader_gate CROSS JOIN result`;
+            return drain.db.query<Row>(gated, [...(params ?? []), gateKey]);
+          }
+          if (sql.includes("SELECT connection.connection_id,attention.reason_code")) {
+            const activity = await waitForConnector();
+            expect(activity.query).toContain("channel_live_export_operations");
+            throw new Error("synthetic-owner-unavailable");
+          }
+          return drain.db.query<Row>(sql, params);
+        },
+      });
+      const pending = source.load({ accountId: context.audit.forAccountId, now: new Date().toISOString() });
+      void pending.then(
+        () => {
+          sourceSettled = true;
+        },
+        () => {
+          sourceSettled = true;
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(sourceSettled).toBe(false);
+      await observer.query("SELECT pg_advisory_unlock($1::bigint)", [gateKey]);
+      await expect(pending).rejects.toThrow("channel-action-unavailable");
+      expect(sourceSettled).toBe(true);
+    } finally {
+      await observer.query("SELECT pg_advisory_unlock($1::bigint)", [gateKey]).catch(() => undefined);
+      observer.release();
+      await resetMultiContextTestSchemas({ channels: drain.db });
+      await bootstrapContextDatabase(channelsModule, drain.db);
+    }
+    expect(connectionId).toMatch(/^connection_health_attention_reader_lifetime_/);
+  });
 });

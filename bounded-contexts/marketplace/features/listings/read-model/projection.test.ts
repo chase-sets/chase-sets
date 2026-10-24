@@ -1,3 +1,7 @@
+import {
+  assertMeasurePublicationConsumer,
+  withMeasurePublicationStaging,
+} from "@chase-sets/event-core-postgres/measure-publication-test-support";
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -147,6 +151,14 @@ class ProjectionDb implements PgQueryable {
       }
 
       row.status = "active";
+      row.updated_at = String(values[1]);
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("UPDATE marketplace_listing_pages") && sql.includes("SET status = 'paused'")) {
+      const row = this.listings.get(String(values[0]));
+      if (!row) return { rows: [], rowCount: 0 };
+      row.status = "paused";
       row.updated_at = String(values[1]);
       return { rows: [], rowCount: 1 };
     }
@@ -310,6 +322,7 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 0 };
     }
 
+    if (sql.includes("DELETE FROM event_projection_measure_publication_parts")) return { rows: [], rowCount: 0 };
     throw new Error(`Unexpected query: ${sql}`);
   }
 }
@@ -458,6 +471,92 @@ function event(
 }
 
 describe("marketplace listing projection", () => {
+  const automaticRemoval = {
+    reportId: "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    reportCount: 3,
+    threshold: 3,
+    autoUnlistedAt: "2026-05-09T00:01:00.000Z",
+  };
+  const listingEnforcement = {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    accountId: "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    source: "automatic-report-threshold",
+    sourceActionId: automaticRemoval.reportId,
+    occurredAt: automaticRemoval.autoUnlistedAt,
+  };
+
+  it("legacy-modern parity", async () => {
+    // Expected public row captured from immutable base 43d1c261, not the candidate handler.
+    for (const data of [automaticRemoval, { ...automaticRemoval, listingEnforcement }]) {
+      const db = new ProjectionDb();
+      db.listings.set("lst_1", listingPage({ account_id: listingEnforcement.accountId }));
+      await buildMarketplaceListingProjectionHandlers(db)["marketplace.listing.auto-unlisted"]!(
+        event("marketplace.listing.auto-unlisted", data, "marketplace.listing-lst_1"),
+      );
+      expect(db.listings.get("lst_1")).toEqual(
+        listingPage({
+          account_id: listingEnforcement.accountId,
+          status: "paused",
+          updated_at: "2026-05-09T00:01:00.000Z",
+        }),
+      );
+      expect(db.realtimePayloads).toHaveLength(1);
+      expect(JSON.stringify(db.realtimePayloads)).not.toContain("listingEnforcement");
+    }
+  });
+
+  it("operator removal matches automatic visibility", async () => {
+    const db = new ProjectionDb();
+    const unrelated = listingPage({ listing_id: "lst_2", account_id: "acc_other" });
+    db.listings.set("lst_1", listingPage({ account_id: listingEnforcement.accountId }));
+    db.listings.set("lst_2", { ...unrelated });
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    expect(db.listings.get("lst_1")?.status).toBe("active");
+    await handlers["marketplace.listing.operator-unlisted"]!(
+      event(
+        "marketplace.listing.operator-unlisted",
+        {
+          listingEnforcement: {
+            ...listingEnforcement,
+            source: "operator-unlist",
+            sourceActionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          },
+        },
+        "marketplace.listing-lst_1",
+      ),
+    );
+    expect(db.listings.get("lst_1")).toEqual(
+      listingPage({
+        account_id: listingEnforcement.accountId,
+        status: "paused",
+        updated_at: "2026-05-09T00:01:00.000Z",
+      }),
+    );
+    expect(db.listings.get("lst_2")).toEqual(unrelated);
+    expect(db.realtimePayloads).toHaveLength(1);
+    const removed = { ...db.listings.get("lst_1") };
+    await handlers["marketplace.listing.price-updated"]!(
+      event(
+        "marketplace.listing.price-updated",
+        { priceAmount: "1.00", priceCurrencyCode: "USD" },
+        "marketplace.listing-lst_1",
+        0,
+      ),
+    );
+    expect(db.listings.get("lst_1")).toEqual(removed);
+    // A historical removal remains a visibility fact, without introducing identity into the page.
+    await handlers["marketplace.listing.auto-unlisted"]!(
+      event("marketplace.listing.auto-unlisted", automaticRemoval, "marketplace.listing-lst_1"),
+    );
+    expect(db.listings.get("lst_2")).toEqual(unrelated);
+    await expect(
+      handlers["marketplace.listing.operator-unlisted"]!(
+        event("marketplace.listing.operator-unlisted", {}, "marketplace.listing-absent"),
+      ),
+    ).rejects.toThrow("missing marketplace listing");
+  });
+
   it("creates seller listing pages from listing created events", async () => {
     const db = new ProjectionDb();
     const handlers = buildMarketplaceListingProjectionHandlers(db);
@@ -1014,5 +1113,21 @@ describe("marketplace listing projection", () => {
       away_window_ends_at: null,
       away_window_reason_category: null,
     });
+  });
+});
+
+it("stages 85 Products without partial visibility, rejects mismatch without mutation, and selects from the last part", async () => {
+  const db = new ProjectionDb();
+  const staging = withMeasurePublicationStaging(db);
+  const handlers = buildMarketplaceListingProjectionHandlers(staging.db);
+  db.listings.set("lst_1", listingPage());
+  await assertMeasurePublicationConsumer({
+    handlers,
+    staging,
+    visible: () => ({ rows: [...db.listings.values()], patches: db.realtimePayloads }),
+    assertProducts: (products) =>
+      expect(db.listings.get("lst_1")!.product_measure_snapshot).toEqual(
+        products.find((product) => product.productId === "prd_1") ?? null,
+      ),
   });
 });

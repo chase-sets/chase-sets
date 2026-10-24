@@ -7,7 +7,7 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["shipments", "return-shipments"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
@@ -176,7 +176,13 @@
       { "name": "fulfillment.advance-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.dispatch-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.raise-shipment-exception", "ownerSlice": "shipments" },
-      { "name": "fulfillment.void-label", "ownerSlice": "shipments" }
+      { "name": "fulfillment.void-label", "ownerSlice": "shipments" },
+      { "name": "fulfillment.complete-return-intake", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.correct-return-intake", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.get-return-intake-queue", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.reconcile-unidentified-return-package", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.record-unidentified-return-package", "ownerSlice": "return-shipments" },
+      { "name": "fulfillment.resolve-return-intake", "ownerSlice": "return-shipments" }
     ],
     "resources": [
       {
@@ -503,6 +509,18 @@
       }
     }
   ],
+  "agentCoverage": {
+    "return-intake": {
+      "tools": [
+        "fulfillment.complete-return-intake",
+        "fulfillment.correct-return-intake",
+        "fulfillment.get-return-intake-queue",
+        "fulfillment.reconcile-unidentified-return-package",
+        "fulfillment.record-unidentified-return-package",
+        "fulfillment.resolve-return-intake"
+      ]
+    }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -572,8 +590,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -584,6 +601,9 @@
             "owner": "fulfillment",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -696,46 +716,31 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "shipments",
-      "label": "Shipments",
-      "icon": "package",
-      "href": "/account/shipments",
-      "order": 150,
-      "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "shipments",
-      "label": "Shipments",
-      "icon": "package",
-      "href": "/account/shipments",
-      "order": 150,
-      "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "top-nav",
       "key": "sale-shipments",
-      "label": "Sale shipments",
+      "label": "Shipping",
+      "labelKey": "fulfillment.shell.saleShipments.label",
       "icon": "truck",
       "href": "/account/sales/shipments",
-      "order": 155,
+      "parentKey": "selling-workspace",
+      "order": 195,
       "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
+      "requiredPermissions": ["fulfillment.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "sale-shipments",
-      "label": "Sale shipments",
+      "label": "Shipping",
+      "labelKey": "fulfillment.shell.saleShipments.label",
       "icon": "truck",
       "href": "/account/sales/shipments",
-      "order": 155,
+      "parentKey": "selling-workspace",
+      "order": 195,
       "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
+      "requiredPermissions": ["fulfillment.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {

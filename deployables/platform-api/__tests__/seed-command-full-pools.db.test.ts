@@ -61,7 +61,11 @@ describe("seed commands with owned capped pools and preview-shaped waiters", () 
     const hookRuntime = createPlatformApiHost({
       runtimeProfile: "public",
       pools: assertionPools,
-      hostPorts: { processorGateway: createFakePaymentProcessorGateway(), listingPhotoStorage },
+      hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
     });
     const completedSteps: string[] = [];
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);

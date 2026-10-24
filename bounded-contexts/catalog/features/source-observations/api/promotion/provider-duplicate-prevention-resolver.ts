@@ -397,8 +397,9 @@ async function findCatalogItemIdsForExternalProductReferences(
 
 async function findCatalogItemIdForExternalProductReference(
   db: CatalogProviderDuplicatePreventionDb,
-  reference: { providerKey: string; externalKey: string },
+  rawReference: { providerKey: string; externalKey: string },
 ): Promise<CatalogItemId | null> {
+  const reference = normalizeExternalReferenceKeys(rawReference);
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT reference.catalog_item_id
      FROM catalog_external_product_references AS reference
@@ -427,13 +428,15 @@ async function findCatalogItemIdsForDeterministicPokemonCardFields(
   },
 ): Promise<readonly CatalogItemId[]> {
   const fieldValues = fieldValuesForRule(input.normalized, input.catalog.fieldIds, input.rule.fieldMatches);
-  const expansionField = [
-    {
-      fieldId: input.catalog.fieldIds[input.rule.referenceRecord.targetFieldKey],
-      value: { referenceId: input.expansionReferenceId },
-    },
+  const expansionFieldId = input.catalog.fieldIds[input.rule.referenceRecord.targetFieldKey];
+  if (!fieldValues || !expansionFieldId) {
+    return [];
+  }
+
+  const fieldPredicates = [
+    ...fieldValues,
+    { fieldId: expansionFieldId, value: { referenceId: input.expansionReferenceId } },
   ];
-  const fieldPredicates = [...fieldValues, expansionField];
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT item.catalog_item_id
      FROM catalog_items AS item
@@ -441,7 +444,7 @@ async function findCatalogItemIdsForDeterministicPokemonCardFields(
        AND item.language_code = $1
        ${fieldPredicates.map((_, index) => `AND item.field_values @> $${index + 2}::jsonb`).join("\n       ")}
      ORDER BY item.updated_at DESC, item.catalog_item_id ASC`,
-    [input.normalized.languageCode, ...fieldPredicates.map((fieldValue) => JSON.stringify(fieldValue))],
+    [input.normalized.languageCode, ...fieldPredicates.map(fieldValueContainmentOperand)],
   );
 
   return uniqueCatalogItemIds(result.rows.map((row) => row.catalog_item_id));
@@ -460,21 +463,12 @@ async function findCatalogItemIdsForDeterministicMagicCatalogItemFields(
   },
 ): Promise<readonly CatalogItemId[]> {
   const fieldValues = fieldValuesForRule(input.normalized, input.catalog.fieldIds, input.rule.fieldMatches);
-  if (fieldValues.length !== input.rule.fieldMatches.length) {
-    return [];
-  }
   const setFieldId = input.catalog.fieldIds[input.rule.referenceRecord.targetFieldKey];
-  if (!setFieldId) {
+  if (!fieldValues || !setFieldId) {
     return [];
   }
 
-  const setField = [
-    {
-      fieldId: setFieldId,
-      value: { referenceId: input.setReferenceId },
-    },
-  ];
-  const fieldPredicates = [...fieldValues, setField];
+  const fieldPredicates = [...fieldValues, { fieldId: setFieldId, value: { referenceId: input.setReferenceId } }];
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT item.catalog_item_id
      FROM catalog_items AS item
@@ -482,7 +476,7 @@ async function findCatalogItemIdsForDeterministicMagicCatalogItemFields(
        AND item.language_code = $1
        ${fieldPredicates.map((_, index) => `AND item.field_values @> $${index + 2}::jsonb`).join("\n       ")}
      ORDER BY item.updated_at DESC, item.catalog_item_id ASC`,
-    [input.normalized.languageCode, ...fieldPredicates.map((fieldValue) => JSON.stringify(fieldValue))],
+    [input.normalized.languageCode, ...fieldPredicates.map(fieldValueContainmentOperand)],
   );
 
   return uniqueCatalogItemIds(result.rows.map((row) => row.catalog_item_id));
@@ -501,21 +495,12 @@ async function findCatalogItemIdsForDeterministicOnePieceCatalogItemFields(
   },
 ): Promise<readonly CatalogItemId[]> {
   const fieldValues = fieldValuesForRule(input.normalized, input.catalog.fieldIds, input.rule.fieldMatches);
-  if (fieldValues.length !== input.rule.fieldMatches.length) {
-    return [];
-  }
   const setFieldId = input.catalog.fieldIds[input.rule.referenceRecord.targetFieldKey];
-  if (!setFieldId) {
+  if (!fieldValues || !setFieldId) {
     return [];
   }
 
-  const setField = [
-    {
-      fieldId: setFieldId,
-      value: { referenceId: input.setReferenceId },
-    },
-  ];
-  const fieldPredicates = [...fieldValues, setField];
+  const fieldPredicates = [...fieldValues, { fieldId: setFieldId, value: { referenceId: input.setReferenceId } }];
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT item.catalog_item_id
      FROM catalog_items AS item
@@ -523,7 +508,7 @@ async function findCatalogItemIdsForDeterministicOnePieceCatalogItemFields(
        AND item.language_code = $1
        ${fieldPredicates.map((_, index) => `AND item.field_values @> $${index + 2}::jsonb`).join("\n       ")}
      ORDER BY item.updated_at DESC, item.catalog_item_id ASC`,
-    [input.normalized.languageCode, ...fieldPredicates.map((fieldValue) => JSON.stringify(fieldValue))],
+    [input.normalized.languageCode, ...fieldPredicates.map(fieldValueContainmentOperand)],
   );
 
   return uniqueCatalogItemIds(result.rows.map((row) => row.catalog_item_id));
@@ -545,6 +530,10 @@ async function findPartialDraftCatalogItemIdForPokemonCard(
     tagValueForRule(tagRule, input.profile, input.normalized),
   );
   const fieldValues = fieldValuesForRule(input.normalized, input.catalog.fieldIds, input.rule.fieldMatches);
+  if (!fieldValues) {
+    return null;
+  }
+
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT item.catalog_item_id
      FROM catalog_items AS item
@@ -557,11 +546,7 @@ async function findPartialDraftCatalogItemIdForPokemonCard(
        AND reference.catalog_item_id IS NULL
      ORDER BY item.updated_at DESC, item.catalog_item_id ASC
      LIMIT 1`,
-    [
-      input.normalized.languageCode,
-      JSON.stringify(reusableTags),
-      ...fieldValues.map((fieldValue) => JSON.stringify(fieldValue)),
-    ],
+    [input.normalized.languageCode, JSON.stringify(reusableTags), ...fieldValues.map(fieldValueContainmentOperand)],
   );
 
   return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
@@ -584,6 +569,13 @@ async function findReferenceRecordByTypeAndKey(
   return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
 }
 
+type CatalogItemFieldValuePredicate = Readonly<{ fieldId: FieldId; value: JsonValue }>;
+
+/**
+ * Builds one `{ fieldId, value }` predicate per configured field match, or
+ * null when any configured field is unmapped or absent from the observation:
+ * a dropped predicate would widen the match instead of failing it.
+ */
 function fieldValuesForRule(
   normalized: SourceObservationNormalized,
   fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
@@ -592,8 +584,8 @@ function fieldValuesForRule(
     valuePath: string;
     valueTransform?: "localized-text";
   }[],
-) {
-  return fieldMatches.flatMap((fieldMatch) => {
+): readonly CatalogItemFieldValuePredicate[] | null {
+  const fieldValues = fieldMatches.flatMap((fieldMatch) => {
     const value = valueAtPath(normalized, fieldMatch.valuePath);
     if (value === undefined || value === null) {
       return [];
@@ -612,6 +604,17 @@ function fieldValuesForRule(
       },
     ];
   });
+
+  return fieldValues.length === fieldMatches.length ? fieldValues : null;
+}
+
+/**
+ * `catalog_items.field_values` is projected as a JSONB array of
+ * `{ fieldId, value }` entries, so each containment operand must be a
+ * one-element array; a bare object operand is never contained in the array.
+ */
+function fieldValueContainmentOperand(fieldValue: CatalogItemFieldValuePredicate): string {
+  return JSON.stringify([fieldValue]);
 }
 
 function tagValueForRule(
@@ -637,15 +640,20 @@ function tagValueForRule(
   ];
 }
 
+/** Catalog Items record external reference keys trimmed and lowercased; every lookup reads that form. */
+function normalizeExternalReferenceKeys(reference: { providerKey: string; externalKey: string }) {
+  return {
+    providerKey: reference.providerKey.trim().toLowerCase(),
+    externalKey: reference.externalKey.trim().toLowerCase(),
+  };
+}
+
 function uniqueExternalCatalogItemReferences(
   references: readonly NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][],
 ) {
   const seen = new Set<string>();
   return references
-    .map((reference) => ({
-      providerKey: reference.providerKey.trim().toLowerCase(),
-      externalKey: reference.externalKey.trim().toLowerCase(),
-    }))
+    .map(normalizeExternalReferenceKeys)
     .filter((reference) => reference.providerKey.length > 0 && reference.externalKey.length > 0)
     .filter((reference) => {
       const key = `${reference.providerKey}:${reference.externalKey}`;
@@ -662,10 +670,7 @@ function uniqueExternalProductReferences(
 ) {
   const seen = new Set<string>();
   return references
-    .map((reference) => ({
-      providerKey: reference.providerKey.trim().toLowerCase(),
-      externalKey: reference.externalKey.trim().toLowerCase(),
-    }))
+    .map(normalizeExternalReferenceKeys)
     .filter((reference) => reference.providerKey.length > 0 && reference.externalKey.length > 0)
     .filter((reference) => {
       const key = `${reference.providerKey}:${reference.externalKey}`;

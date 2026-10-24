@@ -664,4 +664,166 @@ describe("projection operations routes", () => {
       ],
     });
   });
+
+  it("publishes per-group freshness source and nested snapshot age for fresh, stale, and runtime groups", async () => {
+    const now = Date.now();
+    const runtime = createRuntime([
+      {
+        targetContextName: "catalog",
+        projectionName: "fresh-projection",
+        refreshStatus: vi.fn(),
+        subscriptionRunners: [],
+        getStatus: () => ({
+          targetContextName: "catalog",
+          projectionName: "fresh-projection",
+          projectionRevision: 1,
+          storedProjectionRevision: 1,
+          revisionStale: false,
+          sourceContextNames: ["catalog"],
+          ownedTables: [],
+          requiredDuringBootstrap: false,
+          initialized: true,
+          caughtUp: true,
+          state: "caught-up",
+          lastError: null,
+          outstandingEventCount: "0",
+          blockedStreamCount: 0,
+          poisonEventCount: 0,
+          updatedAt: new Date(now).toISOString(),
+          subscriptions: [],
+          subscriptionRunners: [],
+        }),
+      },
+      {
+        targetContextName: "catalog",
+        projectionName: "stale-projection",
+        refreshStatus: vi.fn(),
+        subscriptionRunners: [],
+        getStatus: () => ({
+          targetContextName: "catalog",
+          projectionName: "stale-projection",
+          projectionRevision: 1,
+          storedProjectionRevision: 1,
+          revisionStale: false,
+          sourceContextNames: ["catalog"],
+          ownedTables: [],
+          requiredDuringBootstrap: false,
+          initialized: true,
+          caughtUp: true,
+          state: "caught-up",
+          lastError: null,
+          outstandingEventCount: "0",
+          blockedStreamCount: 0,
+          poisonEventCount: 0,
+          updatedAt: new Date(now).toISOString(),
+          subscriptions: [],
+          subscriptionRunners: [],
+        }),
+      },
+      {
+        targetContextName: "catalog",
+        projectionName: "runtime-projection",
+        refreshStatus: vi.fn(),
+        subscriptionRunners: [],
+        getStatus: () => ({
+          targetContextName: "catalog",
+          projectionName: "runtime-projection",
+          projectionRevision: 1,
+          storedProjectionRevision: 1,
+          revisionStale: false,
+          sourceContextNames: ["catalog"],
+          ownedTables: [],
+          requiredDuringBootstrap: false,
+          initialized: true,
+          caughtUp: true,
+          state: "caught-up",
+          lastError: null,
+          outstandingEventCount: "0",
+          blockedStreamCount: 0,
+          poisonEventCount: 0,
+          updatedAt: new Date(now).toISOString(),
+          subscriptions: [],
+          subscriptionRunners: [],
+        }),
+      },
+    ] as unknown as ApiHostRuntime["projectionGroups"]);
+    const controlPlane = createControlPlane({
+      listProjectionStatusSnapshots: vi.fn(async () => [
+        {
+          projection_key: "catalog.fresh-projection",
+          status: {
+            targetContextName: "catalog",
+            projectionName: "fresh-projection",
+            projectionRevision: 1,
+            storedProjectionRevision: 1,
+            revisionStale: false,
+            sourceContextNames: ["catalog"],
+            ownedTables: [],
+            requiredDuringBootstrap: false,
+            initialized: true,
+            caughtUp: true,
+            state: "caught-up",
+            lastError: null,
+            outstandingEventCount: "5",
+            blockedStreamCount: 0,
+            poisonEventCount: 0,
+            updatedAt: new Date(now).toISOString(),
+            subscriptions: [],
+          },
+          updated_at: new Date(now - 42).toISOString(),
+        },
+        {
+          projection_key: "catalog.stale-projection",
+          status: {
+            targetContextName: "catalog",
+            projectionName: "stale-projection",
+            projectionRevision: 1,
+            storedProjectionRevision: 1,
+            revisionStale: false,
+            sourceContextNames: ["catalog"],
+            ownedTables: [],
+            requiredDuringBootstrap: false,
+            initialized: true,
+            caughtUp: true,
+            state: "caught-up",
+            lastError: null,
+            outstandingEventCount: "9",
+            blockedStreamCount: 0,
+            poisonEventCount: 0,
+            updatedAt: new Date(now).toISOString(),
+            subscriptions: [],
+          },
+          updated_at: new Date(now - 5 * 60_000).toISOString(),
+        },
+      ]),
+    });
+
+    const response = await createRouteApp(platformActor, runtime, { controlPlane }).request("/");
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      projectionGroups: Array<Record<string, unknown>>;
+    };
+    expect(body.projectionGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          projectionName: "fresh-projection",
+          projectionStatusSource: "fresh-snapshot",
+          snapshot: expect.objectContaining({ ageMs: expect.any(Number) }),
+        }),
+        expect.objectContaining({
+          projectionName: "stale-projection",
+          projectionStatusSource: "stale-snapshot",
+          snapshot: expect.objectContaining({ ageMs: expect.any(Number) }),
+        }),
+        expect.objectContaining({
+          projectionName: "runtime-projection",
+          projectionStatusSource: "runtime-memory",
+        }),
+      ]),
+    );
+    expect(body.projectionGroups.find((group) => group.projectionName === "runtime-projection")).not.toHaveProperty(
+      "snapshot",
+    );
+  });
 });

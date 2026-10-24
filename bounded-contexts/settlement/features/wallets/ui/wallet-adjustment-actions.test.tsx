@@ -3,7 +3,7 @@
 import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider, type ActionFunctionArgs } from "react-router";
 import type { SettlementWalletAdjustment, SettlementWalletAdjustmentPreview } from "../../../client";
@@ -90,8 +90,139 @@ function renderWithAction(element: React.ReactNode) {
   return { action, submissions };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("wallet adjustment action forms", () => {
   afterEach(cleanup);
+
+  it("guided flow preview uses derived pending and keeps the confirmation trigger guarded", async () => {
+    const user = userEvent.setup();
+    const actionResult = deferred<null>();
+    const submissions: FormData[] = [];
+    const action = vi.fn(async ({ request }: ActionFunctionArgs) => {
+      submissions.push(await request.formData());
+      return actionResult.promise;
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: (
+            <WalletAdjustmentGuidedFlowForm
+              targetAccountId="acc_test"
+              targetAccountLabel="Test Account"
+              currencyCode="usd"
+              preview={preview}
+              flowError={null}
+              defaultValues={{
+                direction: "credit",
+                amount: "25.00",
+                reasonCode: "goodwill-cash-credit",
+                explanation: "Service recovery",
+                evidenceReferences: ["SUP-B2C3D4E5"],
+              }}
+            />
+          ),
+          action,
+        },
+      ],
+      { initialEntries: ["/"] },
+    );
+    render(<RouterProvider router={router} />);
+    await user.click(screen.getByRole("button", { name: "Request preview" }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Confirm & submit" }) as HTMLButtonElement).disabled).toBe(true),
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm & submit" }));
+    expect(submissions.map((entry) => entry.get("intent"))).toEqual(["preview-adjustment"]);
+    actionResult.resolve(null);
+    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+    router.dispose();
+  });
+
+  it("guided flow request busies only the request form and suppresses a second confirmation", async () => {
+    const user = userEvent.setup();
+    const actionResult = deferred<null>();
+    const submissions: FormData[] = [];
+    const action = vi.fn(async ({ request }: ActionFunctionArgs) => {
+      submissions.push(await request.formData());
+      return actionResult.promise;
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: (
+            <WalletAdjustmentGuidedFlowForm
+              targetAccountId="acc_test"
+              targetAccountLabel="Test Account"
+              currencyCode="usd"
+              preview={preview}
+              flowError={null}
+              defaultValues={{
+                direction: "credit",
+                amount: "25.00",
+                reasonCode: "goodwill-cash-credit",
+                explanation: "Service recovery",
+                evidenceReferences: ["SUP-B2C3D4E5"],
+              }}
+            />
+          ),
+          action,
+        },
+      ],
+      { initialEntries: ["/"] },
+    );
+    render(<RouterProvider router={router} />);
+    await user.click(screen.getByRole("button", { name: "Confirm & submit" }));
+    await user.click(screen.getByRole("button", { name: "Submit adjustment" }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    const requestForm = document.querySelector<HTMLFormElement>("#wallet-adjustment-request-form")!;
+    expect(requestForm.getAttribute("aria-busy")).toBe("true");
+    expect(submissions[0]?.get("intent")).toBe("request-adjustment");
+    await user.click(screen.getByRole("button", { name: "Confirm & submit" }));
+    expect(action).toHaveBeenCalledTimes(1);
+    actionResult.resolve(null);
+    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+    router.dispose();
+  });
+
+  it("summary callers preserve Settlement field links and alert behavior without automatic focus", async () => {
+    const user = userEvent.setup();
+    renderWithAction(
+      <WalletAdjustmentGuidedFlowForm
+        targetAccountId="acc_test"
+        targetAccountLabel="Test Account"
+        currencyCode="usd"
+        preview={null}
+        flowError={{
+          kind: "validation",
+          message: "Review the adjustment.",
+          fieldErrors: [{ fieldId: "wallet-adjustment-amount", fieldName: "Amount", message: "Enter an amount." }],
+        }}
+      />,
+    );
+    const summary = document.getElementById("wallet-adjustment-validation-summary");
+    expect(summary?.getAttribute("role")).toBe("alert");
+    expect(summary?.getAttribute("aria-live")).toBe("assertive");
+    expect(summary?.getAttribute("tabindex")).toBe("-1");
+    expect(document.querySelectorAll("#wallet-adjustment-validation-summary")).toHaveLength(1);
+    expect(document.activeElement).not.toBe(summary);
+    const link = screen.getByRole("link", { name: "Amount: Enter an amount." });
+    expect(link.getAttribute("href")).toBe("#wallet-adjustment-amount");
+    fireEvent.click(link);
+    expect(document.activeElement).toBe(screen.getByRole("spinbutton", { name: "Amount" }));
+    link.focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(screen.getByRole("spinbutton", { name: "Amount" }));
+  });
 
   it("submits the guided flow with tinted form furniture and an elevated preview entity", async () => {
     const user = userEvent.setup();

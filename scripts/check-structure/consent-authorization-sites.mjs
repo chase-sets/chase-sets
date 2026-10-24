@@ -223,20 +223,19 @@ export function loadConsentAuthorizationCensusCoverageSchema(options = {}) {
   return readJson(options.repoRoot ?? repoRoot, options.schemaPath ?? consentAuthorizationCensusCoverageSchemaPath);
 }
 
-function defaultExecGit(args, rootDir, options = {}) {
-  return execFileSync("git", args, {
-    cwd: rootDir,
-    encoding: "buffer",
-    stdio: ["pipe", "pipe", "pipe"],
-    maxBuffer: 1024 * 1024 * 1024,
-    ...options,
-  });
-}
-
-function gitBuffer(execGit, args, reachedClause, options) {
+function gitBuffer(execGit, args, reachedClause, options = {}) {
   let raw;
   try {
-    raw = execGit(args, options);
+    raw =
+      typeof execGit === "function"
+        ? execGit(args, options)
+        : execFileSync("git", args, {
+            cwd: execGit?.rootDir ?? repoRoot,
+            encoding: "buffer",
+            stdio: ["pipe", "pipe", "pipe"],
+            ...options,
+            maxBuffer: 1024 * 1024 * 1024,
+          });
   } catch (error) {
     throw guardFailure(
       "consent-authorization-corpus-unavailable",
@@ -412,7 +411,7 @@ function parseBatchPayload(raw, entries) {
  */
 export function enumerateConsentAuthorizationCorpus({
   repoRoot: rootDir = repoRoot,
-  execGit = (args, options) => defaultExecGit(args, rootDir, options),
+  execGit = { rootDir },
   candidateHead,
   environment = "plain",
 } = {}) {
@@ -428,7 +427,15 @@ export function enumerateConsentAuthorizationCorpus({
 
   let existence;
   try {
-    existence = execGit(["cat-file", "-e", `${candidateHead}^{commit}`]);
+    existence =
+      typeof execGit === "function"
+        ? execGit(["cat-file", "-e", `${candidateHead}^{commit}`])
+        : execFileSync("git", ["cat-file", "-e", `${candidateHead}^{commit}`], {
+            cwd: execGit.rootDir,
+            encoding: "buffer",
+            stdio: ["pipe", "pipe", "pipe"],
+            maxBuffer: 1024 * 1024 * 1024,
+          });
   } catch (error) {
     existence = { status: Number.isInteger(error?.status) ? error.status : 1 };
   }
@@ -485,11 +492,7 @@ export function enumerateConsentAuthorizationCorpus({
   };
 }
 
-export function readConsentAuthorizationCorpusSources({
-  repoRoot: rootDir = repoRoot,
-  execGit = (args, options) => defaultExecGit(args, rootDir, options),
-  corpus,
-}) {
+export function readConsentAuthorizationCorpusSources({ repoRoot: rootDir = repoRoot, execGit = { rootDir }, corpus }) {
   const contents =
     corpus.treeEntries.length === 0
       ? new Map()
@@ -1997,10 +2000,7 @@ export function assertConsentAuthorizationCensusArmPartition(coverage, derivedAr
   return committed;
 }
 
-export function listConsentAuthorizationCensusFixtures({
-  repoRoot: rootDir = repoRoot,
-  execGit = (args, options) => defaultExecGit(args, rootDir, options),
-} = {}) {
+export function listConsentAuthorizationCensusFixtures({ repoRoot: rootDir = repoRoot, execGit = { rootDir } } = {}) {
   return gitBuffer(execGit, ["ls-files", "-z", "--", consentAuthorizationCensusFixtureRoot], "census-fixture-index")
     .toString("utf8")
     .split("\0")
@@ -2189,7 +2189,7 @@ export function collectConsentAuthorizationRegistryViolations(registry, schema) 
   }
   if (!registry || !Array.isArray(registry.sites)) return violations;
   if (registry.version !== 1) violations.push("registry version must equal 1");
-  if (registry.sites.length !== 6) violations.push("registry must contain exactly six sites");
+  if (registry.sites.length !== 4) violations.push("registry must contain exactly four sites");
 
   const seen = new Set();
   const ordinals = new Map();
@@ -2213,8 +2213,8 @@ export function collectConsentAuthorizationRegistryViolations(registry, schema) 
     values.push(site.ordinal);
     ordinals.set(group, values);
   }
-  if (JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 3 })) {
-    violations.push("registry partition must be exactly 2 actor / 1 self-registration / 3 provisioning");
+  if (JSON.stringify(counts) !== JSON.stringify({ actor: 3, "self-registration": 1, provisioning: 0 })) {
+    violations.push("registry partition must be exactly 3 actor / 1 self-registration / 0 provisioning");
   }
   for (const values of ordinals.values()) {
     const ordered = values.toSorted((left, right) => left - right);
@@ -2392,16 +2392,27 @@ export function collectMutationAggregateViolations(aggregate, enumeration, optio
 export function analyzeConsentAuthorizationSites(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const authorityRoot = path.resolve(options.authorityRoot ?? repoRoot);
-  const execGit = options.execGit ?? ((args, execOptions) => defaultExecGit(args, rootDir, execOptions));
-  const execAuthorityGit =
-    options.execAuthorityGit ?? ((args, execOptions) => defaultExecGit(args, authorityRoot, execOptions));
+  const execGit = options.execGit ?? { rootDir };
+  const execAuthorityGit = options.execAuthorityGit ?? { rootDir: authorityRoot };
   const registry = options.registry ?? loadConsentAuthorizationRegistry({ repoRoot: rootDir });
   const schema = options.schema ?? loadConsentAuthorizationRegistrySchema({ repoRoot: rootDir });
 
   const provenanceOutcome =
     options.provenanceOutcome ??
     deriveConsentAuthorizationProvenanceOutcome(
-      options.deriveProvenance ?? (() => deriveGuardCandidateProvenance({ execGit: (args) => execGit(args) })),
+      options.deriveProvenance ??
+        (() =>
+          deriveGuardCandidateProvenance({
+            execGit: (args) =>
+              typeof execGit === "function"
+                ? execGit(args)
+                : execFileSync("git", args, {
+                    cwd: execGit.rootDir,
+                    encoding: "buffer",
+                    stdio: ["pipe", "pipe", "pipe"],
+                    maxBuffer: 1024 * 1024 * 1024,
+                  }),
+          })),
     );
   const provenance = requireResolvedProvenance(provenanceOutcome);
   const candidate = resolveConsentAuthorizationCandidateHead(provenance);

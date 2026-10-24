@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   lstatSync,
   mkdirSync,
@@ -83,7 +84,7 @@ const RECOGNIZED_NOT_LOADABLE = new Set([
   "ERR_INVALID_ARG_TYPE",
   "SYNTAX_ERROR",
 ]);
-const SHARD_BUDGET_MS = 4_500;
+const CHILD_PROCESS_TIMEOUT_MS = 4_500;
 const CAPABILITY_SHARDS = 4;
 const CENSUS_SHARDS = 8;
 
@@ -138,7 +139,9 @@ function withTempDirectory(prefix, action) {
   }
 }
 
-function parseGitIndex(output = execFileSync("git", ["ls-files", "-s", "-z"], { cwd: ROOT })) {
+function parseGitIndex(
+  output = execFileSync("git", ["ls-files", "-s", "-z"], { cwd: ROOT, maxBuffer: GIT_LISTING_MAX_BUFFER }),
+) {
   const entries = output
     .toString("utf8")
     .split("\0")
@@ -200,6 +203,7 @@ const capabilityGroups = [
   .map(({ extension, scopeType }) => ({ extension, scopeType }))
   .sort((left, right) => `${left.extension}:${left.scopeType}`.localeCompare(`${right.extension}:${right.scopeType}`));
 const capabilityResults = new Map();
+let currentCapabilityWork = { probes: [], children: [] };
 const capabilityTimings = [];
 const censusTimings = [];
 const censusRows = [];
@@ -212,7 +216,8 @@ function recognizedErrorCode(result) {
   return undefined;
 }
 
-function runNode(file, timeout = SHARD_BUDGET_MS) {
+function runNode(file, timeout = CHILD_PROCESS_TIMEOUT_MS, capabilityWork, groupKey) {
+  capabilityWork?.children.push(groupKey);
   const result = spawnSync(process.execPath, [file], { cwd: dirname(file), encoding: "utf8", timeout });
   if (result.error || result.signal || result.status === null) {
     importerRefuse(
@@ -232,6 +237,9 @@ function runNode(file, timeout = SHARD_BUDGET_MS) {
 function probeCapability(group, options = {}) {
   if (options.forceUnknown)
     importerRefuse("IMPORTER_CAPABILITY_INDETERMINATE", `${group.extension}/${group.scopeType}`);
+  const groupKey = `${group.extension}\0${group.scopeType}`;
+  const work = options.capabilityWork ?? currentCapabilityWork;
+  work.probes.push(groupKey);
   return withTempDirectory("chase-canonical-capability-", (directory) => {
     writeFileSync(join(directory, "package.json"), JSON.stringify({ type: group.scopeType }));
     const candidateName = group.extension === "<none>" ? "candidate" : `candidate${group.extension}`;
@@ -242,10 +250,10 @@ function probeCapability(group, options = {}) {
     writeFileSync(esmEntry, `import ${JSON.stringify(`./${candidateName}`)};\n`);
     writeFileSync(cjsEntry, `require(${JSON.stringify(`./${candidateName}`)});\n`);
     const positions = {
-      esmDirectEntry: runNode(candidate),
-      esmDependency: runNode(esmEntry),
-      commonJsDirectEntry: runNode(candidate),
-      commonJsDependency: runNode(cjsEntry),
+      esmDirectEntry: runNode(candidate, CHILD_PROCESS_TIMEOUT_MS, work, groupKey),
+      esmDependency: runNode(esmEntry, CHILD_PROCESS_TIMEOUT_MS, work, groupKey),
+      commonJsDirectEntry: runNode(candidate, CHILD_PROCESS_TIMEOUT_MS, work, groupKey),
+      commonJsDependency: runNode(cjsEntry, CHILD_PROCESS_TIMEOUT_MS, work, groupKey),
     };
     return { verdict: capabilityVerdict(positions), positions };
   });
@@ -276,17 +284,121 @@ function scriptKindFor(path) {
   }
 }
 
-function literalIndex(sourceFile) {
+// Each literal keeps its immediate parent plus the nearest ancestor of every kind
+// the classifier inspects, so ancestry costs a fixed number of facts per node
+// instead of a copy of the whole chain (deep JSON-lines manifests nest ~2000 deep).
+const NO_ANCESTRY = Object.freeze({
+  parent: undefined,
+  importDeclaration: undefined,
+  exportDeclaration: undefined,
+  importType: undefined,
+  externalReference: undefined,
+  call: undefined,
+  literalType: undefined,
+});
+const ANCESTRY_FACTS = Object.keys(NO_ANCESTRY).length;
+const NEAREST_KIND_FACTS = new Map([
+  [ts.SyntaxKind.ImportDeclaration, "importDeclaration"],
+  [ts.SyntaxKind.ExportDeclaration, "exportDeclaration"],
+  [ts.SyntaxKind.ImportType, "importType"],
+  [ts.SyntaxKind.ExternalModuleReference, "externalReference"],
+  [ts.SyntaxKind.CallExpression, "call"],
+  [ts.SyntaxKind.LiteralType, "literalType"],
+]);
+// Fixed linear ceiling on charged ancestry operations: per visited node, indexed
+// literal and matched span. Bounded facts stay under it at any depth; copying the
+// ancestor chain per node does not.
+const ANCESTRY_OPERATIONS_PER_UNIT = 16;
+
+function newAncestryWork() {
+  return { visitedNodes: 0, indexedLiterals: 0, matchedSpans: 0, operations: 0, indexMs: 0 };
+}
+
+function ancestryWorkCeiling({ visitedNodes, indexedLiterals, matchedSpans }) {
+  return ANCESTRY_OPERATIONS_PER_UNIT * (visitedNodes + indexedLiterals + matchedSpans);
+}
+
+function newCorpusWork() {
+  return { reads: [], preprocesses: [], sourceFiles: [], literalIndexes: [], ancestry: newAncestryWork() };
+}
+
+let currentCorpusWork = newCorpusWork();
+
+function assertCorpusWork(work, paths) {
+  const expectedPaths = paths.map((path) => path.replaceAll("\\", "/")).sort();
+  for (const operation of ["reads", "preprocesses", "sourceFiles", "literalIndexes"]) {
+    expect([...work[operation]].sort(), `${operation}: exactly once per candidate`).toEqual(expectedPaths);
+  }
+  expect(work.ancestry.operations, "ancestry operations stay input bounded").toBeLessThanOrEqual(
+    ancestryWorkCeiling(work.ancestry),
+  );
+}
+
+function assertCapabilityWork(work, keys) {
+  expect([...work.probes].sort(), "one capability probe per enrolled group").toEqual([...keys].sort());
+  expect([...work.children].sort(), "four real loaders per enrolled group").toEqual(
+    keys.flatMap((key) => Array(4).fill(key)).sort(),
+  );
+}
+
+function childAncestry(node, ancestry) {
+  const next = { ...ancestry, parent: node };
+  const nearestKind = NEAREST_KIND_FACTS.get(node.kind);
+  if (nearestKind !== undefined) next[nearestKind] = node;
+  return next;
+}
+
+function literalIndex(sourceFile, work, options = {}) {
+  (options.corpusWork ?? currentCorpusWork).literalIndexes.push(sourceFile.fileName);
   const byText = new Map();
-  const visit = (node, ancestors = []) => {
+  const nodes = [sourceFile];
+  const ancestries = [NO_ANCESTRY];
+  let visitedNodes = 0;
+  let indexedLiterals = 0;
+  let operations = 0;
+  while (nodes.length > 0) {
+    const node = nodes.pop();
+    const ancestry = ancestries.pop();
+    visitedNodes += 1;
+    operations += 1;
     if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const values = byText.get(node.text) ?? [];
-      values.push({ node, ancestors });
+      values.push({ node, ancestry });
       byText.set(node.text, values);
+      indexedLiterals += 1;
+      operations += 1;
     }
-    ts.forEachChild(node, (child) => visit(child, [node, ...ancestors]));
-  };
-  visit(sourceFile);
+    const firstChild = nodes.length;
+    let childrenAncestry;
+    ts.forEachChild(node, (child) => {
+      if (childrenAncestry === undefined) {
+        childrenAncestry = childAncestry(node, ancestry);
+        operations += ANCESTRY_FACTS;
+      }
+      nodes.push(child);
+      if (options.restoreAncestorCopy) {
+        const ancestors = [node, ...(ancestry.ancestors ?? [])];
+        ancestries.push({ ...childrenAncestry, ancestors });
+        operations += ancestors.length;
+      } else {
+        ancestries.push(childrenAncestry);
+      }
+      operations += 1;
+    });
+    // Reverse this node's children so they pop in source order; siblings share one
+    // ancestry, so only the node stack needs reordering.
+    for (let left = firstChild, right = nodes.length - 1; left < right; left += 1, right -= 1) {
+      const swapped = nodes[left];
+      nodes[left] = nodes[right];
+      nodes[right] = swapped;
+      operations += 1;
+    }
+  }
+  if (work) {
+    work.visitedNodes += visitedNodes;
+    work.indexedLiterals += indexedLiterals;
+    work.operations += operations;
+  }
   return byText;
 }
 
@@ -296,28 +408,33 @@ function classifyCompilerSpan(sourceFile, span, options = {}) {
     .filter(({ node }) => node.getStart(sourceFile) <= span.pos && node.end >= span.end)
     .sort(({ node: left }, { node: right }) => left.end - left.pos - (right.end - right.pos))[0];
   if (!match) importerRefuse("IMPORTER_SCAN_FAILURE", `${sourceFile.fileName}:${span.pos}:${span.fileName}`);
-  const { ancestors } = match;
-  const importDeclaration = ancestors.find(ts.isImportDeclaration);
+  const work = options.ancestryWork;
+  if (work) work.matchedSpans += 1;
+  const nearest = (fact) => {
+    if (work) work.operations += 1;
+    return match.ancestry[fact];
+  };
+  const importDeclaration = nearest("importDeclaration");
   if (importDeclaration) {
     return {
       verdict: importDeclaration.importClause?.isTypeOnly ? "ERASED_NON_LOADING" : "RUNTIME_ESM_IMPORT",
       owner: "ImportDeclaration",
     };
   }
-  const exportDeclaration = ancestors.find(ts.isExportDeclaration);
+  const exportDeclaration = nearest("exportDeclaration");
   if (exportDeclaration) {
     return {
       verdict: exportDeclaration.isTypeOnly ? "ERASED_NON_LOADING" : "RUNTIME_ESM_EXPORT",
       owner: "ExportDeclaration",
     };
   }
-  const importType = ancestors.find(ts.isImportTypeNode);
+  const importType = nearest("importType");
   if (importType) return { verdict: "ERASED_NON_LOADING", owner: "ImportTypeNode" };
-  const externalReference = ancestors.find(ts.isExternalModuleReference);
+  const externalReference = nearest("externalReference");
   if (externalReference) {
     return { verdict: "RUNTIME_UNSUPPORTED_NON_LOADING", owner: "ExternalModuleReference" };
   }
-  const call = ancestors.find(ts.isCallExpression);
+  const call = nearest("call");
   if (call) {
     if (call.expression.kind === ts.SyntaxKind.ImportKeyword && call.arguments.length === 1) {
       return { verdict: "RUNTIME_ESM_DYNAMIC", owner: "CallExpression.import" };
@@ -329,29 +446,36 @@ function classifyCompilerSpan(sourceFile, span, options = {}) {
       return { verdict: "KNOWN_NON_MODULE_CALL", owner: "CallExpression.propertyRequire" };
     }
   }
-  const literalType = ancestors.find(ts.isLiteralTypeNode);
+  const literalType = nearest("literalType");
   if (literalType) return { verdict: "ERASED_NON_LOADING", owner: "LiteralType" };
-  return { verdict: "INDETERMINATE", owner: ts.SyntaxKind[ancestors[0]?.kind] ?? "Unknown" };
+  return { verdict: "INDETERMINATE", owner: ts.SyntaxKind[nearest("parent")?.kind] ?? "Unknown" };
 }
 
 function compilerRows(path, source, options = {}) {
+  const corpusWork = options.corpusWork ?? currentCorpusWork;
   let preprocessed;
   let sourceFile;
   try {
     if (options.forceScanFailure) throw new Error("injected scan failure");
+    corpusWork.preprocesses.push(path.replaceAll("\\", "/"));
     preprocessed = ts.preProcessFile(source, true, true);
+    corpusWork.sourceFiles.push(path.replaceAll("\\", "/"));
     sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, scriptKindFor(path));
   } catch (error) {
     importerRefuse("IMPORTER_SCAN_FAILURE", `${path}: ${error.message}`);
   }
-  const literals = literalIndex(sourceFile);
-  return preprocessed.importedFiles.map((span) => {
-    const classification = classifyCompilerSpan(sourceFile, span, { ...options, literals });
+  const work = options.ancestryWork ?? corpusWork.ancestry;
+  const indexStarted = work ? performance.now() : 0;
+  const literals = literalIndex(sourceFile, work, options);
+  const rows = preprocessed.importedFiles.map((span) => {
+    const classification = classifyCompilerSpan(sourceFile, span, { ...options, ancestryWork: work, literals });
     if (classification.verdict === "INDETERMINATE") {
       importerRefuse("IMPORTER_SYNTAX_INDETERMINATE", `${path}:${span.pos}:${classification.owner}`);
     }
     return { path, specifier: span.fileName, pos: span.pos, end: span.end, ...classification };
   });
+  if (work) work.indexMs += performance.now() - indexStarted;
+  return rows;
 }
 
 function normalizedRealpath(path) {
@@ -361,6 +485,10 @@ function normalizedRealpath(path) {
 
 const emitterRealpath = normalizedRealpath(EMITTER_PATH);
 const resolutionMemo = new Map();
+
+function newResolutionWork() {
+  return { cjsKeys: [], esmKeys: [], esmChildren: 0 };
+}
 const esmResolverProgram = String.raw`
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -406,10 +534,17 @@ function resolveEsmBatch(requests, options = {}) {
   if (options.forceIndeterminate) {
     return requests.map(() => ({ status: "INDETERMINATE", detail: "injected resolver failure" }));
   }
+  if (requests.length === 0) return [];
+  if (options.resolutionWork) {
+    options.resolutionWork.esmKeys.push(
+      ...requests.map(({ specifier, parentUrl }) => `${new URL(parentUrl).href}\0${specifier}`),
+    );
+    options.resolutionWork.esmChildren += 1;
+  }
   const result = spawnSync(
     process.execPath,
     ["--experimental-import-meta-resolve", "--input-type=module", "--eval", esmResolverProgram],
-    { input: JSON.stringify(requests), encoding: "utf8", timeout: SHARD_BUDGET_MS },
+    { input: JSON.stringify(requests), encoding: "utf8", timeout: CHILD_PROCESS_TIMEOUT_MS },
   );
   if (result.error || result.signal || result.status !== 0) {
     importerRefuse(
@@ -442,6 +577,7 @@ function resolveCjs(row, options = {}) {
   }
   if (options.forceIndeterminate) importerRefuse("IMPORTER_RESOLUTION_INDETERMINATE", "injected resolver failure");
   try {
+    options.resolutionWork?.cjsKeys.push(`${row.path}\0${row.specifier}`);
     const target = createRequire(pathToFileURL(resolve(ROOT, row.path))).resolve(row.specifier);
     return { status: "FILE", path: normalizedRealpath(target), resolved: target };
   } catch (error) {
@@ -464,6 +600,7 @@ function classifyResolution(result, row) {
 }
 
 function resolveRuntimeRows(rows, options = {}) {
+  const memo = options.memo ?? resolutionMemo;
   const resolved = [];
   const esmPending = [];
   for (const row of rows) {
@@ -473,33 +610,34 @@ function resolveRuntimeRows(rows, options = {}) {
       resolved.push({ ...row, resolution: "OTHER" });
       continue;
     }
-    const key = `${row.verdict === "RUNTIME_CJS_REQUIRE" ? "CJS" : "ESM"}\0${row.path}\0${row.specifier}`;
-    if (!options.disableMemo && resolutionMemo.has(key)) {
-      resolved.push({ ...row, resolution: resolutionMemo.get(key) });
+    const key = `${row.verdict === "RUNTIME_CJS_REQUIRE" ? "CJS" : "ESM"}\0${options.omitImporterFromMemoKey ? "" : row.path}\0${row.specifier}`;
+    if (!options.disableMemo && memo.has(key)) {
+      resolved.push({ ...row, resolution: memo.get(key) });
       continue;
     }
     if (row.verdict === "RUNTIME_CJS_REQUIRE") {
       const resolution = classifyResolution(resolveCjs(row, options), row);
-      if (!options.disableMemo) resolutionMemo.set(key, resolution);
+      if (!options.disableMemo) memo.set(key, resolution);
       resolved.push({ ...row, resolution });
     } else {
-      esmPending.push({ row, key, parentUrl: pathToFileURL(resolve(ROOT, row.path)).href });
+      esmPending.push({ row, key, index: resolved.length, parentUrl: pathToFileURL(resolve(ROOT, row.path)).href });
+      resolved.push(undefined);
     }
   }
   if (esmPending.length > 0) {
     const uniquePending = [...new Map(esmPending.map((pending) => [pending.key, pending])).values()];
     const batchResolutions = new Map();
-    const batch = resolveEsmBatch(
-      uniquePending.map(({ row, parentUrl }) => ({ specifier: row.specifier, parentUrl })),
-      options,
-    );
+    const requests = uniquePending.map(({ row, parentUrl }) => ({ specifier: row.specifier, parentUrl }));
+    const batch = options.unbatchEsm
+      ? requests.flatMap((request) => resolveEsmBatch([request], options))
+      : resolveEsmBatch(requests, options);
     batch.forEach((result, index) => {
       const { row, key } = uniquePending[index];
       const resolution = classifyResolution(result, row);
       batchResolutions.set(key, resolution);
-      if (!options.disableMemo) resolutionMemo.set(key, resolution);
+      if (!options.disableMemo) memo.set(key, resolution);
     });
-    for (const { row, key } of esmPending) resolved.push({ ...row, resolution: batchResolutions.get(key) });
+    for (const { row, key, index } of esmPending) resolved[index] = { ...row, resolution: batchResolutions.get(key) };
   }
   return resolved;
 }
@@ -514,6 +652,7 @@ function scanEntry(entry, options = {}) {
   let source;
   try {
     if (options.forceReadFailure) throw new Error("injected read failure");
+    (options.corpusWork ?? currentCorpusWork).reads.push(entry.path.replaceAll("\\", "/"));
     source = (options.readFile ?? readFileSync)(options.absolutePath ?? resolve(ROOT, entry.path), "utf8");
   } catch (error) {
     importerRefuse("IMPORTER_READ_FAILURE", `${entry.path}: ${error.message}`);
@@ -549,7 +688,11 @@ function actualLoad(directory, channel, specifier) {
       `import { emitRecord as candidate } from ${JSON.stringify(pathToFileURL(importer).href)};\nprocess.stdout.write(typeof candidate === "function" ? "TARGET" : "OTHER");\n`,
     );
   }
-  const result = spawnSync(process.execPath, [entry], { cwd: directory, encoding: "utf8", timeout: SHARD_BUDGET_MS });
+  const result = spawnSync(process.execPath, [entry], {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: CHILD_PROCESS_TIMEOUT_MS,
+  });
   if (result.error || result.signal || result.status === null) {
     importerRefuse("IMPORTER_RESOLUTION_INDETERMINATE", result.error?.message ?? result.signal ?? "missing status");
   }
@@ -933,15 +1076,110 @@ describe.sequential("chase-sets-canonical/v1", () => {
 });
 
 describe.sequential("canonical importer authority", () => {
+  it.each(["native", "forward-slash"])("canonical work verdict ignores elapsed diagnostics (%s paths)", (pathStyle) => {
+    withTempDirectory("chase-canonical-work-verdict-", (directory) => {
+      const nativePath = join(directory, "input.ts");
+      const path = pathStyle === "forward-slash" ? nativePath.replaceAll("\\", "/") : nativePath;
+      writeFileSync(path, 'import "node:fs";');
+      const work = newCorpusWork();
+      scanEntry({ path, mode: "100644" }, { corpusWork: work, ancestryWork: work.ancestry });
+      const paths = [path];
+      expect(() => assertCorpusWork({ ...work, elapsedMs: 4_501, aggregateMs: 54_001 }, paths)).not.toThrow();
+      scanEntry({ path, mode: "100644" }, { corpusWork: work, ancestryWork: work.ancestry });
+      expect(() => assertCorpusWork({ ...work, elapsedMs: 1, aggregateMs: 1 }, paths)).toThrow();
+    });
+  });
+
+  it("canonical resolution work stays memoized and batched", () => {
+    withTempDirectory("chase-canonical-resolution-work-", (directory) => {
+      const parents = [join(directory, "target"), join(directory, "other")];
+      for (const parent of parents) mkdirSync(parent);
+      createFileSymlink(EMITTER_PATH, join(parents[0], "same.mjs"));
+      writeFileSync(join(parents[1], "same.mjs"), "export const other = true;\n");
+      const row = (parent, verdict, specifier = "./same.mjs") => ({
+        path: join(parent, "entry.mjs"),
+        verdict,
+        specifier,
+      });
+      const rows = [
+        row(parents[0], "RUNTIME_CJS_REQUIRE"),
+        row(parents[0], "RUNTIME_ESM_IMPORT"),
+        row(parents[1], "RUNTIME_CJS_REQUIRE"),
+        row(parents[1], "RUNTIME_ESM_IMPORT"),
+        row(parents[0], "RUNTIME_ESM_DYNAMIC"),
+        row(parents[0], "RUNTIME_ESM_IMPORT", "./missing.mjs"),
+        row(parents[1], "RUNTIME_CJS_REQUIRE"),
+      ];
+      const expected = rows.map((entry, index) => ({
+        ...entry,
+        resolution: ["TARGET", "TARGET", "OTHER", "OTHER", "TARGET", "NOT_LOADABLE", "OTHER"][index],
+      }));
+      const run = (options = {}) => {
+        const resolutionWork = newResolutionWork();
+        const memo = new Map();
+        const settings = { ...options, resolutionWork, memo };
+        const first = resolveRuntimeRows(rows, settings);
+        const cold = structuredClone(resolutionWork);
+        const second = resolveRuntimeRows(rows, settings);
+        const empty = resolveRuntimeRows([], settings);
+        return { first, second, empty, cold, work: resolutionWork };
+      };
+      const cjsKeys = rows
+        .filter(({ verdict }) => verdict === "RUNTIME_CJS_REQUIRE")
+        .map(({ path, specifier }) => `${path}\0${specifier}`);
+      const esmKeys = rows
+        .filter(({ verdict }) => RUNTIME_ESM_VERDICTS.has(verdict))
+        .map(({ path, specifier }) => `${pathToFileURL(path).href}\0${specifier}`);
+      const assertWork = ({ cold, work }) => {
+        expect(cold.cjsKeys, "one CJS resolve per distinct cold importer/specifier").toEqual([...new Set(cjsKeys)]);
+        expect(cold.esmKeys, "exact distinct cold ESM importer/specifier requests").toEqual([...new Set(esmKeys)]);
+        expect(cold.esmChildren, "one child per nonempty batch").toBe(1);
+        expect(work, "repeat rows/calls and empty batches add no resolutions or children").toEqual(cold);
+      };
+      const normal = run();
+      expect(normal.first).toEqual(expected);
+      expect(normal.second).toEqual(expected);
+      expect(normal.empty).toEqual([]);
+      assertWork(normal);
+      for (const [mutant, options] of [
+        ["disable-resolution-memo", { disableMemo: true }],
+        ["unbatch-esm-resolution", { unbatchEsm: true }],
+      ]) {
+        const result = run(options);
+        expect(result.first, mutant).toEqual(expected);
+        expect(() => assertWork(result), mutant).toThrow();
+        console.info(JSON.stringify({ mutant, cold: result.cold, work: result.work }));
+      }
+      const wrongParent = run({ omitImporterFromMemoKey: true });
+      expect(wrongParent.first, "omit-importer-from-memo-key must change semantic equality").not.toEqual(expected);
+      console.info(
+        JSON.stringify({
+          resolutionWork: normal.work,
+          mutant: "omit-importer-from-memo-key",
+          resolutions: wrongParent.first.map(({ resolution }) => resolution),
+        }),
+      );
+    });
+  });
+
   for (let shard = 0; shard < CAPABILITY_SHARDS; shard += 1) {
     it(`candidate capability covers every governed loader position [shard ${shard + 1}/${CAPABILITY_SHARDS}]`, () => {
       const started = performance.now();
       const groups = capabilityGroups.filter((_group, index) => index % CAPABILITY_SHARDS === shard);
+      const work = (currentCapabilityWork = { probes: [], children: [] });
       for (const group of groups)
-        capabilityResults.set(`${group.extension}\0${group.scopeType}`, probeCapability(group));
+        capabilityResults.set(
+          `${group.extension}\0${group.scopeType}`,
+          probeCapability(group, { capabilityWork: work }),
+        );
       const elapsedMs = performance.now() - started;
-      capabilityTimings.push({ shard: shard + 1, elapsedMs, groups: groups.length });
-      expect(elapsedMs).toBeLessThan(SHARD_BUDGET_MS);
+      const record = { shard: shard + 1, elapsedMs, groups: groups.length, work };
+      capabilityTimings.push(record);
+      console.info(JSON.stringify({ capabilityShard: record }));
+      assertCapabilityWork(
+        work,
+        groups.map(({ extension, scopeType }) => `${extension}\0${scopeType}`),
+      );
     });
   }
 
@@ -1015,7 +1253,7 @@ describe.sequential("canonical importer authority", () => {
     );
   const censusShardEntries = Array.from({ length: CENSUS_SHARDS }, () => []);
 
-  it("compiler span joining is initialized before timed corpus shards", () => {
+  it("compiler span joining is initialized before corpus shards", () => {
     const rows = compilerRows("warmup.ts", 'import type { X } from "./target.mjs";');
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ verdict: "ERASED_NON_LOADING", owner: "ImportDeclaration" });
@@ -1038,10 +1276,12 @@ describe.sequential("canonical importer authority", () => {
   });
 
   for (let shard = 0; shard < CENSUS_SHARDS; shard += 1) {
-    it(`corpus census and memoized resolution stay inside the unchanged timeout [shard ${shard + 1}/${CENSUS_SHARDS}]`, () => {
+    it(`corpus census and memoized resolution stay input bounded [shard ${shard + 1}/${CENSUS_SHARDS}]`, () => {
       const started = performance.now();
       const entries = censusShardEntries[shard];
       const runtimeRows = [];
+      const work = (currentCorpusWork = newCorpusWork());
+      const ancestryWork = work.ancestry;
       for (const entry of entries) {
         const rows = scanEntry(entry);
         censusRows.push(...rows);
@@ -1049,17 +1289,33 @@ describe.sequential("canonical importer authority", () => {
           ...rows.filter(({ verdict }) => RUNTIME_ESM_VERDICTS.has(verdict) || verdict === "RUNTIME_CJS_REQUIRE"),
         );
       }
+      const resolveStarted = performance.now();
       for (const row of resolveRuntimeRows(runtimeRows)) {
         if (row.resolution === "TARGET") discoveredImporters.add(row.path);
       }
       const elapsedMs = performance.now() - started;
-      censusTimings.push({
+      const timing = {
         shard: shard + 1,
         elapsedMs,
         candidates: entries.length,
         runtimeSpecifiers: runtimeRows.length,
-      });
-      expect(elapsedMs).toBeLessThan(SHARD_BUDGET_MS);
+        resolveMs: performance.now() - resolveStarted,
+        ancestryWork: { ...ancestryWork, ceiling: ancestryWorkCeiling(ancestryWork) },
+        work: Object.fromEntries(
+          ["reads", "preprocesses", "sourceFiles", "literalIndexes"].map((operation) => [
+            operation,
+            work[operation].length,
+          ]),
+        ),
+        ancestryRatio: ancestryWork.operations / ancestryWorkCeiling(ancestryWork),
+      };
+      timing.scannedPaths = work.reads;
+      censusTimings.push(timing);
+      console.info(JSON.stringify({ censusShard: { ...timing, scannedPaths: undefined } }));
+      assertCorpusWork(
+        work,
+        entries.map(({ path }) => path),
+      );
     });
   }
 
@@ -1187,7 +1443,7 @@ describe.sequential("canonical importer authority", () => {
         const result = spawnSync(process.execPath, [file], {
           cwd: directory,
           encoding: "utf8",
-          timeout: SHARD_BUDGET_MS,
+          timeout: CHILD_PROCESS_TIMEOUT_MS,
         });
         if (name === "import-equals") {
           expect(result.status).not.toBe(0);
@@ -1209,14 +1465,7 @@ describe.sequential("canonical importer authority", () => {
     });
   });
 
-  it("corpus shards stay inside the unchanged timeout", () => {
-    expect(capabilityTimings).toHaveLength(CAPABILITY_SHARDS);
-    expect(censusTimings).toHaveLength(CENSUS_SHARDS);
-    expect(Math.max(...capabilityTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
-    expect(Math.max(...censusTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
-    const aggregateBudget = (CAPABILITY_SHARDS + CENSUS_SHARDS) * SHARD_BUDGET_MS;
-    const total = [...capabilityTimings, ...censusTimings].reduce((sum, { elapsedMs }) => sum + elapsedMs, 0);
-    expect(total).toBeLessThan(aggregateBudget);
+  it("canonical corpus work stays input bounded", () => {
     console.info(
       JSON.stringify({
         tracked: gitEntries.length,
@@ -1226,13 +1475,156 @@ describe.sequential("canonical importer authority", () => {
         candidates: candidateEntries().length,
         specifiers: censusRows.length,
         capabilityTimings,
-        censusTimings,
+        censusTimings: censusTimings.map(({ scannedPaths: _paths, ...timing }) => timing),
       }),
     );
+    expect(capabilityTimings).toHaveLength(CAPABILITY_SHARDS);
+    expect(censusTimings).toHaveLength(CENSUS_SHARDS);
+    const expectedGroups = [
+      ...new Set(governedEntries.map(({ extension, scopeType }) => `${extension}\0${scopeType}`)),
+    ];
+    assertCapabilityWork(
+      {
+        probes: capabilityTimings.flatMap(({ work }) => work.probes),
+        children: capabilityTimings.flatMap(({ work }) => work.children),
+      },
+      expectedGroups,
+    );
+    const expectedCandidates = governedEntries
+      .filter(({ extension, scopeType }) => capabilityResults.get(`${extension}\0${scopeType}`).verdict === "CANDIDATE")
+      .map(({ path }) => path);
+    const scannedPaths = censusTimings.flatMap((timing) => timing.scannedPaths);
+    assertUniqueSetEqual(scannedPaths, expectedCandidates);
+    expect([...scannedPaths].sort()).toEqual([...expectedCandidates].sort());
   });
+
+  it.each(["native", "forward-slash"])(
+    "canonical corpus work rejects repeat scans and probes without losing records (%s paths)",
+    (pathStyle) => {
+      withTempDirectory("chase-canonical-repeat-scan-", (directory) => {
+        const nativePath = join(directory, "input.ts");
+        const path = pathStyle === "forward-slash" ? nativePath.replaceAll("\\", "/") : nativePath;
+        writeFileSync(path, 'import "node:fs";');
+        const entry = { path, mode: "100644" };
+        const work = newCorpusWork();
+        const first = scanEntry(entry, { corpusWork: work });
+        expect(first.map(({ path }) => path)).toEqual([path]);
+        assertCorpusWork(work, [path]);
+        const repeated = scanEntry(entry, { corpusWork: work });
+        expect(repeated).toEqual(first);
+        expect(() => assertCorpusWork(work, [path]), "repeat-candidate-scan").toThrow();
+        expect(() => assertCorpusWork(newCorpusWork(), [path]), "omit-census-candidate").toThrow();
+        console.info(JSON.stringify({ mutant: "repeat-candidate-scan", work }));
+      });
+      const group = { extension: ".mjs", scopeType: "module" };
+      const work = { probes: [], children: [] };
+      const first = probeCapability(group, { capabilityWork: work });
+      assertCapabilityWork(work, [".mjs\0module"]);
+      expect(probeCapability(group, { capabilityWork: work })).toEqual(first);
+      expect(() => assertCapabilityWork(work, [".mjs\0module"]), "repeat-capability-probe").toThrow();
+      console.info(JSON.stringify({ mutant: "repeat-capability-probe", work }));
+    },
+  );
 
   it("the authorized importer inventory is exact", () => {
     assertUniqueSetEqual([...discoveredImporters].sort(), [...AUTHORIZED_IMPORTERS]);
+  });
+
+  // Competing kinds (a literal type under an import type, a dynamic import inside
+  // require, require inside an unrelated call), siblings after export and import
+  // declarations, escapes, a template literal and one specifier text in three spans.
+  const nestedAncestrySource = [
+    'import "./static.mjs";',
+    'import type { T } from "./type-only.mjs";',
+    'import { type U } from "./specifier-type.mjs";',
+    'export { value } from "./export.mjs";',
+    'export type { V } from "./export-type.mjs";',
+    'require("./after-export.cjs");',
+    'type I = import("./import-type.mjs").X;',
+    'import legacy = require("./import-equals.cjs");',
+    'const dynamic = await import("./esc\\u0061ped.mjs");',
+    'const nested = wrap(require("./nested-require.cjs"), [import("./nested-dynamic.mjs")]);',
+    'const inner = require(import("./inner-dynamic.mjs"));',
+    'const viaProperty = module.require("./property-require.cjs");',
+    "const template = require(`./template.cjs`);",
+    'import "./duplicate.mjs";',
+    'require("./duplicate.mjs");',
+    'export * from "./duplicate.mjs";',
+  ].join("\n");
+  // The JSON-lines caller-manifest shape: each line indexes the previous one, so
+  // the first line's literals sit about `lines` element accesses deep.
+  const deepJsonLinesSource = (lines) =>
+    [
+      '[require("./deep-first.cjs"), import("./deep-dynamic.mjs")]',
+      ...Array.from(
+        { length: lines },
+        (_, line) => `["candidate","edges",{"from":"a/${line}.ts","specifier":"./b","resolved":"repo:/b.ts"}]`,
+      ),
+      'export { deep } from "./after-deep.mjs";',
+    ].join("\n");
+  const ruleRows = (rows) => rows.map(({ specifier, verdict, owner }) => [specifier, verdict, owner]);
+
+  it("ancestor facts preserve nested classification", () => {
+    const rows = compilerRows("nested-ancestry.ts", nestedAncestrySource);
+    expect(ruleRows(rows)).toEqual([
+      ["./static.mjs", "RUNTIME_ESM_IMPORT", "ImportDeclaration"],
+      ["./type-only.mjs", "ERASED_NON_LOADING", "ImportDeclaration"],
+      ["./specifier-type.mjs", "RUNTIME_ESM_IMPORT", "ImportDeclaration"],
+      ["./export.mjs", "RUNTIME_ESM_EXPORT", "ExportDeclaration"],
+      ["./export-type.mjs", "ERASED_NON_LOADING", "ExportDeclaration"],
+      ["./after-export.cjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./import-type.mjs", "ERASED_NON_LOADING", "ImportTypeNode"],
+      ["./import-equals.cjs", "RUNTIME_UNSUPPORTED_NON_LOADING", "ExternalModuleReference"],
+      ["./escaped.mjs", "RUNTIME_ESM_DYNAMIC", "CallExpression.import"],
+      ["./nested-require.cjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./nested-dynamic.mjs", "RUNTIME_ESM_DYNAMIC", "CallExpression.import"],
+      ["./inner-dynamic.mjs", "RUNTIME_ESM_DYNAMIC", "CallExpression.import"],
+      ["./property-require.cjs", "KNOWN_NON_MODULE_CALL", "CallExpression.propertyRequire"],
+      ["./template.cjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./duplicate.mjs", "RUNTIME_ESM_IMPORT", "ImportDeclaration"],
+      ["./duplicate.mjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./duplicate.mjs", "RUNTIME_ESM_EXPORT", "ExportDeclaration"],
+    ]);
+    expect(rows.map(({ pos }) => pos)).toEqual(rows.map(({ pos }) => pos).sort((left, right) => left - right));
+    expect(ruleRows(compilerRows("deep-ancestry.ts", deepJsonLinesSource(1_800)))).toEqual([
+      ["./deep-first.cjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./deep-dynamic.mjs", "RUNTIME_ESM_DYNAMIC", "CallExpression.import"],
+      ["./after-deep.mjs", "RUNTIME_ESM_EXPORT", "ExportDeclaration"],
+    ]);
+  });
+
+  it("ancestor work stays linear on deep inputs", () => {
+    const withinCeiling = (work) => work.operations <= ancestryWorkCeiling(work);
+    for (const [fileName, source] of [
+      ["shallow-ancestry.ts", nestedAncestrySource],
+      ["deep-ancestry.ts", deepJsonLinesSource(1_800)],
+      ["deeper-ancestry.ts", deepJsonLinesSource(3_600)],
+    ]) {
+      const ancestryWork = newAncestryWork();
+      const rows = compilerRows(fileName, source, { ancestryWork });
+      const evidence = JSON.stringify({ fileName, ...ancestryWork, ceiling: ancestryWorkCeiling(ancestryWork) });
+      console.info(evidence);
+      expect(rows.length, evidence).toBeGreaterThan(0);
+      expect(ancestryWork.matchedSpans, evidence).toBe(rows.length);
+      expect(withinCeiling(ancestryWork), evidence).toBe(true);
+    }
+    // Exercise the actual index traversal with per-child ancestor copies, while
+    // retaining the same classification and unchanged operation ceiling.
+    const copiedWork = newAncestryWork();
+    const source = deepJsonLinesSource(1_800);
+    const copiedRows = compilerRows("deep-ancestry.ts", source, {
+      ancestryWork: copiedWork,
+      restoreAncestorCopy: true,
+    });
+    expect(copiedRows).toEqual(compilerRows("deep-ancestry.ts", source));
+    console.info(
+      JSON.stringify({
+        mutant: "restore-per-node-ancestor-copy",
+        ...copiedWork,
+        ceiling: ancestryWorkCeiling(copiedWork),
+      }),
+    );
+    expect(withinCeiling(copiedWork), JSON.stringify(copiedWork)).toBe(false);
   });
 });
 
@@ -1391,7 +1783,9 @@ describe.sequential("fail-closed importer controls", () => {
       writeFileSync(target, "export const benign = true;\n");
       createFileSymlink("untracked-target.mjs", candidate);
       execFileSync("git", ["add", "candidate.mjs"], { cwd: directory });
-      const before = parseGitIndex(execFileSync("git", ["ls-files", "-s", "-z"], { cwd: directory }))[0];
+      const before = parseGitIndex(
+        execFileSync("git", ["ls-files", "-s", "-z"], { cwd: directory, maxBuffer: GIT_LISTING_MAX_BUFFER }),
+      )[0];
       expect(before.mode).toBe("120000");
       const firstBytes = readFileSync(candidate, "utf8");
       expectRefusal("IMPORTER_TRACKED_SYMLINK", () =>
@@ -1403,7 +1797,9 @@ describe.sequential("fail-closed importer controls", () => {
       );
 
       writeFileSync(target, `import ${JSON.stringify(pathToFileURL(EMITTER_PATH).href)};\n`);
-      const after = parseGitIndex(execFileSync("git", ["ls-files", "-s", "-z"], { cwd: directory }))[0];
+      const after = parseGitIndex(
+        execFileSync("git", ["ls-files", "-s", "-z"], { cwd: directory, maxBuffer: GIT_LISTING_MAX_BUFFER }),
+      )[0];
       const secondBytes = readFileSync(candidate, "utf8");
       expect(after.objectId).toBe(before.objectId);
       expect(secondBytes).not.toBe(firstBytes);
@@ -1437,7 +1833,10 @@ describe.sequential("fail-closed importer controls", () => {
     expect(
       generatedLooking.filter((path) => extensionToken(path) !== ".json").every((path) => candidatePaths.has(path)),
     ).toBe(true);
-    const trackedIgnored = execFileSync("git", ["ls-files", "-ci", "--exclude-standard", "-z"], { cwd: ROOT })
+    const trackedIgnored = execFileSync("git", ["ls-files", "-ci", "--exclude-standard", "-z"], {
+      cwd: ROOT,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .toString("utf8")
       .split("\0")
       .filter(Boolean)
@@ -1465,7 +1864,10 @@ describe.sequential("fail-closed importer controls", () => {
   });
 
   it("the canonical footprint is exactly three files", () => {
-    const visible = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { cwd: ROOT })
+    const visible = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
+      cwd: ROOT,
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .toString("utf8")
       .split("\0")
       .filter(Boolean)

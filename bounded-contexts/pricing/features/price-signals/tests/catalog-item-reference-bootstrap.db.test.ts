@@ -27,8 +27,6 @@ const context: EventStoreContext = {
   audit: { performedByUserId: "usr_synthetic" as never, forAccountId: "acc_synthetic" as never },
 };
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies Parameters<typeof pricingModule.createServices>[1];
@@ -118,7 +116,7 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
     }
     await expect(selectMarketCaptureSignalWork(pools.pricing, "tcgplayer", 1)).resolves.toHaveLength(1);
   });
-  it("v7 replays renamed category names on a populated database, fences older events and boots twice", async () => {
+  it("v8 replays renamed category names on a populated database, fences older events and boots twice", async () => {
     const catalog = catalogModule.createServices(pools.catalog, {});
     const pricing = pricingModule.createServices(pools.pricing, syntheticPricingHostPorts);
     const categoryId = "ctg_synthetic_7911";
@@ -155,8 +153,8 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
       context,
       command: { type: "ReviseCategory", key: "synthetic-7911", name: localized("Renamed") },
     });
-    const v7 = createSubscriptionRunner("pricing", pools.pricing, pools.catalog, declared);
-    expect(v7.subscriptionVersion).toBe(7);
+    const v8 = createSubscriptionRunner("pricing", pools.pricing, pools.catalog, declared);
+    expect(v8.subscriptionVersion).toBe(8);
     const app = new Hono<PricingApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", {
@@ -173,7 +171,7 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
     app.route("/", buildPricingApi(pricing));
     for (let boot = 0; boot < 2; boot++) {
       await bootstrapContextDatabase(pricingModule, pools.pricing);
-      while ((await v7.runOnce()).processed > 0) {}
+      while ((await v8.runOnce()).processed > 0) {}
       expect(await (await app.request("/account/repricing-policies/categories")).json()).toEqual([
         { id: categoryId, name: "Renamed", status: "active", listingCount: 1 },
       ]);
@@ -189,7 +187,7 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
       expect(await (await app.request("/account/repricing-policies/categories")).json()).toEqual([
         { id: categoryId, name: "Renamed", status: "active", listingCount: 1 },
       ]);
-      await v7.reset();
+      await v8.reset();
     }
   });
 });

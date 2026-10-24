@@ -1,11 +1,10 @@
 import "./observability-prelude";
+import type { ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
-import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
-import { createRemoteUcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider, createEasyPostPostageWebhookGateway } from "@chase-sets/easypost-postage";
 import {
@@ -35,6 +34,7 @@ import {
 import {
   createPostgresUcpIdempotencyStore,
   createUcpProfileKeyResolver,
+  createUcpProfileResolver,
   type UcpRuntimeObserver,
 } from "@chase-sets/platform-runtime/ucp";
 import type { McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
@@ -67,6 +67,7 @@ import {
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordDiscoverySearchQuerySignal,
+  recordDiscoveryQueryEmbeddingLoad,
   recordCheckoutObservabilityEvent,
   recordMcpAuditRecord,
   recordPublicPresenceWaitlistAnalytics,
@@ -90,7 +91,12 @@ import {
   recordUcpSignedWriteRejected,
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "@chase-sets/auth/server";
-import { buildPlatformApiApp, createPlatformApiHost } from "./app";
+import { buildPlatformApiApp, createOfferLifecycleAdmission, createPlatformApiHost } from "./app";
+import {
+  DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+  type IdentityHostPorts,
+  type IdentityServices,
+} from "@chase-sets/identity/server";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import {
   loadConfig,
@@ -98,6 +104,7 @@ import {
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { createSupportEvidenceAttachmentStorage, openPlatformSupportEvidenceCanonicalizer } from "./bootstrap-storage";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import {
   createFakeMoneyMovementGateway,
@@ -109,9 +116,6 @@ const observability = getObservabilityRuntime();
 const logger = observability.logger;
 registerPostWriteConsistencyRecorder(recordPostWriteConsistencyEvent);
 const config = loadConfig();
-const ucpAp2MandateVerifier = config.ucpAp2Verifier
-  ? createRemoteUcpAp2MandateVerifier(config.ucpAp2Verifier)
-  : undefined;
 const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
@@ -168,7 +172,10 @@ const settlementOperationsRecorder = {
   },
 };
 const webhookTelemetry = {
-  record(event: Parameters<typeof recordProviderWebhookIngestion>[0]) {
+  record(
+    event: Parameters<typeof recordProviderWebhookIngestion>[0] &
+      Pick<ProviderWebhookTelemetryEvent, "tokenMint" | "keyFetch">,
+  ) {
     recordProviderWebhookIngestion(event);
     const fields = {
       type: "provider.webhook.ingestion",
@@ -179,6 +186,8 @@ const webhookTelemetry = {
       retryable: event.retryable,
       provider_event_id: event.providerEventId ?? null,
       event_kind: event.eventKind ?? null,
+      token_mint: event.tokenMint ?? "not-attempted",
+      key_fetch: event.keyFetch ?? "not-attempted",
     };
     if (event.outcome === "failed") {
       logger.error("Provider webhook ingestion failed.", fields);
@@ -230,12 +239,6 @@ const mobileMessageWebhookGateway =
     : undefined;
 const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
-  pool: pools.catalog,
-  config: config.tcgplayerAutomation,
-  keyring: config.catalogOperatorSessionKeyring,
-});
-const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
 const waitlistAnalyticsRecorder = {
@@ -276,6 +279,9 @@ const waitlistAnalyticsRecorder = {
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const returnIntakeEvidenceStorage = createReturnIntakeEvidenceStorage(config.listingPhotoStorage);
 const supportEvidenceAttachmentStorage = createSupportEvidenceAttachmentStorage(config.listingPhotoStorage);
+const supportEvidenceCanonicalizer = await openPlatformSupportEvidenceCanonicalizer(
+  ["production", "staging", "preview"].includes(config.deploymentEnvironment ?? "dev"),
+);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
   Boolean(config.taxProviderBackedQuotesRequired),
@@ -306,12 +312,26 @@ logger.info("Stripe go-live checks resolved.", {
   ...config.stripeGoLive,
 });
 
+const capabilityAdministrationPorts: Pick<IdentityHostPorts, "capabilityAdministrationAuthority"> = {
+  capabilityAdministrationAuthority:
+    config.capabilityAdministrationAuthority ?? DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+};
+if (capabilityAdministrationPorts.capabilityAdministrationAuthority.kind === "deny-all") {
+  logger.info("Capability administration is disabled.", {
+    type: "identity.capability-administration-authority",
+    reason: capabilityAdministrationPorts.capabilityAdministrationAuthority.diagnostic,
+  });
+}
 const runtime = createPlatformApiHost({
   runtimeProfile: config.runtimeProfile,
   pools,
   runtimeLifecycle,
   hostPorts: {
+    ...capabilityAdministrationPorts,
+    deploymentEnvironment: config.deploymentEnvironment,
     channelCredentialKeyring: config.channelCredentialKeyring,
+    ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
+    offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, db: pools.control }),
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
     webhookTelemetry,
@@ -322,17 +342,13 @@ const runtime = createPlatformApiHost({
     addressVerificationProvider: postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
-    catalogOperatorSessionConfiguration: {
-      config: config.tcgplayerAutomation,
-      keyring: config.catalogOperatorSessionKeyring,
-    },
-    ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     checkoutObservabilityTelemetry,
     waitlistAnalyticsRecorder,
     listingPhotoStorage,
     returnIntakeEvidenceStorage,
     supportEvidenceAttachmentStorage,
+    supportEvidenceCanonicalizer,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
@@ -343,11 +359,18 @@ const runtime = createPlatformApiHost({
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
       recordSearchQuery: recordDiscoverySearchQuerySignal,
+      recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
     },
     emailWebhookGateway,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },
 });
+// Refuse to serve routes until the process's authority receipt has settled.
+try {
+  await (runtime.services.identity as IdentityServices).accountCapabilities.initializeAdministrationAuthority();
+} catch {
+  throw new Error("Identity capability administration authority receipt refused boot.");
+}
 const realtimeStores = runtime.mountedContexts
   .filter(
     (entry) =>
@@ -482,6 +505,13 @@ if (realtimeWakeSignal?.stop) {
   });
 }
 const ucpObserver = {
+  negotiationRejected: (event) => {
+    recordUcpOperationCompleted({ transport: event.transport, operation: event.operation, status: "error" });
+    logger.warn("UCP profile negotiation rejected.", {
+      type: "ucp.negotiation.rejected",
+      ...event,
+    });
+  },
   signedWriteRejected: (event) => {
     recordUcpSignedWriteRejected(event);
     logger.warn("UCP signed write rejected.", {
@@ -595,6 +625,10 @@ const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
       }
     : {}),
 });
+const ucpProfileResolver = createUcpProfileResolver({
+  db: pools.control,
+  onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),
+});
 const app = buildPlatformApiApp(runtime, {
   runtimeProfile: config.runtimeProfile,
   internalAuthSecret: config.internalAuthSecret,
@@ -672,19 +706,19 @@ const app = buildPlatformApiApp(runtime, {
       }
     : undefined,
   ucp: {
+    profileResolver: ucpProfileResolver,
     businessSigningKeys: config.ucpBusinessSigningKeys,
     idempotencyStore: createPostgresUcpIdempotencyStore(pools.control, {
       retentionMs: 7 * 24 * 60 * 60 * 1000,
     }),
     signatureVerification: {
-      keyResolver: createUcpProfileKeyResolver({ db: pools.control }),
+      keyResolver: createUcpProfileKeyResolver(ucpProfileResolver),
       createdFreshnessWindowMs: config.ucpSignatureCreatedFreshnessWindowMs,
     },
     observer: ucpObserver,
     mcpToolCallLimiter,
     agentGrantRateLimiter,
   },
-  ucpAp2MandateVerifier,
   agentGrantSpendPolicy,
   agentGrantConsent,
   agentGrantActivity: mcpAuditLog,
@@ -757,16 +791,6 @@ function createReturnIntakeEvidenceStorage(storageConfig: PlatformApiListingPhot
   return createFilesystemObjectStorage({
     rootDir: `${storageConfig.rootDir}/private-return-intake`,
     publicBaseUrl: "private://return-intake-evidence",
-  });
-}
-
-function createSupportEvidenceAttachmentStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
-  if (storageConfig.kind === "s3") {
-    return createS3ObjectStorage({ ...storageConfig, publicBaseUrl: "private://support-evidence" });
-  }
-  return createFilesystemObjectStorage({
-    rootDir: `${storageConfig.rootDir}-private-support-evidence`,
-    publicBaseUrl: "private://support-evidence",
   });
 }
 

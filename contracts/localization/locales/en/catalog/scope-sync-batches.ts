@@ -1,10 +1,32 @@
 export const catalogScopeSyncBatchesEnglishTranslations = {
+  "catalog.features.scopeSyncBatches.count.retained": "Open retained count quote",
+  "catalog.features.scopeSyncBatches.count.title": "Scrydex count quote",
+  "catalog.features.scopeSyncBatches.count.quote": "Quote count acquisition",
+  "catalog.features.scopeSyncBatches.count.cap": "Count credit cap",
+  "catalog.features.scopeSyncBatches.count.planned": "Planned credits",
+  "catalog.features.scopeSyncBatches.count.separate": "Count spend is separate from the batch reservation",
+  "catalog.features.scopeSyncBatches.count.no.batch":
+    "Approval buys counts only. It does not approve or enqueue a batch. Failed or uncertain attempts retain their debit.",
+  "catalog.features.scopeSyncBatches.count.cards": "Missing card counts",
+  "catalog.features.scopeSyncBatches.count.sealed": "Missing sealed counts",
+  "catalog.features.scopeSyncBatches.count.reused": "Fresh counts reused",
+  "catalog.features.scopeSyncBatches.count.expires": "Quote expires",
+  "catalog.features.scopeSyncBatches.count.state": "Count outcome",
+  "catalog.features.scopeSyncBatches.count.kind": "Set and kind",
+  "catalog.features.scopeSyncBatches.count.cost": "Credits",
+  "catalog.features.scopeSyncBatches.count.observed": "Count observed at",
+  "catalog.features.scopeSyncBatches.count.unobserved": "Unobserved",
+  "catalog.features.scopeSyncBatches.count.approve": "Approve count acquisition",
+  "catalog.features.scopeSyncBatches.count.acquiring": "Acquiring counts",
+  "catalog.features.scopeSyncBatches.count.spend": "Recent count spend",
   "catalog.features.scopeSyncBatches.api.planner.scrydex.credit.readiness.not.checked":
     "Scrydex credit readiness was not checked for this provider unit.",
   "catalog.features.scopeSyncBatches.api.planner.catalog.scope.record.not.active":
     "Catalog Scope Record is not active.",
   "catalog.features.scopeSyncBatches.api.planner.accepted.provider.scope.mapping.missing":
     "Catalog Scope Record has no accepted Provider Scope Mapping.",
+  "catalog.features.scopeSyncBatches.api.planner.selected.provider.units.missing":
+    "Catalog Scope Record has no selected provider units.",
   "catalog.features.scopeSyncBatches.api.route.not.found": "Scope Sync Batch was not found.",
   "catalog.features.scopeSyncBatches.api.route.request.body.required": "Scope Sync Batch request body is required.",
   "catalog.features.scopeSyncBatches.api.route.plan.fingerprint.required": "planFingerprint is required.",

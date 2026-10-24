@@ -1,4 +1,11 @@
 import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import {
+  centsToMoneyAmount,
+  compareMoneyAmounts,
+  isCanonicalMoneyAmount,
+  sumMoneyAmounts,
+  trySignedMoneyToCents,
+} from "@chase-sets/primitives/money";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
@@ -49,13 +56,24 @@ function formatMoney(amount: string) {
   return formatMoneyDisplay(amount, "USD");
 }
 
-function parseMoneyAmount(value: FormDataEntryValue | null) {
-  const parsed = Number.parseFloat(String(value ?? "0"));
-  return Number.isFinite(parsed) ? parsed : 0;
+function sumOrderAmounts(amounts: readonly string[]) {
+  if (amounts.some((amount) => !isCanonicalMoneyAmount(amount))) {
+    throw new Error("Order amounts must be canonical money amounts.");
+  }
+  return sumMoneyAmounts(amounts);
 }
 
-function decimalMoney(value: number) {
-  return Math.max(0, value).toFixed(2);
+function calculateBalanceCredit(totalAmount: string, availableBalance: FormDataEntryValue | null) {
+  const totalCents = trySignedMoneyToCents(totalAmount) ?? 0n;
+  const availableBalanceCents = trySignedMoneyToCents(String(availableBalance ?? "0.00")) ?? 0n;
+  const nonNegativeTotal = totalCents > 0n ? totalCents : 0n;
+  const nonNegativeAvailable = availableBalanceCents > 0n ? availableBalanceCents : 0n;
+  const creditCents = nonNegativeTotal < nonNegativeAvailable ? nonNegativeTotal : nonNegativeAvailable;
+  return {
+    availableBalanceCents,
+    maxBalanceCreditAmount: centsToMoneyAmount(creditCents),
+    externalAfterMaxAmount: centsToMoneyAmount(nonNegativeTotal - creditCents),
+  };
 }
 
 function paymentMethodLabel(method: string) {
@@ -74,9 +92,8 @@ function requestedBalanceCreditFromForm(formData: FormData) {
     return null;
   }
   if (mode === "max") {
-    const total = parseMoneyAmount(formData.get("totalAmount"));
-    const available = parseMoneyAmount(formData.get("availableBalance"));
-    return decimalMoney(Math.min(total, available));
+    return calculateBalanceCredit(String(formData.get("totalAmount") ?? "0.00"), formData.get("availableBalance"))
+      .maxBalanceCreditAmount;
   }
 
   return normalizeRequestedBalanceCreditAmount(formData.get("requestedBalanceCreditAmount"));
@@ -114,9 +131,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
   try {
     const { orders } = await paymentsApi.listAccountOrderInputs({ orderIds });
     const wallet = await loadWalletBalance(request);
-    const totalAmount = orders.reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0).toFixed(2);
-    const requestedBalanceCreditAmount = decimalMoney(
-      Math.min(Number.parseFloat(totalAmount), Number.parseFloat(wallet?.available_balance_amount ?? "0.00")),
+    const totalAmount = sumOrderAmounts(orders.map((order) => order.total_amount));
+    const { maxBalanceCreditAmount: requestedBalanceCreditAmount } = calculateBalanceCredit(
+      totalAmount,
+      wallet?.available_balance_amount ?? null,
     );
     const checkoutStatus = await paymentsApi.getCheckoutStatus({
       orderIds,
@@ -207,21 +225,14 @@ export default function MarketplaceAccountPaymentNewRoute() {
     submit(formRef.current, { method: "post" });
   }, [actionData?.error, data.autostart, navigation.state, submit]);
 
-  const totalAmount = data.orders.reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0).toFixed(2);
-  const marketplaceSalesFeeAmount = data.orders
-    .reduce((sum, order) => sum + Number.parseFloat(order.marketplace_sales_fee_amount), 0)
-    .toFixed(2);
-  const sellerPayoutAmount = data.orders
-    .reduce((sum, order) => sum + Number.parseFloat(order.seller_payout_amount), 0)
-    .toFixed(2);
-  const salesTaxAmount = data.orders
-    .reduce((sum, order) => sum + Number.parseFloat(order.sales_tax_amount ?? "0.00"), 0)
-    .toFixed(2);
+  const totalAmount = sumOrderAmounts(data.orders.map((order) => order.total_amount));
+  const marketplaceSalesFeeAmount = sumOrderAmounts(data.orders.map((order) => order.marketplace_sales_fee_amount));
+  const sellerPayoutAmount = sumOrderAmounts(data.orders.map((order) => order.seller_payout_amount));
+  const salesTaxAmount = sumOrderAmounts(data.orders.map((order) => order.sales_tax_amount ?? "0.00"));
   const selectedCheckoutFee = data.checkoutStatus.marketplace_checkout_fee;
-  const availableBalanceAmount = Number.parseFloat(data.wallet?.available_balance_amount ?? "0.00");
-  const maxBalanceCreditAmount = decimalMoney(Math.min(Number.parseFloat(totalAmount), availableBalanceAmount));
-  const externalAfterMaxAmount = decimalMoney(
-    Number.parseFloat(totalAmount) - Number.parseFloat(maxBalanceCreditAmount),
+  const { availableBalanceCents, maxBalanceCreditAmount, externalAfterMaxAmount } = calculateBalanceCredit(
+    totalAmount,
+    data.wallet?.available_balance_amount ?? null,
   );
 
   return (
@@ -381,7 +392,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                       {
                         value: "platform-credit",
                         label: t("payments.routes.marketplace.accountPaymentNew.platform.credit.only"),
-                        disabled: Number.parseFloat(externalAfterMaxAmount) > 0,
+                        disabled: compareMoneyAmounts(externalAfterMaxAmount, "0.00") > 0,
                       },
                     ]}
                     description={t(
@@ -391,7 +402,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                   <NativeSelect
                     label={t("payments.routes.marketplace.accountPaymentNew.wallet.balance")}
                     name="balanceCreditMode"
-                    defaultValue={availableBalanceAmount > 0 ? "max" : "none"}
+                    defaultValue={availableBalanceCents > 0n ? "max" : "none"}
                     items={[
                       { value: "none", label: t("payments.routes.marketplace.accountPaymentNew.do.not.use.balance") },
                       {
@@ -399,7 +410,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                         label: t("payments.routes.marketplace.accountPaymentNew.use.up.to.amount", {
                           amount: formatMoney(maxBalanceCreditAmount),
                         }),
-                        disabled: availableBalanceAmount <= 0,
+                        disabled: availableBalanceCents <= 0n,
                       },
                       {
                         value: "custom",
@@ -452,7 +463,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                       })}
                     </Text>
                     <Text size="sm" tone="secondary">
-                      {Number.parseFloat(quote.marketplace_checkout_fee_reduction_amount) > 0
+                      {compareMoneyAmounts(quote.marketplace_checkout_fee_reduction_amount, "0.00") > 0
                         ? t("payments.routes.marketplace.accountPaymentNew.reduction.from.card", {
                             amount: formatMoney(quote.marketplace_checkout_fee_reduction_amount),
                           })
@@ -506,7 +517,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
           </PageSection>
 
           <StickyCtaBar
-            price={formatMoney(selectedCheckoutFee.total_amount)}
+            total={formatMoney(selectedCheckoutFee.total_amount)}
             context={t("payments.routes.marketplace.accountPaymentNew.final.totals.before.payment")}
             primaryAction={
               <Button

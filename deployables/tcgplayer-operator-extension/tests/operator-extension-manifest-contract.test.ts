@@ -10,12 +10,14 @@ describe("operator-extension-manifest-contract", () => {
     const id = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join("");
     expect(id).toBe(operatorExtensionId);
     expect(id).not.toBe("ebnhngdhefamkdjajldafonajgkadfhh");
-    expect(operatorManifest.permissions).toEqual(["cookies", "storage", "alarms"]);
+    expect(operatorManifest.permissions).toEqual(["storage"]);
     expect(operatorManifest.host_permissions).toEqual([
-      "https://store.tcgplayer.com/*",
       "https://admin.staging.chasesets.com/*",
       "https://admin.chasesets.com/*",
     ]);
+    expect(operatorManifest).toHaveProperty("externally_connectable", {
+      matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
+    });
     expect(operatorManifest.content_security_policy).toEqual({
       extension_pages: "script-src 'self'; object-src 'none'",
       sandbox: "sandbox allow-scripts; script-src 'self'; object-src 'none'",
@@ -23,10 +25,29 @@ describe("operator-extension-manifest-contract", () => {
     expect(isOperatorManifest(operatorManifest)).toBe(true);
   });
   it.each([
-    { permissions: ["cookies", "storage", "alarms", "webRequest"] },
+    { permissions: ["storage", "webRequest"] },
     { permissions: ["identity"] },
     { content_scripts: [{ matches: ["<all_urls>"], js: ["inject.js"] }] },
     { externally_connectable: { matches: ["*://*/*"] } },
+    { externally_connectable: { matches: ["https://*.chasesets.com/*"] } },
+    { externally_connectable: { matches: ["http://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"] } },
+    {
+      externally_connectable: {
+        matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*", "https://example.test/*"],
+      },
+    },
+    {
+      externally_connectable: {
+        matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
+        ids: ["*"],
+      },
+    },
+    {
+      externally_connectable: {
+        matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
+        accepts_tls_channel_id: true,
+      },
+    },
     { host_permissions: ["<all_urls>"] },
     { host_permissions: ["https://*.tcgplayer.com/*"] },
     { host_permissions: ["https://api.chasesets.com/*"] },
@@ -37,11 +58,9 @@ describe("operator-extension-manifest-contract", () => {
   ])("rejects authority expansion %j", (mutation) => {
     expect(isOperatorManifest({ ...operatorManifest, ...mutation })).toBe(false);
   });
-  it("uses only facade bootstraps and fixed cookie adapter arguments", () => {
+  it("uses only facade bootstraps and no provider-cookie capability", () => {
     const source = (name: string) => readFileSync(resolve(import.meta.dirname, `../src/${name}.ts`), "utf8");
-    expect(source("background")).toContain(
-      'chrome.cookies.get({ name: operatorCookieName, url: operatorCookieUrl, storeId: "0" })',
-    );
+    expect(source("background")).not.toMatch(/chrome\.(cookies|alarms)/);
     expect(source("background")).not.toMatch(/getAll|storage\.sync|console\./);
     expect(source("popup")).toContain("installOperatorBridge");
     expect(source("popup")).not.toMatch(/storage|cookies|fetch|innerHTML/);

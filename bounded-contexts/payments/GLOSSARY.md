@@ -6,6 +6,26 @@ This glossary defines the canonical terminology for the Payments bounded context
 
 A **Payment** is the external charge workflow associated with one or more orders.
 
+## Wallet Funding
+
+**Wallet Funding** is the card-to-prepaid funding capability, separate from order Payments and Settlement's internal balance accounting.
+
+## Wallet Funding Payment
+
+A **Wallet Funding Payment** is a platform-held card charge with no orders. Its gross charge is the requested prepaid amount plus its Wallet Funding Fee. Payments owns the charge; Settlement owns the resulting Prepaid Balance.
+
+## Wallet Funding Fee
+
+The **Wallet Funding Fee** is the non-refundable processing fee quoted from the checkout card fee policy and charged on top of the requested prepaid amount.
+
+## Wallet Funding Refund
+
+A **Wallet Funding Refund** returns an exact reserved amount of unspent prepaid money to the original card, subject to processor acceptance. Pending or unknown provider outcomes retain their reservation and require reconciliation, not expiry or another refund attempt.
+
+## Refund Reservation
+
+A **Refund Reservation** is Settlement's durable authorization of one account, funding, refund, currency and amount. Payments persists the identity before provider submission, commits it after one successful refund fact, and releases it only after definitive terminal non-execution evidence. It is not a refundable-balance snapshot or a Payments wallet write.
+
 ## Payment Intent
 
 A **Payment Intent** is the buyer-facing authorization attempt created before capture.
@@ -111,7 +131,7 @@ A **Shared Payment Token** is a provider-scoped payment credential grant from an
 
 Notes:
 
-- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff and require AP2 verification before headless UCP completion.
+- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff; UCP checkout completion does not submit them headlessly.
 - Payments stores the resulting processor payment reference and metadata, not the token as durable customer payment data.
 
 ## Saved Checkout Instrument
@@ -152,6 +172,17 @@ Readiness states:
 - `ready`: Payments has a provider customer reference and a provider payment method reference that can be used for eligible checkout.
 - `setup-required`: The provider method exists in history but needs buyer action, mandate repair, or provider reconciliation before reuse.
 - `removed`: The buyer or provider detached the credential; Checkout must not offer it, but historical Payments keep their Saved Checkout Instrument reference.
+
+## Saved Checkout Instrument Attempt
+
+A **Saved Checkout Instrument Attempt** is one caller's single request to set up, default or remove a Saved Checkout Instrument, identified by a canonical UUIDv4 the caller mints before its first dispatch (one per methods-page form, or the MCP owner `idempotencyKey`).
+
+Notes:
+
+- Payments records a private stream per account and attempt id: a closed `started` fact before any processor call or write, then a closed `completed` fact with the first receipt. The raw attempt id is never stored.
+- Repeating the same attempt replays: it returns the first receipt, or finishes a local write that needs no processor call, and never re-sends a processor write. Remove never detaches twice; a locally removed instrument completes with no detach or audit.
+- The attempt's fingerprint covers kind, account, actor (Agent Grant or account), target instrument, effective setup UI mode and normalized return URL. Reusing an id with a different fingerprint is `attempt_conflict`; a history that cannot be confirmed, including a malformed one, is `attempt_unconfirmed`.
+- Only a response, an exact replay or one owner read resolves an attempt; connectivity alone proves nothing.
 
 ## Evidence Window Registration
 
@@ -199,15 +230,6 @@ Notes:
 
 - Distinct from the product checkout session, which is Chase Sets' own buyer-facing checkout flow and is not a Stripe object; the two must never be conflated in Payments terminology or evidence.
 - Option B's evidence windows use the embedded setup path only, so no Stripe Checkout Session is created; its Disposition Terminal is `not-created`.
-
-## AP2 Mandate
-
-An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.
-
-Notes:
-
-- AP2 Mandates are accepted for headless UCP checkout completion only when a production verifier is configured and a supported payment handler is present.
-- Without a verified AP2 Mandate, UCP checkout completion must use Trusted Checkout Handoff.
 
 ## Payment Provider Mode
 

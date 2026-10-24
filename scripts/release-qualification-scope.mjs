@@ -39,6 +39,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { classifyChanges } from "./change-scope.mjs";
+import { enumerateGuardImportCandidates } from "./check-structure/module-resolution.mjs";
 import { isCommitSha, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
@@ -46,6 +47,29 @@ import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 export const RELEASE_QUALIFICATION_SCOPE_SCHEMA_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_POLICY_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_CLASSES = Object.freeze(["not_applicable", "isolated", "persistent_required"]);
+// Stable classifier reason-code vocabulary consumed by the advisory lifecycle
+// producer. Keep the map explicit so terminal validation cannot accept a
+// reason from an unrelated classifier or silently widen on a future version.
+export const RELEASE_QUALIFICATION_REASON_CODES_BY_CLASS = Object.freeze({
+  not_applicable: Object.freeze(["ci_only_workflow", "docs_or_test_only", "repo_tooling_only", "empty_diff"]),
+  isolated: Object.freeze(["application_image", "application_runtime"]),
+  persistent_required: Object.freeze([
+    "migration_schema",
+    "seed_bootstrap_import_reconciliation",
+    "money_movement_contract",
+    "terraform_infrastructure",
+    "helm_doks_ingress_dns_spaces",
+    "live_provider_contract",
+    "deployment_release_workflow",
+    "unregistered_workflow_semantics",
+    "unrecognized_migration_mechanism",
+    "destructive_data",
+    "unreadable_file",
+    "unknown_surface",
+  ]),
+});
+export const RELEASE_QUALIFICATION_APPLICABILITY_KINDS = Object.freeze(["path-scope/v0", "pure-module/v1"]);
+export const RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS = Object.freeze(["type-only", "value"]);
 
 const CLASS_RANK = { not_applicable: 0, isolated: 1, persistent_required: 2 };
 
@@ -128,6 +152,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   contracts: Object.freeze({
     "auth-context": "runtime-library",
     "bounded-context-module": "runtime-library",
+    "catalog-product-line": "runtime-library",
     "catalog-seed": "seed-machinery",
     "checkout-order-source": "money-movement-contract",
     "embedded-surface-theme": "runtime-library",
@@ -135,6 +160,8 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "evidence-window-provider-write": "live-provider",
     http: "runtime-library",
     "identity-seed": "seed-machinery",
+    // Versioned receipt/message facts are validated at bootstrap and must preserve replay semantics.
+    "inventory-draft-listing": "event-store-persistence",
     localization: "runtime-library",
     "market-estimate-display": "runtime-library",
     "money-movement": "money-movement-contract",
@@ -152,6 +179,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "review-eligibility": "runtime-library",
     "seller-attention-queue": "runtime-library",
     "seller-desk": "runtime-library",
+    "tcgplayer-market-observations": "event-store-persistence",
   }),
 
   // Migration mechanisms (historical paths). Renamed copies are caught by the
@@ -221,6 +249,8 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "scripts/promoted-release.mjs",
     "scripts/release-deployment-scope.mjs",
     "scripts/release-qualification-record.mjs",
+    "scripts/merge-qualification-policy.json",
+    "scripts/merge-qualification.mjs",
     "scripts/release-qualification-scope.mjs",
     "scripts/run-catalog-integration-reset.mjs",
     "scripts/staging-bootstrap-hook-drill.mjs",
@@ -236,10 +266,17 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Unknown workflows fail closed.
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
+    "browser-boundary-diagnostics.yml": "ci",
+    "browser-boundary-timeout-verifier.yml": "ci",
+    "catalog-completion-report.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
+    "catalog-staging-count-preparation.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
     "checkout-order-readiness-trace.yml": "ci",
+    "collections-anonymous-owner-redaction.yml": "release",
+    "collections-cutover-authority-capture.yml": "ci",
+    "ci-image-mirrors.yml": "release",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
     "marketplace-easypost-refund-event-replay.yml": "release",
@@ -251,14 +288,18 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-compose-boot-smoke.yml": "release",
     "platform-coverage.yml": "ci",
     "platform-database-restore-drill.yml": "release",
+    "platform-db-duration-drift.yml": "ci",
+    "platform-dependency-audit.yml": "ci",
     "platform-delivery-health.yml": "ci",
+    "platform-credential-health.yml": "ci",
     "platform-digitalocean-drift-digest.yml": "ci",
-    "platform-digitalocean-token-rotation-reminder.yml": "ci",
     "platform-doks-foundation.yml": "release",
     "platform-emergency-recovery.yml": "release",
     "platform-ephemeral-verification.yml": "release",
     "platform-merge-gate-verification.yml": "release",
     "platform-merge-group-failure-signatures.yml": "ci",
+    "platform-merge-qualification-observer.yml": "release",
+    "platform-merge-qualification.yml": "release",
     "platform-merge-queue-posture.yml": "ci",
     "platform-observability-state-migration.yml": "release",
     "platform-postgres-growth-evidence.yml": "ci",
@@ -266,7 +307,12 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-pr-scope.yml": "ci",
     "platform-pr.yml": "release",
     "platform-preview-cleanup.yml": "release",
+    "platform-preview-cleanup-observer.yml": "ci",
+    "platform-preview-pool-census.yml": "ci",
+    "platform-preview-wildcard-tls.yml": "release",
+    "platform-production-memory-probe.yml": "ci",
     "platform-production-restore-point-cleanup.yml": "release",
+    "platform-production-lock-monitor.yml": "ci",
     "platform-production-stale-helm-recovery.yml": "release",
     "platform-production-stripe-webhook-endpoint-create.yml": "release",
     "platform-production-stripe-webhook-endpoint-verify.yml": "release",
@@ -280,6 +326,9 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-staging-admin-smoke.yml": "release",
     "platform-staging-advisory-evidence.yml": "release",
     "platform-staging-bootstrap-hook-drill.yml": "release",
+    "platform-staging-cluster-addons.yml": "release",
+    "platform-staging-evidence-window-cleanup.yml": "release",
+    "platform-staging-evidence-window.yml": "release",
     "platform-staging-helm-recovery.yml": "release",
     "platform-staging-mixed-version-wake-drills.yml": "release",
     "platform-staging-projection-operations.yml": "release",
@@ -296,7 +345,9 @@ export const releaseQualificationScopeRegistry = Object.freeze({
 
   // Composite actions under .github/actions by directory name.
   actions: Object.freeze({
+    "block-docker-hub": "release",
     "export-managed-postgres-authority": "release",
+    "production-marker-recovery-context": "release",
     "report-scheduled-workflow-alert": "ci",
     "setup-pnpm-workspace": "release",
   }),
@@ -311,24 +362,35 @@ export const releaseQualificationScopeRegistry = Object.freeze({
       expectedClass: "not_applicable",
       rationale:
         "Browser e2e bootstrap observation records disposable local test processes and does not seed or mutate persistent environments.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
     Object.freeze({
       pattern: /^deployables\/[^/]+\/e2e\//,
       expectedClass: "not_applicable",
       rationale:
         "End-to-end test seed contracts run only inside disposable e2e environments; they never touch persistent staging or production.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
     Object.freeze({
       pattern: /^bounded-contexts\/(?!checkout\/|ordering\/|payments\/|settlement\/)[^/]+\/index\.ts$/,
       expectedClass: "isolated",
       rationale:
         "Context module barrels import the seed module to compose the context contract; the seed processes themselves are the registered surfaces, and barrels are ordinary application composition. Money-context barrels stay persistent via the money-movement registry.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
     Object.freeze({
       pattern: /^bounded-contexts\/catalog\/features\/source-observations\/ui\//,
       expectedClass: "isolated",
       rationale:
         "Import-to-promotion admin UI renders the import workflow; the import mutations live under the registered source-observations api surface.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
+    }),
+    Object.freeze({
+      pattern: /^scripts\/provider-object-disposition\/browser-boundary\/bootstrap\.mjs$/,
+      expectedClass: "not_applicable",
+      rationale:
+        "Memory-only browser bootstrap under parent-only exact GET; no persistent seed, import, reconciliation or environment mutation.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
   ]),
 });
@@ -385,7 +447,111 @@ export function validateReleaseQualificationScopeRegistry(registry) {
   ) {
     errors.push("reviewedNonPersistentSurfaces must be an array of { pattern, expectedClass, rationale } rulings.");
   }
+  if (Array.isArray(registry.reviewedNonPersistentSurfaces)) {
+    for (const [index, entry] of registry.reviewedNonPersistentSurfaces.entries()) {
+      validateApplicability(errors, entry?.applicability, `reviewedNonPersistentSurfaces[${index}].applicability`);
+    }
+  }
   return errors;
+}
+
+function validateFrozenRecord(errors, value, keys, label) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    errors.push(`${label} must be an object.`);
+    return false;
+  }
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length !== keys.length || ownKeys.some((key) => !keys.includes(key))) {
+    errors.push(`${label} must have exactly keys: ${keys.join(", ")}.`);
+    return false;
+  }
+  if (keys.some((key) => !Object.hasOwn(Object.getOwnPropertyDescriptor(value, key), "value"))) {
+    errors.push(`${label} must contain only data properties.`);
+    return false;
+  }
+  if (!Object.isFrozen(value)) errors.push(`${label} must be frozen.`);
+  return true;
+}
+
+function hasOnlyIndexedDataElements(array) {
+  if (Reflect.ownKeys(array).length !== array.length + 1) return false;
+  for (let index = 0; index < array.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(array, index);
+    if (!descriptor || !Object.hasOwn(descriptor, "value")) return false;
+  }
+  return true;
+}
+
+function validateApplicability(errors, applicability, label) {
+  if (typeof applicability !== "object" || applicability === null || Array.isArray(applicability)) {
+    errors.push(`${label} must be an object.`);
+    return;
+  }
+  const kindDescriptor = Object.getOwnPropertyDescriptor(applicability, "kind");
+  if (kindDescriptor && !Object.hasOwn(kindDescriptor, "value")) {
+    errors.push(`${label} must contain only data properties.`);
+    return;
+  }
+  if (!RELEASE_QUALIFICATION_APPLICABILITY_KINDS.includes(applicability.kind)) {
+    errors.push(`${label}.kind must be one of: ${RELEASE_QUALIFICATION_APPLICABILITY_KINDS.join(", ")}.`);
+    return;
+  }
+  const keys = applicability.kind === "path-scope/v0" ? ["kind"] : ["kind", "modules"];
+  if (!validateFrozenRecord(errors, applicability, keys, label) || applicability.kind === "path-scope/v0") return;
+  if (!Array.isArray(applicability.modules) || applicability.modules.length === 0) {
+    errors.push(`${label}.modules must be a non-empty array.`);
+    return;
+  }
+  if (!hasOnlyIndexedDataElements(applicability.modules)) {
+    errors.push(`${label}.modules must contain only indexed data elements.`);
+    return;
+  }
+  if (!Object.isFrozen(applicability.modules)) errors.push(`${label}.modules must be frozen.`);
+  const paths = new Set();
+  for (const [index, module] of applicability.modules.entries()) {
+    const moduleLabel = `${label}.modules[${index}]`;
+    if (!validateFrozenRecord(errors, module, ["path", "specifiers"], moduleLabel)) continue;
+    if (
+      typeof module.path !== "string" ||
+      module.path.length === 0 ||
+      path.posix.isAbsolute(module.path) ||
+      /^[a-z]:/i.test(module.path) ||
+      module.path.includes("\\") ||
+      module.path.startsWith("./") ||
+      module.path.split("/").includes("..")
+    ) {
+      errors.push(
+        `${moduleLabel}.path must be a non-empty repository-relative path without backslashes, leading ./ or .. segments.`,
+      );
+    }
+    if (paths.has(module.path)) errors.push(`${moduleLabel}.path must be unique within modules.`);
+    paths.add(module.path);
+    if (!Array.isArray(module.specifiers)) {
+      errors.push(`${moduleLabel}.specifiers must be an array.`);
+      continue;
+    }
+    if (!hasOnlyIndexedDataElements(module.specifiers)) {
+      errors.push(`${moduleLabel}.specifiers must contain only indexed data elements.`);
+      continue;
+    }
+    if (!Object.isFrozen(module.specifiers)) errors.push(`${moduleLabel}.specifiers must be frozen.`);
+    const specifiers = new Set();
+    for (const [specifierIndex, specifier] of module.specifiers.entries()) {
+      const specifierLabel = `${moduleLabel}.specifiers[${specifierIndex}]`;
+      if (!validateFrozenRecord(errors, specifier, ["specifier", "binding"], specifierLabel)) continue;
+      if (typeof specifier.specifier !== "string" || specifier.specifier.length === 0) {
+        errors.push(`${specifierLabel}.specifier must be a non-empty string.`);
+      }
+      if (!RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS.includes(specifier.binding)) {
+        errors.push(
+          `${specifierLabel}.binding must be one of: ${RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS.join(", ")}.`,
+        );
+      }
+      if (specifiers.has(specifier.specifier))
+        errors.push(`${specifierLabel}.specifier must be unique within its module.`);
+      specifiers.add(specifier.specifier);
+    }
+  }
 }
 
 function validateRecordOfEnums(errors, record, allowed, label) {
@@ -738,26 +904,11 @@ function classifyFile(file, ctx) {
 // makes the importer part of that machinery, whether the specifier is
 // relative or package-style.
 function collectResolvedImportCodes(filePath, content, ctx, reasonCodes) {
-  const fileDir = path.posix.dirname(filePath);
   for (const match of content.matchAll(/(?:from\s+|require\(\s*|import\(\s*)["']([^"']+)["']/g)) {
-    const specifier = match[1];
-    const candidates = [];
-    if (specifier.startsWith(".")) {
-      const resolved = path.posix.normalize(path.posix.join(fileDir, specifier));
-      candidates.push(resolved, `${resolved}.ts`, `${resolved}.tsx`, `${resolved}.mjs`, `${resolved}/index.ts`);
-    } else {
-      const packageMatch = specifier.match(/^@chase-sets\/([a-z0-9-]+)\/(.+)$/);
-      if (packageMatch) {
-        const [, packageName, subpath] = packageMatch;
-        for (const root of ["bounded-contexts", "contracts", "infrastructure", "packages"]) {
-          for (const mappedSubpath of [subpath, `support/${subpath}`]) {
-            const resolved = `${root}/${packageName}/${mappedSubpath}`;
-            candidates.push(resolved, `${resolved}.ts`, `${resolved}/index.ts`);
-          }
-        }
-      }
-    }
-    if (candidates.some((candidate) => matchesAny(candidate, ctx.registry.seedBootstrapImportReconciliationPatterns))) {
+    const { candidates } = enumerateGuardImportCandidates({ importerPath: filePath, specifierText: match[1] });
+    if (
+      candidates.some((candidate) => matchesAny(candidate.path, ctx.registry.seedBootstrapImportReconciliationPatterns))
+    ) {
       reasonCodes.add("seed_bootstrap_import_reconciliation");
       return;
     }

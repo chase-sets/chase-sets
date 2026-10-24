@@ -102,7 +102,6 @@ const stages = [
   "launched",
   "worker",
   "setup-connected",
-  "cookies-proved",
   "popup-open",
   "paired",
   "isolated",
@@ -115,6 +114,37 @@ const stages = [
   "unknown-record-preserved",
   "reload-proved",
 ];
+
+const stagingOrigin = "https://admin.staging.chasesets.com";
+const productionOrigin = "https://admin.chasesets.com";
+const pairPath = "/catalog/providers/tcgplayer";
+const senderCases = [
+  ["staging-top-frame", stagingOrigin, pairPath, "top", "paired"],
+  ["production-top-frame", productionOrigin, pairPath, "top", "paired"],
+  ["staging-other-path", stagingOrigin, "/catalog/providers/other", "top", "refused"],
+  ["staging-same-origin-subframe", stagingOrigin, pairPath, "child", "refused"],
+  ["staging-about-blank-child", null, null, null, "undelivered"],
+  ["staging-sandboxed-opaque-frame", "null", pairPath, "child", "refused"],
+  ["http-staging-top-frame", null, null, null, "undelivered"],
+  ["disallowed-origin-top-frame", null, null, null, "undelivered"],
+];
+function validateHandoffSenders(value) {
+  requireSafe(Array.isArray(value) && value.length <= senderCases.length);
+  for (const [index, row] of value.entries()) {
+    requireSafe(closed(row, ["case", "delivered", "origin", "url", "frameId", "tabPresent", "id", "outcome"]));
+    const [name, origin, path, frame, outcome] = senderCases[index];
+    requireSafe(row.case === name && row.origin === origin && row.outcome === outcome);
+    if (frame === null) {
+      requireSafe(
+        row.delivered === false && [row.url, row.frameId, row.tabPresent, row.id].every((field) => field === null),
+      );
+    } else {
+      requireSafe(row.delivered === true && row.tabPresent === true && (row.id === null || row.id === extensionId));
+      requireSafe(row.url === (origin === "null" ? stagingOrigin : origin) + path);
+      requireSafe(Number.isSafeInteger(row.frameId) && (frame === "top" ? row.frameId === 0 : row.frameId > 0));
+    }
+  }
+}
 
 export function prepareOperatorEvidence({ input, output, dist, identity, producerOutcome }) {
   validateIdentity(identity);
@@ -144,17 +174,20 @@ export function prepareOperatorEvidence({ input, output, dist, identity, produce
     requireSafe(same(handoff.files, operatorFileInventory(dist)));
   }
   let progress = [];
+  let handoffSenders = [];
   if ("chromium-stages.json" in retained) {
     const capture = JSON.parse(readFileSync(join(input, "chromium-stages.json"), "utf8"));
-    requireSafe(closed(capture, ["identity", "stages"]) && same(capture.identity, identity));
+    requireSafe(closed(capture, ["identity", "stages", "handoffSenders"]) && same(capture.identity, identity));
     requireSafe(Array.isArray(capture.stages) && capture.stages.length <= stages.length);
     requireSafe(capture.stages.every((stage, index) => stage === stages[index]));
     progress = capture.stages;
+    validateHandoffSenders(capture.handoffSenders);
+    handoffSenders = capture.handoffSenders;
   }
   requireSafe(producerOutcome !== "success" || producer.status === "passed");
   const successful = producerOutcome === "success";
   if (successful) {
-    requireSafe(handoff && same(progress, stages));
+    requireSafe(handoff && same(progress, stages) && handoffSenders.length === senderCases.length);
     requireSafe(
       producer.tests.length === 2 && producer.tests.every((test) => test.status === "passed" && test.retry === 0),
     );
@@ -168,6 +201,7 @@ export function prepareOperatorEvidence({ input, output, dist, identity, produce
     testStatus: producer.status,
     tests: producer.tests,
     stages: progress,
+    handoffSenders,
     reloadProved: same(progress, stages),
     candidateVerified: successful,
     installationAuthority: false,

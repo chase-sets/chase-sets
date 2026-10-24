@@ -58,6 +58,7 @@ export const agentConnectorTermsPolicyArtifact: PublicPolicyArtifact<
         ],
         openQuestions: [
           "How should qualified counsel define the parties, covered automation, and document precedence without implying that every API, tool, or resource is available?",
+          "Channels ships a Connector (bounded-contexts/channels/GLOSSARY.md:21-32): a client authorized for one Channel Connection through a separate Auth-issued grant, neither an agent nor a seller actor, bound to that Channel Connection by a Connector Pairing after a seller consumes a one-use pairing code. These draft terms do not describe Connectors or Connector Pairing; whether these terms, another policy, or neither should govern Connector access, without treating a Connector as an agent, is a counsel question.",
         ],
         assumptions: [
           {
@@ -128,7 +129,7 @@ export const agentConnectorTermsPolicyArtifact: PublicPolicyArtifact<
         decisionRefs: [7223],
         productTruthRefs: [
           "bounded-contexts/platform-operations/features/rate-limit-policy/domain/rate-limit-policy.ts:5-22,143-171",
-          "infrastructure/platform-runtime/agent-guardrails.ts:180-204",
+          "infrastructure/platform-runtime/agent-guardrails.ts:181-205",
         ],
         openQuestions: [
           "Which connector purposes should be permitted, and what restrictions and remedies should qualified counsel state for scraping, rate-limit bypass, or other attempts to evade documented access controls?",
@@ -176,7 +177,7 @@ export const agentConnectorTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/architecture/ucp-agent-commerce.md:17-21,48-75,83-89",
           "infrastructure/platform-runtime/mcp-contracts.ts:156-236",
-          "infrastructure/platform-runtime/agent-guardrails.ts:207-318",
+          "infrastructure/platform-runtime/agent-guardrails.ts:208-319",
         ],
         openQuestions: [
           "What legal effect and attribution should an agent-assisted transaction have, and how should mistakes be allocated among the Account holder, agent provider, counterparties, and Chase Sets?",
@@ -200,7 +201,7 @@ export const agentConnectorTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/architecture/ucp-agent-commerce.md:11-15,83-87",
           "infrastructure/platform-runtime/mcp-contracts.ts:156-236",
-          "infrastructure/platform-runtime/agent-guardrails.ts:180-318",
+          "infrastructure/platform-runtime/agent-guardrails.ts:181-319",
         ],
         openQuestions: [
           "On what grounds, through what process and notice, and with what consequences may agent access be suspended or revoked, and may the underlying Account separately be restricted, suspended, or closed because of agent conduct? Qualified counsel must settle that boundary.",

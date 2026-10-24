@@ -1,5 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { submitAccountManagement } from "../../account-management/api/route-support";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import {
   accountEnforcementReasonCodes,
@@ -20,7 +22,7 @@ function readAccountBadgeKey(value: unknown): AccountBadgeKey | null {
 }
 
 function canManageAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId: string) {
-  return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.accountId === accountId;
+  return actor?.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor?.accountId === accountId;
 }
 
 function canManageAccountBadges(actor: IdentityApiEnv["Variables"]["actor"]) {
@@ -99,10 +101,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function accountRoutes(services: AccountServices) {
+export function accountRoutes(services: AccountServices, accountManagement?: AccountManagementServices) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
+    if (!c.var.actor) {
+      return c.json({ error: { code: "authentication_required" } }, 401);
+    }
     const body = await c.req.json();
     const context = c.get("context");
     const accountId = parseTypedIdBoundary(body.accountId, "acc", "accountId");
@@ -121,8 +126,13 @@ export function accountRoutes(services: AccountServices) {
   });
 
   app.put("/:id", async (c) => {
+    if (!c.var.actor) {
+      return c.json(forbidden(), 403);
+    }
     const body = await c.req.json();
     const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
+    const attempted = await submitAccountManagement(c, accountManagement, "update-profile", accountId, body);
+    if (attempted) return attempted;
     if (!canManageAccount(c.var.actor, accountId)) {
       return c.json(forbidden(), 403);
     }
@@ -295,7 +305,7 @@ export function accountRoutes(services: AccountServices) {
   app.get("/:id", async (c) => {
     const actor = c.var.actor;
     const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
-    if (actor && !canManageAccount(actor, accountId)) {
+    if (!canManageAccount(actor, accountId)) {
       return c.json(forbidden(), 403);
     }
 

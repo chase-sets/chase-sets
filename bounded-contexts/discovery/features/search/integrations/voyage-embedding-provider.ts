@@ -16,7 +16,7 @@ export type DiscoveryEmbeddingProvider = Readonly<{
   embed: (
     texts: readonly string[],
     inputType: EmbeddingInputType,
-    options?: Readonly<{ signal?: AbortSignal }>,
+    options?: Readonly<{ signal?: AbortSignal; timeoutMs?: number; maxAttempts?: number }>,
   ) => Promise<EmbeddingProviderResult>;
 }>;
 
@@ -111,8 +111,8 @@ export function createVoyageEmbeddingProvider(
           endpoint,
           texts: texts.slice(index, index + batchSize),
           inputType,
-          timeoutMs,
-          maxAttempts,
+          timeoutMs: positiveInteger(options.timeoutMs ?? timeoutMs, "timeoutMs"),
+          maxAttempts: positiveInteger(options.maxAttempts ?? maxAttempts, "maxAttempts"),
           retryBackoffBaseMs,
           retryBackoffMaxMs,
           fetchRequest,
@@ -136,7 +136,7 @@ async function requestBatchWithRetry(input: VoyageRequestInput): Promise<Embeddi
     } catch (error) {
       const typed = toVoyageError(error);
       lastError = typed;
-      if (!typed.retryable || attempt === input.maxAttempts) {
+      if (input.signal?.aborted || !typed.retryable || attempt === input.maxAttempts) {
         throw typed;
       }
       const exponential = Math.min(input.retryBackoffMaxMs, input.retryBackoffBaseMs * 2 ** Math.max(0, attempt - 1));
@@ -156,27 +156,39 @@ async function requestBatch(input: VoyageRequestInput): Promise<EmbeddingProvide
   const timeoutController = new AbortController();
   const onAbort = () => timeoutController.abort(input.signal?.reason);
   input.signal?.addEventListener("abort", onAbort, { once: true });
+  if (input.signal?.aborted) onAbort();
   const timeout = setTimeout(
     () => timeoutController.abort(new Error("Voyage embedding request timed out.")),
     input.timeoutMs,
   );
 
+  let rejectAborted: (reason: unknown) => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAborted = reject;
+  });
+  const onTimeout = () => rejectAborted(timeoutController.signal.reason);
+  timeoutController.signal.addEventListener("abort", onTimeout, { once: true });
+
   try {
-    const response = await input.fetchRequest(input.endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        input: input.texts,
-        model: input.model,
-        input_type: input.inputType,
-        output_dimension: VOYAGE_EMBEDDING_DIMENSIONS,
-        output_dtype: "float",
+    if (timeoutController.signal.aborted) throw timeoutController.signal.reason;
+    const response = await Promise.race([
+      input.fetchRequest(input.endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          input: input.texts,
+          model: input.model,
+          input_type: input.inputType,
+          output_dimension: VOYAGE_EMBEDDING_DIMENSIONS,
+          output_dtype: "float",
+        }),
+        signal: timeoutController.signal,
       }),
-      signal: timeoutController.signal,
-    });
+      aborted,
+    ]);
 
     if (!response.ok) {
       const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
@@ -203,7 +215,7 @@ async function requestBatch(input: VoyageRequestInput): Promise<EmbeddingProvide
       });
     }
 
-    return parseVoyageResponse(await response.json(), input.texts.length);
+    return parseVoyageResponse(await Promise.race([response.json(), aborted]), input.texts.length);
   } catch (error) {
     if (error instanceof VoyageEmbeddingProviderError) {
       throw error;
@@ -222,6 +234,7 @@ async function requestBatch(input: VoyageRequestInput): Promise<EmbeddingProvide
     });
   } finally {
     clearTimeout(timeout);
+    timeoutController.signal.removeEventListener("abort", onTimeout);
     input.signal?.removeEventListener("abort", onAbort);
   }
 }

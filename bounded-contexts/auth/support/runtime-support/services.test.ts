@@ -1,8 +1,48 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
+import { AUTH_BOOTSTRAP_TENANT_ID, AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import type { AuthServices } from "./services";
 import { resolveActorFromSessionId } from "./services";
+
+describe("Account lifecycle proof enrollment", () => {
+  it("enrolls the real DB proof, excludes it from unit CI, and rejects a deleted proof file", () => {
+    const proof = "support/runtime-support/account-lifecycle-authorization.db.test.ts";
+    const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    expect(manifest.scripts["test:db"].split(/\s+/)).toContain(proof);
+    expect(manifest.scripts["test:unit"]).toContain(`--exclude ${proof}`);
+    expect(manifest.scripts["test:db"]).not.toContain("passWithNoTests");
+    expect(existsSync(new URL("./account-lifecycle-authorization.db.test.ts", import.meta.url))).toBe(true);
+  });
+
+  it("classifies every current interactive caller and all seven overrides", () => {
+    const routes = new URL("../api-support/", import.meta.url);
+    const files = readdirSync(routes).filter((name) => name.endsWith("-routes.ts"));
+    const matching = (pattern: RegExp) =>
+      files.filter((name) => pattern.test(readFileSync(new URL(name, routes), "utf8"))).sort();
+    expect(matching(/startInteractiveAuth\(/)).toEqual([
+      "account-selection-routes.ts",
+      "guest-checkout-routes.ts",
+      "invitation-routes.ts",
+      "magic-link-routes.ts",
+      "passkey-routes.ts",
+      "password-routes.ts",
+      "phone-code-routes.ts",
+      "register-routes.ts",
+      "social-login-routes.ts",
+    ]);
+    expect(matching(/membershipsOverride[,:]/)).toEqual([
+      "guest-checkout-routes.ts",
+      "invitation-routes.ts",
+      "magic-link-routes.ts",
+      "passkey-routes.ts",
+      "phone-code-routes.ts",
+      "register-routes.ts",
+      "social-login-routes.ts",
+    ]);
+  });
+});
 
 /**
  * Every identity below is SYNTHETIC and exists only inside this file. None of
@@ -81,6 +121,25 @@ function recentlyAuthenticated(authenticatedAt: string | null | undefined) {
 }
 
 describe("resolveActorFromSessionId on a session-projection miss", () => {
+  it("resolveActorFromSessionId uses the current reported-content platform-admin preset", async () => {
+    const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+    const membership = await services.identity.getActiveMembershipForUserAccount(
+      SYNTHETIC_USER_ID,
+      SYNTHETIC_ACCOUNT_ID,
+    );
+    for (const roleKey of ["platform-admin", "owner", "manager", "fulfillment", "viewer", "synthetic-no-grants"]) {
+      vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
+        ...membership!,
+        role_key: roleKey,
+        role_permissions: [],
+      });
+      const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+      expect(actor).not.toBeNull();
+      expect(actor?.roleKey).toBe(roleKey);
+      expect(actor?.permissions.includes("reported-content.view")).toBe(roleKey === "platform-admin");
+      if (roleKey === "synthetic-no-grants") expect(actor?.permissions).toEqual([]);
+    }
+  });
   it("preserves explicit stored pricing grants separately from the preset matrix", async () => {
     const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
     const membership = await services.identity.getActiveMembershipForUserAccount(
@@ -276,5 +335,87 @@ describe("fabricated read-time authentication moment (predecessor) vs stored aut
     expect(recentlyAuthenticated(predecessorFabricatedStartedAt())).toBe(true);
     expect(candidateActor?.authenticatedAt).toBeNull();
     expect(recentlyAuthenticated(candidateActor?.authenticatedAt)).toBe(false);
+  });
+});
+
+describe("Projected Capability Grants on Session-backed actors", () => {
+  const SYNTHETIC_GRANT = { key: "support.evidence.any-case", assignmentId: "acap_synthetic", version: 3 } as const;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FROZEN_READ_MOMENT);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function servicesWithGrants(grants: readonly (typeof SYNTHETIC_GRANT)[], primaryEmail: string | null = null) {
+    const fixture = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+    const listGrantedAccountCapabilities = vi.fn(async () => grants);
+    vi.mocked(fixture.services.identity.getUser).mockResolvedValue({
+      user_id: SYNTHETIC_USER_ID,
+      primary_email: primaryEmail,
+      contact_methods: primaryEmail ? [{ type: "email", value: primaryEmail, verifiedAt: null }] : [],
+      social_login_links: [],
+    } as never);
+    Object.assign(fixture.services.identity, { listGrantedAccountCapabilities });
+    return { ...fixture, listGrantedAccountCapabilities };
+  }
+
+  it("keeps the any-case key and its administration out of every Auth role preset", () => {
+    expect(
+      Object.entries(AUTH_ROLE_PERMISSIONS).flatMap(([roleKey, permissions]) =>
+        [roleKey, ...permissions].filter((value) => /support\.evidence|any-case|capabilit/i.test(value)),
+      ),
+    ).toEqual([]);
+  });
+
+  it("enrolls the real DB proof and excludes it from unit CI", () => {
+    const proof = "support/runtime-support/account-capability-projection.db.test.ts";
+    const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    expect(manifest.scripts["test:db"].split(/\s+/)).toContain(proof);
+    expect(manifest.scripts["test:unit"]).toContain(`--exclude ${proof}`);
+    expect(existsSync(new URL("./account-capability-projection.db.test.ts", import.meta.url))).toBe(true);
+  });
+
+  it("carries the selected Account's current grants read under Auth's tenant", async () => {
+    const { services, listGrantedAccountCapabilities } = servicesWithGrants([SYNTHETIC_GRANT]);
+
+    const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+
+    expect(actor?.capabilityAssignments).toEqual([SYNTHETIC_GRANT]);
+    expect(listGrantedAccountCapabilities).toHaveBeenCalledWith(AUTH_BOOTSTRAP_TENANT_ID, SYNTHETIC_ACCOUNT_ID);
+  });
+
+  it("omits capabilityAssignments when the Account holds no grant or no reader is wired", async () => {
+    expect(await resolveActorFromSessionId(servicesWithGrants([]).services, SYNTHETIC_SESSION_ID)).not.toHaveProperty(
+      "capabilityAssignments",
+    );
+    const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+    expect(await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID)).not.toHaveProperty("capabilityAssignments");
+  });
+
+  it("withholds grants from an actor whose email is unverified for commerce", async () => {
+    // Bypass mutant: dropping the verified-email gate would surface SYNTHETIC_GRANT here.
+    const { services, listGrantedAccountCapabilities } = servicesWithGrants(
+      [SYNTHETIC_GRANT],
+      "synthetic-unverified@chasesets.test",
+    );
+
+    const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+
+    expect(actor).not.toBeNull();
+    expect(actor?.permissions).not.toContain("listings.manage");
+    expect(actor).not.toHaveProperty("capabilityAssignments");
+    expect(listGrantedAccountCapabilities).not.toHaveBeenCalled();
+  });
+
+  it("resolves no actor and reads no grant without an active Membership", async () => {
+    const { services, listGrantedAccountCapabilities } = servicesWithGrants([SYNTHETIC_GRANT]);
+    vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue(null as never);
+
+    expect(await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID)).toBeNull();
+    expect(listGrantedAccountCapabilities).not.toHaveBeenCalled();
   });
 });

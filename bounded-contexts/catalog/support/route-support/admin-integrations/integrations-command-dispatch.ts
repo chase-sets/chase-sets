@@ -99,7 +99,9 @@ function commandTargetIds(
     return selectedObservationIds.length > 0 ? selectedObservationIds : compactIds(result.context.importScope);
   }
   if (action.entity === "candidate") {
-    return compactIds(formData.get("candidateId"), ...String(formData.get("bulkCandidateIds") ?? "").split(","));
+    // A scope-wide candidate job targets no named candidate; its job reference
+    // is the result's jobId.
+    return compactIds(formData.get("candidateId"));
   }
   if (action.entity === "alias") {
     return compactIds(...String(formData.get("aliasHashes") ?? "").split(","));

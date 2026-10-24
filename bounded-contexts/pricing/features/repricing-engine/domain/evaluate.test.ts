@@ -74,6 +74,8 @@ function snapshot(overrides: Partial<RepricingMarketInputSnapshot> = {}): Repric
         pricingMode: "hard",
       },
     ],
+    demandCurve: null,
+    economics: null,
     ...overrides,
   };
 }

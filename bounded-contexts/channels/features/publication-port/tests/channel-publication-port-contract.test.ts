@@ -28,6 +28,7 @@ const sliceAdditions = [
   "TCGPLAYER_CONNECTOR_EXTENSION_ID",
   "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
   "TCGPLAYER_CONNECTOR_REDIRECT_URI",
+  "buildConnectorManifest",
   "channelExecutionModes",
   "ChannelExecutionMode",
   "channelPublicationRejectionCodes",
@@ -116,6 +117,13 @@ describe("channel-publication-port-contract", () => {
     });
     expect(collectRootExportViolations(derivedBaseline, candidateSource, sliceAdditions)).toEqual([]);
     expect(collectRootExports(candidateSource)).toHaveLength(derivedBaseline.length + sliceAdditions.length);
+    expect(
+      collectRootExportViolations(
+        derivedBaseline,
+        candidateSource.replace(/^export \{ buildConnectorManifest \}[^\n]+\n/m, ""),
+        sliceAdditions,
+      ),
+    ).toContain("missing-addition:buildConnectorManifest");
 
     expect(
       collectRootExportViolations(

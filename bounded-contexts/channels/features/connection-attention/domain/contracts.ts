@@ -5,6 +5,9 @@ import type {
   ChannelHealthState,
 } from "../../connection-health/domain/contracts";
 import type { ManualAttentionContribution } from "../../manual-sync/read-model/attention-query";
+import type { liveExportUnknownReasons } from "../../outbound-sync/domain/live-export-codec";
+import type { OrderPullUnknownReason } from "../../outbound-sync/domain/order-pull-codec";
+import type { ChannelOrderAttentionPage } from "./order-contribution";
 
 export const channelAttentionResolutions = [
   "handled-on-channel",
@@ -30,16 +33,40 @@ export type ChannelAttentionFact = Readonly<{
   openedAt: string;
   resolvedAt: string | null;
 }>;
+export const connectorAttentionKinds = ["live-export", "order-pull", "staged-import-batch"] as const;
+export type ConnectorAttentionKind = (typeof connectorAttentionKinds)[number];
+/** The newest terminal work of one kind whose outcome is unknown; Chase Sets never retries it. */
+export type ConnectorUnknownOutcome = Readonly<
+  { idSuffix: string; at: string } & (
+    | { kind: "live-export"; reason: (typeof liveExportUnknownReasons)[number] }
+    | { kind: "order-pull"; reason: OrderPullUnknownReason }
+    | { kind: "staged-import-batch"; reason: "application-unknown" }
+  )
+>;
+/** `queued` is a complete count; `inFlightSince` is the earliest start of work the connector holds now. */
+export type ConnectorKindActivity = Readonly<{
+  lastSucceededAt: string | null;
+  queued: number;
+  inFlightSince: string | null;
+}>;
+export type ConnectorAttentionContribution = Readonly<{
+  signInNeeded: boolean;
+  unknownOutcomes: readonly ConnectorUnknownOutcome[];
+  activity: Readonly<Record<ConnectorAttentionKind, ConnectorKindActivity>>;
+}>;
 export type ChannelConnectionAttention = Readonly<{
   connectionId: string;
   healthState: ChannelHealthState;
   health: readonly ChannelHealthReasonGeneration[];
   manual: ManualAttentionContribution | null;
+  orders?: ChannelOrderAttentionPage;
   drift?: Readonly<{ affectedListingCount: number; hasMore: 0 | 1 }>;
+  /** The read always sets it; `null` when the connection has no connector work of any kind. */
+  connector?: ConnectorAttentionContribution | null;
 }>;
 export type ConnectionAttentionServices = Readonly<{
   listOpenAttention: (
-    input: Readonly<{ accountId: string; connectionId?: string }>,
+    input: Readonly<{ accountId: string; connectionId?: string; orderCursor?: string }>,
   ) => Promise<readonly ChannelConnectionAttention[]>;
   resolveAttention: (
     input: ChannelAttentionResolve,

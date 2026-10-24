@@ -1,3 +1,7 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -26,6 +30,13 @@ import {
 import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/slugs";
 import { refreshSearchIndexMarketSignals } from "../../features/search/read-model/market-signals";
 
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" && subscription.projectionName === "discovery-market-projection",
+  )!,
+);
+
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
 const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
 const MARKET_ACCOUNTS_TABLE = "discovery_market_accounts";
@@ -38,6 +49,7 @@ const MARKET_ACCOUNT_CREATED_COLUMNS = [
   "seller_display_name",
   "seller_listing_availability_status",
   "status",
+  "status_stream_version",
   "created_at",
   "updated_at",
 ] as const;
@@ -242,6 +254,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     max_units_per_customer_account: number | null;
     visible_quantity: number;
     status: string;
+    seller_account_status: string | null;
     created_at: string;
     updated_at: string;
   }>(
@@ -251,6 +264,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
        account.seller_slug,
        account.seller_display_name,
        account.seller_listing_availability_status,
+       account.status AS seller_account_status,
        account.seller_listing_availability_reason_category,
        account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
        account.seller_available_again_at::text AS seller_available_again_at,
@@ -265,7 +279,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
          )
        ) AS visible_quantity
      FROM discovery_market_listings AS listing
-     LEFT JOIN discovery_market_accounts AS account
+     INNER JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
      LEFT JOIN discovery_item_detail_pages AS item
        ON item.catalog_item_id = listing.catalog_catalog_item_id
@@ -301,6 +315,7 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     offer_stream_version: number;
     quantity_requested: number;
     status: string;
+    buyer_account_status: string | null;
     accepted_seller_account_id: string | null;
     accepted_at: string | null;
     created_at: string;
@@ -309,11 +324,12 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     `SELECT
        offer.*,
        account.seller_slug AS buyer_slug,
+       account.status AS buyer_account_status,
        account.seller_display_name AS buyer_display_name,
        account.average_rating_as_buyer::text AS buyer_average_rating,
        account.review_count_as_buyer AS buyer_review_count
      FROM discovery_offer_demand_matches AS offer
-     LEFT JOIN discovery_market_accounts AS account
+     INNER JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
      WHERE offer.offer_id = $1`,
     [offerId],
@@ -352,6 +368,7 @@ async function loadRealtimeMarketSummary(db: PgQueryable, catalogItemId: string)
          ON account.account_id = discovery_market_listings.account_id
        WHERE catalog_catalog_item_id = $1
          AND discovery_market_listings.status = 'active'
+       AND account.status = 'active'
          AND discovery_market_listings.price_currency_code ~ '^[A-Z]{3}$'
          AND discovery_market_listings.listing_stream_version > 0
          AND account.seller_listing_availability_status = 'available'
@@ -492,6 +509,27 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   );
 }
 
+/** Buyer Pause/Resume/Withdraw: status only; the Offer patch removes non-submitted Offers from live views. */
+async function projectOfferLifecycleStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "submitted" | "paused" | "withdrawn",
+) {
+  const data = event.data as { offerId: string };
+  const projected = await db.query<{ offer_id: string }>(
+    `UPDATE discovery_offer_demand_matches
+     SET status = $2,
+         offer_stream_version = $3,
+         updated_at = $4
+     WHERE offer_id = $1
+       AND offer_stream_version < $3
+     RETURNING offer_id`,
+    [data.offerId, status, event.streamVersion, event.timing.recordedAt],
+  );
+  if (projected.rows.length === 0) return;
+  await emitOfferPatch(db, event, data.offerId);
+}
+
 async function markDiscoveryMarketSupplyHoldTerminal(
   db: PgQueryable,
   params: Readonly<{
@@ -555,7 +593,39 @@ async function updateDiscoveryAccountBadges(
   );
 }
 
+async function projectDiscoveryAccountStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "active" | "suspended" | "closed",
+) {
+  const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+  const result = await db.query<{ account_id: string }>(
+    `INSERT INTO discovery_market_accounts (account_id, status, status_stream_version, updated_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (account_id) DO UPDATE SET
+       status = EXCLUDED.status,
+       status_stream_version = EXCLUDED.status_stream_version,
+       updated_at = EXCLUDED.updated_at
+     WHERE discovery_market_accounts.status_stream_version < EXCLUDED.status_stream_version
+     RETURNING account_id`,
+    [accountId, status, event.streamVersion, event.timing.recordedAt],
+  );
+  return result.rows.length > 0;
+}
+
 export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const pauseListing: ProjectorHandlerMap[string] = async (event) => {
+    const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
+    await transitionStatus(db, {
+      table: MARKET_LISTINGS_TABLE,
+      idColumn: "listing_id",
+      id: listingId,
+      status: "paused",
+      updatedAt: event.timing.recordedAt,
+    });
+    await refreshGoogleShoppingListing(db, event, listingId, "visibility");
+    await emitListingPatch(db, event, listingId);
+  };
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -564,7 +634,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       };
       const sellerSlug = createMarketplaceSlug([displayName], accountId);
 
-      await upsertRow(db, {
+      const projected = await upsertRow(db, {
         table: MARKET_ACCOUNTS_TABLE,
         insertColumns: MARKET_ACCOUNT_CREATED_COLUMNS,
         conflictColumns: ["account_id"],
@@ -580,10 +650,14 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           seller_display_name: displayName,
           seller_listing_availability_status: "available",
           status: "active",
+          status_stream_version: event.streamVersion,
           created_at: event.timing.recordedAt,
           updated_at: event.timing.recordedAt,
         },
+        updateOnlyWhenExistingColumnLessThan: "status_stream_version",
+        returning: ["account_id"],
       });
+      if (projected.rows.length === 0) return;
       await emitRealtimeChanges(
         db,
         event,
@@ -651,13 +725,8 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
     },
     "identity.account.suspended": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_ACCOUNTS_TABLE,
-        idColumn: "account_id",
-        id: accountId,
-        status: "suspended",
-        updatedAt: event.timing.recordedAt,
-      });
+      if (!(await projectDiscoveryAccountStatus(db, event, "suspended"))) return;
+      await emitAccountReputationPatches(db, event, accountId);
       await emitRealtimeChanges(
         db,
         event,
@@ -670,13 +739,8 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
     },
     "identity.account.reactivated": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_ACCOUNTS_TABLE,
-        idColumn: "account_id",
-        id: accountId,
-        status: "active",
-        updatedAt: event.timing.recordedAt,
-      });
+      if (!(await projectDiscoveryAccountStatus(db, event, "active"))) return;
+      await emitAccountReputationPatches(db, event, accountId);
       await emitRealtimeChanges(
         db,
         event,
@@ -694,13 +758,8 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
     },
     "identity.account.closed": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_ACCOUNTS_TABLE,
-        idColumn: "account_id",
-        id: accountId,
-        status: "closed",
-        updatedAt: event.timing.recordedAt,
-      });
+      if (!(await projectDiscoveryAccountStatus(db, event, "closed"))) return;
+      await emitAccountReputationPatches(db, event, accountId);
       await emitRealtimeChanges(
         db,
         event,
@@ -831,14 +890,15 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshGoogleShoppingListing(db, event, data.listingId, "listing-created");
       await emitListingPatch(db, event, data.listingId);
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
       const products = JSON.stringify(Array.isArray(data.products) ? data.products : []);
 
-      await db.query(
+      await projectionDb.query(
         `DELETE FROM discovery_market_product_measures
          WHERE catalog_item_id = $1
            AND product_id NOT IN (
@@ -848,7 +908,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
            )`,
         [data.catalogItemId, products],
       );
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO discovery_market_product_measures (
            catalog_item_id,
            product_id,
@@ -864,7 +924,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         [data.catalogItemId, products, event.timing.recordedAt],
       );
 
-      const updated = await db.query<{ listing_id: string }>(
+      const updated = await projectionDb.query<{ listing_id: string }>(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -883,10 +943,10 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       );
 
       for (const row of updated.rows) {
-        await refreshGoogleShoppingListing(db, event, row.listing_id, "catalog");
-        await emitListingPatch(db, event, row.listing_id);
+        await refreshGoogleShoppingListing(projectionDb, event, row.listing_id, "catalog");
+        await emitListingPatch(projectionDb, event, row.listing_id);
       }
-    },
+    }),
     "inventory.storage-location.created": async (event) => {
       const data = event.data as {
         storageLocationId: string;
@@ -1218,30 +1278,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshGoogleShoppingListing(db, event, listingId, "visibility");
       await emitListingPatch(db, event, listingId);
     },
-    "marketplace.listing.paused": async (event) => {
-      const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_LISTINGS_TABLE,
-        idColumn: "listing_id",
-        id: listingId,
-        status: "paused",
-        updatedAt: event.timing.recordedAt,
-      });
-      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
-      await emitListingPatch(db, event, listingId);
-    },
-    "marketplace.listing.auto-unlisted": async (event) => {
-      const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_LISTINGS_TABLE,
-        idColumn: "listing_id",
-        id: listingId,
-        status: "paused",
-        updatedAt: event.timing.recordedAt,
-      });
-      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
-      await emitListingPatch(db, event, listingId);
-    },
+    "marketplace.listing.paused": pauseListing,
+    "marketplace.listing.auto-unlisted": pauseListing,
+    "marketplace.listing.operator-unlisted": pauseListing,
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
       await transitionStatus(db, {
@@ -1379,6 +1418,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       if (projected.rows.length === 0) return;
       await emitOfferPatch(db, event, data.offerId);
     },
+    "marketplace.offer.paused": (event) => projectOfferLifecycleStatus(db, event, "paused"),
+    "marketplace.offer.resumed": (event) => projectOfferLifecycleStatus(db, event, "submitted"),
+    "marketplace.offer.withdrawn": (event) => projectOfferLifecycleStatus(db, event, "withdrawn"),
     "marketplace.offer.accepted": async (event) => {
       const data = event.data as {
         offerId: string;
@@ -1868,15 +1910,48 @@ async function emitAccountReputationPatches(
   event: Parameters<ProjectorHandlerMap[string]>[0],
   accountId: string,
 ) {
-  await emitSellerListingPatches(db, event, accountId);
+  await emitAccountMarketPatches(db, event, accountId);
+}
 
-  await refreshAffectedRows(db, {
-    select: { column: "offer_id" },
-    from: { table: OFFER_DEMAND_MATCHES_TABLE },
-    where: [
-      { column: "buyer_account_id", value: accountId },
-      { column: "status", value: "submitted" },
-    ],
-    refresh: (offerId) => emitOfferPatch(db, event, offerId),
-  });
+/** Reconcile all live rows affected by an account lifecycle change in bounded keyset pages. */
+async function emitAccountMarketPatches(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  accountId: string,
+) {
+  let listingCursor = "";
+  for (;;) {
+    const listings = await db.query<{ listing_id: string }>(
+      `SELECT listing_id
+       FROM ${MARKET_LISTINGS_TABLE}
+       WHERE account_id = $1
+         AND status = 'active'
+         AND listing_id > $2
+       ORDER BY listing_id ASC
+       LIMIT 100`,
+      [accountId, listingCursor],
+    );
+    if (listings.rows.length === 0) break;
+    for (const row of listings.rows) await emitListingPatch(db, event, row.listing_id);
+    listingCursor = listings.rows[listings.rows.length - 1]!.listing_id;
+    if (listings.rows.length < 100) break;
+  }
+
+  let offerCursor = "";
+  for (;;) {
+    const offers = await db.query<{ offer_id: string }>(
+      `SELECT offer_id
+       FROM ${OFFER_DEMAND_MATCHES_TABLE}
+       WHERE buyer_account_id = $1
+         AND status = 'submitted'
+         AND offer_id > $2
+       ORDER BY offer_id ASC
+       LIMIT 100`,
+      [accountId, offerCursor],
+    );
+    if (offers.rows.length === 0) break;
+    for (const row of offers.rows) await emitOfferPatch(db, event, row.offer_id);
+    offerCursor = offers.rows[offers.rows.length - 1]!.offer_id;
+    if (offers.rows.length < 100) break;
+  }
 }

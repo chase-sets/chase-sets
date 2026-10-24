@@ -6,14 +6,22 @@ import {
   Form,
   HiddenInput,
   Inline,
+  KeyValueList,
   MetricStrip,
   OperationalStatusBanner,
   Stack,
   TextInput,
   WorkflowModule,
 } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
-import type { ManualSyncActionId, ManualSyncPanel } from "../domain/contracts";
+import { channelSyncRunTerminalStates } from "../../tcgplayer-csv/domain/contracts";
+import type {
+  ManualSyncActionId,
+  ManualSyncIngestReceipt,
+  ManualSyncPanel,
+  ManualSyncVerificationCandidate,
+} from "../domain/contracts";
 
 export type FounderSelectionProbe = Readonly<{
   fileName: string;
@@ -23,11 +31,19 @@ export type FounderSelectionProbe = Readonly<{
   observedAt: string;
 }>;
 
-export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel }>) {
+export type ManualSyncActionOutcome =
+  | Readonly<{ kind: "manual-sync-ingest"; receipt: ManualSyncIngestReceipt }>
+  | Readonly<{ kind: "manual-sync-staged-basis-guidance" }>;
+
+export function ManualSyncPanelView({
+  panel,
+  outcome = null,
+}: Readonly<{ panel: ManualSyncPanel; outcome?: ManualSyncActionOutcome | null }>) {
   const [selectionProbe, setSelectionProbe] = useState<FounderSelectionProbe | null>(null);
   const run = panel.run;
   const state = run?.state ?? "none";
   const recovery = panel.attentionReason === "recovery";
+  const settled = run !== null && channelSyncRunTerminalStates.some((terminal) => terminal === run.state);
   return (
     <WorkflowModule
       data-testid="manual-sync-panel"
@@ -48,17 +64,47 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
         />
       ) : null}
       <OperationalStatusBanner
-        tone="warning"
-        title={t("channels.manualSync.coverage.dark")}
-        description={t("channels.manualSync.coverage.dark.description")}
+        tone={panel.inboundCoverage.state === "live" ? "success" : "warning"}
+        title={t(
+          panel.inboundCoverage.state === "live"
+            ? "channels.manualSync.coverage.live"
+            : "channels.manualSync.coverage.dark",
+        )}
+        description={t(
+          panel.inboundCoverage.state === "live"
+            ? "channels.manualSync.coverage.live.description"
+            : coverageReasonKeys[panel.inboundCoverage.reason],
+        )}
       />
       <MetricStrip
         items={[
           { label: t("channels.manualSync.metric.requested"), value: String(panel.requestedListingCount) },
           { label: t("channels.manualSync.metric.composed"), value: String(panel.composedListingCount) },
-          { label: t("channels.manualSync.metric.lease"), value: leaseLabel(panel.leaseCountdownMs) },
+          ...(settled
+            ? []
+            : [{ label: t("channels.manualSync.metric.lease"), value: leaseLabel(panel.leaseCountdownMs) }]),
         ]}
       />
+      {run ? (
+        <KeyValueList
+          data-testid="manual-sync-lease-facts"
+          density="compact"
+          items={[
+            { key: t("channels.manualSync.lease.expiresAt"), value: run.leaseExpiresAt },
+            ...(run.uploadAttemptedAt === null
+              ? []
+              : [{ key: t("channels.manualSync.lease.uploadAttemptedAt"), value: run.uploadAttemptedAt }]),
+          ]}
+        />
+      ) : null}
+      {outcome?.kind === "manual-sync-staged-basis-guidance" ? (
+        <OperationalStatusBanner
+          data-testid="manual-sync-staged-basis-guidance"
+          tone="warning"
+          title={t("channels.manualSync.compose.stagedBasis.title")}
+          description={t("channels.manualSync.compose.stagedBasis.description")}
+        />
+      ) : null}
       <Inline gap={2} wrap>
         {panel.actions.includes("compose") ? (
           <EmptyAction intent="compose" labelKey="channels.manualSync.action.compose" />
@@ -72,13 +118,7 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
           />
         ) : null}
         {panel.actions.includes("download") && run ? (
-          <RunAction
-            intent="download"
-            labelKey="channels.manualSync.action.download"
-            runId={run.runId}
-            revision={run.revision}
-            action={`/account/channels/${encodeURIComponent(panel.connection.connectionId)}/manual-sync/download`}
-          />
+          <DownloadAction connectionId={panel.connection.connectionId} runId={run.runId} revision={run.revision} />
         ) : null}
         {panel.actions.includes("record-validation-cancellation") && run ? (
           <RunAction
@@ -98,13 +138,13 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
         ) : null}
       </Inline>
       {panel.actions.includes("record-upload-attempt") && run ? (
-        <Form method="post">
+        <RouterForm method="post">
           <HiddenInput name="intent" value="upload-attempt" />
           <HiddenInput name="runId" value={run.runId} />
           <HiddenInput name="expectedRevision" value={String(run.revision)} />
           <TextInput name="fileName" label={t("channels.manualSync.file.staged.label")} required />
           <Button type="submit">{t("channels.manualSync.action.uploadAttempt")}</Button>
-        </Form>
+        </RouterForm>
       ) : null}
       {panel.actions.includes("ingest-live") ? (
         <ExportForm surface="live" label={t("channels.manualSync.action.ingestLive")} onProbe={setSelectionProbe} />
@@ -120,17 +160,27 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
           description={t("channels.manualSync.probe.detail", selectionProbe)}
         />
       ) : null}
-      {panel.actions.includes("verify") && run ? <VerifyForm runId={run.runId} revision={run.revision} /> : null}
+      {outcome?.kind === "manual-sync-ingest" ? <IngestReceipt receipt={outcome.receipt} /> : null}
+      {panel.actions.includes("verify") && run ? (
+        <VerifyForm runId={run.runId} revision={run.revision} candidate={panel.verificationCandidate} />
+      ) : null}
     </WorkflowModule>
   );
 }
 
+const coverageReasonKeys = {
+  "no-inbound-authority": "channels.manualSync.coverage.dark.description",
+  "inbound-authority-revoked": "channels.manualSync.coverage.revoked.description",
+  "provider-has-no-inbound": "channels.manualSync.coverage.unsupported.description",
+  "inbound-authority-failing": "channels.manualSync.coverage.failing.description",
+} as const;
+
 function EmptyAction({ intent, labelKey }: Readonly<{ intent: string; labelKey: Parameters<typeof t>[0] }>) {
   return (
-    <Form method="post" spacing="none">
+    <RouterForm method="post" spacing="none">
       <HiddenInput name="intent" value={intent} />
       <Button type="submit">{t(labelKey)}</Button>
-    </Form>
+    </RouterForm>
   );
 }
 
@@ -139,20 +189,37 @@ function RunAction({
   labelKey,
   runId,
   revision,
-  action,
 }: Readonly<{
   intent: string;
   labelKey: Parameters<typeof t>[0];
   runId: string;
   revision: number;
-  action?: string;
 }>) {
   return (
-    <Form method="post" action={action} spacing="none">
+    <RouterForm method="post" spacing="none">
       <HiddenInput name="intent" value={intent} />
       <HiddenInput name="runId" value={runId} />
       <HiddenInput name="expectedRevision" value={String(revision)} />
       <Button type="submit">{t(labelKey)}</Button>
+    </RouterForm>
+  );
+}
+
+function DownloadAction({
+  connectionId,
+  runId,
+  revision,
+}: Readonly<{ connectionId: string; runId: string; revision: number }>) {
+  return (
+    <Form
+      method="post"
+      action={`/account/channels/${encodeURIComponent(connectionId)}/manual-sync/download`}
+      spacing="none"
+    >
+      <HiddenInput name="intent" value="download" />
+      <HiddenInput name="runId" value={runId} />
+      <HiddenInput name="expectedRevision" value={String(revision)} />
+      <Button type="submit">{t("channels.manualSync.action.download")}</Button>
     </Form>
   );
 }
@@ -168,7 +235,7 @@ function ExportForm({
 }>) {
   const [validSelection, setValidSelection] = useState(false);
   return (
-    <Form method="post" encType="multipart/form-data">
+    <RouterForm method="post" encType="multipart/form-data">
       <HiddenInput name="intent" value="ingest" />
       <HiddenInput name="surface" value={surface} />
       <FileDropzone
@@ -202,17 +269,81 @@ function ExportForm({
       <Button type="submit" disabled={!validSelection}>
         {label}
       </Button>
-    </Form>
+    </RouterForm>
   );
 }
 
-function VerifyForm({ runId, revision }: Readonly<{ runId: string; revision: number }>) {
+function IngestReceipt({ receipt }: Readonly<{ receipt: ManualSyncIngestReceipt }>) {
+  const { probe, outcome } = receipt;
   return (
-    <Form method="post">
+    <Stack gap={2} data-testid="manual-sync-ingest-receipt">
+      {outcome.kind === "ingested" ? (
+        <OperationalStatusBanner
+          tone="success"
+          title={t(
+            receipt.surface === "live"
+              ? "channels.manualSync.receipt.ingested.live"
+              : "channels.manualSync.receipt.ingested.staged",
+          )}
+          description={t("channels.manualSync.receipt.ingested.description", outcome)}
+        />
+      ) : (
+        <OperationalStatusBanner
+          data-testid="manual-sync-ingest-refused"
+          tone="danger"
+          title={t("channels.manualSync.receipt.refused.title")}
+          description={t("channels.manualSync.receipt.refused.description", { reason: outcome.reason })}
+        />
+      )}
+      <KeyValueList
+        data-testid="manual-sync-ingest-probe"
+        density="compact"
+        items={[
+          { key: t("channels.manualSync.receipt.fileName"), value: probe.fileName },
+          { key: t("channels.manualSync.receipt.byteSize"), value: String(probe.byteSize) },
+          { key: t("channels.manualSync.receipt.logicalRows"), value: String(probe.logicalRows) },
+          { key: t("channels.manualSync.receipt.headerSha256"), value: probe.headerSha256 },
+          { key: t("channels.manualSync.receipt.observedAt"), value: probe.observedAt },
+        ]}
+      />
+    </Stack>
+  );
+}
+
+function VerifyForm({
+  runId,
+  revision,
+  candidate,
+}: Readonly<{
+  runId: string;
+  revision: number;
+  candidate: ManualSyncVerificationCandidate | null;
+}>) {
+  if (!candidate) {
+    return (
+      <OperationalStatusBanner
+        data-testid="manual-sync-verify-guidance"
+        tone="info"
+        title={t("channels.manualSync.verify.none.title")}
+        description={t("channels.manualSync.verify.none.description")}
+      />
+    );
+  }
+  return (
+    <RouterForm method="post">
       <HiddenInput name="intent" value="verify" />
       <HiddenInput name="runId" value={runId} />
       <HiddenInput name="expectedRevision" value={String(revision)} />
-      <TextInput name="verificationSnapshotId" label={t("channels.manualSync.verify.snapshot")} required />
+      <HiddenInput name="verificationSnapshotId" value={candidate.snapshotId} />
+      <KeyValueList
+        data-testid="manual-sync-verify-snapshot"
+        density="compact"
+        items={[
+          { key: t("channels.manualSync.verify.snapshot"), value: candidate.snapshotId },
+          { key: t("channels.manualSync.verify.capturedAt"), value: candidate.capturedAt },
+          { key: t("channels.manualSync.verify.parsedRowCount"), value: String(candidate.parsedRowCount) },
+        ]}
+      />
       <TextInput name="fileName" label={t("channels.manualSync.verify.fileName")} required />
       <TextInput name="dateImportedText" label={t("channels.manualSync.verify.dateImported")} required />
       <TextInput
@@ -222,7 +353,7 @@ function VerifyForm({ runId, revision }: Readonly<{ runId: string; revision: num
         required
       />
       <Button type="submit">{t("channels.manualSync.action.verify")}</Button>
-    </Form>
+    </RouterForm>
   );
 }
 

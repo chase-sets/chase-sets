@@ -68,6 +68,7 @@ function validateInput(value: unknown): asserts value is ChannelListingCompositi
       "listingId",
       "listingRevision",
       "listingStatus",
+      "pauseReason",
       "sellerAvailabilityStatus",
       "identity",
       "offer",
@@ -75,6 +76,7 @@ function validateInput(value: unknown): asserts value is ChannelListingCompositi
     text(listing.listingId, 128);
     safeInteger(listing.listingRevision);
     member(listing.listingStatus, ["draft", "active", "paused", "withdrawn", "auto-unlisted"]);
+    if (listing.pauseReason !== null) text(listing.pauseReason, 128, true);
     member(listing.sellerAvailabilityStatus, ["available", "unavailable"]);
     validateIdentity(listing.identity);
     validateOffer(listing.offer);
@@ -172,7 +174,7 @@ function validateOffer(value: unknown): void {
     if (typeof price.currencyCode !== "string" || !/^[A-Z]{3}$/.test(price.currencyCode)) invalid("bound-violation");
   } else invalid("bound-violation");
   const quantity = record(offer.publishableQuantity);
-  if (quantity.kind === "unavailable") exactKeys(quantity, ["kind"]);
+  if (quantity.kind === "unavailable" || quantity.kind === "low-stock-withheld") exactKeys(quantity, ["kind"]);
   else if (quantity.kind === "resolved") {
     exactKeys(quantity, ["kind", "value"]);
     safeInteger(quantity.value);
@@ -201,6 +203,7 @@ function validateSettings(value: unknown): void {
     "categoryAllowlist",
     "excludedListingIds",
     "publishQuantityCap",
+    "lowStockWithholdUnits",
   ]);
   text(settings.titlePrefix, 1_000, true);
   text(settings.titleSuffix, 1_000, true);
@@ -210,6 +213,11 @@ function validateSettings(value: unknown): void {
   if (settings.publishQuantityCap !== null) {
     safeInteger(settings.publishQuantityCap);
     if (Number(settings.publishQuantityCap) < 1 || Number(settings.publishQuantityCap) > 1_000)
+      invalid("bound-violation");
+  }
+  if (settings.lowStockWithholdUnits !== null) {
+    safeInteger(settings.lowStockWithholdUnits);
+    if (Number(settings.lowStockWithholdUnits) < 1 || Number(settings.lowStockWithholdUnits) > 1_000)
       invalid("bound-violation");
   }
 }

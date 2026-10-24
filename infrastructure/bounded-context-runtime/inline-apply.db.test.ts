@@ -8,7 +8,12 @@ import {
   type StoredEvent,
 } from "@chase-sets/event-core";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  type PgPoolClient,
+  type PgQueryResult,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import { applyCommittedProjectionEventsInline } from "./inline-apply";
 import { ProjectionFreshnessTimeoutError, waitForProjectionFreshness } from "./api-mounts";
 import { bootstrapContextDatabase } from "./schema";
@@ -26,6 +31,7 @@ const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
 const RECEIPT_FIXTURE_BUDGET_MS = 360_000;
+const INLINE_APPLY_LIVENESS_MS = 30_000;
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -269,6 +275,7 @@ describeDb("projection inline apply Postgres integration", () => {
     const event = (await appendEvents(pool, "inline.item-2", [{ itemId: "item-2" }]))[0]!;
     const transportEvent = toTransportEvent(event);
     const client = await pool.connect();
+    let inlineAttempt: ReturnType<typeof applyInline> | undefined;
     try {
       await client.query("BEGIN");
       await expect(
@@ -278,9 +285,22 @@ describeDb("projection inline apply Postgres integration", () => {
         }),
       ).resolves.toBe("claimed");
 
-      const startedAt = Date.now();
-      await expect(applyInline(runtime, [event])).resolves.toEqual({ applied: 0, deferred: 1, failed: 0 });
-      expect(Date.now() - startedAt).toBeLessThan(250);
+      // The holder transaction stays open, so only the inline claim's own lock
+      // budget can let this apply settle. The liveness timer is not a latency
+      // claim; it turns a held-lock wait into a fast, named failure.
+      inlineAttempt = applyInline(runtime, [event]);
+      let livenessTimer: ReturnType<typeof setTimeout> | undefined;
+      const liveness = new Promise<never>((_, reject) => {
+        livenessTimer = realSetTimeout(
+          () => reject(new Error("inline apply blocked on the held runner claim")),
+          INLINE_APPLY_LIVENESS_MS,
+        );
+      });
+      try {
+        await expect(Promise.race([inlineAttempt, liveness])).resolves.toEqual({ applied: 0, deferred: 1, failed: 0 });
+      } finally {
+        realClearTimeout(livenessTimer);
+      }
       expect(testState.handlerCalls).toBe(0);
 
       await client.query(`INSERT INTO inline_items (item_id, seen_count) VALUES ('item-2', 1)`);
@@ -298,6 +318,8 @@ describeDb("projection inline apply Postgres integration", () => {
       ]);
     } finally {
       await client.query("ROLLBACK").catch(() => undefined);
+      // A losing apply is unblocked by the rollback; drain it before cleanup.
+      await inlineAttempt?.catch(() => undefined);
       client.release();
     }
   });
@@ -382,7 +404,9 @@ describeDb("projection inline apply Postgres integration", () => {
   it.each([0, 100])(
     "aborts and releases the ledger claim before returning when the hard budget expires (connect delay %i ms)",
     async (connectDelayMs) => {
-      const runtime = createRuntime(withConnectDelay(pool, connectDelayMs));
+      const statementClock = withStatementClock(withConnectDelay(pool, connectDelayMs));
+      const statementDelay = withActiveStatementDelay(statementClock.pool);
+      const runtime = createRuntime(statementDelay.pool);
       const runner = runtime.subscriptionRunners[0]!;
       const event = (await appendEvents(pool, "inline.item-budget", [{ itemId: "budget" }]))[0]!;
       let markHandlerStarted: () => void = () => undefined;
@@ -396,12 +420,14 @@ describeDb("projection inline apply Postgres integration", () => {
       testState.handlerGate = { started: markHandlerStarted, wait: handlerWait };
 
       let diagnosticTimer: ReturnType<typeof setTimeout> | undefined;
+      let inlineAttempt: ReturnType<typeof applyInline> | undefined;
+      let budgetAdvanced = false;
       const diagnosticBound = new Promise<Readonly<{ kind: "diagnostic-bound" }>>((resolve) => {
         diagnosticTimer = realSetTimeout(() => resolve({ kind: "diagnostic-bound" }), 30_000);
       });
       try {
         vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-        const inlineAttempt = applyInline(runtime, [event], 25);
+        inlineAttempt = applyInline(runtime, [event], 25);
         const settlement = inlineAttempt.then((summary) => ({ kind: "settled" as const, summary }));
         const first = await Promise.race([
           handlerStarted.then(() => ({ kind: "handler-started" as const })),
@@ -415,13 +441,23 @@ describeDb("projection inline apply Postgres integration", () => {
           throw new Error("neither handler start nor settlement");
         }
 
+        expect(testState.handlerCalls).toBe(1);
+        expect(statementClock.requests).toEqual(["25ms"]);
+        expect(statementDelay.observations).toEqual([expect.objectContaining({ fakeAdvancement: 0, code: null })]);
+        await expect(Promise.race([settlement, Promise.resolve("pending")])).resolves.toBe("pending");
+
+        budgetAdvanced = true;
         vi.advanceTimersByTime(25);
         const result = await Promise.race([settlement, diagnosticBound]);
         if (result.kind === "diagnostic-bound") {
           throw new Error("handler started but attempt did not settle");
         }
-        vi.useRealTimers();
         expect(result.summary).toEqual({ applied: 0, deferred: 0, failed: 1 });
+        expect(statementClock.closedClients).toBe(1);
+        expect(statementClock.releasedClients).toBe(1);
+        expect(statementClock.pendingTimers).toBe(0);
+        vi.useRealTimers();
+        await expect(readLedger(pool, runner.checkpointKey)).resolves.toEqual([]);
 
         const claimant = await pool.connect();
         try {
@@ -438,14 +474,258 @@ describeDb("projection inline apply Postgres integration", () => {
           claimant.release();
         }
       } finally {
+        if (!budgetAdvanced && vi.isFakeTimers()) {
+          vi.advanceTimersByTime(25);
+        }
         releaseHandler();
         testState.handlerGate = null;
+        await inlineAttempt?.catch(() => undefined);
+        await statementClock.drain();
         vi.useRealTimers();
         realClearTimeout(diagnosticTimer);
       }
     },
   );
+
+  it("settles before handler start when a real statement outlasts the unchanged hard budget", async () => {
+    const statementDelay = withActiveStatementDelay(pool);
+    const runtime = createRuntime(statementDelay.pool);
+    const runner = runtime.subscriptionRunners[0]!;
+    const event = (await appendEvents(pool, "inline.item-native-budget", [{ itemId: "native-budget" }]))[0]!;
+    const outcomes: string[] = [];
+    try {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      const startedAt = Date.now();
+      const metadata = await runWithEventCommitMetadata(async () => {
+        recordCommittedEvents([event], "inline");
+        return getEventCommitMetadata();
+      });
+      await expect(
+        applyCommittedProjectionEventsInline({
+          committedEvents: metadata.committedEvents,
+          commitSources: metadata.sources,
+          projectionGroups: runtime.projectionGroups,
+          budgetMs: 25,
+          recordOutcome: ({ outcome, reason }) => outcomes.push(`${outcome}/${reason}`),
+        }),
+      ).resolves.toEqual({ applied: 0, deferred: 0, failed: 1 });
+      expect(Date.now() - startedAt).toBe(0);
+      expect(testState.handlerCalls).toBe(0);
+      expect(outcomes).toEqual(["failed/budget-exceeded"]);
+      expect(statementDelay.observations).toEqual([
+        { timeout: "25ms", pid: expect.any(Number), code: "57014", fakeAdvancement: 0 },
+      ]);
+      vi.useRealTimers();
+      await expect(readLedger(pool, runner.checkpointKey)).resolves.toEqual([]);
+      const claimant = await pool.connect();
+      try {
+        await claimant.query("BEGIN");
+        await claimant.query("SET LOCAL lock_timeout = '250ms'");
+        await expect(
+          claimSubscriptionApplication(claimant, runner.checkpointKey, toTransportEvent(event), {
+            ownerId: "async-runner",
+            fencingToken: "11",
+          }),
+        ).resolves.toBe("claimed");
+      } finally {
+        await claimant.query("ROLLBACK").catch(() => undefined);
+        claimant.release();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("delivers the unchanged statement deadline and clears transaction-local timers at fixture boundaries", async () => {
+    const statementClock = withStatementClock(pool);
+    const client = await statementClock.pool.connect();
+    const blocker = await pool.connect();
+    let released = false;
+    try {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('statement_timeout', $1, true)", ["25ms"]);
+      await expect(client.query("SELECT 1 AS value")).resolves.toMatchObject({ rows: [{ value: 1 }] });
+      expect(statementClock.pendingTimers).toBe(0);
+      await blocker.query("SELECT pg_advisory_lock(9602)");
+      const heldQuery = client.query("SELECT pg_advisory_xact_lock(9602)");
+      const settlement = heldQuery.then(
+        () => "completed",
+        (error: unknown) => error,
+      );
+      expect(statementClock.pendingTimers).toBe(1);
+      await vi.advanceTimersByTimeAsync(24);
+      await expect(Promise.race([settlement, Promise.resolve("pending")])).resolves.toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(Promise.race([settlement, Promise.resolve("pending")])).resolves.toMatchObject({ code: "57014" });
+      await blocker.query("SELECT pg_advisory_unlock(9602)");
+      await statementClock.drain();
+      expect(statementClock.pendingTimers).toBe(0);
+      await client.query("ROLLBACK");
+      await client.query("BEGIN");
+      const withoutPolicy = client.query("SELECT 1 AS value");
+      expect(statementClock.pendingTimers).toBe(0);
+      await withoutPolicy;
+      await client.query("ROLLBACK");
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('statement_timeout', $1, true)", ["25ms"]);
+      client.release(new Error("boundary fixture releases its active transaction"));
+      released = true;
+      expect(statementClock.pendingTimers).toBe(0);
+      expect(statementClock.activePolicies).toBe(0);
+      const closingClient = await statementClock.pool.connect();
+      try {
+        await closingClient.query("ROLLBACK");
+        await closingClient.query("BEGIN");
+        await closingClient.query("SELECT set_config('statement_timeout', $1, true)", ["25ms"]);
+        await closingClient.end();
+        expect(statementClock.activePolicies).toBe(0);
+        expect(statementClock.closedClients).toBe(1);
+      } finally {
+        closingClient.release(new Error("boundary fixture closed its client"));
+      }
+      expect(statementClock.requests).toEqual(["25ms", "25ms", "25ms"]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await blocker.query("SELECT pg_advisory_unlock_all()").catch(() => undefined);
+      blocker.release();
+      await statementClock.drain();
+      if (!released) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        client.release();
+      }
+      vi.useRealTimers();
+    }
+  });
 });
+
+function withStatementClock(pool: PgTransactionalPool) {
+  const requests: string[] = [];
+  const queries = new Set<Promise<unknown>>();
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const policies = new Set<PgPoolClient>();
+  let closedClients = 0;
+  let releasedClients = 0;
+  return {
+    requests,
+    get pendingTimers() {
+      return timers.size;
+    },
+    get activePolicies() {
+      return policies.size;
+    },
+    get closedClients() {
+      return closedClients;
+    },
+    get releasedClients() {
+      return releasedClients;
+    },
+    drain: () => Promise.allSettled([...queries]),
+    pool: {
+      query: pool.query.bind(pool),
+      idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+      connect: async () => {
+        const client = await pool.connect();
+        const originalQuery = client.query.bind(client);
+        const clientTimers = new Set<ReturnType<typeof setTimeout>>();
+        let timeoutMs: number | undefined;
+        const reset = () => {
+          timeoutMs = undefined;
+          policies.delete(client);
+          for (const timer of clientTimers) {
+            clearTimeout(timer);
+            timers.delete(timer);
+          }
+          clientTimers.clear();
+        };
+        return {
+          query: async <Row = Record<string, unknown>>(
+            text: string,
+            values?: readonly unknown[],
+          ): Promise<PgQueryResult<Row>> => {
+            if (text === "SELECT set_config('statement_timeout', $1, true)") {
+              expect(values).toEqual(["25ms"]);
+              requests.push(String(values![0]));
+              timeoutMs = 25;
+              policies.add(client);
+              // Substitute only the deadline's clock; PostgreSQL still executes the query.
+              return originalQuery<Row>("SELECT $1::text AS set_config", values);
+            }
+            if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") reset();
+            const query = originalQuery<Row>(text, values);
+            queries.add(query);
+            void query.finally(() => queries.delete(query)).catch(() => undefined);
+            if (timeoutMs === undefined) return query;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const deadline = new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(Object.assign(new Error("statement timeout"), { code: "57014" })),
+                timeoutMs,
+              );
+              clientTimers.add(timer);
+              timers.add(timer);
+            });
+            try {
+              return await Promise.race([query, deadline]);
+            } finally {
+              clearTimeout(timer);
+              timers.delete(timer!);
+              clientTimers.delete(timer!);
+            }
+          },
+          end: async () => {
+            reset();
+            await (client as PgPoolClient & { end: () => Promise<void> }).end();
+            closedClients += 1;
+          },
+          release: (error?: unknown) => {
+            reset();
+            client.release(error);
+            releasedClients += 1;
+          },
+        };
+      },
+    },
+  };
+}
+
+function withActiveStatementDelay(pool: PgTransactionalPool) {
+  const observations: { timeout: string; pid: number; code: string | null; fakeAdvancement: number }[] = [];
+  return {
+    observations,
+    pool: {
+      query: pool.query.bind(pool),
+      idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+      connect: async () => {
+        const client = await pool.connect();
+        const query = client.query.bind(client);
+        return {
+          query: async <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) => {
+            if (text.startsWith("WITH lock_budget AS MATERIALIZED")) {
+              const setting = await query<{ timeout: string; pid: number }>(
+                "SELECT current_setting('statement_timeout') AS timeout, pg_backend_pid() AS pid",
+              );
+              const startedAt = Date.now();
+              const observation = { ...setting.rows[0]!, code: null as string | null, fakeAdvancement: 0 };
+              observations.push(observation);
+              try {
+                await query("SELECT pg_sleep(0.1)");
+              } catch (error) {
+                observation.code = String((error as { code?: unknown }).code);
+                throw error;
+              } finally {
+                observation.fakeAdvancement = Date.now() - startedAt;
+              }
+            }
+            return query<Row>(text, values);
+          },
+          release: client.release.bind(client),
+          end: () => (client as PgPoolClient & { end: () => Promise<void> }).end(),
+        };
+      },
+    },
+  };
+}
 
 function withConnectDelay(pool: PgTransactionalPool, delayMs: number): PgTransactionalPool {
   return {

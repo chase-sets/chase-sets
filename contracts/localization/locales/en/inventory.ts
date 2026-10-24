@@ -1,4 +1,24 @@
 export const inventoryEnglishTranslations = {
+  "inventory.import.resume.title": "Resume an import",
+  "inventory.import.resume.description":
+    "Accepted imports continue if you leave this page. Uncommitted imports can be resumed for 24 hours after upload; active work is never expired. Restoring an uncertain attempt only checks its original result. Files are not saved in this browser; reselect a file only for a new import.",
+  "inventory.import.expired.title": "Import expired",
+  "inventory.import.expired.description":
+    "The resume window ended. The original receipt and row diagnostics remain available. Select the source again to start a new import; no stock was changed by validation.",
+  "inventory.import.rows.previous": "Previous 100 rows",
+  "inventory.import.rows.next": "Next 100 rows",
+  "inventory.recovery.editing": "Inventory changes are ready.",
+  "inventory.recovery.submitting": "Submitting Inventory change.",
+  "inventory.recovery.confirming": "Confirming the original Inventory result. No change will be resubmitted.",
+  "inventory.recovery.succeeded": "The original Inventory change is confirmed.",
+  "inventory.recovery.reauth": "Sign in with the original account to confirm this Inventory change.",
+  "inventory.recovery.failedSafe": "Inventory recovery storage is unavailable. No change was sent.",
+  "inventory.recovery.ambiguous":
+    "The Inventory result is uncertain. Check the original result or contact support before making another change.",
+  "inventory.recovery.check": "Check original result",
+  "inventory.recovery.discard": "Discard recovery metadata",
+  "inventory.recovery.discardConfirmation":
+    "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
   "inventory.features.inventoryItems.api.route.collision.mode.invalid":
     "Collision mode must protect orders or honor offline.",
   "inventory.features.inventoryItems.api.route.honor.offline.authority.required":
@@ -23,6 +43,9 @@ export const inventoryEnglishTranslations = {
     "Only manual inventory holds can be released by sellers.",
   "inventory.features.inventoryItems.api.route.inventory.item.not.found": "Inventory item not found.",
   "inventory.features.inventoryItems.api.route.request.failed": "Request failed.",
+  "inventory.features.importBatches.api.route.import.source.not.accepted":
+    "Import source was not accepted. Check the file and attempt identity.",
+  "inventory.features.importBatches.api.route.import.row.page.invalid": "Import row page is invalid.",
   "inventory.features.inventoryItems.api.route.units.committed.to.open.orders":
     "{count} units are committed to open orders.",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.code": "Adjustment reason",
@@ -133,6 +156,10 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id": "Catalog item",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed":
     "Catalog item lookup failed.",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.not.active":
+    "This catalog item is not active. Choose an active catalog item.",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.options.stale":
+    "The saved product options no longer match this catalog item. Choose the catalog item again to set its options.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.choose.the.visible.catalog.item":
     "Choose the catalog item from the visible search results.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item": "Create Inventory Item",
@@ -158,10 +185,8 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemListPage.not.set": "Not set",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.open": "Open",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location": "Select a location",
-  "inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.catalog.item": "Select a catalog item",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.by.title.or.paste.catalog":
     "Search by title or paste a catalog item ID, then select the matching item.",
-  "inventory.features.inventoryItems.ui.inventoryItemListPage.search.catalog": "Search catalog",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.for.a.catalog.item.then":
     "Search for a catalog item, then choose it to configure product options.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item":
@@ -429,4 +454,9 @@ export const inventoryEnglishTranslations = {
   "inventory.features.recoveredItems.ui.page.action.failed": "The recovered item action could not be recorded.",
   "inventory.features.recoveredItems.ui.page.action.unknown": "Choose a recovered item action.",
   "inventory.routes.admin.recoveredItems.title": "Recovered Returns | Admin",
+  "inventory.checkoutReservation.unavailable": "Checkout reservation is unavailable.",
+  "inventory.checkoutReservation.extensionUnavailable": "Checkout reservation extension is unavailable.",
+  "inventory.checkoutReservation.releaseUnavailable": "Checkout reservation release is unavailable.",
+  "inventory.shell.inventory.label": "Inventory",
+  "inventory.shell.inventoryImports.label": "Import",
 } as const;

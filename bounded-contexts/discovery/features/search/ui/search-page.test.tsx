@@ -4,11 +4,15 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createContext, useContext } from "react";
+import { createMemoryRouter, RouterProvider, useRouteError } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchPage } from "./search-page";
 import { productAlertSettingsHref } from "./product-alert-settings-link";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { searchDiscoveryItems } from "../read-model/queries";
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
 vi.mock("@chase-sets/localization", async (importOriginal) => {
@@ -21,6 +25,7 @@ vi.mock("@chase-sets/localization", async (importOriginal) => {
 
 afterEach(() => {
   cleanup();
+  routers.splice(0).forEach((router) => router.dispose());
   titleOverrides.clear();
   vi.unstubAllGlobals();
 });
@@ -353,6 +358,29 @@ function createCategory(overrides: Partial<DiscoveryCategoryItem>): DiscoveryCat
   };
 }
 
+const routers: ReturnType<typeof createMemoryRouter>[] = [];
+
+function renderRoutedSearchPage(props: Parameters<typeof SearchPage>[0]) {
+  const SearchPageProps = createContext(props);
+  const router = createMemoryRouter([
+    {
+      path: "*",
+      Component: () => <SearchPage {...useContext(SearchPageProps)} />,
+      ErrorBoundary: () => {
+        throw useRouteError();
+      },
+    },
+  ]);
+  routers.push(router);
+  const tree = (value: Parameters<typeof SearchPage>[0]) => (
+    <SearchPageProps.Provider value={value}>
+      <RouterProvider router={router} />
+    </SearchPageProps.Provider>
+  );
+  const view = render(tree(props));
+  return { ...view, rerender: (value: Parameters<typeof SearchPage>[0]) => view.rerender(tree(value)) };
+}
+
 function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> = {}) {
   const props: Parameters<typeof SearchPage>[0] = {
     search: "",
@@ -385,12 +413,136 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     ...overrides,
   };
 
-  render(<SearchPage {...props} />);
+  renderRoutedSearchPage(props);
 
   return props;
 }
 
+describe("6110 result heading hierarchy", () => {
+  it.each(["lexical", "rescue", "empty", "Home"] as const)("6110 result heading hierarchy: %s", (state) => {
+    titleOverrides.set("discovery.features.search.ui.searchPage.results", "Fresh catalogue matches");
+    renderSearchPage({
+      committedSearch: state === "Home" ? "" : "pokemon",
+      data:
+        state === "empty"
+          ? { ...searchResponse, items: [], total: 0, count: 0 }
+          : { ...searchResponse, retrievalMode: state === "rescue" ? "rescue" : "lexical" },
+      homeMerchandising:
+        state === "Home" ? { featuredCategories: categories.slice(0, 1), newArrivals: [imageBearingNewArrival] } : null,
+    });
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.queryAllByRole("heading", { level: 2, name: "Fresh catalogue matches" })).toHaveLength(
+      state === "lexical" ? 1 : 0,
+    );
+    expect(screen.queryAllByRole("heading", { level: 2, name: "Closest matches" })).toHaveLength(
+      state === "rescue" ? 1 : 0,
+    );
+    if (state === "lexical" || state === "rescue") {
+      const sectionHeading = screen.getByRole("heading", {
+        level: 2,
+        name: state === "lexical" ? "Fresh catalogue matches" : "Closest matches",
+      });
+      const cardHeading = within(
+        document.querySelector('article[data-card-layout="search-result"]') as HTMLElement,
+      ).getByRole("heading", { level: 3 });
+      expect(sectionHeading.compareDocumentPosition(cardHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { level: 1 }).compareDocumentPosition(sectionHeading) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    if (state === "empty")
+      expect(document.querySelectorAll('article[data-card-layout="search-result"]')).toHaveLength(0);
+  });
+});
+
 describe("SearchPage", () => {
+  it("two-variant read model drives the selected card price and Buy cue", async () => {
+    const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+    const db: PgQueryable = {
+      query: async <Row,>(sql: string, values: readonly unknown[] = []) => {
+        const rows = sql.startsWith("SELECT catalog_item_id")
+          ? [japaneseSearchResult]
+          : sql.startsWith("WITH startable_listing")
+            ? [
+                {
+                  catalog_catalog_item_id: japaneseSearchResult.catalog_item_id,
+                  lowest_price_amount: values.includes(JSON.stringify(dimensionFilters)) ? "20.00" : "2.00",
+                  lowest_price_currency_code: "USD",
+                  active_listing_count: 1,
+                  total_visible_quantity: 1,
+                },
+              ]
+            : [];
+        return { rows: rows as Row[], rowCount: rows.length };
+      },
+    };
+    const result = await searchDiscoveryItems(db, { dimensionFilters }, { loadFacets: false });
+    renderSearchPage({
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: { ...searchResponse, items: [{ ...japaneseSearchResult, market_summary: result.items[0].market_summary }] },
+    });
+    expect(document.querySelector("[data-listing-card-price-value]")?.textContent).toBe("$20.00");
+    expect(screen.queryByText("$2.00")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Add product to Buy Cart" }).closest('[data-primary-action-count="1"]'),
+    ).toBeTruthy();
+  });
+  it.each([
+    { name: "nonfoil", amount: "2.00", currency: "USD", count: 1, quantity: 1, expected: "$2.00", buy: true },
+    { name: "foil", amount: "20.00", currency: "USD", count: 1, quantity: 1, expected: "$20.00", buy: true },
+    { name: "demand-only", amount: null, currency: null, count: 0, quantity: 0, expected: null, buy: false },
+    { name: "mixed currency", amount: null, currency: null, count: 2, quantity: 2, expected: null, buy: true },
+  ])("selected variant card price and Buy cue: $name", ({ amount, currency, count, quantity, expected, buy }) => {
+    renderSearchPage({
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: {
+        ...searchResponse,
+        items: [
+          {
+            ...japaneseSearchResult,
+            market_summary: {
+              lowest_price_amount: amount,
+              lowest_price_currency_code: currency,
+              active_listing_count: count,
+              total_visible_quantity: quantity,
+            },
+          },
+        ],
+      },
+      categories: [],
+    });
+    expect(document.querySelector("[data-listing-card-price-value]")?.textContent ?? null).toBe(expected);
+    expect(
+      screen.getByRole("link", { name: "View details for Bulbasaur — Japanese Base Set" }).getAttribute("href"),
+    ).toContain("dimension.finish=foil");
+    const action = screen.getByRole("link", { name: buy ? "Add product to Buy Cart" : "Add product to Sell List" });
+    expect(action.getAttribute("href")).toContain(`market=${buy ? "buy" : "sell"}`);
+    expect(action.closest('[data-primary-action-count="1"]')).toBeTruthy();
+  });
+
+  it("retains selected-zero variant facet options", () => {
+    renderSearchPage({
+      committedSearch: "variant",
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: {
+        ...searchResponse,
+        facets: [
+          {
+            id: "finish",
+            kind: "dimension",
+            label: "Finish",
+            values: [
+              { id: "foil", label: "Foil", count: 0, selected: true },
+              { id: "nonfoil", label: "Nonfoil", count: 1, selected: false },
+            ],
+          },
+        ],
+      },
+    });
+    expect(screen.getAllByText("Foil").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Remove Finish: Foil" })).toBeTruthy();
+  });
   it.each(["desktop", "mobile"] as const)(
     "keeps ordered independent %s facet state across toggles, removal, reopening and remount",
     (presentation) => {
@@ -402,7 +554,7 @@ describe("SearchPage", () => {
       };
       const props = renderSearchPage({ committedSearch: "abra", data: { ...searchResponse, facets: [facet] } });
       cleanup();
-      const view = render(<SearchPage {...props} />);
+      const view = renderRoutedSearchPage(props);
       const openMobile = () => fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
       const root = (name: string) => document.querySelector<HTMLElement>(`[data-facet-list-presentation="${name}"]`)!;
       const defaults = ["categories", "price-and-stock"];
@@ -435,10 +587,10 @@ describe("SearchPage", () => {
       toggle("dimension:condition");
       assertState(presentation, ["price-and-stock", "language", "dimension:condition"]);
       assertState(other, defaults);
-      view.rerender(<SearchPage {...props} data={{ ...searchResponse, facets: [] }} />);
+      view.rerender({ ...props, data: { ...searchResponse, facets: [] } });
       assertState(presentation, ["price-and-stock", "language"]);
       assertState(other, defaults);
-      view.rerender(<SearchPage {...props} />);
+      view.rerender(props);
       assertState(presentation, ["price-and-stock", "language"]);
       assertState(other, defaults);
       fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
@@ -446,7 +598,7 @@ describe("SearchPage", () => {
       assertState(presentation, ["price-and-stock", "language"]);
       assertState(other, defaults);
       view.unmount();
-      render(<SearchPage {...props} />);
+      renderRoutedSearchPage(props);
       openMobile();
       assertState("desktop", defaults);
       assertState("mobile", defaults);
@@ -733,7 +885,8 @@ describe("SearchPage", () => {
     // One resolved inline Result Set count replaces the two landing Stat panels.
     expect(document.querySelectorAll("[data-search-result-set-count]")).toHaveLength(1);
     expect(heroView.getByText("352 results in All Categories")).toBeTruthy();
-    expect(screen.queryByText("Results")).toBeNull();
+    expect(heroView.queryByText("Results")).toBeNull();
+    expect(hero!.contains(screen.getByRole("heading", { level: 2, name: "Results" }))).toBe(false);
     expect(screen.queryByText("352")).toBeNull();
     expect(screen.queryByText("Catalog depth")).toBeNull();
     expect(screen.queryByText(/tracked items/)).toBeNull();
@@ -1075,6 +1228,101 @@ describe("SearchPage", () => {
       screen.getByText("No text matches were found. These related items are ranked by semantic similarity."),
     ).toBeTruthy();
     expect(screen.queryByText("No items found")).toBeNull();
+  });
+
+  it.each(["success", "loading", "empty", "error"] as const)(
+    "corrected notice executes the %s state without load more",
+    (state) => {
+      const query = '<img src=x onerror="alert(1)">';
+      const corrected: DiscoverySearchResponse = {
+        ...searchResponse,
+        retrievalMode: "corrected",
+        lexicalCount: 0,
+        nextCursor: null,
+      };
+      renderSearchPage({
+        search: query,
+        committedSearch: query,
+        data:
+          state === "empty" ? { ...corrected, items: [], count: 0, total: 0 } : state === "error" ? null : corrected,
+        loading: state === "loading",
+        error: state === "error" ? "Search failed." : null,
+      });
+      if (state === "success" || state === "loading") {
+        expect(screen.getByText(`No exact matches for ${query}. Showing close spellings.`)).toBeTruthy();
+        expect(screen.queryByRole("heading", { name: "Closest matches" })).toBeNull();
+        expect(document.querySelector("img[src=x]")).toBeNull();
+      } else {
+        expect(screen.queryByText(/Showing close spellings/)).toBeNull();
+        expect(screen.getByText(state === "empty" ? "No items found" : "Search failed.")).toBeTruthy();
+      }
+      expect(screen.queryByRole("button", { name: /Load more results/ })).toBeNull();
+    },
+  );
+
+  describe("interpretation notice", () => {
+    const gradeFacet = {
+      id: "dim_seed_grade",
+      kind: "dimension" as const,
+      label: "Grade",
+      values: [{ id: "chc_seed_grade_gem_mint_10", label: "Gem Mint 10", count: 1, selected: true }],
+    };
+    const companyFacet = {
+      id: "dim_seed_grading_company",
+      kind: "dimension" as const,
+      label: "Grading Company",
+      values: [{ id: "chc_seed_grading_company_psa", label: "PSA", count: 1, selected: true }],
+    };
+    const grade = { kind: "dimension" as const, id: "dim_seed_grade", value: "chc_seed_grade_gem_mint_10" };
+    const company = {
+      kind: "dimension" as const,
+      id: "dim_seed_grading_company",
+      value: "chc_seed_grading_company_psa",
+    };
+    const notice = (filters: string) => `Filters applied from your search: ${filters}`;
+
+    it.each(["success", "empty"] as const)("lists only marked filters still present (%s)", (state) => {
+      renderSearchPage({
+        committedSearch: "charizard",
+        language: "ja",
+        dynamicFilters: [grade, company],
+        interpretedFilters: ["dimension.dim_seed_grade", "language", "dimension.dim_seed_finish"],
+        data: {
+          ...searchResponse,
+          facets: [gradeFacet, companyFacet],
+          ...(state === "empty" ? { items: [], count: 0, total: 0 } : {}),
+        },
+      });
+      expect(screen.getByText(notice("Grade: Gem Mint 10, Japanese"))).toBeTruthy();
+      expect(screen.queryByText(/Grading Company: PSA,/)).toBeNull();
+      if (state === "empty") expect(screen.getByText("No items found")).toBeTruthy();
+    });
+
+    it("dismissing hides the notice and keeps every filter applied", () => {
+      const props = renderSearchPage({
+        committedSearch: "charizard",
+        dynamicFilters: [grade],
+        interpretedFilters: ["dimension.dim_seed_grade"],
+        data: { ...searchResponse, facets: [gradeFacet] },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+      expect(screen.queryByText(notice("Grade: Gem Mint 10"))).toBeNull();
+      expect(screen.getByRole("button", { name: "Remove Grade: Gem Mint 10" })).toBeTruthy();
+      expect(props.onDynamicFilterChange).not.toHaveBeenCalled();
+      expect(props.onDynamicFilterClear).not.toHaveBeenCalled();
+    });
+
+    it("renders no notice without a marker or once every marked filter was removed", () => {
+      const view = renderSearchPage({
+        committedSearch: "charizard",
+        dynamicFilters: [grade],
+        data: { ...searchResponse, facets: [gradeFacet] },
+      });
+      expect(screen.queryByText(/Filters applied from your search/)).toBeNull();
+      cleanup();
+      renderSearchPage({ ...view, dynamicFilters: [], interpretedFilters: ["dimension.dim_seed_grade"] });
+      expect(screen.queryByText(/Filters applied from your search/)).toBeNull();
+    });
   });
 
   it("renders variant badges that distinguish same-title search results", () => {

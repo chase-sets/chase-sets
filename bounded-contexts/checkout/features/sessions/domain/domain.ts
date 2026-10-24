@@ -114,6 +114,12 @@ export type CheckoutSessionState = Readonly<{
   optimizationGoal: CheckoutOptimizationGoal;
   fulfillmentPreviewRevision: string | null;
   fulfillmentPreviewSnapshot: CheckoutFulfillmentPreview | null;
+  /**
+   * The most recent quote this session recorded, kept when an edit clears the
+   * live `fulfillmentPreviewSnapshot`. Only a started or preview-recorded event
+   * carrying a snapshot changes it; it never gates staleness or reservations.
+   */
+  lastRecordedQuote: CheckoutFulfillmentPreview | null;
   cartReadinessSnapshot: CartReadinessSnapshot | null;
   presentedAnonymousCartId: string | null;
   splitGroupHandoff: CheckoutSplitGroupHandoff | null;
@@ -129,6 +135,7 @@ export type CheckoutSessionState = Readonly<{
   submittedOfferId: string | null;
   cancelledAt: string | null;
   createdAt: string | null;
+  handoffExpiresAt: string | null;
   updatedAt: string | null;
 }>;
 
@@ -139,6 +146,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   optimizationGoal: "lowest-total",
   fulfillmentPreviewRevision: null,
   fulfillmentPreviewSnapshot: null,
+  lastRecordedQuote: null,
   cartReadinessSnapshot: null,
   presentedAnonymousCartId: null,
   splitGroupHandoff: null,
@@ -153,6 +161,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   submittedOfferId: null,
   cancelledAt: null,
   createdAt: null,
+  handoffExpiresAt: null,
   updatedAt: null,
 };
 
@@ -168,6 +177,7 @@ export type StartCheckoutSessionCommand = Readonly<{
   presentedAnonymousCartId?: string | null;
   shippingOption: ShippingOption;
   lines: readonly CheckoutSessionLine[];
+  handoffExpiresAt?: string | null;
   createdAt: string;
 }>;
 
@@ -267,6 +277,7 @@ export type CheckoutSessionStartedEvent = DomainEvent<
     splitGroupHandoff: CheckoutSplitGroupHandoff | null;
     shippingOption: ShippingOption;
     lines: CheckoutSessionLine[];
+    handoffExpiresAt?: string | null;
     createdAt: string;
   }>
 >;
@@ -716,6 +727,7 @@ export const decideCheckoutSession: AggregateDecider<
             splitGroupHandoff,
             shippingOption: normalizeShippingOption(command.shippingOption),
             lines,
+            handoffExpiresAt: command.handoffExpiresAt ?? null,
             createdAt: normalizeRequiredText(command.createdAt, "Checkout session must record a creation timestamp."),
           },
         },
@@ -949,6 +961,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         optimizationGoal: event.data.optimizationGoal ?? "lowest-total",
         fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision ?? null,
         fulfillmentPreviewSnapshot: event.data.fulfillmentPreviewSnapshot ?? null,
+        lastRecordedQuote: event.data.fulfillmentPreviewSnapshot ?? null,
         cartReadinessSnapshot: event.data.cartReadinessSnapshot ?? null,
         presentedAnonymousCartId: event.data.presentedAnonymousCartId ?? null,
         splitGroupHandoff: event.data.splitGroupHandoff ?? null,
@@ -956,6 +969,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         shippingAddress: null,
         authenticityCheckOptIn: null,
         lines: event.data.lines,
+        handoffExpiresAt: event.data.handoffExpiresAt ?? null,
         orderIds: [],
         orderWriteCommitPositions: [],
         checkoutReservations: [],
@@ -978,6 +992,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         ...state,
         fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision,
         fulfillmentPreviewSnapshot: event.data.fulfillmentPreviewSnapshot,
+        lastRecordedQuote: event.data.fulfillmentPreviewSnapshot ?? state.lastRecordedQuote,
         updatedAt: event.data.recordedAt,
       };
     case "checkout.session.shipping-option-selected":

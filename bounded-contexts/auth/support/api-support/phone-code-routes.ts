@@ -4,7 +4,7 @@ import { randomInt } from "node:crypto";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { createAuthRateLimitPair } from "../../features/sign-in/api/rate-limits";
 import { mapPhoneCodeRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
-import { normalizeAuthPhoneNumber } from "../auth-support/identity-projection";
+import { insertCreatedAuthIdentityAccountMirror, normalizeAuthPhoneNumber } from "../auth-support/identity-projection";
 import { insertPhoneCodeToken, verifyPhoneCodeToken } from "../auth-support/store";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
@@ -19,6 +19,7 @@ import {
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
+import { missingPhoneResponse } from "./phone-code-errors";
 
 const PHONE_CODE_NOTIFICATION_PROJECTION = "auth-phone-code-notification-intent";
 const PHONE_CODE_MAX_FAILED_ATTEMPTS = 5;
@@ -56,7 +57,7 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
     const body = await c.req.json();
     const phone = normalizeAuthPhoneNumber(String(body.phone ?? ""));
     if (!phone) {
-      return c.json({ error: t("auth.support.apiSupport.phoneCodeRoutes.phone.is.required") }, 400);
+      return c.json(missingPhoneResponse(), 400);
     }
     const rateLimitResponse = phoneCodeRequestRateLimits.check(c.req.raw, `phone:${phone}`);
     if (rateLimitResponse) {
@@ -110,6 +111,7 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
     const phone = normalizeAuthPhoneNumber(String(body.phone ?? ""));
     const code = normalizePhoneCode(body.code);
     if (!phone || !code) {
+      if (!phone) return c.json(missingPhoneResponse(), 400);
       return c.json({ error: t("auth.support.apiSupport.phoneCodeRoutes.phone.and.code.are.required") }, 400);
     }
     const rateLimitResponse = phoneCodeConsumeRateLimits.check(c.req.raw, `phone:${phone}`);
@@ -161,12 +163,18 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
 
         throw error;
       }
+      await insertCreatedAuthIdentityAccountMirror(services.db, {
+        accountId: identity.accountId,
+        displayName:
+          typeof body.displayName === "string" && body.displayName.trim()
+            ? body.displayName.trim()
+            : createOwnedUserDisplayName(record.phone),
+      });
       const authResult = await startInteractiveAuth(services, {
         userId: identity.userId,
         accountId: identity.accountId,
         authenticationMethod: "sms-code",
         context: getBootstrapContext(c),
-        publishAuthenticationOutcome: true,
         membershipsOverride: [
           {
             membershipId: identity.membershipId,
@@ -190,7 +198,6 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
       accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "sms-code",
       context: getBootstrapContext(c),
-      publishAuthenticationOutcome: true,
     });
 
     return c.json(authResult);

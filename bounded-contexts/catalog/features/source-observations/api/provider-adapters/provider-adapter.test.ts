@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 import type {
   CatalogIntegrationUnitDescriptor,
@@ -15,6 +16,7 @@ import {
 } from "./reference-cards";
 import {
   createMtgjsonValidationProviderAdapter,
+  createMtgjsonProviderAdapter,
   MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
   MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
   runMtgjsonSourceObservationValidationDryRun,
@@ -47,7 +49,6 @@ import {
 import {
   runTcgplayerLorcanaSealedProductSourceObservationImportProofDryRun,
   runTcgplayerLorcanaSingleCardSourceObservationImportProofDryRun,
-  createTcgplayerProviderAdapter,
   runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
   runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
   runTcgplayerOnePieceSealedProductSourceObservationImportProofDryRun,
@@ -65,12 +66,172 @@ import {
   getActiveCatalogProviderIntegrationProfileVersion,
   getCatalogProviderIntegrationProfileVersion,
 } from "../provider-integration-profiles";
-import { tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract } from "../tcgplayer-executable-mapping-contract";
-import type {
-  TcgplayerAutomationCatalogClient,
-  TcgplayerAutomationProductDetail,
-} from "../providers/tcgplayer-automation-catalog-client";
-import { tcgplayerAutomationResponseFixtures } from "../providers/tcgplayer-automation-response-fixtures.test-data";
+import { createSourceObservationProviderImportRuntime } from "../source-observation-provider-import-runtime";
+import { createIntegrationJobClaimHandoffHarness } from "../seeding/runtime-test-harness";
+import type { CatalogItemServices } from "../../../catalog-items/api/runtime";
+import { listAcceptedProviderScopeMappingsByScopeRecord } from "../../../provider-scope-mapping/read-model/queries";
+import type { ProviderScopeMappingRow } from "../../../provider-scope-mapping/read-model/queries";
+import {
+  catalogSyncAcceptedScopeMappingFromRow,
+  previewCatalogSyncProviderParticipation,
+} from "../providers/catalog-sync-scope-planner";
+
+describe("MTGJSON coordinate compatibility and refusal", () => {
+  const unitKeys = [MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY, MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY];
+
+  it.each(unitKeys)("preserves explicit aliases and whole-set execution parity for %s", async (unitKey) => {
+    const deniedFetch = vi.fn<typeof fetch>(async () => {
+      throw new Error("Live fetch denied.");
+    });
+    const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
+    const fixtureAdapter = createMtgjsonValidationProviderAdapter();
+    const {
+      items: [option],
+    } = await fixtureAdapter.listOptions({ unitKey, optionKind: "sets" });
+    expect(option).toMatchObject({ value: "TSP", label: "Time Spiral" });
+    const version = getActiveCatalogProviderIntegrationProfileVersion("mtgjson", {
+      profileKey:
+        unitKey === MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY ? "mtg-set-reference-data" : "mtg-card-reference-data",
+    })!;
+    const harness = createIntegrationJobClaimHandoffHarness();
+    const unused = vi.fn(async () => {
+      throw new Error("Import side effects denied.");
+    });
+    const runtime = createSourceObservationProviderImportRuntime({
+      deps: harness.deps,
+      items: {} as CatalogItemServices,
+      referenceData: harness.referenceData,
+      aliasCandidateSink: unused,
+      commandHandler: unused,
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+      mergeCandidates: {
+        persistCatalogMergeCandidatesFromObservations: unused,
+        sourceObservationRecordToCandidateRow: () => {
+          throw new Error("Import side effects denied.");
+        },
+      },
+    });
+    const [target] = await runtime.resolveProviderAdapterImportTargets(
+      {
+        provider: "mtgjson",
+        ingestionUnitKey: unitKey,
+        setName: option!.value,
+      },
+      version,
+    );
+    const executionPlan = await adapter.planImport({ unitKey, scopeKey: target!.scopeKey, values: target!.values });
+    const expectedKey =
+      unitKey === MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY ? "mtgjson:set:TSP" : "mtgjson:cards:set:TSP";
+    const executionPayloads = await collectPayloads(fixtureAdapter.fetchPayloads(executionPlan));
+    expect(executionPayloads).toHaveLength(1);
+    expect(executionPayloads[0]?.payload.kind).toBe(
+      unitKey === MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY ? "set-reference" : "single-card",
+    );
+
+    const coordinateInputs: Readonly<Record<string, string>>[] = [
+      { setCode: "TSP" },
+      { code: "TSP" },
+      { setName: option!.value },
+      { setCode: " TSP ", code: "NOT_THE_CODE", setName: "Not the option value" },
+      { code: " TSP ", setName: "Not the option value" },
+    ];
+    for (const values of coordinateInputs) {
+      const plan = await adapter.planImport({ unitKey, scopeKey: "set-name", values });
+      expect(plan).toMatchObject({ planKey: expectedKey, scope: { scopeKey: "set", values: { setCode: "TSP" } } });
+      expect(plan.scope.values.cardName).toBeUndefined();
+      expect(plan.scope.values.uuid).toBeUndefined();
+      expect(await collectPayloads(fixtureAdapter.fetchPayloads(plan))).toEqual(executionPayloads);
+    }
+    const singleCardPlan = await adapter.planImport({
+      unitKey,
+      scopeKey: "single-card",
+      values: {
+        setCode: "TSP",
+        code: "OTHER",
+        setName: "Other",
+        cardName: "Fury Sliver",
+        collectorNumber: "157",
+      },
+    });
+    expect(singleCardPlan.planKey).toBe(
+      unitKey === MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY ? "mtgjson:set:TSP" : "mtgjson:card:TSP:Fury Sliver:157",
+    );
+    expect(deniedFetch).not.toHaveBeenCalled();
+    expect(unused).not.toHaveBeenCalled();
+  });
+
+  it.each(unitKeys)("refuses absent and blank coordinates without alias fallthrough for %s", async (unitKey) => {
+    const deniedFetch = vi.fn<typeof fetch>(async () => {
+      throw new Error("Live fetch denied.");
+    });
+    const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
+    const coordinateInputs: Readonly<Record<string, string>>[] = [
+      {},
+      { setId: "TSP" },
+      { name: "Time Spiral" },
+      { setName: " " },
+      { setCode: "" },
+      { code: " " },
+      { setCode: " ", code: "TSP", setName: "TSP" },
+      { code: "", setName: "TSP" },
+    ];
+    for (const values of coordinateInputs) {
+      await expect(adapter.planImport({ unitKey, scopeKey: "set-name", values })).rejects.toThrow(
+        "MTGJSON import planning requires setCode.",
+      );
+    }
+    expect(deniedFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["absent", "rejected", "revoked", "proposed"])(
+    "does not substitute the canonical TSP id for a %s mapping",
+    async (status) => {
+      const unitKey = MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY;
+      const db: PgQueryable = {
+        async query<Row>(sql: string, values?: readonly unknown[]) {
+          expect(sql).toContain("review_status IN ('accepted', 'auto-accepted')");
+          expect(values).toEqual(["TSP"]);
+          const storedRows = status === "absent" ? [] : [{ review_status: status, set_name: "TSP" }];
+          return {
+            rows: storedRows.filter((row) => ["accepted", "auto-accepted"].includes(row.review_status)) as Row[],
+          };
+        },
+      };
+      const mappings: readonly ProviderScopeMappingRow[] = await listAcceptedProviderScopeMappingsByScopeRecord(
+        db,
+        "TSP",
+      );
+      const deniedFetch = vi.fn<typeof fetch>(async () => {
+        throw new Error("Live fetch denied.");
+      });
+      const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
+      const planImport = vi.spyOn(adapter, "planImport");
+      const version = getActiveCatalogProviderIntegrationProfileVersion("mtgjson", {
+        profileKey: "mtg-set-reference-data",
+      })!;
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope: {
+          scopeVersion: "catalog-sync-scope-v2",
+          productDomain: "magic",
+          reference: { kind: "set", scopeRecordId: "TSP" },
+        },
+        acceptedScopeMappings: mappings.map(catalogSyncAcceptedScopeMappingFromRow),
+        providerProfileVersions: [version],
+        providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+      });
+      expect(preview.units).toEqual([
+        expect.objectContaining({
+          unitKey,
+          childExecutionScope: null,
+          eligibility: "ineligible",
+          blockers: [expect.objectContaining({ code: "provider-scope-mapping-missing" })],
+        }),
+      ]);
+      expect(planImport).not.toHaveBeenCalled();
+      expect(deniedFetch).not.toHaveBeenCalled();
+    },
+  );
+});
 
 type ReferenceCardPayload = Readonly<{
   providerCardId: string;
@@ -469,1012 +630,6 @@ describe("ProviderAdapterRegistry", () => {
       diagnostics: [],
     });
     expect(dryRun.observations[0]?.sourceHash).toBeUndefined();
-  });
-
-  it("serves TCGplayer option transport through the ProviderAdapter boundary", async () => {
-    const adapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: tcgplayerClient(),
-    });
-
-    await expect(adapter.listIntegrationUnits()).resolves.toEqual([
-      {
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        providerKey: "tcgplayer",
-        productDomain: "pokemon",
-        productForm: "single-card",
-        ingestionPurpose: "source-observation-import",
-        displayName: "TCGplayer Pokemon Single Cards",
-        profileVersion: "2026.06.05",
-      },
-    ]);
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "product-lines",
-      }),
-    ).resolves.toEqual({
-      items: [
-        {
-          value: "3",
-          label: "Pokemon",
-          metadata: {
-            productLineId: "3",
-            productLineName: "Pokemon",
-            productLineUrlName: "pokemon",
-            isDirect: "true",
-          },
-        },
-      ],
-    });
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "set-names",
-        parentValues: { productLineId: "3" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "Prismatic Evolutions",
-          label: "Prismatic Evolutions",
-          parentValue: "3",
-          metadata: expect.objectContaining({ setNameId: "2387", active: "true" }),
-        }),
-      ],
-    });
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "products",
-        parentValues: { setName: "Prismatic Evolutions" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "610001",
-          label: "Eevee ex",
-          metadata: expect.objectContaining({ productLineName: "Pokemon", sealed: "false" }),
-        }),
-      ],
-    });
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "skus",
-        parentValues: { productId: "610001" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        {
-          value: "7001001",
-          label: "7001001",
-          metadata: { sku: "7001001", condition: "Near Mint", variant: "Holofoil", language: "English" },
-        },
-        {
-          value: "7001002",
-          label: "7001002",
-          metadata: { sku: "7001002", condition: "Lightly Played", variant: "Holofoil", language: "English" },
-        },
-      ],
-    });
-  });
-
-  it("falls back to set-name search when TCGplayer product-line terms produce no scoped products", async () => {
-    const listAllProductRequests: unknown[] = [];
-    const pokemonBaseSetProduct = {
-      ...tcgplayerAutomationResponseFixtures.productSearch.results[0].results[0],
-      productId: 610101,
-      productName: "Charizard",
-      productLineId: 3,
-      productLineName: "Pokemon",
-      productTypeName: "Products",
-      setId: 604,
-      setName: "Base Set",
-      sealed: false,
-      customAttributes: { number: "4/102", releaseDate: "1999-01-09", cardType: ["Pokemon"] },
-    };
-    const magicBaseSetProduct = {
-      ...pokemonBaseSetProduct,
-      productId: 14240,
-      productName: "Fury Sliver",
-      productLineId: 1,
-      productLineName: "Magic",
-    };
-    const pokemonBaseSetDetail = {
-      ...tcgplayerAutomationResponseFixtures.productDetail,
-      ...pokemonBaseSetProduct,
-      productTypeName: "Cards",
-      setCode: "BS",
-      skus: [{ sku: 700610101, condition: "Near Mint", variant: "Holofoil", language: "English" }],
-      listings: 42,
-    };
-    const adapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: {
-        ...tcgplayerClient(),
-        listAllProducts: async (input) => {
-          listAllProductRequests.push(input);
-          return input.filters?.term?.productLineName ? [] : [magicBaseSetProduct, pokemonBaseSetProduct];
-        },
-        getProductDetail: async ({ productId }) => {
-          if (productId !== 610101) {
-            throw new Error(`Unexpected product detail fetch for ${productId}.`);
-          }
-          return pokemonBaseSetDetail;
-        },
-      },
-    });
-
-    const plan = await adapter.planImport({
-      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "set-name",
-      values: { productLineId: "3", productLineName: "Pokemon", setName: "Base Set" },
-    });
-    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
-
-    expect(payloads).toEqual([
-      expect.objectContaining({
-        externalKey: "product:610101",
-        payload: expect.objectContaining({ kind: "product-detail", detail: pokemonBaseSetDetail }),
-      }),
-    ]);
-    expect(listAllProductRequests).toEqual([
-      expect.objectContaining({
-        filters: { term: { productLineName: ["Pokemon"], setName: ["Base Set"] } },
-      }),
-      expect.objectContaining({
-        filters: { term: { setName: ["Base Set"] } },
-      }),
-    ]);
-  });
-
-  it("settles TCGplayer set imports when authoritative details exclude generic search candidates", async () => {
-    const progress: unknown[] = [];
-    const cardSummary = {
-      ...tcgplayerAutomationResponseFixtures.productSearch.results[0].results[0],
-      productId: 610101,
-      productName: "Charizard",
-      productLineId: 3,
-      productLineName: "Pokemon",
-      productTypeName: "Products",
-      setId: 604,
-      setName: "Base Set",
-      sealed: false,
-    };
-    const sealedSummary = {
-      ...cardSummary,
-      productId: 610102,
-      productName: "Base Set Theme Deck",
-    };
-    const details = new Map<number, TcgplayerAutomationProductDetail>([
-      [
-        cardSummary.productId,
-        {
-          ...tcgplayerAutomationResponseFixtures.productDetail,
-          ...cardSummary,
-          productTypeName: "Cards",
-          setCode: "BS",
-          listings: 42,
-        },
-      ],
-      [
-        sealedSummary.productId,
-        {
-          ...tcgplayerAutomationResponseFixtures.productDetail,
-          ...sealedSummary,
-          productTypeName: "Sealed Products",
-          sealed: true,
-          setCode: "BS",
-          listings: 7,
-        },
-      ],
-    ]);
-    const adapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: {
-        ...tcgplayerClient(),
-        listAllProducts: async () => [cardSummary, sealedSummary],
-        getProductDetail: async ({ productId }) => {
-          const detail = details.get(productId);
-          if (!detail) {
-            throw new Error(`Unexpected product detail fetch for ${productId}.`);
-          }
-          return detail;
-        },
-      },
-    });
-
-    const plan = await adapter.planImport({
-      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "set-name",
-      values: { productLineId: "3", productLineName: "Pokemon", setName: "Base Set" },
-    });
-    const payloads = await collectPayloads(
-      adapter.fetchPayloads(plan, {
-        onProgress: (event) => {
-          progress.push(event);
-        },
-      }),
-    );
-
-    expect(payloads).toEqual([
-      expect.objectContaining({
-        externalKey: "product:610101",
-        payload: expect.objectContaining({ kind: "product-detail" }),
-      }),
-    ]);
-    expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 2, currentLabel: "Base Set" },
-      { phase: "fetching", completed: 1, total: 2, currentLabel: "Charizard" },
-      { phase: "fetching", completed: 2, total: 2, currentLabel: "Base Set Theme Deck" },
-    ]);
-  });
-
-  it("serves TCGplayer Magic single-card transport through the active profile unit", async () => {
-    const progress: unknown[] = [];
-    const adapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerMtgProfileVersion(), requireTcgplayerPokemonProfileVersion()],
-      client: magicTcgplayerClient(),
-      now: () => new Date("2026-06-06T00:00:00.000Z"),
-    });
-
-    await expect(adapter.listIntegrationUnits()).resolves.toEqual(
-      expect.arrayContaining([
-        {
-          unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-          providerKey: "tcgplayer",
-          productDomain: "mtg",
-          productForm: "single-card",
-          ingestionPurpose: "source-observation-import",
-          displayName: "TCGplayer Magic Single Cards",
-          profileVersion: "2026.06.19",
-        },
-        expect.objectContaining({
-          unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-          displayName: "TCGplayer Pokemon Single Cards",
-          productDomain: "pokemon",
-          productForm: "single-card",
-        }),
-      ]),
-    );
-    await expect(adapter.listIntegrationUnits()).resolves.toHaveLength(2);
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "product-lines",
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "1",
-          label: "Magic",
-          metadata: expect.objectContaining({
-            productLineId: "1",
-            productLineName: "Magic",
-            productLineUrlName: "magic",
-          }),
-        }),
-      ],
-    });
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "set-names",
-        parentValues: { productLineId: "1" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "Time Spiral",
-          label: "Time Spiral",
-          parentValue: "1",
-          metadata: expect.objectContaining({ setNameId: "1001", active: "true" }),
-        }),
-      ],
-    });
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "products",
-        parentValues: { setName: "Time Spiral" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "14240",
-          label: "Fury Sliver",
-          metadata: expect.objectContaining({ productLineName: "Magic", sealed: "false" }),
-        }),
-      ],
-    });
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "skus",
-        parentValues: { productId: "14240" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        {
-          value: "50014240",
-          label: "50014240",
-          metadata: { sku: "50014240", condition: "Near Mint", variant: "Normal", language: "English" },
-        },
-      ],
-    });
-
-    const plan = await adapter.planImport({
-      unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "set-name",
-      values: { productLineId: "1", setName: "Time Spiral" },
-    });
-    const payloads = await collectPayloads(
-      adapter.fetchPayloads(plan, {
-        onProgress: (event) => {
-          progress.push(event);
-        },
-      }),
-    );
-
-    expect(plan).toMatchObject({
-      unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      planKey: "tcgplayer:set:1:Time Spiral",
-      transportSteps: [
-        "Search TCGplayer products for set scope",
-        "Fetch TCGplayer product details",
-        "Attach payload provenance",
-      ],
-    });
-    expect(payloads).toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        providerKey: "tcgplayer",
-        externalKey: "product:14240",
-        payload: {
-          kind: "product-detail",
-          detail: expect.objectContaining({
-            productId: 14240,
-            productName: "Fury Sliver",
-            productLineName: "Magic",
-            productTypeName: "Cards",
-          }),
-        },
-      }),
-    ]);
-    expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 1, currentLabel: "Time Spiral" },
-      { phase: "fetching", completed: 1, total: 1, currentLabel: "Fury Sliver" },
-    ]);
-  });
-
-  it("serves TCGplayer Magic sealed-product transport through the active profile unit", async () => {
-    const progress: unknown[] = [];
-    const adapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [
-        requireTcgplayerMtgProfileVersion(),
-        requireTcgplayerMtgSealedProfileVersion(),
-        requireTcgplayerPokemonProfileVersion(),
-      ],
-      client: magicTcgplayerClient(),
-      now: () => new Date("2026-06-06T00:00:00.000Z"),
-    });
-
-    await expect(adapter.listIntegrationUnits()).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-          displayName: "TCGplayer Magic Single Cards",
-          productForm: "single-card",
-        }),
-        expect.objectContaining({
-          unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-          displayName: "TCGplayer Magic Sealed Products",
-          productForm: "sealed-product",
-        }),
-        expect.objectContaining({
-          unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-          displayName: "TCGplayer Pokemon Single Cards",
-          productForm: "single-card",
-        }),
-      ]),
-    );
-    await expect(adapter.listIntegrationUnits()).resolves.toHaveLength(3);
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "products",
-        parentValues: { setName: "Time Spiral" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "96601",
-          label: "Time Spiral Booster Pack",
-          metadata: expect.objectContaining({ productLineName: "Magic", sealed: "true" }),
-        }),
-      ],
-    });
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "skus",
-        parentValues: { productId: "96601" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        {
-          value: "50096601",
-          label: "50096601",
-          metadata: { sku: "50096601", condition: "Sealed", variant: "Sealed", language: "English" },
-        },
-      ],
-    });
-    await expect(
-      adapter.listOptions({
-        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "skus",
-        parentValues: { productId: "14240" },
-      }),
-    ).resolves.toEqual({ items: [] });
-
-    const plan = await adapter.planImport({
-      unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "set-name",
-      values: { productLineId: "1", setName: "Time Spiral" },
-    });
-    const payloads = await collectPayloads(
-      adapter.fetchPayloads(plan, {
-        onProgress: (event) => {
-          progress.push(event);
-        },
-      }),
-    );
-
-    expect(plan).toMatchObject({
-      unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      planKey: "tcgplayer:set:1:Time Spiral",
-    });
-    expect(payloads).toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        providerKey: "tcgplayer",
-        externalKey: "product:96601",
-        payload: {
-          kind: "product-detail",
-          detail: expect.objectContaining({
-            productId: 96601,
-            productName: "Time Spiral Booster Pack",
-            productLineName: "Magic",
-            productTypeName: "Sealed Products",
-            sealed: true,
-          }),
-        },
-      }),
-    ]);
-    expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 1, currentLabel: "Time Spiral" },
-      { phase: "fetching", completed: 1, total: 1, currentLabel: "Time Spiral Booster Pack" },
-    ]);
-
-    const rejectedPlan = await adapter.planImport({
-      unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "product",
-      values: { productId: "14240" },
-    });
-    await expect(collectPayloads(adapter.fetchPayloads(rejectedPlan))).resolves.toEqual([
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          kind: "product-detail-failure",
-          reason: expect.stringContaining("only imports Magic sealed products"),
-        }),
-      }),
-    ]);
-  });
-
-  it("reuses the TCGplayer provider path for Yu-Gi-Oh single-card unit constraints", async () => {
-    const yugiohAdapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [tcgplayerYugiohProfileVersion()],
-      client: yugiohTcgplayerClient(),
-      now: () => new Date("2026-06-20T00:00:00.000Z"),
-    });
-
-    await expect(yugiohAdapter.listIntegrationUnits()).resolves.toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        productDomain: "yugioh",
-        productForm: "single-card",
-        displayName: "TCGplayer Yu-Gi-Oh Single Cards",
-      }),
-    ]);
-    await expect(
-      yugiohAdapter.listOptions({
-        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "product-lines",
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({ value: "2", label: "Yu-Gi-Oh!" }),
-        expect.objectContaining({ value: "20", label: "YuGiOh" }),
-        expect.objectContaining({ value: "21", label: "Yugioh" }),
-        expect.objectContaining({ value: "22", label: "Yu-Gi-Oh" }),
-        expect.objectContaining({ value: "23", label: "yugioh" }),
-      ],
-    });
-
-    const mtgAdapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerMtgProfileVersion()],
-      client: yugiohTcgplayerClient(),
-    });
-    const pokemonAdapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: yugiohTcgplayerClient(),
-    });
-
-    await expect(
-      mtgAdapter.listOptions({
-        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "product-lines",
-      }),
-    ).resolves.toEqual({
-      items: [expect.objectContaining({ value: "1", label: "Magic" })],
-    });
-    await expect(
-      pokemonAdapter.listOptions({
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "product-lines",
-      }),
-    ).resolves.toEqual({
-      items: [expect.objectContaining({ value: "3", label: "Pokemon" })],
-    });
-
-    await expect(
-      yugiohAdapter.listOptions({
-        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "set-names",
-        parentValues: { productLineId: "2" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "Legend of Blue Eyes White Dragon",
-          label: "Legend of Blue Eyes White Dragon",
-          parentValue: "2",
-        }),
-      ],
-    });
-    await expect(
-      yugiohAdapter.listOptions({
-        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "products",
-        parentValues: { productLineName: "YuGiOh", setName: "Legend of Blue Eyes White Dragon" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "721337",
-          label: "Blue-Eyes White Dragon",
-          metadata: expect.objectContaining({ productLineName: "Yu-Gi-Oh!", sealed: "false" }),
-        }),
-      ],
-    });
-    await expect(
-      yugiohAdapter.listOptions({
-        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "skus",
-        parentValues: { productId: "721337" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        {
-          value: "800721337",
-          label: "800721337",
-          metadata: { sku: "800721337", condition: "Near Mint", variant: "1st Edition", language: "English" },
-        },
-      ],
-    });
-
-    const acceptedPlan = await yugiohAdapter.planImport({
-      unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "set-name",
-      values: { productLineName: "yugioh", setName: "Legend of Blue Eyes White Dragon" },
-    });
-    await expect(collectPayloads(yugiohAdapter.fetchPayloads(acceptedPlan))).resolves.toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        externalKey: "product:721337",
-        payload: {
-          kind: "product-detail",
-          detail: expect.objectContaining({
-            productId: 721337,
-            productLineName: "Yu-Gi-Oh!",
-            productTypeName: "Cards",
-          }),
-        },
-      }),
-    ]);
-
-    const rejectedPlan = await yugiohAdapter.planImport({
-      unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "product",
-      values: { productId: "14240" },
-    });
-    await expect(collectPayloads(yugiohAdapter.fetchPayloads(rejectedPlan))).resolves.toEqual([
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          kind: "product-detail-failure",
-          reason: expect.stringContaining("only imports Yu-Gi-Oh! single-card products"),
-        }),
-      }),
-    ]);
-  });
-
-  it("reuses the TCGplayer provider path for One Piece single-card unit constraints", async () => {
-    const onePieceAdapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerOnePieceProfileVersion()],
-      client: onePieceTcgplayerClient(),
-      now: () => new Date("2026-06-22T00:00:00.000Z"),
-    });
-
-    await expect(onePieceAdapter.listIntegrationUnits()).resolves.toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        productDomain: "one-piece",
-        productForm: "single-card",
-        displayName: "TCGplayer One Piece Single Cards",
-      }),
-    ]);
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "product-lines",
-      }),
-    ).resolves.toEqual({
-      items: [expect.objectContaining({ value: "68", label: "One Piece Card Game" })],
-    });
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "set-names",
-        parentValues: { productLineId: "68" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "Romance Dawn",
-          label: "Romance Dawn",
-          parentValue: "68",
-        }),
-      ],
-    });
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "set-names",
-        parentValues: { productLineId: "1" },
-      }),
-    ).rejects.toThrow("One Piece Card Game product line");
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "products",
-        parentValues: { productLineName: "One Piece Card Game", setName: "Romance Dawn" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "987650",
-          label: "Monkey.D.Luffy",
-          metadata: expect.objectContaining({ productLineName: "One Piece Card Game", sealed: "false" }),
-        }),
-      ],
-    });
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "skus",
-        parentValues: { productId: "987650" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        {
-          value: "900987650",
-          label: "900987650",
-          metadata: { sku: "900987650", condition: "Near Mint", variant: "Normal", language: "English" },
-        },
-      ],
-    });
-
-    const acceptedPlan = await onePieceAdapter.planImport({
-      unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "set-name",
-      values: { productLineId: "68", setName: "Romance Dawn" },
-    });
-    await expect(collectPayloads(onePieceAdapter.fetchPayloads(acceptedPlan))).resolves.toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        externalKey: "product:987650",
-        payload: {
-          kind: "product-detail",
-          detail: expect.objectContaining({
-            productId: 987650,
-            productLineId: 68,
-            productLineName: "One Piece Card Game",
-            productTypeName: "Cards",
-          }),
-        },
-      }),
-    ]);
-
-    const rejectedPlan = await onePieceAdapter.planImport({
-      unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "product",
-      values: { productId: "14240" },
-    });
-    await expect(collectPayloads(onePieceAdapter.fetchPayloads(rejectedPlan))).resolves.toEqual([
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          kind: "product-detail-failure",
-          reason: expect.stringContaining("only imports One Piece Card Game single-card products"),
-        }),
-      }),
-    ]);
-  });
-
-  it("serves TCGplayer One Piece sealed-product transport through the active profile unit", async () => {
-    const progress: unknown[] = [];
-    const onePieceAdapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [
-        requireTcgplayerOnePieceProfileVersion(),
-        requireTcgplayerOnePieceSealedProfileVersion(),
-      ],
-      client: onePieceTcgplayerClient(),
-      now: () => new Date("2026-06-23T00:00:00.000Z"),
-    });
-
-    await expect(onePieceAdapter.listIntegrationUnits()).resolves.toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        productDomain: "one-piece",
-        productForm: "single-card",
-      }),
-      expect.objectContaining({
-        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        productDomain: "one-piece",
-        productForm: "sealed-product",
-        displayName: "TCGplayer One Piece Sealed Products",
-      }),
-    ]);
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "product-lines",
-      }),
-    ).resolves.toEqual({
-      items: [expect.objectContaining({ value: "68", label: "One Piece Card Game" })],
-    });
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "products",
-        parentValues: { productLineName: "One Piece Card Game", setName: "Romance Dawn" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          value: "987660",
-          label: "Romance Dawn Booster Box",
-          metadata: expect.objectContaining({ productLineName: "One Piece Card Game", sealed: "true" }),
-        }),
-      ],
-    });
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "skus",
-        parentValues: { productId: "987660" },
-      }),
-    ).resolves.toEqual({
-      items: [
-        {
-          value: "900987660",
-          label: "900987660",
-          metadata: { sku: "900987660", condition: "Sealed", variant: "Sealed", language: "English" },
-        },
-      ],
-    });
-    await expect(
-      onePieceAdapter.listOptions({
-        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        optionKind: "skus",
-        parentValues: { productId: "987650" },
-      }),
-    ).resolves.toEqual({ items: [] });
-
-    const acceptedPlan = await onePieceAdapter.planImport({
-      unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "set-name",
-      values: { productLineId: "68", setName: "Romance Dawn" },
-    });
-    await expect(
-      collectPayloads(
-        onePieceAdapter.fetchPayloads(acceptedPlan, {
-          onProgress: (event) => {
-            progress.push(event);
-          },
-        }),
-      ),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        providerKey: "tcgplayer",
-        externalKey: "product:987660",
-        payload: {
-          kind: "product-detail",
-          detail: expect.objectContaining({
-            productId: 987660,
-            productLineId: 68,
-            productLineName: "One Piece Card Game",
-            productTypeName: "Sealed Products",
-            sealed: true,
-            skus: [{ sku: 900987660, condition: "Sealed", variant: "Sealed", language: "English" }],
-          }),
-        },
-      }),
-    ]);
-    expect(acceptedPlan).toMatchObject({
-      unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      planKey: "tcgplayer:set:68:Romance Dawn",
-    });
-    expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 1, currentLabel: "Romance Dawn" },
-      { phase: "fetching", completed: 1, total: 1, currentLabel: "Romance Dawn Booster Box" },
-    ]);
-
-    const rejectedPlan = await onePieceAdapter.planImport({
-      unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "product",
-      values: { productId: "987650" },
-    });
-    await expect(collectPayloads(onePieceAdapter.fetchPayloads(rejectedPlan))).resolves.toEqual([
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          kind: "product-detail-failure",
-          reason: expect.stringContaining("only imports One Piece Card Game sealed products"),
-        }),
-      }),
-    ]);
-  });
-
-  it("plans and fetches TCGplayer product detail payloads with typed provenance", async () => {
-    const progress: unknown[] = [];
-    const adapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: tcgplayerClient(),
-      now: () => new Date("2026-06-06T00:00:00.000Z"),
-    });
-    const plan = await adapter.planImport({
-      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "product",
-      values: { productId: "610001" },
-    });
-    const payloads = await collectPayloads(
-      adapter.fetchPayloads(plan, {
-        onProgress: (event) => {
-          progress.push(event);
-        },
-      }),
-    );
-
-    expect(plan).toMatchObject({
-      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      planKey: "tcgplayer:product:610001",
-      transportSteps: ["Fetch TCGplayer product detail", "Attach payload provenance"],
-    });
-    expect(payloads).toEqual([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        providerKey: "tcgplayer",
-        externalKey: "product:610001",
-        provenance: {
-          fetchedAt: "2026-06-06T00:00:00.000Z",
-          sourceUpdatedAt: "2025-01-17",
-          sourceUrl: "https://mp-search-api.tcgplayer.com/v2/product/610001/details",
-        },
-        payload: {
-          kind: "product-detail",
-          detail: expect.objectContaining({ productId: 610001, productName: "Eevee ex" }),
-        },
-      }),
-    ]);
-    expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 1, currentLabel: "Product 610001" },
-      { phase: "fetching", completed: 1, total: 1, currentLabel: "Eevee ex" },
-    ]);
-  });
-
-  it("keeps TCGplayer adapter diagnostics transport-only and secret-free", async () => {
-    const configured = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: tcgplayerClient(),
-    }).getTransportDiagnostics();
-    const unconfigured = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-    }).getTransportDiagnostics();
-
-    expect(configured).toEqual([
-      expect.objectContaining({
-        code: "tcgplayer-automation-client-configured",
-        severity: "info",
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      }),
-      expect.objectContaining({
-        code: "tcgplayer-domain-rate-limit-policy-configured",
-        severity: "info",
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      }),
-    ]);
-    expect(unconfigured).toEqual([
-      expect.objectContaining({
-        code: "tcgplayer-automation-client-unconfigured",
-        severity: "error",
-      }),
-      expect.objectContaining({
-        code: "tcgplayer-domain-rate-limit-policy-configured",
-        severity: "info",
-      }),
-    ]);
-    expect(JSON.stringify([...configured, ...unconfigured])).not.toMatch(
-      /TCGAuthTicket|cookie|secret|promotion|replay/i,
-    );
-  });
-
-  it("reports TCGplayer credential readiness without exposing credential material", async () => {
-    const configured = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: {
-        ...tcgplayerClient(),
-        resolveCredentialReadiness: async () => ({
-          sourceKind: "environment-secret",
-          state: "configured",
-          diagnosticCode: null,
-        }),
-      },
-      now: () => new Date("2026-06-06T00:00:00.000Z"),
-    }).getCredentialReadiness();
-    const unconfigured = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      now: () => new Date("2026-06-06T00:00:00.000Z"),
-    }).getCredentialReadiness();
-
-    expect(configured).toEqual([
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        requirement: "required",
-        sourceKind: "environment-secret",
-        state: "configured",
-        importBlocking: false,
-        diagnosticCode: null,
-      }),
-    ]);
-    expect(unconfigured).toEqual([
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        requirement: "required",
-        sourceKind: "environment-secret",
-        state: "missing",
-        importBlocking: true,
-        diagnosticCode: "credential-missing",
-      }),
-    ]);
-    expect(JSON.stringify([...configured, ...unconfigured])).not.toMatch(
-      /TCGAuthTicket|password|Bearer|authorization/i,
-    );
-    const unresolved = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: tcgplayerClient(),
-    }).getCredentialReadiness();
-    expect(unresolved[0]).toMatchObject({ state: "missing" });
   });
 
   it("validates MTGJSON reference data through ProviderAdapter extension points", async () => {
@@ -2182,593 +1337,6 @@ function requireTcgdexProfileVersion() {
     throw new Error("Expected active TCGdex profile version.");
   }
   return version;
-}
-
-function requireTcgplayerPokemonProfileVersion() {
-  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.05", {
-    profileKey: "pokemon-single-card-product-sku",
-  });
-  if (!version) {
-    throw new Error("Expected TCGplayer Pokemon profile version.");
-  }
-  return version;
-}
-
-function requireTcgplayerMtgProfileVersion() {
-  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.19", {
-    profileKey: "mtg-single-card-product-sku",
-  });
-  if (!version) {
-    throw new Error("Expected TCGplayer Magic profile version.");
-  }
-  return version;
-}
-
-function requireTcgplayerMtgSealedProfileVersion() {
-  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.19", {
-    profileKey: "mtg-sealed-product-sku",
-  });
-  if (!version) {
-    throw new Error("Expected TCGplayer Magic sealed profile version.");
-  }
-  return version;
-}
-
-function requireTcgplayerOnePieceProfileVersion() {
-  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.22", {
-    profileKey: "one-piece-single-card-product-sku",
-  });
-  if (!version) {
-    throw new Error("Expected TCGplayer One Piece profile version.");
-  }
-  return version;
-}
-
-function requireTcgplayerOnePieceSealedProfileVersion() {
-  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.23", {
-    profileKey: "one-piece-sealed-product-sku",
-  });
-  if (!version) {
-    throw new Error("Expected TCGplayer One Piece sealed profile version.");
-  }
-  return version;
-}
-
-function tcgplayerYugiohProfileVersion(): CatalogProviderIntegrationProfileVersionRecord {
-  const base = requireTcgplayerPokemonProfileVersion();
-  return {
-    providerKey: "tcgplayer",
-    profileKey: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.profileKey,
-    profileVersion: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.profileVersion,
-    ingestionUnitIdentity:
-      tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
-    lifecycle: "active",
-    active: true,
-    profile: {
-      ...base.profile,
-      displayName: "TCGplayer Yu-Gi-Oh Single Cards",
-      status: "active",
-      normalizedObservationMapping: {
-        ...base.profile.normalizedObservationMapping,
-        unknownVariantLabelPrefix: "Unclassified TCGplayer Yu-Gi-Oh Variant",
-      },
-    },
-    sourceContract: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.sourceContract,
-    fixtures: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.fixtures,
-    retirementPlan: null,
-    executableMappingContract: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract,
-  };
-}
-
-function tcgplayerClient(): TcgplayerAutomationCatalogClient {
-  return {
-    listProductLines: async () => tcgplayerAutomationResponseFixtures.productLines,
-    listCatalogSetNames: async () => tcgplayerAutomationResponseFixtures.catalogSetNames,
-    searchProducts: async () => tcgplayerAutomationResponseFixtures.productSearch,
-    listAllProducts: async () => tcgplayerAutomationResponseFixtures.productSearch.results[0].results,
-    getProductDetail: async () => tcgplayerAutomationResponseFixtures.productDetail,
-  };
-}
-
-function magicTcgplayerClient(): TcgplayerAutomationCatalogClient {
-  const details = new Map([
-    [
-      14240,
-      {
-        productTypeName: "Cards",
-        rarityName: "Uncommon",
-        sealed: false,
-        productName: "Fury Sliver",
-        setId: 1001,
-        setCode: "TSP",
-        productId: 14240,
-        setName: "Time Spiral",
-        productLineId: 1,
-        productStatusId: 1,
-        productLineName: "Magic",
-        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
-        formattedAttributes: { Artist: "Paolo Parente" },
-        skus: [{ sku: 50014240, condition: "Near Mint", variant: "Normal", language: "English" }],
-        marketPrice: 1.23,
-        lowestPrice: 1.01,
-        lowestPriceWithShipping: 1.23,
-        medianPrice: 1.5,
-        listings: 25,
-      },
-    ],
-    [
-      96601,
-      {
-        productTypeName: "Sealed Products",
-        rarityName: "Sealed",
-        sealed: true,
-        productName: "Time Spiral Booster Pack",
-        setId: 1001,
-        setCode: "TSP",
-        productId: 96601,
-        setName: "Time Spiral",
-        productLineId: 1,
-        productStatusId: 1,
-        productLineName: "Magic",
-        customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
-        formattedAttributes: {},
-        skus: [{ sku: 50096601, condition: "Sealed", variant: "Sealed", language: "English" }],
-        marketPrice: 12.34,
-        lowestPrice: 10.01,
-        lowestPriceWithShipping: 11.23,
-        medianPrice: 12.5,
-        listings: 25,
-      },
-    ],
-  ]);
-
-  return {
-    listProductLines: async () => [
-      {
-        productLineId: 3,
-        productLineName: "Pokemon",
-        productLineUrlName: "pokemon",
-        isDirect: true,
-      },
-      {
-        productLineId: 1,
-        productLineName: "Magic",
-        productLineUrlName: "magic",
-        isDirect: true,
-      },
-    ],
-    listCatalogSetNames: async () => ({
-      errors: [],
-      results: [
-        {
-          setNameId: 1001,
-          categoryId: 1,
-          name: "Time Spiral",
-          cleanSetName: "Time Spiral",
-          urlName: "time-spiral",
-          abbreviation: "TSP",
-          releaseDate: "2006-10-06",
-          isSupplemental: false,
-          active: true,
-        },
-      ],
-    }),
-    searchProducts: async () => ({
-      errors: [],
-      results: [],
-    }),
-    listAllProducts: async () => [
-      {
-        productId: 14240,
-        productName: "Fury Sliver",
-        productLineId: 1,
-        productLineName: "Magic",
-        productTypeName: "Cards",
-        setId: 1001,
-        setName: "Time Spiral",
-        setUrlName: "time-spiral",
-        rarityName: "Uncommon",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
-      },
-      {
-        productId: 96601,
-        productName: "Time Spiral Booster Pack",
-        productLineId: 1,
-        productLineName: "Magic",
-        productTypeName: "Sealed Products",
-        setId: 1001,
-        setName: "Time Spiral",
-        setUrlName: "time-spiral",
-        rarityName: "Sealed",
-        sealed: true,
-        productStatusId: 1,
-        customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
-      },
-      {
-        productId: 610001,
-        productName: "Eevee ex",
-        productLineId: 3,
-        productLineName: "Pokemon",
-        productTypeName: "Cards",
-        setId: 7001,
-        setName: "Prismatic Evolutions",
-        setUrlName: "prismatic-evolutions",
-        rarityName: "Special Illustration Rare",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-      },
-    ],
-    getProductDetail: async ({ productId }) => {
-      const detail = details.get(productId);
-      if (!detail) {
-        throw new Error(`Product ${productId} not found.`);
-      }
-      return detail;
-    },
-  };
-}
-
-function yugiohTcgplayerClient(): TcgplayerAutomationCatalogClient {
-  const details = new Map([
-    [
-      721337,
-      {
-        productTypeName: "Cards",
-        rarityName: "Ultra Rare",
-        sealed: false,
-        productName: "Blue-Eyes White Dragon",
-        setId: 2001,
-        setCode: "LOB",
-        productId: 721337,
-        setName: "Legend of Blue Eyes White Dragon",
-        productLineId: 2,
-        productStatusId: 1,
-        productLineName: "Yu-Gi-Oh!",
-        customAttributes: { number: "LOB-001", releaseDate: "2002-03-08", cardType: ["Monster"] },
-        formattedAttributes: {},
-        skus: [{ sku: 800721337, condition: "Near Mint", variant: "1st Edition", language: "English" }],
-        marketPrice: 21.5,
-        lowestPrice: 20.01,
-        lowestPriceWithShipping: 20.99,
-        medianPrice: 22,
-        listings: 12,
-      },
-    ],
-    [
-      14240,
-      {
-        productTypeName: "Cards",
-        rarityName: "Uncommon",
-        sealed: false,
-        productName: "Fury Sliver",
-        setId: 1001,
-        setCode: "TSP",
-        productId: 14240,
-        setName: "Time Spiral",
-        productLineId: 1,
-        productStatusId: 1,
-        productLineName: "Magic",
-        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
-        formattedAttributes: {},
-        skus: [{ sku: 50014240, condition: "Near Mint", variant: "Normal", language: "English" }],
-        marketPrice: 1.23,
-        lowestPrice: 1.01,
-        lowestPriceWithShipping: 1.23,
-        medianPrice: 1.5,
-        listings: 25,
-      },
-    ],
-    [
-      610001,
-      {
-        productTypeName: "Cards",
-        rarityName: "Special Illustration Rare",
-        sealed: false,
-        productName: "Eevee ex",
-        setId: 7001,
-        setCode: "PRE",
-        productId: 610001,
-        setName: "Prismatic Evolutions",
-        productLineId: 3,
-        productStatusId: 1,
-        productLineName: "Pokemon",
-        customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-        formattedAttributes: {},
-        skus: [{ sku: 7001001, condition: "Near Mint", variant: "Holofoil", language: "English" }],
-        marketPrice: 10,
-        lowestPrice: 9,
-        lowestPriceWithShipping: 9.5,
-        medianPrice: 11,
-        listings: 30,
-      },
-    ],
-  ]);
-
-  return {
-    listProductLines: async () => [
-      {
-        productLineId: 3,
-        productLineName: "Pokemon",
-        productLineUrlName: "pokemon",
-        isDirect: true,
-      },
-      {
-        productLineId: 1,
-        productLineName: "Magic",
-        productLineUrlName: "magic",
-        isDirect: true,
-      },
-      {
-        productLineId: 2,
-        productLineName: "Yu-Gi-Oh!",
-        productLineUrlName: "yugioh",
-        isDirect: true,
-      },
-      {
-        productLineId: 20,
-        productLineName: "YuGiOh",
-        productLineUrlName: "yugioh",
-        isDirect: true,
-      },
-      {
-        productLineId: 21,
-        productLineName: "Yugioh",
-        productLineUrlName: "yugioh",
-        isDirect: true,
-      },
-      {
-        productLineId: 22,
-        productLineName: "Yu-Gi-Oh",
-        productLineUrlName: "yu-gi-oh",
-        isDirect: true,
-      },
-      {
-        productLineId: 23,
-        productLineName: "yugioh",
-        productLineUrlName: "yugioh",
-        isDirect: true,
-      },
-    ],
-    listCatalogSetNames: async () => ({
-      errors: [],
-      results: [
-        {
-          setNameId: 2001,
-          categoryId: 2,
-          name: "Legend of Blue Eyes White Dragon",
-          cleanSetName: "Legend of Blue Eyes White Dragon",
-          urlName: "legend-of-blue-eyes-white-dragon",
-          abbreviation: "LOB",
-          releaseDate: "2002-03-08",
-          isSupplemental: false,
-          active: true,
-        },
-      ],
-    }),
-    searchProducts: async () => ({
-      errors: [],
-      results: [],
-    }),
-    listAllProducts: async () => [
-      {
-        productId: 721337,
-        productName: "Blue-Eyes White Dragon",
-        productLineId: 2,
-        productLineName: "Yu-Gi-Oh!",
-        productTypeName: "Cards",
-        setId: 2001,
-        setName: "Legend of Blue Eyes White Dragon",
-        setUrlName: "legend-of-blue-eyes-white-dragon",
-        rarityName: "Ultra Rare",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "LOB-001", releaseDate: "2002-03-08", cardType: ["Monster"] },
-      },
-      {
-        productId: 14240,
-        productName: "Fury Sliver",
-        productLineId: 1,
-        productLineName: "Magic",
-        productTypeName: "Cards",
-        setId: 1001,
-        setName: "Time Spiral",
-        setUrlName: "time-spiral",
-        rarityName: "Uncommon",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
-      },
-      {
-        productId: 610001,
-        productName: "Eevee ex",
-        productLineId: 3,
-        productLineName: "Pokemon",
-        productTypeName: "Cards",
-        setId: 7001,
-        setName: "Prismatic Evolutions",
-        setUrlName: "prismatic-evolutions",
-        rarityName: "Special Illustration Rare",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-      },
-    ],
-    getProductDetail: async ({ productId }) => {
-      const detail = details.get(productId);
-      if (!detail) {
-        throw new Error(`Product ${productId} not found.`);
-      }
-      return detail;
-    },
-  };
-}
-
-function onePieceTcgplayerClient(): TcgplayerAutomationCatalogClient {
-  const details = new Map([
-    [
-      987650,
-      {
-        productTypeName: "Cards",
-        rarityName: "Leader",
-        sealed: false,
-        productName: "Monkey.D.Luffy",
-        setId: 6801,
-        setCode: "OP-01",
-        productId: 987650,
-        setName: "Romance Dawn",
-        productLineId: 68,
-        productStatusId: 1,
-        productLineName: "One Piece Card Game",
-        customAttributes: { number: "OP01-001", releaseDate: "2022-12-02", cardType: ["Leader"] },
-        formattedAttributes: {},
-        skus: [{ sku: 900987650, condition: "Near Mint", variant: "Normal", language: "English" }],
-        marketPrice: 8.5,
-        lowestPrice: 7.99,
-        lowestPriceWithShipping: 8.49,
-        medianPrice: 9,
-        listings: 42,
-      },
-    ],
-    [
-      987660,
-      {
-        productTypeName: "Sealed Products",
-        rarityName: "Sealed",
-        sealed: true,
-        productName: "Romance Dawn Booster Box",
-        setId: 6801,
-        setCode: "OP-01",
-        productId: 987660,
-        setName: "Romance Dawn",
-        productLineId: 68,
-        productStatusId: 1,
-        productLineName: "One Piece Card Game",
-        customAttributes: { number: "BOX", releaseDate: "2022-12-02", cardType: ["Sealed"] },
-        formattedAttributes: {},
-        skus: [{ sku: 900987660, condition: "Sealed", variant: "Sealed", language: "English" }],
-        marketPrice: 120,
-        lowestPrice: 110,
-        lowestPriceWithShipping: 115,
-        medianPrice: 125,
-        listings: 14,
-      },
-    ],
-    [
-      14240,
-      {
-        productTypeName: "Cards",
-        rarityName: "Uncommon",
-        sealed: false,
-        productName: "Fury Sliver",
-        setId: 1001,
-        setCode: "TSP",
-        productId: 14240,
-        setName: "Time Spiral",
-        productLineId: 1,
-        productStatusId: 1,
-        productLineName: "Magic",
-        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
-        formattedAttributes: {},
-        skus: [{ sku: 50014240, condition: "Near Mint", variant: "Normal", language: "English" }],
-        marketPrice: 1.23,
-        lowestPrice: 1.01,
-        lowestPriceWithShipping: 1.23,
-        medianPrice: 1.5,
-        listings: 25,
-      },
-    ],
-  ]);
-
-  return {
-    listProductLines: async () => [
-      {
-        productLineId: 1,
-        productLineName: "Magic",
-        productLineUrlName: "magic",
-        isDirect: true,
-      },
-      {
-        productLineId: 68,
-        productLineName: "One Piece Card Game",
-        productLineUrlName: "one-piece-card-game",
-        isDirect: true,
-      },
-    ],
-    listCatalogSetNames: async () => ({
-      errors: [],
-      results: [
-        {
-          setNameId: 6801,
-          categoryId: 68,
-          name: "Romance Dawn",
-          cleanSetName: "Romance Dawn",
-          urlName: "romance-dawn",
-          abbreviation: "OP-01",
-          releaseDate: "2022-12-02",
-          isSupplemental: false,
-          active: true,
-        },
-      ],
-    }),
-    searchProducts: async () => ({
-      errors: [],
-      results: [],
-    }),
-    listAllProducts: async () => [
-      {
-        productId: 987650,
-        productName: "Monkey.D.Luffy",
-        productLineId: 68,
-        productLineName: "One Piece Card Game",
-        productTypeName: "Cards",
-        setId: 6801,
-        setName: "Romance Dawn",
-        setUrlName: "romance-dawn",
-        rarityName: "Leader",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "OP01-001", releaseDate: "2022-12-02", cardType: ["Leader"] },
-      },
-      {
-        productId: 987660,
-        productName: "Romance Dawn Booster Box",
-        productLineId: 68,
-        productLineName: "One Piece Card Game",
-        productTypeName: "Sealed Products",
-        setId: 6801,
-        setName: "Romance Dawn",
-        setUrlName: "romance-dawn",
-        rarityName: "Sealed",
-        sealed: true,
-        productStatusId: 1,
-        customAttributes: { number: "BOX", releaseDate: "2022-12-02", cardType: ["Sealed"] },
-      },
-      {
-        productId: 14240,
-        productName: "Fury Sliver",
-        productLineId: 1,
-        productLineName: "Magic",
-        productTypeName: "Cards",
-        setId: 1001,
-        setName: "Time Spiral",
-        setUrlName: "time-spiral",
-        rarityName: "Uncommon",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
-      },
-    ],
-    getProductDetail: async ({ productId }) => {
-      const detail = details.get(productId);
-      if (!detail) {
-        throw new Error(`Product ${productId} not found.`);
-      }
-      return detail;
-    },
-  };
 }
 
 function tcgdexFetch(responses: Readonly<Record<string, unknown>>): typeof globalThis.fetch {

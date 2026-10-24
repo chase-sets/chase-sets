@@ -258,7 +258,7 @@ export const scrydexOnePieceSealedProductProviderProfile = {
     blueprintKey: "one-piece-sealed-product",
     categoryKey: "one-piece-sealed-products",
     fieldKeys: {
-      cardNumber: "sealed-product-id",
+      cardNumber: "sealed-product-number",
       cardName: "sealed-product-name",
       set: "set",
       expansion: "set",

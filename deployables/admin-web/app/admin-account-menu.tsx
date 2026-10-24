@@ -6,7 +6,7 @@ import {
   displayRole,
   type CurrentActorDisplay,
 } from "@chase-sets/identity/web";
-import { AccountMenu, Form, type AccountMenuPreferences } from "@chase-sets/design-system";
+import { AccountMenu, Form, type AccountMenuProps } from "@chase-sets/design-system";
 
 const signOutFormId = "admin-account-menu-sign-out";
 
@@ -17,7 +17,7 @@ export function AdminAccountMenu({
 }: Readonly<{
   actor: ResolvedActor;
   actorDisplay?: CurrentActorDisplay | null;
-  preferences?: AccountMenuPreferences;
+  preferences?: AccountMenuProps["preferences"];
 }>) {
   const accountName = actorDisplay
     ? displayActorAccountName(actorDisplay)

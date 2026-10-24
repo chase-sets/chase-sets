@@ -1,3 +1,6 @@
+import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -20,6 +23,7 @@ import type { OrderingServiceOptions, OrderingServices } from "./support/runtime
 import { buildOrderingAccountProjectionHandlers } from "./support/account-support/projection";
 import { buildOrderingApi } from "./api";
 import { createOrderingOrderMcpHandlers } from "./features/orders/api/mcp";
+import { createOrderingPostagePolicyMcpHandlers } from "./features/postage-policies/api/mcp";
 import { hasOrderForSource } from "./features/orders/read-model/queries";
 import {
   buildOrderingInventorySupplyProjectionHandlers,
@@ -85,7 +89,7 @@ async function filterCancelledOrderIds(
   return orderIds.filter((orderId) => !cancelledOrderIds.has(orderId));
 }
 
-export const module = defineBoundedContextModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions>({
+const baseModule = defineBoundedContextModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions>({
   manifest: orderingContextManifest,
   schemaSql: orderingSchemaSql,
   retentionSweeps: orderingRetentionSweeps,
@@ -99,7 +103,14 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
   buildApis: (services) => [
     { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildOrderingApi(services) },
   ],
-  buildMcpHandlers: (services) => createOrderingOrderMcpHandlers(services.orders),
+  buildMcpHandlers: (services) => {
+    const orders = createOrderingOrderMcpHandlers(services.orders);
+    const postagePolicies = createOrderingPostagePolicyMcpHandlers(services.postagePolicies);
+    return {
+      toolHandlers: { ...orders.toolHandlers, ...postagePolicies.toolHandlers },
+      resourceHandlers: { ...orders.resourceHandlers, ...postagePolicies.resourceHandlers },
+    };
+  },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const marketplaceSupplyHandlers = buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
@@ -388,3 +399,27 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
   seed: seedOrderingDatabase,
   inspectSeedState: (pool) => inspectOrderingSeedState(pool),
 });
+
+export const module = {
+  ...baseModule,
+  buildProjectionGroups: (): readonly BcProjectionGroup[] =>
+    (baseModule.projectionGroups ?? []).map((group) =>
+      group.projectionName === "ordering-marketplace-supply-input-projection"
+        ? {
+            ...group,
+            reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+              await resetProductMeasurePublicationParts(
+                db,
+                createCheckpointKey(
+                  contextManifest.eventSubscriptions.find(
+                    (subscription) =>
+                      subscription.sourceContextName === "catalog" &&
+                      subscription.projectionName === group.projectionName,
+                  )!,
+                ),
+              );
+            }),
+          }
+        : group,
+    ),
+};

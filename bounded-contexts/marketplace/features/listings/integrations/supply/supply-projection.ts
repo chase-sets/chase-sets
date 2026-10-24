@@ -1,3 +1,7 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -11,6 +15,14 @@ import type {
 } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildCatalogMirrorProjectionHandlers } from "@chase-sets/event-core-postgres/catalog-mirror";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" &&
+      subscription.projectionName === "marketplace-catalog-item-projection",
+  )!,
+);
 
 export const CATALOG_ITEM_STREAM_PREFIX = "catalog.item-";
 
@@ -141,7 +153,36 @@ async function updateMarketplaceAccountBadges(
   );
 }
 
-export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+async function projectMarketplaceAccountStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "active" | "suspended" | "closed",
+): Promise<boolean> {
+  const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+  const result = await db.query(
+    `INSERT INTO marketplace_account_pages (account_id, display_name, status, status_stream_version, updated_at)
+     VALUES ($1, $1, $2, $3, $4)
+     ON CONFLICT (account_id) DO UPDATE SET
+       status = EXCLUDED.status,
+       status_stream_version = EXCLUDED.status_stream_version,
+       updated_at = EXCLUDED.updated_at
+     WHERE marketplace_account_pages.status_stream_version < EXCLUDED.status_stream_version
+     RETURNING account_id`,
+    [accountId, status, event.streamVersion, event.timing.recordedAt],
+  );
+  return result.rows.length > 0;
+}
+
+export type MarketplaceAccountStatusChanged = (
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  accountId: string,
+) => Promise<void>;
+
+export function buildMarketplaceAccountProjectionHandlers(
+  db: PgQueryable,
+  options: Readonly<{ onAccountStatusChanged?: MarketplaceAccountStatusChanged }> = {},
+): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -154,14 +195,17 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
            account_id,
            display_name,
            status,
+           status_stream_version,
            badges,
            updated_at
-         ) VALUES ($1, $2, 'active', '[]'::jsonb, $3)
+         ) VALUES ($1, $2, 'active', $3, '[]'::jsonb, $4)
          ON CONFLICT (account_id) DO UPDATE SET
            display_name = EXCLUDED.display_name,
            status = EXCLUDED.status,
-           updated_at = EXCLUDED.updated_at`,
-        [accountId, displayName, event.timing.recordedAt],
+           status_stream_version = EXCLUDED.status_stream_version,
+           updated_at = EXCLUDED.updated_at
+         WHERE marketplace_account_pages.status_stream_version < EXCLUDED.status_stream_version`,
+        [accountId, displayName, event.streamVersion, event.timing.recordedAt],
       );
     },
     "identity.account.profile-updated": async (event) => {
@@ -189,31 +233,22 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
       );
     },
     "identity.account.suspended": async (event) => {
-      await db.query(
-        `UPDATE marketplace_account_pages
-         SET status = 'suspended',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, "identity.account-"), event.timing.recordedAt],
-      );
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      if (await projectMarketplaceAccountStatus(db, event, "suspended")) {
+        await options.onAccountStatusChanged?.(db, event, accountId);
+      }
     },
     "identity.account.reactivated": async (event) => {
-      await db.query(
-        `UPDATE marketplace_account_pages
-         SET status = 'active',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, "identity.account-"), event.timing.recordedAt],
-      );
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      if (await projectMarketplaceAccountStatus(db, event, "active")) {
+        await options.onAccountStatusChanged?.(db, event, accountId);
+      }
     },
     "identity.account.closed": async (event) => {
-      await db.query(
-        `UPDATE marketplace_account_pages
-         SET status = 'closed',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, "identity.account-"), event.timing.recordedAt],
-      );
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      if (await projectMarketplaceAccountStatus(db, event, "closed")) {
+        await options.onAccountStatusChanged?.(db, event, accountId);
+      }
     },
     "identity.account.badge-assigned": async (event) => {
       const data = event.data as { badgeKey: string };
@@ -429,13 +464,14 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
       itemStatusTransitions: { retired: "retired" },
       optionalHandlers: { displayIdentityResolved: true },
     }),
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE marketplace_catalog_items
          SET product_measure_snapshots = $2,
              updated_at = $3
@@ -446,7 +482,7 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
           event.timing.recordedAt,
         ],
       );
-    },
+    }),
     "catalog.catalog-item.category-assigned": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, CATALOG_ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };

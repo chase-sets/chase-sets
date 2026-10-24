@@ -12,6 +12,10 @@ export {
   type MarketplaceChannelInboundClampResult,
 } from "./features/channel-inbound-clamp/domain/contracts";
 export type { MarketplaceServices } from "./support/runtime-support/services";
+export {
+  bindInventoryDraftListingConsumer,
+  type InventoryDraftListingConsumer,
+} from "./features/listings/api/inventory-draft-consumer";
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
   MarketplaceListingInventoryItemOption,
@@ -22,7 +26,6 @@ export type {
   MarketplaceListingEvidenceCoverage,
   ReportReviewRequest,
   OfferMatchListItem,
-  OfferBuyerMute,
   PublicOfferDetail,
 } from "./support/request-support/api-client";
 export {
@@ -110,3 +113,8 @@ export type {
   MarketplaceLockedFeeListingCohortWeeklyPoint,
 } from "./features/listings/read-model/queries";
 export type { ManagedOfferPricing } from "./features/offers/api/managed-authority";
+export {
+  MARKETPLACE_OFFER_LIFECYCLE_ANCHOR_EVENT_TYPE,
+  MARKETPLACE_OFFER_LIFECYCLE_EVENT_TYPES,
+  type MarketplaceOfferLifecycleAdmission,
+} from "./features/offers/api/lifecycle-admission";

@@ -141,9 +141,11 @@ jobs:
           set -euo pipefail
           node ./scripts/ci-gate-plan.mjs github-output
 
-  static:
-    name: Static Checks
-    runs-on: ubuntu-latest
+  static-source:
+    name: Static Source Checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     timeout-minutes: 20
     needs: change-scope
     if: needs['change-scope'].outputs.static_required == 'true'
@@ -151,6 +153,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
@@ -164,6 +167,63 @@ jobs:
           CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}
           FORMAT_CHECK_SCOPE: full
         run: pnpm run verify:static
+
+  static:
+    name: Static Checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    env:
+      BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    timeout-minutes: 30
+    needs: [change-scope, static-source]
+    if: always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.static_required == 'true'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Check generated metadata
+        run: pnpm run verify:metadata
+
+      - name: Install provider browser boundary
+        env:
+          INSTALLER_TIMEOUT_SECONDS: "600"
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/provider-browser-install-timeout.mjs
+
+      - name: Installed-boundary controls
+        run: |
+          python3 scripts/provider-object-disposition/browser-boundary/ownership.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/ownership-race.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/identity-controls.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/native-variants.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/peer-observe.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/ownership-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/path-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/path-fixtures.py
+          python3 scripts/provider-object-disposition/browser-boundary/pid-reuse.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/r3-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/installer-failure.test.py
+          pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-policy.test.mjs scripts/provider-object-disposition/browser-boundary/bootstrap.test.mjs scripts/provider-object-disposition/browser-boundary/protocol.test.mjs
+          pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-admission.test.mjs scripts/provider-object-disposition/test-window-main.test.mjs scripts/provider-object-disposition/test-window-driver.test.mjs scripts/provider-object-disposition/test-window-packet.test.mjs scripts/provider-object-disposition/publish-test-window.test.mjs scripts/provider-object-disposition/browser-boundary/installation-cycle.test.mjs scripts/provider-object-disposition/browser-boundary/browser-lifecycle-controls.test.mjs
+          node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs
+
+      - name: Remove owned provider browser boundary
+        if: always()
+        run: bash scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh
+
+      - name: Require full source checks
+        if: always()
+        env:
+          SOURCE_RESULT: ${{ needs.static-source.result }}
+        run: test "$SOURCE_RESULT" = success
 
   typecheck:
     name: Typecheck
@@ -202,11 +262,16 @@ jobs:
           node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   db-tests:
-    name: DB Profile Tests
+    name: DB Profile Tests (${{ matrix.db-workspace-group }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: change-scope
     if: needs['change-scope'].outputs.db_tests_required == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        db-workspace-group: [api, other]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -223,6 +288,11 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # Keep API's isolated capacity at two workers; the hang-free other
+      # matrix needs one additional workspace slot to finish its full sweep
+      # inside the existing 30-minute job budget. Workspace test settings and
+      # failure propagation remain unchanged.
+      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -292,8 +362,32 @@ jobs:
           docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
             'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
 
+      - name: Select platform API evidence before running tests
+        id: platform-api-selected
+        env:
+          AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}
+        run: |
+          if [[ "${{ matrix.db-workspace-group }}" != "api" ]]; then
+            echo "selected=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then
+            echo "selected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "selected=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run DB-profile tests
-        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}
+
+      - name: Upload bootstrap DB evidence including failures
+        if: always() && steps.platform-api-selected.outputs.selected == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bootstrap-db-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: deployables/platform-api/artifacts/bootstrap-db-evidence
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Capture post-failure PostgreSQL state
         if: failure()
@@ -316,10 +410,68 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: db-profile-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          name: db-profile-diagnostics-${{ matrix.db-workspace-group }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/db-profile-diagnostics/post-failure.txt
           retention-days: 7
           if-no-files-found: warn
+
+  capture-hermetic-chromium:
+    name: Capture Hermetic Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    needs: change-scope
+    if: needs['change-scope'].outputs.e2e_tests_required == 'true' && contains(fromJson(needs['change-scope'].outputs.e2e_suites_json), 'tcgplayer_connector_extension')
+    env:
+      AC4_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+    steps:
+      - name: Require explicit AC4 source
+        shell: bash
+        run: test -n "$AC4_SOURCE_SHA"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Prove three synthetic Chromium capture cases
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
+        run: |
+          set -euo pipefail
+          test -n "$AC4_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$AC4_SOURCE_SHA"
+          test "${CHASE_SETS_LANE_MODE+x}" != x
+          printf 'AC4 source=%s run=%s attempt=%s job=%s\n' \
+            "$AC4_SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB"
+          pnpm exec playwright install --with-deps chromium
+          CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum \
+            pnpm --filter @chase-sets/channels run test:unit \
+            features/connector-client/integrations/order-authority-probe/capture.test.ts \
+            -t 'host-attributed hermetic Chromium' \
+            --maxWorkers=1 --no-file-parallelism \
+            --reporter=verbose --reporter=json \
+            --outputFile.json="$RUNNER_TEMP/ac4-chromium.json"
+          node --input-type=module -e '
+          import fs from "node:fs";
+          const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          const a = r.testResults.flatMap(x => x.assertionResults);
+          const selected = a.filter(x => x.fullName.includes("host-attributed hermetic Chromium"));
+          const names = ["qualified", "canceled", "expired"];
+          if (r.success !== true || selected.length !== 3 ||
+              selected.some(x => x.status !== "passed") ||
+              names.some(n => selected.filter(x => x.fullName.includes("terminal " + n + " with synthetic install/removal")).length !== 1) ||
+              a.some(x => x.status === "passed" && !selected.includes(x))) {
+            throw new Error("AC4 requires exactly the three named Chromium cases to pass");
+          }
+          console.log("AC4: qualified/canceled/expired passed; synthetic only");
+          ' "$RUNNER_TEMP/ac4-chromium.json"
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
@@ -380,10 +532,23 @@ jobs:
           OPERATOR_EVIDENCE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
           OPERATOR_EVIDENCE_JOB_INDEX: ${{ strategy.job-index }}
           CHASE_SETS_BROWSER_E2E_SYSTEM: production
+          RENDERED_COPY_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+          RENDERED_COPY_JOB_INDEX: ${{ strategy.job-index }}
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: |
           set -o pipefail
           pnpm run test:e2e:suite "${{ matrix.suite_batch }}" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
+
+      - name: Upload rendered-copy observation part
+        id: rendered-copy-part-upload
+        if: ${{ github.event_name == 'pull_request' && matrix.suite_batch == 'rendered_copy' && steps.e2e-producer.outputs.rendered-copy-part != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.e2e-producer.outputs.rendered-copy-part }}
+          path: .artifacts/rendered-copy-parts/${{ steps.e2e-producer.outputs.rendered-copy-part }}/part.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Prepare sanitized operator extension evidence
         id: operator-evidence
@@ -450,8 +615,15 @@ jobs:
     name: Docker Image Build
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
     needs: change-scope
     if: needs['change-scope'].outputs.docker_image_required == 'true'
+    outputs:
+      image_digest: ${{ steps.push.outputs.image_digest }}
+      image_pushed: ${{ steps.push.outputs.image_pushed }}
     env:
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
@@ -553,6 +725,7 @@ jobs:
           boot_smoke public-web "@chase-sets/app-public-web" / 18081
 
       - name: Push boot-smoked merge-group image
+        id: push
         if: github.event_name == 'merge_group' && env.DIGITALOCEAN_REGISTRY_TOKEN != ''
         env:
           DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -569,9 +742,117 @@ jobs:
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${tree_tag}"
           docker tag "$PLATFORM_IMAGE" "$image"
-          docker push "$image"
-          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          push_output="${RUNNER_TEMP}/merge-qualification-image-push.txt"
+          docker push "$image" | tee "$push_output"
+          digest="$(sed -n 's/^.*digest: \(sha256:[0-9a-f]\{64\}\).*$/\1/p' "$push_output" | tail -n 1)"
+          if ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "Docker push did not emit an immutable sha256 digest." >&2
+            exit 1
+          fi
+          registry_digest="$(docker buildx imagetools inspect "${image%:*}@${digest}" --format '{{.Manifest.Digest}}')"
+          if [ "$registry_digest" != "$digest" ]; then
+            echo "Registry verification returned ${registry_digest}, not the pushed digest." >&2
+            exit 1
+          fi
+          {
+            echo "image_digest=${digest}"
+            echo "image_pushed=true"
+          } >> "$GITHUB_OUTPUT"
           echo "Pushed boot-smoked merge-group image ${image}@${digest}"
+
+      - name: Checkout trusted merge qualification authority
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .qualification-authority
+          persist-credentials: false
+
+      - name: Evaluate trusted merge qualification policy
+        id: qualification_policy
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        working-directory: .qualification-authority
+        run: |
+          node ./scripts/merge-qualification.mjs policy \
+            --policy ./scripts/merge-qualification-policy.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Record exact merge qualification candidate image
+        id: candidate_record
+        if: github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILT_IMAGE_DIGEST: ${{ steps.push.outputs.image_digest }}
+          MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
+        working-directory: .qualification-authority
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics"
+          run_metadata="$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics/run.json"
+          merge_queue_snapshot="$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/diagnostics/merge-queue-snapshot.json"
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" > "$run_metadata"
+          candidate_sha="$(jq -r '.head_sha' "$run_metadata")"
+          candidate_tree="$(jq -r '.head_commit.tree_id' "$run_metadata")"
+          test "$candidate_sha" = "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          test "$candidate_tree" = "$(git -C "$GITHUB_WORKSPACE" rev-parse 'HEAD^{tree}')"
+          queue_branch="${MERGE_GROUP_BASE_REF#refs/heads/}"
+          query="$(cat <<'GRAPHQL'
+          query($owner: String!, $name: String!, $branch: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { entries(first: 100) { totalCount nodes { position state solo enqueuedAt headCommit { oid } baseCommit { oid } pullRequest { number headRefOid } } } } } }
+          GRAPHQL
+          )"
+          gh api graphql \
+            -f owner="${GITHUB_REPOSITORY%/*}" \
+            -f name="${GITHUB_REPOSITORY#*/}" \
+            -f branch="$queue_branch" \
+            -f query="$query" \
+            > "$merge_queue_snapshot"
+          node ./scripts/merge-qualification.mjs candidate-evidence \
+            --repository "${{ github.repository }}" \
+            --run-metadata "$run_metadata" \
+            --merge-queue-snapshot "$merge_queue_snapshot" \
+            --queue-base-sha "${{ github.event.merge_group.base_sha }}" \
+            --built-image-digest "$BUILT_IMAGE_DIGEST" \
+            --out "$GITHUB_WORKSPACE/artifacts/merge-qualification-candidate/candidate.json"
+
+      - name: Upload exact merge qualification candidate image
+        if: github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true' && steps.candidate_record.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification-candidate/candidate.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload candidate capture diagnostics
+        if: always() && github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: merge-qualification-candidate-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/merge-qualification-candidate/diagnostics/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Dispatch merge qualification producer
+        if: github.event_name == 'merge_group' && steps.qualification_policy.outputs.enabled == 'true' && steps.push.outputs.image_pushed == 'true' && steps.candidate_record.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run platform-merge-qualification.yml \
+            --ref "${{ github.event.repository.default_branch }}" \
+            -f producer_run_id="${{ github.run_id }}" \
+            -f producer_run_attempt="${{ github.run_attempt }}" \
+            -f candidate_sha="${{ github.event.merge_group.head_sha }}" \
+            -f candidate_tree="$(git rev-parse 'HEAD^{tree}')" \
+            -f base_sha="${{ github.event.merge_group.base_sha }}"
 
       - name: Report skipped merge-group image push
         env:
@@ -782,7 +1063,6 @@ jobs:
       TF_VAR_platform_admin_password: pr-validation-password-please-rotate
       TF_VAR_platform_admin_display_name: Platform Admin
       TF_VAR_discord_invite_url: https://discord.gg/pr-validation
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
       TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
       TF_VAR_scrydex_team_id: pr-validation-scrydex-team
       TF_VAR_google_social_login_client_id: ""
@@ -891,7 +1171,6 @@ jobs:
       TF_VAR_easypost_api_key: EZTK_pr_validation
       TF_VAR_voyage_api_key: ""
       TF_VAR_easypost_mode: test
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
       TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
       TF_VAR_scrydex_team_id: pr-validation-scrydex-team
       TF_VAR_google_social_login_client_id: google-pr-validation-client
@@ -1139,9 +1418,6 @@ jobs:
           TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
           TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
           TF_VAR_ucp_business_signing_previous_public_jwks: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
-          TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
-          TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
-          TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
           TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
           TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
@@ -1314,7 +1590,10 @@ jobs:
       - name: Apply preview Kubernetes runtime secrets
         env:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
-          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
+          EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
+          EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
+          EBAY_APPLICATION_CLIENT_ID: ${{ secrets.EBAY_APPLICATION_CLIENT_ID || '' }}
+          EBAY_APPLICATION_CLIENT_SECRET: ${{ secrets.EBAY_APPLICATION_CLIENT_SECRET || '' }}
           DEPLOYMENT_ENVIRONMENT: preview
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -1336,7 +1615,6 @@ jobs:
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
           TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
           TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
           TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
         run: |
@@ -1368,14 +1646,11 @@ jobs:
           export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
           export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
           export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
-          export UCP_AP2_VERIFIER_URL="${TF_VAR_ucp_ap2_verifier_url:-}"
-          export UCP_AP2_VERIFIER_AUTH_TOKEN="${TF_VAR_ucp_ap2_verifier_auth_token:-}"
-          export UCP_AP2_VERIFIER_TIMEOUT_MS="${TF_VAR_ucp_ap2_verifier_timeout_ms:-5000}"
-          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
       - name: Deploy preview Kubernetes release
+        id: preview_deploy
         env:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
         run: |
@@ -1436,6 +1711,10 @@ jobs:
       # issuance, so there is no ACME order to wait on here. This is a fast
       # presence check, not a poll: the deploy step already failed loudly with
       # a bootstrap pointer if the shared secret did not exist to copy (#4857).
+      # It also reads the source Certificate once (#9268): an expired or
+      # not-Ready wildcard fails here with the restore command instead of as an
+      # opaque "fetch failed" ingress timeout, and a certificate inside the
+      # 14-day renewal floor warns (staging deploys fail closed on it).
       - name: Verify preview TLS secret
         run: |
           set -euo pipefail
@@ -1446,6 +1725,7 @@ jobs:
             exit 1
           fi
           echo "Preview TLS secret ${secret_name} is present in ${namespace}."
+          node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 0 --warn-remaining-days 14
 
       - name: Wait for preview ingress URLs
         id: preview_domains
@@ -1511,6 +1791,34 @@ jobs:
           PLATFORM_AUTH_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
         run: pnpm run stripe:money-smoke -- --edge-check --seller-flow
 
+      # #10022: a structural preview Postgres snapshot just after the smokes
+      # (connection ceiling and reservations, then held client connections by
+      # database, role and state; never query text or client addresses). A
+      # failed probe is reported, not retried, and never fails the job itself.
+      - name: Snapshot preview Postgres connections
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          pnpm run platform:kubernetes-deployment -- preview-postgres-snapshot \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" ||
+            echo "::warning::Preview Postgres connection snapshot failed; this run records no held-connection count."
+
+      # Server-side evidence for a failure after a successful deploy (deploy
+      # failures keep the diagnostics step above): workload state, events and
+      # log tails, plus preview-postgres and its snapshot. Never masks the
+      # original failure.
+      - name: Capture preview server diagnostics
+        if: failure() && steps.preview_deploy.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --preview-postgres true || true
+
   compose-preview-smoke:
     name: Compose Boot Smoke
     # #4864: app-code PRs that would previously have earned a full
@@ -1553,6 +1861,7 @@ jobs:
       - unit-tests
       - db-tests
       - e2e-tests
+      - capture-hermetic-chromium
       - build
       - docker-image
       - workflow-lint
@@ -1564,6 +1873,9 @@ jobs:
       - compose-preview-smoke
     steps:
       - name: Verify required jobs
+        env:
+          AC4_E2E_REQUIRED: ${{ needs['change-scope'].outputs.e2e_tests_required }}
+          AC4_E2E_SUITES_JSON: ${{ needs['change-scope'].outputs.e2e_suites_json }}
         run: |
           set -euo pipefail
 
@@ -1598,6 +1910,16 @@ jobs:
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"
           require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests_required }}"
           require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
+          capture_required="$(node --input-type=module -e '
+          const required = process.env.AC4_E2E_REQUIRED;
+          const suites = JSON.parse(process.env.AC4_E2E_SUITES_JSON);
+          if (!["true", "false"].includes(required) || !Array.isArray(suites) ||
+              suites.some(suite => typeof suite !== "string" || suite.length === 0)) {
+            throw new Error("Capture Hermetic Chromium has unknown or missing selection");
+          }
+          console.log(required === "true" && suites.includes("tcgplayer_connector_extension"));
+          ')"
+          require_job "Capture Hermetic Chromium" "${{ needs['capture-hermetic-chromium'].result }}" "$capture_required"
           require_job "Build" "${{ needs.build.result }}" "${{ needs['change-scope'].outputs.build_required }}"
           require_job "Docker Image Build" "${{ needs['docker-image'].result }}" "${{ needs['change-scope'].outputs.docker_image_required }}"
           require_job "Workflow Lint" "${{ needs['workflow-lint'].result }}" "${{ needs['change-scope'].outputs.workflow_lint_required }}"
@@ -1666,6 +1988,9 @@ jobs:
     timeout-minutes: 10
     continue-on-error: true
     if: github.event_name == 'merge_group'
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Record job start for the Actions-minutes wager
         id: clock

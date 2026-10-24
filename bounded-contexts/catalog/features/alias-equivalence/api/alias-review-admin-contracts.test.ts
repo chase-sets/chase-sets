@@ -297,6 +297,12 @@ describe("assembleCatalogAliasReviewReadModel", () => {
       ]),
       listCatalogItemAliases: vi.fn(async () => [catalogItemAliasRow({ catalog_item_id: "cat_a" })]),
       listReferenceRecordAliases: vi.fn(async () => [referenceRecordAliasRow({ reference_record_id: "ref_a" })]),
+      listCatalogItemAliasesForTargets: vi.fn(async (ids: readonly string[]) =>
+        ids.includes("cat_a") ? [catalogItemAliasRow({ catalog_item_id: "cat_a" })] : [],
+      ),
+      listReferenceRecordAliasesForTargets: vi.fn(async (ids: readonly string[]) =>
+        ids.includes("ref_a") ? [referenceRecordAliasRow({ reference_record_id: "ref_a" })] : [],
+      ),
     };
 
     const readModel = await assembleCatalogAliasReviewReadModel(services, {
@@ -307,8 +313,10 @@ describe("assembleCatalogAliasReviewReadModel", () => {
     expect(services.listSourceObservationAliasCandidates).toHaveBeenCalledWith(
       expect.objectContaining({ providerKey: "tcgdex" }),
     );
-    expect(services.listCatalogItemAliases).toHaveBeenCalledWith("cat_a");
-    expect(services.listReferenceRecordAliases).toHaveBeenCalledWith("ref_a");
+    expect(services.listCatalogItemAliasesForTargets).toHaveBeenCalledWith(["cat_a"]);
+    expect(services.listReferenceRecordAliasesForTargets).toHaveBeenCalledWith(["ref_a"]);
+    expect(services.listCatalogItemAliases).not.toHaveBeenCalled();
+    expect(services.listReferenceRecordAliases).not.toHaveBeenCalled();
     expect(readModel.candidates).toHaveLength(2);
     expect(readModel.filter.providerKey).toBe("tcgdex");
   });

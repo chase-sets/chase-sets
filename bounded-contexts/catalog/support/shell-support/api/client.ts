@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCatalogAuthoringApi } from "../../authoring-support/api";
+import type { CountCaptureLifecycle } from "../../../features/scope-sync-batches/api/count-capture-lifecycle";
 
 type CatalogAuthoringApiApp = ReturnType<typeof buildCatalogAuthoringApi>;
 
@@ -1867,6 +1868,53 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async enqueueCatalogMergeCandidateBulkJob<T>(
+      kind: "merge-candidate-promote" | "merge-candidate-defer",
+      scopeRecordId: string,
+      reason: string | null,
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/merge-candidate-bulk-jobs`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ kind, scopeRecordId, reason }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async listCatalogMergeCandidateBulkJobs<T>(input: {
+      scopeRecordId: string;
+      status: "active" | "completed";
+      cursor?: string | null;
+    }): Promise<T> {
+      const query = new URLSearchParams({ scopeRecordId: input.scopeRecordId });
+      if (input.status === "completed") {
+        query.set("status", "completed");
+      }
+      if (input.cursor) {
+        query.set("cursor", input.cursor);
+      }
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/active?${query.toString()}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async listFailedCatalogMergeCandidateBulkJobs<T>(scopeRecordId: string): Promise<T> {
+      const query = new URLSearchParams({ scopeRecordId });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/merge-candidate-bulk-jobs/failed?${query.toString()}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async getSourceObservationPromotionOutcome<T>(jobId: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/${encodeURIComponent(jobId)}/outcome`,
@@ -2035,6 +2083,91 @@ export function createCatalogApiClient({
     },
     async previewScopeSyncBatch<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/preview", input);
+    },
+    async quoteScopeSyncCounts<T>(input: unknown): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/quote", input);
+    },
+    async acquireScopeSyncCounts<T>(input: unknown): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/acquire", input);
+    },
+    // Staging count-capture steps, each sent with the explicit capture marker.
+    async captureScopeSyncCountBaseline(
+      input: Readonly<{ scopeRecordId: string; authority: unknown }>,
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["baseline"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/baseline", input);
+    },
+    async captureScopeSyncCountInitialNotice(): Promise<Awaited<ReturnType<CountCaptureLifecycle["initialNotice"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/initial-notice",
+        {},
+      );
+    },
+    async captureScopeSyncCountUsage(): Promise<Awaited<ReturnType<CountCaptureLifecycle["usage"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/usage", {});
+    },
+    async quoteScopeSyncCaptureCounts(
+      input: Parameters<CountCaptureLifecycle["quote"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["quote"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/counts/quote", input);
+    },
+    async readBackScopeSyncCaptureQuote(): Promise<Awaited<ReturnType<CountCaptureLifecycle["quoteReadback"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/quote-readback",
+        {},
+      );
+    },
+    async recordScopeSyncCaptureFinalNotice(): Promise<Awaited<ReturnType<CountCaptureLifecycle["finalNotice"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/final-notice",
+        {},
+      );
+    },
+    async acquireScopeSyncCaptureCounts(
+      input: Parameters<CountCaptureLifecycle["acquire"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["acquire"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/counts/acquire", input);
+    },
+    async previewScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["preview"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["preview"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/preview", input);
+    },
+    async preConfirmScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["preConfirm"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["preConfirm"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/pre-confirm",
+        input,
+      );
+    },
+    async freezeScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["freeze"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["freeze"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/freeze", input);
+    },
+    async completeScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["complete"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["complete"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/complete", input);
+    },
+    async getScopeSyncCountQuote<T>(quoteId: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/scope-sync-batches/counts/quote/${encodeURIComponent(quoteId)}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
+      return parseJsonResponse<T>(response);
     },
     async resolveHeldSetExport<T>(file: File): Promise<T> {
       const formData = new FormData();
@@ -2584,6 +2717,10 @@ async function scopeSyncBatchRequest<T>(
     ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }),
   });
   return parseJsonResponse<T>(response);
+}
+
+function captureHeaders(headers?: HeadersInit): Record<string, string> {
+  return { ...headersToRecord(headers), "x-catalog-count-capture": "1" };
 }
 
 function headersToRecord(headers?: HeadersInit): Record<string, string> {

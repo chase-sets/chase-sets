@@ -34,8 +34,22 @@
     "restock-decisions",
     "storage-locations"
   ],
-  "allowedSupportDirectories": ["catalog-item-support", "request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "allowedSupportDirectories": [
+    "catalog-item-support",
+    "request-support",
+    "runtime-support",
+    "seed-support",
+    "ui-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web",
+    "./integration/link-intents"
+  ],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["catalog", "identity"],
   "eventSubscriptions": [
@@ -202,6 +216,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "checkoutReservationAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Resolves stock account authority from the authenticated buyer's retained Checkout session, never from request seller IDs."
+    },
+    {
       "portName": "draftListingCreator",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."
@@ -264,7 +283,19 @@
       { "name": "inventory.get-import-batch", "ownerSlice": "import-batches" },
       { "name": "inventory.commit-import-batch", "ownerSlice": "import-batches" },
       { "name": "inventory.list-items", "ownerSlice": "inventory-items" },
-      { "name": "inventory.adjust-item", "ownerSlice": "inventory-items" }
+      { "name": "inventory.adjust-item", "ownerSlice": "inventory-items" },
+      { "name": "inventory.get-mutation-attempt", "ownerSlice": "inventory-items" },
+      { "name": "inventory.list-recovered-items", "ownerSlice": "recovered-items" },
+      { "name": "inventory.get-recovered-item-metrics", "ownerSlice": "recovered-items" },
+      { "name": "inventory.identify-recovered-item", "ownerSlice": "recovered-items" },
+      { "name": "inventory.inspect-recovered-item", "ownerSlice": "recovered-items" },
+      { "name": "inventory.require-recovered-item-authenticity-review", "ownerSlice": "recovered-items" },
+      { "name": "inventory.complete-recovered-item-authenticity-review", "ownerSlice": "recovered-items" },
+      { "name": "inventory.record-recovered-item-disposition-authority", "ownerSlice": "recovered-items" },
+      { "name": "inventory.decide-recovered-item-disposition", "ownerSlice": "recovered-items" },
+      { "name": "inventory.record-recovered-item-value", "ownerSlice": "recovered-items" },
+      { "name": "inventory.correct-recovered-item-source", "ownerSlice": "recovered-items" },
+      { "name": "inventory.merge-recovered-item", "ownerSlice": "recovered-items" }
     ],
     "resources": [
       {
@@ -473,7 +504,6 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#2",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"
       ],
@@ -497,7 +527,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/rows/:rowId/resolve",
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#3"
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-import",
@@ -538,8 +568,8 @@
       "strategy": "fresh-read",
       "surfaces": [
         "api-route:bounded-contexts/inventory/features/restock-decisions/api/route.ts:POST /:id/decision",
-        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#1",
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#2",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx"
       ],
       "visibleDestination": {
@@ -553,10 +583,12 @@
         }
       },
       "proof": {
-        "authoritativeResponse": "recordRestockDecision returns the committed restock-decision aggregate id/version; restock uses a deterministic inventory adjustment idempotency key before recording the decision outcome.",
+        "authoritativeResponse": "recordRestockDecision binds a caller attempt, expected decision version and normalized choice. Stock, decision, child receipt and first result commit in one Inventory transaction; recovery reads the exact private receipt without submitting again.",
         "tests": [
           "bounded-contexts/inventory/tests/order-cancellation-subscription.test.ts",
-          "bounded-contexts/inventory/features/restock-decisions/domain/domain.test.ts"
+          "bounded-contexts/inventory/features/restock-decisions/domain/domain.test.ts",
+          "bounded-contexts/inventory/features/restock-decisions/tests/issue-7169-c2-recovery.test.ts",
+          "bounded-contexts/inventory/features/restock-decisions/tests/issue-7169-c2-recovery.db.test.ts"
         ]
       }
     },
@@ -566,7 +598,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H540f811b57f9#1",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx"
       ],
       "visibleDestination": {
@@ -589,9 +621,9 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H128ecb5f1379#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H26a9c8c25c77#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:He8d8cbd954d7#1",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
       ],
       "visibleDestination": {
@@ -643,9 +675,9 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H44ef8e2f59ba#1",
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H5134385a04e6#1",
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H80c8544a77bf#1",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx"
       ],
       "visibleDestination": {
@@ -687,6 +719,23 @@
       }
     }
   ],
+  "agentCoverage": {
+    "inventory-recovered-items": {
+      "tools": [
+        "inventory.list-recovered-items",
+        "inventory.get-recovered-item-metrics",
+        "inventory.identify-recovered-item",
+        "inventory.inspect-recovered-item",
+        "inventory.require-recovered-item-authenticity-review",
+        "inventory.complete-recovered-item-authenticity-review",
+        "inventory.record-recovered-item-disposition-authority",
+        "inventory.decide-recovered-item-disposition",
+        "inventory.record-recovered-item-value",
+        "inventory.correct-recovered-item-source",
+        "inventory.merge-recovered-item"
+      ]
+    }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -807,8 +856,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -819,6 +867,15 @@
             "owner": "inventory",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {
+              "ledgerKind": {
+                "kind": "value",
+                "maxLength": 13,
+                "values": ["hold-placed", "hold-released", "hold-consumed"]
+              }
+            }
           }
         },
         {
@@ -882,11 +939,15 @@
       "placements": ["top-nav", "bottom-nav"],
       "key": "inventory",
       "label": "Inventory",
+      "labelKey": "inventory.shell.inventory.label",
       "icon": "package",
       "href": "/account/inventory",
+      "parentKey": "selling-workspace",
       "order": 100,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"]
+      "requiredPermissions": ["inventory.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
@@ -894,11 +955,15 @@
       "placements": ["top-nav", "bottom-nav"],
       "key": "inventory-imports",
       "label": "Import",
+      "labelKey": "inventory.shell.inventoryImports.label",
       "icon": "package",
       "href": "/account/inventory/imports",
+      "parentKey": "selling-workspace",
       "order": 110,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"]
+      "requiredPermissions": ["inventory.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
@@ -908,9 +973,12 @@
       "label": "Restock",
       "icon": "package",
       "href": "/account/inventory/restock-decisions",
+      "parentKey": "selling-workspace",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"]
+      "requiredPermissions": ["inventory.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {
@@ -972,7 +1040,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["Multiple inventory slices", "Deployable composition for inventory"],
+      "expectedConsumers": ["import-batches", "inventory-items", "restock-decisions", "storage-locations"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
@@ -994,8 +1062,13 @@
     "seed-support": {
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["Multiple inventory slices", "Deployable composition for inventory"],
+      "expectedConsumers": ["restock-decisions"],
       "crossCuttingRuntimeComposition": true
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Expose the Inventory browser recovery provider through the web composition surface.",
+      "expectedConsumers": ["import-batches"]
     },
     "routes": {
       "classification": "routes",

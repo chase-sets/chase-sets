@@ -115,6 +115,8 @@ The primitive preserves native form behavior for `id`, `method`, `action`, `encT
 
 Use `ValidationSummary`, `useFormState`, and `normalizeFormErrors` for controlled client forms that need dirty/touched state, validation timing, server error mapping, status text, counters, and form-level messages:
 
+`Form` and `RouterForm` accept `errorAnnouncement="inline"` (the default) or `"summary"`. Select summary ownership in the same render as a populated `ValidationSummary` covering every displayed field error. Inline errors stay visible, invalid and described, but no longer have an alert/status role or live-region behavior; the summary keeps its existing alert semantics. Clear summary ownership with those errors. Do not select it for field failures absent from the summary. Ownership is not inferred from `validationSummaryId`, form status or mounting a summary. Each nearest form/provider defaults independently to inline announcements, while portal descendants retain their React provider scope. Status and counter announcements are unchanged. This policy does not focus anything; caller-controlled summary focus and natural field links remain unchanged.
+
 ```tsx
 import { Button, Form, TextInput, ValidationSummary, useFormState } from "@chase-sets/design-system";
 
@@ -128,25 +130,24 @@ export function ContactForm() {
       }),
     },
   );
+  const errors = [
+    ...Object.entries(form.errors.fieldErrors).flatMap(([fieldId, messages]) =>
+      (messages ?? []).map((message) => ({ fieldId, fieldName: fieldId, message })),
+    ),
+    ...form.errors.formErrors.map((message) => ({ message })),
+  ];
 
   return (
     <Form
       id="contact-form"
-      validationSummaryId="contact-errors"
+      errorAnnouncement={errors.length > 0 ? "summary" : "inline"}
+      validationSummaryId={errors.length > 0 ? "contact-errors" : undefined}
       onSubmit={(event) => {
         event.preventDefault();
         form.submitAttempted();
       }}
     >
-      <ValidationSummary
-        id="contact-errors"
-        errors={[
-          ...Object.entries(form.errors.fieldErrors).flatMap(([fieldId, messages]) =>
-            (messages ?? []).map((message) => ({ fieldId, fieldName: fieldId, message })),
-          ),
-          ...form.errors.formErrors.map((message) => ({ message })),
-        ]}
-      />
+      <ValidationSummary id="contact-errors" errors={errors} />
       <TextInput id="email" label="Email" description="Used for receipts." {...form.fieldProps("email")} />
       <TextInput id="name" label="Name" counter={`${form.values.name.length} characters`} {...form.fieldProps("name")} />
       <Button type="submit">Save</Button>
@@ -160,6 +161,7 @@ Field controls should keep helper text visible when errors are present. Controls
 `useFormState` supports synchronous validation through `validate()`/`submitAttempted()` and asynchronous validation through `validateAsync()`/`submitAttemptedAsync()`. Async validation exposes `validating`, suppresses stale results after field edits or reset, maps rejected validators into form-level errors, and clears stale field/form errors when the user edits. Use `reset()` after successful saves to clear dirty/touched/submitted metadata, and use `setSubmitting()` to coordinate long-running save state with `Form submitting`.
 
 `ValidationSummary` links focus the invalid field target. If the target is a grouped control such as a fieldset, focus delegates to the first focusable control inside the group.
+Pass a `ref` to focus the summary root after committing an action failure; the root has `tabIndex={-1}`, stays out of the tab order, and is never focused automatically.
 
 For React Router route actions, import `RouterForm` from `@chase-sets/design-system/react-router` instead of importing `Form` from `react-router` directly:
 
@@ -170,6 +172,8 @@ export function CheckoutActionForm() {
   return <RouterForm method="post" action="/checkout/start" />;
 }
 ```
+
+When `submitting` is omitted, `RouterForm` derives pending state from the accepted mutation submitter. The owning submitter receives `aria-busy` and remains enabled so its native name/value and focus are preserved; `pendingAnnouncement` optionally provides a polite live announcement. Explicit `submitting` remains caller-owned.
 
 The router adapter is a separate optional subpath so the core design-system entrypoint stays framework-neutral. `pnpm run check:no-legacy-forms` runs the final blocking guardrail: production code may not render lowercase `<form>` directly or import/use framework `Form` directly outside the approved design-system adapter.
 

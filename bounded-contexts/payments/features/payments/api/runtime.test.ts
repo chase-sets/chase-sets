@@ -15,26 +15,237 @@ import {
   PaymentsRateLimitExceededError,
   createPaymentRuntime as createRuntime,
 } from "./runtime";
-import { createPaymentWebhookRunner } from "./webhook-transaction";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPaymentTransactionRunner, createPaymentWebhookRunner } from "./webhook-transaction";
+import type { PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import { ProviderWebhookError, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
+import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import ts from "@chase-sets/typescript-compiler-api";
+import * as money from "@chase-sets/primitives/money";
+import { normalizeMoneyAmount as normalizeDomainMoneyAmount } from "../../../support/runtime-support/common";
+
+// The high-value allocation witness cannot enter checkout: its combined payment
+// exceeds the payment maximum even though each resulting order cap is in range.
+// Execute the actual private declarations, without adding production exports.
+function privateMoneyFunctions(file: URL, names: readonly string[], bindings: Record<string, unknown> = {}) {
+  const source = ts.createSourceFile(file.pathname, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  const declarations = source.statements.filter(
+    (statement) => ts.isFunctionDeclaration(statement) && statement.name && names.includes(statement.name.text),
+  );
+  expect(declarations).toHaveLength(names.length);
+  const code = ts.transpileModule(declarations.map((node) => node.getText(source)).join("\n"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  return runInNewContext(`${code}\n({ ${names.join(",")} })`, {
+    ...money,
+    ...bindings,
+    exports: {},
+  }) as Record<string, (...args: unknown[]) => unknown>;
+}
+
+describe("payments money consolidation", () => {
+  const api = privateMoneyFunctions(new URL("./runtime.ts", import.meta.url), ["buildOrderRefundCaps"]);
+  const cancellation = privateMoneyFunctions(
+    new URL("../../refunds/integrations/ordering/order-cancellation-refund-effect-projection.ts", import.meta.url),
+    ["orderMoneyAmount", "remainingRefundableOrderAmount", "orderTotalsFromInputs", "allocateCheckoutFeeCents"],
+  );
+  const support = privateMoneyFunctions(
+    new URL("../../refunds/integrations/support/support-refund-effect-projection.ts", import.meta.url),
+    ["compareMoney", "minMoney", "clampMoneyDifference", "orderMoneyAmount", "remainingRefundableOrderAmount"],
+  );
+  const domain = privateMoneyFunctions(
+    new URL("../domain/domain.ts", import.meta.url),
+    [
+      "moneyForOrder",
+      "refundableCapsForState",
+      "requestedAmountForOrder",
+      "remainingRefundableAmountForOrder",
+      "remainingRefundableAmountForOrders",
+      "allocateRefundAmountToOrders",
+      "normalizeOrderMoneyAmounts",
+      "mergeRefundedOrderAmounts",
+    ],
+    {
+      normalizeMoneyAmount: normalizeDomainMoneyAmount,
+      normalizeRequiredText: (value: string) => value,
+      assert: (condition: boolean, message: string) => {
+        if (!condition) throw new Error(message);
+      },
+    },
+  );
+
+  it("maps every domain sum, merge, allocation and unsigned comparison to an in-range value witness", () => {
+    const state = {
+      orderRefundCaps: [
+        { orderId: "ord_synthetic_a", amount: "1.00" },
+        { orderId: "ord_synthetic_b", amount: "0.30" },
+      ],
+      refundedOrderAmounts: [{ orderId: "ord_synthetic_a", amount: "0.10" }],
+      refundRequests: [
+        { refundId: "rfd_synthetic_a", orderIds: ["ord_synthetic_a"], amount: "0.20" },
+        { refundId: "rfd_synthetic_b", orderIds: ["ord_synthetic_a"], amount: "0.30" },
+      ],
+    };
+    expect(domain.requestedAmountForOrder!(state, "ord_synthetic_a")).toBe("0.50");
+    expect(domain.remainingRefundableAmountForOrder!(state, "ord_synthetic_a")).toBe("0.40");
+    expect(domain.remainingRefundableAmountForOrders!(state, ["ord_synthetic_a", "ord_synthetic_b"])).toBe("0.70");
+    expect(domain.allocateRefundAmountToOrders!(state, ["ord_synthetic_a", "ord_synthetic_b"], "1.20")).toEqual([
+      { orderId: "ord_synthetic_a", amount: "0.90" },
+      { orderId: "ord_synthetic_b", amount: "0.30" },
+    ]);
+    expect(() =>
+      domain.mergeRefundedOrderAmounts!(
+        [{ orderId: "ord_synthetic_a", amount: "9999999999.99" }],
+        [{ orderId: "ord_synthetic_a", amount: "0.01" }],
+      ),
+    ).toThrow();
+    expect(domain.normalizeOrderMoneyAmounts!([{ orderId: "ord_synthetic_a", amount: " 01.00 " }], "cap")).toEqual([
+      { orderId: "ord_synthetic_a", amount: "1.00" },
+    ]);
+    expect(support.compareMoney!("01.00", "1.00")).toBe(0);
+    expect(support.compareMoney!("1.00", "2.00")).toBe(-1);
+    expect(support.compareMoney!("2.00", "1.00")).toBe(1);
+    expect(support.minMoney!("01.00", "2.00")).toBe("1.00");
+  });
+
+  it("payments money consolidation preserves in-range results, clamps every subtraction schedule at zero, and preserves both proportional allocation schedules", () => {
+    const orders = [
+      { order_id: "ord_synthetic_a", total_amount: "3318766959.20" },
+      { order_id: "ord_synthetic_b", total_amount: "360965323.97" },
+    ];
+    expect(api.buildOrderRefundCaps!(orders, "7112467809.87")).toEqual([
+      { orderId: "ord_synthetic_a", amount: "9733533401.24" },
+      { orderId: "ord_synthetic_b", amount: "1058666691.80" },
+    ]);
+    const totals = cancellation.orderTotalsFromInputs!(new Map(orders.map((order) => [order.order_id, order])));
+    expect(
+      orders.map((order) =>
+        cancellation.allocateCheckoutFeeCents!({
+          orderId: order.order_id,
+          paymentOrderIds: orders.map((row) => row.order_id),
+          orderTotals: totals,
+          checkoutFeeCents: 711246780987,
+        }),
+      ),
+    ).toEqual([641476644204, 69770136783]);
+    for (const [cap, refunded, expected] of [
+      ["1.00", "2.00", "0.00"],
+      ["12.99", "1.00", "11.99"],
+      ["1.00", "1.00", "0.00"],
+    ]) {
+      const payment = {
+        order_refund_caps: [{ orderId: "ord_synthetic_a", amount: cap }],
+        order_refunded_amounts: [{ orderId: "ord_synthetic_a", amount: refunded }],
+      };
+      expect(cancellation.remainingRefundableOrderAmount!(payment, "ord_synthetic_a", cap)).toBe(expected);
+      expect(support.remainingRefundableOrderAmount!(payment, "ord_synthetic_a", cap)).toBe(expected);
+      expect(support.clampMoneyDifference!(cap, refunded)).toBe(expected);
+      const state = {
+        orderRefundCaps: [{ orderId: "ord_synthetic_a", amount: cap }],
+        refundedOrderAmounts: [{ orderId: "ord_synthetic_a", amount: refunded }],
+        refundRequests: [],
+      };
+      expect(domain.remainingRefundableAmountForOrder!(state, "ord_synthetic_a")).toBe(expected);
+      if (expected === "0.00") {
+        expect(() => domain.allocateRefundAmountToOrders!(state, ["ord_synthetic_a"], "0.01")).toThrow(
+          "Refund amount cannot exceed",
+        );
+      } else {
+        expect(domain.allocateRefundAmountToOrders!(state, ["ord_synthetic_a"], "1.00")).toEqual([
+          { orderId: "ord_synthetic_a", amount: "1.00" },
+        ]);
+      }
+    }
+    const reserved = {
+      orderRefundCaps: [{ orderId: "ord_synthetic_a", amount: "1.00" }],
+      refundedOrderAmounts: [],
+      refundRequests: [{ refundId: "rfd_synthetic", orderIds: ["ord_synthetic_a"], amount: "2.00" }],
+    };
+    expect(domain.remainingRefundableAmountForOrder!(reserved, "ord_synthetic_a")).toBe("0.00");
+    expect(
+      domain.normalizeOrderMoneyAmounts!(
+        [
+          { orderId: "ord_synthetic_a", amount: "12.99" },
+          { orderId: "ord_synthetic_a", amount: "0.01" },
+        ],
+        "cap",
+      ),
+    ).toEqual([{ orderId: "ord_synthetic_a", amount: "13.00" }]);
+    expect(
+      domain.mergeRefundedOrderAmounts!(
+        [{ orderId: "ord_synthetic_a", amount: "12.99" }],
+        [{ orderId: "ord_synthetic_a", amount: "0.01" }],
+      ),
+    ).toEqual([{ orderId: "ord_synthetic_a", amount: "13.00" }]);
+  });
+
+  it("payments money consolidation applies the ruled rejection behavior per module class", () => {
+    for (const amount of ["1.001", "-1.00", "10000000000.00", "", "not-money", "1e2", "+1.00"]) {
+      expect(() =>
+        api.buildOrderRefundCaps!([{ order_id: "ord_synthetic_a", total_amount: amount }], "0.00"),
+      ).toThrow();
+      expect(() =>
+        api.buildOrderRefundCaps!([{ order_id: "ord_synthetic_a", total_amount: "1.00" }], amount),
+      ).toThrow();
+      expect(() => domain.normalizeOrderMoneyAmounts!([{ orderId: "ord_synthetic_a", amount }], "cap")).toThrow();
+      expect(() =>
+        cancellation.orderTotalsFromInputs!(
+          new Map([["ord_synthetic_a", { order_id: "ord_synthetic_a", total_amount: amount }]]),
+        ),
+      ).toThrow();
+      expect(() => support.compareMoney!(amount, "0.00")).toThrow();
+      expect(() => support.minMoney!("1.00", amount)).toThrow();
+    }
+    expect(() =>
+      api.buildOrderRefundCaps!([{ order_id: "ord_synthetic_a", total_amount: "9999999999.99" }], "0.01"),
+    ).toThrow();
+    expect(() =>
+      api.buildOrderRefundCaps!(
+        [
+          { order_id: "ord_synthetic_a", total_amount: "0.02" },
+          { order_id: "ord_synthetic_b", total_amount: "0.02" },
+          { order_id: "ord_synthetic_c", total_amount: "-0.01" },
+        ],
+        "0.01",
+      ),
+    ).toThrow("Money amount must be a non-negative decimal");
+    expect(() =>
+      domain.normalizeOrderMoneyAmounts!(
+        [
+          { orderId: "ord_synthetic_a", amount: "9999999999.99" },
+          { orderId: "ord_synthetic_a", amount: "0.01" },
+        ],
+        "cap",
+      ),
+    ).toThrow();
+  });
+});
 
 function createPaymentRuntime(
-  deps: Omit<Parameters<typeof createRuntime>[0], "runWebhookTransaction" | "cardDeclineStore"> &
+  deps: Omit<
+    Parameters<typeof createRuntime>[0],
+    "runWebhookTransaction" | "runPaymentTransaction" | "cardDeclineStore"
+  > &
     Partial<Pick<Parameters<typeof createRuntime>[0], "cardDeclineStore">>,
 ) {
   const pool: PgTransactionalPool = {
     query: deps.db.query,
     connect: async () => ({ query: deps.db.query, release: () => undefined }),
   };
+  const store: PostgresEventStore = {
+    ...deps.eventStore,
+    readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
+    appendToStreamInTransaction: (_client, input) => deps.eventStore.appendToStream(input),
+    appendToStreamsInTransaction: async () => {
+      throw new Error("Synthetic payment runtime does not use transaction-local multi-stream appends.");
+    },
+  };
   return createRuntime({
     cardDeclineStore: { check: vi.fn(async () => null), record: vi.fn(async () => undefined) },
     ...deps,
-    runWebhookTransaction: createPaymentWebhookRunner(pool, {
-      ...deps.eventStore,
-      readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
-      appendToStreamInTransaction: (_client, input) => deps.eventStore.appendToStream(input),
-    }),
+    runWebhookTransaction: createPaymentWebhookRunner(pool, store),
+    runPaymentTransaction: createPaymentTransactionRunner(pool, store),
   });
 }
 
@@ -175,6 +386,7 @@ function createOrderInputDb(
   options: Readonly<{
     savedCheckoutInstrumentRows?: readonly Record<string, unknown>[];
     accountRiskRows?: readonly Record<string, unknown>[];
+    orderInputOverrides?: Readonly<Record<string, unknown>>;
   }> = {},
 ) {
   const reservations = new Map<string, Record<string, unknown>>();
@@ -368,15 +580,25 @@ function createOrderInputDb(
       }
 
       if (sql.includes("UPDATE payments_saved_checkout_instruments") && sql.includes("readiness = 'removed'")) {
+        const removed = [];
         for (const row of savedCheckoutInstrumentRows) {
           if (row.account_id === params?.[0] && row.instrument_id === params?.[1]) {
+            if (
+              sql.includes("WITH removed AS") &&
+              (row.agent_grant_id !== params?.[3] ||
+                (row.readiness === "removed" &&
+                  row.removed_at !== params?.[2] &&
+                  !(row.removed_at === null && row.is_default)))
+            )
+              continue;
             row.readiness = "removed";
             row.is_default = false;
-            row.removed_at = params?.[2];
+            row.removed_at = sql.includes("COALESCE(removed_at") ? (row.removed_at ?? params?.[2]) : params?.[2];
             row.updated_at = params?.[2];
+            removed.push({ instrument_id: row.instrument_id });
           }
         }
-        return { rows: [] };
+        return { rows: sql.includes("WITH removed AS") ? removed : [] };
       }
 
       if (sql.includes("INSERT INTO payments_saved_checkout_instrument_audit")) {
@@ -393,6 +615,20 @@ function createOrderInputDb(
         }
         const accountRows = savedCheckoutInstrumentRows.filter((row) => row.account_id === params?.[0]);
         if (sql.includes("agent_grant_id = $2")) {
+          if (sql.includes("LIMIT 500"))
+            return {
+              rows: accountRows
+                .filter(
+                  (row) =>
+                    row.agent_grant_id === params?.[1] &&
+                    (row.readiness !== "removed" ||
+                      row.removed_at === params?.[2] ||
+                      (row.removed_at === null && row.is_default)) &&
+                    String(row.instrument_id) > String(params?.[3]),
+                )
+                .sort((a, b) => String(a.instrument_id).localeCompare(String(b.instrument_id)))
+                .slice(0, 500),
+            };
           return {
             rows: accountRows.filter((row) => row.agent_grant_id === params?.[1] && row.readiness !== "removed"),
           };
@@ -472,6 +708,7 @@ function createOrderInputDb(
               terms_agreement_id: null,
               terms_resolved_at: "2026-04-29T00:00:00.000Z",
               status: "pending-payment",
+              ...options.orderInputOverrides,
             },
           ],
         };
@@ -1218,6 +1455,154 @@ describe("payment runtime", () => {
     releaseProviderSession.resolve();
     await first;
     expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { name: "processor amount at threshold", amount: "250.00", reasonCodes: ["high-payment-amount"] },
+    { name: "processor amount above threshold", amount: "250.01", reasonCodes: ["high-payment-amount"] },
+    {
+      name: "seller exposure at threshold",
+      amount: "300.00",
+      balance: "275.00",
+      sellerPayout: "250.00",
+      reasonCodes: ["high-dollar-seller-exposure"],
+    },
+    { name: "fraud flag", risk: { stripe_fraud_flag: true }, reasonCodes: ["stripe-fraud-flag"] },
+    { name: "open fraud review", risk: { stripe_review_open_count: 1 }, reasonCodes: ["stripe-fraud-review-open"] },
+    { name: "manual payout review", risk: { manual_payout_review: true }, reasonCodes: ["manual-payout-review"] },
+    { name: "automatic below threshold", amount: "249.99", reasonCodes: [] },
+    { name: "direct saved intent", risk: { stripe_fraud_flag: true }, saved: true, reasonCodes: ["stripe-fraud-flag"] },
+  ])("existing 3DS assessments reach a schema-valid Checkout Session: $name", async (scenario) => {
+    const requests: { url: string; form: URLSearchParams }[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const form = new URLSearchParams(String(init?.body));
+      requests.push({ url, form });
+      if (url.endsWith("/v1/customers")) {
+        return Response.json({ id: "cus_SYNTHETIC_6708" });
+      }
+      if ([...form.keys()].some((key) => key.startsWith("payment_intent_data[payment_method_options]"))) {
+        return Response.json(
+          { error: { message: "Received unknown parameter: payment_intent_data[payment_method_options]" } },
+          { status: 400 },
+        );
+      }
+      return url.endsWith("/v1/payment_intents")
+        ? Response.json({ id: "pi_SYNTHETIC_6708", status: "succeeded" })
+        : Response.json({ id: "cs_SYNTHETIC_6708", status: "open", payment_status: "unpaid" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { eventStore } = createInMemoryEventStore();
+      const amount = scenario.amount ?? "24.99";
+      const balance = scenario.balance ?? "0.00";
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: createOrderInputDb({
+          orderInputOverrides: { total_amount: amount, seller_payout_amount: scenario.sellerPayout ?? "24.49" },
+          accountRiskRows: [
+            {
+              account_id: "acc_buyer",
+              manual_payout_review: false,
+              stripe_fraud_flag: false,
+              stripe_review_open_count: 0,
+              ...scenario.risk,
+            },
+          ],
+          savedCheckoutInstrumentRows: scenario.saved
+            ? [
+                {
+                  instrument_id: "sci_SYNTHETIC_6708",
+                  account_id: "acc_buyer",
+                  payment_method_category: "card",
+                  provider: "stripe",
+                  provider_customer_reference: "cus_SYNTHETIC_6708",
+                  provider_reference: "pm_SYNTHETIC_6708",
+                  display_label: "Synthetic card",
+                  confirmation_experience: "off-session-token",
+                  readiness: "ready",
+                  allow_redisplay: "always",
+                  consent_id: "consent_SYNTHETIC_6708",
+                  consent_text: "Save for future checkout.",
+                  removed_at: null,
+                  is_default: true,
+                },
+              ]
+            : [],
+        }) as never,
+        processorGateway: createStripePaymentProcessorGateway({
+          secretKey: "sk_test_SYNTHETIC_6708",
+          publishableKey: "pk_test_SYNTHETIC_6708",
+          webhookSecret: "whsec_SYNTHETIC_6708",
+          apiBaseUrl: "https://stripe.synthetic.test",
+        }),
+        checkoutProcessingFeePolicyResolver: {
+          resolveCheckoutProcessingFeePolicy: async () => ({
+            value: {
+              enabledJurisdictions: ["US"],
+              base: { percentageBps: 0, fixedAmount: "0.00" },
+              methodAdjustments: [],
+            },
+            source: "policy" as const,
+            documentId: "pol_SYNTHETIC_6708",
+            effectiveFrom: "2026-01-01T00:00:00.000Z",
+            resolvedAt: "2026-01-01T00:00:00.000Z",
+          }),
+        },
+        ...(scenario.balance
+          ? {
+              balanceCreditResolver: {
+                resolveBalanceCredit: async () => ({
+                  requestedAmount: balance,
+                  appliedAmount: balance,
+                  remainingExternalAmount: "25.00",
+                }),
+                placeSpendHold: async () => ({ heldAmount: balance }),
+                releaseSpendHold: async () => undefined,
+              },
+            }
+          : {}),
+      });
+      const input = {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card" as const,
+        requestedBalanceCreditAmount: balance,
+      };
+      const status = await services.getCheckoutStatus(input);
+      const payment = await services.createAccountPayment(
+        {
+          ...input,
+          marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+          ...(scenario.saved ? { savedCheckoutInstrumentId: "sci_SYNTHETIC_6708" } : {}),
+        },
+        context,
+      );
+      const request = requests.find(({ url }) =>
+        url.endsWith(scenario.saved ? "/v1/payment_intents" : "/v1/checkout/sessions"),
+      );
+      expect(request).toBeDefined();
+      const form = request!.form;
+      const stepUp = scenario.reasonCodes.length > 0;
+      expect(form.get("payment_method_options[card][request_three_d_secure]")).toBe(stepUp ? "any" : null);
+      expect(form.get("metadata[three_d_secure_requested]")).toBe(stepUp ? "any" : "automatic");
+      expect(form.get("metadata[three_d_secure_reason_codes]")).toBe(stepUp ? scenario.reasonCodes.join(",") : null);
+      expect([...form.keys()].filter((key) => key.startsWith("payment_intent_data[payment_method_options]"))).toEqual(
+        [],
+      );
+      if (!scenario.saved) {
+        expect(form.get("payment_intent_data[metadata][three_d_secure_reason_codes]")).toBe(
+          stepUp ? scenario.reasonCodes.join(",") : null,
+        );
+        expect(form.get("line_items[0][price_data][unit_amount]")).toBe(
+          scenario.balance ? "2500" : amount.replace(".", ""),
+        );
+      }
+      expect(payment.processor_payment_kind).toBe(scenario.saved ? "payment-intent" : "checkout-session");
+      expect(payment.three_d_secure_reason_codes).toEqual(scenario.reasonCodes);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("requests 3DS step-up for card payments when account risk warrants it", async () => {
@@ -2102,7 +2487,14 @@ describe("payment runtime", () => {
       db: db as never,
       processorGateway,
     });
-    const setupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const setupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c61",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
 
     const instrument = await services.reconcileSavedCheckoutSetupSession(
       {
@@ -2164,7 +2556,14 @@ describe("payment runtime", () => {
       db: db as never,
       processorGateway,
     });
-    const firstSetupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const firstSetupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c62",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
     await services.reconcileSavedCheckoutSetupSession(
       {
         accountId: "acc_buyer" as never,
@@ -2172,7 +2571,14 @@ describe("payment runtime", () => {
       },
       context,
     );
-    const secondSetupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    const secondSetupSession = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c63",
+        returnUrlBase: "https://app.test",
+      },
+      context,
+    );
 
     const secondInstrument = await services.reconcileSavedCheckoutSetupSession(
       {
@@ -2192,106 +2598,200 @@ describe("payment runtime", () => {
     ]);
   });
 
-  it("detaches active saved checkout instruments owned by a revoked agent grant idempotently", async () => {
-    const { eventStore, readAllEvents } = createInMemoryEventStore();
-    const processorGateway = createProcessorGateway();
-    const db = createOrderInputDb({
-      savedCheckoutInstrumentRows: [
+  it.each([false, true])(
+    "payments-cleanup preserves dormant detach and makes owner cleanup local (owner=%s)",
+    async (owner) => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const processorGateway = createProcessorGateway();
+      const db = createOrderInputDb({
+        savedCheckoutInstrumentRows: [
+          {
+            instrument_id: "sci_agent_card",
+            account_id: "acc_buyer",
+            agent_grant_id: "lpa_1",
+            payment_method_category: "card",
+            provider: "stripe",
+            provider_customer_reference: "cus_buyer",
+            provider_reference: "pm_agent_card",
+            provider_fingerprint: "fp_agent",
+            display_label: "Visa ending in 4242",
+            confirmation_experience: "off-session-token",
+            readiness: "ready",
+            allow_redisplay: "always",
+            consent_id: "consent_1",
+            consent_text: "Save this payment method",
+            is_default: true,
+            removed_at: null,
+            created_at: "2026-07-09T00:00:00.000Z",
+            updated_at: "2026-07-09T00:00:00.000Z",
+          },
+          {
+            instrument_id: "sci_other_card",
+            account_id: "acc_buyer",
+            agent_grant_id: "lpa_2",
+            payment_method_category: "card",
+            provider: "stripe",
+            provider_customer_reference: "cus_buyer",
+            provider_reference: "pm_other_card",
+            provider_fingerprint: "fp_other",
+            display_label: "Visa ending in 1881",
+            confirmation_experience: "off-session-token",
+            readiness: "ready",
+            allow_redisplay: "always",
+            consent_id: "consent_2",
+            consent_text: "Save this payment method",
+            is_default: false,
+            removed_at: null,
+            created_at: "2026-07-09T00:00:00.000Z",
+            updated_at: "2026-07-09T00:00:00.000Z",
+          },
+        ],
+      });
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+      });
+
+      const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
         {
-          instrument_id: "sci_agent_card",
-          account_id: "acc_buyer",
-          agent_grant_id: "lpa_1",
-          payment_method_category: "card",
-          provider: "stripe",
-          provider_customer_reference: "cus_buyer",
-          provider_reference: "pm_agent_card",
-          provider_fingerprint: "fp_agent",
-          display_label: "Visa ending in 4242",
-          confirmation_experience: "off-session-token",
-          readiness: "ready",
-          allow_redisplay: "always",
-          consent_id: "consent_1",
-          consent_text: "Save this payment method",
-          is_default: true,
-          removed_at: null,
-          created_at: "2026-07-09T00:00:00.000Z",
-          updated_at: "2026-07-09T00:00:00.000Z",
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt: "2026-07-09T01:00:00.000Z",
+          ...(owner ? { operationId: "9dd29df4-7442-4f0b-9270-d3b1fd66ce32" } : {}),
         },
+        context,
+      );
+      const replay = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
         {
-          instrument_id: "sci_other_card",
-          account_id: "acc_buyer",
-          agent_grant_id: "lpa_2",
-          payment_method_category: "card",
-          provider: "stripe",
-          provider_customer_reference: "cus_buyer",
-          provider_reference: "pm_other_card",
-          provider_fingerprint: "fp_other",
-          display_label: "Visa ending in 1881",
-          confirmation_experience: "off-session-token",
-          readiness: "ready",
-          allow_redisplay: "always",
-          consent_id: "consent_2",
-          consent_text: "Save this payment method",
-          is_default: false,
-          removed_at: null,
-          created_at: "2026-07-09T00:00:00.000Z",
-          updated_at: "2026-07-09T00:00:00.000Z",
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt: "2026-07-09T01:00:00.000Z",
+          ...(owner ? { operationId: "9dd29df4-7442-4f0b-9270-d3b1fd66ce32" } : {}),
         },
-      ],
-    });
+        context,
+      );
+
+      expect(result).toEqual({ detached: owner ? 0 : 1, alreadyRemoved: 0, instrumentIds: ["sci_agent_card"] });
+      expect(replay).toEqual({ detached: 0, alreadyRemoved: 0, instrumentIds: [] });
+      expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledTimes(owner ? 0 : 1);
+      if (!owner) expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledWith("pm_agent_card");
+      expect(readAllEvents().filter((event) => event.eventType !== "payments.agent-grant-cleanup.completed")).toEqual([
+        expect.objectContaining({
+          eventType: "payments.checkout-affordances-published",
+          payload: expect.objectContaining({
+            accountId: "acc_buyer",
+            savedCheckoutInstruments: expect.arrayContaining([
+              expect.objectContaining({ instrumentId: "sci_agent_card", readiness: "removed" }),
+            ]),
+          }),
+        }),
+      ]);
+      expect(db.readSavedCheckoutInstruments()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            instrument_id: "sci_agent_card",
+            readiness: "removed",
+            is_default: false,
+            removed_at: "2026-07-09T01:00:00.000Z",
+          }),
+          expect.objectContaining({
+            instrument_id: "sci_other_card",
+            readiness: "ready",
+          }),
+        ]),
+      );
+    },
+  );
+
+  it.each(["foreign", "partial", "default", "501"])(
+    "payments-cleanup preserves foreign T1 and repairs complete eligible pages: %s",
+    async (scenario) => {
+      const revokedAt = "2026-07-09T01:00:00.000Z";
+      const prior = "2026-07-01T00:00:00.000Z";
+      const rows = Array.from({ length: scenario === "501" ? 501 : 1 }, (_, index) => ({
+        instrument_id: `sci_${String(index).padStart(4, "0")}`,
+        account_id: "acc_buyer",
+        agent_grant_id: "lpa_1",
+        payment_method_category: "card",
+        provider: "stripe",
+        provider_customer_reference: "synthetic-customer",
+        provider_reference: `synthetic-method-${index}`,
+        provider_fingerprint: null,
+        display_label: "Synthetic card",
+        confirmation_experience: "off-session-token",
+        readiness: scenario === "501" ? "ready" : "removed",
+        allow_redisplay: "always",
+        consent_id: "synthetic-consent",
+        consent_text: "Synthetic consent",
+        is_default: scenario === "default",
+        removed_at: scenario === "foreign" ? prior : scenario === "501" ? null : revokedAt,
+        created_at: prior,
+        updated_at: prior,
+      }));
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const processorGateway = createProcessorGateway();
+      const db = createOrderInputDb({ savedCheckoutInstrumentRows: rows });
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+      });
+      const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
+        {
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt,
+          operationId: "9dd29df4-7442-4f0b-9270-d3b1fd66ce32",
+        },
+        context,
+      );
+      expect(result.instrumentIds).toHaveLength(scenario === "foreign" ? 0 : rows.length);
+      expect(result.alreadyRemoved).toBe(["partial", "default"].includes(scenario) ? 1 : 0);
+      expect(processorGateway.detachSavedPaymentMethod).not.toHaveBeenCalled();
+      expect(db.readSavedCheckoutInstruments()).toEqual(
+        rows.map((row) =>
+          expect.objectContaining({
+            instrument_id: row.instrument_id,
+            readiness: "removed",
+            is_default: false,
+            removed_at: scenario === "foreign" ? prior : revokedAt,
+          }),
+        ),
+      );
+      const removals = db.query.mock.calls.filter(([sql]) => sql.includes("WITH removed AS"));
+      expect(removals).toHaveLength(scenario === "foreign" ? 0 : rows.length);
+      expect(readAllEvents().map((event) => event.eventType)).toEqual([
+        "payments.checkout-affordances-published",
+        "payments.agent-grant-cleanup.completed",
+      ]);
+      if (scenario === "501") expect(db.query.mock.calls.filter(([sql]) => sql.includes("LIMIT 500"))).toHaveLength(2);
+    },
+  );
+
+  it("payments-cleanup refuses absent atomic publication wiring before local effects", async () => {
+    const memory = createInMemoryEventStore();
+    const db = createOrderInputDb();
     const services = createPaymentRuntime({
-      eventStore,
+      eventStore: { ...memory.eventStore, appendToStreams: undefined },
       checkpointStore: createCheckpointStore(),
       db: db as never,
-      processorGateway,
+      processorGateway: createProcessorGateway(),
     });
-
-    const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
-      {
-        accountId: "acc_buyer" as never,
-        agentGrantId: "lpa_1",
-        revokedAt: "2026-07-09T01:00:00.000Z",
-      },
-      context,
-    );
-    const replay = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
-      {
-        accountId: "acc_buyer" as never,
-        agentGrantId: "lpa_1",
-        revokedAt: "2026-07-09T01:00:00.000Z",
-      },
-      context,
-    );
-
-    expect(result).toEqual({ detached: 1, alreadyRemoved: 0, instrumentIds: ["sci_agent_card"] });
-    expect(replay).toEqual({ detached: 0, alreadyRemoved: 0, instrumentIds: [] });
-    expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledTimes(1);
-    expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledWith("pm_agent_card");
-    expect(readAllEvents()).toEqual([
-      expect.objectContaining({
-        eventType: "payments.checkout-affordances-published",
-        payload: expect.objectContaining({
-          accountId: "acc_buyer",
-          savedCheckoutInstruments: expect.arrayContaining([
-            expect.objectContaining({ instrumentId: "sci_agent_card", readiness: "removed" }),
-          ]),
-        }),
-      }),
-    ]);
-    expect(db.readSavedCheckoutInstruments()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          instrument_id: "sci_agent_card",
-          readiness: "removed",
-          is_default: false,
-          removed_at: "2026-07-09T01:00:00.000Z",
-        }),
-        expect.objectContaining({
-          instrument_id: "sci_other_card",
-          readiness: "ready",
-        }),
-      ]),
-    );
+    await expect(
+      services.revokeSavedCheckoutInstrumentsForAgentGrant(
+        {
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt: "2026-07-09T01:00:00.000Z",
+          operationId: "9dd29df4-7442-4f0b-9270-d3b1fd66ce32",
+        },
+        context,
+      ),
+    ).rejects.toThrow("agent_grant_cleanup_wiring_missing");
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it("detaches a late setup result instead of saving it when the agent grant was already revoked", async () => {
@@ -2321,10 +2821,15 @@ describe("payment runtime", () => {
       processorGateway,
     });
 
-    const setup = await services.createSavedCheckoutSetupSession({
-      accountId: "acc_buyer" as never,
-      agentGrantId: "lpa_1",
-    });
+    const setup = await services.createSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c64",
+        returnUrlBase: "https://app.test",
+        agentGrantId: "lpa_1",
+      },
+      context,
+    );
     await services.revokeSavedCheckoutInstrumentsForAgentGrant(
       {
         accountId: "acc_buyer" as never,
@@ -2387,6 +2892,7 @@ describe("payment runtime", () => {
       {
         accountId: "acc_buyer" as never,
         instrumentId: "sci_card_1",
+        attemptId: "9a1d3c6e-2b4f-4e8a-8c1d-0f2e3a4b5c65",
       },
       context,
     );

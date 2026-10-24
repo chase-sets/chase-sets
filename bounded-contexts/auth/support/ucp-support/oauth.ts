@@ -1,8 +1,22 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { lookup as lookupDns } from "node:dns/promises";
+import type { LookupAddress } from "node:dns";
+import type { IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { BlockList, isIP } from "node:net";
+import type {
+  AgentGrantRevocations,
+  LinkedPlatformAuthorizationRow,
+  LinkedPlatformAuthorizationStore,
+  RevocationBinding,
+  RevocationState,
+} from "@chase-sets/identity/server";
+import { resumeAgentGrantRevocation } from "../../features/agent-grants/api/revocation";
 import { Hono, type Context } from "hono";
 import {
-  AGENT_OAUTH_SCOPE_FAMILIES,
-  AGENT_OAUTH_SUPPORTED_SCOPES,
+  AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES,
+  AGENT_OAUTH_COMMERCE_SCOPES,
+  isAgentOAuthOperatorScope,
   isAgentOAuthScope,
   normalizeAgentOAuthScopes,
   resolveAgentOAuthScopedPermissions,
@@ -20,10 +34,39 @@ import type { AgentGrantActivityDirectory } from "@chase-sets/platform-runtime/m
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
+import { isGuestCheckoutActor } from "../runtime-support/runtime";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import type { AuthServices } from "../runtime-support/services";
 import type { AgentWebhookOutbox } from "./agent-webhooks/agent-webhook-outbox";
 import { generateAgentWebhookSigningSecret, previewAgentWebhookSigningSecret } from "./agent-webhooks/webhook-signing";
 import { parseWebhookConfiguration, parseWebhookRegistration } from "./agent-webhooks/agent-webhook-registration";
+
+const consentSchemaStatements = [
+  `CREATE TABLE IF NOT EXISTS identity_ucp_oauth_consent_requests (
+    token_hash text PRIMARY KEY,
+    session_id text NOT NULL,
+    user_id text NOT NULL,
+    account_id text NOT NULL,
+    client_id text NOT NULL,
+    redirect_uri text NOT NULL,
+    scopes jsonb NOT NULL,
+    state text NULL,
+    code_challenge text NOT NULL,
+    code_challenge_method text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    consumed_at timestamptz NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS identity_ucp_oauth_consent_requests_expires_at_idx
+    ON identity_ucp_oauth_consent_requests (expires_at);`,
+] as const;
+
+export const authUcpOAuthConsentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261012_auth_ucp_oauth_consent",
+    description: "Store session-bound single-use OAuth consent requests before code issuance.",
+    statements: consentSchemaStatements,
+  },
+];
 
 export const authUcpOAuthSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_ucp_oauth_clients (
@@ -65,82 +108,19 @@ ALTER TABLE identity_ucp_oauth_authorization_codes
 
 CREATE INDEX IF NOT EXISTS identity_ucp_oauth_authorization_codes_expires_at_idx
   ON identity_ucp_oauth_authorization_codes (expires_at);
+
+${consentSchemaStatements.join("\n")}
 `;
 
 export type UcpOAuthRoutesOptions = Readonly<{
   auth: AuthServices;
-  linkedPlatformAuthorizations: Readonly<{
-    grant: (
-      params: Readonly<{
-        authorizationId: string;
-        platformProfileUrl: string;
-        clientId: string;
-        userId: string;
-        accountId: string;
-        scopes: readonly string[];
-        accessTokenHash: string;
-        refreshTokenHash?: string | null;
-        accessTokenExpiresAt: string;
-        refreshTokenExpiresAt?: string | null;
-        grantedAt: string;
-      }>,
-    ) => Promise<unknown>;
-    resolveToken: (tokenHash: string) => Promise<{
-      authorization_id: string;
-      platform_profile_url: string;
-      client_id: string;
-      user_id: string;
-      account_id: string;
-      scopes: readonly string[];
-      access_token_expires_at: string;
-      refresh_token_expires_at: string | null;
-    } | null>;
-    rotateRefreshToken: (
-      params: Readonly<{
-        refreshTokenHash: string;
-        newAccessTokenHash: string;
-        newRefreshTokenHash: string;
-        accessTokenExpiresAt: string;
-        refreshTokenExpiresAt: string;
-        refreshedAt: string;
-      }>,
-    ) => Promise<{
-      platform_profile_url: string;
-      client_id: string;
-      user_id: string;
-      account_id: string;
-      scopes: readonly string[];
-    } | null>;
-    revokeToken: (tokenHash: string, revokedAt: string) => Promise<boolean>;
-    revokeAuthorization: (
-      params: Readonly<{
-        authorizationId: string;
-        accountId: string;
-        revokedAt: string;
-        reason?: string | null;
-      }>,
-    ) => Promise<boolean>;
-    listForAccount: (accountId: string) => Promise<
-      readonly {
-        authorization_id: string;
-        platform_profile_url: string;
-        client_id: string;
-        user_id: string;
-        account_id: string;
-        scopes: readonly string[];
-        status: string;
-        access_token_expires_at: string;
-        refresh_token_expires_at: string | null;
-        granted_at: string;
-        last_refreshed_at: string | null;
-        revoked_at: string | null;
-        revocation_reason: string | null;
-        updated_at: string;
-      }[]
-    >;
-  }>;
+  linkedPlatformAuthorizations: LinkedPlatformAuthorizationStore;
+  agentGrantRevocations?: AgentGrantRevocations;
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
   fetchClientIdMetadata?: (url: string) => Promise<unknown>;
+  /** Test-only seams for the production pinned HTTPS transport. Never wire these in a deployable. */
+  lookupClientIdMetadata?: (hostname: string) => Promise<readonly LookupAddress[]>;
+  requestClientIdMetadata?: CimdRequest;
   // Per-grant spending mandates (agent consent state). Surfaced in introspection and the
   // connected-agents listing, and configured through the mandate endpoint.
   agentGrantConsent?: AgentGrantConsentDirectory;
@@ -152,7 +132,9 @@ export type UcpOAuthRoutesOptions = Readonly<{
   agentWebhookOutbox?: AgentWebhookOutbox;
 }>;
 
-const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
+export const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
+export const CIMD_FETCH_DEADLINE_MS = 5_000;
+export const CIMD_RESPONSE_MAX_BYTES = 32_768;
 const MAX_CLIENT_NAME_LENGTH = 120;
 const MAX_REDIRECT_URIS = 10;
 
@@ -168,12 +150,45 @@ function createAgentGrantRevocationContext(accountId: AccountId): EventStoreCont
 
 const UCP_OAUTH_DEFAULT_SCOPES = [
   "catalog:read",
-  "checkout:read",
-  "order:read",
+  "dev.ucp.shopping.order:read",
 ] as const satisfies readonly AgentOAuthScope[];
 
-export const UCP_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_SUPPORTED_SCOPES;
-export const UCP_OAUTH_SCOPE_FAMILIES = AGENT_OAUTH_SCOPE_FAMILIES;
+// Advertised lists only: registration and authorize also recognize the unadvertised operator scopes.
+export const UCP_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_COMMERCE_SCOPES;
+export const UCP_OAUTH_SCOPE_FAMILIES = AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES;
+
+type CimdRequest = (...args: Parameters<typeof httpsRequest>) => ReturnType<typeof httpsRequest>;
+
+const cimdSpecialUse = new BlockList();
+for (const [address, prefix] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+] as const) {
+  cimdSpecialUse.addSubnet(address, prefix, "ipv4");
+}
+for (const [address, prefix] of [
+  ["::", 128],
+  ["::1", 128],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+] as const) {
+  cimdSpecialUse.addSubnet(address, prefix, "ipv6");
+}
+const cimdGlobalV6 = new BlockList();
+cimdGlobalV6.addSubnet("2000::", 3, "ipv6");
 
 type AuthorizationCodeRow = Readonly<{
   code_id: string;
@@ -212,6 +227,58 @@ type OAuthClientRow = Readonly<{
   response_types: readonly string[];
   token_endpoint_auth_method: string;
 }>;
+
+type ConsentRequestRow = Readonly<{
+  token_hash: string;
+  session_id: string;
+  user_id: string;
+  account_id: string;
+  client_id: string;
+  redirect_uri: string;
+  scopes: readonly string[];
+  state: string | null;
+  code_challenge: string;
+  code_challenge_method: string;
+}>;
+
+function isInteractiveSessionActor(actor: ResolvedActor | null): actor is ResolvedActor {
+  return Boolean(actor?.sessionId && !actor.agentGrant && !isGuestCheckoutActor(actor));
+}
+
+async function readConsentRequest(auth: AuthServices, token: string, actor: ResolvedActor) {
+  if (!token) return null;
+  const result = await auth.db.query<ConsentRequestRow>(
+    `SELECT * FROM identity_ucp_oauth_consent_requests
+     WHERE token_hash = $1 AND session_id = $2 AND user_id = $3 AND account_id = $4
+       AND consumed_at IS NULL AND expires_at > now()`,
+    [auth.auth.hashSecret(token), actor.sessionId, actor.userId, actor.accountId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function resolveConsentClient(options: UcpOAuthRoutesOptions, consent: ConsentRequestRow) {
+  const client = await resolveOAuthClientMetadata(options, consent.client_id);
+  return client?.responseTypes.includes("code") &&
+    client.grantTypes.includes("authorization_code") &&
+    client.redirectUris.includes(consent.redirect_uri) &&
+    isScopeSubset(consent.scopes, client.scopes) &&
+    !consent.scopes.some(isAgentOAuthOperatorScope)
+    ? client
+    : null;
+}
+
+function consentAuthorizePath(consent: ConsentRequestRow) {
+  const query = new URLSearchParams({
+    response_type: "code",
+    client_id: consent.client_id,
+    redirect_uri: consent.redirect_uri,
+    scope: consent.scopes.join(" "),
+    code_challenge: consent.code_challenge,
+    code_challenge_method: consent.code_challenge_method,
+  });
+  if (consent.state !== null) query.set("state", consent.state);
+  return `/ucp/oauth/authorize?${query}`;
+}
 
 export function resolveUcpScopedPermissions(
   scopes: readonly string[],
@@ -264,7 +331,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "invalid_client_metadata", error_description: "Client metadata is required." }, 400);
     }
 
-    const metadataResult = parseClientRegistrationMetadata(body);
+    const metadataResult = parseClientRegistrationMetadata(body, "dynamic-registration");
     if (!metadataResult.ok) {
       return c.json({ error: "invalid_client_metadata", error_description: metadataResult.error }, 400);
     }
@@ -351,6 +418,11 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!scopes) {
       return c.json({ error: "invalid_scope", error_description: "Requested scopes are not supported." }, 400);
     }
+    // No operator grant may exist until operator sign-in adds its own consent gate and capped lifetime, so the
+    // whole request is refused for every role before any client lookup, sign-in or consent page.
+    if (scopes.some(isAgentOAuthOperatorScope)) {
+      return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
+    }
 
     if (
       responseType !== "code" ||
@@ -396,16 +468,103 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     }
 
     const actor = await options.resolveActor(c.req.raw);
-    if (!actor) {
-      return c.json(
-        {
-          error: "login_required",
-          error_description: "Sign in before linking this platform to a marketplace account.",
-        },
-        401,
-      );
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    if (!isInteractiveSessionActor(actor)) {
+      return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
     }
 
+    const token = options.auth.auth.issueOpaqueToken("ucp_consent");
+    await options.auth.db.query(
+      `INSERT INTO identity_ucp_oauth_consent_requests (
+        token_hash, session_id, user_id, account_id, client_id, redirect_uri, scopes, state,
+        code_challenge, code_challenge_method, expires_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::timestamptz)`,
+      [
+        options.auth.auth.hashSecret(token),
+        actor.sessionId,
+        actor.userId,
+        actor.accountId,
+        clientId,
+        redirectUri,
+        JSON.stringify(scopes),
+        state,
+        codeChallenge,
+        codeChallengeMethod,
+        new Date(Date.now() + 10 * 60 * 1_000).toISOString(),
+      ],
+    );
+    return c.redirect(`/account/agents/consent?${new URLSearchParams({ consent_token: token })}`, 302);
+  });
+
+  app.get("/consent", async (c) => {
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    const actor = await options.resolveActor(c.req.raw);
+    if (!isInteractiveSessionActor(actor)) return c.json({ error: "login_required" }, 401);
+    const consent = await readConsentRequest(options.auth, c.req.query("consent_token") ?? "", actor);
+    if (!consent) return c.json({ error: "invalid_request" }, 400);
+    const client = await resolveConsentClient(options, consent);
+    if (!client) return c.json({ error: "invalid_request" }, 400);
+    const memberships = await options.auth.db.query<{ accountId: string; accountName: string }>(
+      `SELECT accounts.account_id AS "accountId", accounts.display_name AS "accountName"
+       FROM auth_identity_user_memberships AS memberships
+       JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+       WHERE memberships.user_id = $1 AND memberships.status = 'active' AND accounts.status = 'active'
+       ORDER BY accounts.display_name, accounts.account_id`,
+      [actor.userId],
+    );
+    return c.json({
+      consent: {
+        clientName: client.clientName ?? client.clientId,
+        redirectOrigin: new URL(consent.redirect_uri).origin,
+        sessionId: actor.sessionId,
+        accountId: actor.accountId,
+        accountName:
+          memberships.rows.find((membership) => membership.accountId === actor.accountId)?.accountName ??
+          actor.accountId,
+        scopes: consent.scopes,
+        memberships: memberships.rows,
+        authorizePath: consentAuthorizePath(consent),
+      },
+    });
+  });
+
+  app.post("/authorize", async (c) => {
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    if (
+      c.req.header("origin") !== resolvePublicRequestOrigin(c.req.raw) ||
+      c.req.header("sec-fetch-site") === "cross-site"
+    ) {
+      return c.json({ error: "invalid_request" }, 403);
+    }
+    const actor = await options.resolveActor(c.req.raw);
+    if (!isInteractiveSessionActor(actor)) return c.json({ error: "login_required" }, 401);
+    const body = await readFormOrJson(c.req.raw);
+    const decision = readString(body.decision);
+    if (decision !== "approve" && decision !== "deny") return c.json({ error: "invalid_request" }, 400);
+    const consent = await readConsentRequest(options.auth, readString(body.consent_token) ?? "", actor);
+    if (!consent) return c.json({ error: "invalid_request" }, 400);
+    const client = await resolveConsentClient(options, consent);
+    if (!client) return c.json({ error: "invalid_request" }, 400);
+    const consumed = await options.auth.db.query<ConsentRequestRow>(
+      `UPDATE identity_ucp_oauth_consent_requests SET consumed_at = now()
+       WHERE token_hash = $1 AND session_id = $2 AND user_id = $3 AND account_id = $4
+         AND consumed_at IS NULL AND expires_at > now()
+       RETURNING *`,
+      [consent.token_hash, actor.sessionId, actor.userId, actor.accountId],
+    );
+    const bound = consumed.rows[0];
+    if (!bound) return c.json({ error: "invalid_request" }, 400);
+    const redirect = new URL(bound.redirect_uri);
+    redirect.searchParams.delete("code");
+    redirect.searchParams.delete("error");
+    if (bound.state !== null) redirect.searchParams.set("state", bound.state);
+    if (decision === "deny") {
+      redirect.searchParams.set("error", "access_denied");
+      return c.redirect(redirect.toString(), 302);
+    }
     const code = options.auth.auth.issueOpaqueToken("ucp_code");
     const expiresAt = new Date(
       Date.now() + authSecurityLifetimesOf(options.auth).ucpAuthorizationCodeTtlMs,
@@ -428,24 +587,20 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       [
         createId("cmd"),
         options.auth.auth.hashSecret(code),
-        clientId,
+        bound.client_id,
         client.platformProfileUrl,
-        redirectUri,
-        actor.userId,
-        actor.accountId,
-        JSON.stringify(scopes),
-        state,
-        codeChallenge,
-        codeChallengeMethod,
+        bound.redirect_uri,
+        bound.user_id,
+        bound.account_id,
+        JSON.stringify(bound.scopes),
+        bound.state,
+        bound.code_challenge,
+        bound.code_challenge_method,
         expiresAt,
       ],
     );
 
-    const redirect = new URL(redirectUri);
     redirect.searchParams.set("code", code);
-    if (state) {
-      redirect.searchParams.set("state", state);
-    }
     return c.redirect(redirect.toString(), 302);
   });
 
@@ -528,6 +683,13 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
 
     const scopes = normalizeScopes(authorization.scopes);
     const mandate = await options.agentGrantConsent?.resolveMandate(authorization.authorization_id);
+    const current = await options.linkedPlatformAuthorizations.resolveToken(options.auth.auth.hashSecret(token));
+    if (
+      !current ||
+      current.authorization_id !== authorization.authorization_id ||
+      current.account_id !== authorization.account_id
+    )
+      return c.json({ active: false });
     return c.json({
       active: true,
       client_id: authorization.client_id,
@@ -544,24 +706,67 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   app.post("/revoke", async (c) => {
     const body = await readFormOrJson(c.req.raw);
     const token = readString(body.token);
-    if (!token) {
+    if (!Object.hasOwn(body, "token")) {
       return c.json({ error: "invalid_request", error_description: "token is required." }, 400);
     }
+    if (!token || token.length > 1024) return c.body(null, 200);
 
-    await options.linkedPlatformAuthorizations.revokeToken(
-      options.auth.auth.hashSecret(token),
-      new Date().toISOString(),
-    );
-    return c.body(null, 200);
+    const tokenHash = options.auth.auth.hashSecret(token);
+    const authorization = await options.linkedPlatformAuthorizations.resolveRevocationToken(tokenHash);
+    if (!authorization) return c.body(null, 200);
+    const withMode =
+      options.agentGrantRevocations?.withMode ?? (async <T>(work: (active: boolean) => Promise<T>) => work(false));
+    return withMode(async (activated) => {
+      if (!activated) {
+        await options.linkedPlatformAuthorizations.revokeToken(tokenHash, new Date().toISOString());
+        return c.body(null, 200);
+      }
+      try {
+        const attemptId = readRevocationAttempt(
+          c.req.raw,
+          body,
+          legacyRevocationAttempt([authorization.account_id, authorization.authorization_id, tokenHash]),
+        );
+        const context = createAgentGrantRevocationContext(authorization.account_id as AccountId);
+        const binding: RevocationBinding = {
+          attemptId,
+          tenantId: context.tenantId,
+          accountId: authorization.account_id,
+          grantId: authorization.authorization_id,
+          userId: context.audit.performedByUserId,
+          sessionId: tokenHash,
+          provenance: "token",
+          reason: "token_revocation",
+          intent: "revoke",
+          contractVersion: 1,
+        };
+        const state = await options.agentGrantRevocations!.admit(binding, context);
+        if (!state) return c.json({ error: "temporarily_unavailable" }, 503);
+        await resumeAgentGrantRevocation(
+          {
+            advance: options.agentGrantRevocations!.advance,
+            cleanup: options.revokeStoredPaymentMethodsForAgentGrant,
+            exclude: options.agentWebhookOutbox?.excludeRevokedGrant,
+          },
+          state,
+          context,
+        );
+        return c.body(null, 200);
+      } catch {
+        return c.json({ error: "temporarily_unavailable" }, 503);
+      }
+    });
   });
 
   app.get("/authorizations", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
 
-    const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
+    const authorizations = (await options.linkedPlatformAuthorizations.listForAccount(actor.accountId)).filter(
+      (authorization) => authorization.account_id === actor.accountId,
+    );
     const clientDisplay = await resolveClientDisplayMap(
       options.auth,
       authorizations.map((authorization) => authorization.client_id),
@@ -576,32 +781,38 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // Single-grant detail read, backing the connected-agents detail page. Ownership is enforced
   // the same way the mandate route enforces it: the grant must appear in the account's list.
   app.get("/authorizations/:id", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
 
     const authorizationId = c.req.param("id");
-    const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
-    const authorization = authorizations.find((candidate) => candidate.authorization_id === authorizationId);
+    const authorization = await resolveAccountAuthorization(options, actor.accountId, authorizationId);
     if (!authorization) {
       return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
     }
 
     const clientDisplay = await resolveClientDisplayMap(options.auth, [authorization.client_id]);
-    return c.json({ authorization: await authorizationToJson(options, authorization, clientDisplay) });
+    const revocationActivated = (await options.agentGrantRevocations?.isActivated()) ?? false;
+    return c.json({
+      authorization: await authorizationToJson(options, authorization, clientDisplay),
+      revocation_active: revocationActivated,
+      revocation_available: revocationActivated
+        ? (await options.agentGrantRevocations?.readProgress(actor.accountId, authorizationId)) !== "completed"
+        : authorization.status === "active",
+    });
   });
 
   // Activity view: a read model over the MCP audit sink, filtered to one grant. Backs the
   // "watches tool activity accrue" acceptance criterion for the connected-agents UI.
   app.get("/authorizations/:id/activity", async (c) => {
-    if (!options.agentGrantActivity) {
-      return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
-    }
-
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
+    }
+
+    if (!options.agentGrantActivity) {
+      return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
     }
 
     const authorizationId = c.req.param("id");
@@ -639,7 +850,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // surface addresses it through a grant so account ownership is checked before
   // the client registration is read or replaced.
   app.get("/authorizations/:id/webhook", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -657,7 +868,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.put("/authorizations/:id/webhook", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -674,15 +885,22 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
 
     const updatedAt = new Date().toISOString();
     const signingSecret = parsed.configuration.callbackUrl ? generateAgentWebhookSigningSecret() : null;
-    const updated = await options.auth.db.query(
-      `UPDATE identity_ucp_oauth_clients
+    if (!options.agentGrantRevocations) return c.json({ error: "temporarily_unavailable" }, 503);
+    const updated = await options.agentGrantRevocations.withActiveGrant(
+      actor.accountId,
+      authorization.authorization_id,
+      () =>
+        options.auth.db.query(
+          `UPDATE identity_ucp_oauth_clients
        SET webhook_callback_url = $1,
            webhook_signing_secret = $2,
            webhook_signing_secret_created_at = $3::timestamptz
        WHERE client_id = $4
        RETURNING webhook_callback_url, webhook_signing_secret, webhook_signing_secret_created_at`,
-      [parsed.configuration.callbackUrl, signingSecret, signingSecret ? updatedAt : null, authorization.client_id],
+          [parsed.configuration.callbackUrl, signingSecret, signingSecret ? updatedAt : null, authorization.client_id],
+        ),
     );
+    if (!updated) return c.json({ error: "grant_revoked" }, 409);
     if (updated.rows.length === 0) {
       return c.json({ error: "not_found", error_description: "The OAuth client registration no longer exists." }, 404);
     }
@@ -699,7 +917,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.get("/authorizations/:id/webhook-deliveries", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -724,43 +942,101 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.post("/authorizations/:id/revoke", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
 
-    const revokedAt = new Date().toISOString();
     const agentGrantId = c.req.param("id");
-    const revokingAccountId = actor.accountId as AccountId;
-    const revoked = await options.linkedPlatformAuthorizations.revokeAuthorization({
-      authorizationId: agentGrantId,
-      accountId: revokingAccountId,
-      revokedAt,
-      reason: "account_consent_revoked",
-    });
-    if (revoked) {
-      await options.revokeStoredPaymentMethodsForAgentGrant?.(
-        {
-          accountId: revokingAccountId,
-          agentGrantId,
+    const withMode =
+      options.agentGrantRevocations?.withMode ?? (async <T>(work: (active: boolean) => Promise<T>) => work(false));
+    return withMode(async (activated) => {
+      if (!activated) {
+        const revokedAt = new Date().toISOString();
+        const revoked = await options.linkedPlatformAuthorizations.revokeAuthorization({
+          authorizationId: agentGrantId,
+          accountId: actor.accountId,
           revokedAt,
-        },
-        createAgentGrantRevocationContext(revokingAccountId),
+          reason: "account_consent_revoked",
+        });
+        if (revoked)
+          await options.revokeStoredPaymentMethodsForAgentGrant?.(
+            {
+              accountId: actor.accountId as AccountId,
+              agentGrantId,
+              revokedAt,
+            },
+            createAgentGrantRevocationContext(actor.accountId as AccountId),
+          );
+        return c.json({ revoked });
+      }
+      const authorization = await resolveAccountAuthorization(options, actor.accountId, agentGrantId);
+      if (!authorization) return c.json({ error: "not_found" }, 404);
+      const alreadyRevoked = authorization.status === "revoked";
+      try {
+        const attemptId = readRevocationAttempt(
+          c.req.raw,
+          await readFormOrJson(c.req.raw),
+          legacyRevocationAttempt([actor.tenantId, actor.userId, actor.sessionId, actor.accountId, agentGrantId]),
+        );
+        const binding = sessionRevocationBinding(actor, agentGrantId, attemptId);
+        const context: EventStoreContext = {
+          tenantId: actor.tenantId as EventStoreContext["tenantId"],
+          audit: {
+            performedByUserId: actor.userId as EventStoreContext["audit"]["performedByUserId"],
+            forAccountId: actor.accountId as AccountId,
+          },
+        };
+        const initial = await options.agentGrantRevocations!.admit(binding, context);
+        if (!initial) return c.json({ error: "not_found" }, 404);
+        const state = await resumeAgentGrantRevocation(
+          {
+            advance: options.agentGrantRevocations!.advance,
+            cleanup: options.revokeStoredPaymentMethodsForAgentGrant,
+            exclude: options.agentWebhookOutbox?.excludeRevokedGrant,
+          },
+          initial,
+          context,
+        );
+        return c.json({ revoked: true, ...revocationReceipt(state, attemptId, alreadyRevoked) });
+      } catch (error) {
+        const conflict =
+          error instanceof Error && ["revocation_conflict", "revocation_binding_invalid"].includes(error.message);
+        return c.json({ state: conflict ? "conflict" : "failed-safe" }, conflict ? 409 : 503);
+      }
+    });
+  });
+
+  app.get("/authorizations/:id/revocation/:attemptId", async (c) => {
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
+    if (!actor) return c.json({ state: "reauth-required" }, 401);
+    if (!(await resolveAccountAuthorization(options, actor.accountId, c.req.param("id"))))
+      return c.json({ state: "route-denied" }, 404);
+    if (!options.agentGrantRevocations) return c.json({ state: "ambiguous" }, 503);
+    try {
+      const attemptId = c.req.param("attemptId");
+      const state = await options.agentGrantRevocations.read(
+        sessionRevocationBinding(actor, c.req.param("id"), attemptId),
       );
+      if (!state) return c.json({ attempt_id: attemptId, state: "ambiguous" });
+      return c.json(revocationReceipt(state, attemptId, false));
+    } catch (error) {
+      const conflict =
+        error instanceof Error && ["revocation_conflict", "revocation_binding_invalid"].includes(error.message);
+      return c.json({ state: conflict ? "conflict" : "ambiguous" }, conflict ? 409 : 503);
     }
-    return c.json({ revoked });
   });
 
   // Configure the spending mandate for a linked agent grant. This is the opt-in a person
   // makes (during consent or the connected-agents UI) to move off the conservative default.
   app.put("/authorizations/:id/mandate", async (c) => {
-    if (!options.agentGrantConsent) {
-      return c.json({ error: "unsupported", error_description: "Spending mandates are not configured." }, 404);
-    }
-
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
+    }
+
+    if (!options.agentGrantConsent) {
+      return c.json({ error: "unsupported", error_description: "Spending mandates are not configured." }, 404);
     }
 
     const authorizationId = c.req.param("id");
@@ -775,11 +1051,20 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "invalid_request", error_description: parsed.error }, 400);
     }
 
-    await options.agentGrantConsent.setMandate({
-      grantId: authorizationId,
-      accountId: actor.accountId,
-      mandate: parsed.mandate,
-    });
+    if (!options.agentGrantRevocations) return c.json({ error: "temporarily_unavailable" }, 503);
+    const committed = await options.agentGrantRevocations.withActiveGrant(
+      actor.accountId,
+      authorizationId,
+      async () => {
+        await options.agentGrantConsent!.setMandate({
+          grantId: authorizationId,
+          accountId: actor.accountId,
+          mandate: parsed.mandate,
+        });
+        return true;
+      },
+    );
+    if (!committed) return c.json({ error: "grant_revoked" }, 409);
     const mandate = await options.agentGrantConsent.resolveMandate(authorizationId);
     return c.json({ spending_mandate: mandateToJson(mandate) });
   });
@@ -787,9 +1072,63 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   return app;
 }
 
+async function resolveInteractiveSessionActor(options: UcpOAuthRoutesOptions, request: Request) {
+  const actor = await options.resolveActor(request);
+  return isInteractiveSessionActor(actor) ? actor : null;
+}
+
+function legacyRevocationAttempt(binding: readonly string[]): string {
+  const hex = createHash("sha256").update(JSON.stringify(binding)).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function readRevocationAttempt(
+  request: Request,
+  body: Readonly<Record<string, unknown>>,
+  fallback: string = randomUUID(),
+): string {
+  const header = request.headers.get("Idempotency-Key");
+  const field = body.attempt_id;
+  if (field !== undefined && typeof field !== "string") throw new Error("revocation_binding_invalid");
+  if (header && field && header.toLowerCase() !== field.toLowerCase()) throw new Error("revocation_conflict");
+  const attemptId = header ?? field ?? fallback;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId))
+    throw new Error("revocation_binding_invalid");
+  return attemptId.toLowerCase();
+}
+
+function sessionRevocationBinding(actor: ResolvedActor, grantId: string, attemptId: string): RevocationBinding {
+  return {
+    attemptId,
+    tenantId: actor.tenantId,
+    accountId: actor.accountId,
+    grantId,
+    userId: actor.userId,
+    sessionId: actor.sessionId,
+    provenance: "session",
+    reason: "account_consent_revoked",
+    intent: "revoke",
+    contractVersion: 1,
+  };
+}
+
+function revocationReceipt(state: RevocationState, attemptId: string, alreadyRevoked: boolean) {
+  return {
+    attempt_id: attemptId,
+    operation_id: state.operationId,
+    phase: state.phase,
+    state:
+      state.phase === "completed" ? (alreadyRevoked ? "already-revoked-cleanup-complete" : "succeeded") : "ambiguous",
+  };
+}
+
 async function resolveAccountAuthorization(options: UcpOAuthRoutesOptions, accountId: string, authorizationId: string) {
   const authorizations = await options.linkedPlatformAuthorizations.listForAccount(accountId);
-  return authorizations.find((authorization) => authorization.authorization_id === authorizationId) ?? null;
+  return (
+    authorizations.find(
+      (authorization) => authorization.authorization_id === authorizationId && authorization.account_id === accountId,
+    ) ?? null
+  );
 }
 
 type WebhookClientRow = Readonly<{
@@ -831,26 +1170,11 @@ function mandateToJson(mandate: AgentSpendingMandate) {
   };
 }
 
-type AuthorizationSummary = Readonly<{
-  authorization_id: string;
-  platform_profile_url: string;
-  client_id: string;
-  scopes: readonly string[];
-  status: string;
-  access_token_expires_at: string;
-  refresh_token_expires_at: string | null;
-  granted_at: string;
-  last_refreshed_at: string | null;
-  revoked_at: string | null;
-  revocation_reason: string | null;
-  updated_at: string;
-}>;
-
 type ClientDisplayInfo = Readonly<{ clientName: string | null; clientUri: string | null }>;
 
 async function authorizationToJson(
   options: UcpOAuthRoutesOptions,
-  authorization: AuthorizationSummary,
+  authorization: LinkedPlatformAuthorizationRow,
   clientDisplay: ReadonlyMap<string, ClientDisplayInfo>,
 ) {
   const consent = options.agentGrantConsent;
@@ -864,6 +1188,7 @@ async function authorizationToJson(
 
   return {
     id: authorization.authorization_id,
+    account_id: authorization.account_id,
     platform_profile_url: authorization.platform_profile_url,
     client_id: authorization.client_id,
     client_name: display?.clientName ?? null,
@@ -969,12 +1294,20 @@ async function refreshAccessToken(c: Context, options: UcpOAuthRoutesOptions, bo
     return c.json({ error: "invalid_grant", error_description: "Refresh token is invalid or expired." }, 400);
   }
 
+  const scopes = normalizeScopes(authorization.scopes);
+  if (scopes.length === 0) {
+    return c.json(
+      { error: "invalid_grant", error_description: "No supported scopes remain. Reconnect the agent." },
+      400,
+    );
+  }
+
   return c.json({
     access_token: accessToken,
     token_type: "Bearer",
     expires_in: Math.floor(tokenLifetimes.ucpAccessTokenTtlMs / 1000),
     refresh_token: newRefreshToken,
-    scope: normalizeScopes(authorization.scopes).join(" "),
+    scope: scopes.join(" "),
   });
 }
 
@@ -1024,11 +1357,12 @@ async function readFormOrJson(request: Request) {
 }
 
 function normalizeScopes(value: unknown): readonly string[] {
-  return normalizeAgentOAuthScopes(value, UCP_OAUTH_DEFAULT_SCOPES);
+  return normalizeAgentOAuthScopes(value);
 }
 
 function parseClientRegistrationMetadata(
   body: Readonly<Record<string, unknown>>,
+  source: "dynamic-registration" | "client-id-metadata-document",
 ): { ok: true; metadata: Omit<OAuthClientMetadata, "clientId"> } | { ok: false; error: string } {
   if (readString(body.client_secret) || readString(body.jwks_uri) || readObject(body.jwks)) {
     return { ok: false, error: "Confidential client credentials are not supported for agent-platform clients." };
@@ -1075,7 +1409,13 @@ function parseClientRegistrationMetadata(
   }
 
   const clientUri = readString(body.client_uri);
-  const platformProfileUrl = readString(body.platform_profile_url) ?? clientUri;
+  // Stock MCP clients register with neither client_uri nor platform_profile_url, so such a dynamic registration is
+  // attributed to the origin of its first sorted redirect_uri. A registration that sends either field, and every
+  // Client ID Metadata Document, keeps the explicit-value rules.
+  const omitsProfileUrls = body.platform_profile_url === undefined && body.client_uri === undefined;
+  const redirectOrigin =
+    source === "dynamic-registration" && omitsProfileUrls ? new URL(redirectUris[0]!).origin : undefined;
+  const platformProfileUrl = readString(body.platform_profile_url) ?? clientUri ?? redirectOrigin;
   const clientName = readString(body.client_name);
   if (clientName && clientName.length > MAX_CLIENT_NAME_LENGTH) {
     return { ok: false, error: "client_name is too long." };
@@ -1113,7 +1453,7 @@ async function resolveOAuthClientMetadata(options: UcpOAuthRoutesOptions, client
   if (registered) {
     return registered;
   }
-  if (!isTrustedHttpUrl(clientId)) {
+  if (!isClientIdMetadataUrl(clientId, Boolean(options.fetchClientIdMetadata))) {
     return null;
   }
   return readClientIdMetadataDocument(options, clientId);
@@ -1149,20 +1489,15 @@ async function readClientIdMetadataDocument(
   options: UcpOAuthRoutesOptions,
   clientId: string,
 ): Promise<OAuthClientMetadata | null> {
-  const fetchMetadata =
-    options.fetchClientIdMetadata ??
-    (async (url: string) => {
-      const response = await fetch(url, { headers: { Accept: "application/json" }, redirect: "error" });
-      if (!response.ok) {
-        return null;
-      }
-      return response.json();
-    });
-  const body = readObject(await fetchMetadata(clientId).catch(() => null));
+  const body = readObject(
+    options.fetchClientIdMetadata
+      ? await readInjectedClientIdMetadata(options.fetchClientIdMetadata, clientId)
+      : await fetchPinnedClientIdMetadata(clientId, options),
+  );
   if (!body) {
     return null;
   }
-  const parsed = parseClientRegistrationMetadata(body);
+  const parsed = parseClientRegistrationMetadata(body, "client-id-metadata-document");
   if (!parsed.ok) {
     return null;
   }
@@ -1171,6 +1506,189 @@ async function readClientIdMetadataDocument(
     return null;
   }
   return { ...parsed.metadata, clientId };
+}
+
+function isClientIdMetadataUrl(value: string, allowInjectedLoopback: boolean) {
+  if (Buffer.byteLength(value, "utf8") > MAX_CLIENT_METADATA_URL_LENGTH) return false;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" &&
+      !(allowInjectedLoopback && url.protocol === "http:" && isLocalHost(url.hostname))
+    ) {
+      return false;
+    }
+    return allowInjectedLoopback || !isLocalHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function cimdPublicAddress(address: LookupAddress) {
+  const hostname = address.address.replace(/^\[|\]$/g, "");
+  if (address.family === 4) return isIP(hostname) === 4 && !cimdSpecialUse.check(hostname, "ipv4");
+  return (
+    address.family === 6 &&
+    isIP(hostname) === 6 &&
+    !hostname.toLowerCase().startsWith("::ffff:") &&
+    cimdGlobalV6.check(hostname, "ipv6") &&
+    !cimdSpecialUse.check(hostname, "ipv6")
+  );
+}
+
+async function readInjectedClientIdMetadata(fetchMetadata: (url: string) => Promise<unknown>, clientId: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      fetchMetadata(clientId),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), CIMD_FETCH_DEADLINE_MS);
+      }),
+    ]);
+    if (result === null) return null;
+    try {
+      if (Buffer.byteLength(JSON.stringify(result), "utf8") > CIMD_RESPONSE_MAX_BYTES) return null;
+    } catch {
+      return null;
+    }
+    return result;
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function fetchPinnedClientIdMetadata(clientId: string, options: UcpOAuthRoutesOptions) {
+  let url: URL;
+  try {
+    url = new URL(clientId);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || Buffer.byteLength(clientId, "utf8") > MAX_CLIENT_METADATA_URL_LENGTH) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CIMD_FETCH_DEADLINE_MS);
+  try {
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
+    const family = isIP(hostname);
+    let addresses: readonly LookupAddress[];
+    if (family) {
+      addresses = [{ address: hostname, family }];
+    } else {
+      const lookup = (options.lookupClientIdMetadata ?? ((host) => lookupDns(host, { all: true })))(hostname);
+      addresses = await Promise.race([lookup, abortWithEmptyAddresses(controller.signal)]);
+    }
+    if (
+      controller.signal.aborted ||
+      addresses.length === 0 ||
+      addresses.some((address) => !cimdPublicAddress(address))
+    ) {
+      return null;
+    }
+    const address = addresses[0]!;
+    const request = await Promise.race([
+      requestPinnedClientIdMetadata(url, address, controller.signal, options.requestClientIdMetadata ?? httpsRequest),
+      abortWithNullRequest(controller.signal),
+    ]);
+    if (!request) return null;
+    try {
+      if (request.statusCode === undefined || request.statusCode < 200 || request.statusCode >= 300) {
+        request.response.destroy();
+        return null;
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of request.response) {
+        if (controller.signal.aborted) return null;
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        size += bytes.byteLength;
+        if (size > CIMD_RESPONSE_MAX_BYTES) {
+          request.response.destroy();
+          return null;
+        }
+        chunks.push(bytes);
+      }
+      if (controller.signal.aborted) return null;
+      try {
+        return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        return null;
+      }
+    } finally {
+      request.cleanup();
+    }
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function abortWithEmptyAddresses(signal: AbortSignal) {
+  return new Promise<readonly LookupAddress[]>((resolve) => {
+    if (signal.aborted) {
+      resolve([]);
+      return;
+    }
+    signal.addEventListener("abort", () => resolve([]), { once: true });
+  });
+}
+
+function abortWithNullRequest(signal: AbortSignal) {
+  return new Promise<null>((resolve) => {
+    if (signal.aborted) {
+      resolve(null);
+      return;
+    }
+    signal.addEventListener("abort", () => resolve(null), { once: true });
+  });
+}
+
+async function requestPinnedClientIdMetadata(
+  url: URL,
+  address: LookupAddress,
+  signal: AbortSignal,
+  request: CimdRequest,
+) {
+  return new Promise<{
+    response: IncomingMessage;
+    statusCode?: number;
+    cleanup: () => void;
+  }>((resolve, reject) => {
+    let response: IncomingMessage | undefined;
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
+    const client = request(
+      url,
+      {
+        signal,
+        agent: false,
+        family: address.family,
+        servername: isIP(hostname) ? undefined : hostname,
+        headers: { Accept: "application/json", Host: url.host },
+        lookup: (_hostname, lookupOptions, callback) => {
+          if (lookupOptions.all) callback(null, [address]);
+          else callback(null, address.address, address.family);
+        },
+      },
+      (incoming) => {
+        response = incoming;
+        resolve({
+          response: incoming,
+          statusCode: incoming.statusCode,
+          cleanup: () => signal.removeEventListener("abort", abort),
+        });
+      },
+    );
+    const abort = () => {
+      client.destroy();
+      response?.destroy?.();
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    client.on("error", reject);
+    client.end();
+  });
 }
 
 function normalizeRequestedScopes(value: unknown): readonly string[] | null {

@@ -41,6 +41,7 @@ const row: Extract<ChannelDriftDetailRow, { rowKind: "listing" }> = {
 };
 const loaded = (): Extract<ChannelDriftDetail, { kind: "loaded" }> => ({
   kind: "loaded",
+  salesCoverage: "complete",
   basis: "d".repeat(64),
   runState: "completed",
   observedAt: "2026-09-14T00:00:00.000Z",
@@ -169,6 +170,31 @@ function harness(
 }
 
 describe("channel-drift-detail production loader/action/router", () => {
+  it("claimed-reconcile-fallback-b-ui keeps listing labels and declares unverified recent sales", async () => {
+    harness({ initial: { ...loaded(), salesCoverage: "unverified", rows: [{ ...row, classification: "in-sync" }] } });
+    expect(await screen.findByText("Listing comparison only; recent sales coverage is unverified.")).toBeTruthy();
+    expect(screen.getByText("Matches expected state")).toBeTruthy();
+    expect(screen.queryByText("In sync")).toBeNull();
+  });
+  it.each([
+    ["stale-snapshot", "The Live snapshot is stale or its capture time is unavailable."],
+    ["persistent-sale-gap", "A quantity drop is not explained by recorded sales. Review the channel listing."],
+  ] as const)("claimed-reconcile-fallback-b-ui renders the existing %s finding", async (flag, warning) => {
+    harness({
+      initial: {
+        ...loaded(),
+        salesCoverage: "unverified",
+        rows: [{ rowKind: "finding", rowIdentity: "a".repeat(64), flag, runGeneration: 1 }],
+      },
+    });
+    expect(await screen.findByText(warning)).toBeTruthy();
+    expect(screen.getByText("Listing comparison only; recent sales coverage is unverified.")).toBeTruthy();
+  });
+  it("claimed-reconcile-fallback-b-ui leaves inline copy unchanged", async () => {
+    harness();
+    expect(await screen.findByText(row.channelListingId)).toBeTruthy();
+    expect(screen.queryByText("Listing comparison only; recent sales coverage is unverified.")).toBeNull();
+  });
   it("renders the drift section as flush furniture", async () => {
     harness();
     expect((await screen.findByTestId("channel-drift-panel")).className).toBe("rounded-tokenLg overflow-hidden p-4");

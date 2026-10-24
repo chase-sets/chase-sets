@@ -1,11 +1,10 @@
 export const operatorEnvironments = ["staging", "production"] as const;
+export const operatorExtensionId = "ghemdloifdkoadnapmigabiekchlholm";
 export type OperatorEnvironment = (typeof operatorEnvironments)[number];
 export const operatorOrigins = {
   staging: "https://admin.staging.chasesets.com",
   production: "https://admin.chasesets.com",
 } as const;
-export const operatorCookieUrl = "https://store.tcgplayer.com/admin/pricing";
-export const operatorCookieName = "TCGAuthTicket_Production";
 export const operatorStates = [
   "unpaired",
   "idle",
@@ -20,7 +19,6 @@ export const operatorOutcomes = [
   "stored",
   "unchanged",
   "stale-revision",
-  "cookie-absent",
   "grant-invalid",
   "rate-limited",
   "unavailable",
@@ -34,8 +32,6 @@ export type OperatorStatus = {
   lastOutcome: OperatorOutcome | null;
   lastPushedAt: string | null;
   serverRevision: number;
-  cookiePresent: boolean;
-  browserExpiresAt: string | null;
 };
 export type OperatorCommand =
   | { action: "pair"; environment: OperatorEnvironment; grant: string }
@@ -87,47 +83,12 @@ export function isCommand(value: unknown): value is OperatorCommand {
 }
 export function isStatus(value: unknown): value is OperatorStatus {
   return (
-    closed(value, [
-      "paired",
-      "state",
-      "lastOutcome",
-      "lastPushedAt",
-      "serverRevision",
-      "cookiePresent",
-      "browserExpiresAt",
-    ]) &&
+    closed(value, ["paired", "state", "lastOutcome", "lastPushedAt", "serverRevision"]) &&
     typeof value.paired === "boolean" &&
     operatorStates.some((state) => state === value.state) &&
     (value.lastOutcome === null || operatorOutcomes.some((outcome) => outcome === value.lastOutcome)) &&
     (value.lastPushedAt === null || isInstant(value.lastPushedAt)) &&
     safeInteger(value.serverRevision) &&
-    typeof value.cookiePresent === "boolean" &&
-    (value.browserExpiresAt === null || isInstant(value.browserExpiresAt))
+    true
   );
-}
-
-export type OperatorCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  storeId: string;
-  expirationDate?: number;
-  partitionKey?: unknown;
-};
-export function isOperatorCookie(cookie: OperatorCookie): boolean {
-  return (
-    cookie.name === operatorCookieName &&
-    (cookie.domain === "store.tcgplayer.com" ||
-      cookie.domain === ".store.tcgplayer.com" ||
-      cookie.domain === ".tcgplayer.com") &&
-    cookie.storeId === "0" &&
-    cookie.partitionKey === undefined
-  );
-}
-export function cookieExpiry(cookie: OperatorCookie): string | null {
-  const instant = cookie.expirationDate === undefined ? NaN : cookie.expirationDate * 1000;
-  return Number.isFinite(instant) && instant >= 0 && instant <= 253402300799999
-    ? new Date(instant).toISOString()
-    : null;
 }
