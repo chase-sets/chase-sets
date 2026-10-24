@@ -4207,7 +4207,12 @@ async function expandWorkflowStage(page: Page, stage: WorkflowStageKey, timeoutM
       throw error;
     }
     if (expanded === "true") break;
-    await trigger.click({ timeout: remaining() });
+    try {
+      await trigger.click({ timeout: remaining() });
+    } catch (error) {
+      if (Date.now() >= deadline) throw new WholeGameDeadlineReached();
+      throw error;
+    }
     await page.waitForTimeout(Math.min(250, remaining()));
   }
   await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: remaining() });
