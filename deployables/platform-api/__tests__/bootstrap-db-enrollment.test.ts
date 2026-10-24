@@ -35,6 +35,7 @@ import {
   createBootstrapDbWorkloadBaseline,
   deriveBootstrapDbWorkload,
   formatBootstrapDbWorkloadBaseline,
+  resolveApiDbWorkspaceConcurrency,
   type BootstrapDbWorkloadBaseline,
   type BootstrapDbWorkloadBinding,
   type BootstrapDbWorkloadCaptureBinding,
@@ -3113,6 +3114,54 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(() => loadFrozenSource(gzipSync("null"), capture)).toThrow(
         refusal("it is unreadable (its root is not a JSON object)"),
       );
+    });
+  });
+
+  describe("DB workspace concurrency derives from the API matrix cell", () => {
+    const workflowPath = join(repositoryRoot, ".github/workflows/platform-pr.yml");
+
+    it("resolves the exact b1bbb7ec workflow expression to API concurrency 2", () => {
+      const result = resolveApiDbWorkspaceConcurrency(readFileSync(workflowPath, "utf8"));
+      expect(result).toEqual({ value: "2", gaps: [] });
+    });
+
+    it.each([
+      {
+        label: "an other-only expression",
+        edit: (workflow: string) =>
+          workflow.replace(
+            "${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+            "${{ matrix.db-workspace-group == 'other' && '3' }}",
+          ),
+      },
+      {
+        label: "a literal removed without an environment declaration",
+        edit: (workflow: string) => workflow.replace(/^\s*DB_WORKSPACE_CONCURRENCY:.*\r?\n/m, ""),
+      },
+      {
+        label: "two environment declarations",
+        edit: (workflow: string) =>
+          workflow.replace(
+            "      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+            "      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}\n      DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
+          ),
+      },
+      {
+        label: "a non-integer value",
+        edit: (workflow: string) => workflow.replace("&& '3' || '2'", "&& 'three' || '2'"),
+      },
+      {
+        label: "a literal and environment concurrency together",
+        edit: (workflow: string) =>
+          workflow.replace(
+            '--concurrency="$DB_WORKSPACE_CONCURRENCY"',
+            '--concurrency=2 --concurrency="$DB_WORKSPACE_CONCURRENCY"',
+          ),
+      },
+    ])("fails closed for $label", ({ edit }) => {
+      const result = resolveApiDbWorkspaceConcurrency(edit(readFileSync(workflowPath, "utf8")));
+      expect(result.value).toBeNull();
+      expect(result.gaps.length).toBeGreaterThan(0);
     });
   });
 
