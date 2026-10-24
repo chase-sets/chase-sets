@@ -687,7 +687,15 @@ describe("producer *", () => {
       async evaluate(fn, input) {
         return fn({
           ...input,
-          fetchImpl: async () => new Response(new ReadableStream({ start() {} }), { status: 200 }),
+          fetchImpl: async (_path, init) =>
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  init.signal.addEventListener("abort", () => controller.error(new Error("aborted")));
+                },
+              }),
+              { status: 200 },
+            ),
         });
       },
     };
