@@ -53,6 +53,30 @@ function createFixture() {
 }
 
 describe("Identity operator authority", () => {
+  it("checks a grant creator against the live Membership aggregate and catalog permission", async () => {
+    const { authority, grant, run } = createFixture();
+    await grant("mem_creator", "platform-admin");
+
+    await expect(authority.forGrantCreator({ userId: "usr_op", membershipId: "mem_creator" })).resolves.toMatchObject({
+      kind: "granted",
+      membershipId: "mem_creator",
+    });
+    await expect(authority.forGrantCreator({ userId: "usr_other", membershipId: "mem_creator" })).resolves.toEqual({
+      kind: "denied",
+      reason: "membership-mismatch",
+    });
+
+    await run("mem_creator", {
+      type: "ChangeMembershipRole",
+      roleKey: "owner",
+      assignmentAuthority: { type: "system" },
+    });
+    await expect(authority.forGrantCreator({ userId: "usr_op", membershipId: "mem_creator" })).resolves.toEqual({
+      kind: "denied",
+      reason: "not-platform-admin",
+    });
+  });
+
   it("grants an active platform-admin aggregate with the Identity role permissions, including projection operations", async () => {
     const { authority, grant, actor } = createFixture();
     await grant("mem_admin", "platform-admin");
