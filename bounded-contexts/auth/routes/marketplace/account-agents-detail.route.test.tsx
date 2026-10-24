@@ -14,6 +14,8 @@ const { api } = vi.hoisted(() => ({
     getAgentGrant: vi.fn(),
     listAgentGrantActivity: vi.fn(),
     getAgentGrantWebhook: vi.fn(),
+    updateAgentGrantMandate: vi.fn(),
+    updateAgentGrantWebhook: vi.fn(),
     revokeAgentGrant: vi.fn(),
     getAgentGrantRevocation: vi.fn(),
   },
@@ -44,10 +46,10 @@ const grant: AgentGrant = {
   revocation_reason: null,
   updated_at: "2026-10-12T00:00:00.000Z",
 };
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
+function deferred<T = void>() {
+  let resolve!: (value?: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = (value?: T) => done(value as T);
   });
   return { promise, resolve };
 }
@@ -80,6 +82,30 @@ async function revoke() {
 }
 
 describe("agent-grant-revocation-real-route", () => {
+  it("each connected-agent form busies only itself", async () => {
+    const mandate = deferred();
+    const webhook = deferred<{ webhook: null }>();
+    api.updateAgentGrantMandate.mockReturnValue(mandate.promise);
+    api.updateAgentGrantWebhook.mockReturnValue(webhook.promise);
+    const router = await mount();
+    const mandateButton = screen.getByRole("button", { name: "Save spending mandate" });
+    const mandateForm = mandateButton.closest("form")!;
+    fireEvent.click(mandateButton);
+    await waitFor(() => expect(api.updateAgentGrantMandate).toHaveBeenCalledOnce());
+    expect(mandateForm.getAttribute("aria-busy")).toBe("true");
+    const webhookForm = screen.getByRole("button", { name: "Save webhook endpoint" }).closest("form")!;
+    expect(webhookForm.getAttribute("aria-busy")).toBeNull();
+    await act(async () => mandate.resolve(null));
+    await waitFor(() => expect(mandateForm.getAttribute("aria-busy")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Save webhook endpoint" }));
+    await waitFor(() => expect(api.updateAgentGrantWebhook).toHaveBeenCalledOnce());
+    expect(webhookForm.getAttribute("aria-busy")).toBe("true");
+    expect(mandateForm.getAttribute("aria-busy")).toBeNull();
+    await act(async () => webhook.resolve({ webhook: null }));
+    await waitFor(() => expect(webhookForm.getAttribute("aria-busy")).toBeNull());
+    router.dispose();
+  });
+
   it("mount waits for the held initial Grant load past any async-util budget", async () => {
     const initialLoad = deferred();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });

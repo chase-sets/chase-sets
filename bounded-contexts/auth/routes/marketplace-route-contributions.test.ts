@@ -48,6 +48,25 @@ const REQUIRED_ANONYMOUS_SIGN_IN_ROUTES = {
 } as const satisfies Readonly<Record<SignInMethod, readonly string[]>>;
 
 describe("Auth marketplace route contributions", () => {
+  it("enumerates every route mount of the migrated auth page components", () => {
+    const mounts = {
+      SignInPage: ["routes/access-admin/sign-in.tsx", "routes/marketplace/sign-in.tsx"],
+      RegisterPage: ["routes/marketplace/register.tsx"],
+      AccountSelectionPage: ["routes/access-admin/account-select.tsx", "routes/marketplace/account-select.tsx"],
+      SessionDetailPage: ["routes/access-admin/sessions-detail.tsx", "routes/marketplace/account-sessions-detail.tsx"],
+      AgentGrantDetailPage: ["routes/marketplace/account-agents-detail.tsx"],
+    } as const;
+    for (const [component, files] of Object.entries(mounts)) {
+      for (const file of files) {
+        const source = readFileSync(join(authRoot, file), "utf8");
+        expect(source, `${component} import in ${file}`).toMatch(new RegExp(`import \\{ ${component} \\}`));
+        expect(source, `${component} JSX mount in ${file}`).toMatch(new RegExp(`<${component}\\b`));
+      }
+    }
+    const catalogAdminSignIn = readFileSync(join(authRoot, "routes/catalog-admin/sign-in.tsx"), "utf8");
+    expect(catalogAdminSignIn).toContain("export default AccessAdminSignInRoute");
+  });
+
   it("declares the Auth-owned guest checkout exit route", () => {
     expect(marketplaceRoutes()).toEqual(
       expect.arrayContaining([

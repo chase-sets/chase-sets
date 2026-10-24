@@ -14,7 +14,6 @@ import {
   CurrencyInput,
   DataTable,
   EvidenceCodeBlock,
-  Form,
   HiddenInput,
   Inline,
   List,
@@ -24,6 +23,7 @@ import {
   Text,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import type { AgentGrant, AgentGrantActivityRecord, AgentGrantWebhook, AgentGrantRevocationReceipt } from "./contracts";
 import { AGENT_GRANT_PAYMENT_RAILS } from "./contracts";
 import {
@@ -99,7 +99,7 @@ function MandateForm({ grant }: { grant: AgentGrant }) {
   const [allowedRails, setAllowedRails] = useState<string[]>([...(mandate?.allowed_rails ?? ["handoff-only"])]);
 
   return (
-    <Form spacing="md" method="post">
+    <RouterForm spacing="md" method="post">
       <Stack gap={3}>
         <HiddenInput type="hidden" name="intent" value="update-mandate" readOnly />
         <CurrencyInput
@@ -152,7 +152,7 @@ function MandateForm({ grant }: { grant: AgentGrant }) {
           <Button type="submit">{t("auth.features.agentGrants.ui.agentGrantDetailPage.mandate.save")}</Button>
         </Inline>
       </Stack>
-    </Form>
+    </RouterForm>
   );
 }
 
@@ -200,7 +200,7 @@ function WebhookForm({
   return (
     <Stack gap={3}>
       <Text tone="secondary">{t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.description")}</Text>
-      <Form key={current?.callback_url ?? "disabled"} spacing="md" method="post">
+      <RouterForm spacing="md" method="post">
         <Stack gap={3}>
           <TextInput
             label={t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.callback.url")}
@@ -220,7 +220,7 @@ function WebhookForm({
             ) : null}
           </Inline>
         </Stack>
-      </Form>
+      </RouterForm>
       {current?.signing_secret_preview ? (
         <Stack gap={1}>
           <Text weight="semibold">{t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.preview")}</Text>

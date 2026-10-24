@@ -58,6 +58,7 @@ describe("invitation-acceptance-real-route", () => {
     );
     render(<RouterProvider router={router} />);
     await screen.findByText("Confirming invitation acceptance");
+    expect(document.body.innerHTML).not.toContain("synthetic-secret");
     fireEvent.click(screen.getByRole("button", { name: "Check status" }));
     await screen.findByText("Invitation accepted. Sign in to continue.");
     expect(api.getInvitationAcceptanceStatus).toHaveBeenCalledWith({
@@ -69,6 +70,7 @@ describe("invitation-acceptance-real-route", () => {
     expect(complete).not.toHaveBeenCalled();
     expect(window.history.state.idx).toBe(2);
     expect(JSON.stringify(window.history.state)).not.toMatch(/synthetic-secret|password|challenge/);
+    expect(document.body.innerHTML).not.toContain("synthetic-secret");
   });
   it("renders submitting and confirming through the real action, performs lookup after possible send and never retries the write", async () => {
     api.inspectInvitation.mockResolvedValue(pending);
@@ -96,6 +98,7 @@ describe("invitation-acceptance-real-route", () => {
     );
     render(<RouterProvider router={router} />);
     await screen.findByText("Accept your invitation");
+    expect(document.body.innerHTML).not.toContain("synthetic-secret");
     fireEvent.click(screen.getByRole("radio", { name: "Password" }));
     const password = screen.getByLabelText("Enter or create a password");
     fireEvent.change(password, { target: { value: "synthetic-password-secret" } });
