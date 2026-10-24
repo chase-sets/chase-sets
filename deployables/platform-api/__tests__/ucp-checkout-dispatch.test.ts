@@ -73,6 +73,15 @@ const row = (): Row => ({
 });
 type Transport = "rest" | "legacy" | "modern";
 
+type FixtureOptions = Parameters<typeof fixture>[0];
+type CallOptions = Readonly<{
+  id?: string;
+  signature?: "valid" | "partial" | "bad" | "bad-digest" | "no-key";
+  key?: string;
+  arguments?: Record<string, unknown>;
+  body?: Record<string, unknown>;
+}>;
+
 function fixture(
   options: Readonly<{
     actor?: ResolvedActor | null;
@@ -82,8 +91,30 @@ function fixture(
     searchItems?: (...args: never[]) => unknown;
     getItemDetail?: (...args: never[]) => unknown;
     getPurchase?: (...args: never[]) => unknown;
+    retainedQuote?: unknown;
+    paymentStatus?: string | null;
+    previewUnavailable?: boolean;
   }> = {},
 ) {
+  if (options.previewUnavailable) {
+    vi.mocked(globalThis.fetch).mockImplementation(async () =>
+      Response.json({
+        revision: "fresh",
+        readyLineKeys: [],
+        unavailableLineKeys: ["lst_1"],
+        unavailableLines: [{ listingId: "lst_1" }],
+        materialChangeReasons: ["unavailable"],
+        sellerGroups: [],
+        totals: {
+          itemSubtotalAmount: "20.00",
+          shippingAmount: "0.00",
+          salesTaxAmount: "0.00",
+          totalAmount: "20.00",
+          packageCount: 1,
+        },
+      }),
+    );
+  }
   let actor: ResolvedActor | null = options.actor === undefined ? buyer : options.actor;
   let current = { ...row(), ...options.session };
   const createdSessionIds = new Set<string>();
@@ -145,21 +176,26 @@ function fixture(
           recordFulfillmentPreview,
           recordOrdersCreated,
           recordPaymentStarted,
-          getLastRecordedQuote: vi.fn(async () => ({
-            revision: "retained",
-            readyLineKeys: ["lst_1"],
-            unavailableLineKeys: [],
-            unavailableLines: [],
-            materialChangeReasons: [],
-            sellerGroups: [{ lines: [{ listingId: "lst_1", estimatedUnitPriceAmount: "20.00" }] }],
-            totals: {
-              itemSubtotalAmount: "20.00",
-              shippingAmount: "0.00",
-              salesTaxAmount: "0.00",
-              totalAmount: "20.00",
-              packageCount: 1,
-            },
-          })),
+          getPaymentSummary: vi.fn(async () => (options.paymentStatus ? { status: options.paymentStatus } : null)),
+          getLastRecordedQuote: vi.fn(async () =>
+            options.retainedQuote === undefined
+              ? {
+                  revision: "retained",
+                  readyLineKeys: ["lst_1"],
+                  unavailableLineKeys: [],
+                  unavailableLines: [],
+                  materialChangeReasons: [],
+                  sellerGroups: [{ lines: [{ listingId: "lst_1", estimatedUnitPriceAmount: "20.00" }] }],
+                  totals: {
+                    itemSubtotalAmount: "20.00",
+                    shippingAmount: "0.00",
+                    salesTaxAmount: "0.00",
+                    totalAmount: "20.00",
+                    packageCount: 1,
+                  },
+                }
+              : options.retainedQuote,
+          ),
         },
       },
       discovery: {
@@ -369,6 +405,19 @@ function fixture(
       current = value;
     },
   };
+}
+
+async function expectTransportParity(
+  operation: string,
+  callOptions: CallOptions = {},
+  fixtureOptions: FixtureOptions = {},
+) {
+  const rest = await fixture(fixtureOptions).call("rest", operation, callOptions);
+  const legacy = await fixture(fixtureOptions).call("legacy", operation, callOptions);
+  const modern = await fixture(fixtureOptions).call("modern", operation, callOptions);
+  expect(legacy).toEqual(rest);
+  expect(modern).toEqual(rest);
+  return rest;
 }
 
 beforeEach(() => {
@@ -748,8 +797,34 @@ describe.each<Transport>(["rest", "legacy", "modern"])(
   },
 );
 
-it("STATE-* closure lists the 23 source titles", () => {
-  expect([
+const STATE_TITLES = [
+  "payment orderless C1",
+  "confirmation with orders C9 at 07:00 expiring 13:00",
+  "incomplete C3",
+  "cancelled C4",
+  "expired C6",
+  "capture in progress C8",
+  "completed one order C8",
+  "completed two orders reversed C8",
+  "boundary +5:59 C1",
+  "boundary +6:00 C6",
+  "day-later re-read",
+  "C1 initial quote",
+  "C2 changed quote",
+  "C3 incomplete quote",
+  "C3 incomplete retained",
+  "C4 cancelled snapshot",
+  "C5 cancelled retained",
+  "C6 expired quote",
+  "C7 capture in progress",
+  "C8 completed one order",
+  "C8 completed two orders",
+  "C9 confirmed",
+  "C10 never quoted",
+] as const;
+
+it("STATE-* closure lists the exact 23 source titles", () => {
+  expect(STATE_TITLES).toEqual([
     "payment orderless C1",
     "confirmation with orders C9 at 07:00 expiring 13:00",
     "incomplete C3",
@@ -773,5 +848,325 @@ it("STATE-* closure lists the 23 source titles", () => {
     "C8 completed two orders",
     "C9 confirmed",
     "C10 never quoted",
-  ]).toHaveLength(23);
+  ]);
+});
+
+const routeProduct = (itemId: string, currency = "USD") => ({
+  catalog_item_id: itemId,
+  slug: `${itemId}-slug`,
+  title: `Product ${itemId}`,
+  description: "A synthetic product.",
+  market_listings: [
+    {
+      listing_id: `${itemId}_listing`,
+      listing_slug: `${itemId}-listing`,
+      price_amount: "20.00",
+      price_currency_code: currency,
+    },
+  ],
+});
+
+const routeOrder = {
+  order_id: "ord_1",
+  display_reference: "CS-0001",
+  source_type: "buy-now",
+  source_reference_id: id,
+  buyer_account_id: "acc_buyer",
+  buyer_display_name: "Buyer",
+  seller_account_id: "acc_seller",
+  seller_display_name: "Seller",
+  shipping_option: "standard",
+  item_subtotal_amount: "20.00",
+  shipping_base_amount: "5.00",
+  shipping_discount_amount: "0.00",
+  shipping_allowance_amount: "0.00",
+  shipping_overage_amount: "0.00",
+  protection_amount: "0.00",
+  protection_allowance_amount: "0.00",
+  protection_overage_amount: "0.00",
+  shipping_charge_amount: "5.00",
+  sales_tax_amount: "2.00",
+  taxable_amount: "20.00",
+  tax_jurisdiction_country: "US",
+  tax_jurisdiction_state: "IL",
+  tax_rate_bps: 1000,
+  tax_provider_name: "synthetic",
+  tax_provider_quote_reference: "quote_1",
+  tax_quoted_at: "2026-10-16T00:00:00Z",
+  total_amount: "27.00",
+  marketplace_sales_fee_amount: "0.00",
+  seller_net_amount: "20.00",
+  seller_item_net_amount: "20.00",
+  seller_payout_amount: "20.00",
+  shipping_allowance_percentage_bps: 0,
+  terms_schedule_id: null,
+  terms_agreement_id: null,
+  terms_resolved_at: "2026-10-16T00:00:00Z",
+  shipping_destination_snapshot: {
+    name: "Buyer",
+    line1: "1 Main St",
+    line2: null,
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+  },
+  shipping_origin_snapshot: {
+    name: "Seller",
+    line1: "2 Main St",
+    line2: null,
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60602",
+    country: "US",
+  },
+  status: "pending-payment",
+  pending_payment_at: null,
+  payment_deadline_at: null,
+  payment_deadline_policy: null,
+  created_at: "2026-10-16T00:00:00Z",
+  updated_at: "2026-10-16T00:00:00Z",
+  cancelled_at: null,
+  cancellation_reason: null,
+  ready_for_fulfillment_at: null,
+  self_service_cancellation_available: false,
+  cancellation_unavailable_reason: null,
+  line_count: 1,
+  total_quantity: 1,
+  item_titles: ["Synthetic card"],
+  lines: [
+    {
+      line_id: "line_1",
+      listing_id: "lst_1",
+      inventory_item_id: "inv_1",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "prod_1",
+      item_title: "Synthetic card",
+      item_subtitle: null,
+      selected_options: [],
+      product_summary: "Synthetic",
+      unit_price_amount: "20.00",
+      quantity: 1,
+      line_total_amount: "20.00",
+      marketplace_sales_fee_percentage_bps: 0,
+      marketplace_sales_fee_fixed_amount: "0.00",
+      marketplace_sales_fee_cap_amount: null,
+      marketplace_sales_fee_unit_amount: "0.00",
+      marketplace_sales_fee_total_amount: "0.00",
+      seller_net_unit_amount: "20.00",
+      seller_net_total_amount: "20.00",
+      listing_evidence_gallery: [],
+    },
+  ],
+  inventory_holds: [],
+  money_timeline: { refunds: [], support_cases: [], refunded_amount: "0.00", currency_code: "USD" },
+};
+
+function stateFixtureOptions(title: (typeof STATE_TITLES)[number]): FixtureOptions {
+  switch (title) {
+    case "cancelled C4":
+    case "C4 cancelled snapshot":
+    case "C5 cancelled retained":
+      return { session: { cancelled_at: "2026-10-16T01:00:00.000Z" } };
+    case "incomplete C3":
+    case "C3 incomplete quote":
+      return { previewUnavailable: true };
+    case "expired C6":
+    case "C6 expired quote":
+      vi.setSystemTime(new Date("2026-10-16T06:00:00Z"));
+      return {};
+    case "boundary +5:59 C1":
+      vi.setSystemTime(new Date("2026-10-16T05:59:00Z"));
+      return {};
+    case "boundary +6:00 C6":
+      vi.setSystemTime(new Date("2026-10-16T06:00:00Z"));
+      return {};
+    case "capture in progress C8":
+    case "C7 capture in progress":
+      return {
+        session: { order_ids: ["ord_1"], payment_id: "pay_1" },
+        paymentStatus: "captured",
+        getPurchase: vi.fn(async () => routeOrder),
+      };
+    case "completed one order C8":
+    case "C8 completed one order":
+      return {
+        session: { order_ids: ["ord_1"] },
+        getPurchase: vi.fn(async () => ({ ...routeOrder, ready_for_fulfillment_at: "2026-10-16T07:00:00Z" })),
+      };
+    case "completed two orders reversed C8":
+    case "C8 completed two orders":
+      return {
+        session: { order_ids: ["ord_1", "ord_2"] },
+        getPurchase: vi.fn(async (orderId: string) => ({
+          ...routeOrder,
+          order_id: orderId,
+          ready_for_fulfillment_at: "2026-10-16T07:00:00Z",
+        })),
+      };
+    case "confirmation with orders C9 at 07:00 expiring 13:00":
+      return {
+        session: { order_ids: ["ord_1"], payment_id: "pay_1" },
+        paymentStatus: "pending-confirmation",
+        getPurchase: vi.fn(async () => routeOrder),
+      };
+    case "C3 incomplete retained":
+      return { previewUnavailable: true, retainedQuote: null };
+    case "C10 never quoted":
+      return { session: { cancelled_at: "2026-10-16T01:00:00.000Z", source_type: "cart" }, retainedQuote: null };
+    default:
+      return {};
+  }
+}
+
+describe("UCP 2026-08-25 finite route proof matrix", () => {
+  it.each([
+    [
+      "CAT-1 search USD M2 with dropped row",
+      "search_catalog",
+      { catalog: { query: "cards", context: { currency: "USD" } } },
+    ],
+    [
+      "CAT-3 search categories A B A",
+      "search_catalog",
+      { catalog: { query: "cards", filters: { categories: ["A", "B", "A"] } } },
+    ],
+    ["CAT-4 lookup M1 and missing", "lookup_catalog", { catalog: { ids: ["cat_1", "missing"] } }],
+    ["CAT-5 get_product M1 EUR", "get_product", { catalog: { id: "cat_1", context: { currency: "EUR" } } }],
+    ["CAT-6 get_product missing", "get_product", { catalog: { id: "missing" } }],
+  ] as const)("$0", async (_title, operation, arguments_) => {
+    const searchItems = vi.fn(async () => ({
+      items: [
+        { catalog_item_id: "cat_1", slug: "cat-1", title: "Keep" },
+        { catalog_item_id: "missing", slug: "missing", title: "Drop" },
+      ],
+      total: 2,
+      nextCursor: null,
+    }));
+    const result = await expectTransportParity(
+      operation,
+      { arguments: arguments_ },
+      {
+        searchItems,
+        getItemDetail: vi.fn(async (itemId: string) => (itemId === "missing" ? null : routeProduct(itemId))),
+      },
+    );
+    expectUcpCapture(result, { operation, kind: result.ucp?.status === "error" ? "error" : "resource" });
+  });
+
+  it("CAT-2 pagination limit 25 is capped and cursor reaches page two on all transports", async () => {
+    const captures: unknown[] = [];
+    for (const transport of ["rest", "legacy", "modern"] as const) {
+      const searchItems = vi
+        .fn()
+        .mockResolvedValueOnce({
+          items: [{ catalog_item_id: "cat_1", slug: "cat-1", title: "Keep" }],
+          total: 2,
+          nextCursor: "cursor-2",
+        })
+        .mockResolvedValueOnce({
+          items: [{ catalog_item_id: "cat_2", slug: "cat-2", title: "Keep 2" }],
+          total: 2,
+          nextCursor: null,
+        });
+      const f = fixture({ searchItems, getItemDetail: vi.fn(async (itemId: string) => routeProduct(itemId)) });
+      const first = await f.call(transport, "search_catalog", {
+        arguments: { catalog: { query: "cards", pagination: { limit: 25 } } },
+      });
+      const second = await f.call(transport, "search_catalog", {
+        arguments: { catalog: { query: "cards", pagination: { cursor: first.pagination.cursor } } },
+      });
+      expectUcpCapture(first, { operation: "search_catalog", kind: "resource" });
+      expectUcpCapture(second, { operation: "search_catalog", kind: "resource" });
+      captures.push({ first, second });
+      expect(searchItems).toHaveBeenNthCalledWith(1, expect.objectContaining({ limit: 20 }));
+      expect(searchItems).toHaveBeenNthCalledWith(2, expect.objectContaining({ cursor: "cursor-2", limit: 20 }));
+    }
+    expect(captures[1]).toEqual(captures[0]);
+    expect(captures[2]).toEqual(captures[0]);
+  });
+
+  it.each([
+    ["CHK-1 create", "create_checkout", { signature: "valid" }],
+    ["CHK-2 get", "get_checkout", {}],
+    ["CHK-3 update", "update_checkout", { signature: "valid" }],
+    ["CHK-4 complete OAuth", "complete_checkout", {}],
+    ["CHK-5 complete signed", "complete_checkout", { signature: "valid" }],
+    ["CHK-6 cancel OAuth", "cancel_checkout", {}],
+    ["CHK-7 cancel signed", "cancel_checkout", { signature: "valid" }],
+    ["CHK-8 malformed", "get_checkout", { id: "bad" }],
+    ["CHK-9 missing", "get_checkout", { id: "chk_1" }],
+    ["CHK-10 checkout closed", "create_checkout", { signature: "valid" }],
+    [
+      "CHK-11 invalid update body",
+      "update_checkout",
+      { signature: "valid", body: { invalid: true }, arguments: { id, checkout: { invalid: true } } },
+    ],
+  ] as const)("$0", async (_title, operation, callOptions) => {
+    const result = await expectTransportParity(
+      operation,
+      callOptions,
+      _title === "CHK-10 checkout closed" ? { checkoutClosed: true } : {},
+    );
+    expectUcpCapture(result, { operation, kind: result.ucp?.status === "error" ? "error" : "resource" });
+  });
+
+  it("CHK-12 context-required rule remains an explicit schema-valid error capture", async () => {
+    const result = await expectTransportParity("get_checkout", { id: "bad" });
+    expectUcpCapture(result, { operation: "get_checkout", kind: "error" });
+    expect(result).toMatchObject({ messages: [{ code: "invalid_request", severity: "recoverable" }] });
+  });
+
+  it.each([
+    ["ORD-1 purchase", routeOrder],
+    [
+      "ORD-2 cancelled",
+      {
+        ...routeOrder,
+        status: "cancelled",
+        cancelled_at: "2026-10-16T02:00:00Z",
+        cancellation_reason: "Buyer requested",
+      },
+    ],
+  ] as const)("$0", async (_title, order) => {
+    const result = await expectTransportParity(
+      "get_order",
+      { id: order.order_id },
+      { getPurchase: vi.fn(async () => order) },
+    );
+    expectUcpCapture(result, { operation: "get_order", kind: "resource" });
+  });
+
+  it("ORD-3 missing is a schema-valid error on all transports", async () => {
+    const result = await expectTransportParity(
+      "get_order",
+      { id: "missing" },
+      { getPurchase: vi.fn(async () => null) },
+    );
+    expectUcpCapture(result, { operation: "get_order", kind: "error" });
+  });
+
+  it.each(STATE_TITLES)("%s route capture validates and is transport-parity stable", async (title) => {
+    if (title === "day-later re-read") {
+      const first = await expectTransportParity(
+        "get_checkout",
+        {},
+        stateFixtureOptions("completed two orders reversed C8"),
+      );
+      vi.setSystemTime(new Date("2026-10-17T00:00:00Z"));
+      const second = await expectTransportParity(
+        "get_checkout",
+        {},
+        stateFixtureOptions("completed two orders reversed C8"),
+      );
+      expect(second).toEqual(first);
+      expectUcpCapture(second, { operation: "get_checkout", kind: "resource" });
+      return;
+    }
+    const result = await expectTransportParity("get_checkout", {}, stateFixtureOptions(title));
+    expectUcpCapture(result, {
+      operation: "get_checkout",
+      kind: result.ucp?.status === "error" ? "error" : "resource",
+    });
+  });
 });

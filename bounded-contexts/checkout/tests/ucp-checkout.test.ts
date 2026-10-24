@@ -418,7 +418,13 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     expect(await f.restHandlers.get_checkout(input())).toMatchObject({
       status: "requires_escalation",
       expires_at: "2026-10-16T06:00:00.000Z",
-      messages: [{}],
+      messages: [
+        {
+          type: "warning",
+          code: "payment_required",
+          content: "Payment is required to continue checkout.",
+        },
+      ],
     });
     f.setTime("2026-10-16T06:00:00Z");
     ports.previewBuyNowCheckoutSupplyThroughOrdering.mockClear();
