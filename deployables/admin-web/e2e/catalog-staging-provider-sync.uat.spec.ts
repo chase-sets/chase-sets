@@ -7528,8 +7528,8 @@ async function serveWholeGameApplicationFixture(
   const jobs: WholeGamePromoteJob[] = [];
   const requested = fixtureBatch({});
   const other = fixtureBatch({ batchId: "batch-other", status: "failed", units: requested.units });
-  const scopePage = `<form method="post" data-catalog-merge-candidate-bulk-promote="true">
-    <input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form>`;
+  const scopePage = `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false" onclick="this.setAttribute('aria-expanded','true'); this.nextElementSibling.hidden=false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true">
+    <input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form></div>`;
   const calls = await serveWholeGameFixture(page, (request) => {
     if (request.path === "/catalog/scopes/sync-batches")
       return { html: fixtureBatchSection(other) + fixtureBatchSection(requested) };
@@ -8088,7 +8088,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         if (request.path === "/catalog/scopes/scope-1") {
           if (request.method === "POST") submitted = true;
           return {
-            html: `<form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form>`,
+            html: `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false" onclick="this.setAttribute('aria-expanded','true'); this.nextElementSibling.hidden=false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form></div>`,
           };
         }
         if (request.path === "/api/catalog/source-observations/bulk-jobs/active")
@@ -8415,7 +8415,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
             result: { promoted: 0, outcomes: [] },
           });
         return {
-          html: `<form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form>`,
+            html: `<button type="button" data-catalog-import-workflow-stage="review-changes" aria-expanded="false" onclick="this.setAttribute('aria-expanded','true'); this.nextElementSibling.hidden=false">Review changes</button><div hidden><form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button>Promote all ready</button></form></div>`,
         };
       }
       if (request.path.startsWith("/api/catalog/source-observations/bulk-jobs/zero-"))

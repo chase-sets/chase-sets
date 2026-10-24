@@ -113,6 +113,64 @@ describe("whole-game repair regressions", () => {
     );
   });
 
+  it("AC2 bounds a collapsed review-stage expansion before promotion", async () => {
+    const declarations = ["expandWorkflowStage", "submitPromoteAllReady"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    let expanded = false;
+    let posted = false;
+    const trigger = {
+      or: () => trigger,
+      first: () => trigger,
+      getAttribute: async (name) => (name === "aria-expanded" && expanded ? "true" : "false"),
+      click: async () => {},
+    };
+    const promoteButton = {};
+    const form = {
+      filter: () => form,
+      getByRole: () => promoteButton,
+    };
+    const page = {
+      url: () => rehearsal.wholeGameStagingOrigin,
+      locator: (selector) => (selector.includes("workflow-stage") ? trigger : form),
+      waitForTimeout: async () => {},
+      getByRole: () => trigger,
+    };
+    const runtime = { deadlineAt: Date.now() + 1_000, pollMs: 1 };
+    const context = vm.createContext({
+      ...rehearsal,
+      Date,
+      Set,
+      URLSearchParams,
+      pageReadyTimeoutMs: 1_000,
+      syncTimeoutMs: 1_000,
+      page,
+      expect: () => ({
+        toBeVisible: async () => {},
+        toHaveAttribute: async () => {
+          if (!expanded) throw new rehearsal.WholeGameDeadlineReached();
+        },
+        toHaveCount: async () => {},
+      }),
+      readAllCompletedPromoteJobs: async () => [],
+      readWholeGameJson: async () => ({ items: [] }),
+      gotoWholeGamePage: async () => {},
+      wholeGameRemainingMs: () => 1_000,
+      clickWholeGameControl: async (_page, control) => {
+        if (control === promoteButton && !expanded) throw new Error("click timeout");
+        posted = true;
+      },
+      readActivePromoteJobs: async () => [],
+    });
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    const startedAt = Date.now();
+    await expect(
+      context.submitPromoteAllReady(page, "scope-1", [], runtime),
+    ).rejects.toBeInstanceOf(rehearsal.WholeGameDeadlineReached);
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(posted).toBe(false);
+  });
+
   it.each(["full-game-start", "full-game-settle"])(
     "refuses automatic retries of %s before navigation or credentials",
     async (scope) => {
