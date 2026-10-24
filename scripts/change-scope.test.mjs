@@ -142,6 +142,35 @@ async function importChangeScopeVariant(source) {
   }
 }
 
+it("kills a source mutant that removes unavailable-scope widening", async () => {
+  const source = readFileSync(path.join(repoRoot, "scripts/change-scope.mjs"), "utf8");
+  const mutation = "scope: fullScopeForUnavailableChangeSet(workspaces, reason),";
+  const mutatedSource = source.replace(mutation, "scope: classifyChanges({ changedFiles: [], workspaces, baseDir }),");
+  expect(mutatedSource).not.toBe(source);
+  const mutant = await importChangeScopeVariant(mutatedSource);
+  const result = mutant.resolveChangeScope("base", "head", {
+    execFileSync: (_command, args) => {
+      if (args[0] === "merge-base") return "abc123\n";
+      throw new Error("diff unavailable");
+    },
+    workspaces: [],
+    baseDir: process.cwd(),
+  });
+
+  expect(result.fallbackReason).toBe("diff-failed");
+  expect(result.scope.unitTestsRequired).toBe(false);
+  expect(
+    resolveChangeScope("base", "head", {
+      execFileSync: (_command, args) => {
+        if (args[0] === "merge-base") return "abc123\n";
+        throw new Error("diff unavailable");
+      },
+      workspaces: [],
+      baseDir: process.cwd(),
+    }).scope.unitTestsRequired,
+  ).toBe(true);
+});
+
 describe("rendered-copy real-provider selection corpus", () => {
   it("preserves current-main owning selection for modified, added, deleted and --no-renames paths", async () => {
     const fixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8")).renderedCopy;
