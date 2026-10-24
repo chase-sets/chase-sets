@@ -516,7 +516,8 @@
         "api-route:bounded-contexts/pricing/features/pricing-health/api/route.ts:POST /:policyId/apply-goal",
         "route-action:bounded-contexts/pricing/support/route-support/pricing-health.tsx",
         "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:H52c9743ac335#1",
-        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#1"
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/pricing/support/route-support/pricing-health.tsx:Hb08a81ecfd73#2"
       ],
       "visibleDestination": {
         "description": "Compute verdict returns the persisted dry-run snapshot and redirects to direct durable request/summary reads; queued work is visibly pending and revalidated without waiting for an event projection."
