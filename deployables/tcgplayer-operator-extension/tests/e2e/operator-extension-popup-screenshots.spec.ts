@@ -41,6 +41,12 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
     await page.route("**/*", (route) => (route.request().url().startsWith(origin) ? route.continue() : route.abort()));
     for (const state of ["empty", "loading", "error", "success"]) {
       await page.goto(`${origin}/synthetic-operator-popup.html?state=${state}`, { waitUntil: "commit" });
+      if ((await page.getByRole("heading", { name: "TCGplayer SetNames probe" }).count()) === 0) {
+        await testInfo.attach(`popup-debug-${state}.html`, {
+          body: await page.content(),
+          contentType: "text/html",
+        });
+      }
       await expect(page.getByRole("heading", { name: "TCGplayer SetNames probe" })).toBeVisible();
       if (state === "empty") {
         for (const input of await page.locator('input[inputmode="numeric"]').all()) await input.fill("");
