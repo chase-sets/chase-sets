@@ -552,7 +552,7 @@ test("connector-pairing-drill-control C13", async () => {
         const worker = context.serviceWorkers()[0];
         await worker.evaluate(async (url) => {
           await fetch(url, { method: "POST", headers: { authorization: `Bearer ${synthetic.access}` }, body: "{}" });
-        }, `${platform.platform.origin}/channel-connector/oauth/connections/connection_synthetic/claim`);
+        }, `${input.platformOrigin}/channel-connector/oauth/connections/connection_synthetic/claim`);
       },
     }),
   });
