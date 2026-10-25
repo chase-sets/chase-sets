@@ -10,6 +10,7 @@ use super::marketplace;
 use crate::{
     api::{FieldValue, Item, Listing, Offer, Reference},
     app::url,
+    buying::{BuyFields, BuyNotice, field},
     items::{
         Address, Book, ItemScreen, Market, OptionMarket, Picks, active_dimensions, available, normalize, option_label,
         ordered_options,
@@ -260,15 +261,27 @@ fn detail_rows(fields: &[FieldValue]) -> Vec<(String, String)> {
 }
 
 /// The page.
-pub fn item_page<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render + 'a {
-    html! { <ItemDetail t={t} screen={screen} address={address} slug={slug} /> }
+pub fn item_page<'a>(
+    t: ItemMsg,
+    screen: &'a ItemScreen,
+    address: &'a Address,
+    slug: &'a str,
+    notice: Option<&'a BuyNotice>,
+) -> impl Render + 'a {
+    html! { <ItemDetail t={t} screen={screen} address={address} slug={slug} notice={notice} /> }
 }
 
 /// The page: breadcrumbs; the summary, the picture, the options and the market; the rail with
 /// the listing or offer chosen; and the market book. Stacked on a phone; the picture beside the
 /// rest from 48rem.
 #[component(css)]
-pub fn ItemDetail<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
+pub fn ItemDetail<'a>(
+    t: ItemMsg,
+    screen: &'a ItemScreen,
+    address: &'a Address,
+    slug: &'a str,
+    notice: Option<&'a BuyNotice>,
+) -> impl Render {
     let item = &screen.item;
     let category = item.categories.first();
     let image = item_image(item);
@@ -332,7 +345,7 @@ pub fn ItemDetail<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, 
                 <Intent t={t} screen={screen} address={address} slug={slug} />
                 <Selector t={t} screen={screen} address={address} slug={slug} />
                 <MarketSummary t={t} screen={screen} />
-                <Rail t={t} screen={screen} address={address} slug={slug} />
+                <Rail t={t} screen={screen} address={address} slug={slug} notice={notice} />
             </div>
             <div class={Below}>
                 <MarketBook t={t} screen={screen} address={address} slug={slug} />
@@ -595,11 +608,20 @@ fn MarketSummary<'a>(t: ItemMsg, screen: &'a ItemScreen) -> impl Render {
     }
 }
 
-/// What the buyer would act on: the listing chosen (or the best available one), or when selling
-/// the offer chosen (or the best one). Buying, offering and selling are marketplace's page until
-/// the pilot ports them.
+/// What the buyer would act on, and the buy forms (marketplace's purchase section): for the listing
+/// shown, Buy this listing and Add listing to Buy Cart; for the product chosen (folded under the
+/// listing when there is one), Add product to Buy Cart and Buy best match. Each is a plain form,
+/// so it works without JavaScript (`buying`). A write that is not known to have applied holds the
+/// adds until the buyer sends it again or looks at the cart. Offers, selling and watching are
+/// marketplace's page until the pilot ports them.
 #[component(css = ItemDetail)]
-fn Rail<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
+fn Rail<'a>(
+    t: ItemMsg,
+    screen: &'a ItemScreen,
+    address: &'a Address,
+    slug: &'a str,
+    notice: Option<&'a BuyNotice>,
+) -> impl Render {
     let p = Pilot::default();
     let sell = screen.market == Market::Sell;
     let listing = (!sell).then(|| screen.selected_listing()).flatten();
@@ -612,6 +634,28 @@ fn Rail<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a 
         _ => t.route_selected_product(),
     };
     let continue_on = on_marketplace(&url::Item { slug, state: address.clone() }.href());
+    let buying = screen.market == Market::Buy;
+    let product = screen.product_id.as_deref().filter(|_| buying);
+    let refused = match notice {
+        Some(BuyNotice::Refused { message, input }) => Some((message.as_str(), input)),
+        _ => None,
+    };
+    let held = matches!(notice, Some(BuyNotice::Ambiguous { .. }));
+    let resend = match notice {
+        Some(BuyNotice::Ambiguous { resend, .. }) => resend.pairs(),
+        _ => Vec::new(),
+    };
+    let typed = move |listing_form: bool| {
+        refused.filter(|(_, i)| i.intent.listing() == listing_form).map_or("1", |(_, i)| i.quantity.as_str())
+    };
+    let error = move |listing_form: bool| refused.filter(|(_, i)| i.intent.listing() == listing_form).map(|(m, _)| m);
+    let at_capacity = listing.is_some_and(|l| l.seller_at_capacity);
+    let page = address.pairs();
+    let cart = url::ItemCart { slug }.href();
+    let buy_now = url::ItemBuy { slug }.href();
+    let open_product = listing.is_none() || refused.is_some_and(|(_, i)| !i.intent.listing());
+    let matches = screen.listings.len();
+    let match_label = if matches == 1 { t.route_listing_matches_singular() } else { t.route_listing_matches_plural() };
     html! {
         <section class={(Card, RailCard)} aria-labelledby="rail-title">
             <h2 class={CardTitle} id="rail-title">{title}</h2>
@@ -628,8 +672,119 @@ fn Rail<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a 
                     {t.page_offer_requested_count(o.quantity_requested)}
                 </p>
             }
-            <p><a class={Action} href={&continue_on}>{p.item_continue_on_marketplace()}</a></p>
+            if let Some(BuyNotice::Added(to)) = notice {
+                <div class={(Banner, Added)} role="status">
+                    <p class={Strong}>{t.route_added_to_cart()}</p>
+                    <p>{t.route_added_to_cart_description(&screen.item.title)}</p>
+                    <p><a class={Button} href={to}>{t.route_view_cart()}</a></p>
+                </div>
+            }
+            if let Some(BuyNotice::Ambiguous { cart: to, .. }) = notice {
+                <div class={Banner} role="status">
+                    <p class={Strong}>{t.route_add_to_cart_ambiguous_title()}</p>
+                    <p>{t.route_add_to_cart_ambiguous_description()}</p>
+                    <form class={Resend} method="post" action={&cart}>
+                        <Hidden pairs={&resend} />
+                        <button type="submit" class={Button}>{t.route_add_to_cart_resend()}</button>
+                        <a class={Button} href={to}>{t.route_view_cart()}</a>
+                    </form>
+                </div>
+            }
+            if buying && product.is_none() {
+                <p class={Muted}>{t.route_product_intent_choose_options_guidance()}</p>
+            }
+            if let (Some(product), Some(l)) = (product, listing) {
+                <form class={Buy} method="post" action={&cart}>
+                    {SubmitKey::field(BuyFields::FIELDS.attempt)}
+                    <Hidden pairs={&page} />
+                    <input type="hidden" name={field::PRODUCT} value={product}>
+                    <input type="hidden" name={field::LOCK} value={&l.listing_id}>
+                    if at_capacity {
+                        <div class={Banner} role="status">
+                            <p class={Strong}>{t.route_seller_at_capacity()}</p>
+                            <p>{t.route_seller_at_capacity_description()}</p>
+                        </div>
+                    }
+                    if let Some(message) = error(true) {
+                        <p class={Error} role="alert">{message}</p>
+                    }
+                    <Quantity t={t} id="buy-listing-quantity" value={typed(true)} />
+                    <fieldset class={BuyActions} disabled={held}>
+                        <button type="submit" class={(Button, Primary)} formaction={&buy_now} disabled={at_capacity}>
+                            if at_capacity {
+                                {t.route_seller_at_capacity()}
+                            } else if screen.listing_explicit {
+                                {t.route_buy_now()}
+                            } else {
+                                {t.route_buy_best_available_listing()}
+                            }
+                        </button>
+                        <button type="submit" class={Button} name={field::INTENT} value="add-listing" disabled={at_capacity}>
+                            {t.route_add_listing_to_cart()}
+                        </button>
+                    </fieldset>
+                </form>
+            }
+            if let Some(product) = product {
+                <details class={ProductBuy} open={open_product}>
+                    <summary>
+                        <span class={Strong}>{t.route_selected_product()}</span>
+                        <span class={Muted}>{t.route_add_to_cart_workflow_helper()}</span>
+                    </summary>
+                    <form class={Buy} method="post" action={&cart}>
+                        {SubmitKey::field(BuyFields::FIELDS.attempt)}
+                        <Hidden pairs={&page} />
+                        <input type="hidden" name={field::PRODUCT} value={product}>
+                        if matches > 0 {
+                            <p class={Muted}>{t.route_listing_match_count(matches, match_label)}</p>
+                        } else {
+                            <p class={Muted}>{t.route_add_to_cart_saves_buyer_intent()}</p>
+                        }
+                        if let Some(message) = error(false) {
+                            <p class={Error} role="alert">{message}</p>
+                        }
+                        <Quantity t={t} id="buy-product-quantity" value={typed(false)} />
+                        <fieldset class={BuyActions} disabled={held}>
+                            <button
+                                type="submit"
+                                class={(Button, listing.is_none().then_some(Primary))}
+                                name={field::INTENT}
+                                value="add-product"
+                            >
+                                {t.route_add_to_cart()}
+                            </button>
+                            if matches > 0 {
+                                <button type="submit" class={Button} name={field::INTENT} value="buy-best-match">
+                                    {t.route_buy_best_match()}
+                                </button>
+                            }
+                        </fieldset>
+                    </form>
+                </details>
+            }
+            <p><a class={(Button, Wide)} href={&continue_on}>{p.item_continue_on_marketplace()}</a></p>
         </section>
+    }
+}
+
+/// A buy form's quantity (`NumberField`), a whole number from 1.
+#[component(css = ItemDetail)]
+fn Quantity<'a>(t: ItemMsg, id: &'a str, value: &'a str) -> impl Render {
+    html! {
+        <div class={QuantityField}>
+            <label class={Label} for={id}>{t.route_quantity()}</label>
+            <input id={id} type="number" name={field::QUANTITY} min="1" step="1" inputmode="numeric" required value={value}>
+        </div>
+    }
+}
+
+/// Fields a form posts as they are: the page's address, or a write sent again.
+#[component(css = ItemDetail)]
+fn Hidden<'a>(pairs: &'a [(String, String)]) -> impl Render {
+    html! {
+        for (name, value) in pairs {
+            <input type="hidden" name={name} value={value}>
+        }
     }
 }
 

@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{
-        ApiError, Cart, CartCommand, CartLine, Checkout as _, Decisions, OptimizationDecision, Readiness, SellerOption, Snapshot,
-        segment,
+        ApiError, Cart, CartCommand, CartLine, CartWrite, Checkout as _, Decisions, OptimizationDecision, Readiness,
+        SellerOption, Snapshot, segment,
     },
     app::{Config, Shared, read_failed, sign_in_at, url, viewer},
     auth::Session,
@@ -34,7 +34,7 @@ use crate::{
 
 /// The guest cart a browser carries from before it signed in (marketplace's
 /// `CHECKOUT_ANONYMOUS_CART_COOKIE_NAME`).
-const ANONYMOUS_CART_COOKIE: &str = "chase_sets_anonymous_cart";
+pub const ANONYMOUS_CART_COOKIE: &str = "chase_sets_anonymous_cart";
 
 pub fn routes(area: Area<Session, url::CartArea>, shared: &Shared) -> Area<Session, url::CartArea> {
     area.route::<url::Cart>(get(page).with_state(shared.clone()))
@@ -544,7 +544,7 @@ async fn write(req: &Req, config: &Config, headers: &HeaderMap, which: Write, mu
         }
     };
     let caller = config.platform.caller(headers, config.proto, None);
-    let outcome = match cart_attempt::submit(&caller, &input.attempt, &commands).await {
+    let outcome = match cart_attempt::submit(&caller, &input.attempt, &CartWrite::commands(&commands)).await {
         Ok(outcome) => outcome,
         Err(StatusCode::UNAUTHORIZED) => return sign_in_to_cart(req),
         Err(status) => return Err(corten::Error::status(status)),

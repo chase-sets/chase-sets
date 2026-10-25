@@ -35,12 +35,13 @@ use crate::{
     api::{Dimension, DimensionOption, Discovery, Item, Listing, Money, Offer, Schema, Selected, segment},
     app::{Shared, marketplace_origin, url},
     auth::Session,
+    buying::{self, ADDED, BuyNotice},
     text::ItemMsg,
     views,
 };
 
 pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    area.route::<url::Item>(get(page).with_state(shared.clone()))
+    buying::routes(area.route::<url::Item>(get(page).with_state(shared.clone())), shared)
 }
 
 /// The side of the market the page shows (`MarketIntent`).
@@ -109,7 +110,7 @@ pub enum Values {
 }
 
 impl Values {
-    fn all(&self) -> &[String] {
+    pub fn all(&self) -> &[String] {
         match self {
             Values::One(one) => std::slice::from_ref(one),
             Values::Many(many) => many,
@@ -218,32 +219,41 @@ impl Address {
 /// encoding included: a typed route cannot write keys that are data (todd-skelton/corten#71).
 impl Params for Address {
     fn write_params(&self, first: &mut bool, html: bool, out: &mut String) {
-        let mut pair = |key: &str, value: &str| {
+        for (key, value) in self.pairs() {
             out.push_str(match (*first, html) {
                 (true, _) => "?",
                 (false, true) => "&amp;",
                 (false, false) => "&",
             });
             *first = false;
-            out.push_str(&segment(key));
+            out.push_str(&segment(&key));
             out.push('=');
-            out.push_str(&segment(value));
-        };
+            out.push_str(&segment(&value));
+        }
+    }
+}
+
+impl Address {
+    /// The address's parameters, in the order they are written; a form that posts the page's
+    /// choices sends them as hidden fields.
+    pub fn pairs(&self) -> Vec<(String, String)> {
+        let mut pairs = Vec::new();
         if self.market != Market::Buy {
-            pair("market", self.market.as_str());
+            pairs.push(("market".to_owned(), self.market.as_str().to_owned()));
         }
         if let Some(id) = &self.listing {
-            pair("listing", id);
+            pairs.push(("listing".to_owned(), id.clone()));
         }
         if let Some(id) = &self.offer {
-            pair("offer", id);
+            pairs.push(("offer".to_owned(), id.clone()));
         }
         if let Some(book) = self.book.filter(|b| *b != self.side_book()) {
-            pair("book", book.as_str());
+            pairs.push(("book".to_owned(), book.as_str().to_owned()));
         }
         for (dimension, option) in &self.options {
-            pair(&format!("dimension.{dimension}"), option);
+            pairs.push((format!("dimension.{dimension}"), option.clone()));
         }
+        pairs
     }
 }
 
@@ -433,6 +443,10 @@ pub struct ItemScreen {
     pub option_summaries: OptionMarkets,
     /// The signed-in account, whose offers say so.
     pub viewer_account_id: Option<String>,
+    /// The chosen product's options and their words (`selectedProductOptions`,
+    /// `selectedProductSummary`), which a cart line keeps.
+    pub product_options: Vec<Selected>,
+    pub product_summary: Option<String>,
 }
 
 impl ItemScreen {
@@ -474,6 +488,47 @@ impl ItemScreen {
                 _ => selected_listing.or(single).map(|l| l.product_id.clone()),
             }
         });
+        // The options the product is named by: the ones chosen when they are all there, else the
+        // listing's or offer's the product came from.
+        let chosen: Vec<(&Dimension, &DimensionOption)> = schema
+            .map(|s| {
+                active_dimensions(s, &picks)
+                    .into_iter()
+                    .filter_map(|d| {
+                        let id = picks.get(&d.dimension_id)?;
+                        Some((d, d.allowed_options.iter().find(|o| &o.option_id == id)?))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let explicit_options: Vec<Selected> = schema
+            .map(|s| {
+                active_dimensions(s, &picks)
+                    .into_iter()
+                    .filter_map(|d| {
+                        picks
+                            .get(&d.dimension_id)
+                            .map(|o| Selected { dimension_id: d.dimension_id.clone(), option_id: o.clone() })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let explicit_summary =
+            (!chosen.is_empty()).then(|| chosen.iter().map(|(_, o)| option_label(o)).collect::<Vec<_>>().join(" / "));
+        let offer_for_product =
+            (!suppress && address.market == Market::Sell && owned.is_none()).then_some(selected_offer).flatten();
+        let listing_for_product =
+            (!suppress && (address.market != Market::Sell || owned.is_some())).then(|| owned.or(selected_listing)).flatten();
+        let single_for_product = (!suppress).then_some(single).flatten();
+        let from = offer_for_product
+            .map(|o| (&o.selected_options, &o.product_summary))
+            .or(listing_for_product.map(|l| (&l.selected_options, &l.product_summary)))
+            .or(single_for_product.map(|l| (&l.selected_options, &l.product_summary)));
+        let product_options = match from {
+            Some((options, _)) if !complete => options.clone(),
+            _ => explicit_options,
+        };
+        let product_summary = explicit_summary.or_else(|| from.and_then(|(_, summary)| summary.clone()));
         let currency = common_currency(visible.iter().map(|l| l.price_currency_code.as_deref()));
         let first_priced = visible.first().filter(|l| platform::money::cents(&l.price_amount).is_some());
         let summary = Summary {
@@ -505,6 +560,8 @@ impl ItemScreen {
             summary,
             option_summaries,
             viewer_account_id,
+            product_options,
+            product_summary,
             picks,
             item,
         }
@@ -623,11 +680,18 @@ async fn page(
         return Ok((StatusCode::MOVED_PERMANENTLY, [(header::LOCATION, to)]).into_response());
     }
     let address = Address::read(&raw);
+    // After Add to cart, the page says so; View buy cart waits for the write's receipt.
+    let notice = raw.get(ADDED).and_then(|v| v.all().first()).map(|receipt| BuyNotice::Added(buying::cart_href(&req, receipt)));
+    render(&req, item, &address, notice.as_ref(), StatusCode::OK)
+}
+
+/// The page for `item` at `address`, with what a buy write came to.
+pub fn render(req: &Req, item: Item, address: &Address, notice: Option<&BuyNotice>, status: StatusCode) -> corten::Result {
     let viewer = match req.context::<Session>() {
         Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
         _ => None,
     };
-    let screen = ItemScreen::of(item, &address, viewer);
+    let screen = ItemScreen::of(item, address, viewer);
     let t: ItemMsg = req.t();
     let item = &screen.item;
     let slug = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
@@ -650,6 +714,6 @@ async fn page(
     if let Some(ld) = views::breadcrumb_json_ld(t, item, &canonical) {
         meta = meta.json_ld(&ld);
     }
-    let view = views::item_page(t, &screen, &address, slug);
-    req.screen(meta, &screen, view)
+    let view = views::item_page(t, &screen, address, slug, notice);
+    req.screen_with_status(status, meta, &screen, view)
 }

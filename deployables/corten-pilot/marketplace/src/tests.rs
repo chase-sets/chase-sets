@@ -245,6 +245,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
         return discovery_item(id);
     }
+    if let Some(answer) = cart_add(&stand, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if uri.path() == CART {
         return match waits_for(&headers).as_deref() {
             Some("43") => refusal(
@@ -348,6 +351,11 @@ fn checkout(session: &str, method: &Method, path: &str, body: &str) -> Option<Re
             let decision = decisions["optimization"]["decision"].as_str().unwrap_or("none");
             Json(json!({ "readiness": snapshot("cr_fresh", "ready", &[], decision, true) })).into_response()
         }
+        "/api/marketplace/account/checkout-sessions" if body.contains(r#""entryAttemptKey":"conflict-"#) => refusal(
+            StatusCode::CONFLICT,
+            "checkout_attempt_conflict",
+            "This checkout attempt was already used for a different request.",
+        ),
         "/api/marketplace/account/checkout-sessions" if session == "blocked" => refusal(
             StatusCode::BAD_REQUEST,
             "readiness_snapshot_stale",
@@ -413,6 +421,52 @@ fn cart_commands(stand: &Stand, session: &str, method: &Method, path: &str, body
     let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
     let headers = [("chase-sets-commit-position", "11".to_owned()), ("chase-sets-commit-receipt", receipt)];
     Some((StatusCode::OK, headers, Json(json!({ "attempt": kept }))).into_response())
+}
+
+const ACCOUNT_CART_ADD: &str = "/api/marketplace/account/cart";
+const GUEST_CART_ADD: &str = "/api/marketplace/guest/cart";
+const GUEST_ATTEMPTS: &str = "/api/marketplace/guest/command-attempts/";
+
+/// An item page's cart add, as the stand-in answers it, to the account's cart or (with its id) a
+/// guest's. The quantity says what happens: 7 is refused with nothing applied, 8 applies and its
+/// answer is lost, 9's answer is lost and nothing is kept; any other applies, at position 12. A
+/// guest's lookup answers what was kept.
+fn cart_add(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
+    if let Some(id) = path.strip_prefix(GUEST_ATTEMPTS) {
+        return Some(match (guest, stand.kept.lock().unwrap().get(id)) {
+            (None, _) => refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "Sign in."),
+            (Some(_), Some(attempt)) => Json(json!({ "attempt": attempt })).into_response(),
+            (Some(_), None) => refusal(StatusCode::NOT_FOUND, "command_attempt_not_found", "Command attempt not found."),
+        });
+    }
+    if *method != Method::POST || (path != ACCOUNT_CART_ADD && path != GUEST_CART_ADD) {
+        return None;
+    }
+    if path == GUEST_CART_ADD && guest.is_none() {
+        return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "A guest cart is required."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let attempt = sent["attemptId"].as_str().unwrap_or_default().to_owned();
+    match sent["quantity"].as_u64() {
+        Some(7) => return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Only 2 are available.")),
+        Some(9) => return Some(StatusCode::SERVICE_UNAVAILABLE.into_response()),
+        _ => {}
+    }
+    let kept = json!({
+        "ownerStatus": "committed",
+        "vector": [{ "lineId": "cli_new", "outcome": "succeeded", "message": null }],
+        "commitReceipt": { "eventId": "evt_add", "globalPosition": "12" },
+    });
+    stand.kept.lock().unwrap().insert(attempt, kept.clone());
+    if sent["quantity"].as_u64() == Some(8) {
+        return Some(StatusCode::BAD_GATEWAY.into_response());
+    }
+    let receipt = r#"[{"sourceContextName":"checkout","maxGlobalPosition":"12","eventIds":["evt_add"]}]"#;
+    let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", "12".to_owned()), ("chase-sets-commit-receipt", receipt)];
+    let answer = json!({ "id": "cli_new", "version": 1, "status": "added", "attempt": kept });
+    Some((StatusCode::CREATED, headers, Json(answer)).into_response())
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -1308,7 +1362,8 @@ async fn a_lost_answer_is_looked_up_once_and_one_not_found_pauses_the_cart_until
         receipt["sources"],
         json!([{ "sourceContextName": "checkout", "maxGlobalPosition": "11", "eventIds": ["evt_cart"] }])
     );
-    let hash = crate::cart_attempt::request_hash(&[crate::api::CartCommand::Remove { line_id: "cli_lost".into() }]);
+    let commands = [crate::api::CartCommand::Remove { line_id: "cli_lost".into() }];
+    let hash = crate::cart_attempt::request_hash(&crate::api::CartWrite::commands(&commands).body);
     assert_eq!(cart_lookups(&pilot), [format!("{CART_ATTEMPTS}{attempt}?kind=cart.commands&target=cart&requestHash={hash}")]);
 
     // Not found: not known, so the cart's writes are paused and the same write can be sent again.
@@ -1379,6 +1434,7 @@ fn item() -> Value {
             "max_units_per_day": null, "max_units_per_customer_account": if id == "lst_vault" { json!(2) } else { json!(null) },
             "seller_slug": format!("{account}-slug"), "seller_display_name": if account == "acc_vault" { "Card Vault" } else { "Chase Sets" },
             "seller_average_rating": if account == "acc_vault" { json!(null) } else { json!("4.75") }, "seller_review_count": 4,
+            "status": "active", "listing_stream_version": 3, "seller_at_capacity": id == "lst_chase",
         })
     };
     let nm = json!({ "dimensionId": "dim_condition", "optionId": "chc_nm" });
@@ -1436,6 +1492,11 @@ fn item() -> Value {
             listing("lst_psa", "acc_vault", "735.00", json!([graded, { "dimensionId": "dim_grade", "optionId": "chc_grade_7" }]), 1),
         ],
         "offer_demand_matches": [offer("off_high", "acc_buyer", "380.00"), offer("off_mine", "acc_seller", "350.00")],
+        "market_products": [
+            { "product_id": "cat_charizard::lst_vault", "lowest_listing_id": "lst_vault", "best_offer_id": null },
+            { "product_id": "cat_charizard::lst_chase", "lowest_listing_id": "lst_chase", "best_offer_id": null },
+        ],
+        "market_product_listings": [],
     })
 }
 
@@ -1612,4 +1673,284 @@ fn the_address_reads_as_marketplace_reads_it_and_writes_its_choices_back() {
         crate::app::url::Item { slug: "x", state: a.with_book(Book::Offers) }.href(),
         "/items/x?market=sell&listing=a&dimension.d1=o1"
     );
+}
+
+const ITEM_CART: &str = "/items/charizard/cart";
+const ITEM_BUY: &str = "/items/charizard/buy";
+const KEY: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+const VAULT: &str = "cat_charizard::lst_vault";
+
+/// A buy form's body: its button, the attempt, the quantity, the product, the listing it showed,
+/// and the page's address after them.
+fn buy_body(intent: &str, quantity: &str, product: &str, lock: &str, address: &str) -> String {
+    let mut body = format!("intent={intent}&attempt={KEY}&quantity={quantity}&product={}", crate::api::segment(product));
+    if !lock.is_empty() {
+        body.push_str(&format!("&lock={lock}"));
+    }
+    if !address.is_empty() {
+        body.push('&');
+        body.push_str(address);
+    }
+    body
+}
+
+/// The item page's cart adds the stand-in received, as JSON.
+fn adds(pilot: &Pilot) -> Vec<(Call, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.method == Method::POST && (c.path == ACCOUNT_CART_ADD || c.path == GUEST_CART_ADD))
+        .map(|c| (c.clone(), serde_json::from_str(&c.body).unwrap()))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_rail_buys_the_listing_shown_or_the_product_chosen() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(ITEM_PAGE, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // The listing form: posted to the cart, Buy now to its own path, with the listing it shows.
+    assert!(html.contains(r#"action="/items/charizard/cart""#), "{html}");
+    assert!(html.contains(r#"formaction="/items/charizard/buy""#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="lock" value="lst_vault">"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="product" value="cat_charizard::lst_vault">"#), "{html}");
+    assert!(html.contains(r#"name="quantity" min="1" step="1" inputmode="numeric" required value="1""#), "{html}");
+    let page = text(&html);
+    assert!(page.contains("Buy best available listing Add listing to Buy Cart"), "{page}");
+    // The product form, folded under the listing.
+    assert!(page.contains("Selected product Save the selected product for Buy Cart review."), "{page}");
+    assert!(page.contains("3 listings match this selection."), "{page}");
+    assert!(page.contains("Add product to Buy Cart Buy best match"), "{page}");
+    assert_eq!(drawn_attempt(&html).len(), 36, "each form draws an attempt");
+
+    // A listing chosen in the book: Buy this listing; one whose seller is at capacity cannot be bought.
+    let (_, _, html) = pilot.send(get(&format!("{ITEM_PAGE}?listing=lst_chase"), Some("buyer"))).await;
+    let page = text(&html);
+    assert!(page.contains("Temporarily at capacity This seller is temporarily at capacity. Check back soon."), "{page}");
+    assert!(html.contains(r#"<input type="hidden" name="listing" value="lst_chase">"#), "the address is posted: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{ITEM_PAGE}?listing=lst_vault"), Some("buyer"))).await;
+    assert!(text(&html).contains("Buy this listing Add listing to Buy Cart"), "{html}");
+
+    // Nothing chosen to buy: the guidance, no forms. Selling: no buy forms.
+    // (A dimension given two options is a filter with no option: marketplace chooses no product.)
+    let (_, _, html) =
+        pilot.send(get(&format!("{ITEM_PAGE}?dimension.dim_form=chc_raw&dimension.dim_form=chc_graded"), Some("buyer"))).await;
+    assert!(text(&html).contains("Choose every required product option before buying"), "{html}");
+    assert!(!html.contains("/items/charizard/cart"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{ITEM_PAGE}?market=sell"), Some("buyer"))).await;
+    assert!(!html.contains("/items/charizard/cart"), "{html}");
+}
+
+#[tokio::test]
+async fn a_buyer_adds_the_listing_shown_and_the_page_says_so() {
+    let pilot = Pilot::new().await;
+    let (status, headers, body) =
+        pilot.send(post(ITEM_CART, "buyer", &buy_body("add-listing", "2", VAULT, "lst_vault", ""), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/items/charizard?added="), "{to}");
+    assert!(!headers.contains_key(header::SET_COOKIE), "an account's cart has no guest cookie");
+    let [(call, line)] = adds(&pilot).try_into().unwrap();
+    assert_eq!(call.path, ACCOUNT_CART_ADD);
+    assert_eq!(call.headers["chase-sets-read-target-context"], "checkout");
+    assert_eq!(
+        line,
+        json!({
+            "attemptId": KEY, "catalogItemId": "cat_charizard", "productId": VAULT, "itemTitle": "Charizard",
+            "itemSubtitle": "Base Set 4/102", "itemImageUrl": "/fake-cdn/assets/back.png", "itemImageSrcSet": null,
+            "itemImageLoadingUrl": "/fake-cdn/assets/back.png", "itemImageLoadingAlt": "Card back", "itemImageLoadingSrcSet": null,
+            "selectedOptions": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            "productSummary": "Form: raw", "quantity": 2, "fulfillmentMode": "locked-listing",
+            "lockedListingId": "lst_vault", "sellerPreferenceId": "lst_vault",
+            "selectedListingSnapshot": {
+                "listingId": "lst_vault", "sellerAccountId": "acc_vault", "sellerDisplayName": "Card Vault",
+                "sellerSlug": "acc_vault-slug", "priceAmount": "389.00", "priceCurrencyCode": "USD",
+                "listingStreamVersion": 3, "source": "discovery.item-detail.add-to-cart",
+            },
+        })
+    );
+    // The page after: added, and View buy cart waits for the write.
+    let (status, _, html) = pilot.send(get(&to, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Added to buy cart Charizard is in your Buy Cart."), "{html}");
+    let [view] = hrefs(&html, "View buy cart").try_into().unwrap();
+    let receipt: Value = serde_json::from_str(&query(&view.replace("&amp;", "&"))["after_write"]).unwrap();
+    assert!(view.starts_with("/account/cart?after_write="), "{view}");
+    assert_eq!(receipt["sources"][0]["maxGlobalPosition"], "12", "{receipt}");
+
+    // With the script, the runtime follows corten-location to the same page.
+    let (status, headers, _) =
+        pilot.send(post(ITEM_CART, "buyer", &buy_body("add-listing", "1", VAULT, "lst_vault", ""), true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().starts_with("/items/charizard?added="));
+}
+
+#[tokio::test]
+async fn the_product_goes_to_smart_match_and_buy_best_match_opens_the_cart() {
+    let pilot = Pilot::new().await;
+    let (status, _, body) = pilot.send(post(ITEM_CART, "buyer", &buy_body("add-product", "3", VAULT, "", ""), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    let (status, headers, body) =
+        pilot.send(post(ITEM_CART, "buyer", &buy_body("buy-best-match", "1", VAULT, "lst_vault", ""), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account/cart?after_write="), "{to}");
+    let lines: Vec<Value> = adds(&pilot).into_iter().map(|(_, line)| line).collect();
+    for line in &lines {
+        assert_eq!(line["fulfillmentMode"], "optimize", "{line}");
+        assert_eq!(line["lockedListingId"], Value::Null, "Buy best match is not locked, whatever the form says: {line}");
+        assert_eq!(line["selectedListingSnapshot"], Value::Null);
+    }
+    assert_eq!((lines[0]["quantity"].clone(), lines[1]["quantity"].clone()), (json!(3), json!(1)));
+
+    // Buy best match needs the lowest listing to have the quantity; nothing is sent.
+    let (status, _, html) = pilot.send(post(ITEM_CART, "buyer", &buy_body("buy-best-match", "3", VAULT, "", ""), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Only 2 available from this listing."), "{html}");
+    assert!(html.contains(r#"<details class="#) && html.contains(" open>"), "the product form shows the error, open: {html}");
+    assert!(html.contains(
+        r#"id="buy-product-quantity" type="number" name="quantity" min="1" step="1" inputmode="numeric" required value="3""#
+    ));
+    assert_eq!(adds(&pilot).len(), 2);
+}
+
+#[tokio::test]
+async fn an_add_is_refused_before_it_is_sent_when_the_form_no_longer_holds() {
+    let pilot = Pilot::new().await;
+    let cases = [
+        (buy_body("add-listing", "0", VAULT, "lst_vault", ""), "Enter a quantity of 1 or more."),
+        (buy_body("add-listing", "1.5", VAULT, "lst_vault", ""), "Enter a quantity of 1 or more."),
+        (buy_body("add-listing", "3", VAULT, "lst_vault", ""), "Only 2 available from this listing."),
+        (buy_body("add-listing", "1", VAULT, "lst_gone", ""), "This listing is no longer available."),
+        // The page now shows another product than the form did.
+        (buy_body("add-product", "1", "cat_charizard::lst_psa", "", ""), "This item was not added to your Buy Cart."),
+    ];
+    for (body, message) in cases {
+        let (status, _, html) = pilot.send(post(ITEM_CART, "buyer", &body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert!(text(&html).contains(message), "{body}: {html}");
+    }
+    assert!(adds(&pilot).is_empty());
+    // The API's refusal is the page again, with its reason.
+    let (status, _, html) = pilot.send(post(ITEM_CART, "buyer", &buy_body("add-listing", "7", VAULT, "", ""), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("This listing is no longer available."), "no lock: {html}");
+    let (status, _, html) = pilot.send(post(ITEM_CART, "buyer", &buy_body("add-product", "7", VAULT, "", ""), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Only 2 are available."), "{html}");
+    // An unknown item is not found.
+    let (status, _, _) =
+        pilot.send(post("/items/nothing/cart", "buyer", &buy_body("add-product", "1", VAULT, "", ""), false)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn an_add_whose_answer_was_lost_is_looked_up_and_one_not_known_is_held() {
+    let pilot = Pilot::new().await;
+    // Applied, the answer lost: the lookup finds it.
+    let (status, headers, body) = pilot.send(post(ITEM_CART, "buyer", &buy_body("add-product", "8", VAULT, "", ""), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/items/charizard?added="));
+    let [(_, line)] = adds(&pilot).try_into().unwrap();
+    let mut sent = line.clone();
+    sent.as_object_mut().unwrap().remove("attemptId");
+    let hash = crate::cart_attempt::request_hash(&sent);
+    let lookups: Vec<String> =
+        pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.starts_with(CART_ATTEMPTS)).map(|c| c.path.clone()).collect();
+    assert_eq!(lookups, [format!("{CART_ATTEMPTS}{KEY}?kind=cart.add-line&target=cart&requestHash={hash}")]);
+
+    // Not known: the page holds the adds and offers the same add again.
+    let pilot = Pilot::new().await;
+    let address = "dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm";
+    let raw_nm = "cat_charizard::dim_form:chc_raw|dim_condition:chc_nm|dim_grade:-";
+    let (status, _, html) = pilot.send(post(ITEM_CART, "buyer", &buy_body("add-product", "9", raw_nm, "", address), false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let page = text(&html);
+    assert!(page.contains("confirm this add It may or may not be in your Buy Cart."), "{page}");
+    assert!(page.contains("Send the same add again View buy cart"), "{page}");
+    for (name, value) in [("attempt", KEY), ("intent", "add-product"), ("quantity", "9"), ("dimension.dim_form", "chc_raw")] {
+        assert!(html.contains(&format!(r#"<input type="hidden" name="{name}" value="{value}">"#)), "{name}: {html}");
+    }
+    assert!(html.contains(" disabled>"), "the adds are held: {html}");
+}
+
+#[tokio::test]
+async fn a_guest_adds_to_the_guest_cart_marketplace_reads() {
+    let pilot = Pilot::new().await;
+    let req = || {
+        Request::post(ITEM_CART)
+            .header(header::HOST, "localhost:7791")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+    };
+    let body = buy_body("buy-best-match", "1", VAULT, "", "");
+    let (status, headers, html) = pilot.send(req().body(Body::from(body.clone())).unwrap()).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/account/cart?afterWrite="), "{to}");
+    assert_eq!(
+        query(to)["postWriteHandoff"],
+        r#"{"kind":"checkout.cart.add-line","expectation":"collection-non-empty","surface":"account-cart"}"#
+    );
+    let cookie = headers[header::SET_COOKIE].to_str().unwrap();
+    assert!(cookie.starts_with("chase_sets_anonymous_cart=anon_cmd_") && cookie.contains("Max-Age=2592000"), "{cookie}");
+    let id = cookie.split(';').next().unwrap().split_once('=').unwrap().1.to_owned();
+    let [(call, _)] = adds(&pilot).try_into().unwrap();
+    assert_eq!(
+        (call.path.as_str(), call.headers["x-checkout-anonymous-cart-id"].to_str().unwrap()),
+        (GUEST_CART_ADD, id.as_str())
+    );
+
+    // The cart the browser keeps is the one written next; a guest's View buy cart is marketplace's.
+    let req = req().header(header::COOKIE, format!("chase_sets_anonymous_cart={id}"));
+    let (status, headers, _) = pilot.send(req.body(Body::from(buy_body("add-product", "1", VAULT, "", ""))).unwrap()).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(adds(&pilot)[1].0.headers["x-checkout-anonymous-cart-id"].to_str().unwrap(), id);
+    let (_, _, html) = pilot.send(get(headers[header::LOCATION].to_str().unwrap(), None)).await;
+    let [view] = hrefs(&html, "View buy cart").try_into().unwrap();
+    assert!(view.starts_with("http://localhost:7753/account/cart?afterWrite="), "{view}");
+}
+
+#[tokio::test]
+async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
+    let pilot = Pilot::new().await;
+    let (status, headers, body) = pilot.send(post(ITEM_BUY, "buyer", &buy_body("", "2", VAULT, "lst_vault", ""), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/checkout/buy/session/chk_1?afterWrite="), "{to}");
+    let call = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/checkout-sessions")).cloned().unwrap();
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(sent["entryAttemptKey"], KEY, "the form's attempt is the entry key");
+    assert_eq!(
+        sent["source"],
+        json!({
+            "type": "buy-now", "listingId": "lst_vault", "catalogItemId": "cat_charizard", "productId": VAULT,
+            "itemTitle": "Charizard", "itemSubtitle": "Base Set 4/102",
+            "selectedOptions": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            "productSummary": "Form: raw", "quantity": 2, "fulfillmentMode": "locked-listing", "lockedListingId": "lst_vault",
+        })
+    );
+    // An entry key used for another listing: the selection changed.
+    let body = buy_body("", "1", VAULT, "lst_vault", "").replace(KEY, "conflict-0000000000000000000000");
+    let (status, _, html) = pilot.send(post(ITEM_BUY, "buyer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Your selection changed after you chose Buy now."), "{html}");
+    // A guest goes to marketplace's guest checkout with the listing.
+    let req = Request::post(ITEM_BUY)
+        .header(header::HOST, "localhost:7791")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(buy_body("", "1", VAULT, "lst_vault", "")))
+        .unwrap();
+    let (status, headers, _) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/checkout/buy/readiness?source=buy-now&listingId=lst_vault&"), "{to}");
+    let q = query(to);
+    assert_eq!(
+        (q["quantity"].as_str(), q["sellerName"].as_str(), q["availability"].as_str()),
+        ("1", "Card Vault", "Form: raw - 2 available")
+    );
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.ends_with("/checkout-sessions")).count(), 2);
 }

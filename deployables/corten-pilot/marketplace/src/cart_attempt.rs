@@ -14,7 +14,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::api::{Caller, CartAnswer, CartAttempt, CartCommand, Checkout as _};
+use crate::api::{Caller, CartAnswer, CartAttempt, CartWrite, Checkout as _};
 use platform::receipt::Receipt;
 
 /// What one submission came to (`CheckoutCommandAttemptResolvedState`).
@@ -69,16 +69,16 @@ pub fn state_of(attempt: &CartAttempt) -> State {
     }
 }
 
-/// Sends `commands` as attempt `attempt` and resolves the answer, looking it up once if it may
-/// have been lost. A 401 or 403 is the caller's, not the attempt's, and is returned as it is.
-pub async fn submit(caller: &Caller<'_>, attempt: &str, commands: &[CartCommand]) -> Result<Outcome, StatusCode> {
-    let (attempt_kept, message, receipt, refused) = match caller.cart_commands(attempt, commands).await {
+/// Sends `write` as attempt `attempt` and resolves the answer, looking it up once if it may have
+/// been lost. A 401 or 403 is the caller's, not the attempt's, and is returned as it is.
+pub async fn submit(caller: &Caller<'_>, attempt: &str, write: &CartWrite) -> Result<Outcome, StatusCode> {
+    let (attempt_kept, message, receipt, refused) = match caller.cart_write(attempt, write).await {
         CartAnswer::Answered { status, .. } if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
             return Err(status);
         }
         CartAnswer::Answered { status, attempt, message, receipt } => (attempt, message, receipt, !status.is_success()),
         CartAnswer::Lost => {
-            let kept = caller.cart_attempt(attempt, commands).await;
+            let kept = caller.cart_attempt(attempt, write).await;
             let receipt = kept.as_ref().and_then(lookup_receipt);
             (kept, None, receipt, false)
         }
@@ -115,10 +115,9 @@ pub fn attempt_id(presented: &str) -> String {
 /// The attempt's request hash (`computeCheckoutCommandAttemptRequestHash`): SHA-256, in hex, of
 /// `checkout-command-attempt-request/v1\n` and the body as sent without its attempt id, as JSON
 /// with every object's keys sorted.
-pub fn request_hash(commands: &[CartCommand]) -> String {
-    let body = serde_json::json!({ "commands": commands });
+pub fn request_hash(body: &Value) -> String {
     let mut text = String::from("checkout-command-attempt-request/v1\n");
-    canonical(&body, &mut text);
+    canonical(body, &mut text);
     Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -157,7 +156,7 @@ fn canonical(value: &Value, out: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::CommandOutcome;
+    use crate::api::{CartCommand, CommandOutcome};
 
     #[test]
     fn the_request_hash_is_the_web_hosts() {
@@ -172,7 +171,10 @@ mod tests {
             r#"{"commands":[{"lineId":"cli_1","quantity":2,"type":"quantity"},{"lineId":"cli_2","type":"remove"}]}"#
         );
         // The web hosts' function, run with tsx on the same body.
-        assert_eq!(request_hash(&commands), "173a4d1a79c13b46ffbe7659d1ab2d908e1258c7d2e2fc75936af85f476a4bc5");
+        assert_eq!(
+            request_hash(&CartWrite::commands(&commands).body),
+            "173a4d1a79c13b46ffbe7659d1ab2d908e1258c7d2e2fc75936af85f476a4bc5"
+        );
     }
 
     #[test]

@@ -71,7 +71,7 @@
   border-radius: var(--radius-md);
   background: var(--color-surface-2);
 }
-.segment, .tab, .option-link, .select-link, .action {
+.segment, .tab, .option-link, .select-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -116,8 +116,6 @@
 .facts dt { color: var(--color-text-secondary); font-size: 0.75rem; }
 .facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .rail-card .price { font-size: 1.5rem; }
-.action { width: 100%; background: var(--color-primary); color: var(--color-primary-foreground); }
-.action:hover { background: var(--color-primary-hover); }
 .who { display: grid; gap: 0.125rem; min-width: 0; overflow-wrap: anywhere; }
 .who a { color: var(--color-text); }
 /* ItemDetailMarketBook: a scrolling row of tabs, then the chosen tab's panel. */
@@ -164,3 +162,74 @@
 .pairs div { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); }
 .pairs dt { color: var(--color-text-secondary); font-size: 0.875rem; overflow-wrap: anywhere; }
 .pairs dd { margin: 0; overflow-wrap: anywhere; }
+
+/* The rail's buy forms (marketplace's purchase section): the quantity over the actions, which
+   share the row from 30rem and stack below it. */
+.buy { display: grid; gap: var(--space-3); margin: 0; min-width: 0; }
+.quantity-field { display: grid; gap: var(--space-1); }
+.quantity-field input {
+  width: 100%;
+  max-width: 8rem;
+  min-height: var(--control-height, 2.75rem);
+  padding: var(--control-py, var(--space-2)) var(--control-px, var(--space-3));
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.buy-actions { display: grid; gap: var(--space-2); min-width: 0; margin: 0; padding: 0; border: 0; }
+@media (min-width: 30rem) { .buy-actions { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); } }
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button:disabled, .buy-actions:disabled .button { opacity: 0.5; cursor: not-allowed; }
+.primary { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-primary-foreground); }
+.primary:hover:not(:disabled) { background: var(--color-primary-hover); }
+.error { margin: 0; color: var(--color-danger); font-weight: 600; overflow-wrap: anywhere; }
+.added { display: grid; gap: var(--space-2); border-color: var(--color-success); background: var(--color-success-soft); }
+.resend { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-2) 0 0; }
+.product-buy { display: grid; gap: var(--space-3); min-width: 0; border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+.product-buy > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-2);
+  row-gap: 0.125rem;
+  min-height: 2.75rem;
+  align-content: center;
+  cursor: pointer;
+  list-style: none;
+}
+.product-buy > summary::-webkit-details-marker { display: none; }
+.product-buy > summary > * { grid-column: 1; }
+/* The disclosure's own marker, since the summary is a grid: + folded, - open. */
+.product-buy > summary::after {
+  content: "+";
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+}
+.product-buy[open] > summary::after { content: "\2212"; }
+.product-buy[open] > summary { margin-bottom: var(--space-3); }
+.wide { width: 100%; }

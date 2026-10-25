@@ -1,6 +1,8 @@
 //! The storage-location and restock-decision calls, as the signed-in seller, the cart read, as
 //! the signed-in buyer, and the item page's read, as anyone (the shared caller is `platform::api`).
 //! Types hold only the fields the screen reads; they are also the screen's JSON for data clients.
+use std::collections::BTreeMap;
+
 use corten::axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -383,8 +385,38 @@ struct ErrorMessage {
     message: Option<String>,
 }
 
-const CART_ATTEMPT_KIND: &str = "cart.commands";
 const CART_ATTEMPT_TARGET: &str = "cart";
+
+/// One cart write the Checkout API keeps as a command attempt (`submitCheckoutCartAttempt`): the
+/// cart's line commands, or an item page's new line, for the account's cart or a guest's. `body`
+/// is what is sent less the attempt id, which the lookup names by its hash.
+#[derive(Clone, Debug)]
+pub struct CartWrite {
+    /// After the cart's path: `/commands`, or nothing for a new line.
+    path: &'static str,
+    /// `CheckoutCommandAttemptKind`.
+    kind: &'static str,
+    pub body: serde_json::Value,
+    /// A guest cart (`anon_...`), written through the guest routes.
+    guest: Option<String>,
+}
+
+impl CartWrite {
+    /// The cart page's commands, applied all or nothing per command (`POST /account/cart/commands`).
+    pub fn commands(commands: &[CartCommand]) -> Self {
+        CartWrite { path: "/commands", kind: "cart.commands", body: serde_json::json!({ "commands": commands }), guest: None }
+    }
+
+    /// A new line (`POST /account/cart`, or `/guest/cart` for a guest cart).
+    pub fn add_line(line: &impl Serialize, guest: Option<String>) -> Self {
+        let body = serde_json::to_value(line).unwrap_or_default();
+        CartWrite { path: "", kind: "cart.add-line", body, guest }
+    }
+
+    fn owner(&self) -> &'static str {
+        if self.guest.is_some() { "/api/marketplace/guest" } else { "/api/marketplace/account" }
+    }
+}
 
 /// The guest cart a browser presents (`x-checkout-anonymous-cart-id`).
 const ANONYMOUS_CART_HEADER: &str = "x-checkout-anonymous-cart-id";
@@ -396,11 +428,13 @@ pub trait Checkout {
     async fn merge_guest_cart(&self, anonymous_cart: &str) -> Result<(), ApiError>;
     /// The account's cart's readiness now, with `decisions` (and the guest cart's lines).
     async fn cart_readiness(&self, decisions: &Decisions, anonymous_cart: Option<&str>) -> Result<Snapshot, ApiError>;
-    /// Sends `commands` as one cart attempt (`POST /account/cart/commands`): all or nothing per
-    /// command, applied once however often `attempt` is sent.
-    async fn cart_commands(&self, attempt: &str, commands: &[CartCommand]) -> CartAnswer;
-    /// What the API kept of `attempt` sent with `commands`; `None` when it cannot say.
-    async fn cart_attempt(&self, attempt: &str, commands: &[CartCommand]) -> Option<CartAttempt>;
+    /// Sends `write` as one cart attempt, applied once however often `attempt` is sent.
+    async fn cart_write(&self, attempt: &str, write: &CartWrite) -> CartAnswer;
+    /// What the API kept of `attempt` sent as `write`; `None` when it cannot say.
+    async fn cart_attempt(&self, attempt: &str, write: &CartWrite) -> Option<CartAttempt>;
+    /// Starts a checkout session for one listing (Buy now), once per `entry` key: the same key
+    /// with the same source is the same session, with another source a conflict.
+    async fn buy_now(&self, entry: &str, source: &serde_json::Value) -> Result<(Started, Option<Receipt>), ApiError>;
     /// Starts a checkout session for the cart as `snapshot` saw it. A session started again from
     /// the same snapshot is the same session.
     async fn start_checkout(
@@ -434,9 +468,16 @@ impl Checkout for Caller<'_> {
         Ok(body.readiness)
     }
 
-    async fn cart_commands(&self, attempt: &str, commands: &[CartCommand]) -> CartAnswer {
-        let body = serde_json::json!({ "attemptId": attempt, "commands": commands });
-        let sent = self.request(Method::POST, &format!("{CART}/commands"), CHECKOUT).json(&body).send().await;
+    async fn cart_write(&self, attempt: &str, write: &CartWrite) -> CartAnswer {
+        let mut body = write.body.clone();
+        if let Some(fields) = body.as_object_mut() {
+            fields.insert("attemptId".to_owned(), attempt.into());
+        }
+        let mut req = self.request(Method::POST, &format!("{}/cart{}", write.owner(), write.path), CHECKOUT).json(&body);
+        if let Some(id) = &write.guest {
+            req = req.header(ANONYMOUS_CART_HEADER, id);
+        }
+        let sent = req.send().await;
         let Ok(res) = sent else { return CartAnswer::Lost };
         let status = res.status();
         if status.as_u16() == 408 || status.is_server_error() {
@@ -453,18 +494,24 @@ impl Checkout for Caller<'_> {
         CartAnswer::Answered { status, attempt, message, receipt }
     }
 
-    async fn cart_attempt(&self, attempt: &str, commands: &[CartCommand]) -> Option<CartAttempt> {
-        let hash = crate::cart_attempt::request_hash(commands);
+    async fn cart_attempt(&self, attempt: &str, write: &CartWrite) -> Option<CartAttempt> {
+        let hash = crate::cart_attempt::request_hash(&write.body);
         let path = format!(
-            "/api/marketplace/account/command-attempts/{}?kind={CART_ATTEMPT_KIND}&target={CART_ATTEMPT_TARGET}&requestHash={hash}",
-            segment(attempt)
+            "{}/command-attempts/{}?kind={}&target={CART_ATTEMPT_TARGET}&requestHash={hash}",
+            write.owner(),
+            segment(attempt),
+            write.kind,
         );
         #[derive(Deserialize)]
         struct Found {
             attempt: CartAttempt,
         }
-        match self.read::<Found>(&path, CHECKOUT).await {
-            Ok(found) => Some(found.attempt),
+        let mut req = self.request(Method::GET, &path, CHECKOUT);
+        if let Some(id) = &write.guest {
+            req = req.header(ANONYMOUS_CART_HEADER, id);
+        }
+        match self.write::<Found>(req).await {
+            Ok((found, _)) => Some(found.attempt),
             Err(error) => {
                 tracing::warn!("the cart attempt lookup failed: {error}");
                 None
@@ -490,6 +537,12 @@ impl Checkout for Caller<'_> {
         if let Some(id) = anonymous_cart {
             req = req.header(ANONYMOUS_CART_HEADER, id);
         }
+        self.write(req).await
+    }
+
+    async fn buy_now(&self, entry: &str, source: &serde_json::Value) -> Result<(Started, Option<Receipt>), ApiError> {
+        let body = serde_json::json!({ "entryAttemptKey": entry, "source": source });
+        let req = self.request(Method::POST, "/api/marketplace/account/checkout-sessions", CHECKOUT).json(&body);
         self.write(req).await
     }
 }
@@ -530,6 +583,11 @@ pub struct Item {
     pub market_listings: Vec<Listing>,
     #[serde(default)]
     pub offer_demand_matches: Vec<Offer>,
+    #[serde(default)]
+    pub market_products: Vec<MarketProduct>,
+    /// Listings of the item's products that `market_listings` leaves out.
+    #[serde(default)]
+    pub market_product_listings: Vec<Listing>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -599,6 +657,16 @@ pub struct ImageFallback {
     pub url: String,
     pub alt: String,
     pub usage: String,
+    /// Its renditions by size (`thumbnail`, `card`, `detail`).
+    #[serde(default)]
+    pub variants: BTreeMap<String, FallbackVariant>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FallbackVariant {
+    pub one_x: Option<String>,
+    pub two_x: Option<String>,
 }
 
 /// What makes a product of the item (`ProductSchema`): its dimensions, in the order a product
@@ -687,6 +755,20 @@ pub struct Listing {
     pub seller_average_rating: Option<String>,
     #[serde(default)]
     pub seller_review_count: u64,
+    /// `active` or not; only an active listing is bought (`findSelectedListingForAction`).
+    #[serde(default)]
+    pub status: String,
+    pub listing_stream_version: Option<u64>,
+    /// The seller is temporarily at capacity: the listing shows, but cannot be bought now.
+    #[serde(default)]
+    pub seller_at_capacity: bool,
+}
+
+/// A product of the item and its lowest listing (`market_products`), which Buy best match buys.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MarketProduct {
+    pub product_id: String,
+    pub lowest_listing_id: Option<String>,
 }
 
 /// `DiscoveryOffer`, the fields the page reads.

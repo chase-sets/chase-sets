@@ -19,7 +19,7 @@ stay where they are. The pilot owns only the screens:
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 | `marketplace/` | Inventory > Restock decisions, `/account/inventory/restock-decisions` | marketplace | the pending decisions, Restock and Write off (with a damage note), a refusal drawn again at the current version, and confirming a write whose answer was lost |
 | `marketplace/` | Buy > Cart, `/account/cart` | marketplace | the account's cart as the Checkout API reads it: each line (merged by product and fulfillment) with its badge, options, lock or preference, seller and price, the one notice (what needs attention, or the lower price), the totals and the checkout bar and Check out and Use lower price, which start the checkout session and send the buyer to marketplace's checkout; each line's quantity step, Remove and Lock this listing, as the Checkout API's command attempts (not ported yet: the guest cart, and the checkout pages after it) |
-| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404 (not ported yet: buying, offering, selling and watching, which the rail sends to marketplace's page; the Sales tab; the gallery past the first picture; similar items; the reference dialog; the mobile action bar) |
+| `marketplace/` | An item's page, `/items/{slug}` | marketplace | anyone (a session only marks the viewer's own offers): the item, its picture, Buy and Sell, the product options as links (a GET form for a long list), the market summary, the rail with the listing or offer chosen, and the market book's Listings, Offers and Details, each choice in the address; an id or an old slug moves to the slug (301), an unknown item is a 404. Buying from the rail: Add listing to Buy Cart, Add product to Buy Cart and Buy best match (cart command attempts, to the account's cart or a guest's), and Buy this listing (a checkout session, then marketplace's checkout) (not ported yet: offering, selling and watching, which the rail sends to marketplace's page; the Sales tab; the gallery past the first picture; similar items; the reference dialog; the mobile action bar) |
 
 Both work with and without JavaScript. `platform/` is what both share: the platform API as the
 signed-in user, the session and color mode, read after write, nav rules, the theme and the page
@@ -78,6 +78,11 @@ takes most of 8 s at 1.6 Mbps. Marketplace's page shows the same file
 ([chase-sets/chase-sets#10586 [discovery] Shrink the Pokemon card-back fallback pictures (1.45 MB and 2.95 MB PNGs)](https://github.com/chase-sets/chase-sets/issues/10586)).
 The measurement does not count image bytes. The picture now has `fetchpriority="high"`, added
 after this measurement.
+
+With the rail's buy forms (measured once, 7 loads, pilot release only): the same
+7,590 B of JavaScript, since the forms need none; HTML 3,164 B and CSS 4,814 B transferred;
+interactive 435 ms desktop and 879 ms mobile; server time 111 ms and 250 ms (one run on a
+shared machine, so the server times are noise until measured again).
 
 Catalog area (`/catalog`), the pilot only: this worktree has no admin-web production build, so
 there is no React baseline for these pages yet (measured the same way, release build).
@@ -142,6 +147,7 @@ node scripts/smoke-cart.mjs http://localhost:7792 ../../artifacts/corten-pilot/c
 node scripts/smoke-cart.mjs --write     # also steps a one-line card's quantity up and back, with and without JavaScript (writes, left as found)
                                         # also sends Check out: a checkout session is started in the sandbox (a write); stops at the redirect to marketplace
 node scripts/smoke-market-item.mjs    # an item's page beside the API and marketplace's: a guest without JavaScript, the collector with it, options, a long-list form, Select, sell, 301, 404, 390 px (only reads)
+node scripts/smoke-market-item-buy.mjs http://localhost:7793  # the rail's buy forms: listing, product, Buy best match (a refusal too), Buy this listing, a guest's cart and checkout, 390 px (writes cart lines and removes them; starts checkout sessions)
 node scripts/smoke-restock.mjs         # restock decisions: the API's list, a stale version refused, an uncertain write, no JavaScript, 390 px (records no decision)
 node scripts/smoke-catalog.mjs         # the catalog area: a dimension's and a field's whole life, with and without JavaScript
 node scripts/smoke-live.mjs            # the catalog lists stay current while another tab writes ([..] [state] http://localhost:7752 watches admin-web's)
@@ -217,7 +223,8 @@ forward only on purpose, when a fix the pilot needs lands.
 | `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
 | `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, its writes and checkout, and the page's parts, whose stylesheet is `sections/account/cart.css` |
 | `marketplace/src/items.rs`, `views/item_detail.*` | an item's page: the read, the address (its choices, read and written), marketplace's selection rules, and the page's parts |
-| `marketplace/src/cart_attempt.rs` | a cart write as the Checkout API's command attempt: the attempt id, the request hash, one lookup for a lost answer, and what the attempt came to |
+| `marketplace/src/cart_attempt.rs` | a cart write (`api::CartWrite`: the cart's commands or an item page's new line, for an account or a guest) as the Checkout API's command attempt: the attempt id, the request hash, one lookup for a lost answer, and what the attempt came to |
+| `marketplace/src/buying.rs` | the item page's buy writes: the cart line built from the item read again, the guest cart, Buy best match, Buy this listing, and what the page says after each |
 | `platform/src/money.rs` | what an amount the APIs send is (decimal text, at most two fraction digits, read as cents); Corten writes it (`t.money`) |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
@@ -510,8 +517,39 @@ forward only on purpose, when a fix the pilot needs lands.
     ([todd-skelton/corten#72 A page that moved cannot redirect permanently (Req::redirect is always 303)](https://github.com/todd-skelton/corten/issues/72)).
     An unknown item is a 404, where marketplace answers 200
     ([chase-sets/chase-sets#10585 [discovery] Answer an unknown item page with 404, not 200](https://github.com/chase-sets/chase-sets/issues/10585)).
-    Buying, offers, selling and watching are the next part of the port; until then the rail's
-    Continue on marketplace opens marketplace's page with the same choices.
+    Offers, selling and watching are the next part of the port; until then the rail's Continue
+    on marketplace opens marketplace's page with the same choices.
+33. **The item page's buy forms are plain forms, and the pilot builds the cart line.**
+    Marketplace's buy card is three radio cards (the listing, the selected product, an offer),
+    each showing its own form, which needs its script. The pilot shows the listing's form
+    (Buy this listing, Add listing to Buy Cart) and, folded under it in a `<details>`, the
+    product's (Add product to Buy Cart, Buy best match), so both work without JavaScript and the
+    rail keeps one primary button; Continue on marketplace is a secondary button now. Each form
+    posts the page's address, the product and listing it showed, the quantity and its
+    `SubmitKey`. Marketplace's action takes the product's options and words from the form; the
+    pilot reads the item again ([`buying`](marketplace/src/buying.rs)) and takes them from the
+    address and the listing, as the page drew them, and refuses an add whose product the page no
+    longer shows ("This item was not added to your Buy Cart. Nothing was changed."). The checks
+    before a write are marketplace's (a whole quantity from 1; the listing active with stock;
+    Buy best match only when the product's lowest listing has the quantity).
+    An add is one `cart.add-line` command attempt through the same code as the cart's writes
+    (`cart_attempt`, now taking an `api::CartWrite`), so a lost answer is looked up once by
+    its hash and a write not known to have applied holds the adds (409) with Send the same add
+    again, as marketplace does. Marketplace answers Add to cart in place (a fetcher and a banner);
+    the pilot redirects to the item with `added=<receipt>`, whose View buy cart opens the cart
+    after the write; Buy best match redirects to the cart.
+    A guest's add goes to a guest cart, its id in marketplace's own cookie
+    (`chase_sets_anonymous_cart`, 30 days, `anon_cmd_<uuid>` when new), and View buy cart is
+    marketplace's cart, which reads guest carts (the pilot's cart is for accounts), with the
+    `afterWrite` and `postWriteHandoff` marketplace sends. Buy this listing starts a checkout
+    session with the form's `SubmitKey` as the entry key (marketplace mints one per input set in
+    its server HTML; either way a resend is the same session and a reused key is "Your selection
+    changed"). A guest's Buy this listing goes to marketplace's guest checkout with the query
+    marketplace builds, as a 303 where marketplace uses 307: a 307 would post the pilot's form
+    to marketplace's readiness action, whose fields differ, and its page reads the query
+    (`sourceFromUrl`). The Checkout API keeps whatever words and picture a cart add sends,
+    which is why the pilot does not take them from the form
+    ([chase-sets/chase-sets#10587 [checkout] Take a cart line's title, picture and product summary from the catalog, not the request](https://github.com/chase-sets/chase-sets/issues/10587)).
 
 ## Corten gaps
 

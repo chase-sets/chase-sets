@@ -130,6 +130,30 @@ pub mod url {
         pub state: crate::items::Address,
     }
 
+    /// Add the item's listing or product to the buy cart, or buy the best match.
+    #[derive(Route)]
+    #[route("/items/{slug}/cart")]
+    pub struct ItemCart<'a> {
+        pub slug: &'a str,
+    }
+
+    /// Buy the listing the item page shows now.
+    #[derive(Route)]
+    #[route("/items/{slug}/buy")]
+    pub struct ItemBuy<'a> {
+        pub slug: &'a str,
+    }
+
+    /// The item after Add to cart: the page says so, with the write's receipt (empty for none).
+    #[derive(Route)]
+    #[route("/items/{slug}")]
+    pub struct ItemAdded<'a> {
+        pub slug: &'a str,
+        #[route(query)]
+        pub state: crate::items::Address,
+        pub added: &'a str,
+    }
+
     /// The storage locations, and the write to confirm.
     #[derive(Clone, Debug, Default, Route)]
     #[route("/account/inventory/locations")]
