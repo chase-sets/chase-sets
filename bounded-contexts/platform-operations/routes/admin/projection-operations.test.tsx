@@ -6,7 +6,6 @@ import {
   loadProjectionOperationsSnapshot,
   loadWakeStatusSnapshot,
 } from "../../features/projection-operations/api/client";
-import { normalizeProjectionOperationsSnapshot } from "../../features/projection-operations/read-model/contracts";
 import ProjectionOperationsRoute, { loader } from "./projection-operations";
 
 vi.mock("../../features/projection-operations/api/client", () => ({
@@ -56,14 +55,52 @@ const operation = {
   state: "running" as const,
   contextName: "catalog",
   projectionName: "catalog-item-projection",
+  projectionKey: null,
+  streamId: null,
+  requestedByUserId: null,
+  claimOwnerId: null,
   requestedAt: "2026-05-26T00:00:00.000Z",
+  startedAt: null,
   updatedAt: "2026-05-26T00:01:00.000Z",
+  completedAt: null,
+  error: null,
 };
 
-function buildSnapshot(loadNumber: number) {
-  return normalizeProjectionOperationsSnapshot({
-    summary: { status: "ok", outstandingEventCount: String(loadNumber) },
-    operationSummary: { runningCount: "1" },
+function buildSnapshot(loadNumber: number): Awaited<ReturnType<typeof loadProjectionOperationsSnapshot>> {
+  return {
+    summary: {
+      status: "ok",
+      totalGroups: 0,
+      caughtUpGroups: 0,
+      behindGroups: 0,
+      staleGroups: 0,
+      runningGroups: 0,
+      errorGroups: 0,
+      outstandingEventCount: String(loadNumber),
+    },
+    projectionGroups: [],
+    blockedProjections: [],
+    workers: [],
+    workerHeartbeatHistory: {
+      activeOrStaleCount: 0,
+      expiredTotalCount: 0,
+      expiredWithinDiagnosticWindowCount: 0,
+      expiredReturnedCount: 0,
+      expiredTruncated: false,
+      expiredDiagnosticLimit: 0,
+      diagnosticWindowMs: 0,
+    },
+    runners: [],
+    projectionStatusSource: "runtime-memory",
+    operationSummary: {
+      queuedCount: "0",
+      runningCount: "1",
+      failedCount: "0",
+      cancelRequestedCount: "0",
+      oldestQueuedAt: null,
+      oldestRunningAt: null,
+      averageDurationMs: null,
+    },
     operations: [
       {
         ...operation,
@@ -71,7 +108,7 @@ function buildSnapshot(loadNumber: number) {
         updatedAt: loadNumber > 1 ? "2026-05-26T00:02:00.000Z" : operation.updatedAt,
       },
     ],
-  });
+  };
 }
 
 function renderRoute() {
