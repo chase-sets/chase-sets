@@ -65,6 +65,23 @@ type NormalizedEvidenceChunkProjectionData = {
   encodedNormalizedEvidence: string;
 };
 
+/** Repair legacy YGOJSON set observations at the projection boundary. */
+export function repairLegacyYgojsonSetNormalizedObservation(
+  providerKey: string,
+  normalized: SourceObservationNormalized,
+): SourceObservationNormalized {
+  if (
+    providerKey !== "ygojson" ||
+    normalized.kind !== "yugioh-set-reference" ||
+    normalized.setId ||
+    typeof normalized.ygojsonId !== "string" ||
+    normalized.ygojsonId.trim() === ""
+  ) {
+    return normalized;
+  }
+  return { ...normalized, setId: normalized.ygojsonId };
+}
+
 export function buildSourceObservationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     ...buildCatalogMergeCandidateProjectionHandlers(db),
@@ -546,7 +563,10 @@ async function projectMaterializedObservation(
 
   await projectObservationScopeChange(db, data.observationId, recordedAt, () =>
     upsertObservation(db, {
-      data,
+      data: {
+        ...data,
+        normalized: repairLegacyYgojsonSetNormalizedObservation(data.providerKey, data.normalized),
+      },
       ...input,
       updatedAt: recordedAt,
     }),
