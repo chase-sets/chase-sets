@@ -211,7 +211,6 @@ function summarize(body: unknown, requestedProductLineId: string): SetNamesSumma
     }
     for (const field of setNameDocumentedFields) {
       if (!Object.hasOwn(entry, field)) {
-        missing[field]++;
         fields[field] = { ...fields[field], absent: fields[field].absent + 1 };
         continue;
       }
