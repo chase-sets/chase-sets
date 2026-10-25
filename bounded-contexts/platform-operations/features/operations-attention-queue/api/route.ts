@@ -172,7 +172,7 @@ export function createOperationsAttentionRoutes(services: OperationsAttentionSer
   app.get("/", async (c) => {
     const actor = c.get("actor");
     if (!actor) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication required." } }, 401);
+      return c.json({ error: { code: "authentication_required" } }, 401);
     }
 
     const now = new Date().toISOString();
