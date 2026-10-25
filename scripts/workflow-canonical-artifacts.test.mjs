@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
+import { gitListingOptions } from "./lib/git-listing.mjs";
 import {
   checkWorkflowCanonicalArtifacts,
   createWorkflowCanonicalArtifactBaseline,
@@ -17,7 +18,7 @@ const registryWorkflowFile = ".github/workflows/platform-registry-cleanup.yml";
 const registryWorkflow = readFileSync(resolve(registryWorkflowFile), "utf8");
 
 function trackedActionsYaml() {
-  const result = spawnSync("git", ["ls-files", "-z", "--", ".github"], { encoding: "utf8" });
+  const result = spawnSync("git", ["ls-files", "-z", "--", ".github"], gitListingOptions({ encoding: "utf8" }));
   expect(result.status).toBe(0);
   return result.stdout
     .split("\0")
