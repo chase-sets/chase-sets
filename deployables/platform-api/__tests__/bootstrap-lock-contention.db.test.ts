@@ -138,7 +138,11 @@ describe("platform api bootstrap lock contention", () => {
       port: 6182,
     });
     const registry = apiContextRegistry.filter((entry) => entry.contextName === "auth");
-    const runtime = createPlatformApiHost({ pools: seedPools, runtimeProfile: "public" });
+    const runtime = createPlatformApiHost({
+      pools: seedPools,
+      runtimeProfile: "public",
+      hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
+    });
     const authRuntime = {
       ...runtime,
       mountedContexts: runtime.mountedContexts.filter((entry) => entry.contextName === "auth"),
