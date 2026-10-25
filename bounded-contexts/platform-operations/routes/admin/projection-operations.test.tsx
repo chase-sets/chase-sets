@@ -3,15 +3,15 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import {
-  loadProjectionOperationsSnapshot,
-  loadWakeStatusSnapshot,
+  loadProjectionOperationsConsoleSnapshot,
+  loadWakeStatusConsoleSnapshot,
 } from "../../features/projection-operations/api/client";
 import ProjectionOperationsRoute, { loader } from "./projection-operations";
 
 vi.mock("../../features/projection-operations/api/client", () => ({
   cancelProjectionOperation: vi.fn(),
-  loadProjectionOperationsSnapshot: vi.fn(),
-  loadWakeStatusSnapshot: vi.fn(),
+  loadProjectionOperationsConsoleSnapshot: vi.fn(),
+  loadWakeStatusConsoleSnapshot: vi.fn(),
   readProjectionOperationsFilters: (request: Request) => ({
     state: new URL(request.url).searchParams.get("state") ?? "",
     contextName: "",
@@ -70,7 +70,7 @@ function buildSnapshot(
   loadNumber: number,
   initialState = "running",
   nextState = "cancel_requested",
-): Awaited<ReturnType<typeof loadProjectionOperationsSnapshot>> {
+): Awaited<ReturnType<typeof loadProjectionOperationsConsoleSnapshot>> {
   return {
     summary: {
       status: "ok",
@@ -112,6 +112,10 @@ function buildSnapshot(
         updatedAt: loadNumber > 1 ? "2026-05-26T00:02:00.000Z" : operation.updatedAt,
       },
     ],
+    attentionItems: [],
+    repairQueue: [],
+    activeWorkerCount: 0,
+    staleWorkerCount: 0,
   };
 }
 
@@ -130,8 +134,8 @@ describe("ProjectionOperationsRoute live revalidation", () => {
 
   beforeEach(() => {
     let loadNumber = 0;
-    vi.mocked(loadProjectionOperationsSnapshot).mockImplementation(async () => buildSnapshot(++loadNumber));
-    vi.mocked(loadWakeStatusSnapshot).mockResolvedValue(null);
+    vi.mocked(loadProjectionOperationsConsoleSnapshot).mockImplementation(async () => buildSnapshot(++loadNumber));
+    vi.mocked(loadWakeStatusConsoleSnapshot).mockResolvedValue(null);
     Object.defineProperty(globalThis, "EventSource", { value: FakeEventSource, configurable: true });
     FakeEventSource.instances = [];
   });
@@ -147,7 +151,7 @@ describe("ProjectionOperationsRoute live revalidation", () => {
     ["running", "cancel_requested"],
   ])("revalidates once when a streamed non-terminal state changes from %s to %s", async (initialState, nextState) => {
     let loadNumber = 0;
-    vi.mocked(loadProjectionOperationsSnapshot).mockImplementation(async () =>
+    vi.mocked(loadProjectionOperationsConsoleSnapshot).mockImplementation(async () =>
       buildSnapshot(++loadNumber, initialState, nextState),
     );
     await renderRoute();
@@ -166,7 +170,7 @@ describe("ProjectionOperationsRoute live revalidation", () => {
       expect(screen.getByText("Source lag").parentElement?.nextElementSibling?.textContent).toBe("2"),
     );
     expect(screen.getByText(`rebuild-projection-group / ${nextState}`)).toBeTruthy();
-    expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(2);
+    expect(loadProjectionOperationsConsoleSnapshot).toHaveBeenCalledTimes(2);
     expect(FakeEventSource.instances).toHaveLength(1);
 
     await act(async () => {
@@ -176,7 +180,7 @@ describe("ProjectionOperationsRoute live revalidation", () => {
         "2",
       );
     });
-    expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(2);
+    expect(loadProjectionOperationsConsoleSnapshot).toHaveBeenCalledTimes(2);
   });
 
   it("does not revalidate for a streamed progress event with the same state", async () => {
@@ -194,7 +198,7 @@ describe("ProjectionOperationsRoute live revalidation", () => {
 
     expect(await screen.findByText("worker-progress")).toBeTruthy();
     expect(screen.getByText("rebuild-projection-group / running")).toBeTruthy();
-    expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(1);
+    expect(loadProjectionOperationsConsoleSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it("revalidates exactly once for a streamed terminal transition", async () => {
@@ -214,9 +218,9 @@ describe("ProjectionOperationsRoute live revalidation", () => {
       );
     });
 
-    await waitFor(() => expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(loadProjectionOperationsConsoleSnapshot).toHaveBeenCalledTimes(2));
     expect(screen.getByText("rebuild-projection-group / succeeded")).toBeTruthy();
     expect(screen.getByText("Source lag").parentElement?.nextElementSibling?.textContent).toBe("2");
-    expect(loadProjectionOperationsSnapshot).toHaveBeenCalledTimes(2);
+    expect(loadProjectionOperationsConsoleSnapshot).toHaveBeenCalledTimes(2);
   });
 });

@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
 import {
   cancelProjectionOperation,
+  loadProjectionOperationsConsoleSnapshot,
+  loadProjectionOperationsSnapshot,
   loadWakeStatusSnapshot,
+  loadWakeStatusConsoleSnapshot,
   readProjectionOperationsFilters,
   rebuildProjectionContext,
   rebuildProjectionGroup,
@@ -169,6 +172,82 @@ describe("projection operations API client", () => {
     expect(snapshot).toMatchObject({
       wakeStore: { available: true, intentSummary: { queuedCount: 2 } },
       relay: { available: true, lease: null },
+    });
+  });
+
+  it("loads API-owned projection triage once and preserves raw loader normalization", async () => {
+    const body = {
+      summary: { totalGroups: 1 },
+      projectionGroups: [],
+      blockedProjections: [],
+      workers: [],
+      runners: [],
+      operations: [],
+      operationSummary: null,
+      attentionItems: [{ id: "api-attention" }],
+      repairQueue: [{ kind: "worker", targetId: "worker-1" }],
+      activeWorkerCount: 3,
+      staleWorkerCount: 1,
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("https://admin.example.com/platform/projections");
+
+    const consoleSnapshot = await loadProjectionOperationsConsoleSnapshot(request);
+    const rawSnapshot = await loadProjectionOperationsSnapshot(request);
+
+    expect(consoleSnapshot).toMatchObject({
+      attentionItems: body.attentionItems,
+      repairQueue: body.repairQueue,
+      activeWorkerCount: 3,
+      staleWorkerCount: 1,
+    });
+    expect(rawSnapshot).not.toHaveProperty("attentionItems");
+    expect(rawSnapshot).not.toHaveProperty("repairQueue");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["attentionItems", { attentionItems: { malformed: true } }],
+    ["repairQueue", { repairQueue: [null] }],
+    ["activeWorkerCount", { activeWorkerCount: 1.5 }],
+    ["staleWorkerCount", { staleWorkerCount: -1 }],
+  ])("rejects malformed projection triage field: %s", async (_field, override) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              attentionItems: [],
+              repairQueue: [],
+              activeWorkerCount: 0,
+              staleWorkerCount: 0,
+              ...override,
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await expect(
+      loadProjectionOperationsConsoleSnapshot(new Request("https://admin.example.com/platform/projections")),
+    ).rejects.toMatchObject({ status: 502 });
+  });
+
+  it("degrades malformed or absent wake attention fields to unavailable", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ wakeStore: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("https://admin.example.com/platform/projections");
+
+    await expect(loadWakeStatusConsoleSnapshot(request)).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ attentionItems: [{ id: "wake-api" }] }), { status: 200 })),
+    );
+    await expect(loadWakeStatusConsoleSnapshot(request)).resolves.toMatchObject({
+      attentionItems: [{ id: "wake-api" }],
     });
   });
 

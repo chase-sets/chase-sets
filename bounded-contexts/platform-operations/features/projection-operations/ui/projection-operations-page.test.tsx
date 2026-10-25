@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectionOperationsPage } from "./projection-operations-page";
 import { ProjectionOperationsReferencePage } from "./projection-operations-reference-page";
-import { normalizeProjectionOperationsSnapshot } from "../read-model/contracts";
-import { normalizeWakeStatusSnapshot } from "../read-model/wake-status-contracts";
+import { deriveProjectionTriage, normalizeProjectionOperationsSnapshot } from "../read-model/contracts";
+import { deriveWakeAttentionItems, normalizeWakeStatusSnapshot } from "../read-model/wake-status-contracts";
 
 const emptyFilters = {
   state: "",
@@ -13,6 +13,32 @@ const emptyFilters = {
   search: "",
   selected: "",
 };
+
+function normalizeConsoleSnapshot(value: unknown) {
+  const snapshot = normalizeProjectionOperationsSnapshot(value);
+  const triage = deriveProjectionTriage(value);
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const body = value as Record<string, unknown>;
+    return {
+      ...snapshot,
+      ...triage,
+      ...(Object.hasOwn(body, "attentionItems") ? { attentionItems: body.attentionItems } : {}),
+      ...(Object.hasOwn(body, "repairQueue") ? { repairQueue: body.repairQueue } : {}),
+      ...(Object.hasOwn(body, "activeWorkerCount") ? { activeWorkerCount: body.activeWorkerCount } : {}),
+      ...(Object.hasOwn(body, "staleWorkerCount") ? { staleWorkerCount: body.staleWorkerCount } : {}),
+    };
+  }
+  return { ...snapshot, ...triage };
+}
+
+function normalizeConsoleWakeStatus(value: unknown) {
+  const snapshot = normalizeWakeStatusSnapshot(value);
+  const attentionItems = deriveWakeAttentionItems(value);
+  if (typeof value === "object" && value !== null && !Array.isArray(value) && Object.hasOwn(value, "attentionItems")) {
+    return { ...snapshot, attentionItems: (value as Record<string, unknown>).attentionItems };
+  }
+  return { ...snapshot, attentionItems };
+}
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -49,6 +75,50 @@ describe("ProjectionOperationsPage", () => {
     });
   });
 
+  it("renders projection triage from the API fields instead of deriving it from raw rows", () => {
+    const data = normalizeConsoleSnapshot({
+      summary: { status: "degraded" },
+      projectionGroups: [
+        {
+          projectionName: "raw-projection",
+          targetContextName: "raw-context",
+          state: "degraded",
+          poisonEventCount: 4,
+          blockedStreamCount: 2,
+        },
+      ],
+      attentionItems: [
+        {
+          id: "api-attention",
+          label: "API attention",
+          detail: "The API-owned signal",
+          tone: "accent",
+          targetTab: "diagnostics",
+        },
+      ],
+      repairQueue: [
+        {
+          kind: "worker",
+          targetId: "api-worker",
+          label: "API repair",
+          detail: "The API-owned repair row",
+          state: "review",
+          tone: "warning",
+        },
+      ],
+      activeWorkerCount: 8,
+      staleWorkerCount: 0,
+    });
+
+    render(<ProjectionOperationsPage data={data} filters={emptyFilters} />);
+
+    expect(screen.getByText("API attention")).toBeTruthy();
+    expect(screen.getAllByText("API repair").length).toBeGreaterThan(0);
+    expect(screen.getByText("8 active · 0 stale")).toBeTruthy();
+    expect(screen.queryByText("Poison events")).toBeTruthy();
+    expect(screen.queryByText("raw-context raw-projection")).toBeNull();
+  });
+
   it.each([
     {
       name: "aggregate-only",
@@ -62,7 +132,7 @@ describe("ProjectionOperationsPage", () => {
     { name: "unequal poison and stream counts", counts: [[2, 1]], poison: 2, blocked: 1 },
     { name: "recovered", counts: [[0, 0]], poison: 0, blocked: 0 },
   ])("shows $name group totals with no detailed rows", ({ counts, poison, blocked }) => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       projectionStatusSource: "worker-snapshot",
       projectionGroups: counts.map(([poisonEventCount, blockedStreamCount], index) => ({
         targetContextName: `context-${index}`,
@@ -100,7 +170,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("opens the target reference group without inheriting search, state, or selection", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       projectionGroups: [
         {
           targetContextName: "catalog",
@@ -143,7 +213,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it.each([0, 6])("keeps %i expired heartbeats informational with one active worker", (count) => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       projectionStatusSource: "worker-snapshot",
       workers: [
         { worker_id: "active", worker_state: "active" },
@@ -168,7 +238,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("renders an attention-first console for failed operations and blocked streams", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: {
         status: "degraded",
         totalGroups: 1,
@@ -250,7 +320,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("opens poison-event evidence in a drawer with the stream retry action", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "degraded" },
       projectionStatusSource: "worker-snapshot",
       blockedProjections: [
@@ -284,7 +354,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("renders selected operation detail with cancellable action", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok" },
       operations: [
         {
@@ -313,7 +383,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("hides operate and rebuild actions for projection operations view actors", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok" },
       operations: [
         {
@@ -371,7 +441,7 @@ describe("ProjectionOperationsPage", () => {
       configurable: true,
     });
     const onOperationTerminal = vi.fn();
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok" },
       operations: [
         {
@@ -418,7 +488,7 @@ describe("ProjectionOperationsPage", () => {
     });
     vi.useFakeTimers();
 
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok" },
       operations: [
         {
@@ -458,7 +528,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("renders a quiet healthy overview when no attention signals exist", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: {
         status: "ok",
         totalGroups: 1,
@@ -484,7 +554,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("hides cross-section shortcuts when the platform actor lacks target permissions", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok" },
     });
 
@@ -495,7 +565,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("shows cross-section shortcuts when the platform actor has target permissions", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok" },
     });
 
@@ -512,7 +582,7 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("surfaces cancel-requested and stale worker attention", () => {
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok", outstandingEventCount: "0" },
       operationSummary: {
         queuedCount: "0",
@@ -548,7 +618,7 @@ describe("ProjectionOperationsPage", () => {
       worker_kind: "platform-worker",
       worker_state: "expired",
     }));
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok", outstandingEventCount: "0" },
       projectionStatusSource: "worker-snapshot",
       workers: [{ worker_id: "active", worker_kind: "platform-worker", worker_state: "active" }, ...expiredWorkers],
@@ -579,8 +649,8 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("renders the push-wake handoff without duplicating Grafana telemetry sections", () => {
-    const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
-    const wakeStatus = normalizeWakeStatusSnapshot({
+    const data = normalizeConsoleSnapshot({ summary: { status: "ok" } });
+    const wakeStatus = normalizeConsoleWakeStatus({
       generatedAt: "2026-06-11T12:00:00.000Z",
       wakeStore: {
         available: true,
@@ -732,8 +802,8 @@ describe("ProjectionOperationsPage", () => {
   });
 
   it("merges wake attention items into the attention-first console", () => {
-    const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
-    const wakeStatus = normalizeWakeStatusSnapshot({
+    const data = normalizeConsoleSnapshot({ summary: { status: "ok" } });
+    const wakeStatus = normalizeConsoleWakeStatus({
       wakeStore: {
         available: true,
         intentSummary: { failedCount: 2, staleClaimCount: 1 },
@@ -749,8 +819,33 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getAllByText("Stale wake claims").length).toBeGreaterThan(0);
   });
 
+  it("renders wake attention from the API field rather than deriving raw wake counters", () => {
+    const data = normalizeConsoleSnapshot({ summary: { status: "ok" } });
+    const wakeStatus = normalizeConsoleWakeStatus({
+      wakeStore: {
+        available: true,
+        intentSummary: { failedCount: 4, staleClaimCount: 2 },
+        checkpointSignals: {},
+      },
+      attentionItems: [
+        {
+          id: "api-wake-attention",
+          label: "API wake attention",
+          detail: "The API-owned wake signal",
+          tone: "accent",
+          targetTab: "wake",
+        },
+      ],
+    });
+
+    render(<ProjectionOperationsPage data={data} filters={emptyFilters} wakeStatus={wakeStatus} />);
+
+    expect(screen.getAllByText("API wake attention").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Failed wake intents")).toBeNull();
+  });
+
   it("renders an explicit unavailable state when wake status is missing", () => {
-    const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
+    const data = normalizeConsoleSnapshot({ summary: { status: "ok" } });
 
     render(<ProjectionOperationsReferencePage data={data} filters={emptyFilters} wakeStatus={null} />);
 
@@ -759,7 +854,7 @@ describe("ProjectionOperationsPage", () => {
 
   it("renders applied filter chips and rebuild confirmation dialogs", async () => {
     const user = userEvent.setup();
-    const data = normalizeProjectionOperationsSnapshot({
+    const data = normalizeConsoleSnapshot({
       summary: { status: "ok" },
       projectionGroups: [
         {
