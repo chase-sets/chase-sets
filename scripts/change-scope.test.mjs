@@ -529,6 +529,8 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/event-core-postgres",
   "@chase-sets/evidence-window-provider-write",
   "@chase-sets/fulfillment",
+  "@chase-sets/google-merchant",
+  "@chase-sets/google-shopping-export",
   "@chase-sets/http",
   "@chase-sets/identity",
   "@chase-sets/identity-seed",
