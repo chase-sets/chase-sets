@@ -92,6 +92,8 @@ import {
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
+  deriveProjectionTriage,
+  deriveWakeAttentionItems,
   type OfferEconomicsCrossContextPort,
   rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
@@ -1126,6 +1128,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     createProjectionOperationsRoutes(runtime, {
       controlPlane: options.controlPlane,
       workSignalStore: options.workSignalStore,
+      deriveProjectionTriage,
+      deriveWakeAttentionItems,
     }),
   );
   if (marketplacePlatformRoutesEnabled) {
