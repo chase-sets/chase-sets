@@ -35,6 +35,46 @@ function pool(valid = true) {
 const request = () =>
   new Request("https://extension.example/observation", { headers: { authorization: `Bearer ${bearer}` } });
 
+it("renews a grant when the live creator authority is granted", async () => {
+  const fake = pool(true);
+  const forGrantCreator = vi.fn(async () => ({
+    kind: "granted" as const,
+    membershipId: "mbr_creator",
+    roleKey: "platform-admin" as const,
+    rolePermissions: ["catalog.manage"],
+  }));
+  const services = createOperatorSessionGrants(fake.value, { forActor: vi.fn(), forGrantCreator });
+
+  await expect(services.authorizeObservationGrant(request())).resolves.toEqual({
+    grantId: "grant_1",
+    creatorUserId: "usr_creator",
+    creatorMembershipId: "mbr_creator",
+  });
+  expect(forGrantCreator).toHaveBeenCalledWith({ userId: "usr_creator", membershipId: "mbr_creator" });
+  expect(fake.state.renewals).toBe(1);
+  expect(fake.state.authorityRevocations).toBe(0);
+});
+
+it.each([
+  ["a non-admin role", { roleKey: "owner" as const, rolePermissions: ["catalog.manage"] as const }],
+  ["missing catalog.manage", { roleKey: "platform-admin" as const, rolePermissions: [] as const }],
+] as const)("revokes when the granted decision has %s", async (_label, decision) => {
+  const fake = pool(true);
+  const forGrantCreator = vi.fn(async () => ({
+    kind: "granted" as const,
+    membershipId: "mbr_creator",
+    ...decision,
+  }));
+  const services = createOperatorSessionGrants(fake.value, { forActor: vi.fn(), forGrantCreator });
+
+  await expect(services.authorizeObservationGrant(request())).rejects.toMatchObject({
+    code: "authority-lost",
+    status: 403,
+  });
+  expect(fake.state.authorityRevocations).toBe(1);
+  expect(fake.state.renewals).toBe(0);
+});
+
 it("revokes the grant in a committed transaction when the creator authority is denied", async () => {
   const fake = pool(true);
   const forGrantCreator = vi.fn(async () => ({ kind: "denied" as const, reason: "inactive" as const }));
