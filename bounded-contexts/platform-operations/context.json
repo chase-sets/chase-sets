@@ -1463,8 +1463,8 @@
     },
     "account-appeals": {
       "classification": "slice",
-      "purpose": "Own the Appealable Enforcement Action registry: the owner-attributed, immutable tuple each Identity account enforcement or Marketplace listing enforcement fact records, its durable conflict state, and the typed lookup that returns an action only when its row is present, complete, non-conflicted, and owned by the caller's account.",
-      "expectedConsumers": ["Internal platform-operations module composition"]
+      "purpose": "Own the private Account Appeal lifecycle and the Appealable Enforcement Action registry: branded seller/operator/action capabilities, deterministic state decisions, expected-version command appends, and the owner-attributed immutable tuple each source enforcement fact records.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Future seller and operator appeal routes"]
     }
   },
   "runtimeDeployables": ["platform-worker"],

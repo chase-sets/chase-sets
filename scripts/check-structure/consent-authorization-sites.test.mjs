@@ -1294,7 +1294,7 @@ function deriveLockfileOnlyArtifactPair() {
       writeFileSync(lockfilePath, repoFile(`${ownerContextFixtureRoot}/${fixture}`));
       return deriveTypeScriptOwnerContexts({ resolutionRoot: repoRoot, lockfilePath });
     };
-    return { a: derive("lockfile-a.yaml"), b: derive("lockfile-b.yaml") };
+    return { a: derive("lockfile-a.yaml"), b: derive("lockfile-c.yaml") };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -1669,7 +1669,7 @@ describe("Consent authorization sites", () => {
       (key) => JSON.stringify(pair.a.resolution[key]) !== JSON.stringify(pair.b.resolution[key]),
     );
     process.stdout.write(`lockfile-only-delta=${JSON.stringify(differing)}\n`);
-    expect(differing).toEqual(["lockfileSha256"]);
+    expect(differing).toEqual(["lockfileKeys"]);
     const comparison = compareTypeScriptOwnerContexts(pair.a, pair.b, {
       partition: ownerContextPartition,
       schema: ownerContextSchema,

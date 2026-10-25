@@ -3,6 +3,7 @@ import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { ProjectorHandler, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -20,6 +21,8 @@ import {
 import { module as platformOperationsModule } from "../../../index";
 import { APPEALABLE_ACTION_INDETERMINATE, readAppealableEnforcementAction } from "../read-model/projection";
 import { accountAppealSchemaMigrations } from "../read-model/schema";
+import { createAccountAppealRuntime } from "../api/runtime";
+import { withAccountAppealOperatorAccess, withAccountAppealSellerAccess } from "../api/access";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox (TEST_DATABASE_URL), never mocked.
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -387,6 +390,194 @@ describeDb("account appeal aggregate DB proof", () => {
       const enforcementActionId = createId("enf");
       await deliver(identityEnforcement("identity.account.reactivated", owner, enforcementActionId));
       expect(await read(enforcementActionId, owner)).toMatchObject({ source: "identity.account.reactivated" });
+    });
+
+    it("runtime commands use the typed reader, expected versions, and terminal idempotency", async () => {
+      const owner = createId("acc");
+      const enforcementActionId = createId("enf");
+      await deliver(identityEnforcement("identity.account.closed", owner, enforcementActionId));
+      const runtime = createAccountAppealRuntime(pool, createPostgresEventStore({ pool }));
+      const seller = {
+        tenantId: createId("tnt"),
+        accountId: owner,
+        userId: createId("usr"),
+        permissions: ["account-appeals.file", "account-appeals.view"],
+      } as const;
+      const fileResult = await withAccountAppealSellerAccess(seller, "account-appeals.file", async (capability) => {
+        const resolved = await runtime.resolve(capability, enforcementActionId);
+        expect(resolved.status).toBe("resolved");
+        if (resolved.status !== "resolved") throw new Error("expected resolved action");
+        const input = { statement: "The closure was mistaken" };
+        await expect(
+          runtime.file(capability, resolved.action, input, {
+            tenantId: seller.tenantId,
+            audit: { performedByUserId: createId("usr"), forAccountId: owner },
+          }),
+        ).rejects.toThrow("account capability");
+        const race = await Promise.allSettled([
+          runtime.file(capability, resolved.action, input, {
+            tenantId: seller.tenantId,
+            audit: { performedByUserId: seller.userId, forAccountId: owner },
+          }),
+          runtime.file(capability, resolved.action, input, {
+            tenantId: seller.tenantId,
+            audit: { performedByUserId: seller.userId, forAccountId: owner },
+          }),
+        ]);
+        expect(race.filter((entry) => entry.status === "fulfilled")).toHaveLength(1);
+        expect(race.filter((entry) => entry.status === "rejected")).toHaveLength(1);
+        return resolved.action;
+      });
+      expect(fileResult).toBeDefined();
+
+      const operator = {
+        tenantId: seller.tenantId,
+        userId: createId("usr"),
+        roleKey: "trust-operator",
+        permissions: ["account-appeals.review"],
+      } as const;
+      await withAccountAppealOperatorAccess(operator, "account-appeals.review", async (capability) => {
+        const context = {
+          tenantId: operator.tenantId,
+          audit: { performedByUserId: operator.userId, forAccountId: owner },
+        } as const;
+        await expect(
+          runtime.startReview(capability, enforcementActionId, {
+            tenantId: operator.tenantId,
+            audit: { performedByUserId: operator.userId, forAccountId: createId("acc") },
+          }),
+        ).rejects.toThrow("appeal account");
+        await runtime.startReview(capability, enforcementActionId, context);
+        const first = await runtime.recordOutcome(
+          capability,
+          enforcementActionId,
+          {
+            outcome: "reversed",
+            rationale: "Evidence changed",
+            note: "Keep internal history",
+          },
+          context,
+        );
+        const retry = await runtime.recordOutcome(
+          capability,
+          enforcementActionId,
+          {
+            outcome: "reversed",
+            rationale: "Evidence changed",
+            note: "Keep internal history",
+          },
+          context,
+        );
+        expect(first.newEvents).toHaveLength(1);
+        expect(retry.newEvents).toEqual([]);
+      });
+
+      const stored = await pool.query<{
+        event_type: string;
+        payload: Record<string, unknown>;
+        performed_by_user_id: string;
+        for_account_id: string;
+      }>(
+        `SELECT event_type, payload
+                , performed_by_user_id, for_account_id
+         FROM event_store_events
+         WHERE stream_id = $1
+         ORDER BY stream_version`,
+        [`platform-operations.account-appeal-${enforcementActionId}`],
+      );
+      expect(stored.rows.map((row) => row.event_type)).toEqual([
+        "platform-operations.account-appeal.filed",
+        "platform-operations.account-appeal.review-started",
+        "platform-operations.account-appeal.outcome-recorded",
+      ]);
+      expect(stored.rows[2]?.payload).toMatchObject({
+        outcome: "reversed",
+        rationale: "Evidence changed",
+        note: "Keep internal history",
+        operatorUserId: operator.userId,
+      });
+      expect(stored.rows[2]).toMatchObject({ performed_by_user_id: operator.userId, for_account_id: owner });
+    });
+
+    it("concurrent distinct outcomes produce one terminal winner and one conflict", async () => {
+      const owner = createId("acc");
+      const enforcementActionId = createId("enf");
+      await deliver(identityEnforcement("identity.account.closed", owner, enforcementActionId));
+      const runtime = createAccountAppealRuntime(pool, createPostgresEventStore({ pool }));
+      const seller = {
+        tenantId: createId("tnt"),
+        accountId: owner,
+        userId: createId("usr"),
+        permissions: ["account-appeals.file"],
+      } as const;
+      const operator = {
+        tenantId: seller.tenantId,
+        userId: createId("usr"),
+        roleKey: "trust-operator",
+        permissions: ["account-appeals.review"],
+      } as const;
+      const action = await withAccountAppealSellerAccess(seller, "account-appeals.file", async (capability) => {
+        const resolved = await runtime.resolve(capability, enforcementActionId);
+        if (resolved.status !== "resolved") throw new Error("expected resolved action");
+        await runtime.file(
+          capability,
+          resolved.action,
+          { statement: "The closure was mistaken" },
+          {
+            tenantId: seller.tenantId,
+            audit: { performedByUserId: seller.userId, forAccountId: owner },
+          },
+        );
+        return resolved.action;
+      });
+      await withAccountAppealOperatorAccess(operator, "account-appeals.review", async (capability) => {
+        const context = {
+          tenantId: operator.tenantId,
+          audit: { performedByUserId: operator.userId, forAccountId: owner },
+        } as const;
+        await runtime.startReview(capability, enforcementActionId, context);
+        const race = await Promise.allSettled([
+          runtime.recordOutcome(
+            capability,
+            enforcementActionId,
+            {
+              outcome: "reversed",
+              rationale: "Evidence changed",
+              note: "Winner A",
+            },
+            context,
+          ),
+          runtime.recordOutcome(
+            capability,
+            enforcementActionId,
+            {
+              outcome: "upheld",
+              rationale: "Evidence confirmed",
+              note: "Winner B",
+            },
+            context,
+          ),
+        ]);
+        expect(race.filter((entry) => entry.status === "fulfilled")).toHaveLength(1);
+        expect(race.filter((entry) => entry.status === "rejected")).toHaveLength(1);
+      });
+      expect(action).toBeDefined();
+
+      const stored = await pool.query<{ event_type: string; payload: Record<string, unknown> }>(
+        `SELECT event_type, payload
+         FROM event_store_events
+         WHERE stream_id = $1
+         ORDER BY stream_version`,
+        [`platform-operations.account-appeal-${enforcementActionId}`],
+      );
+      const terminal = stored.rows.filter(
+        (row) => row.event_type === "platform-operations.account-appeal.outcome-recorded",
+      );
+      expect(terminal).toHaveLength(1);
+      expect([
+        { rationale: "Evidence changed", note: "Winner A" },
+        { rationale: "Evidence confirmed", note: "Winner B" },
+      ]).toContainEqual({ rationale: terminal[0]?.payload.rationale, note: terminal[0]?.payload.note });
     });
   });
 });

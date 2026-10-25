@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +8,6 @@ import {
   collectLeafDiffPaths,
   collectLeafPaths,
   collectUnclassifiedFields,
-  compareTypeScriptOwnerContexts,
   deriveTypeScriptOwnerContexts,
   evaluateTypeScriptOwnerContexts,
   formatTypeScriptOwnerContextDiagnostics,
@@ -293,7 +293,6 @@ test("derives the owner context surface from the installed compiler source", () 
       implementationVersion: derived.resolution.implementationVersion,
       implementationSourceSha256: derived.resolution.implementationSourceSha256,
       aliasVersion: derived.resolution.aliasVersion,
-      lockfileSha256: derived.resolution.lockfileSha256,
       runtimeKinds: derived.runtimeKinds.length,
       namedEvaluationContexts: derived.namedEvaluationContexts.length,
       assignmentOperators: derived.assignmentOperators.length,
@@ -310,7 +309,7 @@ test("compares exactly the eighteen semantic compiler identity keys", () => {
   console.log("COMPARED SEMANTIC KEYS", JSON.stringify(result.comparedKeys));
 });
 
-test("records all thirteen provenance keys without comparing any of them", () => {
+test("records all twelve provenance keys without comparing any of them", () => {
   const semanticControlSet = new Set(COMMITTED_PARTITION.semantic);
   const receipts = COMMITTED_PARTITION.provenance.map((key) => {
     const mutant = mutateOneLeaf(COMMITTED_ARTIFACT, key);
@@ -384,7 +383,7 @@ test("records all thirteen provenance keys without comparing any of them", () =>
     };
   });
 
-  expect(receipts).toHaveLength(13);
+  expect(receipts).toHaveLength(12);
   expect(receipts.map(({ governingVariable }) => governingVariable)).toEqual(COMMITTED_PARTITION.provenance);
   console.log("PROVENANCE RECEIPTS", JSON.stringify(receipts));
   console.log("SEVEN CANDIDATE-GREEN/NAMED-BYPASS-RED RECEIPTS", JSON.stringify(receipts.slice(0, 7)));
@@ -430,7 +429,12 @@ test("fails closed on an unclassified key from either side", () => {
   derivedNested.resolution.surprise = true;
   const arrayElement = clone(COMMITTED_ARTIFACT);
   arrayElement.resolution.lockfileKeys[0].surprise = true;
+  const supersededPin = clone(COMMITTED_ARTIFACT);
+  supersededPin.resolution.lockfileSha256 = "a".repeat(64);
 
+  expect(validateAgainstSchema(supersededPin, COMMITTED_SCHEMA)).toContain(
+    '<root>/resolution: unknown member "lockfileSha256"',
+  );
   const controls = [
     {
       site: "committed.<top>.surprise",
@@ -467,6 +471,20 @@ test("fails closed on an unclassified key from either side", () => {
       mechanism: "recursive schema",
       code: "derivation-artifact-schema-invalid",
     },
+    {
+      site: "committed.resolution.lockfileSha256",
+      side: "committed",
+      result: evaluateDerivedArtifact(COMMITTED_ARTIFACT, { committedArtifact: supersededPin }),
+      mechanism: "superseded whole-lockfile pin",
+      code: "derivation-artifact-field-unclassified",
+    },
+    {
+      site: "derived.resolution.lockfileSha256",
+      side: "derived",
+      result: evaluateDerivedArtifact(supersededPin),
+      mechanism: "superseded whole-lockfile pin",
+      code: "derivation-artifact-field-unclassified",
+    },
   ];
 
   for (const control of controls) {
@@ -476,7 +494,7 @@ test("fails closed on an unclassified key from either side", () => {
       `${control.site}: wrong mechanism fired`,
     );
   }
-  expect(controls).toHaveLength(5);
+  expect(controls).toHaveLength(7);
   console.log(
     "UNCLASSIFIED INJECTION RECEIPTS",
     JSON.stringify(
@@ -500,21 +518,24 @@ test("keeps an unchanged authority green across a lockfile change", () => {
     resolutionRoot: repoRoot,
     lockfilePath: path.join(FIXTURE_ROOT, "lockfile-b.yaml"),
   };
-  const first = deriveTypeScriptOwnerContexts(firstInputs);
-  const second = deriveTypeScriptOwnerContexts(secondInputs);
-  const firstResult = compareTypeScriptOwnerContexts(COMMITTED_ARTIFACT, first, {
-    partition: COMMITTED_PARTITION,
-    schema: COMMITTED_SCHEMA,
-    inputs: firstInputs,
-  });
-  const secondResult = compareTypeScriptOwnerContexts(COMMITTED_ARTIFACT, second, {
-    partition: COMMITTED_PARTITION,
-    schema: COMMITTED_SCHEMA,
-    inputs: secondInputs,
-  });
+  const evaluate = (inputs) =>
+    evaluateTypeScriptOwnerContexts({
+      ...inputs,
+      committedArtifact: COMMITTED_ARTIFACT,
+      partition: COMMITTED_PARTITION,
+      schema: COMMITTED_SCHEMA,
+    });
+  const firstResult = evaluate(firstInputs);
+  const secondResult = evaluate(secondInputs);
+  const first = firstResult.artifact;
+  const second = secondResult.artifact;
+  const lockfileSha256 = (inputs) => createHash("sha256").update(readFileSync(inputs.lockfilePath)).digest("hex");
 
   expect(firstInputs.lockfilePath).not.toBe(secondInputs.lockfilePath);
-  expect(first.resolution.lockfileSha256).not.toBe(second.resolution.lockfileSha256);
+  expect(firstResult.inputs.lockfileSha256).toBe(lockfileSha256(firstInputs));
+  expect(secondResult.inputs.lockfileSha256).toBe(lockfileSha256(secondInputs));
+  expect(firstResult.inputs.lockfileSha256).not.toBe(secondResult.inputs.lockfileSha256);
+  expect(collectLeafDiffPaths(first, second)).toEqual(["resolution.lockfilePath"]);
   expect(first.runtimeKinds).toEqual(second.runtimeKinds);
   expect(first.runtimeSetHash).toBe(second.runtimeSetHash);
   expect(first.namedEvaluationContexts).toEqual(second.namedEvaluationContexts);
@@ -530,7 +551,8 @@ test("keeps an unchanged authority green across a lockfile change", () => {
     JSON.stringify({
       resolutionRoots: [firstInputs.resolutionRoot, secondInputs.resolutionRoot],
       lockfilePaths: [firstInputs.lockfilePath, secondInputs.lockfilePath],
-      lockfileSha256: [first.resolution.lockfileSha256, second.resolution.lockfileSha256],
+      checkTimeLockfileSha256: [firstResult.inputs.lockfileSha256, secondResult.inputs.lockfileSha256],
+      artifactLeafDiff: collectLeafDiffPaths(first, second),
       setHashQuadruples: [
         [first.runtimeSetHash, first.namedEvaluationSetHash, first.assignmentOperatorSetHash, first.dispositionSetHash],
         [
@@ -640,9 +662,10 @@ test("covers every artifact key with an uncovered count of zero", () => {
   const uncovered = [...inventory].filter((key) => !union.has(key));
   const outsideInventory = [...walkedUnion].filter((key) => !inventory.has(key));
 
-  expect(COMMITTED_PARTITION.inventory).toHaveLength(31);
+  expect(COMMITTED_PARTITION.inventory).toHaveLength(30);
   expect(COMMITTED_PARTITION.semantic).toHaveLength(18);
-  expect(COMMITTED_PARTITION.provenance).toHaveLength(13);
+  expect(COMMITTED_PARTITION.provenance).toHaveLength(12);
+  expect(COMMITTED_PARTITION.inventory.includes("resolution.lockfileSha256")).toBe(false);
   expect(overlap).toEqual([]);
   expect(uncovered).toEqual([]);
   expect(outsideInventory).toEqual([]);

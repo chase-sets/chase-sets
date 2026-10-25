@@ -144,6 +144,18 @@ function shippingAddressFromForm(formData: FormData) {
   };
 }
 
+type PendingAddressBookWrite = Readonly<{
+  kind: "create" | "update";
+  actorAccountId: string;
+  selectedSavedAddress: CheckoutShipFromAddressRow | null;
+  makeDefault: boolean;
+}>;
+
+type CheckoutShippingAddressResolution = Readonly<{
+  shippingAddress: ReturnType<typeof shippingAddressFromForm>;
+  pendingAddressBookWrite: PendingAddressBookWrite | null;
+}>;
+
 function shippingAddressFromSavedAddress(address: CheckoutShipFromAddressRow) {
   return {
     shippingAddressId: address.shipping_address_id,
@@ -242,7 +254,7 @@ async function resolveCheckoutShippingAddress(
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   formData: FormData,
   options: Readonly<{ persistAddressBook?: boolean; validateServiceability?: boolean }> = {},
-) {
+): Promise<CheckoutShippingAddressResolution> {
   const selectedShippingAddressId = normalizeText(formData.get("shippingAddressId"));
   const addressBookAction = String(formData.get("addressBookAction") ?? "checkout-only");
   const makeDefault = String(formData.get("makeDefaultShippingAddress") ?? "") === "true";
@@ -273,10 +285,7 @@ async function resolveCheckoutShippingAddress(
 
   if (!canReadAddressBook) {
     assertServiceable(formAddress);
-    return {
-      ...formAddress,
-      shippingAddressId: null,
-    };
+    return { shippingAddress: { ...formAddress, shippingAddressId: null }, pendingAddressBookWrite: null };
   }
 
   const savedAddresses =
@@ -290,40 +299,39 @@ async function resolveCheckoutShippingAddress(
   if (selectedSavedAddress && addressBookAction !== "save-new" && addressBookAction !== "update-selected") {
     const savedAddress = shippingAddressFromSavedAddress(selectedSavedAddress);
     assertServiceable(savedAddress);
-    return savedAddress;
+    return { shippingAddress: savedAddress, pendingAddressBookWrite: null };
   }
 
   if (addressBookAction === "update-selected" && selectedSavedAddress && actorAccountId) {
     assertServiceable(formAddress);
-    const identityApi = createIdentityRequestApiClient(request);
-    await identityApi.updateShippingAddress(actorAccountId!, selectedSavedAddress.shipping_address_id, {
-      label: selectedSavedAddress.label,
-      ...formAddress,
-      makeDefault,
-    });
     return {
-      ...formAddress,
-      shippingAddressId: selectedSavedAddress.shipping_address_id,
+      shippingAddress: { ...formAddress, shippingAddressId: selectedSavedAddress.shipping_address_id },
+      pendingAddressBookWrite: {
+        kind: "update",
+        actorAccountId,
+        selectedSavedAddress,
+        makeDefault,
+      },
     };
   }
 
   if (addressBookAction === "save-new" && actorAccountId) {
     assertServiceable(formAddress);
-    const identityApi = createIdentityRequestApiClient(request);
-    const result = await identityApi.createShippingAddress<{ id: string }>(actorAccountId!, {
-      ...formAddress,
-      makeDefault,
-    });
     return {
-      ...formAddress,
-      shippingAddressId: result.id,
+      shippingAddress: { ...formAddress, shippingAddressId: null },
+      pendingAddressBookWrite: {
+        kind: "create",
+        actorAccountId,
+        selectedSavedAddress: null,
+        makeDefault,
+      },
     };
   }
 
   assertServiceable(formAddress);
   return {
-    ...formAddress,
-    shippingAddressId: selectedSavedAddress?.shipping_address_id ?? null,
+    shippingAddress: { ...formAddress, shippingAddressId: selectedSavedAddress?.shipping_address_id ?? null },
+    pendingAddressBookWrite: null,
   };
 }
 
@@ -490,7 +498,9 @@ function loadReservationUnavailableLines(
 
 type CheckoutRequestApiClient = ReturnType<typeof createCheckoutRequestApiClient>;
 type CheckoutSessionForReviewedPreview = Awaited<ReturnType<CheckoutRequestApiClient["getCheckoutSession"]>>;
-type CheckoutShippingAddressForReviewedPreview = Awaited<ReturnType<typeof resolveCheckoutShippingAddress>>;
+type CheckoutShippingAddressForReviewedPreview = Awaited<
+  ReturnType<typeof resolveCheckoutShippingAddress>
+>["shippingAddress"];
 
 function normalizeFulfillmentPreviewShippingOption(
   value: string,
@@ -842,10 +852,11 @@ async function handleAction(intent: string, { request, params, formData }: FormA
     }
 
     if (intent === "refresh-checkout-preview") {
-      const shippingAddress = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
+      const shippingAddressResolution = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: false,
         validateServiceability: true,
       });
+      const shippingAddress = shippingAddressResolution.shippingAddress;
       const shippingOption = String(formData.get("shippingOption") ?? "standard");
       const session = await loadCheckoutSessionForReviewedPreview(readApi, params.sessionId);
       const shippingOptionResult = await writeApi.selectShippingOption(params.sessionId, {
@@ -886,7 +897,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return { error: GUEST_SAVED_PAYMENT_UNAVAILABLE };
       }
 
-      const shippingAddress = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
+      const shippingAddressResolution = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: true,
         validateServiceability: true,
       });
@@ -901,12 +912,49 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null;
       const savePaymentMethodForFuture =
         requestedSavePaymentMethodForFuture && actor?.roleKey !== "guest-buyer" && !selectedSavedPaymentInstrumentId;
+      let resolvedShippingAddress = shippingAddressResolution.shippingAddress;
       const session =
         typeof readApi.getCheckoutSession === "function" ? await readApi.getCheckoutSession(params.sessionId) : null;
       if (session && isExpiredCheckoutHandoff(session, Date.now())) {
         return { code: "checkout_expired", error: CHECKOUT_HANDOFF_EXPIRED_MESSAGE };
       }
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
+      const pendingAddressBookWrite = shippingAddressResolution.pendingAddressBookWrite;
+      if (pendingAddressBookWrite && !hasCommittedSideEffects) {
+        await writeApi.selectShippingAddress(params.sessionId, {
+          shippingAddress: resolvedShippingAddress,
+        });
+      }
+      if (pendingAddressBookWrite) {
+        const identityApi = createIdentityRequestApiClient(resolvedRequest);
+        if (pendingAddressBookWrite.kind === "update" && pendingAddressBookWrite.selectedSavedAddress) {
+          await identityApi.updateShippingAddress(
+            pendingAddressBookWrite.actorAccountId,
+            pendingAddressBookWrite.selectedSavedAddress.shipping_address_id,
+            {
+              label: pendingAddressBookWrite.selectedSavedAddress.label,
+              ...resolvedShippingAddress,
+              makeDefault: pendingAddressBookWrite.makeDefault,
+            },
+          );
+          resolvedShippingAddress = {
+            ...resolvedShippingAddress,
+            shippingAddressId: pendingAddressBookWrite.selectedSavedAddress.shipping_address_id,
+          };
+        } else if (pendingAddressBookWrite.kind === "create") {
+          const result = await identityApi.createShippingAddress<{ id: string }>(
+            pendingAddressBookWrite.actorAccountId,
+            {
+              ...resolvedShippingAddress,
+              makeDefault: pendingAddressBookWrite.makeDefault,
+            },
+          );
+          resolvedShippingAddress = {
+            ...resolvedShippingAddress,
+            shippingAddressId: result.id,
+          };
+        }
+      }
       const shippingOptionResult = hasCommittedSideEffects
         ? null
         : await writeApi.selectShippingOption(params.sessionId, {
@@ -923,7 +971,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
         (reviewedShippingOption !== null && reviewedShippingOption !== shippingOption) ||
         (reviewedShippingAddressSignature !== null &&
-          reviewedShippingAddressSignature !== normalizedAddressSignature(shippingAddress));
+          reviewedShippingAddressSignature !== normalizedAddressSignature(resolvedShippingAddress));
 
       const needsPaymentQuote =
         sourceType.length > 0 &&
@@ -935,11 +983,11 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         sourceType !== "offer-intent" && visibleReviewChanged && !hasCommittedSideEffects;
       if (shouldRefreshReviewBeforeConfirm || needsPaymentQuote) {
         const shippingAddressResult = await writeApi.selectShippingAddress(params.sessionId, {
-          shippingAddress,
+          shippingAddress: resolvedShippingAddress,
         });
         const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(writeApi, session, {
           shippingOption,
-          shippingAddress,
+          shippingAddress: resolvedShippingAddress,
         });
         const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
@@ -967,7 +1015,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           savePaymentMethodForFuture,
           fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
           acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
-          shippingAddress,
+          shippingAddress: resolvedShippingAddress,
         });
       } catch (error) {
         const refreshPaymentQuote = shouldRefreshPaymentQuote(error);

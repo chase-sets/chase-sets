@@ -807,7 +807,7 @@ describe("MCP service catalog", () => {
   });
 
   it("classifies PII and financial write inputs as sensitive for redaction", () => {
-    expect(findMcpTool("identity.invite-member")?.audit.sensitiveInputFields).toEqual([
+    expect(findMcpTool("identity.create-invitation")?.audit.sensitiveInputFields).toEqual([
       "confirmationText",
       "email",
       "idempotencyKey",

@@ -58,6 +58,20 @@ const reviewedCatalogDelta = [
     purpose: "managed-postgres-boundary",
   },
 ];
+// #10356 threads the preview runtime provider secrets into the ephemeral verification apply step.
+const previewRuntimeSecretsDelta = [
+  "SCRYDEX_API_KEY",
+  "SCRYDEX_TEAM_ID",
+  "SES_AWS_ACCESS_KEY_ID",
+  "SES_AWS_SECRET_ACCESS_KEY",
+  "SES_SOURCE_ARN",
+].map((secretName) => ({
+  file: ".github/workflows/platform-ephemeral-verification.yml",
+  jobId: "verify-release",
+  stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
+  secretName,
+  purpose: "terraform-infra",
+}));
 // #9268 delta: the staging preview DNS-01 token converge step in deploy-staging and the on-demand restore workflow.
 const previewWildcardWorkflow = ".github/workflows/platform-preview-wildcard-tls.yml";
 const previewWildcardJob = "restore-preview-wildcard-tls";
@@ -230,6 +244,16 @@ const scrydexCacheCaptureDelta = [
   ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
     file: ".github/workflows/catalog-staging-provider-uat.yml",
     jobId: "scrydex-cache-capture",
+    stepAnchor,
+    secretName,
+    purpose: "application-runtime",
+  })),
+);
+// #10462 threads the canonical staging Admin keys into only the isolated coordinate-preview capture step.
+const scrydexCoordinatePreviewDelta = ["name:Capture Scrydex coordinate preview#4"].flatMap((stepAnchor) =>
+  ["CATALOG_ADMIN_E2E_PASSWORD", "PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD"].map((secretName) => ({
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scrydex-coordinate-preview",
     stepAnchor,
     secretName,
     purpose: "application-runtime",
@@ -867,14 +891,16 @@ describe("managed Postgres authority source generator", () => {
     const historicalGenerated = await generateManagedPostgresAuthority(historicalRoot);
     expectParity(original, historicalGenerated);
 
+    for (const index of reviewedRetiredVerifierRemovals) expect(original.grants[index]).toBeDefined();
     const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRetiredVerifierRemovals.has(index));
-    expect(retainedOriginalGrants).toHaveLength(1588);
+    expect(retainedOriginalGrants).toHaveLength(original.grants.length - reviewedRetiredVerifierRemovals.size);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = {
       ...original,
       grants: [
         ...[...retainedOriginalGrants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
+        ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
         ...ebayAccountDeletionDelta.map((entry) => ({
@@ -888,6 +914,7 @@ describe("managed Postgres authority source generator", () => {
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
         ...scrydexCacheCaptureDelta,
+        ...scrydexCoordinatePreviewDelta,
         ...scrydexOptionRefreshDelta,
         ...previewPoolCensusDelta,
         ...productionMemoryProbeDelta,
@@ -910,7 +937,7 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta),
     };
-    expect(expected.grants).toHaveLength(1720);
+    // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
@@ -951,6 +978,12 @@ describe("managed Postgres authority source generator", () => {
         ...generated,
         grants: [...generated.grants, { ...reviewedCatalogDelta[0], stepAnchor: "name:Apply sixth Catalog grant#99" }],
       },
+      ...["file", "jobId", "stepAnchor", "secretName"].map((key) => ({
+        ...generated,
+        grants: generated.grants.map((record, index) =>
+          index === repeatedIndex ? { ...record, [key]: `${record[key]}-renamed` } : record,
+        ),
+      })),
     ];
     for (const mutation of mutations) expect(() => expectParity(expected, mutation)).toThrow();
 

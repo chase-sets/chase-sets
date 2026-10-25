@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { supportFlowCatalog } from "../domain/flow-catalog";
+import { getSupportFlowDefinition, supportFlowCatalog } from "../domain/flow-catalog";
 import { SupportRequestListPage } from "./support-request-list-page";
 import { File as NodeFile } from "node:buffer";
 import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/marketplace/account-support";
@@ -117,6 +117,7 @@ describe("SupportRequestListPage", () => {
               order_id: "ord_1",
               display_reference: "SUP-OPENED",
               flow_type: "product-damaged",
+              flow: getSupportFlowDefinition("product-damaged"),
               status: "waiting-on-seller",
               checklist: [],
               evidence: [

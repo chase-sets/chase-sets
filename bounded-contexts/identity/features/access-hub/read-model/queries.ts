@@ -215,7 +215,15 @@ async function listAccountMemberships(db: PgQueryable, accountId: string) {
 
 async function listAccountUsers(db: PgQueryable, accountId: string) {
   const result = await db.query<User>(
-    `SELECT users.*
+    `SELECT users.user_id,
+            users.display_name,
+            users.given_name,
+            users.family_name,
+            users.primary_email,
+            users.status,
+            users.contact_methods,
+            users.auth_methods,
+            users.updated_at
      FROM identity_users AS users
      WHERE EXISTS (
        SELECT 1

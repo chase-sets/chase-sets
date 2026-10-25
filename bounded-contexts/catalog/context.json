@@ -127,6 +127,7 @@
     {
       "projectionName": "catalog-scope-registry-projection",
       "sourceContextNames": ["catalog"],
+      "projectionRevision": 2,
       "ownedTables": ["catalog_scope_records"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"

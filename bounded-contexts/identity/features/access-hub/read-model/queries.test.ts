@@ -36,6 +36,31 @@ describe("Access hub read model", () => {
           ],
         };
       }
+      if (sql.includes("FROM identity_users AS users")) {
+        const sensitiveFields = sql.includes("SELECT users.*")
+          ? {
+              password_credential_id: "secret-credential",
+              passkey_credential_ids: ["passkey-secret"],
+              social_login_links: [{ provider_subject: "secret-subject" }],
+            }
+          : {};
+        return {
+          rows: [
+            {
+              user_id: "usr_alex",
+              display_name: "Alex Clerk",
+              given_name: "Alex",
+              family_name: "Clerk",
+              primary_email: "alex@example.com",
+              status: "active",
+              contact_methods: [],
+              auth_methods: ["password"],
+              updated_at: "2026-07-14T12:00:00.000Z",
+              ...sensitiveFields,
+            },
+          ],
+        };
+      }
       if (sql.includes("FROM identity_memberships AS memberships")) {
         return {
           rows: [
@@ -50,23 +75,6 @@ describe("Access hub read model", () => {
               role_key: "manager",
               role_permissions: [],
               status: "active",
-              updated_at: "2026-07-14T12:00:00.000Z",
-            },
-          ],
-        };
-      }
-      if (sql.includes("SELECT users.*")) {
-        return {
-          rows: [
-            {
-              user_id: "usr_alex",
-              display_name: "Alex Clerk",
-              given_name: "Alex",
-              family_name: "Clerk",
-              primary_email: "alex@example.com",
-              status: "active",
-              contact_methods: [],
-              auth_methods: ["password"],
               updated_at: "2026-07-14T12:00:00.000Z",
             },
           ],
@@ -124,6 +132,9 @@ describe("Access hub read model", () => {
       api_keys: [{ api_key_id: "key_storefront" }],
       audit_events: [{ event_id: "evt_membership" }],
     });
+    expect(hub?.users[0]).not.toHaveProperty("password_credential_id");
+    expect(hub?.users[0]).not.toHaveProperty("passkey_credential_ids");
+    expect(hub?.users[0]).not.toHaveProperty("social_login_links");
   });
 
   it("builds the four-lane attention queue alongside account search", async () => {

@@ -599,6 +599,9 @@ describe("#5695 source-owned legal-review corpus manifest", () => {
       "condition-and-photo-standards",
       "order-protection",
       "refunds-and-returns",
+      "shipping-requirements",
+      "cannot-fulfill-an-order",
+      "sales-fees",
       "getting-paid",
     ]);
     for (const slug of incorporatedHelpArticleSlugs) {

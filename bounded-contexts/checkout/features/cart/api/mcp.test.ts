@@ -492,6 +492,33 @@ describe("checkout cart MCP handlers", () => {
     );
   });
 
+  it("propagates a serviceability rejection without creating an MCP receipt", async () => {
+    const fakeServices = services();
+    vi.spyOn(fakeServices.sessions, "setShippingAddress").mockRejectedValue(
+      new CheckoutDomainError(
+        "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+        "shipping_address_restricted",
+      ),
+    );
+    const handlers = createCheckoutCartMcpHandlers(fakeServices);
+
+    await expect(
+      handlers.toolHandlers["checkout.select-saved-address"]?.({
+        actor,
+        tool: null as never,
+        arguments: {
+          accountId: "acc_1",
+          sessionId: "chk_1",
+          shippingAddressId: "adr_home",
+          idempotencyKey: KEYS.address,
+          confirmationText: "Select Saved Address.",
+        },
+        request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
+      }),
+    ).rejects.toMatchObject({ code: "shipping_address_restricted" });
+  });
+
   it("cancels checkout sessions and releases active checkout reservations", async () => {
     const fakeServices = services();
     const fetch = vi.fn(
