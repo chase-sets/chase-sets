@@ -233,6 +233,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // `stale`'s session ends before its cart write is sent.
             "other" | "buyer" | "blocked" | "empty" | "stale" => actor(&[]),
             "guest" => actor(&["guest-checkout.manage"]),
+            // An account that sees items as a seller and may take offers.
+            "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -250,6 +252,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return discovery_item(id);
     }
     if let Some(answer) = cart_add(&stand, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
+    if let Some(answer) = sell_list(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if uri.path() == CART {
@@ -471,6 +476,53 @@ fn cart_add(stand: &Stand, method: &Method, path: &str, headers: &HeaderMap, bod
     let headers = [("chase-sets-commit-position", "12".to_owned()), ("chase-sets-commit-receipt", receipt)];
     let answer = json!({ "id": "cli_new", "version": 1, "status": "added", "attempt": kept });
     Some((StatusCode::CREATED, headers, Json(answer)).into_response())
+}
+
+const ACCOUNT_SELL_LIST: &str = "/api/marketplace/account/sell-list";
+const GUEST_SELL_LIST: &str = "/api/marketplace/guest/sell-list";
+const STANDARD_TERMS: &str = "/api/marketplace/terms/public-standard/listing-preview";
+
+/// A sell-list add and the public standard terms, as the stand-in answers them. An offer's line
+/// is refused as the API refuses one without a listing (chase-sets/chase-sets#8830); a product's
+/// is added at position 13. The terms are a 5% fee and a 5% shipping allowance.
+fn sell_list(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    if *method != Method::POST {
+        return None;
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    if path == STANDARD_TERMS {
+        let cents = crate::buying::price(sent["priceAmount"].as_str().unwrap_or_default())
+            .and_then(|p| platform::money::cents(&p))
+            .unwrap_or_default();
+        let amount = |c: i64| format!("{}.{:02}", c / 100, c % 100);
+        return Some(
+            Json(json!({
+                "marketplace_sales_fee_unit_amount": amount(cents / 20), "seller_net_unit_amount": amount(cents - cents / 20),
+                "shipping_allowance_percentage_bps": 500, "source_label": "Standard seller terms",
+                "resolved_at": "2026-10-25T19:25:20.646Z",
+            }))
+            .into_response(),
+        );
+    }
+    if path != ACCOUNT_SELL_LIST && path != GUEST_SELL_LIST {
+        return None;
+    }
+    let guest =
+        headers.get("x-checkout-anonymous-sell-list-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
+    if path == GUEST_SELL_LIST && guest.is_none() {
+        return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_sell_list_required", "Sign in."));
+    }
+    if sent["lineType"] == "selected-offer" {
+        return Some(refusal(
+            StatusCode::BAD_REQUEST,
+            "validation_failed",
+            "Selected offer sell-list lines must reference an Offer and exact Listing.",
+        ));
+    }
+    let receipt = r#"[{"sourceContextName":"checkout","maxGlobalPosition":"13","eventIds":["evt_sell"]}]"#;
+    let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", "13".to_owned()), ("chase-sets-commit-receipt", receipt)];
+    Some((StatusCode::CREATED, headers, Json(json!({ "id": "sll_new", "version": 1, "status": "added" }))).into_response())
 }
 
 /// The pilot, in front of a stand-in API on a loopback port.
@@ -1458,7 +1510,7 @@ fn item() -> Value {
             "offer_id": id, "buyer_account_id": buyer, "catalog_catalog_item_id": "cat_charizard",
             "product_id": "cat_charizard::dim_form:chc_raw|dim_condition:chc_nm|dim_grade:-",
             "selected_options": [raw, nm], "product_summary": "Form: Raw | Condition: Near Mint",
-            "price_amount": price, "price_currency_code": "USD", "quantity_requested": 2,
+            "price_amount": price, "price_currency_code": "USD", "quantity_requested": 2, "status": "submitted",
             "buyer_slug": null, "buyer_display_name": if buyer == "acc_seller" { "You" } else { "Top Loader" },
             "buyer_average_rating": null, "buyer_review_count": 0,
         })
@@ -2024,4 +2076,145 @@ fn a_price_is_marketplaces_money_amount() {
     for bad in ["", "0", "0.00", "1.", ".5", "1.234", "-1", "1e3", "1,5"] {
         assert_eq!(price(bad), None, "{bad:?}");
     }
+}
+
+const SELL_PAGE: &str = "/items/charizard?market=sell";
+const OPEN_PRODUCT_FOLD: &str = r#"<details class="item-detail__product-buy" open>"#;
+const SELL_LIST: &str = "/items/charizard/sell-list";
+/// The product the best offer is for (`off_high`'s).
+const OFFERED: &str = "cat_charizard::dim_form:chc_raw|dim_condition:chc_nm|dim_grade:-";
+
+/// The calls to the sell list and the terms, in order.
+fn sell_calls(pilot: &Pilot) -> Vec<Call> {
+    let paths = [ACCOUNT_SELL_LIST, GUEST_SELL_LIST, STANDARD_TERMS];
+    pilot.stand.calls.lock().unwrap().iter().filter(|c| paths.contains(&c.path.as_str())).cloned().collect()
+}
+
+/// A form post from a browser with no session.
+fn post_signed_out(uri: &str, body: &str) -> Request<Body> {
+    Request::post(uri)
+        .header(header::HOST, "localhost:7791")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body.to_owned()))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_guest_sees_what_an_offer_pays_and_saves_it_or_its_product_to_a_sell_list() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SELL_PAGE, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    // 380.00 x 2: a 5% fee, the rest paid out, and 5% of the offer's value for shipping.
+    assert!(page.contains("$760.00 offer"), "{page}");
+    assert!(page.contains("Requested 2 requested"), "{page}");
+    assert!(page.contains("Seller payout $722.00 after $38.00 fee"), "{page}");
+    assert!(page.contains("Shipping allowance $38.00 (5%)"), "{page}");
+    let calls = sell_calls(&pilot);
+    assert_eq!(calls.len(), 1, "the terms for the offer shown, once");
+    assert_eq!(serde_json::from_str::<Value>(&calls[0].body).unwrap(), json!({ "priceAmount": "380.00" }));
+    let forms = forms_to(&html, SELL_LIST);
+    assert_eq!(forms.len(), 2, "the offer's and the product's: {html}");
+    assert!(
+        forms[0].contains(r#"name="offer" value="off_high""#) && forms[0].contains(r#"name="market" value="sell""#),
+        "{}",
+        forms[0]
+    );
+    assert!(
+        forms[0].contains(r#"name="intent" value="add-to-sell-list">Accept offer<"#),
+        "a guest's Accept offer saves it: {}",
+        forms[0]
+    );
+    assert!(forms[1].contains(&format!(r#"name="product" value="{OFFERED}""#)), "{}", forms[1]);
+    assert!(!html.contains("data-patch"), "plain forms: {html}");
+
+    // The offer: the API's refusal on the rail, nothing else written.
+    let body = "market=sell&intent=add-to-sell-list&offer=off_high";
+    let (status, _, html) = pilot.send(post_signed_out(SELL_LIST, body)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(
+        html.contains(r#"role="alert">Selected offer sell-list lines must reference an Offer and exact Listing.<"#),
+        "{html}"
+    );
+    assert!(text(&html).contains("$722.00 after $38.00 fee"), "the refusal keeps the payout: {html}");
+    let sent = sell_calls(&pilot).into_iter().find(|c| c.path == GUEST_SELL_LIST).expect("the guest's sell list");
+    assert!(sent.headers["x-checkout-anonymous-sell-list-id"].to_str().unwrap().starts_with("anon_cmd_"));
+    let line: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(
+        (&line["lineType"], &line["offerId"], &line["offerPriceAmount"], &line["buyerDisplayName"], &line["quantity"]),
+        (&json!("selected-offer"), &json!("off_high"), &json!("380.00"), &json!("Top Loader"), &json!(2))
+    );
+    assert_eq!((&line["itemTitle"], &line["catalogItemId"]), (&json!("Charizard"), &json!("cat_charizard")));
+
+    // The product: added, then marketplace's sell list, which waits for the write.
+    let body = format!(
+        "market=sell&intent=add-product-to-sell-list&product={}&quantity=3&itemTitle=Spoofed",
+        crate::api::segment(OFFERED)
+    );
+    let (status, headers, html) = pilot.send(post_signed_out(SELL_LIST, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("http://localhost:7753/account/sell-list?afterWrite="), "{to}");
+    let q = query(to);
+    assert!(q["afterWrite"].contains(r#""commitPosition":"13""#), "{to}");
+    assert_eq!(
+        q["postWriteHandoff"],
+        r#"{"kind":"checkout.sell-list.add-line","expectation":"collection-non-empty","surface":"account-sell-list"}"#
+    );
+    let cookie = headers[header::SET_COOKIE].to_str().unwrap();
+    assert!(cookie.starts_with("chase_sets_anonymous_sell_list=anon_cmd_") && cookie.contains("Max-Age=2592000"), "{cookie}");
+    let sent = sell_calls(&pilot).into_iter().rfind(|c| c.path == GUEST_SELL_LIST).unwrap();
+    let line: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!((&line["lineType"], &line["productId"], &line["quantity"]), (&json!("product"), &json!(OFFERED), &json!(3)));
+    assert_eq!(&line["itemTitle"], &json!("Charizard"), "the catalog's words, not the form's");
+    assert_eq!(
+        &line["selectedOptions"],
+        &json!([{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }])
+    );
+
+    // Refused before anything is sent: a quantity that is not one, a product the page does not show.
+    let before = sell_calls(&pilot).len();
+    for (product, quantity, message) in
+        [(OFFERED, "0", "Enter a quantity of 1 or more."), ("cat_charizard::other", "1", "Choose options to sell this item")]
+    {
+        let body =
+            format!("market=sell&intent=add-product-to-sell-list&product={}&quantity={quantity}", crate::api::segment(product));
+        let (status, _, html) = pilot.send(post_signed_out(SELL_LIST, &body)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+        assert!(text(&html).contains(message), "{message}: {html}");
+        assert!(html.contains(&format!(r#"id="sell-product-quantity" type="number" name="quantity" min="1" step="1" inputmode="numeric" required value="{quantity}""#)), "{html}");
+        assert!(html.contains(OPEN_PRODUCT_FOLD), "the product's fold stays open: {html}");
+    }
+    assert_eq!(sell_calls(&pilot).len() - before, 2, "only the terms again, for each page");
+}
+
+#[tokio::test]
+async fn an_account_takes_an_offer_as_a_seller_and_needs_to_manage_offers() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get(SELL_PAGE, Some("trader"))).await;
+    assert!(text(&html).contains("Fees and terms are calculated before acceptance."), "{html}");
+    assert!(sell_calls(&pilot).is_empty(), "an account's terms are not the public ones");
+    let forms = forms_to(&html, SELL_LIST);
+    assert!(forms[0].contains(r#"name="intent" value="sell-now">Accept offer<"#), "{}", forms[0]);
+
+    // An offer the item no longer has for sellers is refused here.
+    let (status, _, html) = pilot.send(post(SELL_LIST, "trader", "market=sell&intent=sell-now&offer=off_gone", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("This offer is no longer available. Choose another offer."), "{html}");
+    assert!(sell_calls(&pilot).is_empty());
+
+    // An account that may not manage offers cannot take one.
+    let (status, _, _) = pilot.send(post(SELL_LIST, "buyer", "market=sell&intent=add-to-sell-list&offer=off_high", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(sell_calls(&pilot).is_empty());
+
+    // The account's sell list, without a guest's id or cookie.
+    let body = format!("market=sell&intent=add-product-to-sell-list&product={}&quantity=1", crate::api::segment(OFFERED));
+    let (status, headers, _) = pilot.send(post(SELL_LIST, "buyer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(!headers.contains_key(header::SET_COOKIE));
+    let sent = sell_calls(&pilot);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].path, ACCOUNT_SELL_LIST);
+    assert!(!sent[0].headers.contains_key("x-checkout-anonymous-sell-list-id"));
 }

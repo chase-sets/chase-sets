@@ -151,6 +151,14 @@ pub mod url {
         pub slug: &'a str,
     }
 
+    /// Add the offer the item page shows (Accept offer, Add offer to Sell List), or its product,
+    /// to the sell list.
+    #[derive(Route)]
+    #[route("/items/{slug}/sell-list")]
+    pub struct ItemSellList<'a> {
+        pub slug: &'a str,
+    }
+
     /// The item after Add to cart: the page says so, with the write's receipt (empty for none).
     #[derive(Route)]
     #[route("/items/{slug}")]

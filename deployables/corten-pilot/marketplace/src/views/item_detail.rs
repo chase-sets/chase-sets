@@ -15,6 +15,7 @@ use crate::{
         Address, Book, ItemScreen, Market, OptionMarket, Picks, active_dimensions, available, normalize, option_label,
         ordered_options,
     },
+    selling::{self, SellForm, SellIntent},
     text::{ItemMsg, Pilot},
 };
 
@@ -607,8 +608,9 @@ fn MarketSummary<'a>(t: ItemMsg, screen: &'a ItemScreen) -> impl Render {
 /// shown, Buy this listing and Add listing to Buy Cart; for the product chosen (folded under the
 /// listing when there is one), Add product to Buy Cart and Buy best match. Each is a plain form,
 /// so it works without JavaScript (`buying`). A write that is not known to have applied holds the
-/// adds until the buyer sends it again or looks at the cart. Offers, selling and watching are
-/// marketplace's page until the pilot ports them.
+/// adds until the buyer sends it again or looks at the cart. On the Sell tab, the sell forms
+/// (`SellForms`). Listing at a price and watching are marketplace's page until the pilot ports
+/// them.
 #[component(css = ItemDetail)]
 fn Rail<'a>(
     t: ItemMsg,
@@ -809,8 +811,146 @@ fn Rail<'a>(
                     </form>
                 </details>
             }
+            if sell {
+                <SellForms t={t} screen={screen} page={&page} slug={slug} notice={notice} />
+            }
             <p><a class={(Button, Wide)} href={&continue_on}>{p.item_continue_on_marketplace()}</a></p>
         </section>
+    }
+}
+
+/// An amount of cents as the API writes one (`12.30`); never negative here.
+fn cents_text(cents: i128) -> String {
+    format!("{}.{:02}", cents / 100, cents % 100)
+}
+
+/// Basis points as a percent in the request's locale, to at most two decimals (`formatBpsPercent`).
+fn bps_percent(t: ItemMsg, bps: i64) -> String {
+    format!("{}%", t.number(percent_of(bps)))
+}
+
+/// Basis points as a percent, with no trailing zero decimals (`maximumFractionDigits: 2`).
+fn percent_of(bps: i64) -> corten::i18n::Decimal {
+    let bps = i128::from(bps);
+    match (bps % 100, bps % 10) {
+        (0, _) => corten::i18n::Decimal::new(bps / 100, 0),
+        (_, 0) => corten::i18n::Decimal::new(bps / 10, 1),
+        _ => corten::i18n::Decimal::new(bps, 2),
+    }
+}
+
+/// What accepting `offer` pays under `terms` (`MarketplaceOfferMatchSection`'s payout list): the
+/// requested quantity, the payout after the fee, and the shipping allowance, each for the whole
+/// quantity. Marketplace writes these in USD whatever the offer's currency; the pilot writes the
+/// offer's.
+fn payout(t: ItemMsg, offer: &Offer, terms: &crate::api::StandardTerms) -> Option<Vec<(String, String)>> {
+    let quantity = i128::from(offer.quantity_requested);
+    let cents = |amount: &str| platform::money::cents(amount).map(i128::from);
+    let total = cents(&offer.price_amount)? * quantity;
+    let fee = cents(&terms.marketplace_sales_fee_unit_amount)? * quantity;
+    let net = cents(&terms.seller_net_unit_amount)? * quantity;
+    let allowance = (total * i128::from(terms.shipping_allowance_percentage_bps) + 5_000) / 10_000;
+    let currency = offer.price_currency_code.as_deref();
+    let write = |c: i128| money(t, Some(&cents_text(c)), currency);
+    Some(vec![
+        (t.route_requested().to_owned(), t.route_requested_count(offer.quantity_requested).to_string()),
+        (t.route_seller_payout().to_owned(), t.route_seller_payout_after_fee(&write(net), &write(fee)).to_string()),
+        (
+            t.route_shipping_allowance().to_owned(),
+            t.route_shipping_allowance_amount(&write(allowance), &bps_percent(t, terms.shipping_allowance_percentage_bps))
+                .to_string(),
+        ),
+    ])
+}
+
+/// The Sell tab's forms (marketplace's sell action card): for the offer shown, its total and what
+/// accepting it pays, Accept offer and Add offer to Sell List; for the product chosen (folded
+/// under the offer when there is one), Add product to Sell List. Plain forms (`selling`).
+#[component(css = ItemDetail)]
+fn SellForms<'a>(
+    t: ItemMsg,
+    screen: &'a ItemScreen,
+    page: &'a [(String, String)],
+    slug: &'a str,
+    notice: Option<&'a BuyNotice>,
+) -> impl Render {
+    let offer = screen.selected_offer();
+    let product = screen.product_id.as_deref();
+    let refused = match notice {
+        Some(BuyNotice::SellRefused { message, form, quantity }) => Some((message.as_str(), *form, quantity.as_str())),
+        _ => None,
+    };
+    let error = move |form: SellForm| refused.filter(|(_, f, _)| *f == form).map(|(m, _, _)| m);
+    let typed = refused.filter(|(_, f, _)| *f == SellForm::Product).map_or("1", |(_, _, q)| q);
+    let action = url::ItemSellList { slug }.href();
+    let accept = if screen.seller_features { SellIntent::SellNow } else { SellIntent::AddOffer };
+    let total = offer.and_then(|o| {
+        let cents = platform::money::cents(&o.price_amount)? as i128 * i128::from(o.quantity_requested);
+        Some(money(t, Some(&cents_text(cents)), o.price_currency_code.as_deref()))
+    });
+    let rows = offer.zip(screen.offer_terms.as_ref()).and_then(|(o, terms)| payout(t, o, terms));
+    let open_product = offer.is_none() || error(SellForm::Product).is_some();
+    html! {
+        if let Some(o) = offer {
+            <form class={Buy} method="post" action={&action}>
+                <Hidden pairs={page} />
+                <input type="hidden" name={selling::field::OFFER} value={&o.offer_id}>
+                if let Some(total) = &total {
+                    <p class={Strong}>{t.route_offer_total(total)}</p>
+                }
+                if let Some(rows) = &rows {
+                    <dl class={Pairs}>
+                        for (label, value) in rows {
+                            <div>
+                                <dt>{label}</dt>
+                                <dd>{value}</dd>
+                            </div>
+                        }
+                    </dl>
+                } else {
+                    <p class={Muted}>{t.route_offer_terms_calculated_before_acceptance()}</p>
+                }
+                if let Some(message) = error(SellForm::Offer) {
+                    <p class={Error} role="alert">{message}</p>
+                }
+                <fieldset class={BuyActions}>
+                    <button type="submit" class={(Button, Primary)} name={selling::field::INTENT} value={accept.as_str()}>
+                        {t.route_sell_now()}
+                    </button>
+                    <button type="submit" class={Button} name={selling::field::INTENT} value={SellIntent::AddOffer.as_str()}>
+                        {t.route_add_to_sell_list()}
+                    </button>
+                </fieldset>
+            </form>
+        } else if product.is_none() {
+            <p class={Muted}>{t.route_choose_options_to_review_matching_offers()}</p>
+        } else {
+            <p class={Muted}>{t.route_no_offers_match_this_product_yet()}</p>
+        }
+        if let Some(product) = product {
+            <details class={ProductBuy} open={open_product}>
+                <summary>
+                    <span class={Strong}>{t.route_add_product_to_sell_list()}</span>
+                    <span class={Muted}>{t.route_add_product_to_sell_list_action_description()}</span>
+                </summary>
+                <form class={Buy} method="post" action={&action}>
+                    <Hidden pairs={page} />
+                    <input type="hidden" name={selling::field::PRODUCT} value={product}>
+                    if let Some(message) = error(SellForm::Product) {
+                        <p class={Error} role="alert">{message}</p>
+                    }
+                    <Quantity t={t} id="sell-product-quantity" value={typed} />
+                    <button
+                        type="submit"
+                        class={(Button, offer.is_none().then_some(Primary))}
+                        name={selling::field::INTENT}
+                        value={SellIntent::AddProduct.as_str()}
+                    >
+                        {t.route_add_product_to_sell_list()}
+                    </button>
+                </form>
+            </details>
+        }
     }
 }
 
@@ -1112,7 +1252,16 @@ fn Details<'a>(t: ItemMsg, item: &'a Item) -> impl Render {
 
 #[cfg(test)]
 mod tests {
-    use super::compact;
+    use super::{compact, percent_of};
+
+    #[test]
+    fn a_percent_of_basis_points_has_at_most_two_decimals() {
+        let percent = |bps| percent_of(bps).to_string();
+        assert_eq!(
+            (percent(500), percent(450), percent(1234), percent(0)),
+            ("5".into(), "4.5".into(), "12.34".into(), "0".into())
+        );
+    }
 
     #[test]
     fn a_product_in_a_few_words_is_its_options_or_its_summary() {

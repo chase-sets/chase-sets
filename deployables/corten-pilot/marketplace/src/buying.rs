@@ -195,6 +195,9 @@ pub enum BuyNotice {
     Ambiguous { resend: BuyInput, cart: String },
     /// Nothing changed, for this reason; the form that sent it shows what was typed.
     Refused { message: String, input: BuyInput },
+    /// A sell form's write did not apply, for this reason (`selling`); `form` shows it and the
+    /// quantity typed.
+    SellRefused { message: String, form: crate::selling::SellForm, quantity: String },
 }
 
 /// A cart line as an item page adds it (`AddCheckoutCartLineRequest`): the catalog's words and
@@ -397,7 +400,7 @@ async fn read_item(caller: &Caller<'_>, slug: &str) -> Result<Item, corten::Erro
 fn refused(req: &Req, item: Item, input: BuyInput, message: String) -> corten::Result {
     let address = input.address.clone();
     let notice = BuyNotice::Refused { message, input };
-    items::render(req, item, &address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY)
+    items::render(req, item, &address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, None)
 }
 
 /// Marketplace's sign-in, back to the item: the session ended between the page and the post.
@@ -446,7 +449,7 @@ async fn add(
         Attempted::Ambiguous => {
             let address = input.address.clone();
             let notice = BuyNotice::Ambiguous { cart: cart_href(&req, ""), resend: input };
-            items::render(&req, item, &address, Some(&notice), StatusCode::CONFLICT)?
+            items::render(&req, item, &address, Some(&notice), StatusCode::CONFLICT, None)?
         }
         Attempted::Partial | Attempted::FailedSafe => {
             let message = outcome

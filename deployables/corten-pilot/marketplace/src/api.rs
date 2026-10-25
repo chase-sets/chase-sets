@@ -421,6 +421,57 @@ impl CartWrite {
 /// The guest cart a browser presents (`x-checkout-anonymous-cart-id`).
 const ANONYMOUS_CART_HEADER: &str = "x-checkout-anonymous-cart-id";
 
+/// The guest sell list a browser presents (`x-checkout-anonymous-sell-list-id`).
+const ANONYMOUS_SELL_LIST_HEADER: &str = "x-checkout-anonymous-sell-list-id";
+
+/// The sell list's calls (`/account/sell-list`, `/guest/sell-list` for a guest's).
+pub trait SellList {
+    /// Adds a line (`AddCheckoutSellListLineRequest`) to the account's sell list, or to the guest
+    /// sell list `guest`. The API takes no attempt id: a product line sent again adds its
+    /// quantity again (chase-sets/chase-sets#9995). The answer is the write's receipt.
+    async fn add_sell_list_line(&self, line: &impl Serialize, guest: Option<&str>) -> Result<Option<Receipt>, ApiError>;
+}
+
+impl SellList for Caller<'_> {
+    async fn add_sell_list_line(&self, line: &impl Serialize, guest: Option<&str>) -> Result<Option<Receipt>, ApiError> {
+        let owner = if guest.is_some() { "guest" } else { "account" };
+        let mut req = self.request(Method::POST, &format!("/api/marketplace/{owner}/sell-list"), CHECKOUT).json(line);
+        if let Some(id) = guest {
+            req = req.header(ANONYMOUS_SELL_LIST_HEADER, id);
+        }
+        Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
+    }
+}
+
+/// What a seller would be paid for a sale at a price under the public standard seller terms
+/// (`MarketplacePublicStandardTermsPreview`): the fee and the net, each for one unit.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StandardTerms {
+    pub marketplace_sales_fee_unit_amount: String,
+    pub seller_net_unit_amount: String,
+    pub shipping_allowance_percentage_bps: i64,
+    pub source_label: Option<String>,
+    pub resolved_at: Option<String>,
+}
+
+/// The Marketplace API's calls.
+pub trait Marketplace {
+    /// The public standard terms at `price` (`POST /terms/public-standard/listing-preview`),
+    /// which anyone may read.
+    async fn standard_terms(&self, price: &str) -> Result<StandardTerms, ApiError>;
+}
+
+impl Marketplace for Caller<'_> {
+    async fn standard_terms(&self, price: &str) -> Result<StandardTerms, ApiError> {
+        let req = self
+            .request(Method::POST, "/api/marketplace/terms/public-standard/listing-preview", MARKETPLACE)
+            .json(&serde_json::json!({ "priceAmount": price }));
+        Ok(self.write(req).await?.0)
+    }
+}
+
+const MARKETPLACE: &str = "marketplace";
+
 /// The cart page's calls.
 pub trait Checkout {
     async fn cart(&self) -> Result<Cart, ApiError>;
@@ -784,6 +835,9 @@ pub struct Offer {
     pub price_amount: String,
     pub price_currency_code: Option<String>,
     pub quantity_requested: u64,
+    /// `submitted` while sellers may take it.
+    #[serde(default)]
+    pub status: Option<String>,
     pub buyer_slug: Option<String>,
     pub buyer_display_name: Option<String>,
     pub buyer_average_rating: Option<String>,

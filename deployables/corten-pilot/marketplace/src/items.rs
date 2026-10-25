@@ -32,16 +32,20 @@ use corten::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::{Dimension, DimensionOption, Discovery, Item, Listing, Money, Offer, Schema, Selected, segment},
+    api::{
+        Caller, Dimension, DimensionOption, Discovery, Item, Listing, Marketplace as _, Money, Offer, Schema, Selected,
+        StandardTerms, segment,
+    },
     app::{Shared, marketplace_origin, url},
     auth::Session,
     buying::{self, ADDED, BuyNotice},
+    selling,
     text::ItemMsg,
     views,
 };
 
 pub fn routes(area: Area<Session, url::ItemsArea>, shared: &Shared) -> Area<Session, url::ItemsArea> {
-    buying::routes(area.route::<url::Item>(get(page).with_state(shared.clone())), shared)
+    selling::routes(buying::routes(area.route::<url::Item>(get(page).with_state(shared.clone())), shared), shared)
 }
 
 /// The side of the market the page shows (`MarketIntent`).
@@ -447,6 +451,11 @@ pub struct ItemScreen {
     /// `selectedProductSummary`), which a cart line keeps.
     pub product_options: Vec<Selected>,
     pub product_summary: Option<String>,
+    /// What a guest would be paid for the offer shown, under the public standard seller terms
+    /// (`attachPublicStandardOfferTerms`); none for an account or when the API has none.
+    pub offer_terms: Option<StandardTerms>,
+    /// The viewer sees the item as a seller (`canUseSellerFeatures`).
+    pub seller_features: bool,
 }
 
 impl ItemScreen {
@@ -562,6 +571,8 @@ impl ItemScreen {
             viewer_account_id,
             product_options,
             product_summary,
+            offer_terms: None,
+            seller_features: false,
             picks,
             item,
         }
@@ -682,16 +693,45 @@ async fn page(
     let address = Address::read(&raw);
     // After Add to cart, the page says so; View buy cart waits for the write's receipt.
     let notice = raw.get(ADDED).and_then(|v| v.all().first()).map(|receipt| BuyNotice::Added(buying::cart_href(&req, receipt)));
-    render(&req, item, &address, notice.as_ref(), StatusCode::OK)
+    let terms = offer_terms(&req, &caller, &item, &address).await;
+    render(&req, item, &address, notice.as_ref(), StatusCode::OK, terms)
 }
 
-/// The page for `item` at `address`, with what a buy write came to.
-pub fn render(req: &Req, item: Item, address: &Address, notice: Option<&BuyNotice>, status: StatusCode) -> corten::Result {
+/// The standard terms for the offer a guest's Sell rail shows (marketplace reads them for every
+/// offer of the item; the rail shows one). None when the API has none: the rail then says the
+/// terms are worked out before acceptance, as marketplace does.
+pub async fn offer_terms(req: &Req, caller: &Caller<'_>, item: &Item, address: &Address) -> Option<StandardTerms> {
+    if address.market != Market::Sell || selling::account_sell_list(req) {
+        return None;
+    }
+    let screen = ItemScreen::of(item.clone(), address, None);
+    let price = screen.selected_offer()?.price_amount.clone();
+    match caller.standard_terms(&price).await {
+        Ok(terms) => Some(terms),
+        Err(error) => {
+            tracing::warn!("the standard terms preview failed: {error}");
+            None
+        }
+    }
+}
+
+/// The page for `item` at `address`, with what a buy or sell write came to, and a guest's offer
+/// terms (`offer_terms`).
+pub fn render(
+    req: &Req,
+    item: Item,
+    address: &Address,
+    notice: Option<&BuyNotice>,
+    status: StatusCode,
+    terms: Option<StandardTerms>,
+) -> corten::Result {
     let viewer = match req.context::<Session>() {
         Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
         _ => None,
     };
-    let screen = ItemScreen::of(item, address, viewer);
+    let mut screen = ItemScreen::of(item, address, viewer);
+    screen.offer_terms = terms;
+    screen.seller_features = selling::seller_features(req);
     let t: ItemMsg = req.t();
     let item = &screen.item;
     let slug = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
