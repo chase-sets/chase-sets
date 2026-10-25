@@ -131,7 +131,11 @@ async fn connect(
         open = open.query(&[("cursor", cursor)]);
     }
     {
-        let res = open.send().await.map_err(|error| {
+        // Workaround for chase-sets/chase-sets#10524: the API keeps the lease of a stream dropped
+        // before its headers. Sent from its own task, the request reaches them even if the page
+        // that wanted it goes away first. Remove when that issue is fixed.
+        let sent = tokio::spawn(open.send()).await.map_err(|_| None)?;
+        let res = sent.map_err(|error| {
             tracing::warn!("realtime stream unreachable: {error}");
             None
         })?;

@@ -1,8 +1,9 @@
 // Uses the catalog lists' bulk changes in a browser as a signed-in platform admin, with
 // JavaScript and without it, against the real platform API: two new draft dimensions are
 // selected (a box, select all, Clear Selection), previewed, activated as a bulk job the list's
-// dialog follows to its result, then previewed again by filter and deprecated without
-// JavaScript. It writes to the dev sandbox's data.
+// dialog follows to its result; a third one created in another tab redraws the rows without
+// losing a checked box; then every match is previewed by filter and deprecated without
+// JavaScript (the draft is skipped). It writes to the dev sandbox's data.
 // Usage: node scripts/smoke-bulk.mjs [pilot-url] [state-file]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";
 
@@ -121,7 +122,32 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
     { timeout: 60_000 },
   );
   check(true, "the live list shows both active");
-  check(problems.length === 0, `no script errors (${problems.join(" | ")})`);
+
+  // A live change redraws the rows and the bar: a box the user checked keeps its mark, and the
+  // counts follow (a third dimension, created in another tab).
+  await box(page, `${prefix}_a`).check();
+  const other = await ctx.newPage();
+  await other.goto(`${base}/catalog/dimensions`);
+  await navigated(other);
+  await other.getByRole("button", { name: "New Dimension" }).click();
+  const create = other.locator("#catalog-create-dialog");
+  await create.getByLabel("Key").fill(`${prefix}_c`);
+  await create.getByLabel("Name").fill(`Bulk ${stamp} c`);
+  await create.getByRole("button", { name: "Create" }).click();
+  await other.waitForURL((u) => u.searchParams.get("done") === "created");
+  await other.close();
+  await page.waitForFunction(() => document.querySelectorAll('#catalog-rows [name="ids"]').length === 3, null, { timeout: 60_000 });
+  check(await box(page, `${prefix}_a`).isChecked(), "a checked box keeps its mark through a live redraw");
+  check((await count(page)) === "1 Dimensions selected", "and the count is taken again");
+  check(
+    await page.getByRole("checkbox", { name: "Select all rows" }).evaluate((b) => /** @type {HTMLInputElement} */ (b).indeterminate),
+    "select-all is mixed again",
+  );
+  await box(page, `${prefix}_a`).uncheck();
+  check((await count(page)) === "3 matching Dimensions", "the redrawn bar counts the new match");
+  // A "preparing" answer is a 503 the console reports; those were refreshed above.
+  const real = problems.filter((p) => !(pending && p.includes("status of 503")));
+  check(real.length === 0, `no script errors (${real.join(" | ")})`);
   await ctx.close();
 }
 
@@ -136,7 +162,7 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
   await page.waitForLoadState();
   const dialog = page.locator("#catalog-bulk-preview");
   check((await dialog.getAttribute("open")) !== null, "the preview is the list with its dialog drawn open");
-  check((await dialog.locator(".dialog__description").textContent()) === "2 ready, 0 blocked.", "both active dimensions are ready");
+  check((await dialog.locator(".dialog__description").textContent()) === "2 ready, 1 blocked.", "the two active dimensions are ready, the draft blocked");
   await dialog.getByRole("button", { name: "Confirm" }).click();
   await page.waitForURL((u) => u.searchParams.has("job"));
   for (let i = 0; i < 45 && !(await page.locator("#catalog-bulk-status").textContent())?.includes("succeeded"); i += 1) {
@@ -144,7 +170,7 @@ const box = (page, key) => page.getByRole("row", { name: new RegExp(key) }).getB
     await page.reload();
   }
   check(
-    (await page.locator("#catalog-bulk-status .preview-dialog__summary").first().textContent()) === "2 succeeded, 0 skipped, 0 failed.",
+    (await page.locator("#catalog-bulk-status .preview-dialog__summary").first().textContent()) === "2 succeeded, 1 skipped, 0 failed.",
     "the job's page shows its result on a reload",
   );
   await ctx.close();

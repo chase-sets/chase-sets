@@ -267,6 +267,18 @@ browser against the dev sandbox). The pilot shows the refusal in the dialog;
 Filed as [#10520 Let the Catalog API reorder a dimension's options instead of refusing every reorder](https://github.com/chase-sets/chase-sets/issues/10520);
 once it lands, the smoke test's reorder step should pass instead of being reported blocked.
 
+Also found in Chase Sets: a realtime stream the client drops before the response headers arrive
+keeps its stream lease, and the platform API renews the lease for as long as its process runs.
+After six such drops for one account (`maxActiveStreamsPerConnectionKey`), every realtime stream
+for that account answers 429 `too_many_realtime_streams`. Its live lists then stop updating,
+and nothing on the page shows it. The pilot drops its upstream request whenever a browser leaves
+a live page, so smoke runs locked the admin account out. Filed as
+[#10524 Release a realtime stream's lease when the client drops it before the headers](https://github.com/chase-sets/chase-sets/issues/10524).
+Workaround: the pilot sends the upstream request from its own task, so it reaches the headers
+even if the page goes away first (`connect` in [`realtime`](platform/src/realtime.rs)). Twelve
+live connections dropped 1 to 50 ms after opening leaked one lease without the workaround and
+none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
+
 Closed:
 
 Fixed in [todd-skelton/corten#14 A data-patch form posts to its own action whatever its controls are named](https://github.com/todd-skelton/corten/pull/14), at the pin, workaround removed:
