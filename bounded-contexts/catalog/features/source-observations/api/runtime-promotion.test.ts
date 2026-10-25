@@ -758,7 +758,7 @@ describe("source observation runtime: promotion and reapply", () => {
         payload: expect.objectContaining({
           referenceRecordId: "ref_ygojson_set_000f0093_1847_4db7_a315_5bd07f055c7a",
           promotionProfileKey: "yugioh-set-reference-data",
-          promotionProfileVersion: "2026.10.18",
+          promotionProfileVersion: "2026.10.25",
         }),
       }),
     );

@@ -32,10 +32,13 @@ describe("legacy YGOJSON set projection repair", () => {
       setId: "000f0093-1847-4db7-a315-5bd07f055c7a",
     });
     expect(
-      repairLegacyYgojsonSetNormalizedObservation("ygojson", {
-        ...legacy,
-        kind: "yugioh-sealed-product",
-      } as SourceObservationNormalized),
+      repairLegacyYgojsonSetNormalizedObservation(
+        "ygojson",
+        (({ setId: _setId, ...withoutSetId }) => ({
+          ...withoutSetId,
+          kind: "yugioh-sealed-product",
+        }))(legacy) as SourceObservationNormalized,
+      ),
     ).not.toHaveProperty("setId");
     expect(repairLegacyYgojsonSetNormalizedObservation("other", legacy)).toBe(legacy);
   });

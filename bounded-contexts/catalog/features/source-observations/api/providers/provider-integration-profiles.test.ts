@@ -895,7 +895,7 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.05", "active"],
       ["ygojson", "2026.10.25", "active"],
-      ["ygojson", "2026.10.25", "active"],
+      ["ygojson", "2026.10.18", "active"],
       ["ygoprodeck", "2026.10.18", "active"],
       ["ygoprodeck", "2026.10.18", "active"],
     ]);
