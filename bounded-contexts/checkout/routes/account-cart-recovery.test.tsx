@@ -187,7 +187,9 @@ describe("account cart attempt recovery through the data router", () => {
 
     await mount();
 
-    expect(screen.getByText("3 items need fulfillment, shipping measure, or availability resolved before checkout.")).toBeTruthy();
+    expect(
+      screen.getByText("3 items need fulfillment, shipping measure, or availability resolved before checkout."),
+    ).toBeTruthy();
     expect(screen.getAllByText("Priced at checkout").length).toBeGreaterThan(0);
     expect(screen.getByText("Resolve item availability before payment starts.")).toBeTruthy();
   });

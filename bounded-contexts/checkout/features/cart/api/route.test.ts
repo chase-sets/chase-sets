@@ -1875,9 +1875,9 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     expect(guestBody.items).toHaveLength(1);
     expect(guestBody.readiness).toEqual(createCartReadinessRead(guestBody.items));
 
-    const accountResponse = await harness.accountApp(OTHER).request(
-      new Request("http://checkout.test/account/cart", { method: "GET" }),
-    );
+    const accountResponse = await harness
+      .accountApp(OTHER)
+      .request(new Request("http://checkout.test/account/cart", { method: "GET" }));
     const accountBody = (await accountResponse.json()) as {
       items: Parameters<typeof createCartReadinessRead>[0];
       readiness: unknown;
