@@ -1999,6 +1999,36 @@ describe("operator scopes refused until the sign-in gate", () => {
     const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:read" });
     expect(registration.status).toBe(201);
   });
+
+  it("admits a recently authenticated platform-admin through consent and issues an operator code", async () => {
+    const options = createOAuthOptions();
+    const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: new Date().toISOString() };
+    options.resolveActor = async () => freshActor;
+    (options.auth as unknown as { identity: unknown }).identity = {
+      operatorAuthority: async () => ({
+        kind: "granted" as const,
+        membershipId: "member_1",
+        roleKey: "platform-admin" as const,
+        rolePermissions: [],
+      }),
+    };
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const registration = await registerClient(app, {
+      redirect_uris: [redirectUri],
+      scope: "operations:write",
+    });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+    const started = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(started.status).toBe(302);
+    const consentToken = new URL(started.headers.get("location")!, "http://localhost").searchParams.get(
+      "consent_token",
+    )!;
+    const consent = await app.request(`/ucp/oauth/consent?consent_token=${consentToken}`);
+    expect(consent.status).toBe(200);
+    await expect(consent.json()).resolves.toMatchObject({
+      consent: { scopes: ["operations:write"], operatorGrantExpiresAt: expect.any(String) },
+    });
+  });
 });
 
 async function managementFixture(configured = true) {
