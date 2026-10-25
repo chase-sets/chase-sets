@@ -38,7 +38,7 @@ export default function ScopeDetailRoute() {
 
   useEffect(() => {
     if (actionData && "feedback" in actionData && commandResultNeedsRoutableHandoff(actionData)) {
-      navigate(scopeDetailCommandHref(scope.scopeRecordId, actionData.context), { replace: true });
+      void navigate(scopeDetailCommandHref(scope.scopeRecordId, actionData.context), { replace: true });
     }
   }, [actionData, navigate, scope.scopeRecordId]);
 
