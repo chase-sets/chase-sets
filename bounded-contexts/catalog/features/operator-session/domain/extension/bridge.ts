@@ -11,8 +11,7 @@ export function isProbeSetNamesMessage(value: unknown): value is { action: "prob
     typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
-    (closed(value, ["action", "productLineId"]) ||
-      (closed(value, ["id", "action", "productLineId"]) && safeInteger(value.id))) &&
+    closed(value, ["action", "productLineId"]) &&
     value.action === "probe-set-names" &&
     typeof value.productLineId === "string" &&
     /^\d+$/.test(value.productLineId)
@@ -49,12 +48,13 @@ export function installOperatorBridge(
     if (
       closed(event.data, ["id", "action", "productLineId"]) &&
       safeInteger(event.data.id) &&
-      isProbeSetNamesMessage(event.data)
+      event.data.action === "probe-set-names" &&
+      typeof event.data.productLineId === "string" &&
+      /^\d+$/.test(event.data.productLineId)
     ) {
       try {
-        const result = await send(event.data);
-        if (isSetNamesRequestResult(result))
-          frame.contentWindow?.postMessage({ id: (event.data as unknown as { id: number }).id, result }, "*");
+        const result = await send({ action: "probe-set-names", productLineId: event.data.productLineId });
+        if (isSetNamesRequestResult(result)) frame.contentWindow?.postMessage({ id: event.data.id, result }, "*");
       } catch {
         /* The sandbox deadline supplies a closed UI error, never an exception echo. */
       }

@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+import { createHash } from "node:crypto";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system/theme";
 import { OperatorExtensionPopup } from "../ui/extension-popup/popup";
+import { serializeSetNamesProbeReport } from "../domain/extension/set-names/probe";
 
 afterEach(() => cleanup());
 
@@ -81,12 +83,17 @@ describe("TCGplayer SetNames popup states", () => {
     await waitFor(() => expect(screen.getByLabelText("Report")).toBeTruthy(), { timeout: 10_000 });
     const report = screen.getByLabelText("Report") as HTMLTextAreaElement;
     expect(report.value.endsWith("\n")).toBe(true);
-    expect(screen.getByText(/Canonical report SHA-256:/)).toBeTruthy();
+    expect(report.value).toContain('"lifecycle": "response-receipt-before-reduction"');
+    const actualReport = JSON.parse(report.value) as Parameters<typeof serializeSetNamesProbeReport>[0];
+    expect(report.value).toBe(serializeSetNamesProbeReport(actualReport));
+    const expectedSha = createHash("sha256").update(serializeSetNamesProbeReport(actualReport), "utf8").digest("hex");
+    expect(screen.getByText(`Canonical report SHA-256: ${expectedSha}`)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy report" }));
     await waitFor(() =>
       expect(screen.getByText("Copy failed. Select and copy the report text manually.")).toBeTruthy(),
     );
     expect(copyProbeReport).toHaveBeenCalled();
+    expect(copyProbeReport).toHaveBeenCalledWith(report.value);
   });
 
   it("renders fixed qualification reason codes as the error state", async () => {

@@ -1,4 +1,4 @@
-import { installOperatorBridge, type OperatorCommand } from "@chase-sets/catalog/client";
+import { installOperatorBridge } from "@chase-sets/catalog/client";
 
 const frame = document.querySelector("iframe");
 if (frame)
@@ -8,5 +8,5 @@ if (frame)
         () => true,
         () => false,
       );
-    return chrome.runtime.sendMessage(message as OperatorCommand);
+    return chrome.runtime.sendMessage(message);
   });

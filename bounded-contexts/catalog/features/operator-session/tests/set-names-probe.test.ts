@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   probeTcgplayerSetNames,
+  serializeSetNamesProbeReport,
   setNamesProbeUnitConstraints,
   type SetNamesRequestResult,
 } from "../domain/extension/set-names/probe";
@@ -26,17 +27,38 @@ describe("TCGplayer SetNames probe", () => {
     expect(setNamesProbeUnitConstraints.map((unit) => unit.productLineId)).toEqual(["1", "2", "3", "68", "82"]);
   });
 
-  it("records receipt and summary before reduction and redacts hostile values", async () => {
+  it("records receipt and summary before reduction and redacts every hostile field and key", async () => {
     const order: string[] = [];
+    let reduce: () => void = () => undefined;
     const request = vi.fn(async (productLineId: string) => {
       order.push("fetch");
-      return {
+      const marker = "HOSTILE_MARKER";
+      const result = {
         ok: true,
         status: 200,
         contentClass: "json" as const,
         bytes: 100,
-        body: { errors: [], results: [{ ...validEntry(Number(productLineId)), hostile: "DO_NOT_REPORT" }] },
+        body: {
+          unexpectedTopLevel: marker,
+          errors: [{ message: marker, [marker]: marker }],
+          results: [
+            {
+              ...validEntry(Number(productLineId)),
+              name: marker,
+              cleanSetName: marker,
+              urlName: marker,
+              abbreviation: marker,
+              releaseDate: marker,
+              [marker]: marker,
+            },
+          ],
+        },
       };
+      reduce = () => {
+        order.push("reduce");
+        result.body.results.splice(0);
+      };
+      return result;
     });
     const report = await probeTcgplayerSetNames({
       request,
@@ -46,11 +68,18 @@ describe("TCGplayer SetNames probe", () => {
       probedAt: "2026-10-24T00:00:00.000Z",
       productLineIds: ["3"],
       onReceipt: () => order.push("receipt"),
-      onSummary: () => order.push("summary"),
+      onSummary: () => {
+        order.push("summary");
+        reduce();
+      },
     });
-    expect(order).toEqual(["fetch", "receipt", "summary"]);
-    expect(JSON.stringify(report)).not.toContain("DO_NOT_REPORT");
+    expect(order).toEqual(["fetch", "receipt", "summary", "reduce"]);
+    expect(serializeSetNamesProbeReport(report)).not.toContain("HOSTILE_MARKER");
+    expect(serializeSetNamesProbeReport(report)).not.toContain("unexpectedTopLevel");
     expect(report.rows[0]?.summary.otherFieldCount).toBe(1);
+    expect(report.rows[0]?.summary.otherTopLevelKeyCount).toBe(1);
+    expect(report.rows[0]?.receipt.resultCount).toBe(1);
+    expect(report.rows[0]?.summary.fields.name.present).toBe(1);
   });
 
   it("keeps edited and repeated inputs bound to their explicit units", async () => {
@@ -123,6 +152,16 @@ describe("TCGplayer SetNames probe", () => {
       "non-json",
     ],
     [
+      "ok:true non-2xx",
+      { ok: true, status: 503, contentClass: "json", bytes: 2, body: { errors: [], results: [validEntry(3)] } },
+      "http-not-success",
+    ],
+    [
+      "ok:true non-json",
+      { ok: true, status: 200, contentClass: "non-json", bytes: 5, body: { errors: [], results: [validEntry(3)] } },
+      "non-json",
+    ],
+    [
       "errors",
       {
         ok: true,
@@ -154,6 +193,23 @@ describe("TCGplayer SetNames probe", () => {
       { ok: true, status: 200, contentClass: "json", bytes: 10, body: { errors: [], results: [validEntry(2)] } },
       "category-id-mismatch",
     ],
+    [
+      "body cap",
+      { ok: false, status: 200, contentClass: "json", bytes: 4_194_305, body: null, code: "body-cap-exceeded" },
+      "body-cap-exceeded",
+    ],
+    ["timeout", { ok: false, status: 200, contentClass: "json", bytes: 1, body: null, code: "timeout" }, "timeout"],
+    [
+      "mistyped field",
+      {
+        ok: true,
+        status: 200,
+        contentClass: "json",
+        bytes: 10,
+        body: { errors: [], results: [{ ...validEntry(3), active: "true" }] },
+      },
+      "field-invalid",
+    ],
   ])("leaves %s unqualified with a fixed code", async (_label, result, reason) => {
     const report = await probeTcgplayerSetNames({
       request: vi.fn(async () => result),
@@ -183,6 +239,37 @@ describe("TCGplayer SetNames probe", () => {
     });
     expect(report.rows[0]?.qualification.status).toBe("qualified");
     expect(report.rows[0]?.summary.releaseDate).toEqual({ dateOnly: 1, instant: 2, other: 1 });
+  });
+
+  it("keeps an unqualified row independent of a qualified row", async () => {
+    const report = await probeTcgplayerSetNames({
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          contentClass: "unknown",
+          bytes: 0,
+          body: null,
+          code: "http-not-success",
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          contentClass: "json",
+          bytes: 10,
+          body: { errors: [], results: [validEntry(2)] },
+        }),
+      extensionVersion: "0.1.0",
+      buildCommit: "synthetic-build",
+      browserMajor: "synthetic-browser",
+      productLineInputs: [
+        { unitKey: "u1", productLineId: "1" },
+        { unitKey: "u2", productLineId: "2" },
+      ],
+      minIntervalMs: 0,
+    });
+    expect(report.rows.map((row) => row.qualification.status)).toEqual(["unqualified", "qualified"]);
   });
 
   it("counts controls, not printable non-ASCII, as non-printable", async () => {
