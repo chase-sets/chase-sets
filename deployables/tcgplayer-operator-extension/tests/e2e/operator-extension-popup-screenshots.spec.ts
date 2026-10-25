@@ -1,14 +1,17 @@
 import { createServer } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { expect, test } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { createWorkspaceSourceAliases } from "../../../../scripts/workspace-source-aliases.mjs";
 
 const root = resolve(import.meta.dirname, "../../../..");
-const entry = resolve(
-  root,
-  "bounded-contexts/catalog/features/operator-session/tests/operator-extension-popup-screenshots-entry.tsx",
-);
+const entry = fileURLToPath(
+  new URL(
+    "../../../../bounded-contexts/catalog/features/operator-session/tests/operator-extension-popup-screenshots-entry.tsx",
+    import.meta.url,
+  ),
+).replaceAll("\\", "/");
 
 test("captures the four synthetic popup component states @tcgplayer-operator-extension", async ({ page }, testInfo) => {
   page.on("pageerror", (error) => console.log(`Synthetic popup pageerror: ${error.stack ?? error.message}`));
