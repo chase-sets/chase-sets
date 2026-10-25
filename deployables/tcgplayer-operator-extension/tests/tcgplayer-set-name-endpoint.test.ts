@@ -54,4 +54,17 @@ describe("tcgplayer set-name endpoint", () => {
       vi.useRealTimers();
     }
   });
+
+  it("caps a continuously producing body before the timeout", async () => {
+    const chunk = new Uint8Array(1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(chunk);
+      },
+    });
+    const fetcher = vi.fn(
+      async () => new Response(body, { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    await expect(fetchTcgplayerSetNames("3", fetcher)).resolves.toMatchObject({ code: "body-cap-exceeded" });
+  });
 });

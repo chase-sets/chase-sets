@@ -117,10 +117,11 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       sender: { id?: string; url?: string; origin?: string; hasTab: boolean },
       extensionId: string,
     ) {
+      const setNames = adapters.setNames;
+      if (typeof setNames !== "function") return null;
       const message = value as { action: unknown; productLineId: unknown };
       const origin = `chrome-extension://${extensionId}`;
       if (
-        !adapters.setNames ||
         typeof value !== "object" ||
         value === null ||
         Array.isArray(value) ||
@@ -137,7 +138,7 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       )
         return null;
       try {
-        const result = await adapters.setNames(message.productLineId);
+        const result = await setNames(message.productLineId);
         return isSetNamesRequestResult(result) ? result : null;
       } catch {
         return null;

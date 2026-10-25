@@ -1,17 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createOperatorBackground,
-  createOperatorSandboxSetNamesRequest,
-  installOperatorBridge,
-  probeTcgplayerSetNames,
-  type OperatorAdapters,
-} from "@chase-sets/catalog/client";
-import type { SetNamesRequestResult } from "@chase-sets/catalog/client";
-import {
-  fetchTcgplayerSetNames,
-  TCGPLAYER_SET_NAMES_BODY_CAP_BYTES,
-  TCGPLAYER_SET_NAMES_URL,
-} from "../src/tcgplayer-set-name-endpoint";
+import type { OperatorAdapters } from "../domain/extension/background";
+import { createOperatorBackground } from "../domain/extension/background";
+import { createOperatorSandboxSetNamesRequest, installOperatorBridge } from "../domain/extension/bridge";
+import type { SetNamesRequestResult } from "../domain/extension/set-names/probe";
 
 const extensionId = "ghemdloifdkoadnapmigabiekchlholm";
 const extensionOrigin = `chrome-extension://${extensionId}`;
@@ -79,6 +70,7 @@ describe("operator extension SetNames relay", () => {
     ).resolves.toEqual(result);
     expect(setNames).toHaveBeenCalledExactlyOnceWith("3");
   });
+
   it.each([
     ["foreign sender id", { id: "foreign" }],
     ["wrong popup url", { url: `${extensionOrigin}/other.html` }],
@@ -106,9 +98,16 @@ describe("operator extension SetNames relay", () => {
     expect(setNames).not.toHaveBeenCalled();
   });
 
-  it("refuses a missing adapter and an invalid adapter result", async () => {
+  it("refuses a missing or non-function adapter before invocation, and an invalid result", async () => {
     expect(
       await background().receiveSetNames({ action: "probe-set-names", productLineId: "3" }, sender(), extensionId),
+    ).toBeNull();
+    expect(
+      await background("not-a-function" as unknown as OperatorAdapters["setNames"]).receiveSetNames(
+        { action: "probe-set-names", productLineId: "3" },
+        sender(),
+        extensionId,
+      ),
     ).toBeNull();
     const invalid = vi.fn(async () => ({ ok: "yes" }) as unknown as SetNamesRequestResult);
     expect(
@@ -122,18 +121,11 @@ describe("operator extension SetNames relay", () => {
   });
 
   it("composes the sandbox request, popup bridge, service worker and frame reply", async () => {
-    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
-      expect(String(input)).toBe(`${TCGPLAYER_SET_NAMES_URL}?categoryId=3`);
-      expect(init).toEqual({
-        method: "GET",
-        credentials: "omit",
-        redirect: "error",
-        cache: "no-store",
-        signal: expect.any(AbortSignal),
-      });
-      return new Response(endpointBody, { status: 200, headers: { "content-type": "application/json" } });
+    const setNames = vi.fn(async (productLineId: string) => {
+      expect(productLineId).toBe("3");
+      return validResult();
     });
-    const serviceWorker = background((productLineId) => fetchTcgplayerSetNames(productLineId, fetcher));
+    const serviceWorker = background(setNames);
     const { popup, frame, frameMessages } = windows();
     const teardown = installOperatorBridge(popup, { contentWindow: frame } as HTMLIFrameElement, (message) =>
       serviceWorker.receiveSetNames(message, sender(), extensionId),
@@ -142,64 +134,7 @@ describe("operator extension SetNames relay", () => {
     await expect(request("3")).resolves.toMatchObject({ ok: true, status: 200, contentClass: "json" });
     expect(frameMessages).toHaveLength(1);
     expect(frameMessages[0]).toMatchObject({ id: 1, result: { ok: true, status: 200, contentClass: "json" } });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(setNames).toHaveBeenCalledExactlyOnceWith("3");
     teardown();
-  });
-
-  it("uses only the TCGplayer SetNames origin for a complete probe run", async () => {
-    const requestedUrls: string[] = [];
-    const fetcher = vi.fn<typeof fetch>(async (input) => {
-      requestedUrls.push(String(input));
-      return new Response(
-        JSON.stringify({
-          errors: [],
-          results: [
-            {
-              setNameId: 1,
-              categoryId: 3,
-              name: "Synthetic",
-              cleanSetName: "Synthetic",
-              urlName: "synthetic",
-              abbreviation: null,
-              releaseDate: null,
-              isSupplemental: false,
-              active: true,
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
-    await probeTcgplayerSetNames({
-      request: (productLineId) => fetchTcgplayerSetNames(productLineId, fetcher),
-      extensionVersion: "0.1.0",
-      buildCommit: "synthetic-build",
-      browserMajor: "synthetic-browser",
-      productLineInputs: [
-        { unitKey: "u1", productLineId: "3" },
-        { unitKey: "u2", productLineId: "71" },
-      ],
-      minIntervalMs: 0,
-    });
-    expect(requestedUrls).toEqual([
-      `${TCGPLAYER_SET_NAMES_URL}?categoryId=3`,
-      `${TCGPLAYER_SET_NAMES_URL}?categoryId=71`,
-    ]);
-    expect(requestedUrls.every((url) => url.startsWith(TCGPLAYER_SET_NAMES_URL))).toBe(true);
-  });
-
-  it("caps a pull-forever endpoint body before the timeout", async () => {
-    const chunk = new Uint8Array(1024 * 1024);
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        controller.enqueue(chunk);
-      },
-    });
-    const fetcher = vi.fn(
-      async () => new Response(body, { status: 200, headers: { "content-type": "application/json" } }),
-    );
-    await expect(fetchTcgplayerSetNames("3", fetcher)).resolves.toMatchObject({ code: "body-cap-exceeded" });
-    expect(fetcher).toHaveBeenCalledWith(`${TCGPLAYER_SET_NAMES_URL}?categoryId=3`, expect.any(Object));
-    expect(TCGPLAYER_SET_NAMES_BODY_CAP_BYTES).toBe(4 * 1024 * 1024);
   });
 });
