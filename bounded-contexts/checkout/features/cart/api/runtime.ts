@@ -21,11 +21,11 @@ import {
 import { classifyCheckoutCartSourceAuthority, type CheckoutCartSourceAuthority } from "./contracts";
 import {
   createCartReadinessSnapshot,
+  createCartReadinessRead,
   type CartReadinessDecisionInput,
   type CartReadinessRead,
   type CartReadinessSnapshot,
 } from "../domain/readiness";
-import { createCartReadinessRead } from "./read";
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
 import {
   listAuthorizedOwnerCartLines,
@@ -119,13 +119,7 @@ export type CheckoutCartServices = Readonly<{
       decisions?: CartReadinessDecisionInput | null;
     }>,
   ) => Promise<CartReadinessSnapshot>;
-  createReadinessRead?: (
-    params: Readonly<{
-      accountId: string;
-      presentedAnonymousCartId?: string | null;
-    }>,
-  ) => Promise<CartReadinessRead>;
-  readCart?: (
+  readCart: (
     params: Readonly<{
       accountId: string;
       presentedAnonymousCartId?: string | null;
@@ -459,10 +453,6 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     createReadinessSnapshot: async (params) => {
       const { lines, unionSource } = await readAuthorizedCartLines(params);
       return createCartReadinessSnapshot(lines, params.decisions, unionSource);
-    },
-    createReadinessRead: async (params) => {
-      const { lines, unionSource } = await readAuthorizedCartLines(params);
-      return createCartReadinessRead(lines, unionSource);
     },
     readCart: async (params) => {
       const { lines, unionSource } = await readAuthorizedCartLines(params);

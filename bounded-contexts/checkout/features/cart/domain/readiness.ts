@@ -106,6 +106,8 @@ export type CartReadinessRead = Readonly<{
   loaded: CartReadinessSnapshot;
   declined: CartReadinessSnapshot;
   accepted: CartReadinessSnapshot | null;
+  /** The indicative listing selected for each cart line, independent of fulfillment grouping. */
+  lineListingIds: Readonly<Record<string, string | null>>;
   estimatedSubtotal: CartReadinessMoney | null;
   blockedLineCount: number;
   savings: CartReadinessMoney | null;
@@ -724,10 +726,20 @@ export function createCartReadinessRead(
   const accepted = optimization
     ? createCartReadinessSnapshot(lines, { optimization: { ...optimization, decision: "accepted" } }, unionSource)
     : null;
+  const lineListingIds = Object.fromEntries(
+    lines.map((line) => [
+      line.line_id,
+      (line.fulfillment_mode === "locked-listing"
+        ? selectedCartReadinessListing(line)
+        : lowestCartReadinessListing(line)
+      )?.listing_id ?? null,
+    ]),
+  );
   return {
     loaded,
     declined,
     accepted,
+    lineListingIds,
     estimatedSubtotal: estimateCartReadinessSubtotal(lines, declined),
     blockedLineCount: declined.unresolvedLineIds.length,
     savings:

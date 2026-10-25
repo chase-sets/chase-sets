@@ -31,7 +31,6 @@ import {
   isPendingAccountCartAddLineHandoff,
 } from "../support/request-support/account-cart-handoffs";
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
-import { createCartReadinessRead } from "../features/cart/api/read";
 import {
   checkoutCartAttemptCommitSource,
   submitCheckoutCartAttempt,
@@ -482,7 +481,7 @@ export default function CheckoutAccountCartRoute() {
   return (
     <CheckoutCartPage
       cartLines={data.cart?.items ?? []}
-      readiness={data.cart?.readiness ?? createCartReadinessRead(data.cart?.items ?? [])}
+      readiness={data.cart?.readiness ?? null}
       errorMessage={actionData && "error" in actionData ? actionData.error : null}
       attemptState={actionData && "attempt" in actionData ? actionData.attempt : null}
       recoveryState={

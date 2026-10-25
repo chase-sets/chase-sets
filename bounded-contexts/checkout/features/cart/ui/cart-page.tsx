@@ -33,7 +33,6 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import { type CartReadinessDecisionInput, type CartReadinessRead, type CartReadinessSnapshot } from "../api/contracts";
-import { createCartReadinessRead } from "../api/read";
 import type { CheckoutCartLine } from "./contracts";
 import {
   useOptimisticCartMutationConsistency,
@@ -157,10 +156,6 @@ function selectedListingSnapshotFields(
 }
 
 type CartListingMoney = Readonly<{ amountMinor: bigint; currency: string }>;
-
-function readinessListingId(snapshot: CartReadinessSnapshot, lineId: string) {
-  return snapshot.fulfillmentGroups.find((group) => group.lineIds.includes(lineId))?.listingIds[0] ?? null;
-}
 
 function listingMoney(
   priceAmount: string | null | undefined,
@@ -827,7 +822,7 @@ export function CheckoutCartPage({
   attemptState,
 }: {
   cartLines: readonly CheckoutCartLine[];
-  readiness: CartReadinessRead;
+  readiness: CartReadinessRead | null;
   errorMessage?: string | null;
   recoveryState?: CartRecoveryState | null;
   attemptState?: CartAttemptState | null;
@@ -836,14 +831,15 @@ export function CheckoutCartPage({
   const cartMutations = useOptimisticCartMutationConsistency({ sourceCartLineGroups });
   const visibleAttempt = cartMutations.attemptState ?? attemptState ?? null;
   const cartLineGroups = cartMutations.cartLineGroups;
-  const hasPendingOptimisticMutation = cartLineGroups.some((line) => cartMutations.statusForLine(line) !== "idle");
-  const readiness =
-    providedReadiness && !hasPendingOptimisticMutation ? providedReadiness : createCartReadinessRead(cartLineGroups);
+  const hasPendingOptimisticMutation = sourceCartLineGroups.some(
+    (line) => cartMutations.statusForLine(line) !== "idle",
+  );
+  const readiness = providedReadiness && !hasPendingOptimisticMutation ? providedReadiness : null;
   const visibleErrorMessage = cartMutations.errorMessage ?? errorMessage;
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
-  const checkoutReadinessSnapshot = readiness.declined;
+  const checkoutReadinessSnapshot = readiness?.declined ?? null;
   const declinedOptimizationDecision =
-    checkoutReadinessSnapshot.optimization.decision === "declined" &&
+    checkoutReadinessSnapshot?.optimization.decision === "declined" &&
     checkoutReadinessSnapshot.optimization.proposedLineId &&
     checkoutReadinessSnapshot.optimization.proposedListingId
       ? {
@@ -854,13 +850,13 @@ export function CheckoutCartPage({
           },
         }
       : null;
-  const blockedLineCount = readiness.blockedLineCount;
-  const estimatedSubtotal = readiness.estimatedSubtotal;
+  const blockedLineCount = readiness?.blockedLineCount ?? 0;
+  const estimatedSubtotal = readiness?.estimatedSubtotal ?? null;
   const hasKnownTotal = estimatedSubtotal !== null;
   const estimatedTotal = estimatedSubtotal
     ? formatMoney(estimatedSubtotal.amount, estimatedSubtotal.currency)
     : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
-  const acceptedOptimizationDecision = readiness.accepted
+  const acceptedOptimizationDecision = readiness?.accepted
     ? ({
         optimization: {
           decision: "accepted",
@@ -870,23 +866,24 @@ export function CheckoutCartPage({
       } satisfies CartReadinessDecisionInput)
     : null;
   const acceptedOptimization =
-    readiness.accepted && acceptedOptimizationDecision
+    readiness?.accepted && acceptedOptimizationDecision
       ? { decisions: acceptedOptimizationDecision, snapshot: readiness.accepted }
       : null;
-  const cartReady = cartLineGroups.length > 0 && checkoutReadinessSnapshot.status === "ready";
-  const optimizationAvailable = cartReady && checkoutReadinessSnapshot.optimization.available;
-  const optimizationSavings = readiness.savings
+  const cartReady = Boolean(readiness && cartLineGroups.length > 0 && checkoutReadinessSnapshot?.status === "ready");
+  const optimizationAvailable = cartReady && checkoutReadinessSnapshot?.optimization.available === true;
+  const optimizationSavings = readiness?.savings
     ? formatMoney(readiness.savings.amount, readiness.savings.currency)
     : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
   // Resolve the seller behind the proposed lower-cost listing so the savings
   // notice can name the seller and show its reputation (helps the buyer decide
   // whether the switch is worth it), falling back to the seller-less copy when
   // the proposed seller has no display name projected yet.
-  const proposedOptimizationLine = checkoutReadinessSnapshot.optimization.proposedLineId
+  const proposedOptimizationLine = checkoutReadinessSnapshot?.optimization.proposedLineId
     ? (cartLineGroups.find((line) => line.line_id === checkoutReadinessSnapshot.optimization.proposedLineId) ?? null)
     : null;
+  const proposedOptimizationListingId = checkoutReadinessSnapshot?.optimization.proposedListingId ?? null;
   const proposedOptimizationOption = proposedOptimizationLine
-    ? findSellerOption(proposedOptimizationLine, checkoutReadinessSnapshot.optimization.proposedListingId)
+    ? findSellerOption(proposedOptimizationLine, proposedOptimizationListingId)
     : null;
   const proposedOptimizationSeller = proposedOptimizationOption?.seller_display_name ?? null;
 
@@ -1032,7 +1029,7 @@ export function CheckoutCartPage({
                   <CartLineRow
                     key={line.line_id}
                     line={line}
-                    listingId={readinessListingId(readiness.loaded, line.line_id)}
+                    listingId={providedReadiness?.lineListingIds[line.line_id] ?? null}
                     status={cartMutations.statusForLine(line)}
                     disabled={cartMutations.actionsDisabled}
                     onQuantityChange={cartMutations.setQuantity}
@@ -1061,10 +1058,18 @@ export function CheckoutCartPage({
                 context={checkoutContext}
                 reassurance={secureIndicator}
                 primaryAction={
-                  <CheckoutPrimaryAction
-                    snapshot={checkoutReadinessSnapshot}
-                    decisions={declinedOptimizationDecision}
-                  />
+                  checkoutReadinessSnapshot ? (
+                    <CheckoutPrimaryAction
+                      snapshot={checkoutReadinessSnapshot}
+                      decisions={declinedOptimizationDecision}
+                    />
+                  ) : (
+                    <Box minWidth="action">
+                      <LinkButton href={BUY_READINESS_ROUTE} tone="primary" size="md" block>
+                        {t("checkout.features.cart.ui.cartPage.resolve.fulfillment")}
+                      </LinkButton>
+                    </Box>
+                  )
                 }
                 secondaryAction={
                   <Stack gap={2}>

@@ -29,8 +29,7 @@ import {
   type CheckoutCommandAttemptResult,
 } from "../../command-attempts/api/contracts";
 import { recordCartReadinessObservability } from "./cart-readiness-observability";
-import { createCartReadinessRead } from "./read";
-import { parseCartReadinessDecisionInput } from "../domain/readiness";
+import { createCartReadinessRead, parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
 import { normalizePresentedAnonymousCartId, toPublicCheckoutCartLines } from "./contracts";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -432,30 +431,15 @@ export function createAccountCartRoutes(
     }
 
     const presentedAnonymousCartId = normalizePresentedAnonymousCartId(c.req.header("x-checkout-anonymous-cart-id"));
-    const cartRead = services.readCart
-      ? await services.readCart({
-          accountId: access.actor.accountId,
-          ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
-        })
-      : null;
-    const items =
-      cartRead?.lines ??
-      (await services.listAuthorizedCartLines({
-        accountId: access.actor.accountId,
-        ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
-      }));
-    const readiness =
-      cartRead?.readiness ??
-      (services.createReadinessRead
-        ? await services.createReadinessRead({
-            accountId: access.actor.accountId,
-            ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
-          })
-        : null);
+    const cartRead = await services.readCart({
+      accountId: access.actor.accountId,
+      ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
+    });
+    const items = cartRead.lines;
     return c.json({
       items: toPublicCheckoutCartLines(items),
       count: countCartItems(items),
-      ...(readiness ? { readiness } : {}),
+      readiness: cartRead.readiness,
     });
   });
 
@@ -605,22 +589,19 @@ export function createGuestCartRoutes(
       return c.json({
         items: [],
         count: 0,
-        ...(services.readCart ? { readiness: createCartReadinessRead([]) } : {}),
+        readiness: createCartReadinessRead([]),
       });
     }
 
     // A claimed key resolves to zero readable lines, so a refusal returns the
     // byte-identical empty payload a request with no key already returns.
     // Nothing in the response distinguishes claimed, foreign, or absent.
-    const cartRead = services.readCart ? await services.readCart({ accountId: ownerId }) : null;
-    const items = cartRead?.lines ?? (await services.listAuthorizedCartLines({ accountId: ownerId }));
-    const readiness =
-      cartRead?.readiness ??
-      (services.createReadinessRead ? await services.createReadinessRead({ accountId: ownerId }) : null);
+    const cartRead = await services.readCart({ accountId: ownerId });
+    const items = cartRead.lines;
     return c.json({
       items: toPublicCheckoutCartLines(items),
       count: countCartItems(items),
-      ...(readiness ? { readiness } : {}),
+      readiness: cartRead.readiness,
     });
   });
 

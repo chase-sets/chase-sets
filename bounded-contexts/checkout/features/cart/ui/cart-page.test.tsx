@@ -5,7 +5,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CheckoutCartPage } from "./cart-page";
 import type { CheckoutCartLine } from "./contracts";
-import { createCartReadinessRead } from "../api/read";
+import { createCartReadinessRead } from "../domain/readiness";
 
 type TestCartPageProps = Omit<React.ComponentProps<typeof CheckoutCartPage>, "readiness"> & {
   readiness?: React.ComponentProps<typeof CheckoutCartPage>["readiness"];
@@ -157,6 +157,93 @@ describe("checkout cart page", () => {
     expect(markup.match(/>\$12\.34<\/dd>/g)?.length).toBe(1);
     expect(markup.match(/>\$12\.34<\/div>/g)?.length).toBe(1);
     expect(markup).toContain("4 items need fulfillment");
+  });
+
+  it("uses each API line listing even when readiness is unresolved, grouped, or mixed-currency", () => {
+    const unavailableLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_unavailable",
+      product_id: "cat_unavailable::condition:raw",
+      availability_state: "unavailable",
+      seller_options: [],
+    };
+    const unresolvedMarkup = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine, unavailableLine]}
+        readiness={createCartReadinessRead([cartLine, unavailableLine])}
+      />,
+    );
+    expect(unresolvedMarkup).toContain("$778.00");
+    expect(unresolvedMarkup).toContain("Card Vault");
+
+    const firstSharedSeller: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_zzz",
+      product_id: "cat_zzz::condition:raw",
+      seller_options: cartLine.seller_options.map((option) => ({ ...option, listing_id: "lst_zzz" })),
+    };
+    const secondSharedSeller: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_aaa",
+      product_id: "cat_aaa::condition:raw",
+      quantity: 1,
+      seller_options: cartLine.seller_options.map((option) => ({
+        ...option,
+        listing_id: option.listing_id === "lst_card_vault" ? "lst_aaa" : "lst_bbb",
+        price_amount: option.listing_id === "lst_card_vault" ? "10.00" : "11.00",
+      })),
+    };
+    const groupedMarkup = renderToString(
+      <CheckoutCartPage
+        cartLines={[firstSharedSeller, secondSharedSeller]}
+        readiness={createCartReadinessRead([firstSharedSeller, secondSharedSeller])}
+      />,
+    );
+    expect(groupedMarkup).toContain("$778.00");
+    expect(groupedMarkup).toContain("$10.00");
+
+    const eurLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_eur",
+      product_id: "cat_eur::condition:raw",
+      quantity: 1,
+      seller_options: cartLine.seller_options.map((option) => ({
+        ...option,
+        listing_id: `eur_${option.listing_id}`,
+        price_currency_code: "EUR",
+      })),
+    };
+    const mixedMarkup = renderToString(
+      <CheckoutCartPage cartLines={[cartLine, eurLine]} readiness={createCartReadinessRead([cartLine, eurLine])} />,
+    );
+    expect(mixedMarkup).toContain("$778.00");
+    expect(mixedMarkup).toContain("€389.00");
+  });
+
+  it("defers the API total while a removal is pending instead of showing the pre-removal total", async () => {
+    const user = userEvent.setup();
+    const secondLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_2",
+      product_id: "cat_blastoise::condition:raw",
+      item_title: "Blastoise",
+      quantity: 1,
+    };
+    const apiRead = createCartReadinessRead([cartLine, secondLine]);
+    render(<CheckoutCartPage cartLines={[cartLine, secondLine]} readiness={apiRead} />);
+
+    expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[1]!);
+
+    await waitFor(() => expect(screen.getAllByText("Priced at checkout").length).toBeGreaterThan(0));
+    expect(screen.queryByText("$1,167.00")).toBeNull();
+  });
+
+  it("does not recompute a missing API readiness response in the browser", () => {
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} readiness={null} />);
+
+    expect(markup).toContain("Priced at checkout");
+    expect(markup).not.toContain('action="/checkout/buy/readiness"');
   });
 
   it("renders checkout error and pending fresh-write recovery as tinted furniture", () => {
