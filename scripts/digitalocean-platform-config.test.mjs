@@ -8,6 +8,7 @@ import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import {
   assertNoDestructiveChanges,
   destructiveChangeApprovalFromText,
@@ -3083,7 +3084,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksFoundationMain).not.toContain("var.auto_upgrade");
     expect(doksFoundationVariables).not.toMatch(/variable\s+"auto_upgrade"/);
     expect(platformDoksFoundationWorkflow).not.toMatch(/TF_VAR_auto_upgrade|-var(?:=|\s+)auto_upgrade/);
-    const tfvarsFiles = execFileSync("git", ["ls-files", "--", "*.tfvars"], { encoding: "utf8" })
+    const tfvarsFiles = execFileSync("git", ["ls-files", "--", "*.tfvars"], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .split(/\r?\n/)
       .filter(Boolean);
     for (const relativePath of tfvarsFiles) {

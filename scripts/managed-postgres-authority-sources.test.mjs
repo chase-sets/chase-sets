@@ -58,6 +58,19 @@ const reviewedCatalogDelta = [
     purpose: "managed-postgres-boundary",
   },
 ];
+// #10591 reviewed additions: the DOKS version-change preflight's step-local credentials.
+const doksVersionChangePreflightDelta = [
+  "DIGITALOCEAN_ACCESS_TOKEN",
+  "SPACES_ACCESS_ID",
+  "SPACES_SECRET_KEY",
+  "DIGITALOCEAN_ACCESS_TOKEN",
+].map((secretName) => ({
+  file: ".github/workflows/platform-doks-foundation.yml",
+  jobId: "apply",
+  stepAnchor: "name:Preflight DOKS version change#8",
+  secretName,
+  purpose: "terraform-infra",
+}));
 // #10356 threads the preview runtime provider secrets into the ephemeral verification apply step.
 const previewRuntimeSecretsDelta = [
   "SCRYDEX_API_KEY",
@@ -900,6 +913,7 @@ describe("managed Postgres authority source generator", () => {
       ...original,
       grants: [
         ...[...retainedOriginalGrants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
+        ...doksVersionChangePreflightDelta,
         ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
