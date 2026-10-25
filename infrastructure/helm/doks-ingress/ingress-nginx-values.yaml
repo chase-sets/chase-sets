@@ -68,4 +68,3 @@ controller:
       memory: 128Mi
   admissionWebhooks:
     enabled: true
-
