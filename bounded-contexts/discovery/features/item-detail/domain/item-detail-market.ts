@@ -262,10 +262,6 @@ export function sortOffersBySellerPrice(offers: readonly DiscoveryOffer[]): Disc
   });
 }
 
-export function getBestOffer(offers: readonly DiscoveryOffer[]): DiscoveryOffer | null {
-  return offers.find((offer) => offer.status === "submitted") ?? offers[0] ?? null;
-}
-
 export function getBestAccountOfferMatch(
   offers: readonly DiscoveryAccountOfferMatch[],
 ): DiscoveryAccountOfferMatch | null {
