@@ -77,7 +77,10 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         };
         return if cookie.contains("chase_sets_session=staff") {
             actor(&["postage-policies.view", "catalog.view", "catalog.manage"])
-        } else if cookie.contains("chase_sets_session=catalog-reader") || cookie.contains("chase_sets_session=catalog-viewer") {
+        } else if cookie.contains("chase_sets_session=catalog-reader")
+            || cookie.contains("chase_sets_session=catalog-viewer")
+            || cookie.contains("chase_sets_session=queue-down")
+        {
             actor(&["catalog.view"])
         } else if cookie.contains("chase_sets_session=reader") {
             actor(&[])
@@ -92,6 +95,12 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if uri.path() == "/api/catalog/scope-records" {
         return scope_records(uri.query().unwrap_or_default());
+    }
+    if let Some(rest) = uri.path().strip_prefix("/api/catalog/attention-queue") {
+        return attention_queue(method, rest, cookie, &headers, &body);
+    }
+    if uri.path() == "/api/catalog/alias-review/commands" {
+        return written(StatusCode::OK, "alias");
     }
     if let Some(rest) = uri.path().strip_prefix(CATALOG) {
         return catalog_api(method, rest, &headers, &body);
@@ -489,6 +498,64 @@ fn scope_records(query: &str) -> Response {
         scope("scp_base", "Base Set", None, &[], "draft", "2020-01-01T00:00:00.000Z"),
     ];
     Json(json!({ "items": items, "total": 51, "count": 2 })).into_response()
+}
+
+const HEALTH: &str = "provider-health:tcgplayer:tcgplayer:mtg:single-card:source-observation-import";
+
+/// The Catalog attention queue: a provider unit's health (critical, its sheet links to the
+/// provider's page) and an alias candidate (accept and reject in one click). It cannot be read
+/// for `queue-down`; a park whose reason is `refuse` is refused.
+fn attention_queue(method: Method, rest: &str, cookie: &str, headers: &HeaderMap, body: &str) -> Response {
+    match (method, rest) {
+        (Method::GET, _) if cookie.contains("queue-down") && headers.contains_key("chase-sets-read-after-write") => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
+        (Method::GET, _) if cookie.contains("queue-down") => {
+            refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The queue is unavailable.")
+        }
+        (Method::GET, "") => {
+            let q = "catalog.features.attentionQueue";
+            let health = json!({
+                "itemKey": HEALTH, "kind": "provider-health", "severity": "critical",
+                "titleKey": format!("{q}.item.providerHealth.title"),
+                "titleParams": { "unit": "TCGplayer Magic Single Cards", "provider": "tcgplayer" },
+                "detailKey": format!("{q}.item.providerHealth.detail"),
+                "detailParams": { "blocker": "credential", "code": "provider-retired" },
+                "providerKey": "tcgplayer", "unitKey": "tcgplayer:mtg:single-card:source-observation-import",
+                "observedAt": "2026-10-25T09:20:07.661Z",
+                "resolution": { "intent": "review-provider-health", "mode": "drawer", "labelKey": format!("{q}.action.reviewHealth"),
+                    "fields": { "providerKey": "tcgplayer", "unitKey": "tcgplayer:mtg:single-card:source-observation-import" },
+                    "href": "/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import" },
+                "secondaryResolutions": [],
+            });
+            let alias = json!({
+                "itemKey": "alias-candidate:h1", "kind": "alias-candidate", "severity": "info",
+                "titleKey": format!("{q}.item.aliasCandidate.title"), "titleParams": { "alias": "Charizard ex", "type": "name" },
+                "detailKey": format!("{q}.item.aliasCandidate.detail"),
+                "detailParams": { "provider": "tcgdex", "type": "name", "confidence": 0.92 },
+                "providerKey": "tcgdex", "unitKey": null, "observedAt": "2026-10-24T04:09:09.701000Z",
+                "resolution": { "intent": "alias.accept", "mode": "command", "labelKey": format!("{q}.action.acceptAlias"),
+                    "fields": { "aliasHashes": "h1" }, "requiresReason": false },
+                "secondaryResolutions": [{ "intent": "alias.reject", "mode": "command", "labelKey": format!("{q}.action.rejectAlias"),
+                    "fields": { "aliasHashes": "h1" }, "requiresReason": true }],
+            });
+            Json(json!({
+                "generatedAt": "2026-10-25T09:20:07.661Z", "empty": false, "items": [health, alias],
+                "counts": { "total": 2, "bySeverity": { "critical": 1, "warning": 0, "info": 1 },
+                    "byKind": { "unmapped-scope": 0, "merge-conflict": 0, "provider-health": 1, "import-job": 0,
+                        "alias-candidate": 1, "stale-scope-sync": 0 } },
+                "freshness": { "generatedAt": "2026-10-25T09:20:07.661Z", "oldestObservedAt": null, "newestObservedAt": null },
+            }))
+            .into_response()
+        }
+        (Method::POST, "/commands") if body.contains(r#""reason":"refuse""#) => {
+            refusal(StatusCode::BAD_REQUEST, "attention_queue_invalid_kind", "Parking an attention item requires its kind.")
+        }
+        (Method::POST, "/commands") => written(StatusCode::OK, "attention"),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// The Catalog API, as far as the area uses it. A dimension list has 120 rows (three pages). A
@@ -938,7 +1005,7 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     );
     assert!(
         html.contains(
-            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},&quot;120 matching Dimensions&quot;,&quot;Dimensions&quot;,%[&quot;&quot;,&quot;count&quot;,&quot; &quot;,&quot;entity_name&quot;,&quot; selected&quot;])"#
+            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:&quot;120 matching Dimensions&quot;,entity:&quot;Dimensions&quot;,selected:%[&quot;&quot;,&quot;count&quot;,&quot; &quot;,&quot;entity_name&quot;,&quot; selected&quot;]})"#
         ),
         "the count's text is the catalog's message, sent unfilled: {html}"
     );
@@ -1149,7 +1216,7 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
     assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-requires="draft""#), "{html}");
     assert!(html.contains(r#"<option value="mergeTags">Merge Tags</option>"#) && html.contains(r#"name="tags""#), "{html}");
     assert!(
-        html.contains(r#"<corten-live id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2">"#),
+        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on="#),
         "{html}"
     );
     assert!(html.contains(r#"href="/catalog/catalog-items""#), "the nav serves the list: {html}");
@@ -1348,7 +1415,7 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
     assert!(html.starts_with(r#"<div data-scope="bulk-rows" id="catalog-rows""#), "{html}");
     assert!(
         html.contains(
-            r#"<corten-live id="catalog-live" src="/catalog/catalog-items/live?status=draft"><div data-scope="live-status""#
+            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on="connect:live_status.stale($c,@since,%[&quot;Stale since &quot;,&quot;value&quot;,&quot;&quot;]) corten-status:live_status.stale($t,@since,%[&quot;Stale since &quot;,&quot;value&quot;,&quot;&quot;])"><div class="live-status__status""#
         ),
         "the stream's connection status, in the element that streams: {html}"
     );
@@ -1370,7 +1437,12 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
         pilot.send(get("/catalog/scopes?search=pal&status=active&product_domain=pokemon&page=2", Some("catalog-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "catalog.view is enough: {html}");
     let calls = pilot.catalog_calls();
-    assert_eq!(calls[0].path, "/api/catalog/scope-records?search=pal&status=active&productDomain=pokemon&limit=50&offset=50");
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.path == "/api/catalog/scope-records?search=pal&status=active&productDomain=pokemon&limit=50&offset=50"),
+        "{calls:?}"
+    );
     assert!(html.contains("<strong>Paldean Fates</strong>") && html.contains(">PAF</span>"), "{html}");
     assert!(html.contains("<td>pokemon · expansion</td>") && html.contains("2 edition(s): en, ja"), "{html}");
     assert!(html.contains(">Live</span>") && html.contains(">Fresh</span>"), "an active scope, changed lately: {html}");
@@ -1397,7 +1469,10 @@ async fn the_scopes_list_asks_the_api_and_shows_each_scopes_promotion_and_sync()
 async fn the_scopes_language_filters_the_page_the_api_returned() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/catalog/scopes?language=ja", Some("staff"))).await;
-    assert_eq!(pilot.catalog_calls()[0].path, "/api/catalog/scope-records?limit=50&offset=0", "not sent to the API");
+    assert!(
+        pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/scope-records?limit=50&offset=0"),
+        "not sent to the API"
+    );
     assert!(html.contains("Paldean Fates") && !html.contains("Base Set"), "{html}");
     assert!(
         html.contains(r#"<option value="ja" selected>ja</option>"#) && html.contains(r#"<option value="en">en</option>"#),
@@ -1421,4 +1496,188 @@ async fn a_scopes_list_the_api_cannot_read_is_its_banner_over_no_rows() {
 
     let (status, _, _) = pilot.send(get("/catalog/scopes", Some("reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view is needed");
+}
+
+fn action_get(uri: &str) -> Request<Body> {
+    let mut req = get(uri, Some("staff"));
+    req.headers_mut().insert("corten", "action".parse().unwrap());
+    req
+}
+
+#[tokio::test]
+async fn the_attention_queue_sits_above_the_scopes_with_its_counts_and_items() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes?status=active", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let (queue, list) = (html.find("data-attention-queue").unwrap(), html.find("Paldean Fates").unwrap());
+    assert!(queue < list, "the queue is above the list");
+    assert!(html.contains(">2 need you</span>") && html.contains("As of 2026-10-25T09:20:07.661Z"), "{html}");
+    assert!(
+        html.contains("Unblock TCGplayer Magic Single Cards on tcgplayer")
+            && html.contains("Blocked by credential · provider-retired"),
+        "{html}"
+    );
+    assert!(html.contains("tcgdex · name · confidence 0.92"), "a keyword argument and a number: {html}");
+    assert!(
+        html.contains(r#"<form id="attention-open" method="get" action="/catalog/scopes/attention/review" data-patch><input type="hidden" name="status" value="active"></form>"#),
+        "one Review form, keeping the filters: {html}"
+    );
+    assert!(html.contains(&format!(r#"form="attention-open" name="item" value="{HEALTH}">Review health</button>"#)), "{html}");
+    assert!(
+        html.contains(r#"action="/catalog/scopes/attention/alias/reject?status=active" data-patch><input type="hidden" name="alias_hashes" value="h1"><input type="hidden" name="reason" value="Reject">"#),
+        "a reject sends its label as the reason: {html}"
+    );
+    assert!(html.contains(r#"<dialog id="attention-sheet"></dialog>"#), "the sheet is drawn when opened: {html}");
+
+    let mut req = get("/catalog/scopes", Some("staff"));
+    req.headers_mut().insert(header::ACCEPT, "application/json".parse().unwrap());
+    let (_, _, body) = pilot.send(req).await;
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["attention"]["items"][0]["kind"], "provider-health", "{body}");
+    assert_eq!(body["data"]["attention"]["items"][1]["resolution"]["mode"], "command", "{body}");
+
+    let (_, _, html) = pilot.send(get("/catalog/scopes", Some("catalog-viewer"))).await;
+    assert!(
+        html.contains(r#"<button type="submit" class="attention-panel__small" disabled>Accept</button>"#),
+        "a viewer may not act: {html}"
+    );
+}
+
+#[tokio::test]
+async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
+    let pilot = Pilot::new().await;
+    let key = percent_encoding::utf8_percent_encode(HEALTH, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let (status, _, html) = pilot.send(action_get(&format!("/catalog/scopes/attention/review?status=active&item={key}"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.starts_with(r#"<dialog class="dialog__dialog" id="attention-sheet" aria-labelledby="attention-sheet-title" open"#),
+        "{html}"
+    );
+    assert!(html.contains("<dt>Unit</dt><dd>tcgplayer:mtg:single-card:source-observation-import</dd>"), "{html}");
+    assert!(
+        html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
+        "the destination is admin-web's: {html}"
+    );
+    assert!(
+        html.contains(r#"id="attention-dismiss" method="post" action="/catalog/scopes/attention/dismiss?status=active""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"<input type="hidden" name="kind" value="provider-health">"#), "{html}");
+    assert!(!html.contains("Paldean Fates"), "only the sheet: {html}");
+
+    let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=gone")).await;
+    assert_eq!(html, r#"<dialog id="attention-sheet"></dialog>"#, "an item no longer in the queue");
+
+    let (status, _, html) = pilot.send(get(&format!("/catalog/scopes/attention/review?item={key}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("Paldean Fates") && html.contains(r#"id="attention-sheet" aria-labelledby="attention-sheet-title" open"#),
+        "{html}"
+    );
+}
+
+#[tokio::test]
+async fn parking_an_item_sends_its_reason_and_the_list_offers_restore() {
+    let pilot = Pilot::new().await;
+    let form = format!(
+        "item_key={}&kind=provider-health&reason=Retired+provider",
+        percent_encoding::utf8_percent_encode(HEALTH, percent_encoding::NON_ALPHANUMERIC)
+    );
+    let (status, headers, _) = pilot.send(post("/catalog/scopes/attention/dismiss?status=active", &form, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes?status=active&after_write="), "{to}");
+    assert!(
+        to.ends_with(&format!(
+            "&done=queued&parked={}",
+            percent_encoding::utf8_percent_encode(HEALTH, percent_encoding::NON_ALPHANUMERIC)
+        )) || to.contains("&done=queued&parked=provider-health"),
+        "{to}"
+    );
+    let sent: Value = serde_json::from_str(&pilot.catalog_writes()[0].body).unwrap();
+    assert_eq!(sent, json!({ "intent": "dismiss", "itemKey": HEALTH, "kind": "provider-health", "reason": "Retired provider" }));
+
+    pilot.send(post("/catalog/scopes/attention/defer", &form, true)).await;
+    let sent: Value = serde_json::from_str(&pilot.catalog_writes()[1].body).unwrap();
+    assert_eq!((sent["intent"].as_str(), sent["deferHours"].as_u64()), (Some("defer"), Some(24)), "{sent}");
+
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Command queued"), "{html}");
+    assert!(
+        html.contains(&format!(r#"action="/catalog/scopes/attention/restore?status=active" data-patch><input type="hidden" name="item_key" value="{HEALTH}">"#)),
+        "{html}"
+    );
+    pilot
+        .send(post(
+            "/catalog/scopes/attention/restore",
+            &format!("item_key={}", percent_encoding::utf8_percent_encode(HEALTH, percent_encoding::NON_ALPHANUMERIC)),
+            true,
+        ))
+        .await;
+    let sent: Value = serde_json::from_str(&pilot.catalog_writes()[2].body).unwrap();
+    assert_eq!(sent, json!({ "intent": "restore", "itemKey": HEALTH }));
+}
+
+#[tokio::test]
+async fn a_park_without_a_reason_or_refused_comes_back_in_its_sheet() {
+    let pilot = Pilot::new().await;
+    let key = percent_encoding::utf8_percent_encode(HEALTH, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let (status, _, html) = pilot
+        .send(post("/catalog/scopes/attention/dismiss", &format!("item_key={key}&kind=provider-health&reason=+"), true))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.starts_with(r#"<form class="attention-panel__park" id="attention-dismiss""#), "the form alone: {html}");
+    assert!(html.contains(r#"id="attention-dismiss-reason-error""#) && html.contains("requires an operator reason"), "{html}");
+    assert!(pilot.catalog_writes().is_empty(), "nothing sent");
+
+    let (status, _, html) = pilot
+        .send(post("/catalog/scopes/attention/defer", &format!("item_key={key}&kind=provider-health&reason=refuse"), false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        html.contains("Parking an attention item requires its kind.") && html.contains("Paldean Fates"),
+        "the page, the sheet open: {html}"
+    );
+    assert!(html.contains(r#"id="attention-sheet" aria-labelledby="attention-sheet-title" open"#), "{html}");
+
+    let (_, _, html) = pilot.send(post("/catalog/scopes/attention/dismiss", "item_key=x&kind=elsewhere&reason=r", true)).await;
+    assert!(html.contains("role=\"alert\""), "a kind the queue does not have: {html}");
+}
+
+#[tokio::test]
+async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post("/catalog/scopes/attention/alias/accept", "alias_hashes=h1", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().contains("done=queued"));
+    pilot.send(post("/catalog/scopes/attention/alias/reject", "alias_hashes=h1&reason=Reject", true)).await;
+    let writes = pilot.catalog_writes();
+    assert_eq!(writes[0].path, "/api/catalog/alias-review/commands");
+    let bodies: Vec<Value> = writes.iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "intent": "accept", "aliasHashes": "h1" }),
+            json!({ "intent": "reject", "aliasHashes": "h1", "reason": "Reject" })
+        ]
+    );
+
+    let (_, headers, _) = pilot.send(post("/catalog/scopes/attention/alias/reject", "alias_hashes=h1", true)).await;
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.ends_with("done=failed"), "a reject needs its reason: {to}");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Command needs attention"), "{html}");
+}
+
+#[tokio::test]
+async fn a_queue_the_api_cannot_read_is_its_banner_and_the_list_still_shows() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/scopes", Some("queue-down"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Attention queue unavailable") && html.contains("Paldean Fates"), "{html}");
+    assert!(!html.contains("data-attention-queue"), "{html}");
+
+    let (status, _, _) =
+        pilot.send(get(&format!("/catalog/scopes?after_write={}&done=queued", fresh_receipt()), Some("queue-down"))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "after a park, a queue still catching up is the page's preparing answer");
 }

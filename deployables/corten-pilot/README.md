@@ -14,7 +14,7 @@ stay where they are. The pilot owns only the screens:
 | `admin/` | Commerce > Postage policies, `/commerce/postage-policies` | admin-web | the list, the policy sheet, create, revise, preview, activate, retire and clone |
 | `admin/` | Catalog > Dimensions and Fields, `/catalog/dimensions`, `/catalog/fields` | admin-web | the lists (live, with bulk lifecycle changes), each record's page, and every write on it |
 | `admin/` | Catalog > Catalog Items (the list), `/catalog/catalog-items` | admin-web | the list and its ten filters, create, the changes count and Reload, bulk publish, archive and edits as jobs, and removing drafts |
-| `admin/` | Catalog > Scopes (the list), `/catalog/scopes` | admin-web | the list, its search, status, product domain and language filters, promotion and sync, and the pager (not ported: the attention queue and alias review above it, and a scope's page, which View opens in admin-web) |
+| `admin/` | Catalog > Scopes (the list), `/catalog/scopes` | admin-web | the attention queue above the list (its counts, every item, an item's sheet, dismiss, defer and restore, and an alias candidate's accept and reject), the list, its search, status, product domain and language filters, promotion and sync, and the pager (not ported: the all-scopes alias review, and a scope's page, which View opens in admin-web) |
 | `admin/` | Catalog > a Catalog Item's page, `/catalog/catalog-items/{id}` | admin-web | the item, its origin and readiness, publish (with Recheck) and archive, and every dialog: blueprint, description, field values (a reference field takes a record), categories, product contents, tags, image URLs, the image fallback, and both kinds of external reference |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` | marketplace | the list (archived too), create, save and archive, and confirming a write whose answer was lost |
 
@@ -100,6 +100,7 @@ node scripts/smoke-live.mjs            # the catalog lists stay current while an
 node scripts/smoke-bulk.mjs            # bulk lifecycle changes on the dimensions list, with and without JavaScript
 node scripts/smoke-items.mjs           # the catalog items list: create, the changes count, a bulk edit, removing drafts, 390 px
 node scripts/smoke-item.mjs            # a catalog item's page: a draft through every dialog, with and without JavaScript, 390 px
+node scripts/smoke-attention.mjs       # the attention queue beside admin-web's: same items, a sheet, dismiss, defer and restore, no JavaScript, 390 px (parks one item and restores it)
 node scripts/smoke-scopes.mjs          # the scopes list beside admin-web's ([..] [admin-web]): same rows, the filters, View, no JavaScript, 390 px (only reads)
 node scripts/measure-live.mjs pilot=http://localhost:7790 admin-web=http://localhost:7752   # what one change costs the watching tab
 node scripts/measure.mjs admin-web=http://localhost:7756 pilot=http://localhost:7791
@@ -142,6 +143,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `6f2ba32` | [todd-skelton/corten#21 A <corten-live> stream resumes from the app's cursor](https://github.com/todd-skelton/corten/pull/21) closed [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15). Breaking for the pilot only in a test: a live route the API refuses now draws nothing (a stand-in session the stream accepts, `catalog-viewer`, checks a viewer's rows). Also brings [todd-skelton/corten#16 Write JSON with a derive whose layout is fixed at compile time](https://github.com/todd-skelton/corten/pull/16) (`Json` and `ToJson` move to the end of the prelude; nothing in the pilot changed) and [todd-skelton/corten#19 Copy a route parameter at once when nothing in it needs encoding](https://github.com/todd-skelton/corten/pull/19) |
 | `f80d4a1` | Corten `main` with the pilot's earlier gaps closed: [todd-skelton/corten#9 Forms have no per-submission idempotency key](https://github.com/todd-skelton/corten/issues/9) (`SubmitKey`), [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20), [todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24) and [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26). Breaking: `Json`, `req.screen` and `json_ld` take `ToJson`, so the screens and the catalog's read types derive it. `DimensionDetail` flattens a struct, which the derive refuses ([todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34)), so it writes itself through serde. `SubmitKey` is not used yet: it was 32 hex digits and the Inventory API takes a UUID ([todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35)) |
 | `014a2fd` | Corten `main` with [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32), [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33), [todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34), [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35), [todd-skelton/corten#39 corten check at a workspace root type-checks none of the members' scripts](https://github.com/todd-skelton/corten/issues/39), [todd-skelton/corten#44 A form with a control named id cannot be patched](https://github.com/todd-skelton/corten/issues/44), [todd-skelton/corten#45 Field error ids are only the field's name, so two forms on a page share them](https://github.com/todd-skelton/corten/issues/45) and [todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17) closed, each adopted (see Corten gaps). Breaking: `Errors::aria` and `Errors::message` are gone; a form's field errors are `errors.within(FormId)`, with typed form ids, and their ids are `{form id}-{field}-error` |
+| `c35a10a` | Corten `main` with [todd-skelton/corten#49 A script cannot hear a <corten-live> element's status change](https://github.com/todd-skelton/corten/issues/49) and [todd-skelton/corten#50 A @typedef of plain values and a Message is not a group, and the error does not say why](https://github.com/todd-skelton/corten/issues/50) closed, both adopted. No breaking change for the pilot; its tests changed only where a page's markup did (`LiveStatus` now draws the `<corten-live>`, and `drawn` takes one group) |
 
 ## What lives where
 
@@ -163,6 +165,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `admin/src/catalog/items.rs`, `views/item_list.rs`, `views/item_form.css` | the catalog items list: its routes, the changes count, the three bulk changes and removing drafts |
 | `admin/src/catalog/item.rs`, `views/item_page.rs`, `views/item_page.css` | a catalog item's page: its reads, one route per write, and its sections and dialogs |
 | `admin/src/catalog/scopes.rs`, `views/scope_list.rs`, `views/scope_row_view.css` | the scopes list: its route and query, the promotion and sync of each row, and its table |
+| `admin/src/catalog/attention.rs`, `views/attention_panel.*` | the Catalog attention queue on the scopes list: an item's sheet, the park and restore routes, the alias commands, and the queue's messages by key |
 | `admin/src/catalog/views/live_status.*` | the items list's stream: Live, Connecting… or stale with Reload (CSS on `<corten-live>`'s `status`) |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
@@ -330,19 +333,38 @@ forward only on purpose, when a fix the pilot needs lands.
     [chase-sets/chase-sets#10565 Filter Scope Records by language edition across every page, not only the page shown](https://github.com/chase-sets/chase-sets/issues/10565).
     Both are marked in `scopes.rs` for removal. An API error other than sign-in or permission is
     the list's banner over no rows, as admin-web's loader shows it.
+27. **The attention queue's text is the API's message keys.** The queue sends each item's title,
+    detail and action label as a catalog key and its arguments; `messages!` has no lookup by key
+    ([todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54)),
+    so `attention::item_text` matches the 20 keys to their methods. One argument is `{type}`, which
+    `messages!` refuses as a Rust keyword
+    ([todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56)):
+    `export.mjs` renames such an argument with a trailing underscore. The queue's 214 items in the
+    sandbox are all drawn, as admin-web draws them (the API does not page them); a row's Review is
+    a submit button of one shared form, so a row carries only its key, and the sheet is drawn by
+    the server when opened. The pilot trusts the API's counts; admin-web recomputes them and drops
+    a queue that disagrees, which
+    [chase-sets/chase-sets#10507 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/issues/10507)
+    removes. A park reads after its write, so the parked item is gone from the page the write
+    sends the browser to (admin-web's page may still show it until the projection catches up).
+    Locally the dismissal took about 13 s to project (measured once), so the page answers
+    "preparing" until it does. Each source of the queue is capped at 200 rows and its counts are
+    of the capped list (the sandbox has 5,027 proposed mappings; the panel shows 200), which
+    [chase-sets/chase-sets#10568 Count every item in the Catalog attention queue, not only the first 200 per source](https://github.com/chase-sets/chase-sets/issues/10568)
+    fixes; the pilot shows what the API sends.
 
 ## Corten gaps
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#49 A script cannot hear a <corten-live> element's status change](https://github.com/todd-skelton/corten/issues/49)
-   (API consistency; low). The list's Live, Connecting and stale states are CSS on the element's
-   `status`, but writing when it went stale needs a script, and there is no event. Workaround:
-   `LiveStatus` observes `stale-since` with a `MutationObserver`
-   ([`live_status.js`](admin/src/catalog/views/live_status.js)).
-2. [todd-skelton/corten#50 A @typedef of plain values and a Message is not a group, and the error does not say why](https://github.com/todd-skelton/corten/issues/50)
-   (developer time; low). Workaround: `BulkRows`' `drawn` takes the count's texts as three
-   parameters ([`bulk_rows.js`](admin/src/catalog/views/bulk_rows.js)).
+1. [todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54)
+   (correctness, then developer time). The Catalog attention queue sends its items' text as
+   message keys and arguments. Workaround: `attention::item_text` matches the 20 keys to their
+   methods ([`attention.rs`](admin/src/catalog/attention.rs)). Corten has a pull request up,
+   [todd-skelton/corten#55 t.by_key: a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/pull/55).
+2. [todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56)
+   (developer time). Chase Sets' catalog has `{type}`. Workaround: `export.mjs` renames a
+   reserved argument with a trailing underscore (`{type_}`).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -366,6 +388,14 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `c35a10a` pin, workarounds removed:
+
+1. [todd-skelton/corten#49 A script cannot hear a <corten-live> element's status change](https://github.com/todd-skelton/corten/issues/49):
+   `LiveStatus` draws the `<corten-live>` and takes its `corten-status` event (and `on:connect`
+   for the state before the scripts loaded); the `MutationObserver` is gone.
+2. [todd-skelton/corten#50 A @typedef of plain values and a Message is not a group, and the error does not say why](https://github.com/todd-skelton/corten/issues/50):
+   `BulkRows`' `drawn` takes the count's texts as one `js::Count` group.
 
 Fixed at the `014a2fd` pin, workarounds removed:
 

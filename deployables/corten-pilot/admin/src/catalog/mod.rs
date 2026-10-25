@@ -43,6 +43,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 pub mod api;
+pub mod attention;
 pub mod form;
 pub mod item;
 pub mod items;
@@ -1006,7 +1007,9 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
             .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
             .to_vec(),
         // No bulk changes.
-        Kind::ProductContents | Kind::ReferenceRecords | Kind::ScopeRecords => Vec::new(),
+        Kind::ProductContents | Kind::ReferenceRecords | Kind::ScopeRecords | Kind::AttentionQueue | Kind::AliasReview => {
+            Vec::new()
+        }
     };
     actions.into_iter().find(|(value, _)| *value == action).map_or(action, |(_, label)| label)
 }

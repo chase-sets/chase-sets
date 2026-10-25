@@ -41,8 +41,12 @@ async function context(javaScriptEnabled, viewport = { width: 1280, height: 900 
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
   const problems = [];
-  // A 503 is the API's "preparing" after a write, which `settled` reloads through.
-  page.on("console", (m) => m.type() === "error" && !m.text().includes("status of 503") && problems.push(m.text()));
+  // A 503 is the API's "preparing" after a write, which `settled` reloads through; the stream's
+  // drop is refused on purpose (ERR_FAILED).
+  page.on(
+    "console",
+    (m) => m.type() === "error" && !/status of 503|ERR_FAILED/.test(m.text()) && problems.push(m.text()),
+  );
   page.on("pageerror", (e) => problems.push(String(e)));
   return { ctx, page, problems };
 }
@@ -100,6 +104,27 @@ const ids = [];
   check(page.url().includes(`search=${first}`), "Reload stays on the page (a patch, not a navigation)");
   check(await page.getByRole("row", { name: new RegExp(first) }).getByRole("checkbox").isChecked(), "a checked box keeps its mark through Reload");
   check((await page.locator("#catalog-bulk output").textContent()) === "1 Catalog Items selected", "the count follows the box");
+
+  // The stream drops (its first answer ends at once, and the retries are refused): the status
+  // says since when (its corten-status event), and is live again once the stream comes back.
+  const watcher = await ctx.newPage();
+  let opened = 0;
+  await watcher.route("**/catalog/catalog-items/live**", (route) => {
+    opened += 1;
+    return opened === 1
+      ? route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: ": open\n\n" })
+      : route.abort();
+  });
+  await watcher.goto(`${base}/catalog/catalog-items`);
+  const live = watcher.locator("#catalog-live");
+  await watcher.waitForFunction(() => document.querySelector("#catalog-live")?.hasAttribute("stale-since"), null, { timeout: 30_000 });
+  const since = (await live.locator(".live-status__title").textContent()) ?? "";
+  check(/^Stale since \w{3} \d{1,2}, \d{4}, \d{1,2}:\d{2} (AM|PM) UTC$/.test(since), `a dropped stream says since when (${since})`);
+  check(await live.locator(".live-status__stale").isVisible(), "with Reload");
+  await watcher.unroute("**/catalog/catalog-items/live**");
+  await watcher.waitForFunction(() => document.querySelector("#catalog-live")?.getAttribute("status") === "live", null, { timeout: 60_000 });
+  check(await live.locator(".live-status__stale").isHidden(), "and is live again after it reconnects");
+  await watcher.close();
 
   // Remove drafts needs only drafts checked; the edit's value shows for the operations that take it.
   const drafts = page.getByRole("button", { name: "Remove drafts from selected" });

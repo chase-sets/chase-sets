@@ -50,7 +50,7 @@ pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
         <div
             id={ids::ROWS}
             class={Rows}
-            on:connect={js::drawn(sel, &matching, bar.entity, t.js().bulk_selected())}
+            on:connect={js::drawn(sel, js::Count { matching: &matching, entity: bar.entity, selected: t.js().bulk_selected() })}
             on:change={js::changed(event, sel)}
             on:reset={js::cleared(event, sel)}
         >

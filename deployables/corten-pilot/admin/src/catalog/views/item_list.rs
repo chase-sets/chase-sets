@@ -223,10 +223,9 @@ pub fn item_live<'a>(t: Cat, query: &'a url::ItemQuery) -> impl Render + 'a {
     let list = url::Items::default().href();
     let kept = query.kept();
     html! {
-        <corten-live id={ids::LIVE} src={&live}>
-            <LiveStatus t={t} reload={&list} kept={&kept} />
+        <LiveStatus t={t} id={ids::LIVE} src={&live} reload={&list} kept={&kept}>
             {item_changes(t, query, Pending::default())}
-        </corten-live>
+        </LiveStatus>
     }
 }
 

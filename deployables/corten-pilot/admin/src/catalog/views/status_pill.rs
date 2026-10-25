@@ -7,6 +7,7 @@ pub enum Tone {
     Neutral,
     Warning,
     Danger,
+    Info,
 }
 
 /// A status, as the catalog's `StatusPill` shows it. `toned` is the lifecycle controls' tone
@@ -30,6 +31,7 @@ pub fn TonePill<'a>(text: &'a str, tone: Tone) -> impl Render {
         Tone::Neutral => Neutral,
         Tone::Warning => Warning,
         Tone::Danger => Danger,
+        Tone::Info => Info,
     };
     html! { <span class={(Pill, class)}>{text}</span> }
 }

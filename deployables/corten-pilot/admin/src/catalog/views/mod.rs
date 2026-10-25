@@ -17,6 +17,7 @@ use super::{
 use crate::text::{Cat, Pilot};
 pub use crate::views::Draft;
 
+mod attention_panel;
 mod bulk_dialogs;
 mod bulk_rows;
 mod detail_page;
@@ -28,6 +29,7 @@ mod live_status;
 mod scope_list;
 mod status_pill;
 
+pub use attention_panel::{AttentionBanner, AttentionPanel, AttentionSheet, park_form};
 pub use bulk_dialogs::{Candidates, JobDialog, PreviewDialog, Previewed, job_status};
 pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use detail_page::{ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, Transition};
@@ -55,6 +57,7 @@ pub const COMPONENTS: &[Component] = &[
     BulkRows,
     LiveStatus,
     ScopeRowView,
+    AttentionPanel,
     PreviewDialog,
     ItemForm,
     ItemPage,
@@ -100,6 +103,17 @@ pub mod ids {
     /// many changed rather than drawing the rows again).
     pub const LIVE: &str = "catalog-live";
     pub const CHANGES: &str = "catalog-changes";
+
+    /// The attention queue's Review form (each row's button submits it with its item), the
+    /// item's sheet, and its two park forms.
+    pub const ATTENTION_OPEN: &str = "attention-open";
+    pub const ATTENTION_DIALOG: &str = "attention-sheet";
+    #[derive(Id, Clone, Copy)]
+    pub struct AttentionDismissId;
+    pub const ATTENTION_DISMISS: AttentionDismissId = AttentionDismissId; // attention-dismiss
+    #[derive(Id, Clone, Copy)]
+    pub struct AttentionDeferId;
+    pub const ATTENTION_DEFER: AttentionDeferId = AttentionDeferId; // attention-defer
 
     /// The catalog item page's dialogs and their forms (`item` = the form, `*_DIALOG` its dialog).
     pub mod item {

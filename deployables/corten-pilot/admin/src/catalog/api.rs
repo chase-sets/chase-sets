@@ -51,6 +51,111 @@ pub struct ScopeRecord {
     pub updated_at: String,
 }
 
+/// The Catalog attention queue (`CatalogAttentionQueueReadModel`, features/attention-queue): every
+/// item that needs an operator, most important first, with the API's counts. The kinds and
+/// severities are closed sets, so an answer with another one does not read and the page says the
+/// queue is unavailable, as admin-web's `resolveCatalogAttentionQueueResult` does.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AttentionQueue {
+    pub generated_at: String,
+    pub empty: bool,
+    pub items: Vec<AttentionItem>,
+    pub counts: AttentionCounts,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AttentionCounts {
+    pub total: u32,
+    pub by_severity: BySeverity,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct BySeverity {
+    pub critical: u32,
+    pub warning: u32,
+    pub info: u32,
+}
+
+/// `CatalogAttentionItem`: its title and detail are the API's message keys and arguments.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AttentionItem {
+    pub item_key: String,
+    pub kind: AttentionKind,
+    pub severity: Severity,
+    pub title_key: String,
+    #[serde(default)]
+    pub title_params: BTreeMap<String, Value>,
+    pub detail_key: String,
+    #[serde(default)]
+    pub detail_params: BTreeMap<String, Value>,
+    pub provider_key: Option<String>,
+    pub unit_key: Option<String>,
+    pub observed_at: String,
+    pub resolution: Resolution,
+    #[serde(default)]
+    pub secondary_resolutions: Vec<Resolution>,
+}
+
+/// An item's resolution: a drawer (its sheet, linking to `href`) or a one-click command.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct Resolution {
+    pub intent: String,
+    pub mode: ResolutionMode,
+    pub label_key: String,
+    #[serde(default)]
+    pub fields: BTreeMap<String, String>,
+    #[serde(default)]
+    pub href: Option<String>,
+    #[serde(default)]
+    pub requires_reason: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "lowercase")]
+pub enum ResolutionMode {
+    Command,
+    Drawer,
+}
+
+/// `CatalogAttentionItemKind`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "kebab-case")]
+pub enum AttentionKind {
+    UnmappedScope,
+    MergeConflict,
+    ProviderHealth,
+    ImportJob,
+    AliasCandidate,
+    StaleScopeSync,
+}
+
+impl AttentionKind {
+    /// The kind as the API names it (the dismiss and defer commands send it back).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AttentionKind::UnmappedScope => "unmapped-scope",
+            AttentionKind::MergeConflict => "merge-conflict",
+            AttentionKind::ProviderHealth => "provider-health",
+            AttentionKind::ImportJob => "import-job",
+            AttentionKind::AliasCandidate => "alias-candidate",
+            AttentionKind::StaleScopeSync => "stale-scope-sync",
+        }
+    }
+}
+
+/// `CatalogAttentionSeverity`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Critical,
+    Warning,
+    Info,
+}
+
 /// `DimensionDetail`: the dimension and its options.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct DimensionDetail {
@@ -509,6 +614,8 @@ pub enum Kind {
     ProductContents,
     ReferenceRecords,
     ScopeRecords,
+    AttentionQueue,
+    AliasReview,
 }
 
 impl Kind {
@@ -520,6 +627,8 @@ impl Kind {
             Kind::ProductContents => "product-contents",
             Kind::ReferenceRecords => "reference-records",
             Kind::ScopeRecords => "scope-records",
+            Kind::AttentionQueue => "attention-queue",
+            Kind::AliasReview => "alias-review",
         }
     }
 }

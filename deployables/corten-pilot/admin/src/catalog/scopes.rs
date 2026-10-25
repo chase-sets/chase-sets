@@ -4,10 +4,10 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/scopes?search&status&product_domain&language&page` | the list |
+//! | `GET /catalog/scopes?search&status&product_domain&language&page` | the list, with the attention queue above it ([`attention`](super::attention)) |
 //!
-//! Not ported yet: the attention queue and the all-scopes alias review that admin-web shows above
-//! the list, and the scope's own page (each row's View opens admin-web's).
+//! Not ported yet: the all-scopes alias review that admin-web shows above the list, and the
+//! scope's own page (each row's View opens admin-web's).
 use corten::{
     axum::http::{HeaderMap, StatusCode},
     prelude::*,
@@ -15,13 +15,17 @@ use corten::{
 use serde::Serialize;
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
+use futures_util::future::join;
+use platform::receipt::Receipt;
+
 use super::{
-    api::{Catalog as _, Kind, List, ScopeRecord},
+    api::{AttentionQueue, Catalog as _, Kind, List, ScopeRecord},
+    attention::Parked,
     list_query, screen,
     views::{self, ListScreen},
 };
 use crate::{
-    api::ApiError,
+    api::{ApiError, Caller},
     app::{Shared, read_failed},
     text::{Cat, Pilot},
 };
@@ -42,11 +46,58 @@ pub mod url {
         pub page: Option<u32>,
     }
 
+    /// What an attention queue command did: admin-web's banner (queued, or the command failed).
+    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum AttentionDone {
+        Queued,
+        Failed,
+    }
+
+    impl std::fmt::Display for AttentionDone {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(match self {
+                AttentionDone::Queued => "queued",
+                AttentionDone::Failed => "failed",
+            })
+        }
+    }
+
+    /// What the write before left on the list: its receipt, its banner, and the item a park took
+    /// out of the queue (Restore brings it back).
+    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[route(query)]
+    pub struct ScopeNotice {
+        pub after_write: Option<String>,
+        pub done: Option<AttentionDone>,
+        pub parked: Option<String>,
+    }
+
     #[derive(Clone, Debug, Default, Route)]
     #[route("/catalog/scopes")]
     pub struct Scopes {
         #[route(query)]
         pub query: ScopeQuery,
+        #[route(query)]
+        pub notice: ScopeNotice,
+    }
+
+    impl ScopeQuery {
+        /// The filters and page that are set, by their query names: what the queue's forms keep.
+        pub fn kept(&self) -> Vec<(corten::FieldName, String)> {
+            let f = ScopeQuery::FIELDS;
+            let names = [
+                (f.search, &self.search),
+                (f.status, &self.status),
+                (f.product_domain, &self.product_domain),
+                (f.language, &self.language),
+            ];
+            let mut kept: Vec<_> = names.into_iter().filter_map(|(name, value)| Some((name, value.clone()?))).collect();
+            if let Some(page) = self.page.filter(|page| *page > 1) {
+                kept.push((f.page, page.to_string()));
+            }
+            kept
+        }
     }
 }
 
@@ -62,7 +113,7 @@ pub fn routes(
     area: Area<crate::auth::Session, super::url::Catalog>,
     shared: Shared,
 ) -> Area<crate::auth::Session, super::url::Catalog> {
-    area.route::<url::Scopes>(get(scopes).with_state(shared))
+    super::attention::routes(area.route::<url::Scopes>(get(scopes).with_state(shared.clone())), shared)
 }
 
 /// Whether a scope's canonical record can promote Catalog Items yet (`CatalogScopePromotionReadiness`).
@@ -101,6 +152,16 @@ pub struct ScopeScreen {
     pub languages: Vec<String>,
     /// The API's message when the list could not be read (the page shows it, with no rows).
     pub error: Option<String>,
+    /// The attention queue, or none when it could not be read (the page says it is unavailable).
+    pub attention: Option<AttentionQueue>,
+}
+
+/// What the page draws besides the list: an item's sheet, open, with a park form that came back.
+#[derive(Default)]
+pub enum ScopeBack {
+    #[default]
+    None,
+    Review(String, Option<Parked>),
 }
 
 /// `SCOPE_LANDING_STALE_SYNC_MS`: a record that has not changed in two weeks reads as a stale sync.
@@ -142,7 +203,18 @@ fn scope_screen(list: List<ScopeRecord>, page: u32, language: Option<&str>, now:
             .collect(),
         total: list.total,
     };
-    ScopeScreen { list: screen(rows, page), languages, error: None }
+    ScopeScreen { list: screen(rows, page), languages, error: None, attention: None }
+}
+
+/// The attention queue. The page shows it as unavailable when it cannot be read: a missing route,
+/// a failure, or an answer that is not the queue's shape (`resolveCatalogAttentionQueueResult`),
+/// so an unreadable queue never reads as an empty one.
+pub async fn read_queue(caller: &Caller<'_>) -> Result<AttentionQueue, ApiError> {
+    let read = caller.read_at::<AttentionQueue>(Kind::AttentionQueue, "").await;
+    if let Err(error) = &read {
+        tracing::warn!("attention queue read failed: {error}");
+    }
+    read
 }
 
 async fn scopes(
@@ -150,12 +222,29 @@ async fn scopes(
     State(config): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<url::ScopeQuery>,
+    Query(notice): Query<url::ScopeNotice>,
 ) -> corten::Result {
-    let caller = config.platform.caller(&headers, config.proto, None);
+    render(&req, &config, &headers, &query, &notice, ScopeBack::None).await
+}
+
+/// The scopes page: the list and the attention queue, read together (after the write before, when
+/// there was one), and the sheet `back` opens.
+pub async fn render(
+    req: &Req,
+    config: &Shared,
+    headers: &HeaderMap,
+    query: &url::ScopeQuery,
+    notice: &url::ScopeNotice,
+    back: ScopeBack,
+) -> corten::Result {
+    let receipt = Receipt::from_param(notice.after_write.as_deref());
+    let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
     let filters = [("search", &query.search), ("status", &query.status), ("productDomain", &query.product_domain)];
     let now = OffsetDateTime::now_utc();
-    let view = match caller.list::<ScopeRecord>(Kind::ScopeRecords, &list_query(&filters, page)).await {
+    let (list, queue) =
+        join(caller.list::<ScopeRecord>(Kind::ScopeRecords, &list_query(&filters, page)), read_queue(&caller)).await;
+    let mut view = match list {
         Ok(list) => scope_screen(list, page, query.language.as_deref(), now),
         // As admin-web's loader: an API error is the list's banner, over no rows; sign-in and no
         // answer at all are the error pages.
@@ -167,10 +256,18 @@ async fn scopes(
             });
             empty
         }
-        Err(error) => return read_failed(&req, error, false),
+        Err(error) => return read_failed(req, error, receipt.is_some()),
+    };
+    view.attention = match queue {
+        Ok(queue) => Some(queue),
+        // After a park the queue waits for it, as the list does: not readable yet is the page's
+        // "preparing" answer (refresh), not an unavailable queue.
+        Err(error) if receipt.is_some() && error.catching_up() => return read_failed(req, error, true),
+        Err(_) => None,
     };
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
-    let page_view = views::scope_list(t, p, &query, &view);
+    let manage = super::manages(req);
+    let page_view = views::scope_list(t, p, query, &view, notice, back, manage);
     req.screen(Meta::new(t.route_scopes()), &view, page_view)
 }
 

@@ -15,20 +15,12 @@ const format = new Intl.DateTimeFormat(document.documentElement.lang || "en-US",
 });
 
 /**
- * Follows the element's `stale-since`. <corten-live> fires no event when its status changes, so
- * this observes the attribute (todd-skelton/corten, see README.md, Corten gaps).
- * @param {HTMLElement} root @param {HTMLElement} since @param {AbortSignal} signal
- * @param {Message<"value">} staleSince
+ * Writes when the stream went stale, from <corten-live>'s `stale-since`. It runs on connect (for
+ * the state before the scripts loaded) and on each `corten-status` the element dispatches.
+ * @param {Element} target Inside the <corten-live>, or the element itself.
+ * @param {HTMLElement} since @param {Message<"value">} staleSince
  */
-export function watch(root, since, signal, staleSince) {
-  const live = root.closest("corten-live");
-  if (!live) return;
-  const show = () => {
-    const at = live.getAttribute("stale-since");
-    if (at) since.textContent = staleSince({ value: `${format.format(new Date(at))} UTC` });
-  };
-  const observer = new MutationObserver(show);
-  observer.observe(live, { attributes: true, attributeFilter: ["stale-since"] });
-  signal.addEventListener("abort", () => observer.disconnect(), { once: true });
-  show();
+export function stale(target, since, staleSince) {
+  const at = target.closest("corten-live")?.getAttribute("stale-since");
+  if (at) since.textContent = staleSince({ value: `${format.format(new Date(at))} UTC` });
 }

@@ -1,10 +1,13 @@
 //! The scopes list (admin-web's `CatalogScopeLandingPage`): its filters, the rows, and the pager.
 use corten::prelude::*;
 
-use super::{Empty, Filters, ListPage, ListScreen, Pager, Pick, Search, Table, Tone, TonePill, pages_around, value};
+use super::{
+    AttentionBanner, AttentionPanel, AttentionSheet, Empty, Filters, ListPage, ListScreen, Pager, Pick, Search, Table, Tone,
+    TonePill, pages_around, value,
+};
 use crate::{
     catalog::{
-        scopes::{self, Promotion, ScopeRow, ScopeScreen, Sync},
+        scopes::{self, Promotion, ScopeBack, ScopeRow, ScopeScreen, Sync},
         url,
     },
     text::{Cat, Pilot},
@@ -15,7 +18,22 @@ use crate::{
 const STATUSES: [(&str, &str); 4] =
     [("draft", "draft"), ("active", "active"), ("deprecated", "deprecated"), ("archived", "archived")];
 
-pub fn scope_list<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a ScopeScreen) -> impl Render + 'a {
+/// The list, with the attention queue above it (after the banner of the queue command before, if
+/// any) and an item's sheet (`back`), open.
+pub fn scope_list<'a>(
+    t: Cat,
+    p: Pilot,
+    query: &'a url::ScopeQuery,
+    screen: &'a ScopeScreen,
+    notice: &'a scopes::url::ScopeNotice,
+    back: ScopeBack,
+    manage: bool,
+) -> impl Render + 'a {
+    let (review, parked) = match back {
+        ScopeBack::Review(key, parked) => (Some(key), parked),
+        ScopeBack::None => (None, None),
+    };
+    let item = review.as_deref().and_then(|key| screen.attention.as_ref()?.items.iter().find(|i| i.item_key == key));
     let title = t.scopes_title();
     let filters = url::Scopes::default().href();
     let f = url::ScopeQuery::FIELDS;
@@ -23,6 +41,10 @@ pub fn scope_list<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a 
     let languages: Vec<(&str, &str)> = screen.languages.iter().map(|l| (l.as_str(), l.as_str())).collect();
     html! {
         <ListPage title={title}>{()}</ListPage>
+        if let Some(done) = notice.done {
+            <AttentionBanner t={t} query={query} done={done} parked={notice.parked.as_deref()} manage={manage} />
+        }
+        <AttentionPanel t={t} query={query} queue={screen.attention.as_ref()} manage={manage} />
         <Filters t={t} action={&filters}>
             <Search t={t} name={f.search} title={title} value={value(&query.search)} />
             <Pick
@@ -51,6 +73,7 @@ pub fn scope_list<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a 
             <ListError t={t} message={error.as_str()} />
         }
         {scope_rows(t, p, query, &screen.list)}
+        <AttentionSheet t={t} query={query} item={item} parked={parked.as_ref()} manage={manage} />
     }
 }
 
@@ -72,7 +95,8 @@ fn scope_rows<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a List
         "",
     ];
     let (previous, next) = pages_around(screen, |page| {
-        url::Scopes { query: url::ScopeQuery { page: (page > 1).then_some(page), ..query.clone() } }.href()
+        url::Scopes { query: url::ScopeQuery { page: (page > 1).then_some(page), ..query.clone() }, notice: Default::default() }
+            .href()
     });
     html! {
         if screen.items.is_empty() {

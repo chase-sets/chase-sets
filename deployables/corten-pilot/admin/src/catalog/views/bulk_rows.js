@@ -17,7 +17,9 @@ import { state } from "corten";
  */
 
 /**
- * The count's text, passed once when the rows are drawn and kept for the changes after it.
+ * The count's text, passed once when the rows are drawn and kept for the changes after it: how
+ * many records match, while none is checked, and for checked rows the catalog's message, in the
+ * page's locale, with the records' plural name. The markup builds it, `js::Count { .. }`.
  * @typedef {{ matching: string, entity: string, selected: Message<"count" | "entity_name"> }} Count
  */
 
@@ -38,14 +40,11 @@ function all(sel) {
 }
 
 /**
- * The rows were drawn (with the page, or again by a live change or Reload), with the count's
- * text: how many records match, while none is checked, and for checked rows the catalog's
- * message, in the page's locale, with the records' plural name.
- * @param {Selection} sel @param {string} matching @param {string} entity
- * @param {Message<"count" | "entity_name">} selected
+ * The rows were drawn (with the page, or again by a live change or Reload), with the count's text.
+ * @param {Selection} sel @param {Count} text
  */
-export function drawn(sel, matching, entity, selected) {
-  counts(sel, { matching, entity, selected });
+export function drawn(sel, text) {
+  counts(sel, text);
   tally(sel);
 }
 

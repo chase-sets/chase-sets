@@ -12,3 +12,4 @@
 .neutral { background: var(--color-surface-3); color: var(--color-text-secondary); border-color: var(--color-border-strong); }
 .warning { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
 .danger { background: var(--color-danger-soft); color: var(--color-danger); border-color: var(--color-danger); }
+.info { background: var(--color-info-soft); color: var(--color-info); border-color: var(--color-info); }

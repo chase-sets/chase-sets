@@ -93,7 +93,7 @@ const rows = (page) =>
     console.log("skip the language facet: no scope on the page has an edition");
   }
 
-  const view = page.locator("table tbody tr").first().getByRole("link", { name: "View" });
+  const view = page.locator("table").last().locator("tbody tr").first().getByRole("link", { name: "View" });
   const href = await view.getAttribute("href");
   check(href?.startsWith(`${adminWeb}/catalog/scopes/`) ?? false, `View opens admin-web's scope page (${href})`);
   const answer = await page.request.get(href ?? "");
@@ -106,7 +106,7 @@ const rows = (page) =>
 {
   const { ctx, page } = await context(false);
   await page.goto(`${base}/catalog/scopes`);
-  check((await page.locator("table tbody tr").count()) > 0, "the list renders without JavaScript");
+  check((await page.locator("table").last().locator("tbody tr").count()) > 0, "the list renders without JavaScript");
   await page.getByLabel("Search").fill("zzzz-no-such-scope");
   await page.getByRole("button", { name: "Apply filters" }).click();
   await page.waitForURL((u) => u.searchParams.get("search") === "zzzz-no-such-scope");
