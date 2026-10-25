@@ -7,7 +7,7 @@ import { createWorkspaceSourceAliases } from "../../../../scripts/workspace-sour
 const root = resolve(import.meta.dirname, "../../../..");
 const entry = resolve(import.meta.dirname, "operator-extension-popup-screenshots-entry.tsx");
 
-test("captures the four synthetic popup component states", async ({ page }, testInfo) => {
+test("captures the four synthetic popup component states @tcgplayer-operator-extension", async ({ page }, testInfo) => {
   const server = await createServer({
     root,
     configFile: false,
