@@ -1449,7 +1449,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide Platform Operations event-store-backed runtime services for platform-feedback and support-request API composition.",
-      "expectedConsumers": ["Root platform-operations composition"]
+      "expectedConsumers": ["Root platform-operations composition", "operations-attention-queue"]
     },
     "routes": {
       "classification": "routes",
