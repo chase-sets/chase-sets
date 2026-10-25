@@ -8,7 +8,7 @@
 // `data-admin-web-hydrated`, the first element marketplace's React hydrated (its own e2e tests'
 // check, polled every 10 ms), and the pilot's `__hydratedAt` (static/app.js).
 // Usage: node scripts/measure.mjs name=url [name=url ...] [screen=admin|catalog|marketplace|cart] [runs=7] [state=..] [policy=id]
-//        [dimension=id] [out=file]
+//        [dimension=id] [profiles=desktop,mobile] [out=file]
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -23,6 +23,7 @@ const {
   state = `../../artifacts/corten-pilot/${login}-state.json`,
   policy = "opp_seed_default",
   dimension = "",
+  profiles: only,
   out,
   ...apps
 } = named;
@@ -37,6 +38,7 @@ const screens = {
   marketplace: { list: "/account/inventory/locations" },
   cart: { list: "/account/cart" },
 };
+for (const name of only ? Object.keys(profiles).filter((p) => !only.split(",").includes(p)) : []) delete profiles[name];
 const pages = screens[screen];
 if (!pages) throw new Error(`unknown screen ${screen}: admin, catalog, marketplace or cart`);
 
@@ -121,6 +123,18 @@ async function load(browser, profile, url) {
   }
 }
 
+/** A load whose page navigated mid-measure (a dev server reloading itself) is loaded again, twice at most. */
+async function loadAgain(browser, profile, url) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await load(browser, profile, url);
+    } catch (error) {
+      if (attempt >= 3 || !/Execution context was destroyed/.test(String(error))) throw error;
+      console.log(`again ${url}: the page navigated while it was measured`);
+    }
+  }
+}
+
 const median = (xs) => {
   const s = xs.filter((x) => x !== null).sort((a, b) => a - b);
   return s.length ? s[Math.floor(s.length / 2)] : null;
@@ -155,8 +169,8 @@ for (const [name, base] of Object.entries(apps)) {
   for (const [pageName, path] of Object.entries(pages)) {
     for (const [profileName, profile] of Object.entries(profiles)) {
       const samples = [];
-      await load(browser, profile, `${base}${path}`); // warm the server, not the browser
-      for (let i = 0; i < runs; i += 1) samples.push(await load(browser, profile, `${base}${path}`));
+      await loadAgain(browser, profile, `${base}${path}`); // warm the server, not the browser
+      for (let i = 0; i < runs; i += 1) samples.push(await loadAgain(browser, profile, `${base}${path}`));
       const summary = summarize(samples);
       results.apps[name][`${pageName}/${profileName}`] = summary;
       console.log(

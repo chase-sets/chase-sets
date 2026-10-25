@@ -40,6 +40,24 @@ ran. Raw results are in `artifacts/corten-pilot/` (not committed).
 | HTML / CSS transferred | 16,275 / 19,970 B | 4,163 / 3,164 B | 16,275 / 19,970 B | 4,165 / 3,164 B |
 | Requests | 93 | 9 | 92 | 9 |
 
+The cart (`/account/cart`, as the auth seed's collector, two lines) at the `c590b8a` pin: the pilot is
+a release build. marketplace is its dev server (`react-router dev`), desktop only. A production build
+of marketplace-web is refused outside the heavy-slot governor (`heavy-admission`), so there is no
+production React baseline for this screen yet. The dev numbers overstate React's bytes and time by
+an unknown amount and are not a comparison. Measured once, 7 loads each.
+
+| Cart | marketplace (dev) desktop | pilot desktop | pilot mobile |
+|---|---|---|---|
+| Interactive | 6,674 ms | 736 ms | 595 ms |
+| Largest contentful paint | 3,088 ms | 728 ms | 1,216 ms |
+| Server time (document) | 2,834 ms | 64 ms | 73 ms |
+| JavaScript transferred | 3,624,607 B | 7,590 B | 7,590 B |
+| HTML / CSS transferred | 437,787 / 186,198 B | 2,730 / 4,325 B | 2,730 / 4,325 B |
+| Requests | 251 | 10 | 9 |
+
+The pilot measured interactive sooner on mobile than on desktop. That was not profiled, and one
+run of 7 loads does not show whether it repeats.
+
 Catalog area (`/catalog`), the pilot only: this worktree has no admin-web production build, so
 there is no React baseline for these pages yet (measured the same way, release build).
 
