@@ -2001,9 +2001,8 @@ describe("operator scopes refused until the sign-in gate", () => {
   });
 
   it("admits a recently authenticated platform-admin through consent and issues an operator code", async () => {
-    const options = createOAuthOptions();
     const freshActor = { ...actor, roleKey: "platform-admin", authenticatedAt: new Date().toISOString() };
-    options.resolveActor = async () => freshActor;
+    const options = createOAuthOptions({ resolveActor: async () => freshActor });
     (options.auth as unknown as { identity: unknown }).identity = {
       operatorAuthority: async () => ({
         kind: "granted" as const,
