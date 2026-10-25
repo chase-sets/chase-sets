@@ -300,7 +300,7 @@ describe("EasyPost postage adapter", () => {
     await provider.purchaseUspsLabel({ ...sampleRequest, deliveryConfirmation: "signature" });
   });
 
-  it("validates provider insurance before mapping", async () => {
+  it("purchaseUspsLabel validates provider insurance before mapping", async () => {
     const responseFor = (insurance: unknown) => ({
       id: "shp_provider_1",
       mode: "test",
@@ -363,6 +363,21 @@ describe("EasyPost postage adapter", () => {
       createEasyPostPostageLabelProvider({
         apiKey: "EZTK_test",
         fetch: uninsuredFetch as typeof globalThis.fetch,
+      }).purchaseUspsLabel(sampleRequest),
+    ).resolves.toBeDefined();
+    const absentInsuranceFetch = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/shipments")
+        ? Response.json({
+            id: "shp_provider_1",
+            mode: "test",
+            rates: [{ id: "rate_1", carrier: "USPS", service: "USPS_GROUND_ADVANTAGE", rate: "4.99", currency: "USD" }],
+          })
+        : Response.json(responseFor(undefined)),
+    );
+    await expect(
+      createEasyPostPostageLabelProvider({
+        apiKey: "EZTK_test",
+        fetch: absentInsuranceFetch as typeof globalThis.fetch,
       }).purchaseUspsLabel(sampleRequest),
     ).resolves.toBeDefined();
   });

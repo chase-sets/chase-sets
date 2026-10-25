@@ -89,6 +89,7 @@ type Scenario =
   | "transport"
   | "no-echo"
   | "buy-lost"
+  | "buy-lost-insurance-contradicted"
   | "created-not-bought"
   | "missing-correlation"
   | "recovery-unknown"
@@ -106,8 +107,20 @@ function syntheticProvider(scenario: Scenario = "success") {
     if (scenario === "transport") throw new Error("SECRET-ERROR-SYNTHETIC");
     if (scenario === "refusal" && path.endsWith("/shipments"))
       return Response.json({ mode: "test", error: { message: "SECRET-ERROR-SYNTHETIC" } }, { status: 422 });
-    if (path.endsWith("/buy") && ["buy-lost", "created-not-bought", "recovery-unknown"].includes(scenario))
+    if (
+      path.endsWith("/buy") &&
+      ["buy-lost", "buy-lost-insurance-contradicted", "created-not-bought", "recovery-unknown"].includes(scenario)
+    ) {
+      const requestBody = calls.at(-1)?.body;
+      purchasedInsurance =
+        requestBody &&
+        typeof requestBody === "object" &&
+        "insurance" in requestBody &&
+        typeof requestBody.insurance === "string"
+          ? requestBody.insurance
+          : null;
       throw new Error("SECRET-BUY-SYNTHETIC");
+    }
     if (path.endsWith("/refund") && scenario === "void-failure")
       return Response.json({ mode: "test", error: "SECRET-VOID-SYNTHETIC" }, { status: 500 });
     if (method === "GET" && scenario === "recovery-unknown") return new Response("", { status: 404 });
@@ -130,6 +143,8 @@ function syntheticProvider(scenario: Scenario = "success") {
     }
     if (method === "GET" && purchasedInsurance) body.insurance = purchasedInsurance;
     if (method === "GET" && scenario === "buy-lost") body.insurance = "600.00";
+    if (method === "GET" && scenario === "buy-lost-insurance-contradicted")
+      body.insurance = purchasedInsurance === "600.00" ? "600.01" : "600.00";
     if (path.endsWith("/buy") && purchasedInsurance) body.insurance = purchasedInsurance;
     if (scenario === "no-echo") delete body.mode;
     if (scenario === "production") body.mode = "production";
@@ -662,6 +677,21 @@ describe("provider-free combined-parcel probe", () => {
         expect(h.calls).toHaveLength(calls);
       }
     }
+  });
+
+  it("keeps an insured Case B recovery requiring reconciliation when provider insurance contradicts the request", async () => {
+    forbidNetwork();
+    const h = harness("buy-lost-insurance-contradicted");
+    await h.phase("pre-a");
+    h.upload("pre-a");
+    await h.phase("case-a-pre-b");
+    h.upload("post-a");
+    h.upload("pre-b");
+
+    await expect(h.phase("case-b")).rejects.toThrow("ordered-clean-records-required");
+    const caseB = h.state("final").cases[caseIds[1]];
+    expect(caseB).toMatchObject({ phase: "reconciliation-required", recoveryCount: 1, voidCount: 0 });
+    expect(h.publicPayload()).toBeUndefined();
   });
 
   it("validates combined-parcel-probe-evidence/v1 recursively and fail-closed", async () => {

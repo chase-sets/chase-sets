@@ -1650,7 +1650,7 @@ describe("fulfillment shipment runtime", () => {
     expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
   });
 
-  it("does not attach a stale label whose provider insurance contradicts the request", async () => {
+  it("stale label recovery does not attach a label whose provider insurance contradicts the request", async () => {
     const { eventStore } = createInMemoryEventStore();
     const postageLabelProvider: PostageLabelProvider = {
       providerName: "easypost",
@@ -1697,6 +1697,70 @@ describe("fulfillment shipment runtime", () => {
       status: "failed",
       error_message: "EasyPost did not confirm the requested insurance amount.",
     });
+    expect(postageLabelProvider.recoverPurchasedUspsLabel).toHaveBeenCalledWith({
+      idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
+      insuranceAmount: "600.00",
+    });
+  });
+
+  it.each([
+    [
+      "a provider HTTP error",
+      new PostageLabelProviderError({
+        kind: "provider",
+        message: "EasyPost request failed (synthetic 503).",
+        providerName: "easypost",
+        providerMode: "test",
+      }),
+    ],
+    [
+      "a different capability error",
+      new PostageLabelProviderError({
+        kind: "capability",
+        capability: "tracking",
+        message: "EasyPost tracking is unavailable (synthetic).",
+        providerName: "easypost",
+        providerMode: "test",
+      }),
+    ],
+  ] as const)("leaves a stale label purchase pending for %s", async (_description, providerError) => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "easypost",
+      providerMode: "test",
+      purchaseUspsLabel: vi.fn(),
+      recoverPurchasedUspsLabel: vi.fn(async () => {
+        throw providerError;
+      }),
+      voidLabel: vi.fn(),
+    };
+    const db = createPostageOperationDb();
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    await seedPackedShipmentAggregate(services, {
+      tenantId: "tnt_test" as never,
+      audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
+    });
+    await recordFulfillmentPostageLabelOperationPending(db as never, {
+      operationKey: "shipment:shp_1:purchase-usps-label:initial",
+      operationKind: "purchase-usps-label",
+      subjectKind: "shipment",
+      subjectId: "shp_1",
+      providerName: "easypost",
+      providerMode: "test",
+      idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
+      request: { insuranceAmount: "600.00" },
+      createdAt: "2026-04-02T00:00:00.000Z",
+    });
+
+    await expect(
+      services.reconcileStalePostageLabelPurchases({ staleBefore: "2026-04-02T00:20:00.000Z" }),
+    ).rejects.toBe(providerError);
+    expect(db.readOperation()).toMatchObject({ status: "pending", error_message: null });
     expect(postageLabelProvider.recoverPurchasedUspsLabel).toHaveBeenCalledWith({
       idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
       insuranceAmount: "600.00",
