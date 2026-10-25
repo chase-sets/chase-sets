@@ -1027,16 +1027,8 @@
       "contracts/catalog-seed/fallback-assets.ts",
       "5edc8606d8d48e2ad0ba7e5b4abb0ed143e144ddde036f25f9a85c72effdbc00"
     ],
-    [
-      "W3 file",
-      "contracts/catalog-seed/ids.ts",
-      "eebdac1d7309d1c3420c200dc50236c7393f0f4e1a716f8c23e3d5fbcd30a651"
-    ],
-    [
-      "W3 file",
-      "contracts/catalog-seed/index.ts",
-      "a8cb2f454868a9792b6e2c8d6d9175924ff20d2d3736bb4d164b5d96437e6ab1"
-    ],
+    ["W3 file", "contracts/catalog-seed/ids.ts", "eebdac1d7309d1c3420c200dc50236c7393f0f4e1a716f8c23e3d5fbcd30a651"],
+    ["W3 file", "contracts/catalog-seed/index.ts", "a8cb2f454868a9792b6e2c8d6d9175924ff20d2d3736bb4d164b5d96437e6ab1"],
     [
       "W3 file",
       "contracts/catalog-seed/package.json",
@@ -1062,16 +1054,8 @@
       "contracts/catalog-seed/vitest.config.ts",
       "c33ff38bb5f2aab04f4eb80c7c737c762d547673570a06f9d1f540f7769f280c"
     ],
-    [
-      "W3 file",
-      "contracts/identity-seed/ids.ts",
-      "68d6b68352c35cfb8dd1339364125bd4b13e8ab28c8f00fd8cd3b62496cde5d2"
-    ],
-    [
-      "W3 file",
-      "contracts/identity-seed/index.ts",
-      "7ab3c90d60278791980f152e34df23573f7d123714f194d8c602b4f54d9aaf0d"
-    ],
+    ["W3 file", "contracts/identity-seed/ids.ts", "68d6b68352c35cfb8dd1339364125bd4b13e8ab28c8f00fd8cd3b62496cde5d2"],
+    ["W3 file", "contracts/identity-seed/index.ts", "7ab3c90d60278791980f152e34df23573f7d123714f194d8c602b4f54d9aaf0d"],
     [
       "W3 file",
       "contracts/identity-seed/package.json",
@@ -1149,14 +1133,8 @@
         "packageName": "@chase-sets/auth",
         "manifest": "bounded-contexts/auth/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "landing",
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
           "contextName": "auth",
           "hostPorts": [
             {
@@ -1195,9 +1173,7 @@
               "purpose": "Identity's Membership-aggregate operator authority, exposed on Auth's identity port; native MCP admits operator capabilities only when it grants, and an absent port denies."
             }
           ],
-          "seedRequirements": [
-            "identity"
-          ],
+          "seedRequirements": ["identity"],
           "sourceRuntimeDeployables": null,
           "sourceRuntimeProfiles": null
         }
@@ -1210,13 +1186,8 @@
         "packageName": "@chase-sets/authenticity",
         "manifest": "bounded-contexts/authenticity/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "authenticity",
           "hostPorts": [
             {
@@ -1238,14 +1209,8 @@
         "packageName": "@chase-sets/catalog",
         "manifest": "bounded-contexts/catalog/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "landing",
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
           "contextName": "catalog",
           "hostPorts": [
             {
@@ -1272,13 +1237,8 @@
         "packageName": "@chase-sets/channels",
         "manifest": "bounded-contexts/channels/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "channels",
           "hostPorts": [
             {
@@ -1317,9 +1277,7 @@
               "purpose": "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable."
             }
           ],
-          "seedRequirements": [
-            "inventory"
-          ],
+          "seedRequirements": ["inventory"],
           "sourceRuntimeDeployables": null,
           "sourceRuntimeProfiles": null
         }
@@ -1332,13 +1290,8 @@
         "packageName": "@chase-sets/checkout",
         "manifest": "bounded-contexts/checkout/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "checkout",
           "hostPorts": [
             {
@@ -1362,16 +1315,8 @@
               "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous cart/sell-list capture without Checkout querying Platform Operations storage."
             }
           ],
-          "seedRequirements": [
-            "catalog",
-            "commercial-terms",
-            "identity",
-            "inventory",
-            "marketplace"
-          ],
-          "sourceRuntimeDeployables": [
-            "platform-api"
-          ],
+          "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory", "marketplace"],
+          "sourceRuntimeDeployables": ["platform-api"],
           "sourceRuntimeProfiles": null
         }
       }
@@ -1383,13 +1328,8 @@
         "packageName": "@chase-sets/collections",
         "manifest": "bounded-contexts/collections/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "collections",
           "hostPorts": [
             {
@@ -1433,9 +1373,7 @@
               "purpose": "Resolves the bounded anonymous Saved List intent capture limit through the platform policy seam."
             }
           ],
-          "seedRequirements": [
-            "catalog"
-          ],
+          "seedRequirements": ["catalog"],
           "sourceRuntimeDeployables": null,
           "sourceRuntimeProfiles": null
         }
@@ -1448,24 +1386,13 @@
         "packageName": "@chase-sets/commercial-terms",
         "manifest": "bounded-contexts/commercial-terms/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "commercial-terms",
           "hostPorts": [],
-          "seedRequirements": [
-            "identity"
-          ],
-          "sourceRuntimeDeployables": [
-            "platform-api"
-          ],
-          "sourceRuntimeProfiles": [
-            "landing"
-          ]
+          "seedRequirements": ["identity"],
+          "sourceRuntimeDeployables": ["platform-api"],
+          "sourceRuntimeProfiles": ["landing"]
         }
       }
     ],
@@ -1476,13 +1403,8 @@
         "packageName": "@chase-sets/customer-feedback",
         "manifest": "bounded-contexts/customer-feedback/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "customer-feedback",
           "hostPorts": [],
           "seedRequirements": [],
@@ -1498,13 +1420,8 @@
         "packageName": "@chase-sets/discovery",
         "manifest": "bounded-contexts/discovery/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "discovery",
           "hostPorts": [
             {
@@ -1541,13 +1458,8 @@
         "packageName": "@chase-sets/fulfillment",
         "manifest": "bounded-contexts/fulfillment/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "fulfillment",
           "hostPorts": [
             {
@@ -1566,18 +1478,9 @@
               "purpose": "Durable outbound notification outbox consumed only by shipment event projectors."
             }
           ],
-          "seedRequirements": [
-            "identity",
-            "payments",
-            "ordering"
-          ],
-          "sourceRuntimeDeployables": [
-            "platform-api",
-            "platform-worker"
-          ],
-          "sourceRuntimeProfiles": [
-            "landing"
-          ]
+          "seedRequirements": ["identity", "payments", "ordering"],
+          "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
+          "sourceRuntimeProfiles": ["landing"]
         }
       }
     ],
@@ -1588,14 +1491,8 @@
         "packageName": "@chase-sets/identity",
         "manifest": "bounded-contexts/identity/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "landing",
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
           "contextName": "identity",
           "hostPorts": [
             {
@@ -1622,13 +1519,8 @@
         "packageName": "@chase-sets/inventory",
         "manifest": "bounded-contexts/inventory/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "inventory",
           "hostPorts": [
             {
@@ -1642,10 +1534,7 @@
               "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."
             }
           ],
-          "seedRequirements": [
-            "catalog",
-            "identity"
-          ],
+          "seedRequirements": ["catalog", "identity"],
           "sourceRuntimeDeployables": null,
           "sourceRuntimeProfiles": null
         }
@@ -1658,13 +1547,8 @@
         "packageName": "@chase-sets/marketplace",
         "manifest": "bounded-contexts/marketplace/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "marketplace",
           "hostPorts": [
             {
@@ -1698,19 +1582,9 @@
               "purpose": "Durable notification outbox consumed by post-delivery review-opportunity, reminder, and reveal-notice nudges (m108) and dispatched through channel adapters."
             }
           ],
-          "seedRequirements": [
-            "catalog",
-            "commercial-terms",
-            "identity",
-            "inventory"
-          ],
-          "sourceRuntimeDeployables": [
-            "platform-api",
-            "platform-worker"
-          ],
-          "sourceRuntimeProfiles": [
-            "landing"
-          ]
+          "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
+          "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
+          "sourceRuntimeProfiles": ["landing"]
         }
       }
     ],
@@ -1721,13 +1595,8 @@
         "packageName": "@chase-sets/notifications",
         "manifest": "bounded-contexts/notifications/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "notifications",
           "hostPorts": [
             {
@@ -1759,13 +1628,8 @@
         "packageName": "@chase-sets/ordering",
         "manifest": "bounded-contexts/ordering/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "ordering",
           "hostPorts": [
             {
@@ -1789,19 +1653,9 @@
               "purpose": "Required available|not-mounted capability supplying Inventory's read-only reservation and Hold cleanup authority (#7222) so Ordering can decide cleanup from complete Inventory source streams without importing Inventory or reading a projection."
             }
           ],
-          "seedRequirements": [
-            "catalog",
-            "identity",
-            "inventory",
-            "marketplace"
-          ],
-          "sourceRuntimeDeployables": [
-            "platform-api",
-            "platform-worker"
-          ],
-          "sourceRuntimeProfiles": [
-            "landing"
-          ]
+          "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
+          "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
+          "sourceRuntimeProfiles": ["landing"]
         }
       }
     ],
@@ -1812,13 +1666,8 @@
         "packageName": "@chase-sets/payments",
         "manifest": "bounded-contexts/payments/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "payments",
           "hostPorts": [
             {
@@ -1872,11 +1721,7 @@
               "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
             }
           ],
-          "seedRequirements": [
-            "identity",
-            "marketplace",
-            "ordering"
-          ],
+          "seedRequirements": ["identity", "marketplace", "ordering"],
           "sourceRuntimeDeployables": null,
           "sourceRuntimeProfiles": null
         }
@@ -1889,14 +1734,8 @@
         "packageName": "@chase-sets/platform-operations",
         "manifest": "bounded-contexts/platform-operations/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "landing",
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
           "contextName": "platform-operations",
           "hostPorts": [
             {
@@ -1945,13 +1784,7 @@
               "purpose": "Host-runtime projection blocked-projection and wake-store reads for the Operations Attention API, assembled once from the same builders used by the projection operations routes."
             }
           ],
-          "seedRequirements": [
-            "identity",
-            "ordering",
-            "fulfillment",
-            "payments",
-            "settlement"
-          ],
+          "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
           "sourceRuntimeDeployables": null,
           "sourceRuntimeProfiles": null
         }
@@ -1964,13 +1797,8 @@
         "packageName": "@chase-sets/pricing",
         "manifest": "bounded-contexts/pricing/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "pricing",
           "hostPorts": [
             {
@@ -2007,14 +1835,8 @@
         "packageName": "@chase-sets/public-presence",
         "manifest": "bounded-contexts/public-presence/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "landing",
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["landing", "proof", "public"],
           "contextName": "public-presence",
           "hostPorts": [
             {
@@ -2038,9 +1860,7 @@
               "purpose": "Resolve only explicitly whitelisted policy values used by public articles from each owning bounded context."
             }
           ],
-          "seedRequirements": [
-            "identity"
-          ],
+          "seedRequirements": ["identity"],
           "sourceRuntimeDeployables": null,
           "sourceRuntimeProfiles": null
         }
@@ -2053,13 +1873,8 @@
         "packageName": "@chase-sets/settlement",
         "manifest": "bounded-contexts/settlement/context.json",
         "selection": {
-          "apiDeployables": [
-            "platform-api"
-          ],
-          "apiRuntimeProfiles": [
-            "proof",
-            "public"
-          ],
+          "apiDeployables": ["platform-api"],
+          "apiRuntimeProfiles": ["proof", "public"],
           "contextName": "settlement",
           "hostPorts": [
             {
@@ -2103,269 +1918,90 @@
               "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
             }
           ],
-          "seedRequirements": [
-            "identity",
-            "payments"
-          ],
-          "sourceRuntimeDeployables": [
-            "platform-api"
-          ],
-          "sourceRuntimeProfiles": [
-            "landing"
-          ]
+          "seedRequirements": ["identity", "payments"],
+          "sourceRuntimeDeployables": ["platform-api"],
+          "sourceRuntimeProfiles": ["landing"]
         }
       }
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/auth$",
-      "bounded-contexts/auth/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/auth-context$",
-      "contracts/auth-context/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/auth\\/server$",
-      "bounded-contexts/auth/server.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/authenticity$",
-      "bounded-contexts/authenticity/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/bounded-context-module$",
-      "contracts/bounded-context-module/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/bounded-context-runtime$",
-      "infrastructure/bounded-context-runtime/index.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/auth$", "bounded-contexts/auth/index.ts"],
+    ["W4 alias", "^@chase-sets\\/auth-context$", "contracts/auth-context/index.ts"],
+    ["W4 alias", "^@chase-sets\\/auth\\/server$", "bounded-contexts/auth/server.ts"],
+    ["W4 alias", "^@chase-sets\\/authenticity$", "bounded-contexts/authenticity/index.ts"],
+    ["W4 alias", "^@chase-sets\\/bounded-context-module$", "contracts/bounded-context-module/index.ts"],
+    ["W4 alias", "^@chase-sets\\/bounded-context-runtime$", "infrastructure/bounded-context-runtime/index.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/bounded-context-runtime\\/test-support$",
       "infrastructure/bounded-context-runtime/test-support.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/catalog$",
-      "bounded-contexts/catalog/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/catalog-seed$",
-      "contracts/catalog-seed/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/catalog\\/context$",
-      "bounded-contexts/catalog/context.json"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/catalog\\/server$",
-      "bounded-contexts/catalog/server.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/channels$",
-      "bounded-contexts/channels/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/channels\\/server$",
-      "bounded-contexts/channels/server.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/catalog$", "bounded-contexts/catalog/index.ts"],
+    ["W4 alias", "^@chase-sets\\/catalog-seed$", "contracts/catalog-seed/index.ts"],
+    ["W4 alias", "^@chase-sets\\/catalog\\/context$", "bounded-contexts/catalog/context.json"],
+    ["W4 alias", "^@chase-sets\\/catalog\\/server$", "bounded-contexts/catalog/server.ts"],
+    ["W4 alias", "^@chase-sets\\/channels$", "bounded-contexts/channels/index.ts"],
+    ["W4 alias", "^@chase-sets\\/channels\\/server$", "bounded-contexts/channels/server.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/channels\\/test-support$",
       "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/checkout$",
-      "bounded-contexts/checkout/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/checkout\\/server$",
-      "bounded-contexts/checkout/server.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/collections$",
-      "bounded-contexts/collections/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/commercial-terms$",
-      "bounded-contexts/commercial-terms/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/customer-feedback$",
-      "bounded-contexts/customer-feedback/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/discovery$",
-      "bounded-contexts/discovery/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/easypost-postage$",
-      "infrastructure/easypost-postage/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/event-core-postgres$",
-      "infrastructure/event-core-postgres/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/event-core\\/complete-stream$",
-      "contracts/event-core/complete-stream.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/event-core\\/consistency$",
-      "contracts/event-core/consistency.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/event-core\\/storage$",
-      "contracts/event-core/storage.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/event-core\\/test-support$",
-      "contracts/event-core/test-support.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/event-core\\/transport$",
-      "contracts/event-core/transport.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/fulfillment$",
-      "bounded-contexts/fulfillment/index.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/checkout$", "bounded-contexts/checkout/index.ts"],
+    ["W4 alias", "^@chase-sets\\/checkout\\/server$", "bounded-contexts/checkout/server.ts"],
+    ["W4 alias", "^@chase-sets\\/collections$", "bounded-contexts/collections/index.ts"],
+    ["W4 alias", "^@chase-sets\\/commercial-terms$", "bounded-contexts/commercial-terms/index.ts"],
+    ["W4 alias", "^@chase-sets\\/customer-feedback$", "bounded-contexts/customer-feedback/index.ts"],
+    ["W4 alias", "^@chase-sets\\/discovery$", "bounded-contexts/discovery/index.ts"],
+    ["W4 alias", "^@chase-sets\\/easypost-postage$", "infrastructure/easypost-postage/index.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core-postgres$", "infrastructure/event-core-postgres/index.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/complete-stream$", "contracts/event-core/complete-stream.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/consistency$", "contracts/event-core/consistency.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/storage$", "contracts/event-core/storage.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/test-support$", "contracts/event-core/test-support.ts"],
+    ["W4 alias", "^@chase-sets\\/event-core\\/transport$", "contracts/event-core/transport.ts"],
+    ["W4 alias", "^@chase-sets\\/fulfillment$", "bounded-contexts/fulfillment/index.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/fulfillment\\/seed-support\\/(.*)$",
       "bounded-contexts/fulfillment/support/seed-support/$1.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/identity$",
-      "bounded-contexts/identity/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/identity-seed$",
-      "contracts/identity-seed/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/identity\\/server$",
-      "bounded-contexts/identity/server.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/inventory$",
-      "bounded-contexts/inventory/index.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/identity$", "bounded-contexts/identity/index.ts"],
+    ["W4 alias", "^@chase-sets\\/identity-seed$", "contracts/identity-seed/index.ts"],
+    ["W4 alias", "^@chase-sets\\/identity\\/server$", "bounded-contexts/identity/server.ts"],
+    ["W4 alias", "^@chase-sets\\/inventory$", "bounded-contexts/inventory/index.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/inventory\\/seed-support\\/(.*)$",
       "bounded-contexts/inventory/support/seed-support/$1.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/inventory\\/server$",
-      "bounded-contexts/inventory/server.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/localization$",
-      "contracts/localization/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/marketplace$",
-      "bounded-contexts/marketplace/index.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/inventory\\/server$", "bounded-contexts/inventory/server.ts"],
+    ["W4 alias", "^@chase-sets\\/localization$", "contracts/localization/index.ts"],
+    ["W4 alias", "^@chase-sets\\/marketplace$", "bounded-contexts/marketplace/index.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/marketplace\\/seed-support\\/(.*)$",
       "bounded-contexts/marketplace/support/seed-support/$1.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/money-movement\\/test-support$",
-      "contracts/money-movement/test-support.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/notifications$",
-      "bounded-contexts/notifications/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/object-storage$",
-      "infrastructure/object-storage/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/ordering$",
-      "bounded-contexts/ordering/index.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/money-movement\\/test-support$", "contracts/money-movement/test-support.ts"],
+    ["W4 alias", "^@chase-sets\\/notifications$", "bounded-contexts/notifications/index.ts"],
+    ["W4 alias", "^@chase-sets\\/object-storage$", "infrastructure/object-storage/index.ts"],
+    ["W4 alias", "^@chase-sets\\/ordering$", "bounded-contexts/ordering/index.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/ordering\\/seed-support\\/(.*)$",
       "bounded-contexts/ordering/support/seed-support/$1.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/payment-processing\\/test-support$",
-      "contracts/payment-processing/test-support.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/payments$",
-      "bounded-contexts/payments/index.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/payment-processing\\/test-support$", "contracts/payment-processing/test-support.ts"],
+    ["W4 alias", "^@chase-sets\\/payments$", "bounded-contexts/payments/index.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/payments\\/seed-support\\/(.*)$",
       "bounded-contexts/payments/support/seed-support/$1.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/platform-operations$",
-      "bounded-contexts/platform-operations/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/platform-operations\\/server$",
-      "bounded-contexts/platform-operations/server.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/platform-policy\\/commands$",
-      "infrastructure/platform-policy/commands.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/platform-runtime\\/api$",
-      "infrastructure/platform-runtime/api.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/platform-operations$", "bounded-contexts/platform-operations/index.ts"],
+    ["W4 alias", "^@chase-sets\\/platform-operations\\/server$", "bounded-contexts/platform-operations/server.ts"],
+    ["W4 alias", "^@chase-sets\\/platform-policy\\/commands$", "infrastructure/platform-policy/commands.ts"],
+    ["W4 alias", "^@chase-sets\\/platform-runtime\\/api$", "infrastructure/platform-runtime/api.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/platform-runtime\\/context-pools$",
@@ -2381,81 +2017,25 @@
       "^@chase-sets\\/platform-runtime\\/source-context-wake-registry$",
       "infrastructure/platform-runtime/source-context-wake-registry.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/postage-labels\\/test-support$",
-      "contracts/postage-labels/test-support.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/pricing$",
-      "bounded-contexts/pricing/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/primitives\\/(.*)$",
-      "contracts/primitives/$1.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/product-measures$",
-      "contracts/product-measures/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/public-presence$",
-      "bounded-contexts/public-presence/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/public-presence\\/server$",
-      "bounded-contexts/public-presence/server.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/settlement$",
-      "bounded-contexts/settlement/index.ts"
-    ],
+    ["W4 alias", "^@chase-sets\\/postage-labels\\/test-support$", "contracts/postage-labels/test-support.ts"],
+    ["W4 alias", "^@chase-sets\\/pricing$", "bounded-contexts/pricing/index.ts"],
+    ["W4 alias", "^@chase-sets\\/primitives\\/(.*)$", "contracts/primitives/$1.ts"],
+    ["W4 alias", "^@chase-sets\\/product-measures$", "contracts/product-measures/index.ts"],
+    ["W4 alias", "^@chase-sets\\/public-presence$", "bounded-contexts/public-presence/index.ts"],
+    ["W4 alias", "^@chase-sets\\/public-presence\\/server$", "bounded-contexts/public-presence/server.ts"],
+    ["W4 alias", "^@chase-sets\\/settlement$", "bounded-contexts/settlement/index.ts"],
     [
       "W4 alias",
       "^@chase-sets\\/settlement\\/seed-support\\/(.*)$",
       "bounded-contexts/settlement/support/seed-support/$1.ts"
     ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/settlement\\/server$",
-      "bounded-contexts/settlement/server.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/stripe-connect$",
-      "infrastructure/stripe-connect/index.ts"
-    ],
-    [
-      "W4 alias",
-      "^@chase-sets\\/stripe-payments$",
-      "infrastructure/stripe-payments/index.ts"
-    ],
-    [
-      "W4 postgres",
-      "image",
-      "pgvector/pgvector:pg16"
-    ],
-    [
-      "W4 postgres",
-      "maxConnections",
-      "300"
-    ],
-    [
-      "W4 postgres",
-      "maxLocksPerTransaction",
-      "512"
-    ],
-    [
-      "W4 postgres",
-      "workspaceConcurrency",
-      "2"
-    ],
+    ["W4 alias", "^@chase-sets\\/settlement\\/server$", "bounded-contexts/settlement/server.ts"],
+    ["W4 alias", "^@chase-sets\\/stripe-connect$", "infrastructure/stripe-connect/index.ts"],
+    ["W4 alias", "^@chase-sets\\/stripe-payments$", "infrastructure/stripe-payments/index.ts"],
+    ["W4 postgres", "image", "pgvector/pgvector:pg16"],
+    ["W4 postgres", "maxConnections", "300"],
+    ["W4 postgres", "maxLocksPerTransaction", "512"],
+    ["W4 postgres", "workspaceConcurrency", "2"],
     [
       "W4 unit",
       "test:db:1",
@@ -2464,24 +2044,16 @@
         "clearMocks": false,
         "dangerouslyIgnoreUnhandledErrors": false,
         "environment": "node",
-        "exclude": [
-          "**/node_modules/**",
-          "**/.git/**",
-          "**/dist/**"
-        ],
+        "exclude": ["**/node_modules/**", "**/.git/**", "**/dist/**"],
         "execArgv": [],
         "fakeTimers": {
           "loopLimit": 10000,
           "shouldClearNativeTimers": true
         },
-        "globalSetup": [
-          "scripts/lib/heavy-slot.mjs"
-        ],
+        "globalSetup": ["scripts/lib/heavy-slot.mjs"],
         "globals": true,
         "hookTimeout": 120000,
-        "include": [
-          "__tests__/**/*.test.ts"
-        ],
+        "include": ["__tests__/**/*.test.ts"],
         "isolate": true,
         "maxConcurrency": 5,
         "maxWorkers": 3,
@@ -2501,15 +2073,7 @@
         "testTimeout": 120000,
         "unstubEnvs": false,
         "unstubGlobals": false,
-        "resolveExtensions": [
-          ".mjs",
-          ".js",
-          ".mts",
-          ".ts",
-          ".jsx",
-          ".tsx",
-          ".json"
-        ]
+        "resolveExtensions": [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
       }
     ],
     [
@@ -2520,24 +2084,16 @@
         "clearMocks": false,
         "dangerouslyIgnoreUnhandledErrors": false,
         "environment": "node",
-        "exclude": [
-          "**/node_modules/**",
-          "**/.git/**",
-          "**/dist/**"
-        ],
+        "exclude": ["**/node_modules/**", "**/.git/**", "**/dist/**"],
         "execArgv": [],
         "fakeTimers": {
           "loopLimit": 10000,
           "shouldClearNativeTimers": true
         },
-        "globalSetup": [
-          "scripts/lib/heavy-slot.mjs"
-        ],
+        "globalSetup": ["scripts/lib/heavy-slot.mjs"],
         "globals": true,
         "hookTimeout": 120000,
-        "include": [
-          "__tests__/**/*.test.ts"
-        ],
+        "include": ["__tests__/**/*.test.ts"],
         "isolate": true,
         "maxConcurrency": 5,
         "maxWorkers": 3,
@@ -2557,15 +2113,7 @@
         "testTimeout": 120000,
         "unstubEnvs": false,
         "unstubGlobals": false,
-        "resolveExtensions": [
-          ".mjs",
-          ".js",
-          ".mts",
-          ".ts",
-          ".jsx",
-          ".tsx",
-          ".json"
-        ]
+        "resolveExtensions": [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
       }
     ],
     [
@@ -2576,24 +2124,16 @@
         "clearMocks": false,
         "dangerouslyIgnoreUnhandledErrors": false,
         "environment": "node",
-        "exclude": [
-          "**/node_modules/**",
-          "**/.git/**",
-          "**/dist/**"
-        ],
+        "exclude": ["**/node_modules/**", "**/.git/**", "**/dist/**"],
         "execArgv": [],
         "fakeTimers": {
           "loopLimit": 10000,
           "shouldClearNativeTimers": true
         },
-        "globalSetup": [
-          "scripts/lib/heavy-slot.mjs"
-        ],
+        "globalSetup": ["scripts/lib/heavy-slot.mjs"],
         "globals": true,
         "hookTimeout": 120000,
-        "include": [
-          "__tests__/**/*.test.ts"
-        ],
+        "include": ["__tests__/**/*.test.ts"],
         "isolate": true,
         "maxConcurrency": 5,
         "maxWorkers": 3,
@@ -2613,26 +2153,10 @@
         "testTimeout": 120000,
         "unstubEnvs": false,
         "unstubGlobals": false,
-        "resolveExtensions": [
-          ".mjs",
-          ".js",
-          ".mts",
-          ".ts",
-          ".jsx",
-          ".tsx",
-          ".json"
-        ]
+        "resolveExtensions": [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
       }
     ],
-    [
-      "W5 version",
-      "pg",
-      "8.20.0"
-    ],
-    [
-      "W5 version",
-      "vitest",
-      "4.1.12"
-    ]
+    ["W5 version", "pg", "8.20.0"],
+    ["W5 version", "vitest", "4.1.12"]
   ]
 }
