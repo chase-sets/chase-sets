@@ -27,16 +27,6 @@ export type ProjectionOperationCommandSnapshot =
   | Readonly<{ operation: Record<string, unknown> }>
   | Readonly<{ result: { cancelled: boolean } }>;
 
-export async function loadProjectionOperationsSnapshot(request: Request): Promise<ProjectionOperationsSnapshot> {
-  const response = await fetchProjectionOperationsResponse(request);
-
-  if (!response.ok) {
-    throw new Response(await response.text(), { status: response.status });
-  }
-
-  return normalizeProjectionOperationsSnapshot(await response.json());
-}
-
 export async function loadProjectionOperationsConsoleSnapshot(
   request: Request,
 ): Promise<ProjectionOperationsConsoleSnapshot> {
@@ -50,23 +40,6 @@ export async function loadProjectionOperationsConsoleSnapshot(
   const snapshot = normalizeProjectionOperationsSnapshot(body);
   const triage = parseProjectionOperationsTriage(body);
   return { ...snapshot, ...triage };
-}
-
-export async function loadWakeStatusSnapshot(request: Request): Promise<WakeStatusSnapshot | null> {
-  // Wake attention degrades instead of failing the whole console: an API host
-  // that predates the endpoint (deploy skew) or a transient error renders as
-  // an explicit unavailable state.
-  try {
-    const response = await fetchWakeStatusResponse(request);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    return normalizeWakeStatusSnapshot(await response.json());
-  } catch {
-    return null;
-  }
 }
 
 export async function loadWakeStatusConsoleSnapshot(request: Request): Promise<WakeStatusConsoleSnapshot | null> {

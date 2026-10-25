@@ -58,6 +58,25 @@ export type ProjectionOperationsRouteOptions = Readonly<{
   deriveWakeAttentionItems: (body: unknown) => readonly unknown[];
 }>;
 
+export async function loadBlockedProjectionState(
+  runtime: ApiHostRuntime,
+  controlPlane: PlatformControlPlane | undefined,
+) {
+  const snapshots = controlPlane ? await controlPlane.listProjectionStatusSnapshots() : [];
+  const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
+  return {
+    projectionGroups: snapshotOverlay.projectionGroups,
+    blockedProjections: summarizeBlockedProjectionKeys(snapshotOverlay.projectionGroups),
+    projectionStatusSource: snapshotOverlay.source,
+  } as const;
+}
+
+export async function loadWakeStatus(workSignalStore: ProjectionWakeStatusWorkSignalStore | undefined) {
+  const wakeStore = await readWakeStoreStatus(workSignalStore);
+  const generatedAt = new Date().toISOString();
+  return { generatedAt, wakeStore } as const;
+}
+
 export function createProjectionOperationsRoutes(runtime: ApiHostRuntime, options: ProjectionOperationsRouteOptions) {
   const app = new Hono<ProjectionOperationsRouteEnv>();
   const refreshProjectionStatuses = createProjectionStatusRefresher(runtime);
@@ -68,9 +87,8 @@ export function createProjectionOperationsRoutes(runtime: ApiHostRuntime, option
       return actorResponse;
     }
 
-    const snapshots = options.controlPlane ? await options.controlPlane.listProjectionStatusSnapshots() : [];
-    const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
-    const projectionGroups = snapshotOverlay.projectionGroups;
+    const projectionState = await loadBlockedProjectionState(runtime, options.controlPlane);
+    const projectionGroups = projectionState.projectionGroups;
 
     const workerHeartbeatHistory = options.controlPlane
       ? await options.controlPlane.readWorkerHeartbeatHistory()
@@ -83,8 +101,8 @@ export function createProjectionOperationsRoutes(runtime: ApiHostRuntime, option
     const body = {
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
-      blockedProjections: summarizeBlockedProjectionKeys(projectionGroups),
-      projectionStatusSource: snapshotOverlay.source,
+      blockedProjections: projectionState.blockedProjections,
+      projectionStatusSource: projectionState.projectionStatusSource,
       workers: classifiedWorkers,
       workerHeartbeatHistory: workerHeartbeatHistory.summary,
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
@@ -151,15 +169,14 @@ export function createProjectionOperationsRoutes(runtime: ApiHostRuntime, option
       return actorResponse;
     }
 
-    const [wakeStore, relay, schedulers] = await Promise.all([
-      readWakeStoreStatus(options.workSignalStore),
+    const [wakeStatus, relay, schedulers] = await Promise.all([
+      loadWakeStatus(options.workSignalStore),
       readWakeRelayStatus(options.controlPlane),
       readWakeSchedulerStatus(options.controlPlane),
     ]);
 
     const body = {
-      generatedAt: new Date().toISOString(),
-      wakeStore,
+      ...wakeStatus,
       relay,
       schedulers,
       rollout: readWakeRolloutStatus(),
