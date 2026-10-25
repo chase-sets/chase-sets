@@ -156,6 +156,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `e220c14` | Corten `main` with [todd-skelton/corten#54 A page cannot show a catalog message chosen at run time by its key](https://github.com/todd-skelton/corten/issues/54) and [todd-skelton/corten#56 A catalog message cannot take an argument named like a Rust keyword ({type})](https://github.com/todd-skelton/corten/issues/56) closed, both adopted (`t.by_key`; `{type}` as it is). No breaking change for the pilot. Also brings a feed's snapshot kept between writes (CHANGELOG, Changed 38) |
 | `26c55a8` | Corten `main` with [todd-skelton/corten#58 A catalog message cannot take a camelCase argument ({updatedAt})](https://github.com/todd-skelton/corten/issues/58) closed and adopted: the exported catalogs keep their camelCase arguments. Breaking for the pilot only in a script: a `Message<"...">` JSDoc and its call take the catalog's names (`bulk_rows.js` says `entityName`) |
 | `c268ecc` | Corten `main` with [todd-skelton/corten#61 A patch element without an id is dropped in the browser, and nothing says so before](https://github.com/todd-skelton/corten/issues/61) and [todd-skelton/corten#64 A page cannot send a form to another origin, and a post cannot redirect to one (form-action is always 'self')](https://github.com/todd-skelton/corten/issues/64) closed, both adopted: the router tests' `patch_ids` is gone, and the cart's Check out is a form whose redirect goes to marketplace (`Policy::form_action`). No breaking change for the pilot |
+| `c590b8a` | Corten `main` with [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60) and [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63) closed, both adopted (`t.money`, `t.date_time`, `t.js().date_time`). No breaking change for the pilot. Its tests changed only where its own output did: a line's price in the screen JSON is now the amount and currency, and the live status's markup carries the date format |
 
 ## What lives where
 
@@ -175,7 +176,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `marketplace/src/restock.rs`, `views/decision_card.*` | the restock decisions: the list and its two writes |
 | `marketplace/src/cart.rs`, `views/cart_item.*` | the cart: its read, the lines merged and priced, its writes and checkout, and the page's parts, whose stylesheet is `sections/account/cart.css` |
 | `marketplace/src/cart_attempt.rs` | a cart write as the Checkout API's command attempt: the attempt id, the request hash, one lookup for a lost answer, and what the attempt came to |
-| `platform/src/when.rs`, `money.rs` | a time and an amount of money as Chase Sets writes them (`Mar 22, 2026, 12:00 PM UTC`, `$1,234.50`), until Corten can |
+| `platform/src/money.rs` | what an amount the APIs send is (decimal text, at most two fraction digits, read as cents); Corten writes it (`t.money`) |
 | `*/src/views/` | the components, each with its stylesheet, and their scripts |
 | `admin/src/catalog/` | the catalog area: its routes and handlers (`mod.rs`), the Catalog API calls (`api.rs`), the forms and the bodies admin-web sends (`form.rs`), and its views, whose stylesheets are `sections/catalog.css` |
 | `admin/src/catalog/views/bulk_rows.*`, `bulk_dialogs.rs` | bulk changes: the bar and the rows' boxes (the selection's script), and the preview and job dialogs |
@@ -378,9 +379,9 @@ forward only on purpose, when a fix the pilot needs lands.
     (marketplace reads the list again after a refusal). A read after a write that fails for good is
     drawn by the screen in its own words (the storage locations' "Storage location update could
     not be verified", the resource route's "The update could not be verified"), since the error
-    page knows only the status. Times are written as Chase Sets' `formatDateTime` writes them, by
-    hand, in English and UTC (`platform::when`), because Corten cannot
-    ([todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)).
+    page knows only the status. Times are written in the request's locale and in UTC by Corten
+    (`t.date_time(at, Medium, Short)`), which in `en` is Chase Sets' `formatDateTime` (its own
+    test cases are the pilot's).
     The seeded decision cannot be recorded in the sandbox
     ([chase-sets/chase-sets#10572 Let the seed seller record the seeded restock decision instead of Restock decision not found](https://github.com/chase-sets/chase-sets/issues/10572)),
     so `scripts/smoke-restock.mjs` checks refusals and recovery only, and the router tests check
@@ -397,8 +398,9 @@ forward only on purpose, when a fix the pilot needs lands.
     ([chase-sets/chase-sets#10576 Draw each cart line's readiness from the cart read instead of recomputing it in the cart page](https://github.com/chase-sets/chase-sets/issues/10576)). The line's price is still worked out here as marketplace's page does (exact for a
     locked listing, "from" for Smart Match, "Priced at checkout" without a priced listing), and
     lines for one product and fulfillment are merged as `groupCartLines` merges them. Money is
-    written as `formatMoney` writes it, by hand, in `en-US` (`platform::money`), because Corten
-    cannot ([todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)).
+    written by Corten in the request's locale (`t.money`), which in `en` is `formatMoney` (its
+    own test cases are the pilot's). A data client gets each line's price as the API's decimal
+    text and currency, not as text for one locale.
 
 30. **Check out starts the session in the pilot.** marketplace's Check out and Use lower price
     post to its `/checkout/buy/readiness` action, which merges a guest cart, reads the readiness
@@ -456,15 +458,6 @@ Open, filed in Corten (one gap each):
    (correctness, then end-user performance). Workaround: the cart sends `Refresh: 2` while its
    read catches up after a write, and its line writes are plain posts so the browser loads the
    page itself ([`cart.rs`](marketplace/src/cart.rs), `render`).
-2. [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)
-   (correctness, then end-user performance). Chase Sets writes money with `formatMoney` in 71
-   `.tsx` files; Corten's own examples format prices by hand three times. Workaround:
-   `platform::money::amount` writes `en-US` by hand ([`money.rs`](platform/src/money.rs)), with
-   `formatMoney`'s own test cases.
-3. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
-   (correctness, then end-user performance). Chase Sets writes times with `formatDateTime` in 65
-   of its `.tsx` files. Workaround: `platform::when::date_time` writes `en` in UTC by hand
-   ([`when.rs`](platform/src/when.rs)), with `formatDateTime`'s own test cases.
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -488,6 +481,19 @@ live connections dropped 1 to 50 ms after opening leaked one lease without the w
 none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (measured once each; the leak is intermittent). Remove it once that issue lands.
 
 Closed:
+
+Fixed at the `c590b8a` pin, workarounds removed:
+
+1. [todd-skelton/corten#63 A page cannot write an amount of money in the request's locale](https://github.com/todd-skelton/corten/issues/63)
+   ([todd-skelton/corten#67 Numbers, money and dates in the request's locale](https://github.com/todd-skelton/corten/pull/67)): the cart's prices and totals are `t.money`.
+   `platform::money` keeps only Chase Sets' rule for what an amount is (`cents`, `decimal`).
+   `formatMoney`'s cases now check Corten's `en` output, and all of them pass.
+2. [todd-skelton/corten#60 A page cannot write a date and time in the request's locale](https://github.com/todd-skelton/corten/issues/60)
+   ([todd-skelton/corten#67 Numbers, money and dates in the request's locale](https://github.com/todd-skelton/corten/pull/67), [todd-skelton/corten#68 Numbers, money and dates a script writes, as the server does](https://github.com/todd-skelton/corten/pull/68)): `platform::when` is gone.
+   The restock decision's time is `t.date_time`, and the cart orders its lines by
+   `parse_timestamp`. The live lists' "Stale since" time, which their script wrote with the
+   browser's `Intl`, now uses the server's format (`t.js().date_time`).
+   `formatDateTime`'s cases check Corten's output.
 
 Fixed at the `c268ecc` pin, workarounds removed:
 

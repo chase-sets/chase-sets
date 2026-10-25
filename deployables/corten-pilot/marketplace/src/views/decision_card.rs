@@ -48,6 +48,15 @@ impl Decided {
 }
 
 /// How the decision came back (`sourceLabel`): another source is shown as the API names it.
+/// A time the API sent, in the request's locale (`formatDateTime`: `Mar 22, 2026, 12:00 PM UTC`),
+/// or the text itself when it is not a time.
+fn when(t: Restock, at: &str) -> String {
+    match corten::i18n::parse_timestamp(at) {
+        Some(at) => t.date_time(at, corten::i18n::DateStyle::Medium, corten::i18n::TimeStyle::Short).to_string(),
+        None => at.to_owned(),
+    }
+}
+
 fn source(t: Restock, decision: &Decision) -> &str {
     match decision.source.as_str() {
         "order-cancelled-after-dispatch" => t.queue_source_cancelled_after_dispatch(),
@@ -100,7 +109,7 @@ pub fn DecisionCard<'a>(
                 if let Some(subtitle) = &decision.item_subtitle {
                     <p class={Muted}>{subtitle}</p>
                 }
-                <p class={(Muted, Small)}>{platform::when::date_time(&decision.pending_at)}</p>
+                <p class={(Muted, Small)}>{when(t, &decision.pending_at)}</p>
             </div>
             <div class={Links}>
                 <a class={Link} href={order}>{t.queue_view_order(&decision.order_id)}</a>
@@ -179,5 +188,22 @@ pub fn WriteOffForm<'a>(
             </label>
             <div class={Buttons}><button type="submit" class={Secondary}>{t.queue_write_off()}</button></div>
         </WriteForm>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Corten writes a time as Chase Sets' `formatDateTime` does in `en`, in UTC.
+    #[test]
+    fn a_time_is_written_as_chase_sets_writes_it() {
+        use corten::i18n::Messages as _;
+        let t = crate::text::Restock::for_locale("en");
+        let when = |at: &str| super::when(t, at);
+        assert_eq!(when("2026-03-22T12:00:00.000Z"), "Mar 22, 2026, 12:00 PM UTC");
+        assert_eq!(when("2026-02-23T21:26:00.000Z"), "Feb 23, 2026, 9:26 PM UTC", "formatDateTime's own test");
+        assert_eq!(when("2026-01-05T00:05:00Z"), "Jan 5, 2026, 12:05 AM UTC");
+        assert_eq!(when("2026-03-22 12:00:00+00"), "Mar 22, 2026, 12:00 PM UTC", "timestamptz text");
+        assert_eq!(when("2026-03-22T07:00:00-05:00"), "Mar 22, 2026, 12:00 PM UTC", "in UTC");
+        assert_eq!(when("not a time"), "not a time");
     }
 }

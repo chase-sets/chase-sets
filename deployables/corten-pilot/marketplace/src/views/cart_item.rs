@@ -43,6 +43,15 @@ fn language(t: CartMsg, code: &str) -> &str {
     }
 }
 
+/// An amount the API sent, in the request's locale (`formatMoney`), or `<amount> <CODE>` when it
+/// is not money.
+pub fn money(t: CartMsg, amount: &str, currency: &str) -> String {
+    match (platform::money::decimal(amount), corten::i18n::Currency::parse(currency.trim())) {
+        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
+        _ => format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned(),
+    }
+}
+
 /// A line's badge: what it needs, in marketplace's words.
 fn reason(t: CartMsg, reason: Reason) -> &'static str {
     match reason {
@@ -139,8 +148,10 @@ pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
                     <Reputation t={t} seller={seller} />
                 }
                 match &line.price {
-                    Price::Exact(text) => { <p class={Price} data-price>{text}</p> }
-                    Price::From(text) => { <p class={Price} data-price><span class={From}>{t.page_from()}</span> " " {text}</p> }
+                    Price::Exact { amount, currency } => { <p class={Price} data-price>{money(t, amount, currency)}</p> }
+                    Price::From { amount, currency } => {
+                        <p class={Price} data-price><span class={From}>{t.page_from()}</span> " " {money(t, amount, currency)}</p>
+                    }
                     Price::Deferred => { <p class={Muted} data-price>{t.page_priced_at_checkout()}</p> }
                 }
             </div>
@@ -394,5 +405,29 @@ pub fn EmptyCart(t: CartMsg) -> impl Render {
             </div>
             <p><CheckoutLink href={&link("/search")} label={t.page_keep_shopping()} primary /></p>
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Corten writes money as Chase Sets' `formatMoney` does in `en`: its own cases
+    /// (contracts/localization/money.test.ts), and Intl's forms for other currencies.
+    #[test]
+    fn money_is_written_as_chase_sets_writes_it() {
+        use corten::i18n::Messages as _;
+        let t = crate::text::CartMsg::for_locale("en");
+        let money = |amount: &str, currency: &str| super::money(t, amount, currency);
+        assert_eq!(money("145.00", "USD"), "$145.00");
+        assert_eq!(money("12.34", "usd"), "$12.34");
+        assert_eq!(money("12.3", "USD"), "$12.30");
+        assert_eq!(money("12", "USD"), "$12.00");
+        assert_eq!(money("1234567.89", "USD"), "$1,234,567.89");
+        assert_eq!(money("-42.50", "USD"), "-$42.50");
+        assert_eq!(money("0.00", "USD"), "$0.00");
+        assert_eq!(money("9999999999.99", "USD"), "$9,999,999,999.99");
+        assert_eq!(money("pending", "USD"), "pending USD");
+        assert_eq!(money("1234.5", "EUR"), "\u{20ac}1,234.50");
+        assert_eq!(money("1234.5", "CAD"), "CA$1,234.50");
+        assert_eq!(money("1234.5", "CHF"), "CHF\u{a0}1,234.50");
     }
 }

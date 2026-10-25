@@ -1415,10 +1415,14 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
     assert!(html.starts_with(r#"<div data-scope="bulk-rows" id="catalog-rows""#), "{html}");
     assert!(
         html.contains(
-            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on="connect:live_status.stale($c,@since,%[&quot;Stale since &quot;,&quot;value&quot;,&quot;&quot;]) corten-status:live_status.stale($t,@since,%[&quot;Stale since &quot;,&quot;value&quot;,&quot;&quot;])"><div class="live-status__status""#
+            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on="connect:live_status.stale($c,@since,%[&quot;Stale since &quot;,&quot;value&quot;,&quot;&quot;],%{"#
         ),
         "the stream's connection status, in the element that streams: {html}"
     );
+    // The stale time is written by the server's date format (`t.js().date_time`), in UTC.
+    let live = &html[html.find("<corten-live").unwrap()..];
+    let live = &live[..live.find('>').unwrap()];
+    assert_eq!(live.matches(r#"&quot;u&quot;:&quot;UTC&quot;"#).count(), 2, "on connect and on each status: {live}");
     assert!(
         html.contains(r#"<input type="hidden" name="status" value="draft"><button type="submit" class="live-status__reload">Reload</button>"#),
         "a stale stream's Reload keeps the filters: {html}"

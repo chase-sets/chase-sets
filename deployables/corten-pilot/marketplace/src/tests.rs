@@ -1016,7 +1016,7 @@ async fn a_data_client_gets_the_cart_screen() {
     let lines = &screen["data"]["lines"];
     assert_eq!(lines[0]["line_ids"], json!(["cli_pikachu_a", "cli_pikachu_b"]), "{body}");
     assert_eq!(lines[0]["reason"], "unassigned-fulfillment", "{body}");
-    assert_eq!(lines[0]["price"], json!({ "state": "from", "text": "$53.85" }), "{body}");
+    assert_eq!(lines[0]["price"], json!({ "state": "from", "amount": "53.85", "currency": "USD" }), "the API's amount: {body}");
     assert_eq!(lines[1]["reason"], "currency-mismatch", "{body}");
     assert_eq!(lines[1]["price"], json!({ "state": "deferred" }), "{body}");
     assert_eq!(screen["data"]["readiness"]["blockedLineCount"], 2, "{body}");

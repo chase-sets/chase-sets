@@ -323,7 +323,7 @@ pub fn cart_page<'a>(
     let paused = matches!(notice, Some(Said::Attempt(a)) if a.pauses());
     let readiness = screen.readiness.as_ref();
     let money = |m: Option<&crate::api::Money>| match m {
-        Some(m) => platform::money::amount(&m.amount, &m.currency),
+        Some(m) => cart_item::money(t, &m.amount, &m.currency),
         None => t.page_priced_at_checkout().to_owned(),
     };
     let total = money(readiness.and_then(|r| r.estimated_subtotal.as_ref()));

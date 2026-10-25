@@ -349,12 +349,13 @@ impl Reason {
 }
 
 /// A line's price (marketplace's `linePriceState`): a locked listing's is exact, Smart Match's is
-/// "from" the chosen listing, and a line with no priced listing is priced at checkout.
+/// "from" the chosen listing, and a line with no priced listing is priced at checkout. The amount
+/// is the API's decimal text; the page writes it in the request's locale.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", content = "text", rename_all = "kebab-case")]
+#[serde(tag = "state", rename_all = "kebab-case")]
 pub enum Price {
-    Exact(String),
-    From(String),
+    Exact { amount: String, currency: String },
+    From { amount: String, currency: String },
     Deferred,
 }
 
@@ -395,11 +396,12 @@ fn price(line: &CartLine, listing_id: Option<&str>) -> Price {
     match unit {
         None => Price::Deferred,
         Some((cents, currency)) => {
-            let text = money::from_cents(cents.saturating_mul(i64::from(line.quantity)), &currency);
+            let total = cents.saturating_mul(i64::from(line.quantity));
+            let amount = corten::i18n::Decimal::new(i128::from(total), 2).to_string();
             if line.fulfillment_mode == "locked-listing" && line.locked_listing_id.is_some() {
-                Price::Exact(text)
+                Price::Exact { amount, currency }
             } else {
-                Price::From(text)
+                Price::From { amount, currency }
             }
         }
     }
@@ -453,14 +455,14 @@ fn group(items: Vec<CartLine>) -> Vec<(CartLine, Vec<String>)> {
             existing.selected_listing_price_currency_code = line.selected_listing_price_currency_code.clone();
             existing.selected_listing_stream_version = line.selected_listing_stream_version;
         }
-        if platform::when::instant(&line.updated_at) > platform::when::instant(&existing.updated_at) {
+        if corten::i18n::parse_timestamp(&line.updated_at) > corten::i18n::parse_timestamp(&existing.updated_at) {
             existing.updated_at = line.updated_at.clone();
         }
     }
     let mut lines: Vec<_> = groups.into_iter().map(|(_, line, ids)| (line, ids)).collect();
     lines.sort_by(|(a, _), (b, _)| {
-        platform::when::instant(&b.updated_at)
-            .cmp(&platform::when::instant(&a.updated_at))
+        corten::i18n::parse_timestamp(&b.updated_at)
+            .cmp(&corten::i18n::parse_timestamp(&a.updated_at))
             .then_with(|| a.line_id.cmp(&b.line_id))
     });
     lines

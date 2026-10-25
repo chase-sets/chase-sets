@@ -4,7 +4,11 @@
 //! dropped: the states are CSS on the element's `status`, so they need no script. The script only
 //! writes when it went stale (`stale-since`), in the page's locale, on connect and on each
 //! `corten-status` the element dispatches. Without JavaScript nothing streams, and nothing shows.
-use corten::{FieldName, prelude::*};
+use corten::{
+    FieldName,
+    i18n::{DateStyle, TimeStyle},
+    prelude::*,
+};
 
 use crate::text::Cat;
 
@@ -22,8 +26,8 @@ pub fn LiveStatus<'a, C: Render>(
         <corten-live
             id={id}
             src={src}
-            on:connect={js::stale(scope, since, t.js().live_status_stale_since())}
-            on:corten-status={js::stale(target, since, t.js().live_status_stale_since())}
+            on:connect={js::stale(scope, since, t.js().live_status_stale_since(), t.js().date_time(DateStyle::Medium, TimeStyle::Short))}
+            on:corten-status={js::stale(target, since, t.js().live_status_stale_since(), t.js().date_time(DateStyle::Medium, TimeStyle::Short))}
         >
             <div class={Status} role="status" aria-live="polite">
                 <span class={(Badge, Live)}><span class={Dot} aria-hidden="true"></span>{t.live_status_live()}</span>
