@@ -244,7 +244,9 @@ jobs:
   it("ratchets existing shape-discovered debt while rejecting regression, missing surfaces, and reduced coverage", () => {
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
-    const committedBaseline = JSON.parse(readFileSync(resolve("scripts/workflow-canonical-artifacts-baseline.json"), "utf8"));
+    const committedBaseline = JSON.parse(
+      readFileSync(resolve("scripts/workflow-canonical-artifacts-baseline.json"), "utf8"),
+    );
     const tracked = trackedActionsYaml();
 
     // Discovery is the git-tracked Actions corpus and its per-file surfaces, never a pinned corpus total.
