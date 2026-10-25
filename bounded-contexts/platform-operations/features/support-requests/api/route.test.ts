@@ -1133,8 +1133,8 @@ describe("support request routes", () => {
     async (_label, accountId, escalatedAt, allowedResponses, allowedResolutions) => {
       const detail = { ...supportRequestDetail(), escalated_at: escalatedAt };
       const services = createServices({
-        getSupportOperationsRequest: vi.fn(async () => detail),
-        getAccountSupportRequest: vi.fn(async () => detail),
+        getSupportOperationsRequest: vi.fn(async () => detail as never),
+        getAccountSupportRequest: vi.fn(async () => detail as never),
       });
       const permissions = accountId === "acc_operator" ? ["support.manage"] : ["support.view"];
       const response = await buildApp(services, permissions, accountId).request(
