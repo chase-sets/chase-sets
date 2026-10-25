@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { acquireHeavySlot } from "../../scripts/lib/heavy-slot.mjs";
@@ -7,6 +8,14 @@ import { operatorManifest } from "./src/manifest-contract";
 
 acquireHeavySlot("build");
 export default defineConfig({
+  define: {
+    "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: resolve(import.meta.dirname, "../.."),
+        encoding: "utf8",
+      }).trim(),
+    ),
+  },
   resolve: { alias: createWorkspaceSourceAliases() },
   build: {
     outDir: "dist",

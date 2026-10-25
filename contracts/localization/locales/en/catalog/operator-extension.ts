@@ -22,4 +22,11 @@ export const catalogOperatorExtensionEnglishTranslations = {
   "catalog.operatorExtension.cookieAbsent": "No applicable browser session",
   "catalog.operatorExtension.offboarding":
     "Unpair revokes only this grant. Use Admin Disconnect to clear stored custody. Uninstall does not revoke access or end the browser session.",
+  "catalog.operatorExtension.probe.title": "TCGplayer SetNames probe",
+  "catalog.operatorExtension.probe.run": "Run probe",
+  "catalog.operatorExtension.probe.running": "Running probe…",
+  "catalog.operatorExtension.probe.empty": "Enter at least one product-line id to run the probe.",
+  "catalog.operatorExtension.probe.success": "Probe report ready",
+  "catalog.operatorExtension.probe.report": "Report",
+  "catalog.operatorExtension.probe.copy": "Copy report",
 } as const;
