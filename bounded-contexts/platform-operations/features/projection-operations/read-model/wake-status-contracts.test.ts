@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildWakeAttentionItems, normalizeWakeStatusSnapshot } from "./wake-status-contracts";
+import { deriveWakeAttentionItems } from "../../../server";
 
 describe("wake status contracts", () => {
   it("normalizes a full wake status payload into structural fields", () => {
@@ -242,5 +243,23 @@ describe("wake status contracts", () => {
 
   it("returns no attention items for a null snapshot", () => {
     expect(buildWakeAttentionItems(null)).toEqual([]);
+  });
+
+  it("derives API wake attention from the normalized response body", () => {
+    const body = {
+      generatedAt: "2026-06-11T12:00:00.000Z",
+      wakeStore: {
+        available: true,
+        intentSummary: { failedCount: 2, staleClaimCount: 1, expiredCount: 0 },
+        checkpointSignals: { expiredPendingWaiterCount: 1 },
+      },
+      relay: { available: false },
+      schedulers: { available: false },
+      rollout: { summary: { enabledRelayFanOutContextCount: 0 } },
+      migration: {},
+    };
+    const snapshot = normalizeWakeStatusSnapshot(body);
+
+    expect(deriveWakeAttentionItems(body)).toEqual(buildWakeAttentionItems(snapshot));
   });
 });

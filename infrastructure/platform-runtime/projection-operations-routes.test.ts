@@ -18,14 +18,26 @@ const platformActor = {
 function createRouteApp(
   actor: ResolvedActor | null,
   runtime: ApiHostRuntime = createRuntime(),
-  options: Parameters<typeof createProjectionOperationsRoutes>[1] = {},
+  options: Partial<Parameters<typeof createProjectionOperationsRoutes>[1]> = {},
 ) {
   const app = new Hono<{ Variables: { actor: ResolvedActor | null } }>();
   app.use("*", async (c, next) => {
     c.set("actor", actor);
     await next();
   });
-  app.route("/", createProjectionOperationsRoutes(runtime, options));
+  app.route(
+    "/",
+    createProjectionOperationsRoutes(runtime, {
+      deriveProjectionTriage: vi.fn(() => ({
+        attentionItems: [],
+        repairQueue: [],
+        activeWorkerCount: 0,
+        staleWorkerCount: 0,
+      })),
+      deriveWakeAttentionItems: vi.fn(() => []),
+      ...options,
+    }),
+  );
   return app;
 }
 
@@ -193,6 +205,74 @@ describe("projection operations routes", () => {
     const response = await app.request("/");
 
     expect(response.status).toBe(403);
+  });
+
+  it("does not invoke either deriver before the actor guard", async () => {
+    const deriveProjectionTriage = vi.fn(() => ({
+      attentionItems: [],
+      repairQueue: [],
+      activeWorkerCount: 0,
+      staleWorkerCount: 0,
+    }));
+    const deriveWakeAttentionItems = vi.fn(() => []);
+    const app = createRouteApp(null, createRuntime(), { deriveProjectionTriage, deriveWakeAttentionItems });
+
+    expect((await app.request("/")).status).toBe(401);
+    expect((await app.request("/wake-status")).status).toBe(401);
+    expect(deriveProjectionTriage).not.toHaveBeenCalled();
+    expect(deriveWakeAttentionItems).not.toHaveBeenCalled();
+  });
+
+  it("forwards the exact composed projection body to its deriver and returns its fields", async () => {
+    const triage = {
+      attentionItems: [{ id: "synthetic-attention" }],
+      repairQueue: [{ targetId: "synthetic-repair" }],
+      activeWorkerCount: 7,
+      staleWorkerCount: 3,
+    };
+    const deriveProjectionTriage = vi.fn(() => triage);
+    const app = createRouteApp(platformActor, createRuntime(), { deriveProjectionTriage });
+
+    const response = await app.request("/");
+
+    expect(response.status).toBe(200);
+    expect(deriveProjectionTriage).toHaveBeenCalledTimes(1);
+    const [body] = deriveProjectionTriage.mock.calls[0] ?? [];
+    expect(body).toMatchObject({
+      summary: { status: "ok", totalGroups: 0, caughtUpGroups: 0, behindGroups: 0, staleGroups: 0, runningGroups: 0, errorGroups: 0, outstandingEventCount: "0" },
+      projectionGroups: [],
+      blockedProjections: [],
+      projectionStatusSource: "runtime-memory",
+      workers: [],
+      workerHeartbeatHistory: expect.any(Object),
+      runners: [],
+      operations: [],
+      operationSummary: expect.any(Object),
+    });
+    await expect(response.json()).resolves.toMatchObject(triage);
+  });
+
+  it("forwards the exact composed wake body to its deriver and returns its fields", async () => {
+    const attentionItems = [{ id: "synthetic-wake-attention" }];
+    const deriveWakeAttentionItems = vi.fn(() => attentionItems);
+    const app = createRouteApp(platformActor, createRuntime(), { deriveWakeAttentionItems });
+
+    const response = await app.request("/wake-status");
+
+    expect(response.status).toBe(200);
+    expect(deriveWakeAttentionItems).toHaveBeenCalledTimes(1);
+    const [body] = deriveWakeAttentionItems.mock.calls[0] ?? [];
+    expect(body).toEqual(
+      expect.objectContaining({
+        generatedAt: expect.any(String),
+        wakeStore: { available: false },
+        relay: { available: false },
+        schedulers: { available: false },
+        rollout: expect.any(Object),
+        migration: expect.any(Object),
+      }),
+    );
+    await expect(response.json()).resolves.toMatchObject({ attentionItems });
   });
 
   it("allows projection operations view actors to inspect the console", async () => {

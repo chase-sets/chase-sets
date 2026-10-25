@@ -1,3 +1,29 @@
+import {
+  activeWorkerCount,
+  buildAttentionItems,
+  buildProjectionRepairQueue,
+  normalizeProjectionOperationsSnapshot,
+  staleWorkerCount,
+} from "./features/projection-operations/read-model/contracts";
+import {
+  buildWakeAttentionItems,
+  normalizeWakeStatusSnapshot,
+} from "./features/projection-operations/read-model/wake-status-contracts";
+
+export function deriveProjectionTriage(body: unknown) {
+  const snapshot = normalizeProjectionOperationsSnapshot(body);
+  return {
+    attentionItems: buildAttentionItems(snapshot),
+    repairQueue: buildProjectionRepairQueue(snapshot),
+    activeWorkerCount: activeWorkerCount(snapshot),
+    staleWorkerCount: staleWorkerCount(snapshot),
+  } as const;
+}
+
+export function deriveWakeAttentionItems(body: unknown) {
+  return buildWakeAttentionItems(normalizeWakeStatusSnapshot(body));
+}
+
 export type {
   PlatformFeedbackDetail,
   PlatformFeedbackListItem,

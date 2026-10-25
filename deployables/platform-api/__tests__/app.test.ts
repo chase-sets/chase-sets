@@ -114,6 +114,7 @@ function platformActor(permissions: readonly string[]) {
 function createEmptyRuntime(
   services: Record<string, unknown> = {},
   mountedModules: readonly { module: unknown; services: unknown }[] = [],
+  projectionGroups: readonly unknown[] = [],
 ) {
   return {
     mountedContexts: [],
@@ -123,7 +124,7 @@ function createEmptyRuntime(
       identity: {},
       ...services,
     },
-    projectionGroups: [],
+    projectionGroups,
     subscriptionRunners: [],
   } as never;
 }
@@ -703,6 +704,79 @@ describe("platform api app wiring", () => {
       },
       projectionGroups: [],
       projectionStatusSource: "runtime-memory",
+    });
+  });
+
+  it("composes projection and wake triage from the owning Platform Operations derivers", async () => {
+    const projectionGroup = {
+      targetContextName: "catalog",
+      projectionName: "catalog-item-projection",
+      requiredDuringBootstrap: true,
+      subscriptionRunners: [],
+      refreshStatus: vi.fn(),
+      getStatus: () => ({
+        targetContextName: "catalog",
+        projectionName: "catalog-item-projection",
+        projectionRevision: 1,
+        storedProjectionRevision: 1,
+        revisionStale: false,
+        sourceContextNames: ["catalog"],
+        ownedTables: [],
+        requiredDuringBootstrap: true,
+        initialized: true,
+        caughtUp: false,
+        state: "degraded",
+        lastError: "synthetic failure",
+        outstandingEventCount: "2",
+        blockedStreamCount: 0,
+        poisonEventCount: 1,
+        updatedAt: "2026-07-22T00:00:00.000Z",
+        subscriptions: [],
+      }),
+    };
+    const app = buildPlatformApiApp(createEmptyRuntime({}, [], [projectionGroup]), {
+      resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
+      workSignalStore: {
+        summarizeProjectionWakeIntents: vi.fn(async () => ({
+          queuedCount: 0,
+          claimedCount: 0,
+          failedCount: 2,
+          expiredCount: 0,
+          staleClaimCount: 1,
+          oldestQueuedAt: null,
+          oldestClaimedAt: null,
+        })),
+        summarizeProjectionWakeIntentBreakdown: vi.fn(async () => []),
+        summarizeCheckpointSignals: vi.fn(async () => ({
+          readinessCount: 0,
+          expiredReadinessCount: 0,
+          latestReadyRecordedAt: null,
+          pendingWaiterCount: 0,
+          expiredPendingWaiterCount: 1,
+          satisfiedWaiterCount: 0,
+          oldestPendingWaiterAt: null,
+          pendingWaiterOrigins: [],
+        })),
+      },
+    });
+
+    const projectionResponse = await app.request("/api/platform/projections");
+    const wakeResponse = await app.request("/api/platform/projections/wake-status");
+
+    expect(projectionResponse.status).toBe(200);
+    await expect(projectionResponse.json()).resolves.toMatchObject({
+      attentionItems: expect.arrayContaining([expect.objectContaining({ id: "degraded-groups" })]),
+      repairQueue: expect.arrayContaining([expect.objectContaining({ kind: "projection-group" })]),
+      activeWorkerCount: 0,
+      staleWorkerCount: 0,
+    });
+    expect(wakeResponse.status).toBe(200);
+    await expect(wakeResponse.json()).resolves.toMatchObject({
+      attentionItems: expect.arrayContaining([
+        expect.objectContaining({ id: "wake-failed-intents" }),
+        expect.objectContaining({ id: "wake-stale-claims" }),
+        expect.objectContaining({ id: "wake-expired-waiters" }),
+      ]),
     });
   });
 
