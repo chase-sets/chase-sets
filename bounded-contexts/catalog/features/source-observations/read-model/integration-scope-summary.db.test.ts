@@ -80,7 +80,11 @@ describeDb("Source Observation integration scope summaries", () => {
       activeProfile: null,
       activeJobCount: 0,
       blockers: [],
-      input: { providerKey: "ygojson", importScope: `en:${setId}`, scopes: { items: rows } },
+      input: {
+        providerKey: "ygojson",
+        importScope: `en:${setId}`,
+        scopes: { items: rows, total: rows.length, count: rows.length },
+      },
       importScope: `en:${setId}`,
       providerKey: "ygojson",
       providerTransport: [],
