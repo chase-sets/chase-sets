@@ -89,7 +89,61 @@ const supplyPreview: orderingServer.CheckoutFulfillmentPreview = {
   optimizationGoal: "lowest-total",
   readyLineKeys: ["lst_synthetic"],
   unavailableLineKeys: [],
-  sellerGroups: [],
+  sellerGroups: [
+    {
+      sellerAccountId: "seller_synthetic",
+      sellerDisplayName: null,
+      itemSubtotalAmount: "20.00",
+      shippingChargeAmount: "0.00",
+      salesTaxAmount: "0.00",
+      totalAmount: "20.00",
+      postageRequirements: {
+        policyVersion: "synthetic",
+        parcelRequired: false,
+        parcelReasons: [],
+        signatureRequired: false,
+        signatureReasons: [],
+        insuranceRequired: false,
+        insuranceReasons: [],
+        insuredValueAmount: null,
+        shippingEvidenceTier: "synthetic",
+      },
+      deliveryEstimate: {
+        earliestDate: "2026-10-17",
+        latestDate: "2026-10-20",
+        minimumTransitDays: 1,
+        maximumTransitDays: 3,
+        handlingDays: 1,
+        packageCount: 1,
+        shipFromRegion: "US-IL",
+        serviceLevel: "standard",
+        promiseOwner: "fulfillment",
+        promiseSource: "fulfillment-promise-policy",
+        promiseConfidence: "estimated",
+        cutoffTimeLocal: "17:00",
+        packingStartDate: "2026-10-16",
+        carrierHandoffDate: "2026-10-17",
+        basis: "synthetic",
+      },
+      lines: [
+        {
+          lineKey: "lst_synthetic",
+          listingId: "lst_synthetic",
+          sellerAccountId: "seller_synthetic",
+          inventoryItemId: "inv_synthetic",
+          catalogItemId: "cat_synthetic",
+          productId: "prod_synthetic",
+          itemTitle: "Synthetic item",
+          productSummary: null,
+          quantity: 1,
+          estimatedUnitPriceAmount: "20.00",
+          estimatedLineTotalAmount: "20.00",
+          priceState: "available",
+          materialChangeReasons: [],
+        },
+      ],
+    },
+  ],
   totals: {
     itemSubtotalAmount: "20.00",
     shippingAmount: "0.00",
@@ -131,6 +185,7 @@ function fixture(checkoutServices?: ReturnType<typeof checkoutModule.createServi
   const checkout =
     checkoutServices ??
     checkoutModule.createServices(pool, { checkoutObservabilityTelemetry: { recordCheckoutEvent } });
+  vi.spyOn(checkout.sessions, "getLastRecordedQuote").mockResolvedValue(supplyPreview);
   const ordering = orderingModule.createServices(pool, { inventoryCleanupAuthority: { kind: "not-mounted" } });
   const createAccountPayment = vi.spyOn(payments.payments, "createAccountPayment");
   const recoverCheckoutPayment = vi.spyOn(payments.payments, "recoverCheckoutPayment");
@@ -536,7 +591,7 @@ describe("checkout-closed-agent-rails", () => {
     const read = vi.spyOn(f.ordering.orders, "getPurchase").mockResolvedValue(order);
     for (const transport of ["rest", "mcp"] as const) {
       expect(await ucpReadOrCancel(f.closed, "get_order", order.order_id, transport)).toMatchObject({
-        ucp: { status: "ok" },
+        ucp: { status: "success" },
         id: order.order_id,
       });
     }
@@ -570,7 +625,7 @@ describe("checkout-closed-agent-rails", () => {
     expect(rest.status).toBe(200);
     expect(await rest.json()).toMatchObject({
       ucp: { status: "error" },
-      messages: [{ severity: "error", code: "checkout_closed" }],
+      messages: [{ severity: "unrecoverable", code: "checkout_closed" }],
     });
     const mcpBody = JSON.stringify({
       jsonrpc: "2.0",
@@ -586,7 +641,10 @@ describe("checkout-closed-agent-rails", () => {
     expect(mcp.status).toBe(200);
     expect(await mcp.json()).toMatchObject({
       result: {
-        structuredContent: { ucp: { status: "error" }, messages: [{ severity: "error", code: "checkout_closed" }] },
+        structuredContent: {
+          ucp: { status: "error" },
+          messages: [{ severity: "unrecoverable", code: "checkout_closed" }],
+        },
       },
     });
     expect(create).not.toHaveBeenCalled();
@@ -1127,7 +1185,9 @@ describe("checkout-closed-session-lifecycle", () => {
         { line_id: retainedLineId, quantity: 1 },
       ]);
       for (const transport of ["rest", "mcp"] as const) {
-        expect(await ucpReadOrCancel(f.closed, "get_checkout", a, transport)).toMatchObject({ ucp: { status: "ok" } });
+        expect(await ucpReadOrCancel(f.closed, "get_checkout", a, transport)).toMatchObject({
+          ucp: { status: "success" },
+        });
       }
     }
     expect(store.allEvents).toHaveLength(beforeClosure);
@@ -1136,7 +1196,10 @@ describe("checkout-closed-session-lifecycle", () => {
     expect((await sessions.getSession(b, "acc_synthetic"))?.cancelled_at).toBeTruthy();
     expect((await sessions.getSession(a, "acc_synthetic"))?.cancelled_at).toBeNull();
     for (const transport of ["rest", "mcp"] as const) {
-      expect(await ucpReadOrCancel(f.closed, "cancel_checkout", b, transport)).toMatchObject({ ucp: { status: "ok" } });
+      const cancelledRead = await ucpReadOrCancel(f.closed, "cancel_checkout", b, transport);
+      expect(cancelledRead).toMatchObject({
+        ucp: { status: "success" },
+      });
     }
     const reopened = buildPlatformApiApp(f.runtime, { ...f.options, checkoutClosed: false });
     const address = {

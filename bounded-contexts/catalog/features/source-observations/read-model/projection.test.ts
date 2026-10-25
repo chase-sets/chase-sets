@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SourceObservationNormalized } from "../domain/domain";
 import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
 import { buildSourceObservationProjectionHandlers } from "./projection";
+import { encodeSourceObservationPayloadChunks } from "../domain/source-observation-payload-chunks";
 
 type ObservationRow = Readonly<Record<string, unknown>>;
 type ScopeSummaryRow = Readonly<{
@@ -25,6 +26,10 @@ class SourceObservationProjectionDb implements PgQueryable {
     string,
     { sourceRecordHash: string; eventType: string; recordData: unknown; expectedChunkCount: number; chunks: string[] }
   >();
+  public readonly normalizedEvidenceAssemblies = new Map<
+    string,
+    { sourceRecordHash: string; eventType: string; recordData: unknown; expectedChunkCount: number; chunks: string[] }
+  >();
 
   async query<Row = Record<string, unknown>>(
     sql: string,
@@ -32,6 +37,17 @@ class SourceObservationProjectionDb implements PgQueryable {
   ): Promise<PgQueryResult<Row>> {
     if (sql.includes("INSERT INTO catalog_source_observation_payload_assemblies")) {
       this.payloadAssemblies.set(String(values[0]), {
+        sourceRecordHash: String(values[1]),
+        eventType: String(values[2]),
+        recordData: JSON.parse(String(values[3])),
+        expectedChunkCount: Number(values[4]),
+        chunks: [],
+      });
+      return emptyResult();
+    }
+
+    if (sql.includes("INSERT INTO catalog_source_observation_normalized_evidence_assemblies")) {
+      this.normalizedEvidenceAssemblies.set(String(values[0]), {
         sourceRecordHash: String(values[1]),
         eventType: String(values[2]),
         recordData: JSON.parse(String(values[3])),
@@ -65,9 +81,58 @@ class SourceObservationProjectionDb implements PgQueryable {
       };
     }
 
+    if (sql.includes("UPDATE catalog_source_observation_normalized_evidence_assemblies")) {
+      const observationId = String(values[0]);
+      const assembly = this.normalizedEvidenceAssemblies.get(observationId);
+      if (
+        !assembly ||
+        assembly.sourceRecordHash !== String(values[1]) ||
+        assembly.chunks.length !== Number(values[2]) ||
+        assembly.expectedChunkCount !== Number(values[3])
+      ) {
+        return emptyResult();
+      }
+      assembly.chunks.push(String(values[4]));
+      return {
+        rows: [
+          {
+            record_event_type: assembly.eventType,
+            record_data: assembly.recordData,
+            encoded_chunks: assembly.chunks,
+          },
+        ] as Row[],
+        rowCount: 1,
+      };
+    }
+
     if (sql.includes("DELETE FROM catalog_source_observation_payload_assemblies")) {
       this.payloadAssemblies.delete(String(values[0]));
       return emptyResult();
+    }
+
+    if (sql.includes("DELETE FROM catalog_source_observation_normalized_evidence_assemblies")) {
+      this.normalizedEvidenceAssemblies.delete(String(values[0]));
+      return emptyResult();
+    }
+
+    if (sql.includes("SELECT record_event_type, record_data, expected_chunk_count, encoded_chunks")) {
+      const assemblies = sql.includes("normalized_evidence")
+        ? this.normalizedEvidenceAssemblies
+        : this.payloadAssemblies;
+      const assembly = assemblies.get(String(values[0]));
+      return {
+        rows: (assembly
+          ? [
+              {
+                record_event_type: assembly.eventType,
+                record_data: assembly.recordData,
+                expected_chunk_count: assembly.expectedChunkCount,
+                encoded_chunks: assembly.chunks,
+              },
+            ]
+          : []) as Row[],
+        rowCount: assembly ? 1 : 0,
+      };
     }
 
     if (sql.includes("SELECT provider_key") && sql.includes("WHERE observation_id = $1")) {
@@ -232,6 +297,64 @@ describe("Source Observation projections", () => {
       total_observations: 1,
       observed_observations: 1,
     });
+  });
+
+  it("projects legacy inline, sourcePayload-chunked, and normalized-evidence-chunked observation events", async () => {
+    const db = new SourceObservationProjectionDb();
+    const handlers = buildSourceObservationProjectionHandlers(db);
+    const normalizedEvidence = {
+      ...normalized,
+      localeEvidence: { jp: { date: "2002-03-08" } },
+      cardPrintEvidence: [{ card: "Blue-Eyes White Dragon", qty: 1 }],
+    };
+    const sourcePayload = { kind: "set-reference", set: { id: "base1" } };
+    const normalizedChunks = encodeSourceObservationPayloadChunks(normalizedEvidence);
+    const sourceChunks = encodeSourceObservationPayloadChunks(sourcePayload);
+    const { normalized: _normalized, sourcePayload: _sourcePayload, ...baseData } = observationData();
+    const header = {
+      ...baseData,
+      normalizedEvidenceEncoding: "json-utf8-base64-v1",
+      normalizedEvidenceChunkCount: normalizedChunks.length,
+      sourcePayloadEncoding: "json-utf8-base64-v1",
+      sourcePayloadChunkCount: sourceChunks.length,
+    };
+
+    await handlers["catalog.source-observation.recorded"]?.(
+      observationEvent("catalog.source-observation.recorded", header as never),
+    );
+    for (const [chunkIndex, encodedNormalizedEvidence] of normalizedChunks.entries()) {
+      await handlers["catalog.source-observation.normalized-evidence-chunk-recorded"]?.({
+        streamId: "catalog.source-observation-tcgdex_en_base1_043",
+        data: {
+          observationId: "tcgdex_en_base1_043",
+          sourceRecordHash: "hash",
+          chunkIndex,
+          chunkCount: normalizedChunks.length,
+          encodedNormalizedEvidence,
+        },
+        timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
+      } as never);
+    }
+    for (const [chunkIndex, encodedPayload] of sourceChunks.entries()) {
+      await handlers["catalog.source-observation.source-payload-chunk-recorded"]?.({
+        streamId: "catalog.source-observation-tcgdex_en_base1_043",
+        data: {
+          observationId: "tcgdex_en_base1_043",
+          sourceRecordHash: "hash",
+          chunkIndex,
+          chunkCount: sourceChunks.length,
+          encodedPayload,
+        },
+        timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
+      } as never);
+    }
+
+    expect(db.observations.get("tcgdex_en_base1_043")).toMatchObject({
+      normalized: normalizedEvidence,
+      source_payload: sourcePayload,
+    });
+    expect(db.payloadAssemblies.size).toBe(0);
+    expect(db.normalizedEvidenceAssemblies.size).toBe(0);
   });
 
   it("repairs missing rows from refreshed unchanged observations", async () => {
