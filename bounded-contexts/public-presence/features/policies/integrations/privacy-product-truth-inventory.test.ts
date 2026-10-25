@@ -220,7 +220,10 @@ describe("privacy product-truth derivation over the real repository", () => {
       "bounded-contexts/auth/support/request-support/cookies.ts:1",
       "contracts/auth-context/index.ts:3",
     ]);
-    expect(factFor("first-party-cookie", "chase_sets_guest_checkout").detail.aliasCount).toBe(2);
+    // The guest checkout cookie has one shipped constant, in the Auth contract.
+    expect(factFor("first-party-cookie", "chase_sets_guest_checkout").detail.aliasDeclarations).toEqual([
+      "contracts/auth-context/index.ts:4",
+    ]);
   });
 
   it("derives Web Storage subjects through direct, helper, alias, Pick<Storage>, and dynamic-key shapes", () => {

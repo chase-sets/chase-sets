@@ -5,11 +5,9 @@ import {
 } from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { ResolvedActor } from "@chase-sets/auth-context";
+import { AUTH_GUEST_CHECKOUT_COOKIE_NAME, ROLE_PERMISSIONS, type ResolvedActor } from "@chase-sets/auth-context";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { mapGuestCheckoutClaimLinkRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
-import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
-import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import {
   bindGuestCheckoutContact,
   consumeChallenge,
@@ -191,7 +189,7 @@ async function claimGuestAccountAndStartSession(
         accountId: params.accountId,
         roleKey: "owner",
         status: "active",
-        rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+        rolePermissions: ROLE_PERMISSIONS.owner,
       },
     ],
   });
