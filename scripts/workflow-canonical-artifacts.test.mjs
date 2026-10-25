@@ -16,6 +16,19 @@ import {
 const registryWorkflowFile = ".github/workflows/platform-registry-cleanup.yml";
 const registryWorkflow = readFileSync(resolve(registryWorkflowFile), "utf8");
 
+function trackedActionsYaml() {
+  const result = spawnSync("git", ["ls-files", "-z", "--", ".github"], { encoding: "utf8" });
+  expect(result.status).toBe(0);
+  return result.stdout
+    .split("\0")
+    .filter((path) => /^\.github\/(?:workflows|actions)\/.+\.ya?ml$/i.test(path))
+    .sort();
+}
+
+function debtKey({ workflowFile, outPath, uploadPath, kind }) {
+  return [workflowFile, outPath, uploadPath, kind].join("\u0000");
+}
+
 describe("workflow canonical artifact guard (#5952)", () => {
   it("keeps the real Linux timeout verifier path-filtered, bounded and nongoverning", () => {
     const source = readFileSync(".github/workflows/browser-boundary-timeout-verifier.yml", "utf8");
@@ -214,6 +227,7 @@ jobs:
       const result = scanWorkflowCanonicalArtifacts({ root });
 
       expect(result.discovery).toEqual({
+        files: [".github/workflows/unrelated-name.yml"],
         scannedFiles: 1,
         totalFiles: 1,
         scannedSurfaces: 1,
@@ -230,9 +244,34 @@ jobs:
   it("ratchets existing shape-discovered debt while rejecting regression, missing surfaces, and reduced coverage", () => {
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
+    const committedBaseline = JSON.parse(readFileSync(resolve("scripts/workflow-canonical-artifacts-baseline.json"), "utf8"));
+    const tracked = trackedActionsYaml();
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 81, scannedSurfaces: 45, totalSurfaces: 45 });
-    expect(current.findings).toHaveLength(21);
+    // Discovery is the git-tracked Actions corpus and its per-file surfaces, never a pinned corpus total.
+    expect(current.discovery.files).toEqual(tracked);
+    expect(current.playwrightUploadFence.census.files).toEqual(tracked);
+    expect(current.surfaces).toEqual(
+      tracked.flatMap(
+        (workflowFile) =>
+          checkWorkflowCanonicalArtifacts(readFileSync(resolve(workflowFile), "utf8"), { workflowFile }).surfaces,
+      ),
+    );
+    expect(current.discovery).toEqual({
+      files: tracked,
+      scannedFiles: tracked.length,
+      totalFiles: tracked.length,
+      scannedSurfaces: current.surfaces.length,
+      totalSurfaces: current.surfaces.length,
+    });
+    // Existing debt is the committed keyed set: new debt fails the ratchet, and fixed debt must shrink the baseline.
+    expect(current.findings.map(debtKey).sort()).toEqual(committedBaseline.findings.map(debtKey).sort());
+    expect(evaluateWorkflowCanonicalArtifactRatchet(current, committedBaseline)).toMatchObject({
+      passed: true,
+      newOrRegressed: [],
+      missingExpectedSurfaces: [],
+      coverageRegressions: [],
+      playwrightUploadFenceRegressions: [],
+    });
     expect(
       current.findings.filter((finding) => /platform-merge-qualification(?:-observer)?\.yml/.test(finding.message)),
     ).toEqual([]);
@@ -297,8 +336,17 @@ jobs:
 
     const unchanged = evaluateWorkflowCanonicalArtifactRatchet(current, baseline);
     expect(unchanged.passed).toBe(true);
-    expect(unchanged.existingDebt).toHaveLength(21);
+    expect(unchanged.existingDebt.map(debtKey).sort()).toEqual(committedBaseline.findings.map(debtKey).sort());
     expect(unchanged.newOrRegressed).toEqual([]);
+
+    const newDebt = {
+      ...current,
+      findings: [...current.findings, { ...current.findings[0], outPath: "artifacts/unbaselined/new-debt.json" }],
+    };
+    expect(evaluateWorkflowCanonicalArtifactRatchet(newDebt, committedBaseline)).toMatchObject({
+      passed: false,
+      newOrRegressed: [expect.objectContaining({ outPath: "artifacts/unbaselined/new-debt.json" })],
+    });
 
     const worsenedFinding = {
       ...current,
@@ -323,6 +371,18 @@ jobs:
       passed: false,
       coverageRegressions: [expect.stringContaining("scanned workflow/action files fell")],
     });
+
+    // Omitting any one tracked file fails by membership even when the scanned count is unchanged.
+    for (const omitted of tracked) {
+      const omittedFile = {
+        ...current,
+        discovery: { ...current.discovery, files: current.discovery.files.filter((file) => file !== omitted) },
+      };
+      expect(evaluateWorkflowCanonicalArtifactRatchet(omittedFile, baseline), omitted).toMatchObject({
+        passed: false,
+        coverageRegressions: [`tracked workflow/action file '${omitted}' was not scanned`],
+      });
+    }
 
     const rawPlaywrightRegression = {
       ...current,
