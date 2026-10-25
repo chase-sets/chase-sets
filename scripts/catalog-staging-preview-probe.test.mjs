@@ -619,15 +619,11 @@ describe("Scope Sync Batch preview probe receipt (#9244)", () => {
     ]);
   });
 
-  it("keeps EN and JA Pokemon rows on one shared Scope Record set", () => {
-    const shared = receipt();
-    expect(shared.rows.find((row) => row.rowKey === "pokemon-en").scopeRecordSet.sharedWith).toBe("pokemon-ja");
-    expect(shared.rows.find((row) => row.rowKey === "pokemon-ja").scopeRecordSet.sharedWith).toBe("pokemon-en");
-    const unshared = clone(shared);
-    unshared.rows.find((row) => row.rowKey === "pokemon-ja").scopeRecordSet.sharedWith = null;
-    expect(validateScopeSyncBatchPreviewProbeReceipt(unshared, expectedIdentity).errors).toEqual([
-      "row pokemon-ja must declare its shared Scope Record set",
-    ]);
+  it("accepts EN and JA Pokemon rows without a declared shared Scope Record set", () => {
+    const current = receipt();
+    expect(current.rows.find((row) => row.rowKey === "pokemon-en")).not.toHaveProperty("scopeRecordSet");
+    expect(current.rows.find((row) => row.rowKey === "pokemon-ja")).not.toHaveProperty("scopeRecordSet");
+    expect(validateScopeSyncBatchPreviewProbeReceipt(current, expectedIdentity)).toEqual({ ok: true, errors: [] });
   });
 
   it("rejects missing or duplicate rows and a hand-set complete status over unread sources", () => {

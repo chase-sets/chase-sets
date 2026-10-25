@@ -22,6 +22,7 @@ const predecessorTotalKeys = [
 ];
 
 const production = classification.analyzeAuthoritativeStreamReads({ repoRoot });
+const productionGrammar = deriveGreenGrammarInstances(production);
 const [detachment, logical, adapter, opaque, localAdapter, mixedAdapter] = await Promise.all([
   analyzeFixture(detachmentFixture()),
   analyzeFixture(logicalArgumentFixture()),
@@ -220,51 +221,16 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
   });
 
   it("derives twenty-seven green grammar instances across twenty-five live locations without a registry", () => {
-    const green = deriveGreenGrammarInstances(production);
+    const green = productionGrammar;
     expect(green).toHaveLength(27);
     expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(25);
-    expect(green).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          category: "member-declaration",
-          file: "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
-          line: 169,
-        }),
-        expect.objectContaining({
-          category: "member-declaration",
-          file: "bounded-contexts/identity/features/agent-grants/api/revocation-release.ts",
-          line: 39,
-        }),
-        expect.objectContaining({
-          category: "member-declaration",
-          file: "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.ts",
-          line: 95,
-        }),
-        expect.objectContaining({
-          category: "member-declaration",
-          file: "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
-          line: 47,
-        }),
-        expect.objectContaining({
-          category: "member-declaration",
-          file: "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
-          line: 76,
-        }),
-        expect.objectContaining({
-          category: "member-declaration",
-          file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
-          line: 71,
-        }),
-        expect.objectContaining({
-          category: "member-declaration",
-          file: "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
-          line: 253,
-        }),
-      ]),
-    );
-    const shared = green.filter(
-      (entry) => entry.file === "contracts/event-core/complete-stream.ts" && entry.line === 5,
-    );
+    const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);
+    expect(declarations.errors).toEqual([]);
+    expect(declarations.resolved).toHaveLength(memberDeclarationSelectors.length);
+    for (const { instance } of declarations.resolved) expect(instance.line).toBe(currentLine(instance.node));
+    const shared = resolveGrammarSelectors(green, sharedReaderSelectors);
+    expect(shared.errors).toEqual([]);
+    expect(new Set(shared.resolved.map(({ instance }) => `${instance.file}:${instance.line}`))).toHaveLength(1);
     expect(
       green.filter(
         (entry) =>
@@ -272,12 +238,88 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
           "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
       ),
     ).toHaveLength(3);
-    expect(new Set(shared.map((entry) => entry.category))).toEqual(new Set(["member-declaration", "type-position"]));
+    expect(new Set(shared.resolved.map(({ instance }) => instance.category))).toEqual(
+      new Set(["member-declaration", "type-position"]),
+    );
     expect(
       green.some(
         (entry) => entry.category === "member-declaration" && propertyNameText(entry.node.name) === "readStreamSql",
       ),
     ).toBe(false);
+  });
+
+  it("keeps every declaration selector resolved when an unrelated source line moves", () => {
+    const selectors = [...memberDeclarationSelectors, ...sharedReaderSelectors];
+    const green = productionGrammar;
+    const before = resolveGrammarSelectors(green, selectors);
+    expect(before.errors).toEqual([]);
+    for (const file of new Set(selectors.map((selector) => selector.file))) {
+      const sourceFile = production.program.getSourceFile(path.join(production.repoRoot, ...file.split("/")));
+      const moved = ts.createSourceFile(
+        sourceFile.fileName,
+        `// unrelated moved line\n${sourceFile.text}`,
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const shifted = [...green.filter((entry) => entry.file !== file), ...grammarInstancesIn(moved, file)];
+      expect(shifted).toHaveLength(green.length);
+      const after = resolveGrammarSelectors(shifted, selectors);
+      expect(after.errors, file).toEqual([]);
+      expect(
+        after.resolved.map(({ instance }) => instance.line - (instance.file === file ? 1 : 0)),
+        file,
+      ).toEqual(before.resolved.map(({ instance }) => instance.line));
+    }
+  });
+
+  it("fails closed on missing, duplicate, ambiguous, malformed, and incomplete declaration selectors", () => {
+    const green = productionGrammar;
+    const [selector] = memberDeclarationSelectors;
+    const label = selectorLabel(selector);
+    const { instance } = resolveGrammarSelectors(green, [selector]).resolved[0];
+
+    const missing = { ...selector, symbol: "createAgentGrantRevocations.removed.readStream" };
+    expect(resolveGrammarSelectors(green, [missing]).errors).toEqual([
+      `${selectorLabel(missing)}: expected one declaration, found 0`,
+    ]);
+    expect(resolveGrammarSelectors(green, [selector, { ...selector }]).errors).toEqual([
+      `${label}: duplicate selector`,
+    ]);
+    expect(resolveGrammarSelectors([...green, { ...instance }], [selector]).errors).toEqual([
+      `${label}: expected one declaration, found 2 at ${selector.file}:${instance.line}, ${selector.file}:${instance.line}`,
+    ]);
+
+    const ambiguousFile = "packages/ambiguous.ts";
+    const ambiguousSource = ts.createSourceFile(
+      ambiguousFile,
+      "export function twice(store) {\n  const readers = [\n    { readStream: store.readStream },\n    { readStream: store.readStream },\n  ];\n}\n",
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const ambiguous = { category: "member-declaration", file: ambiguousFile, symbol: "twice.readers.readStream" };
+    expect(resolveGrammarSelectors(grammarInstancesIn(ambiguousSource, ambiguousFile), [ambiguous]).errors).toEqual([
+      `${selectorLabel(ambiguous)}: expected one declaration, found 2 at ${ambiguousFile}:3, ${ambiguousFile}:4`,
+    ]);
+
+    for (const malformed of [
+      { ...selector, line: instance.line },
+      { category: selector.category, file: selector.file },
+      { ...selector, symbol: "" },
+      { ...selector, symbol: 169 },
+      { ...selector, category: "member" },
+      null,
+    ]) {
+      expect(resolveGrammarSelectors(green, [malformed]).errors, JSON.stringify(malformed)).toEqual([
+        `${JSON.stringify(malformed)}: malformed selector`,
+      ]);
+    }
+
+    const removed = new Set([selector.file]);
+    const incomplete = green.filter((entry) => !removed.has(entry.file));
+    expect(incomplete).toHaveLength(green.length - 1);
+    expect(resolveGrammarSelectors(incomplete, memberDeclarationSelectors).errors).toEqual([
+      `${label}: expected one declaration, found 0`,
+    ]);
   });
 });
 
@@ -583,33 +625,151 @@ function sourceNode(result, file, text, containingText) {
   return match;
 }
 
-function deriveGreenGrammarInstances(result) {
-  const instances = [];
-  const rootSet = new Set(result.roots);
-  for (const sourceFile of result.program.getSourceFiles()) {
-    const file = normalize(path.relative(result.repoRoot, sourceFile.fileName));
-    if (!rootSet.has(file)) continue;
-    visit(sourceFile, (node) => {
-      if (isReadStreamMemberDeclaration(node)) add("member-declaration", node, sourceFile, file);
-      if (
-        ts.isLiteralTypeNode(node) &&
-        ts.isStringLiteral(node.literal) &&
-        node.literal.text === "readStream" &&
-        enclosing(node, ts.isIndexedAccessTypeNode)
-      ) {
-        add("type-position", node.literal, sourceFile, file);
-      }
-      if (ts.isTypeQueryNode(node) && node.exprName.getText(sourceFile).endsWith(".readStream")) {
-        add("type-position", node, sourceFile, file);
-      }
-    });
+// Declarations are keyed by their enclosing declaration names, never by line; the
+// line is computed from the live node and only reported.
+const memberDeclarationSelectors = [
+  [
+    "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
+    "createAgentGrantRevocations.history.readStream",
+  ],
+  [
+    "bounded-contexts/identity/features/agent-grants/api/revocation-release.ts",
+    "createAgentGrantRevocationRelease.read.events.readStream",
+  ],
+  [
+    "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.ts",
+    "createSavedListRecoveryRuntime.boundRuntime.eventStore.readStream",
+  ],
+  [
+    "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
+    "createPaymentTransactionRunner.eventStore.readStream",
+  ],
+  [
+    "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
+    "createPaymentWebhookRunner.committed.eventStore.readStream",
+  ],
+  [
+    "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
+    "writeDemandCurve.history.readStream",
+  ],
+  [
+    "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
+    "createInventoryDraftListingConsumer.accept.accepted.receipt.eventStore.readStream",
+  ],
+].map(([file, symbol]) => ({ category: "member-declaration", file, symbol }));
+const sharedReaderSelectors = ["member-declaration", "type-position"].map((category) => ({
+  category,
+  file: "contracts/event-core/complete-stream.ts",
+  symbol: "CompleteStreamReader.readStream",
+}));
+const grammarCategories = new Set(["member-declaration", "type-position"]);
+const selectorKeys = ["category", "file", "symbol"];
+
+function resolveGrammarSelectors(instances, selectors) {
+  const errors = [];
+  const resolved = [];
+  const seen = new Set();
+  for (const selector of selectors) {
+    if (!isWellFormedSelector(selector)) {
+      errors.push(`${JSON.stringify(selector)}: malformed selector`);
+      continue;
+    }
+    const label = selectorLabel(selector);
+    if (seen.has(label)) {
+      errors.push(`${label}: duplicate selector`);
+      continue;
+    }
+    seen.add(label);
+    const matches = instances.filter((instance) => selectorKeys.every((key) => instance[key] === selector[key]));
+    if (matches.length !== 1) {
+      const locations = matches.map((instance) => `${instance.file}:${instance.line}`).join(", ");
+      errors.push(`${label}: expected one declaration, found ${matches.length}${locations ? ` at ${locations}` : ""}`);
+      continue;
+    }
+    resolved.push({ selector, instance: matches[0] });
   }
+  return { errors, resolved };
+}
+
+function isWellFormedSelector(selector) {
+  return (
+    typeof selector === "object" &&
+    selector !== null &&
+    Object.keys(selector).sort().join() === selectorKeys.join() &&
+    selectorKeys.every((key) => typeof selector[key] === "string" && selector[key].length > 0) &&
+    grammarCategories.has(selector.category)
+  );
+}
+
+function selectorLabel(selector) {
+  return `${selector.category} ${selector.file}#${selector.symbol}`;
+}
+
+function deriveGreenGrammarInstances(result) {
+  const rootSet = new Set(result.roots);
+  return result.program.getSourceFiles().flatMap((sourceFile) => {
+    const file = normalize(path.relative(result.repoRoot, sourceFile.fileName));
+    return rootSet.has(file) ? grammarInstancesIn(sourceFile, file) : [];
+  });
+}
+
+function grammarInstancesIn(sourceFile, file) {
+  const instances = [];
+  visit(sourceFile, (node) => {
+    if (isReadStreamMemberDeclaration(node)) add("member-declaration", node);
+    if (
+      ts.isLiteralTypeNode(node) &&
+      ts.isStringLiteral(node.literal) &&
+      node.literal.text === "readStream" &&
+      enclosing(node, ts.isIndexedAccessTypeNode)
+    ) {
+      add("type-position", node.literal);
+    }
+    if (ts.isTypeQueryNode(node) && node.exprName.getText(sourceFile).endsWith(".readStream")) {
+      add("type-position", node);
+    }
+  });
   return instances;
 
-  function add(category, node, sourceFile, file) {
-    const sourceStart = node.getStart(sourceFile);
-    instances.push({ category, node, file, line: sourceFile.getLineAndCharacterOfPosition(sourceStart).line + 1 });
+  function add(category, node) {
+    instances.push({ category, node, file, symbol: declarationSymbol(node), line: currentLine(node) });
   }
+}
+
+function declarationSymbol(node) {
+  const names = [];
+  for (let current = node; current; current = current.parent) {
+    if (isNamedDeclaration(current) && (ts.isIdentifier(current.name) || ts.isStringLiteralLike(current.name)))
+      names.unshift(current.name.text);
+  }
+  return names.join(".");
+}
+
+function isNamedDeclaration(node) {
+  return (
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isClassDeclaration(node) ||
+    ts.isClassExpression(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    ts.isModuleDeclaration(node) ||
+    ts.isEnumDeclaration(node) ||
+    ts.isVariableDeclaration(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isMethodSignature(node) ||
+    ts.isPropertyDeclaration(node) ||
+    ts.isPropertySignature(node) ||
+    ts.isPropertyAssignment(node) ||
+    ts.isShorthandPropertyAssignment(node) ||
+    ts.isGetAccessorDeclaration(node) ||
+    ts.isSetAccessorDeclaration(node)
+  );
+}
+
+function currentLine(node) {
+  const sourceFile = node.getSourceFile();
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
 function isReadStreamMemberDeclaration(node) {

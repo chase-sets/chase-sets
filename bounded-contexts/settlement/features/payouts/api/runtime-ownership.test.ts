@@ -36,6 +36,7 @@ const payoutServiceOwnership = {
   requestLifecycle: [
     "listPayouts",
     "getPayout",
+    "getPayoutQuickAmounts",
     "getPayoutMoneyTimeline",
     "previewPayoutRequest",
     "requestPayout",

@@ -24,6 +24,7 @@ import {
   type CheckoutOptimizationGoal,
   type CheckoutSourceCommitPosition,
 } from "../domain/domain";
+import { checkoutDeliveryServiceabilityIssue } from "../domain/delivery-serviceability";
 import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
@@ -328,6 +329,10 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           "Confirm the suggested shipping address before continuing.",
           "address_choice_required",
         );
+      const serviceabilityIssue = checkoutDeliveryServiceabilityIssue(verification.shippingAddress);
+      if (serviceabilityIssue) {
+        throw new CheckoutDomainError(serviceabilityIssue.message, serviceabilityIssue.code);
+      }
       return applySessionCommandForBuyer(
         {
           ...params,
