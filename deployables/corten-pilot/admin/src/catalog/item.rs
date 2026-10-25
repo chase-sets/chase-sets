@@ -752,9 +752,14 @@ async fn link(req: Req, config: Shared, headers: HeaderMap, id: String, input: R
     };
     let product = matches!(refs, Refs::Product);
     let draft = Draft { input, errors };
-    let form = views::ReferenceForm { t: req.t(), id: &id, product, form: &draft };
-    let back = if product { ItemBack::ProductRef(draft.clone()) } else { ItemBack::CatalogRef(draft.clone()) };
-    invalid(&req, &config, &headers, &id, &draft.errors, form, back).await
+    let t = req.t();
+    if product {
+        let form = views::ReferenceForm { t, id: &id, form_id: ids::PRODUCT_REF, product, form: &draft };
+        invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::ProductRef(draft.clone())).await
+    } else {
+        let form = views::ReferenceForm { t, id: &id, form_id: ids::CATALOG_REF, product, form: &draft };
+        invalid(&req, &config, &headers, &id, &draft.errors, form, ItemBack::CatalogRef(draft.clone())).await
+    }
 }
 
 async fn unlink(req: Req, config: Shared, headers: HeaderMap, id: String, input: ReferenceInput, refs: Refs) -> corten::Result {

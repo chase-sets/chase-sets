@@ -462,6 +462,10 @@
   "list.all.value.types": "All Value Types",
   "list.no": "No",
   "list.yes": "Yes",
+  "live_status.connecting": "Connecting…",
+  "live_status.live": "Live",
+  "live_status.stale_description": "The live connection dropped. Data may be out of date until it reconnects.",
+  "live_status.stale_since": "Stale since {value}",
   "realtime.changed": "{count} {entity_name} changed",
   "realtime.reload": "Reload",
   "realtime.sync.required": "{entity_name} changed"

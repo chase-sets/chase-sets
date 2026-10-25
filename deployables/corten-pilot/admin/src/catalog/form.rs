@@ -481,16 +481,14 @@ impl PublishInput {
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct IdInput {
-    /// Not `id`: a control named `id` shadows the form's id, and the runtime cannot patch it
-    /// (todd-skelton/corten#44).
-    pub chosen_id: String,
+    pub id: String,
 }
 
 impl IdInput {
     pub fn check(&self, p: Pilot) -> Result<&str, Errors> {
         let mut errors = Errors::new();
-        required(&mut errors, Self::FIELDS.chosen_id, &self.chosen_id, p);
-        errors.into_result(self.chosen_id.trim())
+        required(&mut errors, Self::FIELDS.id, &self.id, p);
+        errors.into_result(self.id.trim())
     }
 }
 

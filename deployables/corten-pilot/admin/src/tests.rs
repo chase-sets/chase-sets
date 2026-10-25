@@ -255,9 +255,9 @@ async fn the_pilots_own_check_names_the_field_and_calls_nothing() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(post("/commerce/postage-policies", &create_body("Draft", ""), true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains(r#"id="max_letter_units-error""#) && html.contains(r#"aria-invalid="true""#), "{html}");
+    assert!(html.contains(r#"id="create-form-max_letter_units-error""#) && html.contains(r#"aria-invalid="true""#), "{html}");
     assert!(
-        html.contains(r#"</label><p class="field-error" id="max_letter_units-error">"#),
+        html.contains(r#"</label><p class="field-error" id="create-form-max_letter_units-error">"#),
         "the error is not in the label: {html}"
     );
     assert!(!pilot.policy_calls().iter().any(|c| c.method == Method::POST), "nothing is sent to the API");
@@ -331,7 +331,7 @@ async fn activation_sends_the_reason_or_asks_for_one() {
         pilot.send(post("/commerce/postage-policies/opp_seed/activate", "label=Default&activation_reason=+", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.starts_with(r#"<form class="lifecycle__card" id="activate-form""#), "{html}");
-    assert!(html.contains(r#"id="activation_reason-error""#), "{html}");
+    assert!(html.contains(r#"id="activate-form-activation_reason-error""#), "{html}");
     assert!(!pilot.policy_calls().iter().any(|c| c.method == Method::POST));
 }
 
@@ -766,7 +766,7 @@ async fn options_are_added_revised_retired_and_reordered() {
     let (status, _, html) =
         pilot.send(post("/catalog/dimensions/dim_seed/options", "option_id=chc_x&code=nm&numeric_value=two", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains(r#"id="numeric_value-error""#), "{html}");
+    assert!(html.contains(r#"id="catalog-add-option-numeric_value-error""#), "{html}");
     assert!(pilot.catalog_writes().is_empty());
 
     let posts = [
@@ -916,9 +916,9 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     );
     assert!(
         html.contains(
-            r#"<template data-ref="labels"><span>120 matching Dimensions</span><span>1 Dimensions selected</span></template>"#
+            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},&quot;120 matching Dimensions&quot;,&quot;Dimensions&quot;,%[&quot;&quot;,&quot;count&quot;,&quot; &quot;,&quot;entity_name&quot;,&quot; selected&quot;])"#
         ),
-        "{html}"
+        "the count's text is the catalog's message, sent unfilled: {html}"
     );
     assert!(html.contains(r#"name="mode" value="ids">Preview</button>"#) && html.contains(r#"type="reset""#), "{html}");
     assert!(html.contains(r#"<dialog id="catalog-bulk-preview"></dialog>"#), "the preview's place: {html}");
@@ -1324,6 +1324,19 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
     assert!(html.starts_with(r#"<div data-scope="bulk-rows" id="catalog-rows""#), "{html}");
-    assert!(html.contains(r#"<corten-live id="catalog-live" src="/catalog/catalog-items/live?status=draft"><div id="catalog-changes" class="item-form__changes" role="status"></div></corten-live>"#), "{html}");
+    assert!(
+        html.contains(
+            r#"<corten-live id="catalog-live" src="/catalog/catalog-items/live?status=draft"><div data-scope="live-status""#
+        ),
+        "the stream's connection status, in the element that streams: {html}"
+    );
+    assert!(
+        html.contains(r#"<input type="hidden" name="status" value="draft"><button type="submit" class="live-status__reload">Reload</button>"#),
+        "a stale stream's Reload keeps the filters: {html}"
+    );
+    assert!(
+        html.contains(r#"<div id="catalog-changes" class="item-form__changes" role="status"></div></corten-live>"#),
+        "{html}"
+    );
     assert!(!html.contains(r#"role="search""#), "not the filters: {html}");
 }

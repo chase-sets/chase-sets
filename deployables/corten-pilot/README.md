@@ -139,6 +139,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `733fdd4` | [todd-skelton/corten#14 A data-patch form posts to its own action whatever its controls are named](https://github.com/todd-skelton/corten/pull/14) closed [todd-skelton/corten#13 A control named action or method breaks a data-patch form](https://github.com/todd-skelton/corten/issues/13): the lifecycle button is `action` again and its router test is gone; no breaking change for the pilot |
 | `6f2ba32` | [todd-skelton/corten#21 A <corten-live> stream resumes from the app's cursor](https://github.com/todd-skelton/corten/pull/21) closed [todd-skelton/corten#15 A <corten-live> stream cannot resume after a reconnect](https://github.com/todd-skelton/corten/issues/15). Breaking for the pilot only in a test: a live route the API refuses now draws nothing (a stand-in session the stream accepts, `catalog-viewer`, checks a viewer's rows). Also brings [todd-skelton/corten#16 Write JSON with a derive whose layout is fixed at compile time](https://github.com/todd-skelton/corten/pull/16) (`Json` and `ToJson` move to the end of the prelude; nothing in the pilot changed) and [todd-skelton/corten#19 Copy a route parameter at once when nothing in it needs encoding](https://github.com/todd-skelton/corten/pull/19) |
 | `f80d4a1` | Corten `main` with the pilot's earlier gaps closed: [todd-skelton/corten#9 Forms have no per-submission idempotency key](https://github.com/todd-skelton/corten/issues/9) (`SubmitKey`), [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20), [todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24) and [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26). Breaking: `Json`, `req.screen` and `json_ld` take `ToJson`, so the screens and the catalog's read types derive it. `DimensionDetail` flattens a struct, which the derive refuses ([todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34)), so it writes itself through serde. `SubmitKey` is not used yet: it was 32 hex digits and the Inventory API takes a UUID ([todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35)) |
+| `014a2fd` | Corten `main` with [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32), [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33), [todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34), [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35), [todd-skelton/corten#39 corten check at a workspace root type-checks none of the members' scripts](https://github.com/todd-skelton/corten/issues/39), [todd-skelton/corten#44 A form with a control named id cannot be patched](https://github.com/todd-skelton/corten/issues/44), [todd-skelton/corten#45 Field error ids are only the field's name, so two forms on a page share them](https://github.com/todd-skelton/corten/issues/45) and [todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17) closed, each adopted (see Corten gaps). Breaking: `Errors::aria` and `Errors::message` are gone; a form's field errors are `errors.within(FormId)`, with typed form ids, and their ids are `{form id}-{field}-error` |
 
 ## What lives where
 
@@ -159,7 +160,7 @@ forward only on purpose, when a fix the pilot needs lands.
 | `admin/src/catalog/views/bulk_rows.*`, `bulk_dialogs.rs` | bulk changes: the bar and the rows' boxes (the selection's script), and the preview and job dialogs |
 | `admin/src/catalog/items.rs`, `views/item_list.rs`, `views/item_form.css` | the catalog items list: its routes, the changes count, the three bulk changes and removing drafts |
 | `admin/src/catalog/item.rs`, `views/item_page.rs`, `views/item_page.css` | a catalog item's page: its reads, one route per write, and its sections and dialogs |
-| `jsconfig.json` | type-checks the apps' scripts (`tsc -p`, in CI); `corten check` at the pin only does it inside an app's directory |
+| `admin/src/catalog/views/live_status.*` | the items list's stream: Live, Connecting… or stale with Reload (CSS on `<corten-live>`'s `status`) |
 | `*/src/tests.rs` | router tests against a stand-in platform API |
 
 ## Workarounds and decisions in the pilot
@@ -193,7 +194,8 @@ forward only on purpose, when a fix the pilot needs lands.
    before the post, with marketplace's key and record, and the next page asks the API about any
    record it does not settle. While the answer is uncertain the page's writes are off until the
    seller checks again or discards the record. Without JavaScript the server still confirms the
-   attempt after the redirect. Corten's `SubmitKey` is not used yet; see Corten gaps.
+   attempt after the redirect. The attempt is Corten's `SubmitKey` (`SubmitKey::field`): the
+   runtime keeps it while a post has no answer and draws a new one after it.
 8. **`target` cannot name a handler argument**: in a handler call it is the event's target, so
    `WriteForm` passes its record id as `record` ([`WriteForm`](marketplace/src/views/recovery.rs)).
    Corten documents this; not a gap.
@@ -321,42 +323,14 @@ forward only on purpose, when a fix the pilot needs lands.
 
 Open, filed in Corten (one gap each):
 
-1. [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32)
-   (correctness, then developer time). A list's filters have to be declared again on its live,
-   bulk preview and confirm routes, and a route that leaves one out still compiles but drops
-   that filter. Workaround: the items' five filtered routes come from a `macro_rules!`
-   (`filtered!` in [`items`](admin/src/catalog/items.rs)). The dimensions and fields routes
-   still repeat their fields. Closed in Corten after the pin (`#[route(query)]`).
-2. [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33)
-   (correctness, as the user sees it). admin-web's live lists show "Live", "Connecting…" or
-   "Stale since …". The pilot has nothing to read it from, so a dropped live list looks like an
-   unchanged one. No workaround; the indicator is left out. Closed in Corten after the pin
-   (`status` and `stale-since` on the element).
-3. [todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34)
-   (developer time). `DimensionDetail` flattens `Dimension` into itself, and the derive
-   refuses it. Workaround: a hand-written `ToJson` that writes through `serde_json`
-   ([`api`](admin/src/catalog/api.rs)).
-4. [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35)
-   (correctness). The Inventory API takes a UUID v4 attempt id, so marketplace keeps its own
-   (item 7 above). Closed in Corten after the pin (`SubmitKey` is a UUID v4).
-5. [todd-skelton/corten#39 corten check at a workspace root type-checks none of the members' scripts](https://github.com/todd-skelton/corten/issues/39)
-   (correctness). Workaround: CI still runs `tsc -p jsconfig.json`. Closed in Corten after the
-   pin.
-6. [todd-skelton/corten#44 A form with a control named id cannot be patched](https://github.com/todd-skelton/corten/issues/44)
-   (correctness). The runtime reads a patched form's id as `form.id`, which a control named
-   `id` shadows, so the 422 that comes back is dropped and the dialog shows no error.
-   Workaround: the one-id dialogs (Assign Blueprint, Assign Category) name their control
-   `chosen_id` (`IdInput` in [`form`](admin/src/catalog/form.rs)).
-7. [todd-skelton/corten#45 Field error ids are only the field's name, so two forms on a page share them](https://github.com/todd-skelton/corten/issues/45)
-   (correctness, for a screen reader). Set Tags and Set Image URLs both have field `text`;
-   refuse both in one page view and there are two `text-error` ids. No workaround; in practice
-   one dialog is refused at a time.
-
-Also met, and already filed by Corten:
-[todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17).
-The bulk bar's "N Dimensions selected" is text a script computes. Workaround: the server draws
-the count's text for 0 to the number of rows on the page in a `<template>`, and the script shows
-the one for the count (`BulkRows`).
+1. [todd-skelton/corten#49 A script cannot hear a <corten-live> element's status change](https://github.com/todd-skelton/corten/issues/49)
+   (API consistency; low). The list's Live, Connecting and stale states are CSS on the element's
+   `status`, but writing when it went stale needs a script, and there is no event. Workaround:
+   `LiveStatus` observes `stale-since` with a `MutationObserver`
+   ([`live_status.js`](admin/src/catalog/views/live_status.js)).
+2. [todd-skelton/corten#50 A @typedef of plain values and a Message is not a group, and the error does not say why](https://github.com/todd-skelton/corten/issues/50)
+   (developer time; low). Workaround: `BulkRows`' `drawn` takes the count's texts as three
+   parameters ([`bulk_rows.js`](admin/src/catalog/views/bulk_rows.js)).
 
 Found in Chase Sets, not Corten: the Catalog API refuses every reorder of a dimension's options.
 `PUT /:id/options/:optionId` is registered before `PUT /:id/options/order`
@@ -381,14 +355,44 @@ none with it, counted in the dev sandbox's `platform_realtime_stream_leases` (me
 
 Closed:
 
+Fixed at the `014a2fd` pin, workarounds removed:
+
+1. [todd-skelton/corten#32 A route cannot share a set of query parameters with another route](https://github.com/todd-skelton/corten/issues/32)
+   (correctness): each list's filters are one `#[route(query)]` set (`ItemQuery`,
+   `DimensionQuery`, `FieldQuery`) that its page, live, bulk and confirm routes carry, and
+   what a write left on the list is another (`ItemNotice`, `ListNotice`). The `filtered!`
+   macro and the repeated fields are gone.
+2. [todd-skelton/corten#33 A page cannot tell whether a <corten-live> element is connected](https://github.com/todd-skelton/corten/issues/33)
+   (correctness, as the user sees it): the items list shows admin-web's Live, Connecting… and
+   "Stale since …" with Reload (`LiveStatus`). admin-web shows it on that list only, so the
+   dimensions and fields lists do not.
+3. [todd-skelton/corten#34 #[derive(ToJson)] refuses #[serde(flatten)] of a struct that is itself ToJson](https://github.com/todd-skelton/corten/issues/34)
+   (developer time): `DimensionDetail` derives `ToJson`; a test checks it writes what serde does.
+4. [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35)
+   (correctness): marketplace's write forms draw their attempt with `SubmitKey::field` (item 7).
+5. [todd-skelton/corten#39 corten check at a workspace root type-checks none of the members' scripts](https://github.com/todd-skelton/corten/issues/39)
+   (correctness): CI puts the repo's `tsc` on `PATH` and fails if `corten check` says it
+   type-checked nothing; the pilot's `jsconfig.json` and its CI step are gone.
+6. [todd-skelton/corten#44 A form with a control named id cannot be patched](https://github.com/todd-skelton/corten/issues/44)
+   (correctness): Assign Blueprint and Assign Category name their control `id` again.
+7. [todd-skelton/corten#45 Field error ids are only the field's name, so two forms on a page share them](https://github.com/todd-skelton/corten/issues/45)
+   (correctness, for a screen reader): every form's errors are `errors.within(FormId)`, so a
+   message's id is `{form id}-{field}-error`. Breaking at this pin: `Errors::aria` and
+   `Errors::message` are gone, so every form id is a typed `#[derive(Id)]` value.
+8. [todd-skelton/corten#17 Scripts have no typed way to show user-facing text they compute](https://github.com/todd-skelton/corten/issues/17)
+   (end-user performance): the bulk bar's "N Dimensions selected" is the catalog's message, sent
+   once unfilled (`t.js().bulk_selected()`), instead of a `<template>` with the text for every
+   count from 0 to the page's rows, which went out again in each live event.
+
 Fixed at the `f80d4a1` pin:
 
 1. [todd-skelton/corten#9 Forms have no per-submission idempotency key](https://github.com/todd-skelton/corten/issues/9)
-   (correctness): Corten has `SubmitKey`, renewed after each answer. Not adopted yet; see
-   [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35).
+   (correctness): Corten has `SubmitKey`, renewed after each answer. Adopted at `014a2fd`, once
+   [todd-skelton/corten#35 A SubmitKey can only be 32 hex digits, so an API that takes a UUID cannot use it](https://github.com/todd-skelton/corten/issues/35)
+   made it a UUID.
 2. [todd-skelton/corten#20 corten check does not type-check an app's scripts](https://github.com/todd-skelton/corten/issues/20)
    (correctness): `corten check` in an app's directory runs `tsc` over its scripts when `tsc`
-   is on `PATH`. At the workspace root it does not yet (see the open gaps).
+   is on `PATH`; at the workspace root too since `014a2fd`.
 3. [todd-skelton/corten#24 corten::live responses are never compressed](https://github.com/todd-skelton/corten/issues/24)
    (end-user performance): live events are compressed.
 4. [todd-skelton/corten#26 A component that names a variable scope is treated as scoped](https://github.com/todd-skelton/corten/issues/26)

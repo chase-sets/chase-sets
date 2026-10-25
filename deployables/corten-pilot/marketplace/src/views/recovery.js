@@ -64,18 +64,20 @@ export function restore(check, account, settled, unsettled) {
 }
 
 /**
- * Before a write form is sent: remember its attempt, so the next page can check it if the answer
- * is lost. A browser that cannot remember it sends nothing and says so.
+ * Before a write form is sent: remember its attempt (the form's `SubmitKey`, which the runtime
+ * keeps until an answer arrives), so the next page can check it if the answer is lost. A browser
+ * that cannot remember it sends nothing and says so.
  *
  * @param {SubmitEvent} event
- * @param {string} attempt
  * @param {string} account
  * @param {string} user
  * @param {string} family
  * @param {string} target
  * @param {HTMLParagraphElement} unavailable
  */
-export function remember(event, attempt, account, user, family, target, unavailable) {
+export function remember(event, account, user, family, target, unavailable) {
+  const form = /** @type {HTMLFormElement} */ (event.target);
+  const attempt = /** @type {HTMLInputElement | null} */ (form.querySelector("input[data-submit]"))?.value ?? "";
   const record = {
     version: 1,
     attemptId: attempt,

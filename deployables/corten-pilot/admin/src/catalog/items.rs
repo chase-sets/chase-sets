@@ -53,22 +53,19 @@ use crate::{
 const TOPIC: &str = "catalog:admin:catalog-items";
 
 /// The list's filters (`catalogItemListQueryFromRecord`), with their API names.
-macro_rules! filters {
-    ($query:expr) => {{
-        let q = $query;
-        [
-            ("search", &q.search),
-            ("status", &q.status),
-            ("language", &q.language),
-            ("source", &q.source),
-            ("blueprintId", &q.blueprint_id),
-            ("tag", &q.tag),
-            ("blueprintState", &q.blueprint_state),
-            ("hasImages", &q.has_images),
-            ("hasSourceReferences", &q.has_source_references),
-            ("missingRequiredFields", &q.missing_required_fields),
-        ]
-    }};
+fn filters(q: &url::ItemQuery) -> [(&'static str, &Option<String>); 10] {
+    [
+        ("search", &q.search),
+        ("status", &q.status),
+        ("language", &q.language),
+        ("source", &q.source),
+        ("blueprintId", &q.blueprint_id),
+        ("tag", &q.tag),
+        ("blueprintState", &q.blueprint_state),
+        ("hasImages", &q.has_images),
+        ("hasSourceReferences", &q.has_source_references),
+        ("missingRequiredFields", &q.missing_required_fields),
+    ]
 }
 
 pub mod url {
@@ -92,11 +89,11 @@ pub mod url {
         }
     }
 
-    /// The items list: its filters (the filter form's fields), the page (from 1), the receipt and
-    /// notice of the write before (and how many drafts it removed), and the job the page follows.
+    /// The list's filters (the filter form's fields) and page (from 1): what the list, its live
+    /// rows, its bulk preview, the drafts' removal and their confirms all carry.
     #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
-    #[route("/catalog/catalog-items")]
-    pub struct Items {
+    #[route(query)]
+    pub struct ItemQuery {
         pub search: Option<String>,
         pub status: Option<String>,
         pub language: Option<String>,
@@ -108,26 +105,17 @@ pub mod url {
         pub has_source_references: Option<String>,
         pub missing_required_fields: Option<String>,
         pub page: Option<u32>,
-        pub after_write: Option<String>,
-        pub done: Option<ItemDone>,
-        pub removed: Option<u32>,
-        pub job: Option<String>,
     }
 
-    impl Items {
-        /// The list with its filters and page, without what the write before left.
-        pub fn bare(&self) -> Items {
-            Items { after_write: None, done: None, removed: None, job: None, ..self.clone() }
-        }
-
+    impl ItemQuery {
         /// Whether a filter is set.
         pub fn filtered(&self) -> bool {
-            filters!(self).iter().any(|(_, value)| value.is_some())
+            super::filters(self).iter().any(|(_, value)| value.is_some())
         }
 
         /// The filters and page that are set, by the list's query names: a Reload's fields.
         pub fn kept(&self) -> Vec<(corten::FieldName, String)> {
-            let f = Items::FIELDS;
+            let f = ItemQuery::FIELDS;
             let names = [
                 (f.search, &self.search),
                 (f.status, &self.status),
@@ -148,64 +136,72 @@ pub mod url {
         }
     }
 
-    /// The routes that carry the list's filters and page, so their answer can be the list.
-    /// (`#[derive(Route)]` cannot share a set of query fields between routes: todd-skelton/corten#32.)
-    macro_rules! filtered {
-        ($($(#[$meta:meta])* $name:ident $path:tt;)*) => {$(
-            $(#[$meta])*
-            #[derive(Clone, Debug, Default, Deserialize, Route)]
-            #[route($path)]
-            pub struct $name {
-                pub search: Option<String>,
-                pub status: Option<String>,
-                pub language: Option<String>,
-                pub source: Option<String>,
-                pub blueprint_id: Option<String>,
-                pub tag: Option<String>,
-                pub blueprint_state: Option<String>,
-                pub has_images: Option<String>,
-                pub has_source_references: Option<String>,
-                pub missing_required_fields: Option<String>,
-                pub page: Option<u32>,
-            }
-
-            impl $name {
-                pub fn of(list: &Items) -> Self {
-                    let Items {
-                        search, status, language, source, blueprint_id, tag, blueprint_state, has_images,
-                        has_source_references, missing_required_fields, page, ..
-                    } = list.clone();
-                    $name {
-                        search, status, language, source, blueprint_id, tag, blueprint_state, has_images,
-                        has_source_references, missing_required_fields, page,
-                    }
-                }
-
-                pub fn list(self) -> Items {
-                    let $name {
-                        search, status, language, source, blueprint_id, tag, blueprint_state, has_images,
-                        has_source_references, missing_required_fields, page,
-                    } = self;
-                    Items {
-                        search, status, language, source, blueprint_id, tag, blueprint_state, has_images,
-                        has_source_references, missing_required_fields, page, ..Items::default()
-                    }
-                }
-            }
-        )*};
+    /// What the write before left on the list: its receipt and notice (and how many drafts it
+    /// removed), and the job the page follows.
+    #[derive(Clone, Debug, Default, Deserialize, Route)]
+    #[route(query)]
+    pub struct ItemNotice {
+        pub after_write: Option<String>,
+        pub done: Option<ItemDone>,
+        pub removed: Option<u32>,
+        pub job: Option<String>,
     }
 
-    filtered! {
-        /// How many items changed, streamed on each change.
-        ItemsLive "/catalog/catalog-items/live";
-        /// A bulk change's preview.
-        ItemsBulk "/catalog/catalog-items/bulk";
-        /// The preview's confirm: it starts the change.
-        ItemsBulkConfirm "/catalog/catalog-items/bulk/confirm";
-        /// The checked drafts' removal: its dialog.
-        ItemsDrafts "/catalog/catalog-items/drafts";
-        /// Its confirm: removes each.
-        ItemsDraftsConfirm "/catalog/catalog-items/drafts/confirm";
+    /// The items list.
+    #[derive(Clone, Debug, Default, Route)]
+    #[route("/catalog/catalog-items")]
+    pub struct Items {
+        #[route(query)]
+        pub query: ItemQuery,
+        #[route(query)]
+        pub notice: ItemNotice,
+    }
+
+    impl Items {
+        /// The list with these filters and page.
+        pub fn of(query: &ItemQuery) -> Items {
+            Items { query: query.clone(), notice: ItemNotice::default() }
+        }
+    }
+
+    /// How many items changed, streamed on each change.
+    #[derive(Route)]
+    #[route("/catalog/catalog-items/live")]
+    pub struct ItemsLive {
+        #[route(query)]
+        pub query: ItemQuery,
+    }
+
+    /// A bulk change's preview.
+    #[derive(Route)]
+    #[route("/catalog/catalog-items/bulk")]
+    pub struct ItemsBulk {
+        #[route(query)]
+        pub query: ItemQuery,
+    }
+
+    /// The preview's confirm: it starts the change.
+    #[derive(Route)]
+    #[route("/catalog/catalog-items/bulk/confirm")]
+    pub struct ItemsBulkConfirm {
+        #[route(query)]
+        pub query: ItemQuery,
+    }
+
+    /// The checked drafts' removal: its dialog.
+    #[derive(Route)]
+    #[route("/catalog/catalog-items/drafts")]
+    pub struct ItemsDrafts {
+        #[route(query)]
+        pub query: ItemQuery,
+    }
+
+    /// Its confirm: removes each.
+    #[derive(Route)]
+    #[route("/catalog/catalog-items/drafts/confirm")]
+    pub struct ItemsDraftsConfirm {
+        #[route(query)]
+        pub query: ItemQuery,
     }
 }
 
@@ -222,20 +218,26 @@ pub fn routes(
 }
 
 /// The list's API query (`buildCatalogListApiQuery`).
-fn api_query(query: &url::Items, page: u32) -> String {
-    list_query(&filters!(query), page)
+fn api_query(query: &url::ItemQuery, page: u32) -> String {
+    list_query(&filters(query), page)
 }
 
 /// The toast after a write.
-fn notice(t: Cat, query: &url::Items) -> Option<String> {
-    query.done.map(|done| match done {
+fn notice(t: Cat, notice: &url::ItemNotice) -> Option<String> {
+    notice.done.map(|done| match done {
         url::ItemDone::Created => t.item_list_catalog_item_created().to_owned(),
-        url::ItemDone::DraftsRemoved => t.item_list_draft_catalog_items_removed(query.removed.unwrap_or(0)).to_string(),
+        url::ItemDone::DraftsRemoved => t.item_list_draft_catalog_items_removed(notice.removed.unwrap_or(0)).to_string(),
     })
 }
 
 /// The list page, or with the script (a Reload's `GET`), its rows and a new stream of changes.
-async fn items(req: Req, State(config): State<Shared>, headers: HeaderMap, Query(query): Query<url::Items>) -> corten::Result {
+async fn items(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<url::ItemQuery>,
+    Query(after): Query<url::ItemNotice>,
+) -> corten::Result {
     if req.mode == Mode::Action {
         let caller = config.platform.caller(&headers, config.proto, None);
         let page = query.page.unwrap_or(1).max(1);
@@ -252,7 +254,7 @@ async fn items(req: Req, State(config): State<Shared>, headers: HeaderMap, Query
         };
         return req.patch(view);
     }
-    item_list(&req, &config, &headers, &query, None, None).await
+    item_list(&req, &config, &headers, &query, &after, None, None).await
 }
 
 /// The items page; `create` is a create form that came back, drawn open, and `dialog` a bulk
@@ -261,11 +263,12 @@ async fn item_list(
     req: &Req,
     config: &Shared,
     headers: &HeaderMap,
-    query: &url::Items,
+    query: &url::ItemQuery,
+    after: &url::ItemNotice,
     create: Option<views::Draft<ItemInput>>,
     dialog: Option<ItemDialog<'_>>,
 ) -> corten::Result {
-    let receipt = Receipt::from_param(query.after_write.as_deref());
+    let receipt = Receipt::from_param(after.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
     let page = query.page.unwrap_or(1).max(1);
     let list = match caller.list::<ItemRow>(Kind::Items, &api_query(query, page)).await {
@@ -276,14 +279,14 @@ async fn item_list(
     if let Some(ItemDialog::Preview { preview, .. }) = dialog {
         screen.preview = preview.cloned();
     }
-    screen.job = follow(&caller, query.job.as_deref()).await;
+    screen.job = follow(&caller, after.job.as_deref()).await;
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
-    let job = query.job.is_some().then(|| Followed {
+    let job = after.job.is_some().then(|| Followed {
         job: screen.job.as_ref(),
         label: screen.job.as_ref().map_or("", |job| action_label(t, job.of().unwrap_or(Kind::Items), &job.action)),
         live: screen.job.as_ref().filter(|job| !job.done()).map(|job| super::url::JobLive { id: &job.job_id }.href()),
     });
-    let parts = views::ItemParts { create, notice: notice(t, query), manage: manages(req), dialog, job };
+    let parts = views::ItemParts { create, notice: notice(t, after), manage: manages(req), dialog, job };
     let view = views::item_list(t, p, query, &screen, parts);
     req.screen(Meta::new(t.route_items()), &screen, view)
 }
@@ -296,10 +299,9 @@ async fn items_live(
     State(config): State<Shared>,
     headers: HeaderMap,
     since: LiveSince,
-    Query(at): Query<url::ItemsLive>,
+    Query(query): Query<url::ItemQuery>,
 ) -> impl IntoResponse {
     let t: Cat = req.t();
-    let query = at.list();
     let (before, from) = resume(since.0);
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[TOPIC], from);
     let mut seen = HashSet::new();
@@ -339,22 +341,25 @@ async fn create(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(query): Query<url::Items>,
+    Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemInput>,
 ) -> corten::Result {
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match command(&caller, Method::POST, Kind::Items, "", Some(&input.body())).await {
         Sent::Written(written) => {
-            let done = url::Items { after_write: receipt(&written), done: Some(url::ItemDone::Created), ..query.bare() };
+            let after =
+                url::ItemNotice { after_write: receipt(&written), done: Some(url::ItemDone::Created), ..Default::default() };
+            let done = url::Items { query, notice: after };
             return req.redirect(&done);
         }
         Sent::Refused(errors) => errors,
         Sent::Denied(denied) => return denied.answer(&req),
     };
     let draft = views::Draft { input, errors };
-    let action = query.bare().href();
+    let action = url::Items::of(&query).href();
     let form = views::ItemForm { t: req.t(), id: views::ids::CREATE, action: &action, form: &draft };
-    req.invalid(&draft.errors, form, || item_list(&req, &config, &headers, &query, Some(draft.clone()), None)).await
+    let none = url::ItemNotice::default();
+    req.invalid(&draft.errors, form, || item_list(&req, &config, &headers, &query, &none, Some(draft.clone()), None)).await
 }
 
 /// What a bulk preview came to.
@@ -365,11 +370,11 @@ enum Previewing {
 }
 
 /// The API's preview for the operation: `bulk-publish`, `bulk-lifecycle` or `bulk-edit`.
-async fn ask_preview(p: Pilot, caller: &crate::api::Caller<'_>, input: &ItemBulkInput, query: &url::Items) -> Previewing {
+async fn ask_preview(p: Pilot, caller: &crate::api::Caller<'_>, input: &ItemBulkInput, query: &url::ItemQuery) -> Previewing {
     if let Some(errors) = input.refusal(p) {
         return Previewing::Refused(errors);
     }
-    let body = input.preview_body(filter_query(&filters!(query)));
+    let body = input.preview_body(filter_query(&filters(query)));
     let answer = match input.family() {
         Some(Family::Publish) => caller.post(Kind::Items, "/bulk-publish/preview", &body).await.map(ItemPreview::Publish),
         Some(Family::Lifecycle) => caller.bulk_preview(Kind::Items, &body).await.map(ItemPreview::Lifecycle),
@@ -386,7 +391,13 @@ async fn ask_preview(p: Pilot, caller: &crate::api::Caller<'_>, input: &ItemBulk
 
 /// A dialog's answer: the dialog as a patch, or the list page with it open; a refusal is the
 /// dialog with the message (422).
-async fn answer(req: &Req, config: &Shared, headers: &HeaderMap, query: &url::Items, dialog: ItemDialog<'_>) -> corten::Result {
+async fn answer(
+    req: &Req,
+    config: &Shared,
+    headers: &HeaderMap,
+    query: &url::ItemQuery,
+    dialog: ItemDialog<'_>,
+) -> corten::Result {
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let errors = match dialog {
         ItemDialog::Preview { errors, .. } | ItemDialog::Drafts { errors, .. } => errors,
@@ -399,24 +410,24 @@ async fn answer(req: &Req, config: &Shared, headers: &HeaderMap, query: &url::It
             ItemDialog::Drafts { ids, errors, confirm } => <DraftsDialog t={t} p={p} ids={ids} errors={errors} confirm={confirm} />,
         }
     };
+    let none = url::ItemNotice::default();
     if !errors.is_empty() {
-        return req.invalid(errors, view, || item_list(req, config, headers, query, None, Some(dialog))).await;
+        return req.invalid(errors, view, || item_list(req, config, headers, query, &none, None, Some(dialog))).await;
     }
     if req.mode == Mode::Action {
         return req.patch(view);
     }
-    item_list(req, config, headers, query, None, Some(dialog)).await
+    item_list(req, config, headers, query, &none, None, Some(dialog)).await
 }
 
 async fn preview(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(at): Query<url::ItemsBulk>,
+    Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemBulkInput>,
 ) -> corten::Result {
-    let confirm = url::ItemsBulkConfirm::of(&at.clone().list()).href();
-    let query = at.list();
+    let confirm = url::ItemsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let (preview, errors) = match ask_preview(req.t(), &caller, &input, &query).await {
         Previewing::Shown(preview) => (Some(preview), Errors::new()),
@@ -432,16 +443,15 @@ async fn confirm(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(at): Query<url::ItemsBulkConfirm>,
+    Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemBulkInput>,
 ) -> corten::Result {
-    let action = at.clone().href();
-    let query = at.list();
+    let action = url::ItemsBulkConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match input.refusal(req.t()) {
         Some(errors) => errors,
         None => {
-            let filter = filter_query(&filters!(&query));
+            let filter = filter_query(&filters(&query));
             let started: Result<Job<Value>, _> = match input.family() {
                 Some(Family::Publish) => {
                     caller.post(Kind::Items, "/bulk-publish/confirm", &json!({ "itemIds": input.ids })).await
@@ -450,7 +460,10 @@ async fn confirm(
                 _ => caller.post(Kind::Items, "/bulk-edit/confirm", &input.preview_body(filter)).await,
             };
             match started {
-                Ok(job) => return req.redirect(&url::Items { job: Some(job.job_id), ..query }),
+                Ok(job) => {
+                    let after = url::ItemNotice { job: Some(job.job_id), ..Default::default() };
+                    return req.redirect(&url::Items { query, notice: after });
+                }
                 Err(error) => match refused(error) {
                     Ok(errors) => errors,
                     Err(denied) => return denied.answer(&req),
@@ -475,7 +488,7 @@ async fn confirm(
 async fn draft_refusal(
     p: Pilot,
     caller: &crate::api::Caller<'_>,
-    query: &url::Items,
+    query: &url::ItemQuery,
     ids: &[String],
 ) -> Result<Option<Errors>, Denied> {
     let mut errors = Errors::new();
@@ -500,11 +513,10 @@ async fn drafts(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(at): Query<url::ItemsDrafts>,
+    Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemBulkInput>,
 ) -> corten::Result {
-    let confirm = url::ItemsDraftsConfirm::of(&at.clone().list()).href();
-    let query = at.list();
+    let confirm = url::ItemsDraftsConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let errors = match draft_refusal(req.t(), &caller, &query, &input.ids).await {
         Ok(errors) => errors.unwrap_or_default(),
@@ -520,11 +532,10 @@ async fn remove_drafts(
     req: Req,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Query(at): Query<url::ItemsDraftsConfirm>,
+    Query(query): Query<url::ItemQuery>,
     Form(input): Form<ItemBulkInput>,
 ) -> corten::Result {
-    let action = at.clone().href();
-    let query = at.list();
+    let action = url::ItemsDraftsConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
     let mut errors = match draft_refusal(req.t(), &caller, &query, &input.ids).await {
         Ok(errors) => errors.unwrap_or_default(),
@@ -548,12 +559,13 @@ async fn remove_drafts(
         }
     }
     if errors.is_empty() {
-        let done = url::Items {
+        let after = url::ItemNotice {
             after_write: last.as_ref().and_then(receipt),
             done: Some(url::ItemDone::DraftsRemoved),
             removed: Some(removed),
-            ..query.bare()
+            job: None,
         };
+        let done = url::Items { query, notice: after };
         return req.redirect(&done);
     }
     let dialog = ItemDialog::Drafts { ids: &input.ids, errors: &errors, confirm: &action };

@@ -35,7 +35,7 @@ pub struct Dimension {
 }
 
 /// `DimensionDetail`: the dimension and its options.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct DimensionDetail {
     #[serde(flatten)]
     pub dimension: Dimension,
@@ -43,15 +43,7 @@ pub struct DimensionDetail {
     pub options: Vec<DimensionOption>,
 }
 
-/// Written by serde_json: `#[derive(ToJson)]` does not follow `#[serde(flatten)]`, which keeps the
-/// dimension's fields beside its options as the API sends them (todd-skelton/corten#34).
-impl ToJson for DimensionDetail {
-    fn write_json(&self, out: &mut Vec<u8>) {
-        serde_json::to_writer(out, self).expect("a dimension is JSON");
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct DimensionOption {
     pub option_id: String,
     pub code: String,
@@ -65,7 +57,7 @@ pub struct DimensionOption {
 }
 
 /// A `LocalizedTextMap`: the default locale and a text per locale.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalizedText {
     pub default_locale: String,
@@ -581,4 +573,39 @@ impl Catalog for Caller<'_> {
 /// `/{id}` and more segments, each encoded.
 pub fn under(id: &str, rest: &[&str]) -> String {
     std::iter::once(id).chain(rest.iter().copied()).map(|s| format!("/{}", segment(s))).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The page's script reads a dimension's fields beside its options, as the API sends them.
+    #[test]
+    fn a_dimension_detail_is_written_as_serde_writes_it() {
+        let detail = DimensionDetail {
+            dimension: Dimension {
+                dimension_id: "dim_1".into(),
+                key: "grade".into(),
+                name: "Grade".into(),
+                description: None,
+                value_kind: "numeric".into(),
+                status: "active".into(),
+                updated_at: "2026-10-25T00:00:00Z".into(),
+            },
+            options: vec![DimensionOption {
+                option_id: "chc_1".into(),
+                code: "nm".into(),
+                label: "Near Mint".into(),
+                label_i18n: Some(LocalizedText {
+                    default_locale: "en".into(),
+                    values: BTreeMap::from([("en".into(), "Near Mint".into())]),
+                }),
+                display_order: 1,
+                numeric_value: Some(9.5),
+                status: "active".into(),
+            }],
+        };
+        let derived: serde_json::Value = serde_json::from_str(&detail.to_json()).unwrap();
+        assert_eq!(derived, serde_json::to_value(&detail).unwrap());
+    }
 }

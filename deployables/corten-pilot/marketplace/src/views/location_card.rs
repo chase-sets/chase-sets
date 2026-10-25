@@ -1,14 +1,14 @@
-use corten::prelude::*;
+use corten::{form::Within, prelude::*, view::Id};
 
 use super::{Draft, WriteForm};
 use crate::{api::Location, app::url, auth::Viewer, form::LocationInput, recovery::Family, text::Msg};
 
 /// The create form's id: a refused create's patch replaces it.
-#[derive(Id)]
+#[derive(Id, Clone, Copy)]
 pub struct CreateFormId;
 
 /// A location's save form.
-#[derive(Id)]
+#[derive(Id, Clone, Copy)]
 pub struct LocationFormId<'a>(pub &'a str);
 
 /// A location's archive form.
@@ -26,7 +26,14 @@ pub enum Kind {
 /// A labelled input, its error next to it. The error is outside the label, so it is not part of
 /// the input's name (it describes it).
 #[component(css = LocationCard)]
-pub fn Field<'a>(label: &'a str, name: FieldName, value: &'a str, kind: Kind, required: bool, errors: &'a Errors) -> impl Render {
+pub fn Field<'a, I: Id>(
+    label: &'a str,
+    name: FieldName,
+    value: &'a str,
+    kind: Kind,
+    required: bool,
+    errors: &'a Within<'a, I>,
+) -> impl Render {
     html! {
         <div class={Field}>
             <label class={Field}>
@@ -51,9 +58,9 @@ pub fn Field<'a>(label: &'a str, name: FieldName, value: &'a str, kind: Kind, re
 /// A location's fields: the create form and each location's save form. marketplace labels the
 /// two from separate keys (`name` and `name.2`, ...), which hold the same text.
 #[component(css = LocationCard)]
-pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render {
+pub fn LocationFields<'a, I: Id + Copy>(t: Msg, form_id: I, draft: &'a Draft, create: bool) -> impl Render {
     let f = LocationInput::FIELDS;
-    let (i, e) = (&draft.input, &draft.errors);
+    let (i, e) = (&draft.input, draft.errors.within(form_id));
     let (name, description, code) = if create {
         (t.page_name(), t.page_description(), t.page_ship_from_code())
     } else {
@@ -61,23 +68,23 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
     };
     html! {
         <div class={Fields}>
-            <Field label={name} name={f.name} value={&i.name} kind={Kind::Text} required errors={e} />
+            <Field label={name} name={f.name} value={&i.name} kind={Kind::Text} required errors={&e} />
             <Field
                 label={description}
                 name={f.description}
                 value={&i.description}
                 kind={Kind::Area}
                 required={false}
-                errors={e}
+                errors={&e}
             />
-            <Field label={code} name={f.ship_from_code} value={&i.ship_from_code} kind={Kind::Text} required errors={e} />
+            <Field label={code} name={f.ship_from_code} value={&i.ship_from_code} kind={Kind::Text} required errors={&e} />
             <Field
                 label={t.page_ship_from_name()}
                 name={f.ship_from_name}
                 value={&i.ship_from_name}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_company()}
@@ -85,7 +92,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_company}
                 kind={Kind::Text}
                 required={false}
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_line1()}
@@ -93,7 +100,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_line1}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_line2()}
@@ -101,7 +108,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_line2}
                 kind={Kind::Text}
                 required={false}
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_city()}
@@ -109,7 +116,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_city}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_state()}
@@ -117,7 +124,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_state}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_postal_code()}
@@ -125,7 +132,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_postal_code}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_country()}
@@ -133,7 +140,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_country}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_phone()}
@@ -141,7 +148,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_phone}
                 kind={Kind::Text}
                 required={false}
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.page_ship_from_email()}
@@ -149,7 +156,7 @@ pub fn LocationFields<'a>(t: Msg, draft: &'a Draft, create: bool) -> impl Render
                 value={&i.ship_from_email}
                 kind={Kind::Email}
                 required={false}
-                errors={e}
+                errors={&e}
             />
         </div>
     }
@@ -169,7 +176,7 @@ pub fn CreateForm<'a>(t: Msg, viewer: &'a Viewer, draft: &'a Draft, enabled: boo
             draft={draft}
             enabled={enabled}
         >
-            <LocationFields t={t} draft={draft} create />
+            <LocationFields t={t} form_id={CreateFormId} draft={draft} create />
             <div class={Buttons}><button type="submit">{t.page_create_location_2()}</button></div>
         </WriteForm>
     }
@@ -189,7 +196,7 @@ pub fn UpdateForm<'a>(t: Msg, viewer: &'a Viewer, id: &'a str, draft: &'a Draft,
             draft={draft}
             enabled={enabled}
         >
-            <LocationFields t={t} draft={draft} create={false} />
+            <LocationFields t={t} form_id={LocationFormId(id)} draft={draft} create={false} />
             <div class={Buttons}><button type="submit" class={Secondary}>{t.page_save_location()}</button></div>
         </WriteForm>
     }

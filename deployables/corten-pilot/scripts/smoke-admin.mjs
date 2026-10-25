@@ -86,8 +86,8 @@ async function context(javaScriptEnabled) {
     /** @type {HTMLInputElement} */ (input).value = "";
   });
   await create.getByRole("button", { name: "Create draft" }).click();
-  await page.locator("#max_letter_units-error").waitFor();
-  check((await page.locator("#max_letter_units-error").textContent()) === "Enter a value.", "the pilot's check names its field");
+  await page.locator("#create-form-max_letter_units-error").waitFor();
+  check((await page.locator("#create-form-max_letter_units-error").textContent()) === "Enter a value.", "the pilot's check names its field");
   check(await page.evaluate(() => document.activeElement?.getAttribute("name") === "max_letter_units"), "focus moves to it");
   check((await page.getByLabel("Label", { exact: true }).first().inputValue()) === `Smoke ${stamp}`, "typed values survive the patch");
 

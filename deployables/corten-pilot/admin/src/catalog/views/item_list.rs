@@ -3,11 +3,14 @@
 //! are the API's three bulk changes (publish, archive, the edits). A change to the items is not
 //! drawn into the rows: as in admin-web (manual mode) the page says how many items changed, and
 //! Reload draws the rows again.
-use corten::prelude::*;
+use corten::{
+    prelude::*,
+    view::{AttrValue, Id},
+};
 
 use super::{
-    Bar, BulkRows, Candidates, Dialog, Empty, Filters, Followed, Input, JobDialog, ListPage, ListScreen, MoreFilters, Pager,
-    Pick, Search, SelectRow, StatusPill, Table, TextFilter, Toasts, Trigger, ids, pages_around, value,
+    Bar, BulkRows, Candidates, Dialog, Empty, Filters, Followed, Input, JobDialog, ListPage, ListScreen, LiveStatus, MoreFilters,
+    Pager, Pick, Search, SelectRow, StatusPill, Table, TextFilter, Toasts, Trigger, ids, pages_around, value,
 };
 use crate::{
     catalog::{
@@ -85,7 +88,7 @@ pub struct ItemParts<'a> {
 pub fn item_list<'a>(
     t: Cat,
     p: Pilot,
-    query: &'a url::Items,
+    query: &'a url::ItemQuery,
     screen: &'a ListScreen<ItemRow, ItemPreview>,
     parts: ItemParts<'a>,
 ) -> impl Render + 'a {
@@ -93,7 +96,7 @@ pub fn item_list<'a>(
     let open = create.is_some();
     let create = create.unwrap_or_else(|| Draft::new(ItemInput::blank()));
     let title = t.item_list_catalog_items();
-    let create_action = query.bare().href();
+    let create_action = url::Items::of(query).href();
     let filters = url::Items::default().href();
     let statuses = [
         ("draft", t.item_list_draft()),
@@ -113,7 +116,7 @@ pub fn item_list<'a>(
         || query.has_source_references.is_some()
         || query.missing_required_fields.is_some();
     let total = t.item_list_matching_items(screen.total).to_string();
-    let f = url::Items::FIELDS;
+    let f = url::ItemQuery::FIELDS;
     html! {
         <ListPage title={title}>
             <span>{&total}</span>
@@ -215,23 +218,28 @@ pub fn item_list<'a>(
 
 /// The changes since the page was drawn (`ids::CHANGES`), in the element that streams them
 /// (`ids::LIVE`). Reload draws both again, so the count starts over with a new stream.
-pub fn item_live<'a>(t: Cat, query: &'a url::Items) -> impl Render + 'a {
-    let live = url::ItemsLive::of(query).href();
+pub fn item_live<'a>(t: Cat, query: &'a url::ItemQuery) -> impl Render + 'a {
+    let live = url::ItemsLive { query: query.clone() }.href();
+    let list = url::Items::default().href();
+    let kept = query.kept();
     html! {
-        <corten-live id={ids::LIVE} src={&live}>{item_changes(t, query, Pending::default())}</corten-live>
+        <corten-live id={ids::LIVE} src={&live}>
+            <LiveStatus t={t} reload={&list} kept={&kept} />
+            {item_changes(t, query, Pending::default())}
+        </corten-live>
     }
 }
 
 /// admin-web's `CatalogRealtimeReloadActionBar`: how many items changed, and Reload, which draws
 /// the rows again (a patch with the script; the page without). Empty while nothing changed.
-pub fn item_changes<'a>(t: Cat, query: &'a url::Items, pending: Pending) -> impl Render + 'a {
+pub fn item_changes<'a>(t: Cat, query: &'a url::ItemQuery, pending: Pending) -> impl Render + 'a {
     html! {
         <ItemChanges t={t} query={query} pending={pending} />
     }
 }
 
 #[component(css = ItemForm)]
-fn ItemChanges<'a>(t: Cat, query: &'a url::Items, pending: Pending) -> impl Render {
+fn ItemChanges<'a>(t: Cat, query: &'a url::ItemQuery, pending: Pending) -> impl Render {
     let entity = t.item_list_catalog_items();
     let text = if pending.count > 0 {
         t.realtime_changed(pending.count, entity).to_string()
@@ -262,7 +270,7 @@ fn ItemChanges<'a>(t: Cat, query: &'a url::Items, pending: Pending) -> impl Rend
 pub fn item_rows<'a>(
     t: Cat,
     p: Pilot,
-    query: &'a url::Items,
+    query: &'a url::ItemQuery,
     screen: &'a ListScreen<ItemRow, ItemPreview>,
     manage: bool,
 ) -> impl Render + 'a {
@@ -282,10 +290,10 @@ pub fn item_rows<'a>(
         t.item_list_status(),
         "",
     ];
-    let list = query.bare();
-    let (previous, next) = pages_around(screen, |page| url::Items { page: (page > 1).then_some(page), ..list.clone() }.href());
-    let preview = url::ItemsBulk::of(query).href();
-    let drafts = url::ItemsDrafts::of(query).href();
+    let (previous, next) =
+        pages_around(screen, |page| url::Items::of(&url::ItemQuery { page: (page > 1).then_some(page), ..query.clone() }).href());
+    let preview = url::ItemsBulk { query: query.clone() }.href();
+    let drafts = url::ItemsDrafts { query: query.clone() }.href();
     let operations = item_operations(t);
     let select = manage.then_some(p);
     html! {
@@ -302,7 +310,7 @@ pub fn item_rows<'a>(
             }
         };
         if manage {
-            let bar = Bar { entity: title, action: &preview, total: screen.total, rows: screen.items.len(), actions: &operations };
+            let bar = Bar { entity: title, action: &preview, total: screen.total, actions: &operations };
             let fields = html! { <ItemBulkFields t={t} /> };
             let more = html! { <DraftsButton t={t} action={&drafts} /> };
             <BulkRows t={t} p={p} bar={bar} fields={fields} more={more}>{body}</BulkRows>
@@ -370,15 +378,15 @@ fn ItemBulkFields(t: Cat) -> impl Render {
 /// The create form (`ids::CREATE`), what a refused create is patched with. Its stylesheet is
 /// the page's.
 #[component(css)]
-pub fn ItemForm<'a>(t: Cat, id: &'a str, action: &'a str, form: &'a Draft<ItemInput>) -> impl Render {
+pub fn ItemForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<ItemInput>) -> impl Render {
     let f = ItemInput::FIELDS;
-    let errors = &form.errors;
+    let e = form.errors.within(id);
     html! {
         <form class={Form} id={id} method="post" action={action} data-patch>
-            {errors.form_message()}
+            {form.errors.form_message()}
             <input type="hidden" name={f.item_id} value={&form.input.item_id}>
-            <Input label={t.item_list_language_code()} name={f.language_code} value={&form.input.language_code} errors={errors} />
-            <Input label={t.item_list_description()} name={f.description} value={&form.input.description} errors={errors} />
+            <Input label={t.item_list_language_code()} name={f.language_code} value={&form.input.language_code} errors={&e} />
+            <Input label={t.item_list_description()} name={f.description} value={&form.input.description} errors={&e} />
             <div class={Footer}>
                 <button type="submit" class={Small}>{t.item_list_create()}</button>
             </div>
@@ -400,6 +408,7 @@ pub fn ItemPreviewDialog<'a>(
     label: &'a str,
 ) -> impl Render {
     let f = ItemBulkInput::FIELDS;
+    let e = errors.within(ids::CONFIRM);
     let publish = input.action == "publish";
     let (title, description, note) = match preview {
         Some(ItemPreview::Publish(v)) => {
@@ -462,9 +471,9 @@ pub fn ItemPreviewDialog<'a>(
             }
             <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
                 {errors.form_message()}
-                {errors.message(f.blueprint_id)}
-                {errors.message(f.category_id)}
-                {errors.message(f.tags)}
+                {e.message(f.blueprint_id)}
+                {e.message(f.category_id)}
+                {e.message(f.tags)}
                 <input type="hidden" name={f.action} value={&input.action}>
                 <input type="hidden" name={f.mode} value={mode}>
                 for id in ids {
@@ -600,7 +609,7 @@ pub fn ItemJobOutcome<'a>(t: Cat, job: &'a Job<serde_json::Value>) -> impl Rende
                         .map(|c| c.catalog_item_id.clone())
                         .collect();
                     let f = ItemBulkInput::FIELDS;
-                    let action = url::ItemsBulk::default().href();
+                    let action = url::ItemsBulk { query: Default::default() }.href();
                     <p class={Note}>
                         {t.item_list_bulk_result_description(outcome.published_count, outcome.failed_count, outcome.skipped_count)}
                     </p>

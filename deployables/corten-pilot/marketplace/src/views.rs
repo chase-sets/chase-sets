@@ -14,7 +14,7 @@ use crate::{
     app::{Screen, url},
     auth::{Session, Viewer},
     form::LocationInput,
-    recovery::{Status, new_attempt},
+    recovery::Status,
     text::{Msg, Pilot},
 };
 
@@ -136,14 +136,14 @@ pub fn page<'a>(
         (Some(w), Some(d)) if *w == form => d.clone(),
         _ => Draft::new(fresh()),
     };
-    let create = draft_for(Which::Create, &|| LocationInput::blank(new_attempt()));
+    let create = draft_for(Which::Create, &LocationInput::blank);
     let cards: Vec<_> = screen
         .locations
         .iter()
         .map(|location| {
             let id = &location.storage_location_id;
-            let update = draft_for(Which::Update(id.clone()), &|| LocationInput::of(location, new_attempt()));
-            let archive = draft_for(Which::Archive(id.clone()), &|| LocationInput::of(location, new_attempt()));
+            let update = draft_for(Which::Update(id.clone()), &|| LocationInput::of(location));
+            let archive = draft_for(Which::Archive(id.clone()), &|| LocationInput::of(location));
             (location, update, archive)
         })
         .collect();

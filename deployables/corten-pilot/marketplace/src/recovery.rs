@@ -1,7 +1,8 @@
 //! Confirming a write whose answer the browser may not have seen.
 //!
-//! Every write form carries an attempt id the pilot issued when it drew the form, and the pilot
-//! sends it as `Inventory-Mutation-Attempt`: the Inventory API applies an attempt once and keeps
+//! Every write form carries an attempt id, Corten's `SubmitKey` (a UUID v4 drawn with the form,
+//! which the runtime keeps until an answer arrives), and the pilot sends it as
+//! `Inventory-Mutation-Attempt`: the Inventory API applies an attempt once and keeps
 //! its result (`GET /api/inventory/mutation-attempts/{id}`). A form posted again with the same id
 //! (a double click, the browser resending after a lost answer) cannot apply twice.
 //!
@@ -47,7 +48,8 @@ impl fmt::Display for Family {
     }
 }
 
-/// A new attempt id, for a form about to be drawn.
+/// A new attempt id, as a form's `SubmitKey` draws one.
+#[cfg(test)]
 pub fn new_attempt() -> String {
     uuid::Uuid::new_v4().to_string()
 }

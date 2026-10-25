@@ -6,7 +6,11 @@
 //! by the server when opened, so the page does not carry a thousand options it rarely uses.
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use corten::prelude::*;
+use corten::{
+    form::Within,
+    prelude::*,
+    view::{AttrValue, Id},
+};
 use serde_json::Value;
 
 use super::{
@@ -501,7 +505,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             open={catalog_ref.1}
             close={&close}
         >
-            <ReferenceForm t={t} id={id} product={false} form={&catalog_ref.0} />
+            <ReferenceForm t={t} id={id} form_id={ids::CATALOG_REF} product={false} form={&catalog_ref.0} />
         </Dialog>
         <Dialog
             id={ids::PRODUCT_REF_DIALOG}
@@ -510,7 +514,7 @@ fn dialogs<'a>(t: Cat, p: Pilot, item: &'a ItemDetail, back: ItemBack) -> impl R
             open={product_ref.1}
             close={&close}
         >
-            <ReferenceForm t={t} id={id} product form={&product_ref.0} />
+            <ReferenceForm t={t} id={id} form_id={ids::PRODUCT_REF} product form={&product_ref.0} />
         </Dialog>
         if let Some((draft, choices)) = &content {
             <ContentDialog t={t} p={p} id={id} form={draft} choices={choices} />
@@ -1070,13 +1074,13 @@ fn References<'a>(
 
 /// A labelled select, its error next to it; \`placeholder\` is the empty choice.
 #[component(css = ItemPage)]
-fn Select<'a>(
+fn Select<'a, I: Id>(
     label: &'a str,
     name: FieldName,
     placeholder: &'a str,
     options: &'a [(String, String, bool)],
     value: &'a str,
-    errors: &'a Errors,
+    errors: &'a Within<'a, I>,
 ) -> impl Render {
     html! {
         <div class={Field}>
@@ -1099,14 +1103,14 @@ fn Select<'a>(
 #[component(css = ItemPage)]
 pub fn PublishForm<'a>(t: Cat, id: &'a str, form: &'a Draft<PublishInput>, readiness: &'a Readiness) -> impl Render {
     let f = PublishInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(ids::PUBLISH));
     let action = at::Publish::of(id).href();
     let status = [(t.item_display_identity_readiness(), readiness.status.clone())];
     let missing = readiness.missing_tokens.join(", ");
     html! {
         <form class={Form} id={ids::PUBLISH} method="post" action={&action} data-patch>
             <button type="submit" class={Default} tabindex="-1" aria-hidden="true">{t.item_publish_2()}</button>
-            {e.form_message()}
+            {form.errors.form_message()}
             <KeyValues items={&status} />
             if !readiness.missing_tokens.is_empty() {
                 <p class={Alert}>{t.item_display_identity_missing_tokens(&missing)}</p>
@@ -1115,10 +1119,10 @@ pub fn PublishForm<'a>(t: Cat, id: &'a str, form: &'a Draft<PublishInput>, readi
                 label={t.item_required_field_ids_comma_separated()}
                 name={f.required_field_ids}
                 value={&i.required_field_ids}
-                errors={e}
+                errors={&e}
             />
             <div class={Footer}>
-                if readiness.retryable || !e.is_empty() {
+                if readiness.retryable || !form.errors.is_empty() {
                     <button type="submit" class={Secondary} formmethod="get" formnovalidate>
                         {t.item_recheck_display_identity()}
                     </button>
@@ -1131,12 +1135,19 @@ pub fn PublishForm<'a>(t: Cat, id: &'a str, form: &'a Draft<PublishInput>, readi
 
 /// A form of one id (a blueprint's, a category's).
 #[component(css = ItemPage)]
-pub fn IdForm<'a>(id: &'a str, action: &'a str, label: &'a str, submit: &'a str, form: &'a Draft<IdInput>) -> impl Render {
+pub fn IdForm<'a, I: Id + AttrValue + Copy>(
+    id: I,
+    action: &'a str,
+    label: &'a str,
+    submit: &'a str,
+    form: &'a Draft<IdInput>,
+) -> impl Render {
     let f = IdInput::FIELDS;
+    let e = form.errors.within(id);
     html! {
         <form class={Form} id={id} method="post" action={action} data-patch>
             {form.errors.form_message()}
-            <Input label={label} name={f.chosen_id} value={&form.input.chosen_id} errors={&form.errors} />
+            <Input label={label} name={f.id} value={&form.input.id} errors={&e} />
             <div class={Footer}><button type="submit">{submit}</button></div>
         </form>
     }
@@ -1163,7 +1174,7 @@ pub fn FieldDialog<'a>(
 #[component(css = ItemPage)]
 pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>, choices: &'a FieldChoices) -> impl Render {
     let f = FieldValueInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(ids::FIELD));
     let action = at::Fields::of(id).href();
     let fields: Vec<(String, String, bool)> = choices
         .fields
@@ -1179,9 +1190,9 @@ pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>,
         .collect();
     html! {
         <form class={(Form, FieldValue)} id={ids::FIELD} method="post" action={&action} data-patch>
-            {e.form_message()}
+            {form.errors.form_message()}
             if fields.is_empty() {
-                <Input label={t.item_field_id()} name={f.field_id} value={&i.field_id} errors={e} />
+                <Input label={t.item_field_id()} name={f.field_id} value={&i.field_id} errors={&e} />
             } else {
                 <Select
                     label={t.item_field()}
@@ -1189,7 +1200,7 @@ pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>,
                     placeholder={t.item_choose_field()}
                     options={&fields}
                     value={&i.field_id}
-                    errors={e}
+                    errors={&e}
                 />
             }
             <div class={Reference}>
@@ -1199,7 +1210,7 @@ pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>,
                     placeholder={t.item_choose_reference_record()}
                     options={&references}
                     value={&i.reference_id}
-                    errors={e}
+                    errors={&e}
                 />
             </div>
             <div class={(Field, TextValue)}>
@@ -1218,13 +1229,13 @@ pub fn FieldValueForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FieldValueInput>,
 #[component(css = ItemPage)]
 pub fn MetadataForm<'a>(t: Cat, id: &'a str, form: &'a Draft<MetadataInput>) -> impl Render {
     let f = MetadataInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(ids::METADATA));
     let action = at::Metadata { id }.href();
     html! {
         <form class={Form} id={ids::METADATA} method="post" action={&action} data-patch>
-            {e.form_message()}
-            <Input label={t.item_language_code()} name={f.language_code} value={&i.language_code} errors={e} />
-            <Input label={t.item_description()} name={f.description} value={&i.description} errors={e} />
+            {form.errors.form_message()}
+            <Input label={t.item_language_code()} name={f.language_code} value={&i.language_code} errors={&e} />
+            <Input label={t.item_description()} name={f.description} value={&i.description} errors={&e} />
             <div class={Footer}><button type="submit">{t.item_save()}</button></div>
         </form>
     }
@@ -1232,8 +1243,8 @@ pub fn MetadataForm<'a>(t: Cat, id: &'a str, form: &'a Draft<MetadataInput>) -> 
 
 /// Set Tags (comma-separated, one input) or Set Image URLs (\`lines\`: one per line).
 #[component(css = ItemPage)]
-pub fn ListForm<'a>(
-    id: &'a str,
+pub fn ListForm<'a, I: Id + AttrValue + Copy>(
+    id: I,
     action: &'a str,
     label: &'a str,
     lines: bool,
@@ -1241,10 +1252,10 @@ pub fn ListForm<'a>(
     form: &'a Draft<ListInput>,
 ) -> impl Render {
     let f = ListInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(id));
     html! {
         <form class={Form} id={id} method="post" action={action} data-patch>
-            {e.form_message()}
+            {form.errors.form_message()}
             if lines {
                 <div class={Field}>
                     <label class={Field}>
@@ -1254,7 +1265,7 @@ pub fn ListForm<'a>(
                     {e.message(f.text)}
                 </div>
             } else {
-                <Input label={label} name={f.text} value={&i.text} errors={e} />
+                <Input label={label} name={f.text} value={&i.text} errors={&e} />
             }
             <div class={Footer}><button type="submit">{submit}</button></div>
         </form>
@@ -1264,13 +1275,13 @@ pub fn ListForm<'a>(
 #[component(css = ItemPage)]
 pub fn FallbackForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FallbackInput>) -> impl Render {
     let f = FallbackInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(ids::FALLBACK));
     let action = at::Fallback { id }.href();
     html! {
         <form class={Form} id={ids::FALLBACK} method="post" action={&action} data-patch>
-            {e.form_message()}
-            <Input label={t.item_url()} name={f.url} value={&i.url} errors={e} />
-            <Input label={t.item_alt_text()} name={f.alt} value={&i.alt} errors={e} />
+            {form.errors.form_message()}
+            <Input label={t.item_url()} name={f.url} value={&i.url} errors={&e} />
+            <Input label={t.item_alt_text()} name={f.alt} value={&i.alt} errors={&e} />
             <label class={Field}>
                 <span class={Label}>{t.item_usage()}</span>
                 <select name={f.usage}>
@@ -1292,19 +1303,21 @@ pub fn FallbackForm<'a>(t: Cat, id: &'a str, form: &'a Draft<FallbackInput>) -> 
 
 /// Link an external catalog item reference, or (\`product\`) a product reference with options.
 #[component(css = ItemPage)]
-pub fn ReferenceForm<'a>(t: Cat, id: &'a str, product: bool, form: &'a Draft<ReferenceInput>) -> impl Render {
+pub fn ReferenceForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: &'a str,
+    form_id: I,
+    product: bool,
+    form: &'a Draft<ReferenceInput>,
+) -> impl Render {
     let f = ReferenceInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
-    let (form_id, action) = if product {
-        (ids::PRODUCT_REF, at::ProductRefs { id }.href())
-    } else {
-        (ids::CATALOG_REF, at::CatalogRefs { id }.href())
-    };
+    let (i, e) = (&form.input, form.errors.within(form_id));
+    let action = if product { at::ProductRefs { id }.href() } else { at::CatalogRefs { id }.href() };
     html! {
         <form class={Form} id={form_id} method="post" action={&action} data-patch>
-            {e.form_message()}
-            <Input label={t.item_provider()} name={f.provider_key} value={&i.provider_key} errors={e} />
-            <Input label={t.item_external_key()} name={f.external_key} value={&i.external_key} errors={e} />
+            {form.errors.form_message()}
+            <Input label={t.item_provider()} name={f.provider_key} value={&i.provider_key} errors={&e} />
+            <Input label={t.item_external_key()} name={f.external_key} value={&i.external_key} errors={&e} />
             if product {
                 <label class={Field}>
                     <span class={Label}>{t.item_selected_options_2()}</span>
@@ -1340,7 +1353,7 @@ pub fn ContentDialog<'a>(
 #[component(css = ItemPage)]
 pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, choices: &'a ContentChoices) -> impl Render {
     let f = ContentLineInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(ids::CONTENT));
     let action = at::Contents::of(id).href();
     let choice = |list: &[ContentChoice]| -> Vec<(String, String, bool)> {
         list.iter().map(|c| (c.id.clone(), choice_label(c), false)).collect()
@@ -1355,14 +1368,14 @@ pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, c
         .collect();
     html! {
         <form class={Form} id={ids::CONTENT} method="post" action={&action} data-patch>
-            {e.form_message()}
+            {form.errors.form_message()}
             <Select
                 label={t.item_content_type()}
                 name={f.content_type_id}
                 placeholder={t.item_choose_content_type()}
                 options={&types}
                 value={&i.content_type_id}
-                errors={e}
+                errors={&e}
             />
             <Select
                 label={t.item_inclusion_policy()}
@@ -1370,7 +1383,7 @@ pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, c
                 placeholder={t.item_choose_inclusion_policy()}
                 options={&policies}
                 value={&i.inclusion_policy_id}
-                errors={e}
+                errors={&e}
             />
             <Select
                 label={t.item_contained_catalog_item()}
@@ -1378,7 +1391,7 @@ pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, c
                 placeholder={t.item_choose_catalog_item()}
                 options={&items}
                 value={&i.contained_catalog_item_id}
-                errors={e}
+                errors={&e}
             />
             <label class={Field}>
                 <span class={Label}>{t.item_selected_options_2()}</span>
@@ -1389,7 +1402,7 @@ pub fn ContentForm<'a>(t: Cat, id: &'a str, form: &'a Draft<ContentLineInput>, c
                     placeholder={t.item_selected_options_placeholder()}
                 >
             </label>
-            <Input label={t.item_quantity()} name={f.quantity} value={&i.quantity} errors={e} />
+            <Input label={t.item_quantity()} name={f.quantity} value={&i.quantity} errors={&e} />
             <div class={Footer}><button type="submit">{t.item_add_content_line()}</button></div>
         </form>
     }

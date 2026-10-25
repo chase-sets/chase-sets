@@ -339,7 +339,8 @@ async fn write(req: &Req, config: &Config, headers: &HeaderMap, write: Write, in
     // the posted one.
     let viewer = viewer(req)?;
     let status = Status::Refused(input.attempt.clone());
-    let draft = Draft { input: input.redrawn(recovery::new_attempt()), errors };
+    // The form is drawn with a new SubmitKey; the posted attempt applied nothing.
+    let draft = Draft { input, errors };
     let t: Msg = req.t();
     let patch = views::Refused { t, viewer, write: &write.view(), draft: &draft, status: &status };
     let forms = Forms { status: Some(status.clone()), draft: Some((write.view(), draft.clone())) };

@@ -11,13 +11,13 @@ use crate::{
     text::Msg,
 };
 
-#[derive(Id)]
+#[derive(Id, Clone, Copy)]
 pub struct ActivateFormId;
 
-#[derive(Id)]
+#[derive(Id, Clone, Copy)]
 pub struct RetireFormId;
 
-#[derive(Id)]
+#[derive(Id, Clone, Copy)]
 pub struct CloneFormId;
 
 #[derive(Id)]
@@ -51,11 +51,11 @@ pub fn Lifecycle<'a>(
 #[component(css = Lifecycle)]
 pub fn ActivateForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<ActivateInput>) -> impl Render {
     let f = ActivateInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(ActivateFormId));
     let title = t.detail_activate_confirm_title(&i.label).to_string();
     html! {
         <form class={Card} id={ActivateFormId} method="post" action={url::Activate { id }} data-patch>
-            {e.form_message()}
+            {form.errors.form_message()}
             <input type="hidden" name={f.label} value={&i.label}>
             <Field
                 label={t.detail_activation_reason_label()}
@@ -63,7 +63,7 @@ pub fn ActivateForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<Acti
                 value={&i.activation_reason}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <button type="button" command="show-modal" commandfor={ActivateDialogId} disabled={!enabled}>
                 {t.detail_activate()}
@@ -86,11 +86,11 @@ pub fn ActivateForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<Acti
 #[component(css = Lifecycle)]
 pub fn RetireForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<RetireInput>) -> impl Render {
     let f = RetireInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(RetireFormId));
     let title = t.detail_retire_confirm_title(&i.label).to_string();
     html! {
         <form class={Card} id={RetireFormId} method="post" action={url::Retire { id }} data-patch>
-            {e.form_message()}
+            {form.errors.form_message()}
             <input type="hidden" name={f.label} value={&i.label}>
             <Field
                 label={t.detail_retirement_reason_label()}
@@ -98,7 +98,7 @@ pub fn RetireForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<Retire
                 value={&i.retirement_reason}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <button type="button" class={Danger} command="show-modal" commandfor={RetireDialogId} disabled={!enabled}>
                 {t.detail_retire()}
@@ -121,17 +121,17 @@ pub fn RetireForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<Retire
 #[component(css = Lifecycle)]
 pub fn CloneForm<'a>(t: Msg, id: &'a str, form: &'a Draft<CloneInput>) -> impl Render {
     let f = CloneInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(CloneFormId));
     html! {
         <form class={Card} id={CloneFormId} method="post" action={url::Clone { id }} data-patch>
-            {e.form_message()}
+            {form.errors.form_message()}
             <Field
                 label={t.detail_draft_label()}
                 name={f.clone_label}
                 value={&i.clone_label}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.common_effective_from()}
@@ -139,7 +139,7 @@ pub fn CloneForm<'a>(t: Msg, id: &'a str, form: &'a Draft<CloneInput>) -> impl R
                 value={&i.clone_effective_from}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.common_effective_until()}
@@ -147,7 +147,7 @@ pub fn CloneForm<'a>(t: Msg, id: &'a str, form: &'a Draft<CloneInput>) -> impl R
                 value={&i.clone_effective_until}
                 kind={Kind::Text}
                 required={false}
-                errors={e}
+                errors={&e}
             />
             <button type="submit" class={Cancel}>{t.detail_clone_rollback_draft()}</button>
         </form>

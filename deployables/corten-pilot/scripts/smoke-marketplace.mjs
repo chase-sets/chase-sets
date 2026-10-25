@@ -76,8 +76,8 @@ async function context(javaScriptEnabled) {
   await fill(create, `Smoke ${stamp}`, `SMK-${stamp}`);
   await create.getByLabel("Ship-from city").fill("   ");
   await create.getByRole("button", { name: "Create location" }).click();
-  await page.locator("#ship_from_city-error").waitFor();
-  check((await page.locator("#ship_from_city-error").textContent()) === "Enter a value.", "the pilot's check names its field, patched in");
+  await page.locator("#create-form-ship_from_city-error").waitFor();
+  check((await page.locator("#create-form-ship_from_city-error").textContent()) === "Enter a value.", "the pilot's check names its field, patched in");
   check(page.url() === list, "a refusal does not navigate");
   check((await create.getByLabel("Name", { exact: true }).inputValue()) === `Smoke ${stamp}`, "typed values survive the patch");
 
@@ -124,7 +124,7 @@ async function context(javaScriptEnabled) {
 
   // A record for a write that never reached the API: its result cannot be known.
   const remember = await page.locator("#create-form").getAttribute("data-on");
-  const [, account, user] = remember.match(/remember\(\$e,"[^"]*","([^"]*)","([^"]*)"/) ?? [];
+  const [, account, user] = remember.match(/remember\(\$e,"([^"]*)","([^"]*)"/) ?? [];
   const id = (await card(page, `Smoke ${stamp} saved`).locator("form").first().getAttribute("id")).replace(/^location-form-/, "");
   await page.evaluate(
     ({ account, user, id, attempt }) =>
@@ -170,7 +170,7 @@ async function context(javaScriptEnabled) {
     create.getByRole("button", { name: "Create location" }).click(),
   ]);
   check(refused.status() === 422, "a refused post answers 422 with the whole page");
-  check((await page.locator("#ship_from_state-error").textContent()) === "Enter a value.", "with the field's message");
+  check((await page.locator("#create-form-ship_from_state-error").textContent()) === "Enter a value.", "with the field's message");
   await page.locator("#create-form").getByLabel("Ship-from state").fill("TX");
   await page.locator("#create-form").getByRole("button", { name: "Create location" }).click();
   await page.waitForURL(/attempt=/);

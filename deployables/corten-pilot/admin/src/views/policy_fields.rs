@@ -1,14 +1,14 @@
-use corten::prelude::*;
+use corten::{form::Within, prelude::*, view::Id};
 
 use super::Draft;
 use crate::{app::url, form::PolicyInput, text::Msg};
 
 /// The create form's id: a submit that fails replaces it.
-#[derive(Id)]
+#[derive(Id, Clone, Copy)]
 pub struct CreateFormId;
 
 /// The revise form's id (the preview posts it too).
-#[derive(Id)]
+#[derive(Id, Clone, Copy)]
 pub struct ReviseFormId;
 
 /// How an input reads its value.
@@ -38,7 +38,14 @@ fn physical_flags(t: Msg) -> [(&'static str, &'static str); 8] {
 /// A labelled input, its error next to it. The error is outside the label, so it is not part of
 /// the input's name (it describes it).
 #[component(css = PolicyFields)]
-pub fn Field<'a>(label: &'a str, name: FieldName, value: &'a str, kind: Kind, required: bool, errors: &'a Errors) -> impl Render {
+pub fn Field<'a, I: Id>(
+    label: &'a str,
+    name: FieldName,
+    value: &'a str,
+    kind: Kind,
+    required: bool,
+    errors: &'a Within<'a, I>,
+) -> impl Render {
     html! {
         <div class={Field}>
             <label class={Field}>
@@ -83,22 +90,22 @@ pub fn Choices<'a>(name: FieldName, options: &'a [(&'a str, &'a str)], checked: 
 
 /// The label, the dates and the policy's rules: what the create and revise forms share.
 #[component(css)]
-pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
+pub fn PolicyFields<'a, I: Id + Copy>(t: Msg, form_id: I, form: &'a Draft<PolicyInput>) -> impl Render {
     let f = PolicyInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(form_id));
     let num = |min, step| Kind::Number { min, step };
     let shipping = shipping_options(t);
     let flags = physical_flags(t);
     html! {
         <div class={Fields}>
-            <Field label={t.common_label()} name={f.label} value={&i.label} kind={Kind::Text} required errors={e} />
+            <Field label={t.common_label()} name={f.label} value={&i.label} kind={Kind::Text} required errors={&e} />
             <Field
                 label={t.common_effective_from()}
                 name={f.effective_from}
                 value={&i.effective_from}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.common_effective_until()}
@@ -106,7 +113,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                 value={&i.effective_until}
                 kind={Kind::Text}
                 required={false}
-                errors={e}
+                errors={&e}
             />
             <Field
                 label={t.form_policy_version()}
@@ -114,7 +121,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                 value={&i.policy_version}
                 kind={Kind::Text}
                 required
-                errors={e}
+                errors={&e}
             />
             <div class={Grid}>
                 <Field
@@ -123,7 +130,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                     value={&i.max_letter_units}
                     kind={num(1.0, 1.0)}
                     required
-                    errors={e}
+                    errors={&e}
                 />
                 <Field
                     label={t.form_max_letter_weight_oz()}
@@ -131,7 +138,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                     value={&i.max_letter_weight_ounces}
                     kind={num(0.01, 0.01)}
                     required
-                    errors={e}
+                    errors={&e}
                 />
                 <Field
                     label={t.form_max_letter_thickness_in()}
@@ -139,7 +146,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                     value={&i.max_letter_thickness_inches}
                     kind={num(0.01, 0.001)}
                     required
-                    errors={e}
+                    errors={&e}
                 />
                 <Field
                     label={t.form_max_letter_declared_value()}
@@ -147,7 +154,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                     value={&i.max_letter_declared_value_amount}
                     kind={num(0.0, 0.01)}
                     required
-                    errors={e}
+                    errors={&e}
                 />
                 <Field
                     label={t.form_letter_envelope_weight_oz()}
@@ -155,7 +162,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                     value={&i.letter_envelope_weight_ounces}
                     kind={num(0.0, 0.01)}
                     required
-                    errors={e}
+                    errors={&e}
                 />
                 <Field
                     label={t.form_parcel_packaging_weight_oz()}
@@ -163,7 +170,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                     value={&i.parcel_packaging_weight_ounces}
                     kind={num(0.0, 0.01)}
                     required
-                    errors={e}
+                    errors={&e}
                 />
                 <Field
                     label={t.form_signature_declared_value()}
@@ -171,7 +178,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                     value={&i.signature_required_declared_value_amount}
                     kind={num(0.0, 0.01)}
                     required={false}
-                    errors={e}
+                    errors={&e}
                 />
                 <Field
                     label={t.form_insurance_declared_value()}
@@ -179,7 +186,7 @@ pub fn PolicyFields<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
                     value={&i.insurance_required_declared_value_amount}
                     kind={num(0.0, 0.01)}
                     required={false}
-                    errors={e}
+                    errors={&e}
                 />
             </div>
             <fieldset class={Group}>
@@ -218,7 +225,7 @@ pub fn CreateForm<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
     html! {
         <form class={Form} id={CreateFormId} method="post" action={url::Policies::default()} data-patch>
             {form.errors.form_message()}
-            <PolicyFields t={t} form={form} />
+            <PolicyFields t={t} form_id={CreateFormId} form={form} />
             <div class={Actions}><button type="submit">{t.list_create_draft_action()}</button></div>
         </form>
     }
@@ -229,14 +236,14 @@ pub fn CreateForm<'a>(t: Msg, form: &'a Draft<PolicyInput>) -> impl Render {
 #[component(css = PolicyFields)]
 pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl Render {
     let f = PolicyInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(ReviseFormId));
     let num = |min, step| Kind::Number { min, step };
     let shipping = shipping_options(t);
     let flags: Vec<(&str, &str)> = physical_flags(t).into_iter().filter(|(value, _)| *value != "bendable").collect();
     html! {
         <form class={Form} id={ReviseFormId} method="post" action={url::Revise { id }} data-patch>
-            {e.form_message()}
-            <PolicyFields t={t} form={form} />
+            {form.errors.form_message()}
+            <PolicyFields t={t} form_id={ReviseFormId} form={form} />
             <div class={Actions}><button type="submit">{t.detail_save_revision()}</button></div>
             <fieldset class={Group}>
                 <legend>{t.detail_preview()}</legend>
@@ -255,7 +262,7 @@ pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl
                         value={&i.preview_item_subtotal_amount}
                         kind={Kind::Text}
                         required
-                        errors={e}
+                        errors={&e}
                     />
                     <Field
                         label={t.detail_quantity()}
@@ -263,7 +270,7 @@ pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl
                         value={&i.preview_quantity}
                         kind={num(1.0, 1.0)}
                         required
-                        errors={e}
+                        errors={&e}
                     />
                     <Field
                         label={t.detail_unit_length_in()}
@@ -271,7 +278,7 @@ pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl
                         value={&i.preview_unit_length_inches}
                         kind={num(0.01, 0.01)}
                         required
-                        errors={e}
+                        errors={&e}
                     />
                     <Field
                         label={t.detail_unit_width_in()}
@@ -279,7 +286,7 @@ pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl
                         value={&i.preview_unit_width_inches}
                         kind={num(0.01, 0.01)}
                         required
-                        errors={e}
+                        errors={&e}
                     />
                     <Field
                         label={t.detail_unit_thickness_in()}
@@ -287,7 +294,7 @@ pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl
                         value={&i.preview_unit_height_inches}
                         kind={num(0.001, 0.001)}
                         required
-                        errors={e}
+                        errors={&e}
                     />
                     <Field
                         label={t.detail_unit_weight_oz()}
@@ -295,7 +302,7 @@ pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl
                         value={&i.preview_unit_weight_ounces}
                         kind={num(0.001, 0.001)}
                         required
-                        errors={e}
+                        errors={&e}
                     />
                 </div>
                 <Choices name={f.preview_physical_flags} options={&flags} checked={&i.preview_physical_flags} />

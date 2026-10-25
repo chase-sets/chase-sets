@@ -209,6 +209,7 @@ const outputs = [
         ["catalog.support.shellSupport.ui.lifecycleControls.", "lifecycle"],
         ["catalog.support.shellSupport.ui.bulkLifecycleActions.", "bulk"],
         ["catalog.support.shellSupport.ui.realtimeReloadActionBar.", "realtime"],
+        ["catalog.support.shellSupport.ui.realtimeConnectionStatus.", "live_status"],
         ["catalog.features.catalogItems.ui.catalogItemListPage.", "item_list"],
         ["catalog.features.catalogItems.ui.catalogItemDetailPage.", "item"],
         ["catalog.routes.admin.dimensions.dimensions.catalog.admin", "route.dimensions"],

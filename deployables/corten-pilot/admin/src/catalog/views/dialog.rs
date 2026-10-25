@@ -1,4 +1,8 @@
-use corten::prelude::*;
+use corten::{
+    form::Within,
+    prelude::*,
+    view::{AttrValue, Id},
+};
 use corten_ui::{Toast, Toaster};
 
 use crate::{
@@ -50,7 +54,7 @@ pub fn Trigger<'a>(dialog: &'a str, label: &'a str, secondary: bool) -> impl Ren
 /// A labelled text input, its error next to it. The error is outside the label, so it is not
 /// part of the input's name (it describes it).
 #[component(css = Dialog)]
-pub fn Input<'a>(label: &'a str, name: FieldName, value: &'a str, errors: &'a Errors) -> impl Render {
+pub fn Input<'a, I: Id>(label: &'a str, name: FieldName, value: &'a str, errors: &'a Within<'a, I>) -> impl Render {
     html! {
         <div class={Field}>
             <label class={Field}>
@@ -64,12 +68,12 @@ pub fn Input<'a>(label: &'a str, name: FieldName, value: &'a str, errors: &'a Er
 
 /// A labelled select.
 #[component(css = Dialog)]
-pub fn Choice<'a>(
+pub fn Choice<'a, I: Id>(
     label: &'a str,
     name: FieldName,
     options: &'a [(&'a str, &'a str)],
     value: &'a str,
-    errors: &'a Errors,
+    errors: &'a Within<'a, I>,
 ) -> impl Render {
     html! {
         <div class={Field}>
@@ -117,20 +121,26 @@ pub fn value_types(t: Cat) -> [(&'static str, &'static str); 7] {
 
 /// A dimension's create form (with the id it was drawn with) or its edit form.
 #[component(css = Dialog)]
-pub fn DimensionForm<'a>(t: Cat, id: &'a str, action: &'a str, create: bool, form: &'a Draft<DimensionInput>) -> impl Render {
+pub fn DimensionForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    create: bool,
+    form: &'a Draft<DimensionInput>,
+) -> impl Render {
     let f = DimensionInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(id));
     let kinds = value_kinds(t);
     html! {
         <form class={Form} id={id} method="post" action={action} data-patch>
-            {e.form_message()}
+            {form.errors.form_message()}
             if create {
                 <input type="hidden" name={f.dimension_id} value={&i.dimension_id}>
             }
-            <Input label={t.dimension_key()} name={f.key} value={&i.key} errors={e} />
-            <Input label={t.dimension_name()} name={f.name} value={&i.name} errors={e} />
-            <Input label={t.dimension_description()} name={f.description} value={&i.description} errors={e} />
-            <Choice label={t.dimension_value_kind()} name={f.value_kind} options={&kinds} value={&i.value_kind} errors={e} />
+            <Input label={t.dimension_key()} name={f.key} value={&i.key} errors={&e} />
+            <Input label={t.dimension_name()} name={f.name} value={&i.name} errors={&e} />
+            <Input label={t.dimension_description()} name={f.description} value={&i.description} errors={&e} />
+            <Choice label={t.dimension_value_kind()} name={f.value_kind} options={&kinds} value={&i.value_kind} errors={&e} />
             <div class={Footer}>
                 <button type="submit">{if create { t.dimension_list_create() } else { t.dimension_save_3() }}</button>
             </div>
@@ -140,20 +150,26 @@ pub fn DimensionForm<'a>(t: Cat, id: &'a str, action: &'a str, create: bool, for
 
 /// A field's create form or its configure form.
 #[component(css = Dialog)]
-pub fn FieldForm<'a>(t: Cat, id: &'a str, action: &'a str, create: bool, form: &'a Draft<FieldInput>) -> impl Render {
+pub fn FieldForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    create: bool,
+    form: &'a Draft<FieldInput>,
+) -> impl Render {
     let f = FieldInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(id));
     let types = value_types(t);
     html! {
         <form class={Form} id={id} method="post" action={action} data-patch>
-            {e.form_message()}
+            {form.errors.form_message()}
             if create {
                 <input type="hidden" name={f.field_id} value={&i.field_id}>
             }
-            <Input label={t.field_key()} name={f.key} value={&i.key} errors={e} />
-            <Input label={t.field_name()} name={f.name} value={&i.name} errors={e} />
-            <Input label={t.field_description()} name={f.description} value={&i.description} errors={e} />
-            <Choice label={t.field_value_type()} name={f.value_type} options={&types} value={&i.value_type} errors={e} />
+            <Input label={t.field_key()} name={f.key} value={&i.key} errors={&e} />
+            <Input label={t.field_name()} name={f.name} value={&i.name} errors={&e} />
+            <Input label={t.field_description()} name={f.description} value={&i.description} errors={&e} />
+            <Choice label={t.field_value_type()} name={f.value_type} options={&types} value={&i.value_type} errors={&e} />
             <div class={Checks}>
                 <Check label={t.field_filterable()} name={f.filterable} checked={i.filterable} />
                 <Check label={t.field_searchable()} name={f.searchable} checked={i.searchable} />
@@ -171,20 +187,26 @@ pub fn FieldForm<'a>(t: Cat, id: &'a str, action: &'a str, create: bool, form: &
 /// written); the hidden first button is the form's default, so Enter in a field submits it
 /// rather than removing the first row.
 #[component(css = Dialog)]
-pub fn OptionForm<'a>(t: Cat, id: &'a str, action: &'a str, add: bool, form: &'a Draft<OptionInput>) -> impl Render {
+pub fn OptionForm<'a, I: Id + AttrValue + Copy>(
+    t: Cat,
+    id: I,
+    action: &'a str,
+    add: bool,
+    form: &'a Draft<OptionInput>,
+) -> impl Render {
     let f = OptionInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(id));
     let labels = i.labels();
     let submit = if add { t.dimension_add() } else { t.dimension_save() };
     html! {
         <form class={Form} id={id} method="post" action={action} data-patch>
             <button type="submit" class={Default} tabindex="-1" aria-hidden="true">{submit}</button>
-            {e.form_message()}
+            {form.errors.form_message()}
             if add {
                 <input type="hidden" name={f.option_id} value={&i.option_id}>
             }
-            <Input label={t.dimension_code()} name={f.code} value={&i.code} errors={e} />
-            <Input label={t.dimension_numeric_value_optional()} name={f.numeric_value} value={&i.numeric_value} errors={e} />
+            <Input label={t.dimension_code()} name={f.code} value={&i.code} errors={&e} />
+            <Input label={t.dimension_numeric_value_optional()} name={f.numeric_value} value={&i.numeric_value} errors={&e} />
             <fieldset class={Labels}>
                 <legend>{t.dimension_labels()}</legend>
                 for (row, (locale, value)) in labels.iter().enumerate() {
@@ -217,13 +239,13 @@ pub fn OptionForm<'a>(t: Cat, id: &'a str, action: &'a str, add: bool, form: &'a
 
 /// The order of a dimension's options, as ids separated by commas.
 #[component(css = Dialog)]
-pub fn ReorderForm<'a>(t: Cat, id: &'a str, action: &'a str, form: &'a Draft<ReorderInput>) -> impl Render {
+pub fn ReorderForm<'a, I: Id + AttrValue + Copy>(t: Cat, id: I, action: &'a str, form: &'a Draft<ReorderInput>) -> impl Render {
     let f = ReorderInput::FIELDS;
-    let (i, e) = (&form.input, &form.errors);
+    let (i, e) = (&form.input, form.errors.within(id));
     html! {
         <form class={Form} id={id} method="post" action={action} data-patch>
-            {e.form_message()}
-            <Input label={t.dimension_option_ids()} name={f.option_ids} value={&i.option_ids} errors={e} />
+            {form.errors.form_message()}
+            <Input label={t.dimension_option_ids()} name={f.option_ids} value={&i.option_ids} errors={&e} />
             <div class={Footer}>
                 <button type="submit">{t.dimension_save_2()}</button>
             </div>

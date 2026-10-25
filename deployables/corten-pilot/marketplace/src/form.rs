@@ -14,7 +14,8 @@ use crate::{
     text::Pilot,
 };
 
-/// A location's fields and the attempt the form was drawn with. The archive form sends the
+/// A location's fields and the attempt the form was posted with (its `SubmitKey`, drawn fresh
+/// each time the form is). The archive form sends the
 /// location's current fields as hidden inputs, as marketplace's does.
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
@@ -42,16 +43,16 @@ fn optional(text: &str) -> Option<String> {
 
 impl LocationInput {
     /// The create form: empty, the country `US`.
-    pub fn blank(attempt: String) -> Self {
-        LocationInput { attempt, ship_from_country: "US".into(), ..Default::default() }
+    pub fn blank() -> Self {
+        LocationInput { ship_from_country: "US".into(), ..Default::default() }
     }
 
     /// A location's update and archive forms.
-    pub fn of(location: &Location, attempt: String) -> Self {
+    pub fn of(location: &Location) -> Self {
         let a = &location.ship_from_address;
         let text = |t: &Option<String>| t.clone().unwrap_or_default();
         LocationInput {
-            attempt,
+            attempt: String::new(),
             name: location.name.clone(),
             description: text(&location.description),
             ship_from_code: location.ship_from_code.clone(),
@@ -66,11 +67,6 @@ impl LocationInput {
             ship_from_phone: text(&a.phone),
             ship_from_email: text(&a.email),
         }
-    }
-
-    /// The same fields drawn again with a new attempt: the posted one applied nothing.
-    pub fn redrawn(self, attempt: String) -> Self {
-        LocationInput { attempt, ..self }
     }
 
     /// The request, or what is missing. `archived` is `None` for a create.

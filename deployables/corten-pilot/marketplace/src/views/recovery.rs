@@ -88,7 +88,6 @@ pub fn WriteForm<'a, I: AttrValue, A: AttrValue, C: Render>(
 ) -> impl Render {
     let unavailable = refs();
     let f = LocationInput::FIELDS;
-    let attempt = draft.input.attempt.as_str();
     let (account, user) = (viewer.actor.account_id.as_str(), viewer.actor.user_id.as_str());
     // `target` in a handler call is the event's target, so the record's id goes by another name.
     let record = target;
@@ -99,9 +98,9 @@ pub fn WriteForm<'a, I: AttrValue, A: AttrValue, C: Render>(
             method="post"
             action={action}
             data-patch
-            on:submit={handlers::remember(event, attempt, account, user, family.as_str(), record, unavailable)}
+            on:submit={handlers::remember(event, account, user, family.as_str(), record, unavailable)}
         >
-            <input type="hidden" name={f.attempt} value={attempt}>
+            {SubmitKey::field(f.attempt)}
             {draft.errors.form_message()}
             <p ref={unavailable} class={Unavailable} role="alert" tabindex="-1" hidden>{t.recovery_failed_safe()}</p>
             <fieldset class={Controls} disabled={!enabled}>{children}</fieldset>

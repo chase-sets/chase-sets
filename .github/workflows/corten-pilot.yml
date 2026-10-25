@@ -41,8 +41,13 @@ jobs:
       - name: The exported text, tokens, nav and defaults match the React apps' sources
         run: node --import tsx scripts/export.mjs --check
 
-      - name: The apps' scripts type-check (corten check does not; README.md, Corten gaps)
-        run: ../../node_modules/.bin/tsc -p jsconfig.json
+      # corten check type-checks each app's scripts with tsc from the PATH, and passes without it,
+      # so the repo's TypeScript is put on the PATH and required here (README.md, Corten gaps).
+      - name: TypeScript on the PATH for corten check
+        run: |
+          set -euo pipefail
+          test -x "$GITHUB_WORKSPACE/node_modules/.bin/tsc"
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
@@ -67,5 +72,8 @@ jobs:
           # are cached with it).
           cargo install --locked --git https://github.com/todd-skelton/corten --rev "$rev" corten-cli
 
-      - name: corten check (cargo fmt, corten fmt, clippy -D warnings, tests)
-        run: corten check
+      - name: corten check (cargo fmt, corten fmt, clippy -D warnings, the scripts' types, tests)
+        run: |
+          set -euo pipefail
+          corten check 2>&1 | tee corten-check.log
+          ! grep -q "were not type-checked" corten-check.log

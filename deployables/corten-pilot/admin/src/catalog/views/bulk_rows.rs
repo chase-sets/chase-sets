@@ -14,8 +14,6 @@ pub struct Bar<'a> {
     pub action: &'a str,
     /// Every record the filters match, on every page.
     pub total: u32,
-    /// The rows on this page, so the most that can be selected.
-    pub rows: usize,
     /// The actions it offers: value and label.
     pub actions: &'a [(&'a str, &'a str)],
 }
@@ -27,8 +25,8 @@ pub struct Bar<'a> {
 /// and the buttons in step with the boxes. It runs again when the rows are drawn again, so the
 /// count follows a live change; a box the user checked keeps its mark through it.
 ///
-/// The count's text for each number of rows is drawn here, in a `<template>`, since a script
-/// has no typed way to show text it computes (todd-skelton/corten#17).
+/// The count's text for checked rows is the catalog's message, sent unfilled (`t.js()`), so the
+/// script formats it in the page's locale.
 ///
 /// `fields` are drawn after the action (what an action takes, such as the catalog items' tags)
 /// and `more` after the preview buttons (another submit of the form, with its `formaction`).
@@ -44,15 +42,15 @@ pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
     more: M,
     children: C,
 ) -> impl Render {
-    let (form, count, labels, preview, clear) = refs();
-    let sel = js::Selection { form, count, labels, preview, clear };
+    let (form, count, preview, clear) = refs();
     let f = BulkInput::FIELDS;
     let matching = t.bulk_matching(bar.total, bar.entity).to_string();
+    let sel = js::Selection { form, count, preview, clear };
     html! {
         <div
             id={ids::ROWS}
             class={Rows}
-            on:connect={js::tally(sel)}
+            on:connect={js::drawn(sel, &matching, bar.entity, t.js().bulk_selected())}
             on:change={js::changed(event, sel)}
             on:reset={js::cleared(event, sel)}
         >
@@ -66,12 +64,6 @@ pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
                 aria-label={p.bulk_label()}
             >
                 <output ref={count} class={Count}>{&matching}</output>
-                <template ref={labels}>
-                    <span>{&matching}</span>
-                    for n in 1..=bar.rows {
-                        <span>{t.bulk_selected(n, bar.entity)}</span>
-                    }
-                </template>
                 <div class={Actions}>
                     <label class={Pick}>
                         <span class={Label}>{t.bulk_action()}</span>

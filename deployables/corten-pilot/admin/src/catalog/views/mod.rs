@@ -24,6 +24,7 @@ mod dialog;
 mod item_list;
 mod item_page;
 mod list_page;
+mod live_status;
 mod status_pill;
 
 pub use bulk_dialogs::{Candidates, JobDialog, PreviewDialog, Previewed, job_status};
@@ -40,22 +41,35 @@ pub use item_page::{
     item_transitions,
 };
 pub use list_page::{DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick, Search, Table, TextFilter};
+pub use live_status::LiveStatus;
 pub use status_pill::StatusPill;
 
 /// The area's components: its stylesheet, and corten-ui's toaster script.
 pub const COMPONENTS: &[Component] =
-    &[StatusPill, ListPage, DetailPage, Dialog, BulkRows, PreviewDialog, ItemForm, ItemPage, corten_ui::Toaster];
+    &[StatusPill, ListPage, DetailPage, Dialog, BulkRows, LiveStatus, PreviewDialog, ItemForm, ItemPage, corten_ui::Toaster];
 
 /// The ids a form's patch replaces it by, and the dialogs they sit in.
 pub mod ids {
-    pub const CREATE: &str = "catalog-create";
+    use corten::prelude::*;
+
+    /// A list's create form.
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogCreateId;
+    pub const CREATE: CatalogCreateId = CatalogCreateId;
     pub const CREATE_DIALOG: &str = "catalog-create-dialog";
-    pub const EDIT: &str = "catalog-edit";
+    /// A record's edit form.
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogEditId;
+    pub const EDIT: CatalogEditId = CatalogEditId;
     pub const EDIT_DIALOG: &str = "catalog-edit-dialog";
     pub const LIFECYCLE: &str = "catalog-lifecycle";
-    pub const ADD_OPTION: &str = "catalog-add-option";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogAddOptionId;
+    pub const ADD_OPTION: CatalogAddOptionId = CatalogAddOptionId;
     pub const ADD_OPTION_DIALOG: &str = "catalog-add-option-dialog";
-    pub const REORDER: &str = "catalog-reorder";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogReorderId;
+    pub const REORDER: CatalogReorderId = CatalogReorderId;
     pub const REORDER_DIALOG: &str = "catalog-reorder-dialog";
     /// A list's rows (or its empty state) and pager: what a change to the list re-renders.
     pub const ROWS: &str = "catalog-rows";
@@ -63,7 +77,9 @@ pub mod ids {
     pub const BULK: &str = "catalog-bulk";
     pub const PREVIEW_DIALOG: &str = "catalog-bulk-preview";
     /// The preview's confirm form.
-    pub const CONFIRM: &str = "catalog-bulk-confirm";
+    #[derive(Id, Clone, Copy)]
+    pub struct CatalogBulkConfirmId;
+    pub const CONFIRM: CatalogBulkConfirmId = CatalogBulkConfirmId;
     pub const JOB_DIALOG: &str = "catalog-bulk-job";
     /// A job's status in its dialog: what each change to the job draws again.
     pub const JOB_STATUS: &str = "catalog-bulk-status";
@@ -74,29 +90,53 @@ pub mod ids {
 
     /// The catalog item page's dialogs and their forms (`item` = the form, `*_DIALOG` its dialog).
     pub mod item {
-        pub const PUBLISH: &str = "item-publish";
+        use corten::prelude::*;
+
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemPublishId;
+        pub const PUBLISH: ItemPublishId = ItemPublishId; // item-publish
         pub const PUBLISH_DIALOG: &str = "item-publish-dialog";
-        pub const BLUEPRINT: &str = "item-blueprint";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemBlueprintId;
+        pub const BLUEPRINT: ItemBlueprintId = ItemBlueprintId; // item-blueprint
         pub const BLUEPRINT_DIALOG: &str = "item-blueprint-dialog";
         /// Set Field Value: drawn by the server when it is opened (its lists are long).
-        pub const FIELD: &str = "item-field";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemFieldId;
+        pub const FIELD: ItemFieldId = ItemFieldId; // item-field
         pub const FIELD_DIALOG: &str = "item-field-dialog";
-        pub const CATEGORY: &str = "item-category";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemCategoryId;
+        pub const CATEGORY: ItemCategoryId = ItemCategoryId; // item-category
         pub const CATEGORY_DIALOG: &str = "item-category-dialog";
-        pub const METADATA: &str = "item-metadata";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemMetadataId;
+        pub const METADATA: ItemMetadataId = ItemMetadataId; // item-metadata
         pub const METADATA_DIALOG: &str = "item-metadata-dialog";
-        pub const TAGS: &str = "item-tags";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemTagsId;
+        pub const TAGS: ItemTagsId = ItemTagsId; // item-tags
         pub const TAGS_DIALOG: &str = "item-tags-dialog";
-        pub const URLS: &str = "item-image-urls";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemImageUrlsId;
+        pub const URLS: ItemImageUrlsId = ItemImageUrlsId; // item-image-urls
         pub const URLS_DIALOG: &str = "item-image-urls-dialog";
-        pub const FALLBACK: &str = "item-fallback";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemFallbackId;
+        pub const FALLBACK: ItemFallbackId = ItemFallbackId; // item-fallback
         pub const FALLBACK_DIALOG: &str = "item-fallback-dialog";
-        pub const CATALOG_REF: &str = "item-catalog-ref";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemCatalogRefId;
+        pub const CATALOG_REF: ItemCatalogRefId = ItemCatalogRefId; // item-catalog-ref
         pub const CATALOG_REF_DIALOG: &str = "item-catalog-ref-dialog";
-        pub const PRODUCT_REF: &str = "item-product-ref";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemProductRefId;
+        pub const PRODUCT_REF: ItemProductRefId = ItemProductRefId; // item-product-ref
         pub const PRODUCT_REF_DIALOG: &str = "item-product-ref-dialog";
         /// Add content line: drawn by the server when it is opened.
-        pub const CONTENT: &str = "item-content";
+        #[derive(Id, Clone, Copy)]
+        pub struct ItemContentId;
+        pub const CONTENT: ItemContentId = ItemContentId; // item-content
         pub const CONTENT_DIALOG: &str = "item-content-dialog";
         /// The image fallback's clear form.
         pub const FALLBACK_CLEAR: &str = "item-fallback-clear";
@@ -115,8 +155,12 @@ pub mod ids {
         }
     }
 
-    pub fn option_form(option_id: &str) -> String {
-        format!("option-{option_id}")
+    /// An option's edit form: `option-{id}`.
+    #[derive(Id, Clone, Copy)]
+    pub struct OptionId<'a>(pub &'a str);
+
+    pub fn option_form(option_id: &str) -> OptionId<'_> {
+        OptionId(option_id)
     }
 
     pub fn option_dialog(option_id: &str) -> String {
@@ -219,7 +263,7 @@ fn value(of: &Option<String>) -> &str {
 pub fn dimension_list<'a>(
     t: Cat,
     p: Pilot,
-    query: &'a url::Dimensions,
+    query: &'a url::DimensionQuery,
     screen: &'a ListScreen<Dimension>,
     create: Option<Draft<DimensionInput>>,
     notice: Option<String>,
@@ -228,12 +272,12 @@ pub fn dimension_list<'a>(
     let open = create.is_some();
     let create = create.unwrap_or_else(|| Draft::new(DimensionInput::blank()));
     let title = t.dimension_list_dimensions();
-    let list = url::Dimensions { after_write: None, done: None, job: None, ..query.clone() };
+    let list = url::Dimensions::of(query);
     let create_action = list.href();
-    let live = url::DimensionsLive::of(query).href();
+    let live = url::DimensionsLive { query: query.clone() }.href();
     let filters = url::Dimensions::default().href();
     let (states, kinds) = (statuses(t), value_kinds(t));
-    let f = url::Dimensions::FIELDS;
+    let f = url::DimensionQuery::FIELDS;
     html! {
         <ListPage title={title}>
             <Trigger dialog={ids::CREATE_DIALOG} label={t.dimension_list_new_dimension()} secondary={false} />
@@ -274,7 +318,7 @@ pub fn dimension_list<'a>(
 pub fn field_list<'a>(
     t: Cat,
     p: Pilot,
-    query: &'a url::Fields,
+    query: &'a url::FieldQuery,
     screen: &'a ListScreen<Field>,
     create: Option<Draft<FieldInput>>,
     notice: Option<String>,
@@ -283,13 +327,13 @@ pub fn field_list<'a>(
     let open = create.is_some();
     let create = create.unwrap_or_else(|| Draft::new(FieldInput::blank()));
     let title = t.field_list_fields();
-    let list = url::Fields { after_write: None, done: None, job: None, ..query.clone() };
+    let list = url::Fields::of(query);
     let create_action = list.href();
-    let live = url::FieldsLive::of(query).href();
+    let live = url::FieldsLive { query: query.clone() }.href();
     let filters = url::Fields::default().href();
     let (states, types) = (statuses(t), value_types(t));
     let flags = [("true", t.list_yes()), ("false", t.list_no())];
-    let f = url::Fields::FIELDS;
+    let f = url::FieldQuery::FIELDS;
     html! {
         <ListPage title={title}>
             <Trigger dialog={ids::CREATE_DIALOG} label={t.field_list_new_field()} secondary={false} />
@@ -368,7 +412,7 @@ fn bulk_dialogs<'a>(t: Cat, p: Pilot, preview: Option<Previewed<'a>>, job: Optio
 pub fn dimension_rows<'a>(
     t: Cat,
     p: Pilot,
-    query: &'a url::Dimensions,
+    query: &'a url::DimensionQuery,
     screen: &'a ListScreen<Dimension>,
     manage: bool,
 ) -> impl Render + 'a {
@@ -381,10 +425,10 @@ pub fn dimension_rows<'a>(
         t.list_create_first(t.dimension_dimension().to_lowercase()).to_string()
     };
     let head = [t.dimension_list_key(), t.dimension_list_name(), t.dimension_list_value_kind(), t.dimension_list_status(), ""];
-    let list = url::Dimensions { after_write: None, done: None, job: None, ..query.clone() };
-    let (previous, next) =
-        pages_around(screen, |page| url::Dimensions { page: (page > 1).then_some(page), ..list.clone() }.href());
-    let preview = url::DimensionsBulk::of(query).href();
+    let (previous, next) = pages_around(screen, |page| {
+        url::Dimensions::of(&url::DimensionQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
+    });
+    let preview = url::DimensionsBulk { query: query.clone() }.href();
     let actions = bulk_actions(t.dimension_activate(), t.dimension_deprecate(), t.dimension_archive());
     let select = manage.then_some(p);
     html! {
@@ -408,7 +452,7 @@ pub fn dimension_rows<'a>(
             }
         };
         if manage {
-            let bar = Bar { entity: title, action: &preview, total: screen.total, rows: screen.items.len(), actions: &actions };
+            let bar = Bar { entity: title, action: &preview, total: screen.total, actions: &actions };
             <BulkRows t={t} p={p} bar={bar} fields={()} more={()}>{body}</BulkRows>
         } else {
             <div id={ids::ROWS}>{body}</div>
@@ -417,7 +461,13 @@ pub fn dimension_rows<'a>(
 }
 
 /// The fields list's rows and pager, by `ids::ROWS` (see `dimension_rows`).
-pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a ListScreen<Field>, manage: bool) -> impl Render + 'a {
+pub fn field_rows<'a>(
+    t: Cat,
+    p: Pilot,
+    query: &'a url::FieldQuery,
+    screen: &'a ListScreen<Field>,
+    manage: bool,
+) -> impl Render + 'a {
     let title = t.field_list_fields();
     let filtered = query.search.is_some()
         || query.status.is_some()
@@ -432,9 +482,10 @@ pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a List
         t.list_create_first(t.field_field().to_lowercase()).to_string()
     };
     let head = [t.field_list_key(), t.field_list_name(), t.field_list_type(), t.field_list_status(), ""];
-    let list = url::Fields { after_write: None, done: None, job: None, ..query.clone() };
-    let (previous, next) = pages_around(screen, |page| url::Fields { page: (page > 1).then_some(page), ..list.clone() }.href());
-    let preview = url::FieldsBulk::of(query).href();
+    let (previous, next) = pages_around(screen, |page| {
+        url::Fields::of(&url::FieldQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
+    });
+    let preview = url::FieldsBulk { query: query.clone() }.href();
     let actions = bulk_actions(t.field_activate(), t.field_deprecate(), t.field_archive());
     let select = manage.then_some(p);
     html! {
@@ -458,7 +509,7 @@ pub fn field_rows<'a>(t: Cat, p: Pilot, query: &'a url::Fields, screen: &'a List
             }
         };
         if manage {
-            let bar = Bar { entity: title, action: &preview, total: screen.total, rows: screen.items.len(), actions: &actions };
+            let bar = Bar { entity: title, action: &preview, total: screen.total, actions: &actions };
             <BulkRows t={t} p={p} bar={bar} fields={()} more={()}>{body}</BulkRows>
         } else {
             <div id={ids::ROWS}>{body}</div>

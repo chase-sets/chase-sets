@@ -238,7 +238,7 @@ fn query(to: &str) -> HashMap<String, String> {
 }
 
 /// A write form's attempt input (the check form's has a ref first).
-const ATTEMPT_INPUT: &str = r#"<input type="hidden" name="attempt" value=""#;
+const ATTEMPT_INPUT: &str = r#"<input type="hidden" name="attempt" data-submit value=""#;
 
 /// The attempt a write form in `html` was drawn with (the first one).
 fn drawn_attempt(html: &str) -> String {
@@ -406,9 +406,9 @@ async fn the_pilots_own_checks_call_nothing() {
     let body = location_body(&new_attempt(), "Shelf").replace("ship_from_city=Austin", "ship_from_city=+");
     let (status, _, html) = pilot.send(post(SCREEN, "seller", &body, true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains(r#"id="ship_from_city-error""#) && html.contains(r#"aria-invalid="true""#), "{html}");
+    assert!(html.contains(r#"id="create-form-ship_from_city-error""#) && html.contains(r#"aria-invalid="true""#), "{html}");
     assert!(
-        html.contains(r#"</label><p class="field-error" id="ship_from_city-error">"#),
+        html.contains(r#"</label><p class="field-error" id="create-form-ship_from_city-error">"#),
         "the error is not in the label: {html}"
     );
     assert!(pilot.inventory_calls().is_empty(), "nothing is sent to the API");

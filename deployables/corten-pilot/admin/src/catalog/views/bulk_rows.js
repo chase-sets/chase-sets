@@ -3,17 +3,26 @@
 // belong to the bulk form (`form=`), so the form posts the checked ids and Clear Selection resets
 // them without this script. With it, the count, the select-all box and the buttons follow the
 // boxes, as admin-web's bulk bar does.
+import { state } from "corten";
+/** @import { Message } from "corten" */
 
 /**
  * What the handlers read and update. The markup builds it once,
- * `js::Selection { form, count, labels, preview, clear }`.
+ * `js::Selection { form, count, preview, clear }`.
  * @typedef {object} Selection
  * @property {HTMLFormElement} form The bulk form; every box belongs to it.
  * @property {HTMLOutputElement} count
- * @property {HTMLTemplateElement} labels The count's text for 0, 1, 2 ... rows, drawn by the server.
  * @property {HTMLButtonElement} preview Preview: the checked rows, so none checked is nothing to preview.
  * @property {HTMLButtonElement} clear
  */
+
+/**
+ * The count's text, passed once when the rows are drawn and kept for the changes after it.
+ * @typedef {{ matching: string, entity: string, selected: Message<"count" | "entity_name"> }} Count
+ */
+
+/** The count's text the rows were drawn with. @param {Selection} sel @param {Count} [text] */
+const counts = (sel, text) => state(sel.form, () => text ?? null);
 
 /** The rows' boxes. @param {Selection} sel */
 function boxes(sel) {
@@ -26,6 +35,18 @@ function boxes(sel) {
 function all(sel) {
   const box = sel.form.elements.namedItem("all");
   return box instanceof HTMLInputElement ? box : null;
+}
+
+/**
+ * The rows were drawn (with the page, or again by a live change or Reload), with the count's
+ * text: how many records match, while none is checked, and for checked rows the catalog's
+ * message, in the page's locale, with the records' plural name.
+ * @param {Selection} sel @param {string} matching @param {string} entity
+ * @param {Message<"count" | "entity_name">} selected
+ */
+export function drawn(sel, matching, entity, selected) {
+  counts(sel, { matching, entity, selected });
+  tally(sel);
 }
 
 /**
@@ -51,14 +72,14 @@ export function cleared(event, sel) {
 
 /**
  * The count, the select-all box (checked when every row is, mixed when some are) and the
- * buttons, for the boxes checked now. Runs when the rows are drawn, and again on each change.
+ * buttons, for the boxes checked now.
  * @param {Selection} sel
  */
-export function tally(sel) {
+function tally(sel) {
   const rows = boxes(sel);
   const n = rows.filter((row) => row.checked).length;
-  const texts = sel.labels.content.children;
-  sel.count.value = texts[Math.min(n, texts.length - 1)]?.textContent ?? "";
+  const text = counts(sel);
+  if (text) sel.count.value = n === 0 ? text.matching : text.selected({ count: n, entity_name: text.entity });
   const box = all(sel);
   if (box) {
     box.hidden = rows.length === 0;
